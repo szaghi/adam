@@ -3,8 +3,8 @@ module adam_cfm_object
 !< ADAM, Commutator-Free Magnus integrators class definition.
 
 use adam_field_object
+use adam_global_mpih, only: mpih
 use adam_grid_object
-use adam_mpih_object
 use finer
 use penf
 
@@ -24,7 +24,6 @@ character(len=22), parameter :: INI_SECTION_NAME="commutator_free_magnus" !< INI
 
 type :: cfm_object
    !< Commutator-Free Magnus integratos class definition.
-   type(mpih_object)         :: mpih            !< MPI handler.
    integer(I4P)              :: order           !< Order of the scheme.
    integer(I4P)              :: n_stages        !< Number of stages.
    integer(I4P)              :: n_exponentials  !< Number of exponential integration combinations.
@@ -81,11 +80,11 @@ contains
    character(len=:), allocatable :: desc             !< Description.
    character(len=1), parameter   :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'Commutator-Free Magnus scheme main data'                   //NL
-   desc = desc//self%mpih%myrankstr//'  scheme name:            '//trim(    self%scheme         )//NL
-   desc = desc//self%mpih%myrankstr//'  order:                  '//trim(str(self%order         ))//NL
-   desc = desc//self%mpih%myrankstr//'  number of stages:       '//trim(str(self%n_stages      ))//NL
-   desc = desc//self%mpih%myrankstr//'  number of exponentials: '//trim(str(self%n_exponentials))
+   desc =       mpih%myrankstr//'Commutator-Free Magnus scheme main data'                   //NL
+   desc = desc//mpih%myrankstr//'  scheme name:            '//trim(    self%scheme         )//NL
+   desc = desc//mpih%myrankstr//'  order:                  '//trim(str(self%order         ))//NL
+   desc = desc//mpih%myrankstr//'  number of stages:       '//trim(str(self%n_stages      ))//NL
+   desc = desc//mpih%myrankstr//'  number of exponentials: '//trim(str(self%n_exponentials))
    endfunction description
 
    subroutine initialize(self, file_parameters, scheme, grid, field)
@@ -96,30 +95,29 @@ contains
    type(grid_object),   intent(in), target   :: grid            !< The grid.
    type(field_object),  intent(in), target   :: field           !< The field.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('cfm_object%initialize start')
+   call mpih%print_message('cfm_object%initialize start')
    call associate_adam_data(grid=grid, field=field)
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    elseif (present(scheme)) then
       self%scheme = trim(adjustl(scheme))
    else
-      call self%mpih%error_stop(msg=': failed to initialize cfm object, one between file parameters and scheme must be passed')
+      call mpih%error_stop(msg=': failed to initialize cfm object, one between file parameters and scheme must be passed')
    endif
    select case(self%scheme)
    case(CFM_4)
       call self%initialize_CFM_4
    case(CFM_6)
-      call self%mpih%error_stop(msg=': 6th order CFM scheme "'//self%scheme //'" not yet implemented')
+      call mpih%error_stop(msg=': 6th order CFM scheme "'//self%scheme //'" not yet implemented')
       call self%initialize_CFM_6
    case(CFM_8)
-      call self%mpih%error_stop(msg=': 8th order CFM scheme "'//self%scheme //'" not yet implemented')
+      call mpih%error_stop(msg=': 8th order CFM scheme "'//self%scheme //'" not yet implemented')
       call self%initialize_CFM_8
    case default
-      call self%mpih%error_stop(msg=': CFM scheme "'//self%scheme //'" unknown')
+      call mpih%error_stop(msg=': CFM scheme "'//self%scheme //'" unknown')
    endselect
    print '(A)', self%description()
-   call self%mpih%print_message('cfm_object%initialize finish')
+   call mpih%print_message('cfm_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field)
       !< Associate objects data for easy handling.
@@ -156,14 +154,14 @@ contains
                                        1-ngc,nk+ngc, &
                                        1,nb,         &
                                        1,ns],[2,6]), &
-                          msg=self%mpih%myrankstr//'cfm_object%initialize allocate dq')
+                          msg=mpih%myrankstr//'cfm_object%initialize allocate dq')
    call allocate_variable(var=self%q,                &
                           ulb=reshape([1,nv,         &
                                        1-ngc,ni+ngc, &
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'cfm_object%initialize allocate q')
+                          msg=mpih%myrankstr//'cfm_object%initialize allocate q')
    endassociate
    self%q        = 0.0_R8P
    self%s_coeffs = 0.0_R8P
@@ -208,7 +206,7 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme', val=buff_c, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
    self%scheme = trim(adjustl(buff_c))
    endsubroutine load_from_file
 endmodule adam_cfm_object

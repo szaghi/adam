@@ -65,7 +65,7 @@ module adam_field_object
 
 use adam_grid_object
 use adam_maps_object
-use adam_mpih_object
+use adam_global_mpih, only: mpih
 use adam_parameters
 use finer, only : file_ini
 use penf
@@ -81,7 +81,6 @@ character(len=5), parameter :: INI_SECTION_NAME="field" !< INI (config) file sec
 type :: field_object
    !< Field class definition.
    ! ADAM objects
-   type(mpih_object)          :: mpih         !< MPI handler.
    type(grid_object), pointer :: grid=>null() !< The grid.
    type(maps_object), pointer :: maps=>null() !< The maps.
    ! field data dimensions
@@ -106,6 +105,7 @@ type :: field_object
    real(R8P),    allocatable :: y_cell(:,:)         !< Y cell coordinates [1-ngc:nj+ngc,nb].
    real(R8P),    allocatable :: z_cell(:,:)         !< Z cell coordinates [1-ngc:nk+ngc,nb].
    ! MPI data, unrelated to field equations
+   integer(I4P), allocatable :: req_send_recv(:)          !< MPI request send/receive flags.
    integer(I4P), allocatable :: blocks_numbers(:)         !< Number of blocks actually stored in all processes.
    integer(I4P), allocatable :: refinements_needed(:)     !< Refinements needed of my blocks.
    integer(I4P), allocatable :: refinements_needed_all(:) !< Refinements needed of all blocks.
@@ -252,16 +252,16 @@ contains
    character(len=1), parameter     :: NL=new_line('a') !< New line character.
    integer(I4P)                    :: b                !< Counter.
 
-   desc =       self%mpih%myrankstr//'field main data'                                                      //NL
-   desc = desc//self%mpih%myrankstr//'  field variables number (nv):     '//trim(str(self%nv              ))//NL
-   desc = desc//self%mpih%myrankstr//'  PIC   variables number (nv_pic): '//trim(str(self%nv_pic          ))//NL
-   desc = desc//self%mpih%myrankstr//'  all blocks number (nb):          '//trim(str(self%nb              ))//NL
-   desc = desc//self%mpih%myrankstr//'  blocks number:                   '//trim(str(self%blocks_number   ))//NL
-   desc = desc//self%mpih%myrankstr//'  block weight:                    '//trim(str(self%block_weight    ))//NL
-   desc = desc//self%mpih%myrankstr//'  block weigh pic                  '//trim(str(self%block_weight_pic))
+   desc =       mpih%myrankstr//'field main data'                                                      //NL
+   desc = desc//mpih%myrankstr//'  field variables number (nv):     '//trim(str(self%nv              ))//NL
+   desc = desc//mpih%myrankstr//'  PIC   variables number (nv_pic): '//trim(str(self%nv_pic          ))//NL
+   desc = desc//mpih%myrankstr//'  all blocks number (nb):          '//trim(str(self%nb              ))//NL
+   desc = desc//mpih%myrankstr//'  blocks number:                   '//trim(str(self%blocks_number   ))//NL
+   desc = desc//mpih%myrankstr//'  block weight:                    '//trim(str(self%block_weight    ))//NL
+   desc = desc//mpih%myrankstr//'  block weigh pic                  '//trim(str(self%block_weight_pic))
    do b=1, self%blocks_number
-   desc = desc//NL//self%mpih%myrankstr//'  coordinates b='//trim(strz(b,9)) //'             '//trim(str(self%coordinates(:,b)))
-   desc = desc//NL//self%mpih%myrankstr//'  dxyz        b='//trim(strz(b,9)) //'             '//trim(str(self%dxyz       (:,b)))
+   desc = desc//NL//mpih%myrankstr//'  coordinates b='//trim(strz(b,9)) //'             '//trim(str(self%coordinates(:,b)))
+   desc = desc//NL//mpih%myrankstr//'  dxyz        b='//trim(strz(b,9)) //'             '//trim(str(self%dxyz       (:,b)))
    enddo
    endfunction description
 
@@ -400,8 +400,9 @@ contains
    logical                                      :: verbose_        !< Trigger verbose output, local variable.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call self%mpih%initialize(verbose=verbose_)
-   if (verbose_) call self%mpih%print_message('field_object%initialize start')
+   if (allocated(self%req_send_recv)) deallocate(self%req_send_recv)
+   allocate(self%req_send_recv(0:mpih%procs_number*2-1))
+   if (verbose_) call mpih%print_message('field_object%initialize start')
    self%grid => grid
    self%maps => maps
    self%nb = nb
@@ -411,45 +412,45 @@ contains
                        (self%grid%ngc+self%grid%nk+self%grid%ngc)*self%nv
    if (self%nb>0) then
       call allocate_variable(var=self%code, ulb=[1,self%nb],&
-                             msg=self%mpih%myrankstr//'field_object%initialize(code) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(code) ', verbose=verbose_)
       self%code    = -2_I8P
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
       call allocate_variable(var=self%coordinates, ulb=reshape([1,4, 1,self%nb],[2,2]), &
-                             msg=self%mpih%myrankstr//'field_object%initialize(coordinates) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(coordinates) ', verbose=verbose_)
       call allocate_variable(var=self%particles_number, ulb=[1,self%nb],&
-                             msg=self%mpih%myrankstr//'field_object%initialize(particles_number) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(particles_number) ', verbose=verbose_)
       call allocate_variable(var=self%emin, ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                             msg=self%mpih%myrankstr//'field_object%initialize(emin) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(emin) ', verbose=verbose_)
       call allocate_variable(var=self%emax, ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                             msg=self%mpih%myrankstr//'field_object%initialize(emax) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(emax) ', verbose=verbose_)
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
       call allocate_variable(var=self%dxyz, ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                             msg=self%mpih%myrankstr//'field_object%initialize(dxyz) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(dxyz) ', verbose=verbose_)
       call allocate_variable(var=self%x_cell,                                         &
                              ulb=reshape([1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(x_cell) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(x_cell) ', verbose=verbose_)
       call allocate_variable(var=self%y_cell,                                         &
                              ulb=reshape([1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(y_cell) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(y_cell) ', verbose=verbose_)
       call allocate_variable(var=self%z_cell,                                         &
                              ulb=reshape([1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(z_cell) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(z_cell) ', verbose=verbose_)
       call allocate_variable(var=self%x_node,                                         &
                              ulb=reshape([0-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(x_node) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(x_node) ', verbose=verbose_)
       call allocate_variable(var=self%y_node,                                         &
                              ulb=reshape([0-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(y_node) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(y_node) ', verbose=verbose_)
       call allocate_variable(var=self%z_node,                                         &
                              ulb=reshape([0-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(z_node) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(z_node) ', verbose=verbose_)
       ! if (present(q)) then
       !    call allocate_variable(var=q,                                                   &
       !                           ulb=reshape([1,self%nv,                                  &
@@ -457,7 +458,7 @@ contains
       !                                        1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
       !                                        1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
       !                                        1,self%nb],[2,5]),                          &
-      !                           msg=self%mpih%myrankstr//'field_object%initialize(q) ', verbose=verbose_)
+      !                           msg=mpih%myrankstr//'field_object%initialize(q) ', verbose=verbose_)
       ! endif
       call allocate_variable(var=self%q_work,                                         &
                              ulb=reshape([1,self%nv,                                  &
@@ -465,16 +466,16 @@ contains
                                           1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                           1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                           1,self%nb],[2,5]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(q_work) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(q_work) ', verbose=verbose_)
       call allocate_variable(var=self%residuals, &
                              ulb=[1,self%nv],    &
-                             msg=self%mpih%myrankstr//'field_object%initialize(residuals) ', verbose=verbose_)
+                             msg=mpih%myrankstr//'field_object%initialize(residuals) ', verbose=verbose_)
       self%q_work    = 0._R8P
       self%residuals = 0._R8P
       self%block_weight_pic = 0_I4P
    endif
-   call allocate_variable(var=self%blocks_numbers, ulb=[0,self%mpih%procs_number-1], &
-                          msg=self%mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=verbose_)
+   call allocate_variable(var=self%blocks_numbers, ulb=[0,mpih%procs_number-1], &
+                          msg=mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=verbose_)
    self%ngc => grid%ngc
    self%ni  => grid%ni
    self%nj  => grid%nj
@@ -482,7 +483,7 @@ contains
    call self%update_coordinates
    call self%compute_metrics
    if (verbose_) print '(A)', self%description()
-   if (verbose_) call self%mpih%print_message('field_object%initialize finish')
+   if (verbose_) call mpih%print_message('field_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_blocks(self, basename, q)
@@ -503,15 +504,15 @@ contains
    integer(I4P)                       :: nv, ni, nj, nk, ngc, nv_pic, np !< Dimensions.
    integer(I4P)                       :: b                               !< Counter.
 
-   filename = trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd'
+   filename = trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank,6))//'.fbd'
    inquire(file=filename, exist=file_exist)
    if (file_exist) then
-      call self%mpih%print_message('field_object%load_blocks from file '//filename)
+      call mpih%print_message('field_object%load_blocks from file '//filename)
       open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM')
       read(unit=file_unit) nv, ni, nj, nk, ngc, nv_pic, np
       if (nv==self%nv.and.ni==self%grid%ni.and.nj==self%grid%nj.and.nk==self%grid%nk.and.ngc==self%grid%ngc) then
          read(unit=file_unit) blocks_number
-         call self%mpih%print_message('field blocks number '//trim(str(blocks_number)))
+         call mpih%print_message('field blocks number '//trim(str(blocks_number)))
          if (blocks_number <= self%nb) then
             self%blocks_number = blocks_number
             do b=1, self%blocks_number
@@ -524,11 +525,11 @@ contains
             enddo
             call self%compute_metrics
          else
-            call self%mpih%abort(error_code=-102, msg='ERROR: blocks number to read "'//trim(str(blocks_number))//&
+            call mpih%abort(error_code=-102, msg='ERROR: blocks number to read "'//trim(str(blocks_number))//&
                                                       '" is greater than blocks allocated "'//trim(str(self%nb))//'"!')
          endif
       else
-         call self%mpih%abort(error_code=-103,                                                            &
+         call mpih%abort(error_code=-103,                                                            &
                               msg='ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
                                   '" are different than blocks allocated "'//trim(str([self%nv,           &
                                                                                        self%grid%ni,      &
@@ -537,9 +538,9 @@ contains
                                                                                        self%grid%ngc]))//'"!')
       endif
       close(file_unit)
-      call self%mpih%print_message('field_object%load_blocks from file '//filename//' completed')
+      call mpih%print_message('field_object%load_blocks from file '//filename//' completed')
    else
-      call self%mpih%abort(error_code=-104, msg='WARNING: file "'//filename//'" does not exist!')
+      call mpih%abort(error_code=-104, msg='WARNING: file "'//filename//'" does not exist!')
    endif
    endsubroutine load_blocks
 
@@ -559,7 +560,7 @@ contains
       self%nv = nv
    else
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nv', val=buff_I4P, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nv)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nv)')
       self%nv = buff_I4P
    endif
    endsubroutine load_from_ini_file
@@ -655,21 +656,21 @@ contains
    integer(I8P)                       :: p             !< Counter.
 
    ! computing received blocks
-   allocate(recv_count(0:self%mpih%procs_number - 1))
-   call MPI_ALLGATHER(self%blocks_number, 1_I4P, MPI_INTEGER, recv_count, 1_I4P, MPI_INTEGER, MPI_COMM_WORLD, self%mpih%error)
+   allocate(recv_count(0:mpih%procs_number - 1))
+   call MPI_ALLGATHER(self%blocks_number, 1_I4P, MPI_INTEGER, recv_count, 1_I4P, MPI_INTEGER, MPI_COMM_WORLD, mpih%error)
 
    ! computing displacement counts
    if (allocated(self%disp_count)) deallocate(self%disp_count)
-   allocate(self%disp_count(0:self%mpih%procs_number - 1))
+   allocate(self%disp_count(0:mpih%procs_number - 1))
    self%disp_count = 0_I4P
-   do p=1, self%mpih%procs_number - 1
+   do p=1, mpih%procs_number - 1
       self%disp_count(p) = self%disp_count(p-1) + recv_count(p-1)
    enddo
 
    if (allocated(self%refinements_needed_all)) deallocate(self%refinements_needed_all)
    allocate(self%refinements_needed_all(sum(recv_count, dim=1)))
    call MPI_ALLGATHERV(self%refinements_needed, self%blocks_number, MPI_INTEGER, &
-                       self%refinements_needed_all, recv_count, self%disp_count, MPI_INTEGER, MPI_COMM_WORLD, self%mpih%error)
+                       self%refinements_needed_all, recv_count, self%disp_count, MPI_INTEGER, MPI_COMM_WORLD, mpih%error)
    endsubroutine mpi_gather_refinements_needed
 
    subroutine mpi_redistribute(self, q)
@@ -692,7 +693,7 @@ contains
    integer(I4P), allocatable          :: req_recv(:)            !< MPI request receive flags.
    integer(I4P)                       :: bwt                    !< Block weight total.
 
-   allocate(req_recv(0:self%mpih%procs_number-1))
+   allocate(req_recv(0:mpih%procs_number-1))
    req_recv = MPI_REQUEST_NULL
    associate(bw=>self%block_weight, bw_pic=>self%block_weight_pic)
    bwt = bw + bw_pic
@@ -711,25 +712,25 @@ contains
       enddo
    endif
 
-   do p=0, self%mpih%procs_number - 1_I4P
+   do p=0, mpih%procs_number - 1_I4P
       ptr_start = self%maps%comm_map_recv_ptr(p)   * bwt + 1
       ptr_end   = self%maps%comm_map_recv_ptr(p+1) * bwt
       n_recv    = ptr_end - ptr_start + 1
       if (n_recv > 0) then
-         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), self%mpih%error)
+         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), mpih%error)
       endif
    enddo
 
-   do p=0, self%mpih%procs_number - 1_I4P
+   do p=0, mpih%procs_number - 1_I4P
       ptr_start = self%maps%comm_map_send_ptr(p)   * bwt + 1
       ptr_end   = self%maps%comm_map_send_ptr(p+1) * bwt
       n_send    = ptr_end - ptr_start + 1
       if (n_send > 0) then
-         call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, self%mpih%error)
+         call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, mpih%error)
       endif
    enddo
 
-   call MPI_WAITALL(self%mpih%procs_number, req_recv, MPI_STATUSES_IGNORE, self%mpih%error)
+   call MPI_WAITALL(mpih%procs_number, req_recv, MPI_STATUSES_IGNORE, mpih%error)
 
    if (recv_size > 0_I8P) then
       recv_offset = 1
@@ -768,7 +769,7 @@ contains
 
    if (self%blocks_number > 0) then
       open(newunit=file_unit,                                                             &
-           file=trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd', &
+           file=trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank,6))//'.fbd', &
            form='UNFORMATTED',                                                            &
            access='STREAM')
       write(unit=file_unit) self%nv, self%grid%ni, self%grid%nj, self%grid%nk, self%grid%ngc, self%nv_pic, self%np
@@ -853,9 +854,9 @@ contains
    integer(I4P)                              :: b_recv,i_recv,j_recv,k_recv,v_recv !< Receive indexes.
    integer(I4P)                              :: c_send                             !< Counter.
 
-   associate(procs_number=>self%mpih%procs_number,                       &
-             error=>self%mpih%error,                                     &
-             req_send_recv=>self%mpih%req_send_recv,                     &
+   associate(procs_number=>mpih%procs_number,                       &
+             error=>mpih%error,                                     &
+             req_send_recv=>self%req_send_recv,                     &
              comm_map_send_ptr_ghost=>self%maps%comm_map_send_ptr_ghost, &
              comm_map_recv_ptr_ghost=>self%maps%comm_map_recv_ptr_ghost, &
              recv_buffer_ghost=>self%maps%recv_buffer_ghost,             &
@@ -1118,7 +1119,7 @@ contains
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
-         if (self%mpih%myrank /= block_to_refine(2,b)) cycle
+         if (mpih%myrank /= block_to_refine(2,b)) cycle
          ib = block_to_refine(1,b)
 
          q_work(:,:,:,:,ib) = q(:,:,:,:,ib)
@@ -1173,7 +1174,7 @@ contains
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
-         if (self%mpih%myrank /= block_to_refine(2,b)) cycle
+         if (mpih%myrank /= block_to_refine(2,b)) cycle
          ib = block_to_refine(1,b)
 
          q_work(:,:,:,:,ib) = q(:,:,:,:,ib)
@@ -1249,7 +1250,7 @@ contains
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
-         if (self%mpih%myrank /= block_to_refine(2,b)) cycle
+         if (mpih%myrank /= block_to_refine(2,b)) cycle
          ib = block_to_refine(1,b)
 
          q_work(:,:,:,:,ib) = q(:,:,:,:,ib)

@@ -4,7 +4,7 @@ module adam_prism_numerics_object
 !<
 
 ! ADAM modules
-use :: adam_mpih_object, only : mpih_object
+use :: adam_global_mpih, only: mpih
 ! PRISM modules
 use :: adam_prism_parameters
 ! third party modules
@@ -31,7 +31,6 @@ character(10), parameter, public :: DIV_CORR_VAR_HYPER='HYPERBOLIC'             
 
 type :: prism_numerics_object
    !< PRISM numerics class definition.
-   type(mpih_object)         :: mpih                            !< MPI handler.
    character(:), allocatable :: scheme_time                     !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    character(:), allocatable :: scheme_space                    !< Numerical scheme for space operator [weno, centered].
    character(:), allocatable :: reconstruction_vars             !< Type of WENO reconstruction variables (cons., charct.,...).
@@ -55,15 +54,15 @@ contains
    character(len=:), allocatable            :: desc             !< Description.
    character(len=1), parameter              :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'numerics main data:'                                                                    //NL
-   desc = desc//self%mpih%myrankstr//'  Numerical scheme for time operator:               '//self%scheme_time                 //NL
-   desc = desc//self%mpih%myrankstr//'  Numerical scheme for space operator:              '//self%scheme_space                //NL
-   desc = desc//self%mpih%myrankstr//'  Reconstruction variables:                         '//self%reconstruction_vars         //NL
-   desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on D:     '//str(self%constrained_transport_D)//NL
-   desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on B:     '//str(self%constrained_transport_B)//NL
-   desc = desc//self%mpih%myrankstr//'  Divergence correction:                            '//self%div_corr_var
-   ! desc = desc//self%mpih%myrankstr//'  D divergence correction:                     '//trim(str(self%d_divergence_cleaner))//NL
-   ! desc = desc//self%mpih%myrankstr//'  B divergence correction:                     '//trim(str(self%b_divergence_cleaner))//NL
+   desc =       mpih%myrankstr//'numerics main data:'                                                                    //NL
+   desc = desc//mpih%myrankstr//'  Numerical scheme for time operator:               '//self%scheme_time                 //NL
+   desc = desc//mpih%myrankstr//'  Numerical scheme for space operator:              '//self%scheme_space                //NL
+   desc = desc//mpih%myrankstr//'  Reconstruction variables:                         '//self%reconstruction_vars         //NL
+   desc = desc//mpih%myrankstr//'  Enable Constrained Transport Correction on D:     '//str(self%constrained_transport_D)//NL
+   desc = desc//mpih%myrankstr//'  Enable Constrained Transport Correction on B:     '//str(self%constrained_transport_B)//NL
+   desc = desc//mpih%myrankstr//'  Divergence correction:                            '//self%div_corr_var
+   ! desc = desc//mpih%myrankstr//'  D divergence correction:                     '//trim(str(self%d_divergence_cleaner))//NL
+   ! desc = desc//mpih%myrankstr//'  B divergence correction:                     '//trim(str(self%b_divergence_cleaner))//NL
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -71,11 +70,10 @@ contains
    class(prism_numerics_object), intent(inout) :: self            !< numerics.
    type(file_ini),               intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'prism_numerics_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_numerics_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'prism_numerics_object%initialize finish'
+   print '(A)', mpih%myrankstr//'prism_numerics_object%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
@@ -91,7 +89,7 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
    select case(trim(adjustl(buff)))
    case('BLANES_MOAN', 'blanes_moan', 'Blanes_Moan')
       self%scheme_time = NUM_SCHEME_TIME_BLANES_MOAN
@@ -102,12 +100,12 @@ contains
    case('RUNGE_KUTTA', 'runge_kutta', 'Runge_Kutta')
       self%scheme_time = NUM_SCHEME_TIME_RUNGE_KUTTA
    case default
-      call self%mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to RK scheme')
+      call mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to RK scheme')
       self%scheme_time = NUM_SCHEME_TIME_RUNGE_KUTTA
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_space', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
    select case(trim(adjustl(buff)))
    case('WENO', 'weno', 'Weno')
       self%scheme_space = NUM_SCHEME_SPACE_WENO
@@ -116,27 +114,27 @@ contains
    case('FV_CENTERED', 'fv_centered', 'FV_Centered')
       self%scheme_space = NUM_SCHEME_SPACE_FV_CENTERED
    case default
-      call self%mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to WENO scheme')
+      call mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to WENO scheme')
       self%scheme_space = NUM_SCHEME_SPACE_WENO
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reconstruction_variables)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reconstruction_variables)')
    select case(trim(adjustl(buff)))
    case('CONSERVATIVE', 'conservative', 'Conservative')
       self%reconstruction_vars = RECONSTRUCTION_VARS_CONS
    case('CHARACTERISTICS', 'characteristics', 'Characteristics')
       self%reconstruction_vars = RECONSTRUCTION_VARS_CHAR
    case default
-      call self%mpih%print_message(msg='warning: WENO reconstruction variable "'//trim(adjustl(buff))// &
+      call mpih%print_message(msg='warning: WENO reconstruction variable "'//trim(adjustl(buff))// &
                                    '" unknown. Revert back to conservative variables WENO reconstruction')
       self%reconstruction_vars = RECONSTRUCTION_VARS_CONS
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='constrained_transport', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(constrained_transport)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(constrained_transport)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%constrained_transport_D = .false.
@@ -151,21 +149,21 @@ contains
       self%constrained_transport_D = .true.
       self%constrained_transport_B = .true.
    case default
-      call self%mpih%print_message(msg='warning: constrained transport config "'//trim(adjustl(buff))//'" ambiguos, disabled!')
+      call mpih%print_message(msg='warning: constrained transport config "'//trim(adjustl(buff))//'" ambiguos, disabled!')
       self%constrained_transport_D = .false.
       self%constrained_transport_B = .false.
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_correction', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
    select case(trim(adjustl(buff)))
    case('POISSON', 'poisson', 'Poisson')
       self%div_corr_var = DIV_CORR_VAR_POISS
    case('HYPERBOLIC', 'hyperbolic', 'Hyperbolic')
       self%div_corr_var = DIV_CORR_VAR_HYPER
    case default
-      call self%mpih%print_message(msg='warning: divergence correction variable not activated: divergence correction disabled!')
+      call mpih%print_message(msg='warning: divergence correction variable not activated: divergence correction disabled!')
       self%div_corr_var = 'No'
       self%constrained_transport_D = .false.
       self%constrained_transport_B = .false.
@@ -174,15 +172,15 @@ contains
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='d_divergence_cleaner', &
    !                          val=self%d_divergence_cleaner,error=error)
    ! if (.not.go_on_fail_.and.error>0) &
-   !    call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(d_divergence_cleaner)')
+   !    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(d_divergence_cleaner)')
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='b_divergence_cleaner', &
    !                          val=self%b_divergence_cleaner,error=error)
    ! if (.not.go_on_fail_.and.error>0) &
-   !    call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(b_divergence_cleaner)')
+   !    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(b_divergence_cleaner)')
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
-   ! if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+   ! if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
-   ! if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
+   ! if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
    ! ! increase variables number if q if cleaners are used
    ! if     (self%d_divergence_cleaner.and..not.self%b_divergence_cleaner.and.self%div_corr_var==DIV_CORR_VAR_HYPER)then
    !    self%nv = self%nv + 1_I4P
@@ -193,11 +191,11 @@ contains
    ! endif
    ! ! consistency check
    ! if     (.not.self%d_divergence_cleaner.and..not.self%b_divergence_cleaner.and.self%nv/=9_I4P) then
-   !    call self%mpih%error_stop(msg=': D and B divergence cleaners are false but nv /= 9')
+   !    call mpih%error_stop(msg=': D and B divergence cleaners are false but nv /= 9')
    ! elseif (.not.self%d_divergence_cleaner.and.self%b_divergence_cleaner) then
-   !    call self%mpih%error_stop(msg=': D divergence cleaner is false but B divergence cleaner is true')
+   !    call mpih%error_stop(msg=': D divergence cleaner is false but B divergence cleaner is true')
    ! elseif (self%d_divergence_cleaner.and.self%chi<=1._R8P) then
-   !    call self%mpih%error_stop(msg=': if D divergence cleaner is true chi cannot be lower than 1.0')
+   !    call mpih%error_stop(msg=': if D divergence cleaner is true chi cannot be lower than 1.0')
    ! endif
    ! self%evmax = sqrt(1._R8P/(EPS0*MU0))
    ! if (self%d_divergence_cleaner .and. self%div_corr_var == DIV_CORR_VAR_HYPER) then

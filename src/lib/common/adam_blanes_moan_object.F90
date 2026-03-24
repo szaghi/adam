@@ -3,8 +3,8 @@ module adam_blanes_moan_object
 !< ADAM, Blanes-Moan solver class definition.
 
 use adam_field_object
+use adam_global_mpih, only: mpih
 use adam_grid_object
-use adam_mpih_object
 use finer
 use penf
 
@@ -22,7 +22,6 @@ character(len=11), parameter :: INI_SECTION_NAME="blanes_moan" !< INI (config) f
 
 type :: blanesmoan_object
    !< Leapforg class definition.
-   type(mpih_object)         :: mpih      !< MPI handler.
    character(:), allocatable :: scheme    !< Scheme name [blanes-moan4, blanes-moan6].
    integer(I4P)              :: nc=4_I4P  !< Number of coefficients.
    real(R8P),    allocatable :: a(:),b(:) !< Splitted residuals coefficients.
@@ -51,10 +50,10 @@ contains
    character(len=:),       allocatable  :: desc             !< Description.
    character(len=1),       parameter    :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'Blanes-Moan scheme main data'                  //NL
-   desc = desc//self%mpih%myrankstr//'  number of coefficients: '//trim(str(self%nc))//NL
-   desc = desc//self%mpih%myrankstr//'  a coefficients:         '//trim(str(self%a ))//NL
-   desc = desc//self%mpih%myrankstr//'  b coefficients:         '//trim(str(self%b ))
+   desc =       mpih%myrankstr//'Blanes-Moan scheme main data'                  //NL
+   desc = desc//mpih%myrankstr//'  number of coefficients: '//trim(str(self%nc))//NL
+   desc = desc//mpih%myrankstr//'  a coefficients:         '//trim(str(self%a ))//NL
+   desc = desc//mpih%myrankstr//'  b coefficients:         '//trim(str(self%b ))
    endfunction description
 
    subroutine initialize(self, file_parameters, scheme, grid, field)
@@ -66,22 +65,21 @@ contains
    type(field_object),       intent(in), target   :: field           !< The field.
    real(R8P)                                      :: theta           !< Temporary coefficient.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('blanesmoan_object%initialize start')
+   call mpih%print_message('blanesmoan_object%initialize start')
    call associate_adam_data(grid=grid, field=field)
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    elseif (present(scheme)) then
       self%scheme = trim(adjustl(scheme))
    else
-      call self%mpih%error_stop(msg=': failed to initialize blanesmoan object, file parameters or scheme name must be passed')
+      call mpih%error_stop(msg=': failed to initialize blanesmoan object, file parameters or scheme name must be passed')
    endif
    ! associate(a=>self%a,b=>self%b)
    select case(self%scheme)
    case(BM_SCHEME4)
       self%nc = 4
-      call allocate_variable(var=self%a, ulb=[1,self%nc], msg=self%mpih%myrankstr//'blanesmoan_object%initialize allocate a')
-      call allocate_variable(var=self%b, ulb=[1,self%nc], msg=self%mpih%myrankstr//'blanesmoan_object%initialize allocate b')
+      call allocate_variable(var=self%a, ulb=[1,self%nc], msg=mpih%myrankstr//'blanesmoan_object%initialize allocate a')
+      call allocate_variable(var=self%b, ulb=[1,self%nc], msg=mpih%myrankstr//'blanesmoan_object%initialize allocate b')
       self%a(1) =  0.0792036964311957_R8P
       self%a(2) =  0.3531729060497740_R8P
       self%a(3) = -0.0420650803577195_R8P
@@ -93,8 +91,8 @@ contains
       self%b(4) =  0.0_R8P
    case(BM_SCHEME6)
       self%nc = 6
-      call allocate_variable(var=self%a, ulb=[1,self%nc], msg=self%mpih%myrankstr//'blanesmoan_object%initialize allocate a')
-      call allocate_variable(var=self%b, ulb=[1,self%nc], msg=self%mpih%myrankstr//'blanesmoan_object%initialize allocate b')
+      call allocate_variable(var=self%a, ulb=[1,self%nc], msg=mpih%myrankstr//'blanesmoan_object%initialize allocate a')
+      call allocate_variable(var=self%b, ulb=[1,self%nc], msg=mpih%myrankstr//'blanesmoan_object%initialize allocate b')
       self%a(1) =  0.0502627644003922_R8P
       self%a(2) =  0.4135143004283440_R8P
       self%a(3) =  0.0450798897943977_R8P
@@ -111,7 +109,7 @@ contains
    endselect
    ! endassociate
    print '(A)', self%description()
-   call self%mpih%print_message('blanesmoan_object%initialize finish')
+   call mpih%print_message('blanesmoan_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field)
       !< Associate objects data to equation for easy handling.
@@ -142,7 +140,7 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme', val=buff, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
    self%scheme = trim(adjustl(buff))
    endsubroutine load_from_file
 endmodule adam_blanes_moan_object

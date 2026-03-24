@@ -16,7 +16,7 @@ use :: adam_ib_object
 use :: adam_io_object
 use :: adam_leapfrog_object
 use :: adam_maps_object
-use :: adam_mpih_object
+use :: adam_global_mpih, only: mpih
 use :: adam_parameters
 use :: adam_rk_object
 use :: adam_riemann_euler_library
@@ -38,7 +38,6 @@ public :: equation_object
 type :: equation_object
    !< Equation system class definition, common data to all backends and applications.
    ! ADAM library objects
-   type(mpih_object)           :: mpih          !< MPI handler.
    type(io_object)             :: io            !< IO handler.
    type(adam_object)           :: adam          !< ADAM.
    type(grid_object),  pointer :: grid=>null()  !< The grid.
@@ -88,20 +87,20 @@ type :: equation_object
       procedure, pass(self) :: open_block_xh5f  !< Open block file XH5F.
       procedure, pass(self) :: open_file_xh5f   !< Open file XH5F.
       procedure, pass(self) :: save_q_xh5f      !< Save in XH5F (XDMF/HDF5) format.
-      ! FDV operators
-      procedure, pass(self) :: compute_curl_fd        !< Compute curl of vector field, finite difference.
-      procedure, pass(self) :: compute_curl_fv        !< Compute curl of vector field, finite volume.
-      procedure, pass(self) :: compute_derivative1_fd !< Compute derivative1 of scalar field, finite difference.
-      procedure, pass(self) :: compute_derivative1_fv !< Compute derivative1 of scalar field, finite volume.
-      procedure, pass(self) :: compute_derivative2_fd !< Compute derivative2 of scalar field, finite difference.
-      procedure, pass(self) :: compute_derivative2_fv !< Compute derivative2 of scalar field, finite volume.
-      procedure, pass(self) :: compute_derivative4_fd !< Compute derivative4 of scalar field, finite difference.
-      procedure, pass(self) :: compute_divergence_fd  !< Compute divergence of vector field, finite difference.
-      procedure, pass(self) :: compute_divergence_fv  !< Compute divergence of vector field, finite volume.
-      procedure, pass(self) :: compute_gradient_fd    !< Compute gradient of scalar field, finite difference.
-      procedure, pass(self) :: compute_gradient_fv    !< Compute gradient of scalar field, finite volume.
-      procedure, pass(self) :: compute_laplacian_fd   !< Compute laplacian of scalar field, finite difference.
-      procedure, pass(self) :: compute_laplacian_fv   !< Compute laplacian of scalar field, finite volume.
+      ! private FDV operators
+      procedure, pass(self), private :: compute_curl_fd        !< Compute curl of vector field, finite difference.
+      procedure, pass(self), private :: compute_curl_fv        !< Compute curl of vector field, finite volume.
+      procedure, pass(self), private :: compute_derivative1_fd !< Compute derivative1 of scalar field, finite difference.
+      procedure, pass(self), private :: compute_derivative1_fv !< Compute derivative1 of scalar field, finite volume.
+      procedure, pass(self), private :: compute_derivative2_fd !< Compute derivative2 of scalar field, finite difference.
+      procedure, pass(self), private :: compute_derivative2_fv !< Compute derivative2 of scalar field, finite volume.
+      procedure, pass(self), private :: compute_derivative4_fd !< Compute derivative4 of scalar field, finite difference.
+      procedure, pass(self), private :: compute_divergence_fd  !< Compute divergence of vector field, finite difference.
+      procedure, pass(self), private :: compute_divergence_fv  !< Compute divergence of vector field, finite volume.
+      procedure, pass(self), private :: compute_gradient_fd    !< Compute gradient of scalar field, finite difference.
+      procedure, pass(self), private :: compute_gradient_fv    !< Compute gradient of scalar field, finite volume.
+      procedure, pass(self), private :: compute_laplacian_fd   !< Compute laplacian of scalar field, finite difference.
+      procedure, pass(self), private :: compute_laplacian_fv   !< Compute laplacian of scalar field, finite volume.
 endtype equation_object
 
 interface
@@ -193,8 +192,8 @@ contains
    integer(I4P)                                  :: nb           !< Number of allocated blocks.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call self%mpih%initialize(verbose=verbose_)
-   if (verbose_) call self%mpih%print_message('equation_object%initialize start')
+   call mpih%initialize(verbose=verbose_)
+   if (verbose_) call mpih%print_message('equation_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
       call self%adam%initialize(file_parameters=file_parameters, nv=nv, verbose=verbose_)
@@ -234,7 +233,7 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='fdv_scheme', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_scheme)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_scheme)')
    select case(trim(adjustl(buff)))
    case('FD', 'fd', 'Fd', 'fD')
       self%fdv_scheme = 'FD'
@@ -257,7 +256,7 @@ contains
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='fdv_order', val=self%fdv_order,error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_order)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_order)')
    ! valid only for centered schems
    self%fdv_half_stencil = self%fdv_order / 2
    self%fdv_half_stencils(1) = self%fdv_half_stencil + 0
@@ -303,7 +302,7 @@ contains
    emin = [self%field%emin(1,b)-self%ngc*self%field%dxyz(1,b), &
            self%field%emin(2,b)-self%ngc*self%field%dxyz(2,b), &
            self%field%emin(3,b)-self%ngc*self%field%dxyz(3,b)]
-   bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(self%mpih%myrank,6))
+   bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
    call xh5f%open_block(block_type = XH5F_PARAMETERS%XH5F_BLOCK_CARTESIAN_UNIFORM, &
                         block_name = bn,                                           &
                         nijk       = nijk,                                         &
@@ -328,11 +327,11 @@ contains
    character(:), allocatable                    :: filename_xdmf !< XDMF file name.
 
    directory_        = ''      ; if (present(directory       )) directory_        = trim(adjustl(directory))
-   filename_hdf5 = directory_//trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.h5'
+   filename_hdf5 = directory_//trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank,6))//'.h5'
    filename_xdmf = directory_//trim(adjustl(basename))//'.xdmf'
    call xh5f%open_file(filename_hdf5=filename_hdf5, filename_xdmf=filename_xdmf, act=FILE_PARAMETERS%FILE_ACTION_OVERWRITE)
    call xh5f%open_grid(grid_name='adam',                                 grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION_ASYNC)
-   call xh5f%open_grid(grid_name='mpi_'//trim(strz(self%mpih%myrank,6)), grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION)
+   call xh5f%open_grid(grid_name='mpi_'//trim(strz(mpih%myrank,6)), grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION)
    endsubroutine open_file_xh5f
 
    subroutine save_q_xh5f(self, basename, q, q_name, directory, with_ghost, with_cell_morton, t, time)
@@ -394,16 +393,16 @@ contains
            ijk(2,2)-ijk(1,2)+1, &
            ijk(2,3)-ijk(1,3)+1]
    endassociate
-   filename_hdf5 = directory_//trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.h5'
+   filename_hdf5 = directory_//trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank,6))//'.h5'
    filename_xdmf = directory_//trim(adjustl(basename))//'.xdmf'
    call xh5f%open_file(filename_hdf5=filename_hdf5, filename_xdmf=filename_xdmf, act=FILE_PARAMETERS%FILE_ACTION_OVERWRITE)
    call xh5f%open_grid(grid_name='adam',                                 grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION_ASYNC)
-   call xh5f%open_grid(grid_name='mpi_'//trim(strz(self%mpih%myrank,6)), grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION)
+   call xh5f%open_grid(grid_name='mpi_'//trim(strz(mpih%myrank,6)), grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION)
    do b=1, self%field%blocks_number
       emin = [self%field%emin(1,b)-ngc*self%field%dxyz(1,b), &
               self%field%emin(2,b)-ngc*self%field%dxyz(2,b), &
               self%field%emin(3,b)-ngc*self%field%dxyz(3,b)]
-      bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(self%mpih%myrank,6))
+      bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
       call xh5f%open_block(block_type = XH5F_PARAMETERS%XH5F_BLOCK_CARTESIAN_UNIFORM, &
                            block_name = bn,                                           &
                            nijk       = nijk,                                         &

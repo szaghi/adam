@@ -36,8 +36,8 @@ module adam_leapfrog_object
 !< Weather Review, vol. 139(6), pages 1996--2007, June 2011.
 
 use adam_field_object
+use adam_global_mpih, only: mpih
 use adam_grid_object
-use adam_mpih_object
 use finer
 use penf
 
@@ -50,7 +50,6 @@ character(len=8), parameter :: INI_SECTION_NAME="leapfrog" !< INI (config) file 
 
 type :: leapfrog_object
    !< Leapforg class definition.
-   type(mpih_object)         :: mpih               !< MPI handler.
    real(R8P)                 :: nu=0.01_R8P        !< Robert-Asselin filter coefficient.
    real(R8P)                 :: alpha=0.53_R8P     !< Robert-Asselin-Williams filter coefficient.
    logical                   :: is_filtered=.false.!< Flag to check if the integration if RAW filtered.
@@ -132,10 +131,10 @@ contains
    character(len=1),       parameter   :: NL=new_line('a') !< New line character.
    integer(I4P)                        :: s                !< Counter.
 
-   desc =       self%mpih%myrankstr//'Leapfrog scheme main data'//NL
-   desc = desc//self%mpih%myrankstr//'  is RAW filtered: '//trim(str(self%is_filtered))//NL
-   desc = desc//self%mpih%myrankstr//'  nu:              '//trim(str(self%nu         ))//NL
-   desc = desc//self%mpih%myrankstr//'  alpha:           '//trim(str(self%alpha      ))
+   desc =       mpih%myrankstr//'Leapfrog scheme main data'//NL
+   desc = desc//mpih%myrankstr//'  is RAW filtered: '//trim(str(self%is_filtered))//NL
+   desc = desc//mpih%myrankstr//'  nu:              '//trim(str(self%nu         ))//NL
+   desc = desc//mpih%myrankstr//'  alpha:           '//trim(str(self%alpha      ))
    endfunction description
 
    subroutine initialize(self, file_parameters, scheme, grid, field)
@@ -146,8 +145,7 @@ contains
    type(grid_object),        intent(in), target   :: grid            !< The grid.
    type(field_object),       intent(in), target   :: field           !< The field.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('leapfrog_object%initialize start')
+   call mpih%print_message('leapfrog_object%initialize start')
    call associate_adam_data(grid=grid, field=field)
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
@@ -160,10 +158,10 @@ contains
                                        1-ngc,nk+ngc,&
                                        1,nb,        &
                                        1,2],[2,6]), &
-                          msg=self%mpih%myrankstr//'leapfrog_object%initialize allocate q_old')
+                          msg=mpih%myrankstr//'leapfrog_object%initialize allocate q_old')
    endassociate
    print '(A)', self%description()
-   call self%mpih%print_message('leapfrog_object%initialize finish')
+   call mpih%print_message('leapfrog_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field)
       !< Associate objects data to equation for easy handling.
@@ -242,12 +240,12 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='is_filtered', val=self%is_filtered, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(is_filtered)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(is_filtered)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nu', val=self%nu, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nu)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nu)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alpha', val=self%alpha, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(alpha)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(alpha)')
    endsubroutine load_from_file
 endmodule adam_leapfrog_object

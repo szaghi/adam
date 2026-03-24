@@ -2,7 +2,7 @@
 module adam_grid_object
 !< ADAM, grid class definition.
 
-use adam_mpih_object, only : mpih_object
+use adam_global_mpih, only: mpih
 use adam_parameters
 use FINER, only : file_ini
 use PENF
@@ -19,7 +19,6 @@ character(len=4), parameter :: INI_SECTION_NAME="grid" !< INI (config) file sect
 
 type :: grid_object
    !< Grid class definition.
-   type(mpih_object)         :: mpih                                  !< MPI handler.
    real(R8P)                 :: domain_emin(3)=[0._R8P,0._R8P,0._R8P] !< Coordinates of minimum abscissa of whole domain.
    real(R8P)                 :: domain_emax(3)=[1._R8P,1._R8P,1._R8P] !< Coordinates of maximum abscissa of whole domain.
    integer(I4P)              :: ni=16_I4P                             !< Number of cells in i direction.
@@ -147,23 +146,23 @@ contains
    character(len=1), parameter    :: NL=new_line('a') !< New line character.
    integer(I4P)                   :: l                !< Counter.
 
-   desc =       self%mpih%myrankstr//'grid main data'                                            //NL
-   desc = desc//self%mpih%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))//NL
-   desc = desc//self%mpih%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))//NL
-   desc = desc//self%mpih%myrankstr//'  ni:                    '//trim(str(self%ni             ))//NL
-   desc = desc//self%mpih%myrankstr//'  nj:                    '//trim(str(self%nj             ))//NL
-   desc = desc//self%mpih%myrankstr//'  nk:                    '//trim(str(self%nk             ))//NL
-   desc = desc//self%mpih%myrankstr//'  ngc:                   '//trim(str(self%ngc            ))//NL
-   desc = desc//self%mpih%myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))//NL
-   desc = desc//self%mpih%myrankstr//'  block weight:          '//trim(str(self%block_weight   ))//NL
-   desc = desc//self%mpih%myrankstr//'  IJK periodic:          '//str(self%is_ijk_periodic(1))//' '//&
+   desc =       mpih%myrankstr//'grid main data'                                            //NL
+   desc = desc//mpih%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))//NL
+   desc = desc//mpih%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))//NL
+   desc = desc//mpih%myrankstr//'  ni:                    '//trim(str(self%ni             ))//NL
+   desc = desc//mpih%myrankstr//'  nj:                    '//trim(str(self%nj             ))//NL
+   desc = desc//mpih%myrankstr//'  nk:                    '//trim(str(self%nk             ))//NL
+   desc = desc//mpih%myrankstr//'  ngc:                   '//trim(str(self%ngc            ))//NL
+   desc = desc//mpih%myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))//NL
+   desc = desc//mpih%myrankstr//'  block weight:          '//trim(str(self%block_weight   ))//NL
+   desc = desc//mpih%myrankstr//'  IJK periodic:          '//str(self%is_ijk_periodic(1))//' '//&
                                                                   str(self%is_ijk_periodic(2))//' '//&
                                                                   str(self%is_ijk_periodic(3))//NL
-   desc = desc//self%mpih%myrankstr//'  nullify xyz:           '//str(self%null_xyz(1))//' '//&
+   desc = desc//mpih%myrankstr//'  nullify xyz:           '//str(self%null_xyz(1))//' '//&
                                                                   str(self%null_xyz(2))//' '//&
                                                                   str(self%null_xyz(3))
    do l=0, ubound(self%cell_dxyz, dim=2)
-   desc = desc//NL//self%mpih%myrankstr//'  dxyz l='//trim(strz(l,2)) //'             '//trim(str(self%cell_dxyz(:,l)))
+   desc = desc//NL//mpih%myrankstr//'  dxyz l='//trim(strz(l,2)) //'             '//trim(str(self%cell_dxyz(:,l)))
    enddo
    endfunction description
 
@@ -239,7 +238,7 @@ contains
    associate(nb_max=>self%nb_max(level), emin=>self%domain_emin, dxyz=>self%block_dxyz(:,level))
       ijk(:) = int((point(:) - emin(:)) / dxyz(:), I4P)
       if (any(ijk<0).or.any(ijk>2**level-1)) then
-         call self%mpih%abort(error_code=-110, msg='ERROR: grid_object%get_closest block failed ijk: '//str(ijk)//&
+         call mpih%abort(error_code=-110, msg='ERROR: grid_object%get_closest block failed ijk: '//str(ijk)//&
                                                    ' level:'//str(level)//' point:'//str(point))
       endif
    endassociate
@@ -257,8 +256,7 @@ contains
    integer(I4P)                             :: ratio           !< AMR ratio.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call self%mpih%initialize
-   if (verbose_) call self%mpih%print_message('grid_object%initialize start')
+   if (verbose_) call mpih%print_message('grid_object%initialize start')
    call self%load_from_ini_file(file_parameters)
    call file_parameters%get(section_name='amr', option_name='ratio', val=ratio)
 
@@ -299,7 +297,7 @@ contains
       enddo
    enddo
    if (verbose_) print '(A)', self%description()
-   if (verbose_) call self%mpih%print_message('grid_object%initialize finish')
+   if (verbose_) call mpih%print_message('grid_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_from_ini_file(self, file_parameters, go_on_fail)
@@ -316,43 +314,43 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ni', val=buff_I4P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ni)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ni)')
    self%ni=buff_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nj', val=buff_I4P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nj)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nj)')
    self%nj=buff_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nk', val=buff_I4P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nk)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nk)')
    self%nk=buff_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ngc', val=buff_I4P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ngc)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ngc)')
    self%ngc=buff_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_x', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_x)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_x)')
    self%domain_emin(1)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_y', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_y)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_y)')
    self%domain_emin(2)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_z', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_z)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_z)')
    self%domain_emin(3)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_x', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_x)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_x)')
    self%domain_emax(1)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_y', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_y)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_y)')
    self%domain_emax(2)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_z', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_z)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_z)')
    self%domain_emax(3)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='null_x', val=buff_log, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_x)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_x)')
    self%null_xyz(1)=buff_log
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='null_y', val=buff_log, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_y)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_y)')
    self%null_xyz(2)=buff_log
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='null_z', val=buff_log, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_z)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_z)')
    self%null_xyz(3)=buff_log
    endsubroutine load_from_ini_file
 

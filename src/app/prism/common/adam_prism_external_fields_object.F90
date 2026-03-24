@@ -2,7 +2,7 @@
 module adam_prism_external_fields_object
 !< ADAM, PRISM external fields definition, CPU backend.
 ! ADAM modules
-use adam_mpih_object,  only : mpih_object
+use adam_global_mpih, only: mpih
 use adam_field_object, only : field_object
 ! PRISM modules
 use adam_prism_parameters
@@ -35,7 +35,6 @@ character(len=23), parameter :: EF_TYPE_RMF_AND_MAGNETIC_NOZZLE='RMF_and_magneti
 
 type :: prism_external_fields_object
    !< PRISM external fields object.
-   type(mpih_object) :: mpih              !< MPI handler.
    character(len=99) :: ef_type           !< Field type.
    real(R8P)         :: RMF_frequency     !< Rotating magnetic field frequency.
    real(R8P)         :: RMF_B_amplitude   !< Rotating magnetic field amplitude.
@@ -87,22 +86,22 @@ contains
    class(prism_external_fields_object), intent(in) :: self             !< External fields.
    character(len=:), allocatable                   :: desc             !< Description.
    character(len=1), parameter                     :: NL=new_line('a') !< New line character.
-   desc =       self%mpih%myrankstr//'Applied external fields:'
+   desc =       mpih%myrankstr//'Applied external fields:'
    select case(self%ef_type)
    case(EF_TYPE_RMF)
-   desc = desc//NL//self%mpih%myrankstr//'    Rotating magnetic field applied '
-   desc = desc//NL//self%mpih%myrankstr//'    RMF frequency: '//trim(str(self%RMF_frequency))
-   desc = desc//NL//self%mpih%myrankstr//'    RMF B amplitude: '//trim(str(self%RMF_B_amplitude))
-   desc = desc//NL//self%mpih%myrankstr//'    RMF rotation axis: '//trim(self%RMF_rotation_axis)
+   desc = desc//NL//mpih%myrankstr//'    Rotating magnetic field applied '
+   desc = desc//NL//mpih%myrankstr//'    RMF frequency: '//trim(str(self%RMF_frequency))
+   desc = desc//NL//mpih%myrankstr//'    RMF B amplitude: '//trim(str(self%RMF_B_amplitude))
+   desc = desc//NL//mpih%myrankstr//'    RMF rotation axis: '//trim(self%RMF_rotation_axis)
    case(EF_TYPE_MAGNETIC_NOZZLE)
-   desc = desc//NL//self%mpih%myrankstr//'    Magnetic nozzle applied '
+   desc = desc//NL//mpih%myrankstr//'    Magnetic nozzle applied '
    case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
-   desc = desc//NL//self%mpih%myrankstr//'    Rotating magnetic field and magnetic nozzle applied '
-   desc = desc//NL//self%mpih%myrankstr//'    RMF frequency: '//trim(str(self%RMF_frequency))
-   desc = desc//NL//self%mpih%myrankstr//'    RMF B amplitude: '//trim(str(self%RMF_B_amplitude))
-	desc = desc//NL//self%mpih%myrankstr//'    RMF rotation axis: '//trim(self%RMF_rotation_axis)
+   desc = desc//NL//mpih%myrankstr//'    Rotating magnetic field and magnetic nozzle applied '
+   desc = desc//NL//mpih%myrankstr//'    RMF frequency: '//trim(str(self%RMF_frequency))
+   desc = desc//NL//mpih%myrankstr//'    RMF B amplitude: '//trim(str(self%RMF_B_amplitude))
+	desc = desc//NL//mpih%myrankstr//'    RMF rotation axis: '//trim(self%RMF_rotation_axis)
    case default
-   desc = desc//NL//self%mpih%myrankstr//'    No external field applied'
+   desc = desc//NL//mpih%myrankstr//'    No external field applied'
    endselect
    endfunction description
 
@@ -110,8 +109,7 @@ contains
    !< Initialize external fields.
    class(prism_external_fields_object), intent(inout) :: self            !< External fields.
    type(file_ini),                      intent(in)    :: file_parameters !< Simulation parameters ini file handler.
-   call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'prism_external_fields_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_external_fields_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
 
    select case(self%ef_type)
@@ -124,7 +122,7 @@ contains
    !   self%add_external_fields => add_external_fields_rmf_and_magnetic_nozzle
    endselect
    print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'prism_external_fields_object%initialize finish'
+   print '(A)', mpih%myrankstr//'prism_external_fields_object%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
@@ -141,7 +139,7 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='external_fields_applied', &
                             val=buff_char, error=error)
 	if (.not.go_on_fail_.and.error>0) &
-	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(external field applied)')
+	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(external field applied)')
 
    select case(trim(adjustl(buff_char)))
    case('RMF', 'rmf', 'Rmf')
@@ -160,17 +158,17 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
       val=self%RMF_frequency, error=error)
       if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
       val=self%RMF_B_amplitude, error=error)
       if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
                            val=buff_char, error=error)
       if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
       self%RMF_rotation_axis = trim(buff_char)
       self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
       select case(self%RMF_rotation_axis)
@@ -193,17 +191,17 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
       val=self%RMF_frequency, error=error)
       if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
       val=self%RMF_B_amplitude, error=error)
       if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
                            val=buff_char, error=error)
       if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
       self%RMF_rotation_axis = trim(buff_char)
       self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
       select case(self%RMF_rotation_axis)
@@ -221,7 +219,7 @@ contains
          self%gamm  = 3_I4P
       endselect
    case default
-      call self%mpih%print_message(msg='no external field applied')
+      call mpih%print_message(msg='no external field applied')
    endselect
    endsubroutine load_from_file
 

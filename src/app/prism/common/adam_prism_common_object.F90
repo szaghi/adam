@@ -104,7 +104,7 @@ contains
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(q) ', verbose=.true.)
+                          msg=mpih%myrankstr//'prism_common_object%allocate_common(q) ', verbose=.true.)
    self%dq = 0._R8P
    call allocate_variable(var=self%dq,               &
                           ulb=reshape([1,nv,         &
@@ -112,7 +112,7 @@ contains
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(dq) ', verbose=.true.)
+                          msg=mpih%myrankstr//'prism_common_object%allocate_common(dq) ', verbose=.true.)
    self%dq = 0._R8P
    call allocate_variable(var=self%divergence,        &
                           ulb=reshape([1,self%nv,    &
@@ -120,7 +120,7 @@ contains
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(divergence) ', verbose=.true.)
+                          msg=mpih%myrankstr//'prism_common_object%allocate_common(divergence) ', verbose=.true.)
    self%divergence = 0._R8P
 
    call allocate_variable(var=self%curl,             &
@@ -129,7 +129,7 @@ contains
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(curl) ', verbose=.true.)
+                          msg=mpih%myrankstr//'prism_common_object%allocate_common(curl) ', verbose=.true.)
    self%curl = 0._R8P
 
    allocate(self%q_name(   self%nv))
@@ -142,12 +142,12 @@ contains
       call allocate_variable(var=self%q_pic,                          &
                              ulb=reshape([1,8,                        &
                                           1,particle_number],[2,2]),  &
-                             msg=self%mpih%myrankstr//'prism_common_object%allocate_common(q_pic) ', verbose=.true.)
+                             msg=mpih%myrankstr//'prism_common_object%allocate_common(q_pic) ', verbose=.true.)
       self%q_pic = 0._R8P
       call allocate_variable(var=self%pic_fields,                     &
                              ulb=reshape([1,6,                        &
                                           1,particle_number],[2,2]),  &
-                             msg=self%mpih%myrankstr//'prism_common_object%allocate_common(pic_fields) ', verbose=.true.)
+                             msg=mpih%myrankstr//'prism_common_object%allocate_common(pic_fields) ', verbose=.true.)
       self%pic_fields = 0._R8P
    endif
    endassociate
@@ -180,7 +180,7 @@ contains
    logical,                    intent(in), optional  :: verbose      !< Trigger verbose output.
    logical                                           :: verbose_     !< Trigger verbose output, local variable.
 
-   if (verbose_) call self%mpih%print_message('prism_common_object%initialize start')
+   if (verbose_) call mpih%print_message('prism_common_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
@@ -223,7 +223,7 @@ contains
    call self%allocate_common
    call io_initialize
    endassociate
-   if (verbose_) call self%mpih%print_message('prism_common_object%initialize finish')
+   if (verbose_) call mpih%print_message('prism_common_object%initialize finish')
    contains
       subroutine check_ngc_number
       !< Check if the number of ghost cells is consistent with the numerical schemes used, if not an error is echoed and
@@ -231,11 +231,11 @@ contains
 
       if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) then
          if (self%weno%S > self%grid%ngc) &
-            call self%mpih%error_stop(msg=': ghost cells number (ngc) must be >= of weno stencil number (weno%S):'//&
+            call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of weno stencil number (weno%S):'//&
                                       ' ngc='//trim(str(self%grid%ngc))//' weno%S='//trim(str(self%weno%S)))
       endif
       if (self%fdv_half_stencil > self%grid%ngc) &
-         call self%mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (fdv_hs):'//&
+         call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (fdv_hs):'//&
                                    ' ngc='//trim(str(self%grid%ngc))//' fdv_hs='//trim(str(self%fdv_half_stencil)))
       endsubroutine check_ngc_number
 
@@ -359,12 +359,12 @@ contains
    !< Save restart files.
    class(prism_common_object), intent(inout) :: self !< The equation.
 
-   call self%mpih%barrier(tictoc=.true.)
-   call self%mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
+   call mpih%barrier(tictoc=.true.)
+   call mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                     trim(str(self%time%time,.true.)))
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
    call self%save_xh5f(output_basename=self%io%restart_basename)
-   call self%mpih%barrier(tictoc=.true.)
+   call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
 
    subroutine save_xh5f(self, output_basename, with_ghost)
@@ -381,8 +381,8 @@ contains
    character(:), allocatable                        :: bn               !< Block name.
    integer(I4P)                                     :: b, c, v          !< Counter.
 
-   call self%mpih%barrier(tictoc=.true.)
-   call self%mpih%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
+   call mpih%barrier(tictoc=.true.)
+   call mpih%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                 trim(str(self%time%time,.true.)))
 
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
@@ -401,7 +401,7 @@ contains
    endassociate
    call self%open_file_xh5f(basename=trim(output_basename_), xh5f=xh5f)
    do b=1, self%field%blocks_number
-      bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(self%mpih%myrank,6))
+      bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
       call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
 
       call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=self%q_name)
@@ -432,7 +432,7 @@ contains
    enddo
    call self%close_file_xh5f(xh5f=xh5f)
 
-   call self%mpih%barrier(tictoc=.true.)
+   call mpih%barrier(tictoc=.true.)
    endsubroutine save_xh5f
 
    ! coils initialization methods
@@ -541,16 +541,16 @@ contains
    flux = abs(flux)*self%coil%A(n)
 
    if (adjust_amplitude) then
-      print '(A)', self%mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
-      print '(A)', self%mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//') pre correzione'
+      print '(A)', mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
+      print '(A)', mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//') pre correzione'
       correction = (self%coil%A(n)/flux)
-      print '(A)', self%mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))
+      print '(A)', mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))
       self%coil%A(n) = self%coil%A(n)*correction
-      print '(A)', self%mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//') post correzione'
-      print '(A)', self%mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux*correction))
+      print '(A)', mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//') post correzione'
+      print '(A)', mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux*correction))
    else
-      print '(A)', self%mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(self%coil%A(n)))
-      print '(A)', self%mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux))
+      print '(A)', mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(self%coil%A(n)))
+      print '(A)', mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux))
    endif
 
    endassociate
@@ -658,16 +658,16 @@ contains
    flux = abs(flux)*self%coil%A(n)*windings !Valore calcolato (corrente complessiva, deve essere N*A)
                                             !A*windings è il valore target
    if (adjust_amplitude) then
-      print '(A)', self%mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
-      print '(A)', self%mpih%myrankstr//trim(str(self%coil%A(n)*windings))//'Ampiezza A('//trim(str(n))//')*N pre correzione'
+      print '(A)', mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
+      print '(A)', mpih%myrankstr//trim(str(self%coil%A(n)*windings))//'Ampiezza A('//trim(str(n))//')*N pre correzione'
       correction = (self%coil%A(n)*windings/flux)
-      print '(A)', self%mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))
+      print '(A)', mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))
       self%coil%A(n) = self%coil%A(n)*correction*windings
-      print '(A)', self%mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//')*N post correzione'
-      print '(A)', self%mpih%myrankstr//'Valore finale corrente solenoide'//trim(str(n))//': '//trim(str(flux*correction))
+      print '(A)', mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//')*N post correzione'
+      print '(A)', mpih%myrankstr//'Valore finale corrente solenoide'//trim(str(n))//': '//trim(str(flux*correction))
    else
-      print '(A)', self%mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(self%coil%A(n)))
-      print '(A)', self%mpih%myrankstr//'Valore finale corrente solenoide'//trim(str(n))//': '//trim(str(flux))
+      print '(A)', mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(self%coil%A(n)))
+      print '(A)', mpih%myrankstr//'Valore finale corrente solenoide'//trim(str(n))//': '//trim(str(flux))
    endif
 
    endassociate
@@ -728,7 +728,7 @@ contains
       endselect
       call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),&
                                    divergence=self%divergence(3,:,:,:,:))
-      print '(A)', self%mpih%myrankstr//'Divergenza J vec della spira: ' &
+      print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
                   //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
    enddo
    endsubroutine initialize_coils

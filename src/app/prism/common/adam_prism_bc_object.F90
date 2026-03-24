@@ -3,7 +3,7 @@ module adam_prism_bc_object
 !< ADAM, PRISM Boundary Conditions class definition, CPU backend.
 
 ! ADAM modules
-use adam_mpih_object
+use adam_global_mpih, only: mpih
 ! third party modules
 use finer
 use penf
@@ -31,7 +31,6 @@ integer(I4P), parameter :: BC_radiative     = 6_I4P !< Radiative BC.
 
 type :: prism_bc_object
    !< Boundary Conditions class definition, CPU backend.
-   type(mpih_object)      :: mpih       !< MPI handler.
    integer(I4P)           :: bc_type(6) !< Boundary condition type.
    real(R8P), allocatable :: q(:,:)     !< Primitive variables (Dx,Dy,Dz,Bx,By,Bz,Jx,Jy,Jz) at BC.
    contains
@@ -47,11 +46,10 @@ contains
    class(prism_bc_object), intent(inout) :: self            !< BC.
    type(file_ini),         intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'prism_bc_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_bc_object%initialize start'
    allocate(self%q(9,6))
    call self%load_from_file(file_parameters=file_parameters)
-   print '(A)', self%mpih%myrankstr//'prism_bc_object%initialize finish'
+   print '(A)', mpih%myrankstr//'prism_bc_object%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
@@ -69,7 +67,7 @@ contains
    do b=1, 6
       sname = INI_SECTION_NAMES(b)
       call file_parameters%get(section_name=sname, option_name='type', val=buff_c, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
       select case(trim(adjustl(buff_c)))
       case('extrapolation')
          self%bc_type(b) = BC_EXTRAPOLATION

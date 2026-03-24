@@ -2,8 +2,8 @@
 module adam_amr_object
 !< ADAM, AMR markers class definition, CPU backend.
 
+use adam_global_mpih, only: mpih
 use adam_grid_object, only : grid_object
-use adam_mpih_object, only : mpih_object
 use finer
 use penf
 
@@ -41,7 +41,6 @@ endtype amr_marker_object
 
 type :: amr_object
    !< AMR markers class definition, CPU backend.
-   type(mpih_object)                    :: mpih                 !< MPI handler.
    integer(I4P)                         :: iters=5_I4P          !< AMR updates iterations number.
    integer(I4P)                         :: frequency=100_I4P    !< AMR update time step frequency.
    integer(I4P)                         :: markers_number=0_I4P !< AMR number of markers.
@@ -62,18 +61,18 @@ contains
    character(len=1), parameter   :: NL=new_line('a') !< New line character.
    integer(I4P)                  :: m                !< Counter.
 
-   desc =       self%mpih%myrankstr//'amr main data'                                    //NL
-   desc = desc//self%mpih%myrankstr//'  iters:          '//trim(str(self%iters         ))//NL
-   desc = desc//self%mpih%myrankstr//'  frequency:      '//trim(str(self%frequency     ))//NL
-   desc = desc//self%mpih%myrankstr//'  markers number: '//trim(str(self%markers_number))
+   desc =       mpih%myrankstr//'amr main data'                                    //NL
+   desc = desc//mpih%myrankstr//'  iters:          '//trim(str(self%iters         ))//NL
+   desc = desc//mpih%myrankstr//'  frequency:      '//trim(str(self%frequency     ))//NL
+   desc = desc//mpih%myrankstr//'  markers number: '//trim(str(self%markers_number))
    if (self%markers_number>0) then
    do m=1, self%markers_number
-   desc = desc//NL//self%mpih%myrankstr//'    delta type:      '//trim(    self%markers(m)%delta_type   )
-   desc = desc//NL//self%mpih%myrankstr//'    delta fine:      '//trim(str(self%markers(m)%delta_fine)  )
-   desc = desc//NL//self%mpih%myrankstr//'    delta coarse:    '//trim(str(self%markers(m)%delta_coarse))
-   desc = desc//NL//self%mpih%myrankstr//'    ivar:            '//trim(str(self%markers(m)%ivar        ))
-   desc = desc//NL//self%mpih%myrankstr//'    tol:             '//trim(str(self%markers(m)%tol         ))
-   desc = desc//NL//self%mpih%myrankstr//'    solid:           '//trim(str(self%markers(m)%solid       ))
+   desc = desc//NL//mpih%myrankstr//'    delta type:      '//trim(    self%markers(m)%delta_type   )
+   desc = desc//NL//mpih%myrankstr//'    delta fine:      '//trim(str(self%markers(m)%delta_fine)  )
+   desc = desc//NL//mpih%myrankstr//'    delta coarse:    '//trim(str(self%markers(m)%delta_coarse))
+   desc = desc//NL//mpih%myrankstr//'    ivar:            '//trim(str(self%markers(m)%ivar        ))
+   desc = desc//NL//mpih%myrankstr//'    tol:             '//trim(str(self%markers(m)%tol         ))
+   desc = desc//NL//mpih%myrankstr//'    solid:           '//trim(str(self%markers(m)%solid       ))
    enddo
    endif
    endfunction description
@@ -83,11 +82,10 @@ contains
    class(amr_object), intent(inout) :: self            !< AMR.
    type(file_ini),    intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('amr_object%initialize start')
+   call mpih%print_message('amr_object%initialize start')
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
-   call self%mpih%print_message('amr_object%initialize finish')
+   call mpih%print_message('amr_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
@@ -103,35 +101,35 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='frequency', val=self%frequency, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(frequency)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(frequency)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='iters', val=self%iters, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iters)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iters)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='markers_number', val=self%markers_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(markers_number)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(markers_number)')
 
    allocate(self%markers(self%markers_number))
    do i_marker=1, self%markers_number
       sname = INI_SECTION_NAME//'_marker_'//trim(str(i_marker,.true.))
       call file_parameters%get(section_name=sname, option_name='mode', val=self%markers(i_marker)%mode, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(mode)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(mode)')
       call file_parameters%get(section_name=sname, option_name='delta_type', val=buff_c, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(delta_type)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_type)')
       self%markers(i_marker)%delta_type = trim(adjustl(buff_c))
       call file_parameters%get(section_name=sname, option_name='delta_fine', val=self%markers(i_marker)%delta_fine, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(delta_fine)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_fine)')
       call file_parameters%get(section_name=sname, option_name='delta_coarse', val=self%markers(i_marker)%delta_coarse, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(delta_coarse)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_coarse)')
       select case(self%markers(i_marker)%mode)
       case(AMR_GEO)
          call file_parameters%get(section_name=sname, option_name='solid', val=self%markers(i_marker)%solid, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(solid)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(solid)')
       case(AMR_GRAD)
          call file_parameters%get(section_name=sname, option_name='field', val=self%markers(i_marker)%field, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
          call file_parameters%get(section_name=sname, option_name='var', val=self%markers(i_marker)%ivar, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
          call file_parameters%get(section_name=sname, option_name='tol', val=self%markers(i_marker)%tol, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(tol)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(tol)')
       endselect
    enddo
    endsubroutine load_from_file

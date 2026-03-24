@@ -518,6 +518,50 @@ dd = aa + bb
 !$omp end parallel
 ```
 
+## MPI Handler Singleton Pattern
+
+ADAM uses a **module-level singleton** for the program-scope MPI handler rather than embedding an `mpih_object` instance in every derived type.
+
+### The Singleton
+
+Defined in `src/lib/common/adam_global_mpih.F90`:
+
+```fortran
+module adam_global_mpih
+use :: adam_mpih_object, only: mpih_object
+implicit none
+private
+public :: mpih
+type(mpih_object), target :: mpih  !< Program-scope MPI handler singleton.
+endmodule adam_global_mpih
+```
+
+### How to Use It in New Objects
+
+Access the singleton by importing it:
+
+```fortran
+use :: adam_global_mpih, only: mpih
+```
+
+Then call it directly without `self%`:
+
+```fortran
+call mpih%print_message('my_object%initialize start')
+if (mpih%myrank == 0) then
+   ! root-only work
+endif
+call mpih%error_stop(msg=': initialization failed')
+```
+
+### Initialization
+
+`mpih` must be initialized exactly once, before any other object uses it. The authoritative init call lives in `equation_object%initialize` (and in `prism_cpu_object%initialize_prism` for the PRISM backend). Sub-objects must **not** call `mpih%initialize` — the singleton is already set up when they are called.
+
+### What Not to Do
+
+Do **not** embed `type(mpih_object) :: mpih` in a new derived type. Do **not** call `mpih%initialize` from sub-object `initialize` procedures (only the top-level application object does this). Do **not** pass `mpih` as a dummy argument — use the module variable directly.
+
 ## Quick Reference Table
 
 | Topic | Best Practice |
@@ -532,3 +576,4 @@ dd = aa + bb
 | `intent(out)` | Assign all derived type components |
 | Modules | Use `private` by default, expose with `public` |
 | OpenMP | Use `default(none)`, `reduction` for accumulation |
+| MPI handler | Use `mpih` singleton from `adam_global_mpih`, never embed in types |

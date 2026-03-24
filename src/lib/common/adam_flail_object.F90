@@ -3,7 +3,7 @@ module adam_flail_object
 !< ADAM, FLAIL Fortran Linear Algebra Interface Library class definition, CPU common backend.
 
 ! ADAM modules
-use adam_mpih_object
+use adam_global_mpih, only: mpih
 ! third party modules
 use finer
 use penf
@@ -26,7 +26,6 @@ character(len=14), parameter :: INI_SECTION_NAME="linear-algebra" !< INI (config
 
 type :: flail_object
    !< FLAIL Fortran Linear Algebra Interface Library class definition, CPU common backend.
-   type(mpih_object)         :: mpih                    !< MPI handler.
    integer(I4P)              :: iterations=1_I4P        !< Number of iterations, general.
    integer(I4P)              :: iterations_init=1_I4P   !< Number of iterations on fine grid for initialize guess.
    integer(I4P)              :: iterations_fine=1_I4P   !< Number of iterations on fine grid.
@@ -78,13 +77,13 @@ contains
    character(len=:), allocatable   :: desc             !< Description.
    character(len=1), parameter     :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'Linear Algebra methods data'//NL
-   desc = desc//self%mpih%myrankstr//'  smoothing method:  '//self%smoothing                   //NL
-   desc = desc//self%mpih%myrankstr//'  iterations:        '//trim(str(self%iterations       ))//NL
-   desc = desc//self%mpih%myrankstr//'  iterations init:   '//trim(str(self%iterations_init  ))//NL
-   desc = desc//self%mpih%myrankstr//'  iterations fine:   '//trim(str(self%iterations_fine  ))//NL
-   desc = desc//self%mpih%myrankstr//'  tolerance:         '//trim(str(self%tolerance        ))//NL
-   desc = desc//self%mpih%myrankstr//'  iterations coarse: '//trim(str(self%iterations_coarse))
+   desc =       mpih%myrankstr//'Linear Algebra methods data'//NL
+   desc = desc//mpih%myrankstr//'  smoothing method:  '//self%smoothing                   //NL
+   desc = desc//mpih%myrankstr//'  iterations:        '//trim(str(self%iterations       ))//NL
+   desc = desc//mpih%myrankstr//'  iterations init:   '//trim(str(self%iterations_init  ))//NL
+   desc = desc//mpih%myrankstr//'  iterations fine:   '//trim(str(self%iterations_fine  ))//NL
+   desc = desc//mpih%myrankstr//'  tolerance:         '//trim(str(self%tolerance        ))//NL
+   desc = desc//mpih%myrankstr//'  iterations coarse: '//trim(str(self%iterations_coarse))
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -92,11 +91,10 @@ contains
    class(flail_object), intent(inout) :: self            !< Time handler.
    type(file_ini),      intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
-   call self%mpih%initialize
-   print '(A)', self%mpih%myrankstr//'flail_object%initialize start'
+   print '(A)', mpih%myrankstr//'flail_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'flail_object%initialize finish'
+   print '(A)', mpih%myrankstr//'flail_object%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
@@ -111,7 +109,7 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='smoothing', val=buffer, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(smoothing)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(smoothing)')
    select case(trim(adjustl(buffer)))
    case('MULTIGRID','multigrid','Multigrid')
       self%smoothing = SMOOTHING_MULTIGRID
@@ -123,15 +121,15 @@ contains
       self%smoothing = SMOOTHING_SOR_OMP
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='iterations', val=self%iterations, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iterations)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iterations)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='iterations_init', val=self%iterations_init, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iterations_init)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iterations_init)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='iterations_fine', val=self%iterations_fine, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iterations_fine)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iterations_fine)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='iterations_coarse', val=self%iterations_coarse, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iterations_coarse)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iterations_coarse)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='tolerance', val=self%tolerance, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(tolerance)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(tolerance)')
    endsubroutine load_from_file
 
    ! non TBP

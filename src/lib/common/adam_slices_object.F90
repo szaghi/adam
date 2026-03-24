@@ -3,7 +3,7 @@ module adam_slices_object
    !< ADAM, slices (of domain) class definition, CPU backend.
 
 use adam_adam_object, only : adam_object
-use adam_mpih_object, only : mpih_object
+use adam_global_mpih, only: mpih
 use finer
 use penf
 
@@ -25,7 +25,6 @@ endtype slice_object
 
 type :: slices_object
    !< Slices (of domain) class definition, CPU backend.
-   type(mpih_object)               :: mpih            !< MPI handler.
    integer(I4P)                    :: slices_number=0 !< Number of slices to be saved.
    type(slice_object), allocatable :: slice(:)        !< Slices data.
    contains
@@ -43,10 +42,9 @@ contains
    class(slices_object), intent(inout) :: self            !< Slices.
    type(file_ini),       intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('slices_object%initialize start')
+   call mpih%print_message('slices_object%initialize start')
    call self%load_from_file(file_parameters=file_parameters)
-   call self%mpih%print_message('slices_object%initialize finish')
+   call mpih%print_message('slices_object%initialize finish')
    endsubroutine initialize
 
    pure function is_to_save(self, it, it_max, time, time_max)
@@ -86,7 +84,7 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slices_number', val=self%slices_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slices_number)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slices_number)')
    if (self%slices_number > 0) then
       allocate(self%slice(self%slices_number))
       do s=1, self%slices_number
@@ -141,15 +139,15 @@ contains
          if (it>0) then
             if (mod(it,self%slice(s)%n_save)==0.or.it==it_max.or.&
                (((it_max <= 0).and.(time >= time_max)).or.((it>=it_max).and.(it_max > 0)))) then
-               call self%mpih%barrier(tictoc=.true.)
-               call self%mpih%print_message('save slice n: '//trim(str(s,.true.))//&
+               call mpih%barrier(tictoc=.true.)
+               call mpih%print_message('save slice n: '//trim(str(s,.true.))//&
                                             ', t: '//trim(str(it,.true.))//', time: '//trim(str(time,.true.)))
                call adam%save_slice(points=self%slice(s)%points,                                                &
                                     itype=trim(self%slice(s)%itype),                                            &
                                     basename=trim(basename)//'-slice_'//trim(strz(s,2))//'-'//trim(strz(it,9)), &
                                     q=q,                                                                        &
                                     q_name=q_name)
-               call self%mpih%barrier(tictoc=.true.)
+               call mpih%barrier(tictoc=.true.)
             endif
          endif
       enddo

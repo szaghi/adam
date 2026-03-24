@@ -21,7 +21,6 @@ type :: mpih_object
    integer(I4P)              :: error=0_I4P         !< Error traping flag.
    real(R8P)                 :: timing(1:2)         !< Tic toc timing.
    integer(I4P)              :: tictoc=1_I4P        !< Next is tic or toc?
-   integer(I4P), allocatable :: req_send_recv(:)    !< MPI request receive flags.
    contains
       ! public methods
       procedure, pass(self) :: abort         !< Handy MPI abort wrapper.
@@ -131,7 +130,6 @@ contains
    if (verbose_) call self%print_message('mpih_object%initialize start')
    call get_memory_info(mem_free=mem_free, mem_total=mem_total)
    self%memory_avail = real(mem_total, R8P)/1e6/self%procs_number
-   if (allocated(self%req_send_recv)) deallocate(self%req_send_recv) ; allocate(self%req_send_recv(0:self%procs_number*2-1))
    if (verbose_) then
       print '(A)', self%description()
       call self%print_message('mpih_object%initialize finish')

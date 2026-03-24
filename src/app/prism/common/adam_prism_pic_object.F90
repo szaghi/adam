@@ -2,7 +2,7 @@
 module adam_prism_pic_object
 !< ADAM, PRISM Particle-in-Cell class definition, CPU backend.
 ! ADAM modules
-use :: adam_mpih_object, only : mpih_object
+use :: adam_global_mpih, only: mpih
 use adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
@@ -60,7 +60,6 @@ character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'
 !q_pic(8) = mass
 
 type :: prism_pic_object
-   type(mpih_object)         :: mpih                       !< MPI handler.
    real(R8P)                 :: plasma_density             !< Plasma density
    real(R8P)                 :: neutral_fraction = 0.0_R8P !< Neutral fraction
    integer(I4P)              :: particle_number  = 0_I4P   !< Total number of particles.
@@ -128,16 +127,16 @@ contains
    class(prism_pic_object), intent(in) :: self             !< External fields.
    character(len=:), allocatable                   :: desc             !< Description.
    character(len=1), parameter                     :: NL=new_line('a') !< New line character.
-   desc =            self%mpih%myrankstr//'PIC object description:'
-   desc = desc//NL//self%mpih%myrankstr//'    Problem type: '//trim(self%problem_type)
+   desc =            mpih%myrankstr//'PIC object description:'
+   desc = desc//NL//mpih%myrankstr//'    Problem type: '//trim(self%problem_type)
    if (self%problem_type == PLASMA_TYPE_PROBLEM) then
-      desc = desc//NL//self%mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
-      desc = desc//NL//self%mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
+      desc = desc//NL//mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
+      desc = desc//NL//mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
    endif
-   desc = desc//NL//self%mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
-   desc = desc//NL//self%mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
-   desc = desc//NL//self%mpih%myrankstr//'    Field weighting model: '//trim(self%field_weighting_model)
-   desc = desc//NL//self%mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
+   desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
+   desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
+   desc = desc//NL//mpih%myrankstr//'    Field weighting model: '//trim(self%field_weighting_model)
+   desc = desc//NL//mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
    endfunction description
 
    subroutine initialize(self, file_parameters, field)
@@ -150,8 +149,7 @@ contains
 	character(len=:),        allocatable   :: desc             
    character(len=1),        parameter     :: NL=new_line('a') 
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'prism_pic_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_pic_object%initialize start'
 
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
@@ -182,7 +180,7 @@ contains
    case(TSC_WEIGHTING_MODEL)
       self%particle_weighting => TSC_charge_weighting
    case default
-      call self%mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
+      call mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
    endselect
 
    select case(self%current_weighting_model)
@@ -193,7 +191,7 @@ contains
    case(TSC_WEIGHTING_MODEL)
       self%current_weighting => TSC_current_weighting
    case default
-      call self%mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
+      call mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
    endselect
 
    select case(self%field_weighting_model)
@@ -204,10 +202,10 @@ contains
    !case(TSC_WEIGHTING_MODEL)
    !   current_weighting => TSC_current_weighting
    case default
-      call self%mpih%error_stop(msg=': invalid field weighting model in prism_cpu_object%initialize')
+      call mpih%error_stop(msg=': invalid field weighting model in prism_cpu_object%initialize')
    endselect
    
-   print '(A)', self%mpih%myrankstr//'prism_pic_object%initialize finish'
+   print '(A)', mpih%myrankstr//'prism_pic_object%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
@@ -223,7 +221,7 @@ contains
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_weighting_model) from file')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_weighting_model) from file')
    select case(trim(adjustl(buff)))
    case('CIC', 'cic', 'Cic')
       self%particle_weighting_model = CIC_WEIGHTING_MODEL
@@ -232,13 +230,13 @@ contains
 	case('TSC', 'tsc', 'Tsc')
 		self%particle_weighting_model = TSC_WEIGHTING_MODEL
 	case default
-		call self%mpih%error_stop(msg=': invalid particle weighting model ['//trim(adjustl(buff))//'] in  & 
+		call mpih%error_stop(msg=': invalid particle weighting model ['//trim(adjustl(buff))//'] in  & 
       ['//INI_SECTION_NAME//'].(particle_weighting_model)')
 	endselect
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='current_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(current_weighting_model) from file')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(current_weighting_model) from file')
    select case(trim(adjustl(buff)))
    case('CIC', 'cic', 'Cic')
       self%current_weighting_model = CIC_WEIGHTING_MODEL
@@ -247,50 +245,50 @@ contains
 	case('TSC', 'tsc', 'Tsc')
 		self%current_weighting_model = TSC_WEIGHTING_MODEL
 	case default
-		call self%mpih%error_stop(msg=': invalid current weighting model ['//trim(adjustl(buff))//'] in  & 
+		call mpih%error_stop(msg=': invalid current weighting model ['//trim(adjustl(buff))//'] in  & 
       ['//INI_SECTION_NAME//'].(current_weighting_model)')
 	endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='field_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(field_weighting_model) from file')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(field_weighting_model) from file')
    select case(trim(adjustl(buff)))
    case('0D', '0d', '0_d', '0_D')
       self%field_weighting_model = ZEROD_FIELDS_WEIGHTING_MODEL
    case('1D', '1d', '1_d', '1_D')
       self%field_weighting_model = ONED_FIELDS_WEIGHTING_MODEL
    case default
-      call self%mpih%error_stop(msg=': invalid field weighting model ['//trim(adjustl(buff))//'] in  & 
+      call mpih%error_stop(msg=': invalid field weighting model ['//trim(adjustl(buff))//'] in  & 
       ['//INI_SECTION_NAME//'].(field_weighting_model)')
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
    select case(trim(adjustl(buff)))
    case('LEAPFROG', 'leapfrog', 'Leapfrog')
       self%scheme_time = NUM_SCHEME_TIME_PIC_LEAPFROG
    case('RUNGE_KUTTA', 'runge_kutta', 'Runge_Kutta')
       self%scheme_time = NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
    case default
-      call self%mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to RK scheme')
+      call mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to RK scheme')
       self%scheme_time = NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='problem_type', &
    val=self%problem_type, error=error)
    if (.not.go_on_fail_.and.error>0) & 
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
+   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
 
    if(self%problem_type == PLASMA_TYPE_PROBLEM) then
 	   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &
       val=self%plasma_density, error=error)
       if (.not.go_on_fail_.and.error>0) & 
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_density)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_density)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
       val=self%neutral_fraction, error=error)
       if (.not.go_on_fail_.and.error>0) & 
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
    endif
    endsubroutine load_from_file
 

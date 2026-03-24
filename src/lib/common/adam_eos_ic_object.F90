@@ -3,7 +3,7 @@ module adam_eos_ic_object
 !< ADAM, Equations Of State (EOS) and physics for Ideal Compressible fluids, class definition, common to all backends.
 
 ! ADAM modules
-use :: adam_mpih_object, only : mpih_object
+use :: adam_global_mpih, only: mpih
 ! Third party modules
 use :: finer, only : file_ini
 use :: penf, only : I4P, R8P, str
@@ -25,7 +25,6 @@ character(len=15), parameter :: INI_SECTION_NAME='physics_specie_' !< INI file s
 
 type :: eos_ic_object
    !< Equations Of State (EOS, ideal, compressible fluid) class definition.
-   type(mpih_object) :: mpih           !< MPI handler.
    integer(I4P)      :: id    = 0_I4P  !< Fluid specie unique ID.
    real(R8P)         :: cp    = 0._R8P !< Specific heat at constant pressure `cp`.
    real(R8P)         :: cv    = 0._R8P !< Specific heat at constant volume `cv`.
@@ -99,18 +98,18 @@ contains
    character(len=:), allocatable    :: desc             !< Description.
    character(len=1), parameter      :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'EOS, ideal, compressible fluid properities of specie "'//trim(str(self%id,.true.))//'"'//NL
-   desc = desc//self%mpih%myrankstr//'  cp    (specific heat constant pressure) = '          //trim(str(self%cp       ))     //NL
-   desc = desc//self%mpih%myrankstr//'  cv    (specific heat constant volume)   = '          //trim(str(self%cv       ))     //NL
-   desc = desc//self%mpih%myrankstr//'  g     (cp/cv)                           = '          //trim(str(self%g        ))     //NL
-   desc = desc//self%mpih%myrankstr//'  R     (cp-cv)                           = '          //trim(str(self%R        ))     //NL
-   desc = desc//self%mpih%myrankstr//'  gm1   (g-1)                             = '          //trim(str(self%gm1      ))     //NL
-   desc = desc//self%mpih%myrankstr//'  gp1   (g+1)                             = '          //trim(str(self%gp1      ))     //NL
-   desc = desc//self%mpih%myrankstr//'  delta (gm1/2)                           = '          //trim(str(self%delta    ))     //NL
-   desc = desc//self%mpih%myrankstr//'  eta   (2*g/gm1)                         = '          //trim(str(self%eta      ))     //NL
-   desc = desc//self%mpih%myrankstr//'  mu    (dinamic viscosity)               = '          //trim(str(self%mu       ))     //NL
-   desc = desc//self%mpih%myrankstr//'  kd    (thermal diffusivity)             = '          //trim(str(self%kd       ))     //NL
-   desc = desc//self%mpih%myrankstr//'  dha   (entalphy diffusivity)            = '          //trim(str(self%dha      ))
+   desc =       mpih%myrankstr//'EOS, ideal, compressible fluid properities of specie "'//trim(str(self%id,.true.))//'"'//NL
+   desc = desc//mpih%myrankstr//'  cp    (specific heat constant pressure) = '          //trim(str(self%cp       ))     //NL
+   desc = desc//mpih%myrankstr//'  cv    (specific heat constant volume)   = '          //trim(str(self%cv       ))     //NL
+   desc = desc//mpih%myrankstr//'  g     (cp/cv)                           = '          //trim(str(self%g        ))     //NL
+   desc = desc//mpih%myrankstr//'  R     (cp-cv)                           = '          //trim(str(self%R        ))     //NL
+   desc = desc//mpih%myrankstr//'  gm1   (g-1)                             = '          //trim(str(self%gm1      ))     //NL
+   desc = desc//mpih%myrankstr//'  gp1   (g+1)                             = '          //trim(str(self%gp1      ))     //NL
+   desc = desc//mpih%myrankstr//'  delta (gm1/2)                           = '          //trim(str(self%delta    ))     //NL
+   desc = desc//mpih%myrankstr//'  eta   (2*g/gm1)                         = '          //trim(str(self%eta      ))     //NL
+   desc = desc//mpih%myrankstr//'  mu    (dinamic viscosity)               = '          //trim(str(self%mu       ))     //NL
+   desc = desc//mpih%myrankstr//'  kd    (thermal diffusivity)             = '          //trim(str(self%kd       ))     //NL
+   desc = desc//mpih%myrankstr//'  dha   (entalphy diffusivity)            = '          //trim(str(self%dha      ))
    endfunction description
 
    elemental subroutine destroy(self)
@@ -137,7 +136,6 @@ contains
    real(R8P),            intent(in), optional :: R               !< Fluid constant `R=cp-cv` value.
    logical,              intent(in), optional :: verbose         !< Flag to activate verbose output.
 
-   call self%mpih%initialize
    self%id = 1_I4P ; if (present(s)) self%id = s
    if     (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters, s=self%id, go_on_fail=go_on_fail)
@@ -166,16 +164,16 @@ contains
 
    call self%destroy
    call file_parameters%get(section_name=sname, option_name='cp', val=self%cp, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(cp)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(cp)')
    call file_parameters%get(section_name=sname, option_name='cv', val=self%cv, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(cv)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(cv)')
    call self%compute_derivate
    call file_parameters%get(section_name=sname, option_name='mu', val=self%mu, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(mu)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(mu)')
    call file_parameters%get(section_name=sname, option_name='kd', val=self%kd, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(kd)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(kd)')
    call file_parameters%get(section_name=sname, option_name='dha', val=self%dha, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(dha)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(dha)')
    endsubroutine load_from_file
 
    pure function primitive2conservative(self, primitive) result(conservative)

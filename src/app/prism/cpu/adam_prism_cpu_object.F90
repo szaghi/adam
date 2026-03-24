@@ -85,8 +85,8 @@ contains
    character(:), allocatable              :: msg_ !< Allocating message base.
    character(:), allocatable              :: msg  !< Allocating message.
 
-   call self%mpih%print_message('prism_cpu_object%allocate_cpu start')
-   msg_ = self%mpih%myrankstr//'prism_cpu_object%allocate_cpu '
+   call mpih%print_message('prism_cpu_object%allocate_cpu start')
+   msg_ = mpih%myrankstr//'prism_cpu_object%allocate_cpu '
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
    msg = msg_//' flxyz_c '
    call allocate_variable(var=self%flxyz_c,ulb=reshape([1,nv, &
@@ -104,7 +104,7 @@ contains
    call allocate_variable(var=self%flz_f,ulb=reshape([1,nv,1,ni,1,nj,0,nk,1,nb],[2,5]),msg=msg)
    self%flz_f = 0._R8P
    endassociate
-   call self%mpih%print_message('prism_cpu_object%allocate_cpu finish')
+   call mpih%print_message('prism_cpu_object%allocate_cpu finish')
    endsubroutine allocate_cpu
 
    subroutine initialize_prism(self, filename)
@@ -112,9 +112,9 @@ contains
    class(prism_cpu_object), intent(inout) :: self     !< The equation.
    character(*),            intent(in)    :: filename !< Input file name.
 
-   call self%mpih%initialize(verbose=.true.)
-   call self%mpih%print_message('prism_cpu_object%initialize start')
-   call self%prism_common_object%initialize(filename=filename,memory_avail=self%mpih%memory_avail,verbose=.true.)
+   call mpih%initialize(verbose=.true.)
+   call mpih%print_message('prism_cpu_object%initialize start')
+   call self%prism_common_object%initialize(filename=filename,memory_avail=mpih%memory_avail,verbose=.true.)
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
@@ -186,8 +186,8 @@ contains
       compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
    endselect
 
-   print '(A)', self%mpih%description()
-   call self%mpih%print_message('prism_cpu_object%initialize finish')
+   print '(A)', mpih%description()
+   call mpih%print_message('prism_cpu_object%initialize finish')
    endsubroutine initialize_prism
 
    ! IO methods
@@ -199,10 +199,10 @@ contains
    if (self%time%is_to_save(it_save=self%io%residuals_save)) then
       call self%field%compute_normL2_residuals(dq=self%dq, norm=self%field%residuals)
       do v=1, self%nv
-         call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+         call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
          self%field%residuals(v) = sqrt(self%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
-      if (self%mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
+      if (mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
                                                            blocks_number=self%blocks_number, residuals=self%field%residuals)
    endif
    endsubroutine save_residuals
@@ -760,7 +760,7 @@ contains
    umax = evmax
    self%time%dt = self%time%CFL*dxyz_min / umax
    endassociate
-   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
    endsubroutine compute_dt
 
    subroutine compute_energy(self)
@@ -775,10 +775,10 @@ contains
    call compute_e(ivar=VAR_BX, energy=energy_B)
    if (self%coil%total_coils_number > 0_I4P) call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
    call compute_Poynting_flux(Poynting_flux=Poynting_flux)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, Poynting_flux, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Poynting_flux, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    if (allocated(self%energy_D).and.allocated(self%energy_B) &
       .and.allocated(self%coil_power).and.allocated(self%Poynting_flux)) then
       self%energy_D      = [self%energy_D,      energy_D     ]
@@ -993,7 +993,7 @@ contains
                                           iterations_coarse=self%flail%iterations_coarse)
          if (dq_max < self%flail%tolerance) exit
       enddo
-      call self%mpih%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
+      call mpih%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
       call self%compute_gradient(hs=hs,ivar=1,q=buffer(7:7,:,:,:,:),gradient=buffer(4:6,:,:,:,:))
       do b=1, blocks_number
          do k=1, nk
@@ -1022,13 +1022,13 @@ contains
    ! initialization
    call self%initialize_prism(filename=filename)
    if (self%io%restart) then
-      call self%mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
+      call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
       call self%load_restart_files(t=self%time%it, time=self%time%time)
-      call self%mpih%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
+      call mpih%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
    else
-      call self%mpih%print_message('impose initial conditions start')
+      call mpih%print_message('impose initial conditions start')
       do i=1, self%ic%amr_iterations
-         call self%mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
+         call mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions
          !if (self%ib%solids_number > 0) call self%compute_phi()
          !call self%amr_update
@@ -1037,7 +1037,7 @@ contains
       call self%adam%make_comm_local_maps_ghost_bc
       self%time%time = 0._R8P
       self%time%it = 0
-      call self%mpih%print_message('impose initial conditions finish')
+      call mpih%print_message('impose initial conditions finish')
    endif
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
@@ -1088,19 +1088,19 @@ contains
    endif
 
    ! integration
-   call self%mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
+   call mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
    integration: do
-      call self%mpih%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
+      call mpih%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
       self%time%it = self%time%it + 1
 
       if (self%io%save_memory_status) then
-         call save_memory_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
+         call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
       endif
 
       if (mod(self%time%it,self%amr%frequency)==0) then
-         call self%mpih%barrier(tictoc=.true.)
+         call mpih%barrier(tictoc=.true.)
          !call self%amr_update
-         call self%mpih%barrier(tictoc=.true.)
+         call mpih%barrier(tictoc=.true.)
       endif
 
       call self%compute_dt
@@ -1125,19 +1125,19 @@ contains
       if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
          ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
 
-      call self%mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
+      call mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
-   call self%mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
+   call mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
    !call self%compute_energy_error
    call self%save_simulation_data
    call self%io%close_file_residuals
    !call self%save_energy_error(is_to_close=.true.)
-   !call self%mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
+   !call mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
    !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_D))))))
-   !call self%mpih%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
+   !call mpih%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
    !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_B))))))
-   !call self%mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
-   !call self%mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
+   !call mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
+   !call mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call self%save_energy_history(is_to_close=.true.)
    call self%update_ghost(q=self%q) ! Aggiunto da FN
    call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
@@ -1145,7 +1145,7 @@ contains
    call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    endassociate
    call self%save_divergence_history(is_to_close=.true.)
-   call self%mpih%finalize
+   call mpih%finalize
    endsubroutine simulate
 
 	! pointer TBP concrete implementations
@@ -2053,7 +2053,7 @@ contains
          !print *, 'Coil divergence correction iteration ', iter, ' - max divergence: ', maxval(abs(div_buff(:,:,:,:,:)))
          if (maxval(abs(div_buff(:,:,:,:,:))) < self%flail%tolerance) exit
       enddo
-      call self%mpih%print_message('Coil divergence correction converged at iteration '//trim(str(iter,.true.)))
+      call mpih%print_message('Coil divergence correction converged at iteration '//trim(str(iter,.true.)))
       q(:,:,:,:,:) = q_buff(:,:,:,:,:)
       call self%compute_divergence(hs=hs,ivar=ivar,q=q,divergence=div_buff(1,:,:,:,:))
       print *, 'Coil - max divergence (end Poisson subroutine): ', maxval(abs(div_buff(:,:,:,:,:)))

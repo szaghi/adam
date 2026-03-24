@@ -4,7 +4,7 @@ module adam_prism_coil_object
 
 ! ADAM modules
 use :: adam_field_object, only : field_object
-use :: adam_mpih_object, only : mpih_object
+use :: adam_global_mpih, only: mpih
 ! PRISM modules
 use :: adam_prism_physics_object, only : prism_physics_object
 use :: adam_prism_parameters
@@ -44,7 +44,6 @@ character(len=2),  parameter :: NORMAL_M_Z="-z"                       !< Normal 
 
 type :: prism_coil_object
    !< ADAM, PRISM coil source definition, CPU backend.
-   type(mpih_object)              :: mpih                                  !< MPI handler.
    character(len=99), allocatable :: coil_type(:)                          !< Coil type.
    character(len=99), allocatable :: current_type(:)                       !< Current type.
    character(len=2 ), allocatable :: normal(:)                             !< Versore normale alla spira, che identifica anche verso
@@ -134,54 +133,54 @@ contains
    character(len=1), parameter          :: NL=new_line('a') !< New line character.
    integer(I4P)                         :: r                !< Counter.
 
-   desc =       self%mpih%myrankstr//'Coils main data'
+   desc =       mpih%myrankstr//'Coils main data'
    if (self%total_coils_number > 0_I4P) then
       do r=1, self%total_coils_number
-         desc = desc//NL//self%mpih%myrankstr//'  Coil('//trim(str(r,.true.))//')'
+         desc = desc//NL//mpih%myrankstr//'  Coil('//trim(str(r,.true.))//')'
          select case(self%coil_type(r))
          case(COIL_TYPE_CIRCULAR)
-         desc = desc//NL//self%mpih%myrankstr//'    Coil type: '//trim(self%coil_type(r))
-         desc = desc//NL//self%mpih%myrankstr//'    Current type: '//trim(self%current_type(r))
-         desc = desc//NL//self%mpih%myrankstr//'    Radius: '//trim(str(self%r_coil(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Normal: '//trim(self%normal(r))
-         desc = desc//NL//self%mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
+         desc = desc//NL//mpih%myrankstr//'    Coil type: '//trim(self%coil_type(r))
+         desc = desc//NL//mpih%myrankstr//'    Current type: '//trim(self%current_type(r))
+         desc = desc//NL//mpih%myrankstr//'    Radius: '//trim(str(self%r_coil(r)))
+         desc = desc//NL//mpih%myrankstr//'    Normal: '//trim(self%normal(r))
+         desc = desc//NL//mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
+         desc = desc//NL//mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
+         desc = desc//NL//mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
+         desc = desc//NL//mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
          case(COIL_TYPE_RECTANGULAR)
-         desc = desc//NL//self%mpih%myrankstr//'    Coil type: '//trim(self%coil_type(r))
-         desc = desc//NL//self%mpih%myrankstr//'    Current type: '//trim(self%current_type(r))
-         desc = desc//NL//self%mpih%myrankstr//'    L1: '//trim(str(self%lx(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    L2: '//trim(str(self%ly(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Normal: '//trim(self%normal(r))
-         desc = desc//NL//self%mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
+         desc = desc//NL//mpih%myrankstr//'    Coil type: '//trim(self%coil_type(r))
+         desc = desc//NL//mpih%myrankstr//'    Current type: '//trim(self%current_type(r))
+         desc = desc//NL//mpih%myrankstr//'    L1: '//trim(str(self%lx(r)))
+         desc = desc//NL//mpih%myrankstr//'    L2: '//trim(str(self%ly(r)))
+         desc = desc//NL//mpih%myrankstr//'    Normal: '//trim(self%normal(r))
+         desc = desc//NL//mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
+         desc = desc//NL//mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
+         desc = desc//NL//mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
+         desc = desc//NL//mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
          case(COIL_TYPE_SOLENOID)
-         desc = desc//NL//self%mpih%myrankstr//'    Coil type: '//trim(self%coil_type(r))
-         desc = desc//NL//self%mpih%myrankstr//'    Current type: '//trim(self%current_type(r))
-         desc = desc//NL//self%mpih%myrankstr//'    Radius: '//trim(str(self%r_coil(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Length: '//trim(str(self%l_solenoid(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Windings: '//trim(str(self%windings(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Normal: '//trim(self%normal(r))
-         desc = desc//NL//self%mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
+         desc = desc//NL//mpih%myrankstr//'    Coil type: '//trim(self%coil_type(r))
+         desc = desc//NL//mpih%myrankstr//'    Current type: '//trim(self%current_type(r))
+         desc = desc//NL//mpih%myrankstr//'    Radius: '//trim(str(self%r_coil(r)))
+         desc = desc//NL//mpih%myrankstr//'    Length: '//trim(str(self%l_solenoid(r)))
+         desc = desc//NL//mpih%myrankstr//'    Windings: '//trim(str(self%windings(r)))
+         desc = desc//NL//mpih%myrankstr//'    Normal: '//trim(self%normal(r))
+         desc = desc//NL//mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
+         desc = desc//NL//mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
+         desc = desc//NL//mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
+         desc = desc//NL//mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
          endselect
       enddo
    else
-      desc = desc//self%mpih%myrankstr//'  No coils defined.'
+      desc = desc//mpih%myrankstr//'  No coils defined.'
    endif
    endfunction description
 
@@ -191,11 +190,10 @@ contains
    type(file_ini),           intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(field_object),       intent(in)    :: field           !< The field.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'prism_coil_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_coil_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters, field=field)
    print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'prism_coil_object%initialize finish'
+   print '(A)', mpih%myrankstr//'prism_coil_object%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, field, go_on_fail)
@@ -215,12 +213,12 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='circular_coils_number', &
                             val=self%circular_coils_number, error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(circular_coils_number)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(circular_coils_number)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='rectangular_coils_number', &
                             val=self%rectangular_coils_number, error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
 
    self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number
 
@@ -231,85 +229,85 @@ contains
    call self%allocate_coil
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_delay', val=self%td, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')
 
    do i=1, self%total_coils_number
       sname = INI_SECTION_NAME//'_coil_'//trim(str(i,.true.))
 
       call file_parameters%get(section_name=sname, option_name='coil_type', val=buff_char, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(coil_type)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(coil_type)')
       self%coil_type(i) = trim(buff_char)
       self%coil_type(i) = trim(self%coil_type(i))
 
       call file_parameters%get(section_name=sname, option_name='current_type', val=buff_char, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(current_type)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(current_type)')
       self%current_type(i) = trim(buff_char)
       self%current_type(i) = trim(self%current_type(i))
 
       call file_parameters%get(section_name=sname, option_name='sigma', val=self%sigma(i), error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(sigma)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sigma)')
 
       select case(self%coil_type(i))
       case(COIL_TYPE_CIRCULAR)
          call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
 
          call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
 
          call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
 
          call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
          call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
       case(COIL_TYPE_RECTANGULAR)
          call file_parameters%get(section_name=sname, option_name='lx', val=self%lx(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(lx)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(lx)')
 
          call file_parameters%get(section_name=sname, option_name='ly', val=self%ly(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ly)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ly)')
 
          call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
 
          call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
 
          call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
          call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
       case(COIL_TYPE_SOLENOID)
          call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
 
          call file_parameters%get(section_name=sname, option_name='l_solenoid', val=self%l_solenoid(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(l_solenoid)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(l_solenoid)')
 
          call file_parameters%get(section_name=sname, option_name='windings', val=self%windings(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(windings)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(windings)')
 
          call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
 
          call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
 
          call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
          call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
       endselect
@@ -318,18 +316,18 @@ contains
       case(CURRENT_TYPE_DC)
 
          call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
 
       case(CURRENT_TYPE_AC)
 
          call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
 
          call file_parameters%get(section_name=sname, option_name='Frequency', val=self%f(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Frequency)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Frequency)')
 
          call file_parameters%get(section_name=sname, option_name='Phase', val=self%phase(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Phase)')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Phase)')
 
       endselect
    enddo

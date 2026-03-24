@@ -2,7 +2,7 @@
 module adam_prism_particle_injection_object
 !< ADAM, PRISM Particle-in-Cell class definition, CPU backend.
 ! ADAM modules
-use :: adam_mpih_object, only : mpih_object
+use :: adam_global_mpih, only: mpih
 use adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
@@ -33,7 +33,6 @@ procedure(space_random_number_generator_interface),    pointer :: space_rand_num
 procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_num_generator  => null() !< Space random number generator interface
 
 type :: prism_particle_injection_object
-   type(mpih_object)    :: mpih										!< MPI handler.
    character(len=99)    :: space_distribution					!< Particle space distribution type.
 	character(len=99)    :: space_random_number_generator		!< Type of random number generator for space distribution
 	real(R8P)				:: box_number = 0.0_R8P					!< Number of boxes in which ensure charge neutrality
@@ -120,46 +119,46 @@ contains
    character(len=:), allocatable                   	:: desc             !< Description.
    character(len=1), parameter                     	:: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'Particle injection object description:'
+   desc =       mpih%myrankstr//'Particle injection object description:'
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
-   	desc = desc//NL//self%mpih%myrankstr//'    	Space initial distribution: '//self%space_distribution
+   	desc = desc//NL//mpih%myrankstr//'    	Space initial distribution: '//self%space_distribution
 		if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
-			desc = desc//NL//self%mpih%myrankstr//'    	Number of boxes: '//trim(str(self%box_number))
+			desc = desc//NL//mpih%myrankstr//'    	Number of boxes: '//trim(str(self%box_number))
 		endif
-		desc = desc//NL//self%mpih%myrankstr//'    	Space random number generator: '//self%space_random_number_generator
-		desc = desc//NL//self%mpih%myrankstr//'    	Space pairing: '//trim(str(self%space_pairing))
-		desc = desc//NL//self%mpih%myrankstr//'    	Velocity initial distribution: '//self%velocity_distribution
+		desc = desc//NL//mpih%myrankstr//'    	Space random number generator: '//self%space_random_number_generator
+		desc = desc//NL//mpih%myrankstr//'    	Space pairing: '//trim(str(self%space_pairing))
+		desc = desc//NL//mpih%myrankstr//'    	Velocity initial distribution: '//self%velocity_distribution
 		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma  Ionic Temperature: '//trim(str(self%T_i))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma  Electronic Temperature: '//trim(str(self%T_e))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma  Neutrals Temperature: '//trim(str(self%T_n))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma  Ionic Temperature: '//trim(str(self%T_i))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma  Electronic Temperature: '//trim(str(self%T_e))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma  Neutrals Temperature: '//trim(str(self%T_n))
 		elseif (self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma x Ionic Temperature: '//trim(str(self%T_i_x))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma y Ionic Temperature: '//trim(str(self%T_i_y))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma z Ionic Temperature: '//trim(str(self%T_i_z))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma x Electronic Temperature: '//trim(str(self%T_e_x))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma y Electronic Temperature: '//trim(str(self%T_e_y))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma z Electronic Temperature: '//trim(str(self%T_e_z))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma x Neutrals Temperature: '//trim(str(self%T_n_x))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma y Neutrals Temperature: '//trim(str(self%T_n_y))
-			desc = desc//NL//self%mpih%myrankstr//'    	Plasma z Neutrals Temperature: '//trim(str(self%T_n_z))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma x Ionic Temperature: '//trim(str(self%T_i_x))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma y Ionic Temperature: '//trim(str(self%T_i_y))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma z Ionic Temperature: '//trim(str(self%T_i_z))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma x Electronic Temperature: '//trim(str(self%T_e_x))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma y Electronic Temperature: '//trim(str(self%T_e_y))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma z Electronic Temperature: '//trim(str(self%T_e_z))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma x Neutrals Temperature: '//trim(str(self%T_n_x))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma y Neutrals Temperature: '//trim(str(self%T_n_y))
+			desc = desc//NL//mpih%myrankstr//'    	Plasma z Neutrals Temperature: '//trim(str(self%T_n_z))
 		endif
 		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
 			self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-			desc = desc//NL//self%mpih%myrankstr//'    	Velocity random number generator: '//trim(self%velocity_random_number_generator)
-			desc = desc//NL//self%mpih%myrankstr//'    	Velocity pairing: '//trim(str(self%velocity_pairing))
+			desc = desc//NL//mpih%myrankstr//'    	Velocity random number generator: '//trim(self%velocity_random_number_generator)
+			desc = desc//NL//mpih%myrankstr//'    	Velocity pairing: '//trim(str(self%velocity_pairing))
 		endif
-		desc = desc//NL//self%mpih%myrankstr//'    	Velocity averaging: '//trim(str(self%v_av_correction))
+		desc = desc//NL//mpih%myrankstr//'    	Velocity averaging: '//trim(str(self%v_av_correction))
 	elseif (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
-		desc = desc//NL//self%mpih%myrankstr//'    	Particle x coordinate initial position: '//trim(str(self%x_position))
-		desc = desc//NL//self%mpih%myrankstr//'    	Particle y coordinate initial position: '//trim(str(self%y_position))
-		desc = desc//NL//self%mpih%myrankstr//'    	Particle z coordinate initial position: '//trim(str(self%z_position))
-		desc = desc//NL//self%mpih%myrankstr//'    	Particle charge: '//trim(str(self%charge))
-		desc = desc//NL//self%mpih%myrankstr//'    	Particle mass: '//trim(str(self%mass))
+		desc = desc//NL//mpih%myrankstr//'    	Particle x coordinate initial position: '//trim(str(self%x_position))
+		desc = desc//NL//mpih%myrankstr//'    	Particle y coordinate initial position: '//trim(str(self%y_position))
+		desc = desc//NL//mpih%myrankstr//'    	Particle z coordinate initial position: '//trim(str(self%z_position))
+		desc = desc//NL//mpih%myrankstr//'    	Particle charge: '//trim(str(self%charge))
+		desc = desc//NL//mpih%myrankstr//'    	Particle mass: '//trim(str(self%mass))
 	endif
-	desc = desc//NL//self%mpih%myrankstr//'    	Drift velocity along x: '//trim(str(self%v_drift_x))
-	desc = desc//NL//self%mpih%myrankstr//'    	Drift velocity along y: '//trim(str(self%v_drift_y))
-	desc = desc//NL//self%mpih%myrankstr//'    	Drift velocity along z: '//trim(str(self%v_drift_z))
+	desc = desc//NL//mpih%myrankstr//'    	Drift velocity along x: '//trim(str(self%v_drift_x))
+	desc = desc//NL//mpih%myrankstr//'    	Drift velocity along y: '//trim(str(self%v_drift_y))
+	desc = desc//NL//mpih%myrankstr//'    	Drift velocity along z: '//trim(str(self%v_drift_z))
 
    endfunction description
 
@@ -169,8 +168,7 @@ contains
    type(file_ini),          					 intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 	type(prism_pic_object), 					 intent(in)		:: pic				 !< Pic object
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'prism_particle_injection_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_particle_injection_object%initialize start'
 
    call self%load_from_file(file_parameters=file_parameters, pic=pic)
    print '(A)', self%description(pic = pic)
@@ -184,7 +182,7 @@ contains
    	case(UNIFORM_DOMAIN_SPACE_DISTRIBUTION)
    	   self%particle_space_injection => uniform_domain_space_injection
    	case default
-   	   call self%mpih%error_stop &
+   	   call mpih%error_stop &
 			(msg=': invalid particle space injection model in prism_particle_injection_object%initialize')
    	endselect
 		select case(self%space_random_number_generator)
@@ -193,7 +191,7 @@ contains
    	case(SPACE_LAYERED_NUMBER_GENERATOR)
    	   space_rand_num_generator => layered_number_generator
    	case default
-   	   call self%mpih%error_stop & 
+   	   call mpih%error_stop & 
 			(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
    	endselect
 		select case(self%velocity_distribution)
@@ -202,7 +200,7 @@ contains
    	case(NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
    	   self%particle_velocity_injection => non_uniform_maxwellian_velocity_injection
    	case default
-   	   call self%mpih%error_stop(msg=': invalid particle velocity injection model in prism_particle_injection_object%initialize')
+   	   call mpih%error_stop(msg=': invalid particle velocity injection model in prism_particle_injection_object%initialize')
    	endselect
 		select case(self%velocity_random_number_generator)
    	case(VELOCITY_RANDOM_NUMBER_GENERATOR)
@@ -210,10 +208,10 @@ contains
    	case(VELOCITY_LAYERED_NUMBER_GENERATOR)
    	   velocity_rand_num_generator => layered_number_generator
    	case default
-   	   call self%mpih%error_stop &
+   	   call mpih%error_stop &
 			(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
    	endselect
-   	print '(A)', self%mpih%myrankstr//'prism_particle_injection_object%initialize finish'
+   	print '(A)', mpih%myrankstr//'prism_particle_injection_object%initialize finish'
 	endif
    endsubroutine initialize
 
@@ -231,7 +229,7 @@ contains
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_distribution', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
-   	   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_distribution) from file')
+   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_distribution) from file')
    	select case(trim(adjustl(buff)))
    	case('Domain_uniform', 'domain_uniform', 'domain_Uniform')
    	   self%space_distribution = UNIFORM_DOMAIN_SPACE_DISTRIBUTION
@@ -240,14 +238,14 @@ contains
 		case('Cell_uniform', 'cell_uniform', 'cell_Uniform')
    	   self%space_distribution = UNIFORM_CELL_SPACE_DISTRIBUTION
 		case default
-			call self%mpih%error_stop(msg=': invalid particle space distribution ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid particle space distribution ['//trim(adjustl(buff))//'] in  & 
    	   ['//INI_SECTION_NAME//'].(space_distribution)')
 		endselect
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, &
 										 option_name='space_random_number_generator', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
-   	   call self%mpih%error_stop(msg=': failed to load [' & 
+   	   call mpih%error_stop(msg=': failed to load [' & 
 													//INI_SECTION_NAME//'].(space_random_number_generator) from file')
    	select case(trim(adjustl(buff)))
    	case('Random', 'random', 'RANDOM')
@@ -255,7 +253,7 @@ contains
    	case('Layered', 'layered', 'LAYERED')
    	   self%space_random_number_generator = SPACE_LAYERED_NUMBER_GENERATOR
 		case default
-			call self%mpih%error_stop(msg=': invalid space random number generator ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid space random number generator ['//trim(adjustl(buff))//'] in  & 
    	   ['//INI_SECTION_NAME//'].(space_random_number_generator)')
 		endselect
 
@@ -263,25 +261,25 @@ contains
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_number', &
    		val=self%box_number, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_number)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_number)')
 		endif
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_pairing', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
-   	   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_pairing)')
+   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_pairing)')
    	select case(trim(adjustl(buff)))
    	case('NO', 'no', 'No', 'nO')
    	   self%space_pairing = .false.
 		case('YES', 'yes', 'Yes')
 			self%space_pairing = .true.
 		case default
-			call self%mpih%error_stop(msg=': invalid space pairing flag ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid space pairing flag ['//trim(adjustl(buff))//'] in  & 
    	   ['//INI_SECTION_NAME//'].(space_pairing)')
 		endselect
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='velocity_distribution', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
-   	   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_distribution) from file')
+   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_distribution) from file')
    	select case(trim(adjustl(buff)))
    	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', & 
 				'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
@@ -289,7 +287,7 @@ contains
    	case('Non_Uniform_Maxwellian', 'non_uniform_maxwellian', 'non_uniform_Maxwellian')
    	   self%velocity_distribution = NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
 		case default
-			call self%mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  & 
    	   ['//INI_SECTION_NAME//'].(velocity_distribution)')
 		endselect
 
@@ -297,65 +295,65 @@ contains
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature', &
    		val=self%T_i, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature', &
    		val=self%T_e, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature', &
    		val=self%T_n, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature)')
 
 		elseif (self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_x', &
    		val=self%T_i_x, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_x)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_x)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_y', &
    		val=self%T_i_y, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_y)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_y)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_z', &
    		val=self%T_i_z, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_z)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_z)')
 
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_x', &
    		val=self%T_e_x, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_x)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_x)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_y', &
    		val=self%T_e_y, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_y)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_y)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_z', &
    		val=self%T_e_z, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_z)')	
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_z)')	
 
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_x', &
    		val=self%T_n_x, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_x)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_x)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_y', &
    		val=self%T_n_y, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_y)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_y)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_z', &
    		val=self%T_n_z, error=error)
    		if (.not.go_on_fail_.and.error>0) & 
-   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_z)')	
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_z)')	
 		endif
 
 		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
@@ -364,7 +362,7 @@ contains
 			call file_parameters%get(section_name=INI_SECTION_NAME, &
 											 option_name='velocity_random_number_generator', val=buff,error=error)
    		if (.not.go_on_fail_.and.error>0) &
-   		   call self%mpih%error_stop(msg=': failed to load [' & 
+   		   call mpih%error_stop(msg=': failed to load [' & 
 														//INI_SECTION_NAME//'].(velocity_random_number_generator) from file')
    		select case(trim(adjustl(buff)))
    		case('Random', 'random', 'RANDOM')
@@ -372,34 +370,34 @@ contains
    		case('Layered', 'layered', 'LAYERED')
    		   self%velocity_random_number_generator = VELOCITY_LAYERED_NUMBER_GENERATOR
 			case default
-				call self%mpih%error_stop(msg=': invalid velocity random number generator ['//trim(adjustl(buff))//'] in  & 
+				call mpih%error_stop(msg=': invalid velocity random number generator ['//trim(adjustl(buff))//'] in  & 
    		   ['//INI_SECTION_NAME//'].(velocity_random_number_generator)')
 			endselect
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='velocity_pairing', val=buff,error=error)
    		if (.not.go_on_fail_.and.error>0) &
-   		   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_pairing)')
+   		   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_pairing)')
    		select case(trim(adjustl(buff)))
    		case('NO', 'no', 'No', 'nO')
    		   self%velocity_pairing = .false.
 			case('YES', 'yes', 'Yes')
 				self%velocity_pairing = .true.
 			case default
-				call self%mpih%error_stop(msg=': invalid velocity pairing flag ['//trim(adjustl(buff))//'] in  & 
+				call mpih%error_stop(msg=': invalid velocity pairing flag ['//trim(adjustl(buff))//'] in  & 
    		   ['//INI_SECTION_NAME//'].(velocity_pairing)')
 			endselect
 		endif
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_av_correction', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
-   	   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_av_correction)')
+   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_av_correction)')
    	select case(trim(adjustl(buff)))
    	case('NO', 'no', 'No', 'nO')
    	   self%v_av_correction = .false.
 		case('YES', 'yes', 'Yes')
 			self%v_av_correction = .true.
 		case default
-			call self%mpih%error_stop(msg=': invalid velocity average correction flag ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid velocity average correction flag ['//trim(adjustl(buff))//'] in  & 
    	   ['//INI_SECTION_NAME//'].(v_av_correction)')
 		endselect
 	endif
@@ -408,43 +406,43 @@ contains
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_position', &
    		val=self%x_position, error=error)
    	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_position)')
+   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_position)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_position', &
    		val=self%y_position, error=error)
    	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_position)')
+   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_position)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_position', &
    		val=self%z_position, error=error)
    	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_position)')
+   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_position)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='charge', &
    		val=self%charge, error=error)
    	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(charge)')
+   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(charge)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='mass', &
    		val=self%mass, error=error)
    	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(mass)')
+   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(mass)')
 	endif
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_x', &
    		val=self%v_drift_x, error=error)
    if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_x)')
+   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_x)')
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_y', &
    		val=self%v_drift_y, error=error)
    if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_y)')
+   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_y)')
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_z', &
    		val=self%v_drift_z, error=error)
    if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_z)')
+   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_z)')
 
    endsubroutine load_from_file
 
@@ -563,11 +561,11 @@ contains
 	
 	domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
 
-	desc =       self%mpih%myrankstr//'Injected particles:'
-   desc = desc//NL//self%mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
-	desc = desc//NL//self%mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
-	desc = desc//NL//self%mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
-	desc = desc//NL//self%mpih%myrankstr//'    	Effective plasma density: '//trim(str(real(np)/domain_volume))
+	desc =       mpih%myrankstr//'Injected particles:'
+   desc = desc//NL//mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
+	desc = desc//NL//mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
+	desc = desc//NL//mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
+	desc = desc//NL//mpih%myrankstr//'    	Effective plasma density: '//trim(str(real(np)/domain_volume))
 	print '(A)', desc
 	endassociate
 	endsubroutine uniform_domain_space_injection
@@ -718,13 +716,13 @@ contains
 
 	domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
 
-	desc =       self%mpih%myrankstr//'Injected particles:'
-   desc = desc//NL//self%mpih%myrankstr//'    	Electrons number: '//trim(str(n_e_4c*n_cells))
-	desc = desc//NL//self%mpih%myrankstr//'    	Ions number: '//trim(str(n_i_4c*n_cells))
-	desc = desc//NL//self%mpih%myrankstr//'    	Neutrals number: '//trim(str(n_n_4c*n_cells))
-	desc = desc//NL//self%mpih%myrankstr//'		Effective particle total number: ' & 
+	desc =       mpih%myrankstr//'Injected particles:'
+   desc = desc//NL//mpih%myrankstr//'    	Electrons number: '//trim(str(n_e_4c*n_cells))
+	desc = desc//NL//mpih%myrankstr//'    	Ions number: '//trim(str(n_i_4c*n_cells))
+	desc = desc//NL//mpih%myrankstr//'    	Neutrals number: '//trim(str(n_n_4c*n_cells))
+	desc = desc//NL//mpih%myrankstr//'		Effective particle total number: ' & 
 													//trim(str((n_e_4c*n_cells+n_i_4c*n_cells+n_n_4c*n_cells)))
-	desc = desc//NL//self%mpih%myrankstr//'		Effective plasma density: ' &
+	desc = desc//NL//mpih%myrankstr//'		Effective plasma density: ' &
 													//trim(str(real(n_e_4c*n_cells+n_i_4c*n_cells+n_n_4c*n_cells)/domain_volume))
 	print '(A)', desc
 	endassociate

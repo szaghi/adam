@@ -3,13 +3,12 @@ module adam_rk_object
 !< ADAM, RK class definition.
 
 use adam_field_object
+use adam_global_mpih, only: mpih
 use adam_grid_object
-use adam_mpih_object
 use finer
 use penf
 
 implicit none
-save
 private
 public :: rk_object
 public :: RK_1
@@ -32,7 +31,6 @@ character(len=11), parameter :: INI_SECTION_NAME="runge_kutta" !< INI (config) f
 
 type :: rk_object
    !< RK class definition.
-   type(mpih_object)         :: mpih      !< MPI handler.
    character(:), allocatable :: scheme    !< RK scheme.
    integer(I4P)              :: nrk=3_I4P !< Runge-Kutta stages number.
    ! classic, Butcher schemes
@@ -284,23 +282,23 @@ contains
    character(len=1), parameter   :: NL=new_line('a') !< New line character.
    integer(I4P)                  :: s                !< Counter.
 
-   desc =       self%mpih%myrankstr//'Runge-Kutta scheme main data'//NL
+   desc =       mpih%myrankstr//'Runge-Kutta scheme main data'//NL
    if (allocated(self%ark)) &
-   desc = desc//self%mpih%myrankstr//'  ark:                             '//trim(str(self%ark                ))//NL
+   desc = desc//mpih%myrankstr//'  ark:                             '//trim(str(self%ark                ))//NL
    if (allocated(self%brk)) &
-   desc = desc//self%mpih%myrankstr//'  brk:                             '//trim(str(self%brk                ))//NL
+   desc = desc//mpih%myrankstr//'  brk:                             '//trim(str(self%brk                ))//NL
    if (allocated(self%crk)) &
-   desc = desc//self%mpih%myrankstr//'  crk:                             '//trim(str(self%crk                ))//NL
+   desc = desc//mpih%myrankstr//'  crk:                             '//trim(str(self%crk                ))//NL
    if (allocated(self%alph)) then
    do s=1, self%nrk
-   desc = desc//self%mpih%myrankstr//'  alph('//trim(str(s,.true.))//'): '//trim(str(self%alph(:,s)          ))//NL
+   desc = desc//mpih%myrankstr//'  alph('//trim(str(s,.true.))//'): '//trim(str(self%alph(:,s)          ))//NL
    enddo
    endif
    if (allocated(self%beta)) &
-   desc = desc//self%mpih%myrankstr//'  beta:                            '//trim(str(self%beta               ))//NL
+   desc = desc//mpih%myrankstr//'  beta:                            '//trim(str(self%beta               ))//NL
    if (allocated(self%gamm)) &
-   desc = desc//self%mpih%myrankstr//'  gamm:                            '//trim(str(self%gamm               ))//NL
-   desc = desc//self%mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
+   desc = desc//mpih%myrankstr//'  gamm:                            '//trim(str(self%gamm               ))//NL
+   desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
    subroutine initialize(self, file_parameters, scheme, grid, field)
@@ -312,15 +310,14 @@ contains
    type(field_object), intent(in), target   :: field           !< The field.
    real(R8P)                                :: w0, w1          !< Sympletic RK coefficients.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('rk_object%initialize start')
+   call mpih%print_message('rk_object%initialize start')
    call associate_adam_data(grid=grid, field=field)
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    elseif (present(scheme)) then
       self%scheme = trim(adjustl(scheme))
    else
-      call self%mpih%error_stop(msg=': failed to initialize rk object, one between file parameters and scheme must be passed')
+      call mpih%error_stop(msg=': failed to initialize rk object, one between file parameters and scheme must be passed')
    endif
    select case(self%scheme)
    case(RK_1) ! 1 stage, 1st order, Euler
@@ -411,7 +408,7 @@ contains
                                           1-ngc,nk+ngc, &
                                           1,nb,         &
                                           1,1],[2,6]),  &
-                             msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
+                             msg=mpih%myrankstr//'rk_object%initialize allocate q_rk')
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
       call allocate_variable(var=self%q_rk,              &
                              ulb=reshape([1,nv,          &
@@ -420,11 +417,11 @@ contains
                                           1-ngc,nk+ngc,  &
                                           1,nb,          &
                                           1,nrk],[2,6]), &
-                             msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
+                             msg=mpih%myrankstr//'rk_object%initialize allocate q_rk')
    endselect
    endassociate
    print '(A)', self%description()
-   call self%mpih%print_message('rk_object%initialize finish')
+   call mpih%print_message('rk_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field)
       !< Associate objects data to equation for easy handling.
@@ -484,7 +481,7 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme', val=buff_c, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
    self%scheme = trim(adjustl(buff_c))
    endsubroutine load_from_file
 

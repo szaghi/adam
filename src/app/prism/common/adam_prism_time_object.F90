@@ -2,7 +2,7 @@
 module adam_prism_time_object
 !< ADAM, PRISM time handler class definition, CPU backend.
 
-use adam_mpih_object
+use adam_global_mpih, only: mpih
 use finer
 use penf
 
@@ -14,7 +14,6 @@ character(len=4), parameter :: INI_SECTION_NAME="time" !< INI (config) file sect
 
 type :: prism_time_object
    !< prism time handler class definition, CPU backend.
-   type(mpih_object) :: mpih            !< MPI handler.
    integer(I4P)      :: it_max=-1_I4P   !< Maximum number of integration time steps.
    real(R8P)         :: time_max=1._R8P !< Maximum integration time.
    real(R8P)         :: CFL=0.3_R8P     !< CFL time limit.
@@ -37,10 +36,10 @@ contains
    character(len=:), allocatable        :: desc             !< Description.
    character(len=1), parameter          :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'Time main data'//NL
-   desc = desc//self%mpih%myrankstr//'  it_max: '  //trim(str(self%it_max  ))//NL
-   desc = desc//self%mpih%myrankstr//'  time_max: '//trim(str(self%time_max))//NL
-   desc = desc//self%mpih%myrankstr//'  CFL:      '//trim(str(self%CFL     ))
+   desc =       mpih%myrankstr//'Time main data'//NL
+   desc = desc//mpih%myrankstr//'  it_max: '  //trim(str(self%it_max  ))//NL
+   desc = desc//mpih%myrankstr//'  time_max: '//trim(str(self%time_max))//NL
+   desc = desc//mpih%myrankstr//'  CFL:      '//trim(str(self%CFL     ))
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -48,11 +47,10 @@ contains
    class(prism_time_object), intent(inout) :: self            !< Time handler.
    type(file_ini),           intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'prism_time_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_time_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'prism_time_object%initialize finish'
+   print '(A)', mpih%myrankstr//'prism_time_object%initialize finish'
    endsubroutine initialize
 
    function is_to_save(self, it_save)
@@ -78,11 +76,11 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='it_max', val=self%it_max, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(it_max)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(it_max)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_max', val=self%time_max, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_max)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_max)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='CFL', val=self%CFL, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(CFL)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(CFL)')
    endsubroutine load_from_file
 
    subroutine print_progress(self, nodes_number)
@@ -90,7 +88,7 @@ contains
    class(prism_time_object), intent(in) :: self         !< Time handler.
    integer(I4P),             intent(in) :: nodes_number !< Nodes number, global blocks number.
 
-   associate(r=>self%mpih%myrankstr, it=>self%it, time=>self%time, dt=>self%dt, it_max=>self%it_max, time_max=>self%time_max)
+   associate(r=>mpih%myrankstr, it=>self%it, time=>self%time, dt=>self%dt, it_max=>self%it_max, time_max=>self%time_max)
       print '(A)', r//''
       print '(A)', r//'t:            '//trim(str(it,.true.))
       print '(A)', r//'nodes number: '//trim(str(nodes_number, .true.))

@@ -2,8 +2,8 @@
 module adam_maps_object
 !< ADAM, maps class definition
 
+use adam_global_mpih, only: mpih
 use adam_grid_object
-use adam_mpih_object
 use adam_tree_object
 use adam_tree_node_object
 use adam_parameters
@@ -17,7 +17,6 @@ public :: maps_object
 type :: maps_object
    !< Maps class definition
    ! ADAM objects
-   type(mpih_object)          :: mpih         !< MPI handler.
    type(grid_object), pointer :: grid=>null() !< Grid data.
    type(tree_object), pointer :: tree=>null() !< Tree data.
    ! local maps
@@ -96,7 +95,7 @@ contains
    if (allocated(self%inner_outer_block_map)) deallocate(self%inner_outer_block_map)
    allocate(self%inner_outer_block_map(self%my_nodes_number))
    do while(self%tree%loop(node_ptr=node_ptr))
-      if (self%mpih%myrank == node_ptr%myrank) then
+      if (mpih%myrank == node_ptr%myrank) then
          is_inner_block = .true.
          do fec=1, 26
             neighbor      = node_ptr%neighbor(fec)%codes
@@ -104,7 +103,7 @@ contains
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                do n=1, size(neighbor, dim=1)
                   neigh => self%tree%node(code=neighbor(n))
-                  if (self%mpih%myrank /= neigh%myrank) is_inner_block = .false.
+                  if (mpih%myrank /= neigh%myrank) is_inner_block = .false.
                enddo
             endif
          enddo
@@ -123,7 +122,7 @@ contains
    self%inner_outer_block_map(1:inner_blocks_number ) = inner_block_map(1:inner_blocks_number)
    self%inner_outer_block_map(inner_blocks_number+1:) = outer_block_map(1:outer_blocks_number)
    do while(self%tree%loop(node_ptr=node_ptr))
-      if (self%mpih%myrank == node_ptr%myrank) then
+      if (mpih%myrank == node_ptr%myrank) then
          if (node_ptr%block_index_new < 0) then
             node_ptr%block_index = -node_ptr%block_index_new + inner_blocks_number
          else
@@ -143,24 +142,23 @@ contains
    logical                                  :: verbose_ !< Trigger verbose output, local variable.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call self%mpih%initialize(verbose=verbose_)
-   if (verbose_) call self%mpih%print_message('maps_object%initialize start')
+   if (verbose_) call mpih%print_message('maps_object%initialize start')
    self%grid => grid
    self%tree => tree
-   allocate(self%comm_map_n_send(0:self%mpih%procs_number-1))
-   allocate(self%comm_map_n_recv(0:self%mpih%procs_number-1))
-   allocate(self%comm_map_send_ptr(0:self%mpih%procs_number))
-   allocate(self%comm_map_recv_ptr(0:self%mpih%procs_number))
+   allocate(self%comm_map_n_send(0:mpih%procs_number-1))
+   allocate(self%comm_map_n_recv(0:mpih%procs_number-1))
+   allocate(self%comm_map_send_ptr(0:mpih%procs_number))
+   allocate(self%comm_map_recv_ptr(0:mpih%procs_number))
    self%comm_map_n_send = 0_I4P
    self%comm_map_n_recv = 0_I4P
    self%comm_map_send_ptr = 0_I4P
    self%comm_map_recv_ptr = 0_I4P
-   allocate(self%comm_map_n_send_ghost(0:self%mpih%procs_number-1))
-   allocate(self%comm_map_n_recv_ghost(0:self%mpih%procs_number-1))
-   allocate(self%comm_map_send_ptr_ghost(0:self%mpih%procs_number))
-   allocate(self%comm_map_recv_ptr_ghost(0:self%mpih%procs_number))
+   allocate(self%comm_map_n_send_ghost(0:mpih%procs_number-1))
+   allocate(self%comm_map_n_recv_ghost(0:mpih%procs_number-1))
+   allocate(self%comm_map_send_ptr_ghost(0:mpih%procs_number))
+   allocate(self%comm_map_recv_ptr_ghost(0:mpih%procs_number))
    call self%make_comm_local_maps
-   if (verbose_) call self%mpih%print_message('maps_object%initialize finish')
+   if (verbose_) call mpih%print_message('maps_object%initialize finish')
    endsubroutine initialize
 
    subroutine make_comm_local_maps(self)
@@ -185,7 +183,7 @@ contains
    integer(I8P)                      :: c, l                 !< Counter.
    integer(I4P)                      :: p                    !< Counter.
 
-   call self%mpih%print_message('maps_object%make_comm_local_maps start')
+   call mpih%print_message('maps_object%make_comm_local_maps start')
    ! initialize communication maps
    self%comm_map_n_send = 0_I4P
    self%comm_map_n_recv = 0_I4P
@@ -196,7 +194,7 @@ contains
    ! compute the number of blocks to send/receive
    my_nodes_number = 0_I8P
    do while(self%tree%loop(node_ptr=node_ptr))
-      if (node_ptr%myrank==self%mpih%myrank) my_nodes_number = my_nodes_number + 1_I8P
+      if (node_ptr%myrank==mpih%myrank) my_nodes_number = my_nodes_number + 1_I8P
       if     (is_node_to_send(n=node_ptr)) then
          ! I have this node that must be sent to node_ptr%myrank_new
          self%comm_map_n_send(node_ptr%myrank_new) = self%comm_map_n_send(node_ptr%myrank_new) + 1
@@ -226,7 +224,7 @@ contains
    ! compute communication maps pointers/counters
    self%comm_map_send_ptr = 0_I4P
    self%comm_map_recv_ptr = 0_I4P
-   do p=1, self%mpih%procs_number
+   do p=1, mpih%procs_number
       self%comm_map_send_ptr(p) = self%comm_map_send_ptr(p-1) + self%comm_map_n_send(p-1)
       self%comm_map_recv_ptr(p) = self%comm_map_recv_ptr(p-1) + self%comm_map_n_recv(p-1)
    enddo
@@ -270,14 +268,14 @@ contains
 
    ! update tree blocks coordinates
    call self%tree%update_blocks_coordinates(my_nodes_number=self%my_nodes_number)
-   call self%mpih%print_message('maps_object%make_comm_local_maps finish')
+   call mpih%print_message('maps_object%make_comm_local_maps finish')
    contains
       function is_node_to_keep(n)
       !< Check if node `n` must be kept.
       type(tree_node_object), intent(in), pointer :: n               !< Pointer to current node.
       logical                                     :: is_node_to_keep !< Check result.
 
-      is_node_to_keep = ((self%mpih%myrank == n%myrank).and.(n%myrank == n%myrank_new))
+      is_node_to_keep = ((mpih%myrank == n%myrank).and.(n%myrank == n%myrank_new))
       endfunction is_node_to_keep
 
       function is_node_to_send(n)
@@ -285,7 +283,7 @@ contains
       type(tree_node_object), intent(in), pointer :: n               !< Pointer to current node.
       logical                                     :: is_node_to_send !< Check result.
 
-      is_node_to_send = ((self%mpih%myrank == n%myrank).and.(n%myrank /= n%myrank_new))
+      is_node_to_send = ((mpih%myrank == n%myrank).and.(n%myrank /= n%myrank_new))
       endfunction is_node_to_send
 
       function is_node_to_receive(n)
@@ -293,7 +291,7 @@ contains
       type(tree_node_object), intent(in), pointer :: n                  !< Pointer to current node.
       logical                                     :: is_node_to_receive !< Check result.
 
-      is_node_to_receive = ((self%mpih%myrank == n%myrank_new).and.(n%myrank /= n%myrank_new))
+      is_node_to_receive = ((mpih%myrank == n%myrank_new).and.(n%myrank /= n%myrank_new))
       endfunction is_node_to_receive
    endsubroutine make_comm_local_maps
 
@@ -302,13 +300,13 @@ contains
    class(maps_object), intent(inout) :: self !< The maps.
    integer(I4P),       intent(in)    :: nv   !< Number of field variables.
 
-   call self%mpih%print_message('maps_object%make_comm_local_maps_ghost start')
+   call mpih%print_message('maps_object%make_comm_local_maps_ghost start')
    call self%alloc_comm_local_maps_ghost(nv=nv)
    call self%populate_comm_local_maps_ghost
    call self%make_local_map_ghost_cell
    call self%make_comm_map_recv_ghost_cell(nv=nv)
    call self%make_comm_map_send_ghost_cell(nv=nv)
-   call self%mpih%print_message('maps_object%make_comm_local_maps_ghost finish')
+   call mpih%print_message('maps_object%make_comm_local_maps_ghost finish')
    endsubroutine make_comm_local_maps_ghost
 
    subroutine mpi_gather_nodes_data(self, node_member)
@@ -324,14 +322,14 @@ contains
 
    allocate(send_buffer(self%my_nodes_number   * 2)) ! [Morton code, refinement_needed]
    allocate(recv_buffer(self%tree%nodes_number * 2)) ! [Morton code, refinement_needed]
-   allocate(recv_count(0:self%mpih%procs_number - 1))
-   allocate(disp_count(0:self%mpih%procs_number - 1))
+   allocate(recv_count(0:mpih%procs_number - 1))
+   allocate(disp_count(0:mpih%procs_number - 1))
    ! populating receive counters and send buffer
    recv_count = 0_I4P
    n = 0_I8P
    do while(self%tree%loop(node_ptr=node_ptr))
       recv_count(node_ptr%myrank) = recv_count(node_ptr%myrank) + 2
-      if (self%mpih%myrank == node_ptr%myrank) then
+      if (mpih%myrank == node_ptr%myrank) then
          n = n + 1
          send_buffer(n) = node_ptr%code
          n = n + 1
@@ -345,12 +343,12 @@ contains
    enddo
    ! computing displacement counts
    disp_count = 0_I4P
-   do p=1, self%mpih%procs_number - 1
+   do p=1, mpih%procs_number - 1
       disp_count(p) = disp_count(p-1) + recv_count(p-1)
    enddo
 
    call MPI_ALLGATHERV(send_buffer, self%my_nodes_number * 2, MPI_INTEGER8, &
-                       recv_buffer, recv_count, disp_count, MPI_INTEGER8, MPI_COMM_WORLD, self%mpih%error)
+                       recv_buffer, recv_count, disp_count, MPI_INTEGER8, MPI_COMM_WORLD, mpih%error)
 
    ! update nodes data
    do n=1, self%tree%nodes_number*2, 2
@@ -397,7 +395,7 @@ contains
    integer(I4P), allocatable                :: c_crown(:), c          !< Counter.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) call self%mpih%print_message('maps_object%make_local_maps_bc start')
+   if (verbose_) call mpih%print_message('maps_object%make_local_maps_bc start')
 
    ! find faces/edges/cornes BC
    if (allocated(self%local_map_bc_face))   deallocate(self%local_map_bc_face)
@@ -415,7 +413,7 @@ contains
       fec_bc_edges_number = 0_I4P
       fec_bc_corners_number = 0_I4P
       do while(self%tree%loop(node_ptr=node_ptr))
-         if (node_ptr%myrank==self%mpih%myrank) then
+         if (node_ptr%myrank==mpih%myrank) then
             do fec=1, 26
                neighbor_type   = node_ptr%neighbor(fec)%ntype
                neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
@@ -476,7 +474,7 @@ contains
                                                                                 c_crown=c_crown)
       deallocate(c_crown)
    endif
-   if (verbose_) call self%mpih%print_message('tree_object%make_local_maps_bc finish')
+   if (verbose_) call mpih%print_message('tree_object%make_local_maps_bc finish')
    endsubroutine make_local_maps_bc
 
    ! private methods
@@ -512,12 +510,12 @@ contains
                do n=1, size(neighbor, dim=1)
                   neigh => self%tree%node(code=neighbor(n))
                   if (.not.associated(neigh)) then
-                     call self%mpih%print_message(msg=': error neighbor n='//trim(str(n))//&
+                     call mpih%print_message(msg=': error neighbor n='//trim(str(n))//&
                                                       ' of neighbors='//trim(str(neighbor))//' not associated')
                   endif
-                  if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
+                  if     ((mpih%myrank == neigh%myrank).and.(mpih%myrank == node_ptr%myrank)) then
                      my_fec_number = my_fec_number + 1
-                  elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
+                  elseif ((mpih%myrank /= neigh%myrank).and.(mpih%myrank == node_ptr%myrank)) then
                      ! when receiving from same or less refined than me the size of the message is full, when receiving from
                      ! more refined the message is an averaged portion (reduced size)
                      recv_fec_number = recv_fec_number + 1
@@ -528,7 +526,7 @@ contains
                         self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
                                                                    self%grid%weight_neighbor(fec)
                      endif
-                  elseif ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank /= node_ptr%myrank)) then
+                  elseif ((mpih%myrank == neigh%myrank).and.(mpih%myrank /= node_ptr%myrank)) then
                      ! when sending to same or more refined than me the size of the message is full, when sending to less
                      ! refined the message is an averaged portion (reduced size)
                      send_fec_number = send_fec_number + 1
@@ -548,7 +546,7 @@ contains
    ! create pointer for each process in the send/recv buffers
    self%comm_map_send_ptr_ghost = 0_I4P
    self%comm_map_recv_ptr_ghost = 0_I4P
-   do p=1, self%mpih%procs_number
+   do p=1, mpih%procs_number
       self%comm_map_send_ptr_ghost(p) = self%comm_map_send_ptr_ghost(p-1) + self%comm_map_n_send_ghost(p-1)
       self%comm_map_recv_ptr_ghost(p) = self%comm_map_recv_ptr_ghost(p-1) + self%comm_map_n_recv_ghost(p-1)
    enddo
@@ -576,7 +574,7 @@ contains
    fec_bc_edges_number = 0_I4P
    fec_bc_corners_number = 0_I4P
    do while(self%tree%loop(node_ptr=node_ptr))
-      if (node_ptr%myrank==self%mpih%myrank) then
+      if (node_ptr%myrank==mpih%myrank) then
          do fec=1, 26
             if (node_ptr%neighbor(fec)%ntype == NODE_BOUNDARY_CONDITION) then
                if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
@@ -1093,7 +1091,7 @@ contains
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                do n=1, size(neighbor, dim=1)
                   neigh => self%tree%node(code=neighbor(n))
-                  if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
+                  if     ((mpih%myrank == neigh%myrank).and.(mpih%myrank == node_ptr%myrank)) then
                      mf = mf + 1
                      self%local_map_ghost(mf, 1) = node_ptr%block_index
                      self%local_map_ghost(mf, 2) = neigh%block_index
@@ -1106,7 +1104,7 @@ contains
                         self%local_map_ghost(mf, 4) = -neighbor_portion
                      endif
                      self%local_map_ghost(mf, 5:13)=self%ijk_mmd_ghost(fec=fec, portion=self%local_map_ghost(mf, 4))
-                  elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
+                  elseif ((mpih%myrank /= neigh%myrank).and.(mpih%myrank == node_ptr%myrank)) then
                      rf = rf + 1
                      self%comm_map_recv_ghost(rf, 15) = comm_map_recv_ctr_ghost(neigh%myrank)
                      self%comm_map_recv_ghost(rf, 1) = node_ptr%block_index
@@ -1127,7 +1125,7 @@ contains
                                                                 self%grid%weight_neighbor(fec)
                      endif
                      self%comm_map_recv_ghost(rf, 6:14)=self%ijk_mmd_ghost(fec=fec, portion=self%comm_map_recv_ghost(rf, 5))
-                  elseif ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank /= node_ptr%myrank)) then
+                  elseif ((mpih%myrank == neigh%myrank).and.(mpih%myrank /= node_ptr%myrank)) then
                      sf = sf + 1
                      self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node_ptr%myrank)
                      self%comm_map_send_ghost(sf, 1) = node_ptr%block_index

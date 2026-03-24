@@ -11,7 +11,7 @@ module adam_prism_fWLayer_object
     !vale a livello matematico, altrimenti dovrai aggiungere un flag(3) per individuare se la cella appartiene a uno o più lati dello strato e a quali (in ogni elemento + o -1)
 
 ! ADAM modules
-use :: adam_mpih_object, only : mpih_object
+use :: adam_global_mpih, only: mpih
 use :: adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
@@ -30,7 +30,6 @@ character(len=7), parameter :: INI_SECTION_NAME='fWLayer' !< INI file section na
 
 type :: prism_fWLayer_object
    !< PRISM fWLayer class definition.
-   type(mpih_object)         :: mpih                                  !< MPI handler.
    logical                   :: layer(6) = .false.                    !< Layer flags for each side (-x, +x, -y, +y, -z, +z).
    integer(I4P)              :: C        = 0_I4P                      !< Layer cell width.
    integer(I4P)              :: ni_fWL(2,6), nj_fWL(2,6), nk_fWL(2,6) !< Dimensions of FWL domain.
@@ -56,16 +55,16 @@ contains
    character(len=1), parameter             :: NL=new_line('a') !< New line character.
 
    if (self%C == 0_I4P) then
-      desc = self%mpih%myrankstr//'   No fWLayer implemented'
+      desc = mpih%myrankstr//'   No fWLayer implemented'
    else
-      desc = self%mpih%myrankstr//'   fWLayer datas:'
-      desc = desc//NL//self%mpih%myrankstr//'      Layer cell width: '//trim(str(self%C))
-      desc = desc//NL//self%mpih%myrankstr//'      Layer on -x side: '//trim(str(self%layer(1)))
-      desc = desc//NL//self%mpih%myrankstr//'      Layer on +x side: '//trim(str(self%layer(2)))
-      desc = desc//NL//self%mpih%myrankstr//'      Layer on -y side: '//trim(str(self%layer(3)))
-      desc = desc//NL//self%mpih%myrankstr//'      Layer on +y side: '//trim(str(self%layer(4)))
-      desc = desc//NL//self%mpih%myrankstr//'      Layer on -z side: '//trim(str(self%layer(5)))
-      desc = desc//NL//self%mpih%myrankstr//'      Layer on +z side: '//trim(str(self%layer(6)))
+      desc = mpih%myrankstr//'   fWLayer datas:'
+      desc = desc//NL//mpih%myrankstr//'      Layer cell width: '//trim(str(self%C))
+      desc = desc//NL//mpih%myrankstr//'      Layer on -x side: '//trim(str(self%layer(1)))
+      desc = desc//NL//mpih%myrankstr//'      Layer on +x side: '//trim(str(self%layer(2)))
+      desc = desc//NL//mpih%myrankstr//'      Layer on -y side: '//trim(str(self%layer(3)))
+      desc = desc//NL//mpih%myrankstr//'      Layer on +y side: '//trim(str(self%layer(4)))
+      desc = desc//NL//mpih%myrankstr//'      Layer on -z side: '//trim(str(self%layer(5)))
+      desc = desc//NL//mpih%myrankstr//'      Layer on +z side: '//trim(str(self%layer(6)))
     endif
    endfunction description
 
@@ -82,8 +81,7 @@ contains
    real(R8P)                                  :: i_r, j_r, k_r   !< (Real) counters
    real(R8P)                                  :: ds              !< Cells distance in x, y or z.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'prism_fWLayer_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_fWLayer_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
    if (self%C == 0_I4P) return
@@ -204,7 +202,7 @@ contains
       enddo
    endif
    endassociate
-   print '(A)', self%mpih%myrankstr//'prism_fWLayer_object%initialize finish'
+   print '(A)', mpih%myrankstr//'prism_fWLayer_object%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
@@ -219,10 +217,10 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='C', val=self%C, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(C)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(C)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_minus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_minus_layer)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_minus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(1) = .false.
@@ -233,7 +231,7 @@ contains
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_plus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_plus_layer)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_plus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(2) = .false.
@@ -244,7 +242,7 @@ contains
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_minus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_minus_layer)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_minus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(3) = .false.
@@ -255,7 +253,7 @@ contains
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_plus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_plus_layer)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_plus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(4) = .false.
@@ -266,7 +264,7 @@ contains
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_minus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_minus_layer)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_minus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(5) = .false.
@@ -277,7 +275,7 @@ contains
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_plus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_plus_layer)')
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_plus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(6) = .false.

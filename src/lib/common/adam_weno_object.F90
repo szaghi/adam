@@ -40,7 +40,7 @@ module adam_weno_object
 !<
 !< Non TBP procedures are also provided for use without class object in device backend kernels.
 
-use adam_mpih_object
+use adam_global_mpih, only: mpih
 use finer
 use penf
 
@@ -79,7 +79,6 @@ character(len=4), parameter :: INI_SECTION_NAME="weno" !< INI (config) file sect
 
 type :: weno_object
    !< WENO class definition.
-   type(mpih_object)         :: mpih                      !< MPI handler.
    character(:), allocatable :: scheme                    !< WENO scheme.
    integer(I4P)              :: S                         !< Stencils number/dimensions, 2S-1 order of accuracy.
    logical                   :: is_centered=.false.       !< Centered scheme flag.
@@ -128,21 +127,21 @@ contains
    character(len=1), parameter    :: NL=new_line('a') !< New line character.
    integer(I4P)                   :: s1, s2           !< Counter.
 
-   desc =       self%mpih%myrankstr//'WENO scheme main data'//NL
-   desc = desc//self%mpih%myrankstr//'  scheme:                         '//trim(    self%scheme              )//NL
-   desc = desc//self%mpih%myrankstr//'  S:                              '//trim(str(self%S                  ))//NL
-   desc = desc//self%mpih%myrankstr//'  zeps:                           '//trim(str(self%zeps               ))//NL
-   desc = desc//self%mpih%myrankstr//'  sodd:                           '//trim(str(self%sodd               ))//NL
-   desc = desc//self%mpih%myrankstr//'  wexp:                           '//trim(str(self%wexp               ))//NL
+   desc =       mpih%myrankstr//'WENO scheme main data'//NL
+   desc = desc//mpih%myrankstr//'  scheme:                         '//trim(    self%scheme              )//NL
+   desc = desc//mpih%myrankstr//'  S:                              '//trim(str(self%S                  ))//NL
+   desc = desc//mpih%myrankstr//'  zeps:                           '//trim(str(self%zeps               ))//NL
+   desc = desc//mpih%myrankstr//'  sodd:                           '//trim(str(self%sodd               ))//NL
+   desc = desc//mpih%myrankstr//'  wexp:                           '//trim(str(self%wexp               ))//NL
    if (allocated(self%a)) then
    do s2=0, self%S -1
-   desc = desc//self%mpih%myrankstr//'  a(:,'//trim(str(s2,.true.))//'):'//trim(str(self%a(:,s2,self%S)     ))//NL
+   desc = desc//mpih%myrankstr//'  a(:,'//trim(str(s2,.true.))//'):'//trim(str(self%a(:,s2,self%S)     ))//NL
    enddo
    endif
    if (allocated(self%p)) then
    do s2=0, self%S -1
    do s1=0, self%S -1
-   desc = desc//self%mpih%myrankstr//'  p(:,'//trim(str(s1,.true.))//','// &
+   desc = desc//mpih%myrankstr//'  p(:,'//trim(str(s1,.true.))//','// &
                                                trim(str(s2,.true.))//'):'//trim(str(self%p(:,s1,s2,self%S)  ))//NL
    enddo
    enddo
@@ -150,26 +149,26 @@ contains
    if (allocated(self%d)) then
    do s2=0, self%S -1
    do s1=0, self%S -1
-   desc = desc//self%mpih%myrankstr//'  d(:,'//trim(str(s1,.true.))//','// &
+   desc = desc//mpih%myrankstr//'  d(:,'//trim(str(s1,.true.))//','// &
                                                trim(str(s2,.true.))//'):'//trim(str(self%d(:,s1,s2,self%S)  ))//NL
    enddo
    enddo
    endif
    if (allocated(self%c)) then
    do s1=1-self%S, self%S
-   desc = desc//self%mpih%myrankstr//'  c(:,'//trim(str(s1,.true.))//'):'//trim(str(self%c(s1,self%S)       ))//NL
+   desc = desc//mpih%myrankstr//'  c(:,'//trim(str(s1,.true.))//'):'//trim(str(self%c(s1,self%S)       ))//NL
    enddo
    endif
-   desc = desc//self%mpih%myrankstr//'  ror number:                     '//trim(str(self%ror_number         ))//NL
+   desc = desc//mpih%myrankstr//'  ror number:                     '//trim(str(self%ror_number         ))//NL
    if (allocated(self%ror_schemes)) &
-   desc = desc//self%mpih%myrankstr//'  ror schemes:                    '//trim(str(self%ror_schemes        ))//NL
-   desc = desc//self%mpih%myrankstr//'  ror threshold:                  '//trim(str(self%ror_threshold      ))//NL
-   desc = desc//self%mpih%myrankstr//'  ror vars number                 '//trim(str(self%ror_vars_number    ))//NL
+   desc = desc//mpih%myrankstr//'  ror schemes:                    '//trim(str(self%ror_schemes        ))//NL
+   desc = desc//mpih%myrankstr//'  ror threshold:                  '//trim(str(self%ror_threshold      ))//NL
+   desc = desc//mpih%myrankstr//'  ror vars number                 '//trim(str(self%ror_vars_number    ))//NL
    if (allocated(self%ror_ivar)) &
-   desc = desc//self%mpih%myrankstr//'  ror ivar:                       '//trim(str(self%ror_ivar           ))//NL
-   desc = desc//self%mpih%myrankstr//'  enable ror stats:               '//trim(str(self%enable_ror_stats   ))//NL
-   desc = desc//self%mpih%myrankstr//'  ib reduction extent:            '//trim(str(self%ib_reduction_extent))//NL
-   desc = desc//self%mpih%myrankstr//'  ib reduced order:               '//trim(str(self%ib_reduced_order   ))
+   desc = desc//mpih%myrankstr//'  ror ivar:                       '//trim(str(self%ror_ivar           ))//NL
+   desc = desc//mpih%myrankstr//'  enable ror stats:               '//trim(str(self%enable_ror_stats   ))//NL
+   desc = desc//mpih%myrankstr//'  ib reduction extent:            '//trim(str(self%ib_reduction_extent))//NL
+   desc = desc//mpih%myrankstr//'  ib reduced order:               '//trim(str(self%ib_reduced_order   ))
    endfunction description
 
    subroutine initialize(self, file_parameters, scheme, nb, ngc, ni, nj, nk)
@@ -183,14 +182,13 @@ contains
    integer(I4P),       intent(in)           :: nj              !< Number of cells in j direction.
    integer(I4P),       intent(in)           :: nk              !< Number of cells in k direction.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('weno_object%initialize start')
+   call mpih%print_message('weno_object%initialize start')
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    elseif (present(scheme)) then
       self%scheme = trim(adjustl(scheme))
    else
-      call self%mpih%error_stop(msg=': failed to initialize weno object, file parameters or scheme type must be passed')
+      call mpih%error_stop(msg=': failed to initialize weno object, file parameters or scheme type must be passed')
    endif
    select case(self%scheme)
    case(WENO_U_1)
@@ -260,7 +258,7 @@ contains
       call self%initialize_centered_S3
       call self%initialize_centered_S4
    case default
-      call self%mpih%error_stop(msg=': failed to initialize weno object, WENO scheme "'//self%scheme//'" unknown')
+      call mpih%error_stop(msg=': failed to initialize weno object, WENO scheme "'//self%scheme//'" unknown')
    endselect
    self%wexp = self%S
    if (self%S>4) self%wexp = self%S - 1
@@ -270,7 +268,7 @@ contains
    self%cell_scheme = self%S
    if (self%enable_ror_stats) allocate(self%ror_stats(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3))
    print '(A)', self%description()
-   call self%mpih%print_message('weno_object%initialize finish')
+   call mpih%print_message('weno_object%initialize finish')
    contains
       subroutine allocate_coefficients
       !< Allocate WENO coefficients.
@@ -299,16 +297,16 @@ contains
 
    sname = INI_SECTION_NAME
    call file_parameters%get(section_name=sname, option_name='scheme', val=buff_c, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
    self%scheme = trim(adjustl(buff_c))
    call file_parameters%get(section_name=sname, option_name='ror_number', val=self%ror_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ror_number)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ror_number)')
    if (self%ror_number>0) then
       allocate(self%ror_schemes(self%ror_number))
       do r=1, self%ror_number
          oname = 'ror_scheme_'//trim(str(r,.true.))
          call file_parameters%get(section_name=sname, option_name=oname, val=self%ror_schemes(r), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
       enddo
       self%S = self%ror_schemes(1) ! first ROR schemes must be the highest order used
    else
@@ -317,15 +315,15 @@ contains
       self%ror_schemes = self%S
    endif
    call file_parameters%get(section_name=sname, option_name='ror_threshold', val=self%ror_threshold, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ror_threshold)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ror_threshold)')
    call file_parameters%get(section_name=sname, option_name='ror_vars_number', val=self%ror_vars_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ror_vars_number)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ror_vars_number)')
    if (self%ror_vars_number>0) then
       allocate(self%ror_ivar(self%ror_vars_number))
       do r=1, self%ror_vars_number
          oname = 'ror_ivar_'//trim(str(r,.true.))
          call file_parameters%get(section_name=sname, option_name=oname, val=self%ror_ivar(r), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
       enddo
    else
       ! allocate anyway a single element array for backends compatibility
@@ -333,11 +331,11 @@ contains
       ! self%ror_ivar(1) = 1
    endif
    call file_parameters%get(section_name=sname, option_name='enable_ror_stats', val=self%enable_ror_stats, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(enable_ror_stats)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(enable_ror_stats)')
    call file_parameters%get(section_name=sname, option_name='ib_reduction_extent', val=self%ib_reduction_extent, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ib_reduction_extent)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ib_reduction_extent)')
    call file_parameters%get(section_name=sname, option_name='ib_reduced_order', val=self%ib_reduced_order, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ib_reduced_order)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ib_reduced_order)')
    endsubroutine load_from_file
 
    pure subroutine reconstruct_upwind(self, S, v, vr)

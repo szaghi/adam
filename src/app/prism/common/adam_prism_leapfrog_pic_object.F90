@@ -37,7 +37,7 @@ module adam_prism_leapfrog_pic_object
 
 use adam_field_object, only: field_object
 use adam_grid_object, only: grid_object
-use adam_mpih_object
+use adam_global_mpih, only: mpih
 use adam_prism_pic_object, only: prism_pic_object
 use finer
 use penf
@@ -50,7 +50,6 @@ character(len=8), parameter :: INI_SECTION_NAME="leapfrog" !< INI (config) file 
 
 type :: prism_leapfrog_pic_object
    !< Leapfrog class definition.
-   type(mpih_object)         :: mpih                !< MPI handler.
    real(R8P)                 :: nu=0.01_R8P         !< Robert-Asselin filter coefficient.
    real(R8P)                 :: alpha=0.53_R8P      !< Robert-Asselin-Williams filter coefficient.
    logical                   :: is_filtered=.false. !< Flag to check if the integration if RAW filtered.
@@ -85,10 +84,10 @@ contains
    character(len=1),       parameter   	       :: NL=new_line('a') !< New line character.
    integer(I4P)                        	       :: s                !< Counter.
 
-   desc =       self%mpih%myrankstr//'Leapfrog pic scheme main data'//NL
-   desc = desc//self%mpih%myrankstr//'  is RAW filtered: '//trim(str(self%is_filtered))//NL
-   desc = desc//self%mpih%myrankstr//'  nu:              '//trim(str(self%nu         ))//NL
-   desc = desc//self%mpih%myrankstr//'  alpha:           '//trim(str(self%alpha      ))
+   desc =       mpih%myrankstr//'Leapfrog pic scheme main data'//NL
+   desc = desc//mpih%myrankstr//'  is RAW filtered: '//trim(str(self%is_filtered))//NL
+   desc = desc//mpih%myrankstr//'  nu:              '//trim(str(self%nu         ))//NL
+   desc = desc//mpih%myrankstr//'  alpha:           '//trim(str(self%alpha      ))
    endfunction description
 
    subroutine initialize(self, file_parameters, scheme, grid, field, pic)
@@ -100,8 +99,7 @@ contains
    type(field_object),       	 	      intent(in), target   :: field           !< The field.
 	type(prism_pic_object),   		      intent(in), target   :: pic             !< The PIC object.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('leapfrog_pic_object%initialize start')
+   call mpih%print_message('leapfrog_pic_object%initialize start')
    call associate_adam_data(pic=pic, grid=grid, field=field)
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
@@ -111,10 +109,10 @@ contains
                           ulb=reshape([1,8,								 &
                                        1,particle_number,			 &                             
 													1,2], [2,3]),					 &
-                          					msg=self%mpih%myrankstr//'leapfrog_pic_object%initialize allocate q_pic_old')
+                          					msg=mpih%myrankstr//'leapfrog_pic_object%initialize allocate q_pic_old')
    endassociate
    print '(A)', self%description()
-   call self%mpih%print_message('leapfrog_pic_object%initialize finish')
+   call mpih%print_message('leapfrog_pic_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field, pic)
       !< Associate objects data to equation for easy handling.
@@ -145,13 +143,13 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='is_filtered', val=self%is_filtered, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(is_filtered)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(is_filtered)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nu', val=self%nu, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nu)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nu)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alpha', val=self%alpha, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(alpha)')
+   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(alpha)')
    endsubroutine load_from_file
 
    ! public methods

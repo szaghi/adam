@@ -6,7 +6,7 @@ module adam_adam_object
 use :: adam_field_object
 use :: adam_grid_object
 use :: adam_maps_object
-use :: adam_mpih_object
+use :: adam_global_mpih, only: mpih
 use :: adam_parameters
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
@@ -26,7 +26,6 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   type(mpih_object)  :: mpih  !< The MPI handler.
    type(grid_object)  :: grid  !< The grid.
    type(tree_object)  :: tree  !< The tree.
    type(maps_object)  :: maps  !< The maps.
@@ -92,7 +91,7 @@ contains
    logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
-   call self%mpih%print_message('adam_object%amr_update start')
+   call mpih%print_message('adam_object%amr_update start')
    do_mpi_redistribute_ = .true. ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
    do_blocks_reorder_ = .false. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
@@ -108,7 +107,7 @@ contains
    if (do_blocks_reorder_) call self%blocks_reorder(q=q)
 
    call self%make_comm_local_maps_ghost_bc
-   call self%mpih%print_message('adam_object%amr_update finish')
+   call mpih%print_message('adam_object%amr_update finish')
    endsubroutine amr_update
 
    subroutine blocks_reorder(self, q)
@@ -136,11 +135,11 @@ contains
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
    if (max_nb > self%field%nb) then
-      call self%mpih%abort(error_code=-101, msg='ERROR: the number of new blocks after AMR is greater than Nb'//NL//&
+      call mpih%abort(error_code=-101, msg='ERROR: the number of new blocks after AMR is greater than Nb'//NL//&
                                                 'max blocks numer available [Nb]: '//trim(str(self%field%nb))//NL//&
                                                 'blocks numer required after AMR: '//trim(str(max_nb)))
    endif
-   call self%mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb))
+   call mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb))
    endsubroutine check_blocks_number
 
    subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
@@ -156,7 +155,7 @@ contains
    size_of_real = storage_size(1._R8P)/8._R8P
    save_factor = 0.95_R8P
    nb = nint(save_factor * memory_avail*1e9 / (fields_number * self%grid%block_weight * size_of_real))
-   nodes_number  = nb * self%mpih%procs_number
+   nodes_number  = nb * mpih%procs_number
    endsubroutine compute_blocks_number
 
    pure function description(self) result(desc)
@@ -200,8 +199,7 @@ contains
    integer(I4P)                                 :: nb              !< Number of all blocks that can be stored in field.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call self%mpih%initialize(verbose=verbose_)
-   if (verbose_) call self%mpih%print_message('adam_object%initialize start')
+   if (verbose_) call mpih%print_message('adam_object%initialize start')
   !call self%compute_blocks_number(memory_avail=memory_avail,&
   !                                fields_number=80,         & ! remember to change
   !                                nb=nb,                    &
@@ -221,9 +219,9 @@ contains
                               nb=1,                           &! remember to change
                               nv=nv,                          &
                               verbose=verbose_)
-   if (verbose_) call self%mpih%print_message('adam_object%initialize finish')
-   if (verbose_) call self%mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))
-   if (verbose_) call self%mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
+   if (verbose_) call mpih%print_message('adam_object%initialize finish')
+   if (verbose_) call mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))
+   if (verbose_) call mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
    endsubroutine initialize
 
    subroutine interpolate_at_point(self, itype, point, q, qp, is_mine, p, qc, ijk, xyz, code, v)
@@ -252,7 +250,7 @@ contains
 
    code_ = self%tree%get_closest_block(point=point)
    node => self%tree%node(code=code_)
-   if (node%myrank == self%mpih%myrank) then
+   if (node%myrank == mpih%myrank) then
       is_mine = .true.
       call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_)
       select case(trim(itype))
@@ -329,10 +327,10 @@ contains
    !< Make communication/local maps of ghost cells and boundary conditions.
    class(adam_object), intent(inout) :: self !< ADAM.
 
-   call self%mpih%print_message('adam_object%make_comm_local_maps_ghost_bc start')
+   call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc start')
    call self%maps%make_comm_local_maps_ghost(nv=self%field%nv)
    call self%maps%make_local_maps_bc
-   call self%mpih%print_message('adam_object%make_comm_local_maps_ghost_bc finish')
+   call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc finish')
    endsubroutine make_comm_local_maps_ghost_bc
 
    subroutine mpi_gather_refinement_needed(self, is_marked_by_field, is_marked_by_tree)
@@ -404,7 +402,7 @@ contains
    logical,            intent(in), optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
    integer(I4P)                             :: l                    !< Counter.
 
-   call self%mpih%print_message('uniformly refine mesh with '//trim(str(refinement_levels))//' levels')
+   call mpih%print_message('uniformly refine mesh with '//trim(str(refinement_levels))//' levels')
    do l=1, refinement_levels
       call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
       call self%amr_update(q=q, do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
@@ -424,7 +422,7 @@ contains
                                        1:)     !< Field cell centered variables.
    integer(I4P)                   :: file_unit !< Output file unit.
 
-   if (self%mpih%myrank==0) then
+   if (mpih%myrank==0) then
       open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
       write(unit=file_unit) t, time
       close(file_unit)
@@ -480,11 +478,11 @@ contains
    nijkv(4) = 3 + size(q, dim=1) + p
 
    call MPI_FILE_OPEN(MPI_COMM_WORLD, trim(adjustl(basename))//'.mat', &
-                      MPI_MODE_CREATE+MPI_MODE_WRONLY, MPI_INFO_NULL, MPI_IO_FILE_unit, self%mpih%error)
+                      MPI_MODE_CREATE+MPI_MODE_WRONLY, MPI_INFO_NULL, MPI_IO_FILE_unit, mpih%error)
    offset_head = 0
-   if (self%mpih%myrank==0) then
+   if (mpih%myrank==0) then
       ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, error)
-      call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, self%mpih%error)
+      call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, mpih%error)
    endif
    offset_head = offset_head + 4 * 4
    ijk = 0
@@ -495,24 +493,24 @@ contains
             if (is_mine) then
                offset = offset_head + ijk * 8 * (3 + size(q, dim=1) + p)
                ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, points(:,i,j,k), 3, MPI_REAL8, MPI_STATUS_IGNORE, error)
-               call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, points(:,i,j,k), 3, MPI_REAL8, MPI_STATUS_IGNORE, self%mpih%error)
+               call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, points(:,i,j,k), 3, MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
                offset = offset + 8 * 3
                ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, error)
-               call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, self%mpih%error)
+               call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
                if (present(phi)) then
                   node => self%tree%node(code=code)
                   offset = offset + 8 * size(q, dim=1)
                   ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1)), 1, &
                   !                            MPI_REAL8, MPI_STATUS_IGNORE, error)
                   call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1)), 1, &
-                                         MPI_REAL8, MPI_STATUS_IGNORE, self%mpih%error)
+                                         MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
                endif
             endif
             ijk = ijk + 1
          enddo
       enddo
    enddo
-   call MPI_FILE_CLOSE(MPI_IO_FILE_unit, self%mpih%error)
+   call MPI_FILE_CLOSE(MPI_IO_FILE_unit, mpih%error)
    endsubroutine save_slice
 
    subroutine save_vtk(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
@@ -582,12 +580,12 @@ contains
          error = vtk%initialize(format='raw', filename=directory_//trim(basename)//                          &
                                                        '-morton-'//trim(str(self%field%code(b),.true.))//    &
                                                        '-block-'//trim(str(b,.true.))//                      &
-                                                       '-proc-'//trim(str(self%mpih%myrank,.true.))//'.vtr', &
+                                                       '-proc-'//trim(str(mpih%myrank,.true.))//'.vtr', &
                                 mesh_topology='RectilinearGrid',                                             &
                                 nx1=0-ngc, nx2=ni+ngc, ny1=0-ngc, ny2=nj+ngc, nz1=0-ngc, nz2=nk+ngc)
                             error = vtk%xml_writer%write_fielddata(action='open')
                             error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
-                            error = vtk%xml_writer%write_fielddata(data_name='myrank', x=self%mpih%myrank)
+                            error = vtk%xml_writer%write_fielddata(data_name='myrank', x=mpih%myrank)
          if (present(t))    error = vtk%xml_writer%write_fielddata(data_name='t', x=t)
          if (present(time)) error = vtk%xml_writer%write_fielddata(data_name='time', x=time)
                             error = vtk%xml_writer%write_fielddata(action='close')
@@ -615,7 +613,7 @@ contains
       enddo vtr_loop
 
       ! save VTM file (only master process does)
-      if (self%mpih%myrank == 0_I4P) then
+      if (mpih%myrank == 0_I4P) then
          error = vtm%initialize(filename=directory_//trim(basename)//'.vtm', scratch_units_number=max_level)
          vtm_group_loop : do l=1, max_level
             error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
@@ -626,7 +624,7 @@ contains
             error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//                                   &
                                                                         '-morton-'//trim(str(self%field%code(b),.true.))// &
                                                                         '-block-'//trim(str(b,.true.))//                   &
-                                                                        '-proc-'//trim(str(self%mpih%myrank,.true.))//'.vtr')
+                                                                        '-proc-'//trim(str(mpih%myrank,.true.))//'.vtr')
          enddo vtm_filenames_loop
          error = vtm%finalize()
       endif

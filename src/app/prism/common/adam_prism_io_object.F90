@@ -3,7 +3,7 @@ module adam_prism_io_object
 !< ADAM, Maxwell IO handler class definition, CPU backend.
 
 ! ADAM modules
-use adam_mpih_object
+use adam_global_mpih, only: mpih
 ! third party modules
 use finer
 use penf
@@ -16,7 +16,6 @@ character(len=2), parameter :: INI_SECTION_NAME="IO" !< INI (config) file sectio
 
 type :: prism_io_object
    !< PRISM IO handler class definition, CPU backend.
-   type(mpih_object)         :: mpih                           !< MPI handler.
    type(file_ini)            :: file_parameters                !< Prism input file handler.
    integer(I4P)              :: it_save=100_I4P                !< Main output iteration save frequency.
    character(:), allocatable :: output_basename                !< Basename of output files.
@@ -60,18 +59,18 @@ contains
    character(len=:), allocatable      :: desc             !< Description.
    character(len=1), parameter        :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'IO main data'                                                             //NL
-   desc = desc//self%mpih%myrankstr//'  file parameters:        '//self%file_parameters%filename                //NL
-   desc = desc//self%mpih%myrankstr//'  it save:                '//trim(str(self%it_save))                      //NL
-   desc = desc//self%mpih%myrankstr//'  output basename:        '//self%output_basename                         //NL
-   desc = desc//self%mpih%myrankstr//'  restart:                '//trim(str(self%restart))                      //NL
-   desc = desc//self%mpih%myrankstr//'  restart basename:       '//self%restart_basename                        //NL
-   desc = desc//self%mpih%myrankstr//'  restart (it) save:      '//trim(str(self%restart_save))                 //NL
-   desc = desc//self%mpih%myrankstr//'  save memory status:     '//trim(str(self%save_memory_status))           //NL
-   desc = desc//self%mpih%myrankstr//'  residuals (it) save:    '//trim(str(self%residuals_save))               //NL
-   !desc = desc//self%mpih%myrankstr//'  energy error (it) save: '//trim(str(self%energy_error_save)) //NL
-   desc = desc//self%mpih%myrankstr//'  energy history (it) save: '//trim(str(self%energy_history_save))        //NL
-   desc = desc//self%mpih%myrankstr//'  divergence history (it) save: '//trim(str(self%divergence_history_save))
+   desc =       mpih%myrankstr//'IO main data'                                                             //NL
+   desc = desc//mpih%myrankstr//'  file parameters:        '//self%file_parameters%filename                //NL
+   desc = desc//mpih%myrankstr//'  it save:                '//trim(str(self%it_save))                      //NL
+   desc = desc//mpih%myrankstr//'  output basename:        '//self%output_basename                         //NL
+   desc = desc//mpih%myrankstr//'  restart:                '//trim(str(self%restart))                      //NL
+   desc = desc//mpih%myrankstr//'  restart basename:       '//self%restart_basename                        //NL
+   desc = desc//mpih%myrankstr//'  restart (it) save:      '//trim(str(self%restart_save))                 //NL
+   desc = desc//mpih%myrankstr//'  save memory status:     '//trim(str(self%save_memory_status))           //NL
+   desc = desc//mpih%myrankstr//'  residuals (it) save:    '//trim(str(self%residuals_save))               //NL
+   !desc = desc//mpih%myrankstr//'  energy error (it) save: '//trim(str(self%energy_error_save)) //NL
+   desc = desc//mpih%myrankstr//'  energy history (it) save: '//trim(str(self%energy_history_save))        //NL
+   desc = desc//mpih%myrankstr//'  divergence history (it) save: '//trim(str(self%divergence_history_save))
    endfunction description
 
    subroutine initialize(self, filename)
@@ -79,13 +78,12 @@ contains
    class(prism_io_object), intent(inout) :: self     !< IO handler.
    character(*),           intent(in)    :: filename !< File name of parameters file.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'prism_io_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_io_object%initialize start'
    call self%file_parameters%initialize(filename=trim(filename))
    call self%file_parameters%load
    call self%load_from_file(file_parameters=self%file_parameters)
    print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'prism_io_object%initialize finish'
+   print '(A)', mpih%myrankstr//'prism_io_object%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
@@ -100,31 +98,31 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    associate(ISN=>INI_SECTION_NAME)
       call file_parameters%get(section_name=ISN, option_name='output_basename', val=buff_c, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(output_basename)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(output_basename)')
       self%output_basename = trim(adjustl(buff_c))
       call file_parameters%get(section_name=ISN, option_name='it_save', val=self%it_save, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(it_save)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(it_save)')
       call file_parameters%get(section_name=ISN, option_name='restart', val=self%restart, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(restart)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(restart)')
       call file_parameters%get(section_name=ISN, option_name='restart_basename', val=buff_c, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_basename)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_basename)')
       self%restart_basename = trim(adjustl(buff_c))
       call file_parameters%get(section_name=ISN, option_name='restart_save', val=self%restart_save, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_save)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_save)')
       call file_parameters%get(section_name=ISN, option_name='residuals_save', val=self%residuals_save, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(residuals_save)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(residuals_save)')
       call file_parameters%get(section_name=ISN,option_name='save_memory_status',val=self%save_memory_status,error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_memory_status)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_memory_status)')
       call file_parameters%get(section_name=ISN,option_name='save_residual_fields',val=self%save_residual_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_residual_fields)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_residual_fields)')
       call file_parameters%get(section_name=ISN,option_name='save_curl_fields',val=self%save_curl_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_curl_fields)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_curl_fields)')
       call file_parameters%get(section_name=ISN,option_name='save_divergence_fields',val=self%save_divergence_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_divergence_fields)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_divergence_fields)')
       call file_parameters%get(section_name=ISN,option_name='save_gradient_fields',val=self%save_gradient_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_gradient_fields)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_gradient_fields)')
       call file_parameters%get(section_name=ISN,option_name='save_laplacian_fields',val=self%save_laplacian_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_laplacian_fields)')
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_laplacian_fields)')
    endassociate
    endsubroutine load_from_file
 
@@ -144,7 +142,7 @@ contains
    logical                                      :: is_to_open_        !< Flag to open  file before first saving, local var.
    logical                                      :: is_to_close_       !< Flag to close file after last saving, local var.
 
-   if (self%mpih%myrank==0) then
+   if (mpih%myrank==0) then
       is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
       is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
       if (is_to_open_) then
@@ -178,7 +176,7 @@ contains
    logical                                      :: is_to_open_       !< Flag to open  file before first saving, local var.
    logical                                      :: is_to_close_      !< Flag to close file after last saving, local var.
 
-   if (self%mpih%myrank==0) then
+   if (mpih%myrank==0) then
       is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
       is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
       if (is_to_open_) then
@@ -211,7 +209,7 @@ contains
    logical                                      :: is_to_open_       !< Flag to open  file before first saving, local var.
    logical                                      :: is_to_close_      !< Flag to close file after last saving, local var.
 
-   if (self%mpih%myrank==0) then
+   if (mpih%myrank==0) then
       is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
       is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
       if (is_to_open_) then
@@ -234,7 +232,7 @@ contains
    !< Close file for saving residuals history.
    class(prism_io_object), intent(in) :: self !< IO handler.
 
-   if (self%mpih%myrank==0) close(self%residuals_unit)
+   if (mpih%myrank==0) close(self%residuals_unit)
    endsubroutine close_file_residuals
 
    subroutine open_file_residuals(self, nv)
@@ -244,7 +242,7 @@ contains
    character(:), allocatable             :: rqs  !< String buffer.
    integer(I4P)                          :: v    !< Counter.
 
-   if (self%mpih%myrank==0) then
+   if (mpih%myrank==0) then
       rqs = ''
       do v=1, nv
          rqs = rqs//' "rq'//trim(str(v,.true.))//'"'
