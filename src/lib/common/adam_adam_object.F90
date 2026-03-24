@@ -188,11 +188,12 @@ contains
    call self%field%load_blocks(basename=basename, q=q)
    endsubroutine load_restart_files
 
-   subroutine initialize(self, file_parameters, add_adam, verbose)
+   subroutine initialize(self, file_parameters, add_adam, nv, verbose)
    !< Initialize ADAM.
    class(adam_object),     intent(inout)        :: self            !< ADAM.
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
    logical,                intent(in), optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
+   integer(I4P),           intent(in), optional :: nv              !< Number of field variables.
    logical,                intent(in), optional :: verbose         !< Trigger verbose output.
    logical                                      :: verbose_        !< Trigger verbose output, local variable.
    integer(I8P)                                 :: nodes_number    !< Nodes number to be stored in the tree.
@@ -218,6 +219,7 @@ contains
                               maps=self%maps,                 &
                               file_parameters=file_parameters,&
                               nb=1,                           &! remember to change
+                              nv=nv,                          &
                               verbose=verbose_)
    if (verbose_) call self%mpih%print_message('adam_object%initialize finish')
    if (verbose_) call self%mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))

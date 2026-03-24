@@ -512,7 +512,8 @@ contains
                do n=1, size(neighbor, dim=1)
                   neigh => self%tree%node(code=neighbor(n))
                   if (.not.associated(neigh)) then
-                     print*, 'cazzo ', n, neighbor
+                     call self%mpih%print_message(msg=': error neighbor n='//trim(str(n))//&
+                                                      ' of neighbors='//trim(str(neighbor))//' not associated')
                   endif
                   if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
                      my_fec_number = my_fec_number + 1

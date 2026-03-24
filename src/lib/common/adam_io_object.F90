@@ -39,6 +39,7 @@ type :: io_object
    integer(I4P)                :: divergence_history_unit        !< Divergence history file unit.
    type(grid_object),  pointer :: grid=>null()                   !< The grid.
    type(field_object), pointer :: field=>null()                  !< The field.
+   logical                     :: is_initialized=.false.         !< Initialization status.
    ! auxiliary fields saving
    logical :: save_residual_fields  =.false. !< Flag to activate residual fields saving.
    logical :: save_curl_fields      =.false. !< Flag to activate curl fields saving.
@@ -123,14 +124,17 @@ contains
    logical,            intent(in), optional :: verbose  !< Trigger verbose output.
    logical                                  :: verbose_ !< Trigger verbose output, local variable.
 
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call self%mpih%initialize(verbose=verbose_)
-   print '(A)', self%mpih%myrankstr//'io_object%initialize start'
-   call self%file_parameters%initialize(filename=trim(filename))
-   call self%file_parameters%load
-   call self%load_from_file(file_parameters=self%file_parameters)
-   print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'io_object%initialize finish'
+   if (.not.self%is_initialized) then
+      verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+      call self%mpih%initialize(verbose=verbose_)
+      print '(A)', self%mpih%myrankstr//'io_object%initialize start'
+      call self%file_parameters%initialize(filename=trim(filename))
+      call self%file_parameters%load
+      call self%load_from_file(file_parameters=self%file_parameters)
+      self%is_initialized = .true.
+      print '(A)', self%description()
+      print '(A)', self%mpih%myrankstr//'io_object%initialize finish'
+   endif
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)

@@ -34,14 +34,6 @@ type :: prism_numerics_object
    type(mpih_object)         :: mpih                            !< MPI handler.
    character(:), allocatable :: scheme_time                     !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    character(:), allocatable :: scheme_space                    !< Numerical scheme for space operator [weno, centered].
-   integer(I4P)              :: fdv_order=2_I4P                 !< Order of finite difference/volume schemes, general order.
-   integer(I4P)              :: fdv_half_stencil=1_I4P          !< Half stencil length of finite difference/volume schemes.
-   integer(I4P)              :: fdv_half_stencils(6)=[1_I4P,&
-                                                      1_I4P,&
-                                                      1_I4P,&
-                                                      1_I4P,&
-                                                      1_I4P,&
-                                                      1_I4P]    !< Half stencil length of fdv schemes for each derivative up to 6.
    character(:), allocatable :: reconstruction_vars             !< Type of WENO reconstruction variables (cons., charct.,...).
    logical                   :: constrained_transport_D=.false. !< Enable Constrained Transport Correction on D.
    logical                   :: constrained_transport_B=.false. !< Enable Constrained Transport Correction on D.
@@ -66,8 +58,6 @@ contains
    desc =       self%mpih%myrankstr//'numerics main data:'                                                                    //NL
    desc = desc//self%mpih%myrankstr//'  Numerical scheme for time operator:               '//self%scheme_time                 //NL
    desc = desc//self%mpih%myrankstr//'  Numerical scheme for space operator:              '//self%scheme_space                //NL
-   desc = desc//self%mpih%myrankstr//'  Order of finite difference/volume schemes:        '//trim(str(self%fdv_order))        //NL
-   desc = desc//self%mpih%myrankstr//'  Half stencil of finite difference/volume schemes: '//trim(str(self%fdv_half_stencil)) //NL
    desc = desc//self%mpih%myrankstr//'  Reconstruction variables:                         '//self%reconstruction_vars         //NL
    desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on D:     '//str(self%constrained_transport_D)//NL
    desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on B:     '//str(self%constrained_transport_B)//NL
@@ -129,17 +119,6 @@ contains
       call self%mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to WENO scheme')
       self%scheme_space = NUM_SCHEME_SPACE_WENO
    endselect
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='fdv_order', val=self%fdv_order,error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_order)')
-   ! valid only for centered schems
-   self%fdv_half_stencil = self%fdv_order / 2
-   self%fdv_half_stencils(1) = self%fdv_half_stencil + 0
-   self%fdv_half_stencils(2) = self%fdv_half_stencil + 0
-   self%fdv_half_stencils(3) = self%fdv_half_stencil + 1
-   self%fdv_half_stencils(4) = self%fdv_half_stencil + 1
-   self%fdv_half_stencils(5) = self%fdv_half_stencil + 2
-   self%fdv_half_stencils(6) = self%fdv_half_stencil + 2
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &

@@ -181,11 +181,12 @@ endinterface
 
 contains
    ! public methods
-   subroutine initialize(self, filename, memory_avail, verbose)
+   subroutine initialize(self, filename, memory_avail, nv, verbose)
    !< Initialize common data: MPI, ADAM, grid, field and data replica pointers.
    class(equation_object), intent(inout), target :: self         !< The equation.
    character(*),           intent(in)            :: filename     !< Input parameters file name.
    real(R8P),              intent(in), value     :: memory_avail !< Memory available for single MPI process.
+   integer(I4P),           intent(in), optional  :: nv           !< Number of field variables.
    logical,                intent(in), optional  :: verbose      !< Trigger verbose output.
    logical                                       :: verbose_     !< Trigger verbose output, local variable.
    integer(I8P)                                  :: nodes_number !< Allocated nodes on tree.
@@ -196,7 +197,7 @@ contains
    if (verbose_) call self%mpih%print_message('equation_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-      call self%adam%initialize(file_parameters=file_parameters,verbose=verbose_)
+      call self%adam%initialize(file_parameters=file_parameters, nv=nv, verbose=verbose_)
       self%grid => self%adam%grid
       self%field => self%adam%field
       call self%io%associate_grid_field(grid=self%adam%grid, field=self%adam%field)

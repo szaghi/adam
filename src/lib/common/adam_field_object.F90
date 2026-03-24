@@ -388,13 +388,14 @@ contains
       endsubroutine check_slab
    endfunction do_ray_intersect
 
-   subroutine initialize(self, grid, maps, nb, file_parameters, verbose)
+   subroutine initialize(self, grid, maps, nb, file_parameters, nv, verbose)
    !< Initialize field.
    class(field_object),    intent(inout)        :: self            !< The field.
    type(grid_object),      intent(in), target   :: grid            !< The grid.
    type(maps_object),      intent(in), target   :: maps            !< The maps.
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
    integer(I4P),           intent(in)           :: nb              !< Number of all blocks that can be stored.
+   integer(I4P),           intent(in), optional :: nv              !< Number of field variables.
    logical,                intent(in), optional :: verbose         !< Trigger verbose output.
    logical                                      :: verbose_        !< Trigger verbose output, local variable.
 
@@ -404,7 +405,7 @@ contains
    self%grid => grid
    self%maps => maps
    self%nb = nb
-   call self%load_from_ini_file(file_parameters)
+   call self%load_from_ini_file(file_parameters, nv)
    self%block_weight = (self%grid%ngc+self%grid%ni+self%grid%ngc)* &
                        (self%grid%ngc+self%grid%nj+self%grid%ngc)* &
                        (self%grid%ngc+self%grid%nk+self%grid%ngc)*self%nv
@@ -542,19 +543,25 @@ contains
    endif
    endsubroutine load_blocks
 
-   subroutine load_from_ini_file(self, file_parameters, go_on_fail)
+   subroutine load_from_ini_file(self, file_parameters, nv, go_on_fail)
    !< Load object data from INI file.
    class(field_object), intent(inout)        :: self            !< The field.
    type(file_ini),      intent(inout)        :: file_parameters !< INI file handler.
+   integer(I4P),        intent(in), optional :: nv              !< Number of field variables.
    logical,             intent(in), optional :: go_on_fail      !< Go on if load fails.
    logical                                   :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                              :: error           !< Error status.
    integer(I4P)                              :: buff_I4P        !< I4P buffer.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nv', val=buff_I4P, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nv)')
-   self%nv = buff_I4P
+
+   if (present(nv)) then
+      self%nv = nv
+   else
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nv', val=buff_I4P, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nv)')
+      self%nv = buff_I4P
+   endif
    endsubroutine load_from_ini_file
 
    subroutine mark_sphere(self, center, radius, threshold)
@@ -1335,7 +1342,6 @@ contains
    !< Update coordinates using the updated data in maps (that in turn is updated by tree).
    class(field_object), intent(inout) :: self !< The field.
 
-   print*, 'cazzo tree coordinates',allocated(self%maps%tree%block_coordinates)
    if (self%blocks_number>0) self%coordinates(:, 1:self%blocks_number) = self%maps%tree%block_coordinates
    endsubroutine update_coordinates
 endmodule adam_field_object

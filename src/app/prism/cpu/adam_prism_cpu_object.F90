@@ -219,17 +219,17 @@ contains
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
-      if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
-         call self%slices%save_mat(basename=self%io%output_basename, &
-                                   it=self%time%it,                  &
-                                   it_max=self%time%it_max,          &
-                                   time=self%time%time,              &
-                                   time_max=self%time%time_max,      &
-                                   adam=self%adam,                   &
-                                   q=self%q,                         &
-                                   q_name=self%q_name)
+      ! if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
+      !    call self%slices%save_mat(basename=self%io%output_basename, &
+      !                              it=self%time%it,                  &
+      !                              it_max=self%time%it_max,          &
+      !                              time=self%time%time,              &
+      !                              time_max=self%time%time_max,      &
+      !                              adam=self%adam,                   &
+      !                              q=self%q,                         &
+      !                              q_name=self%q_name)
 
-      endif
+      ! endif
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
       call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic)
@@ -858,7 +858,7 @@ contains
       real(R8P)                 :: n(3)           !< Boundary normal direction
 
       associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
-                s=>self%numerics%fdv_half_stencils(1), dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:))
+                s=>self%fdv_half_stencils(1), dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:))
       poynting_flux = 0.0_R8P
       !Faccia -x
       n = [-1.0_R8P, 0.0_R8P, 0.0_R8P]
@@ -978,7 +978,7 @@ contains
    integer(I4P)                           :: i,j,k,b,v !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%fdv_half_stencil)
    call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(4,:,:,:,:))
    if (blocks_number>0) then
       do iter=1, self%flail%iterations
@@ -1043,7 +1043,7 @@ contains
    ! call self%amr_update
    call self%update_ghost(q=self%q) ! Aggiunto da FN
 
-   associate(hs=>self%numerics%fdv_half_stencil)
+   associate(hs=>self%fdv_half_stencil)
    call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
@@ -1178,8 +1178,8 @@ contains
 	call self%update_ghost(q=q, s=s)
 	associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
 	          dxyz=>self%field%dxyz,                                                                                   &
-	          s1=>self%numerics%fdv_half_stencils(1),                                                                  &
-	          s4=>self%numerics%fdv_half_stencils(4),                                                                  &
+	          s1=>self%fdv_half_stencils(1),                                                                           &
+	          s4=>self%fdv_half_stencils(4),                                                                           &
 				 chi =>self%physics%chi, constrained_transport_D=>self%numerics%constrained_transport_D,						 &
              constrained_transport_B=>self%numerics%constrained_transport_B,														 &
 	          var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
@@ -1350,7 +1350,7 @@ contains
    call self%update_ghost(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,   &
-             s=>self%numerics%fdv_half_stencils(1),                                                                   &
+             s=>self%fdv_half_stencils(1),                                                                            &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi)
    if (blocks_number > 0) then
       ! compute fluxes at cell centers
@@ -2011,7 +2011,7 @@ contains
    !buffer(4:6,:,:,:,:) è usato come buffer per il gradiente di q
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,&
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%fdv_half_stencil)
    div_buff (:,:,:,:,:) = 0.0_R8P
    grad_buff(:,:,:,:,:) = 0.0_R8P
    dq_buff  (:,:,:,:,:) = 0.0_R8P

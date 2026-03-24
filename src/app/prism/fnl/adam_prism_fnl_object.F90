@@ -706,15 +706,15 @@ contains
    real(R8P),               intent(in)    :: q_gpu(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
    real(R8P),               intent(inout) :: curl_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
 
-   call  compute_curl_fd_dev_kernel(ni            = self%ni                           ,&
-                                    nj            = self%nj                           ,&
-                                    nk            = self%nk                           ,&
-                                    ngc           = self%ngc                          ,&
-                                    blocks_number = self%blocks_number                ,&
-                                    ivar          = ivar                              ,&
-                                    s1            = self%numerics%fdv_half_stencils(1),&
-                                    dxyz_gpu      = self%field_gpu%dxyz_gpu           ,&
-                                    q_gpu         = q_gpu                             ,&
+   call  compute_curl_fd_dev_kernel(ni            = self%ni                  ,&
+                                    nj            = self%nj                  ,&
+                                    nk            = self%nk                  ,&
+                                    ngc           = self%ngc                 ,&
+                                    blocks_number = self%blocks_number       ,&
+                                    ivar          = ivar                     ,&
+                                    s1            = self%fdv_half_stencils(1),&
+                                    dxyz_gpu      = self%field_gpu%dxyz_gpu  ,&
+                                    q_gpu         = q_gpu                    ,&
                                     curl_gpu      = curl_gpu)
    contains
       subroutine compute_curl_fd_dev_kernel(ni,nj,nk,ngc,blocks_number, &
@@ -768,7 +768,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                             !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%fdv_half_stencils(1))
 
    endassociate
    endsubroutine compute_curl_fv_dev
@@ -784,7 +784,7 @@ contains
    integer(I4P)                           :: is,js,ks                                          !< Stencils.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%fdv_half_stencils(1))
 
    endassociate
    endsubroutine compute_derivative1_fd_dev
@@ -800,7 +800,7 @@ contains
    integer(I4P)                           :: is,js,ks                                          !< Stencils.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%fdv_half_stencils(1))
 
    endassociate
    endsubroutine compute_derivative1_fv_dev
@@ -816,7 +816,7 @@ contains
    integer(I4P)                           :: is,js,ks                                            !< Stencils.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%fdv_half_stencils(1))
 
    endassociate
    endsubroutine compute_derivative2_fd_dev
@@ -832,7 +832,7 @@ contains
    integer(I4P)                           :: is,js,ks                                            !< Stencils.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%fdv_half_stencils(1))
 
    endassociate
    endsubroutine compute_derivative2_fv_dev
@@ -848,7 +848,7 @@ contains
    integer(I4P)                           :: is,js,ks                                            !< Stencils.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%fdv_half_stencils(1))
 
    endassociate
    endsubroutine compute_derivative4_fd_dev
@@ -862,16 +862,16 @@ contains
    real(R8P),               intent(in)    :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)          !< Field variables.
    real(R8P),               intent(inout) :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
 
-   call  compute_divergence_fd_dev_kernel(ni             = self%ni                           ,&
-                                          nj             = self%nj                           ,&
-                                          nk             = self%nk                           ,&
-                                          ngc            = self%ngc                          ,&
-                                          blocks_number  = self%blocks_number                ,&
-                                          ivar           = ivar                              ,&
-                                          ovar           = ovar                              ,&
-                                          s1             = self%numerics%fdv_half_stencils(1),&
-                                          dxyz_gpu       = self%field_gpu%dxyz_gpu           ,&
-                                          q_gpu          = q_gpu                             ,&
+   call  compute_divergence_fd_dev_kernel(ni             = self%ni                  ,&
+                                          nj             = self%nj                  ,&
+                                          nk             = self%nk                  ,&
+                                          ngc            = self%ngc                 ,&
+                                          blocks_number  = self%blocks_number       ,&
+                                          ivar           = ivar                     ,&
+                                          ovar           = ovar                     ,&
+                                          s1             = self%fdv_half_stencils(1),&
+                                          dxyz_gpu       = self%field_gpu%dxyz_gpu  ,&
+                                          q_gpu          = q_gpu                    ,&
                                           divergence_gpu = divergence_gpu)
    contains
       subroutine compute_divergence_fd_dev_kernel(ni,nj,nk,ngc,blocks_number, &
@@ -924,7 +924,7 @@ contains
    real(R8P)                              :: ql, qr                                                 !< Left/right reconstructions.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%fdv_half_stencils(1))
 
    endassociate
    endsubroutine compute_divergence_fv_dev
@@ -938,7 +938,7 @@ contains
    integer(I4P)                           :: i, j, k, b                                              !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%fdv_half_stencils(1))
 
    endassociate
    endsubroutine compute_gradient_fd_dev
@@ -952,7 +952,7 @@ contains
    integer(I4P)                           :: i, j, k, b                                              !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%fdv_half_stencils(1))
 
    endassociate
    endsubroutine compute_gradient_fv_dev
@@ -966,7 +966,7 @@ contains
    integer(I4P)                           :: i, j, k, b                                            !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(2))
+             hs=>self%fdv_half_stencils(2))
 
    endassociate
    endsubroutine compute_laplacian_fd_dev
@@ -980,7 +980,7 @@ contains
    integer(I4P)                           :: i, j, k, b                                            !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(2))
+             hs=>self%fdv_half_stencils(2))
 
    endassociate
    endsubroutine compute_laplacian_fv_dev
@@ -1004,17 +1004,17 @@ contains
    if (self%blocks_number > 0) then
       call self%apply_fwl_correction(q_gpu=q_gpu)
       call self%update_ghost(q_gpu=q_gpu, s=s)
-      call compute_residuals_fd_centered_dev_kernel(ni            = self%ni                           ,&
-                                                    nj            = self%nj                           ,&
-                                                    nk            = self%nk                           ,&
-                                                    ngc           = self%ngc                          ,&
-                                                    blocks_number = self%blocks_number                ,&
-                                                    var_jx        = self%physics%var_jx               ,&
-                                                    var_jy        = self%physics%var_jy               ,&
-                                                    var_jz        = self%physics%var_jz               ,&
-                                                    s1            = self%numerics%fdv_half_stencils(1),&
-                                                    dxyz_gpu      = self%field_gpu%dxyz_gpu           ,&
-                                                    q_gpu         = q_gpu                             ,&
+      call compute_residuals_fd_centered_dev_kernel(ni            = self%ni                  ,&
+                                                    nj            = self%nj                  ,&
+                                                    nk            = self%nk                  ,&
+                                                    ngc           = self%ngc                 ,&
+                                                    blocks_number = self%blocks_number       ,&
+                                                    var_jx        = self%physics%var_jx      ,&
+                                                    var_jy        = self%physics%var_jy      ,&
+                                                    var_jz        = self%physics%var_jz      ,&
+                                                    s1            = self%fdv_half_stencils(1),&
+                                                    dxyz_gpu      = self%field_gpu%dxyz_gpu  ,&
+                                                    q_gpu         = q_gpu                    ,&
                                                     dq_gpu        = dq_gpu)
    endif
    contains
@@ -1399,7 +1399,7 @@ contains
       coil_power = 0._R8P
    endif
    call compute_poynting_flux_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
-                                         s=self%numerics%fdv_half_stencils(1),                                          &
+                                         s=self%fdv_half_stencils(1),                                                   &
                                          dxyz_gpu=self%field_gpu%dxyz_gpu,q_gpu=self%q_gpu,poynting_flux=poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)

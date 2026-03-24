@@ -19,6 +19,7 @@ use :: adam_prism_physics_object, only : prism_physics_object
 ! third party modules
 use :: finer, only : file_ini
 use :: penf, only : I4P, R8P, str
+use :: stringifor
 
 implicit none
 private
@@ -29,16 +30,16 @@ character(len=7), parameter :: INI_SECTION_NAME='fWLayer' !< INI file section na
 
 type :: prism_fWLayer_object
    !< PRISM fWLayer class definition.
-   type(mpih_object)      :: mpih                                  !< MPI handler.
-   logical                :: layer(6) = .false.                    !< Layer flags for each side (-x, +x, -y, +y, -z, +z).
-   integer(I4P)           :: C        = 0_I4P                      !< Layer cell width.
-   integer(I4P)           :: ni_fWL(2,6), nj_fWL(2,6), nk_fWL(2,6) !< Dimensions of FWL domain.
-   real(R8P)              :: s2(6)                                 !< Side coefficient.
-   integer(I4P)           :: n(6)                                  !< FWL f function index.
-   integer(I4P)           :: alfa_D(6), beta_D(6)                  !< Corrected var index of D (Barbas' notation).
-   integer(I4P)           :: alfa_B(6), beta_B(6)                  !< Corrected var index of B (Barbas' notation).
-   real(R8P), allocatable :: f(:,:,:,:,:)                          !< fWLayer function values.
-
+   type(mpih_object)         :: mpih                                  !< MPI handler.
+   logical                   :: layer(6) = .false.                    !< Layer flags for each side (-x, +x, -y, +y, -z, +z).
+   integer(I4P)              :: C        = 0_I4P                      !< Layer cell width.
+   integer(I4P)              :: ni_fWL(2,6), nj_fWL(2,6), nk_fWL(2,6) !< Dimensions of FWL domain.
+   real(R8P)                 :: s2(6)                                 !< Side coefficient.
+   integer(I4P)              :: n(6)                                  !< FWL f function index.
+   integer(I4P)              :: alfa_D(6), beta_D(6)                  !< Corrected var index of D (Barbas' notation).
+   integer(I4P)              :: alfa_B(6), beta_B(6)                  !< Corrected var index of B (Barbas' notation).
+   real(R8P), allocatable    :: f(:,:,:,:,:)                          !< fWLayer function values.
+   type(string), allocatable :: f_name(:)                             !< fWLayer function values names.
 contains
   ! public methods
   procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -94,7 +95,11 @@ contains
             alfa_D=>self%alfa_D, alfa_B=>self%alfa_B, beta_D=>self%beta_D, beta_B=>self%beta_B)
 
    allocate(self%f(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   allocate(self%f_name(1:3))
    self%f = 1.0_R8P
+   self%f_name(1) = 'fWLayer_x'
+   self%f_name(2) = 'fWLayer_y'
+   self%f_name(3) = 'fWLayer_z'
    C_r = real(C, R8P)
 
    if (C >0) then
@@ -324,7 +329,6 @@ contains
       enddo
    enddo
    endsubroutine apply_fWL_correction_fun
-
 endmodule adam_prism_fWLayer_object
 
    !subroutine apply_fWL_correction(self, q)

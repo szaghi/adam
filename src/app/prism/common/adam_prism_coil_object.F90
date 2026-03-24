@@ -3,14 +3,15 @@ module adam_prism_coil_object
     !< ADAM, PRISM coil source definition, CPU backend.
 
 ! ADAM modules
-use adam_field_object, only : field_object
-use adam_mpih_object, only : mpih_object
+use :: adam_field_object, only : field_object
+use :: adam_mpih_object, only : mpih_object
 ! PRISM modules
-use adam_prism_physics_object, only : prism_physics_object
-use adam_prism_parameters
+use :: adam_prism_physics_object, only : prism_physics_object
+use :: adam_prism_parameters
 ! third party modules
-use finer
-use penf
+use :: finer
+use :: penf
+use :: stringifor
 
 implicit none
 private
@@ -62,6 +63,8 @@ type :: prism_coil_object
    integer(I4P)                   :: circular_coils_number=0_I4P           !< Number of circular coils
    integer(I4P)                   :: rectangular_coils_number=0_I4P        !< Number of rectangular coils
    integer(I4P)                   :: total_coils_number=0_I4P              !< Number of coils
+   type(string), allocatable      :: j_vec_name(:,:)                       !< J vec names.
+   type(string)                   :: coil_flag_name                        !< Coil flag name.
    ! grid data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -89,7 +92,8 @@ contains
    ! public methods
    subroutine allocate_coil(self)
    !< Allocate coil data.
-   class(prism_coil_object), intent(inout) :: self            !< Coils.
+   class(prism_coil_object), intent(inout) :: self !< Coils.
+   integer(I4P)                            :: c    !< Counter.
 
    associate(ngc=>self%ngc,ni=>self%ni,nj=>self%nj,nk=>self%nk,nb=>self%nb,total_coils_number=>self%total_coils_number)
 
@@ -111,6 +115,14 @@ contains
 
    allocate(self%coil_flag(1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%coil_flag = 0_I4P
    allocate(self%J_vec(4,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb,total_coils_number)) ; self%J_vec = 0._R8P
+   self%coil_flag_name = 'coil_flag'
+   allocate(self%j_vec_name(4,total_coils_number))
+   do c=1, self%total_coils_number
+      self%j_vec_name(1,c) = 'coil_'//trim(strz(c,2))//'_j_vec_1'
+      self%j_vec_name(2,c) = 'coil_'//trim(strz(c,2))//'_j_vec_2'
+      self%j_vec_name(3,c) = 'coil_'//trim(strz(c,2))//'_j_vec_3'
+      self%j_vec_name(4,c) = 'coil_'//trim(strz(c,2))//'_f_Gauss'
+   enddo
 
    endassociate
    endsubroutine allocate_coil
@@ -165,7 +177,7 @@ contains
          desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
          desc = desc//NL//self%mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
          desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
-         desc = desc//NL//self%mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))         
+         desc = desc//NL//self%mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
          endselect
       enddo
    else

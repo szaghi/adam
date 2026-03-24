@@ -52,7 +52,11 @@ type, extends(equation_object) :: prism_common_object
    real(R8P),    allocatable :: pic_fields(      :,:) !< Fields value at particle locations.
    real(R8P),    allocatable :: curl(      :,:,:,:,:) !< Curl fields.
    real(R8P),    allocatable :: divergence(:,:,:,:,:) !< Divergence fields.
-   character(3), allocatable :: q_name(:)             !< Fields names [1:nv].
+   type(string), allocatable :: q_name(:)             !< Fields names [1:nv].
+   type(string), allocatable :: dq_name(:)            !< Residuals names [1:nv].
+   type(string), allocatable :: q_pic_name(:)         !< PIC Fields names.
+   type(string), allocatable :: curl_name(:)          !< Curl fields names.
+   type(string), allocatable :: div_name(:)           !< Divergence fields names.
    ! auxiliary data
    real(R8P), allocatable :: energy_D(:)                !< Energy of field D, time history.
    real(R8P), allocatable :: energy_B(:)                !< Energy of field B, time history.
@@ -118,11 +122,7 @@ contains
                                        1,nb],[2,5]), &
                           msg=self%mpih%myrankstr//'prism_common_object%allocate_common(divergence) ', verbose=.true.)
    self%divergence = 0._R8P
-   if (allocated(self%fWLayer%f)) then
-      self%divergence(4,:,:,:,:) = self%fWLayer%f(1,:,:,:,:)
-      self%divergence(5,:,:,:,:) = self%fWLayer%f(2,:,:,:,:)
-      self%divergence(6,:,:,:,:) = self%fWLayer%f(3,:,:,:,:)
-   endif
+
    call allocate_variable(var=self%curl,             &
                           ulb=reshape([1,self%nv,    &
                                        1-ngc,ni+ngc, &
@@ -132,7 +132,13 @@ contains
                           msg=self%mpih%myrankstr//'prism_common_object%allocate_common(curl) ', verbose=.true.)
    self%curl = 0._R8P
 
+   allocate(self%q_name(   self%nv))
+   allocate(self%dq_name(  self%nv))
+   allocate(self%div_name( self%nv))
+   allocate(self%curl_name(self%nv))
+
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      ! allocate(q_pic_name(:))
       call allocate_variable(var=self%q_pic,                          &
                              ulb=reshape([1,8,                        &
                                           1,particle_number],[2,2]),  &
@@ -151,7 +157,7 @@ contains
    !< Compute auxiliary fields.
    class(prism_common_object), intent(inout) :: self !< The equation.
 
-   associate(hs=>self%numerics%fdv_half_stencil,var_jx=>self%physics%var_jx)
+   associate(hs=>self%fdv_half_stencil,var_jx=>self%physics%var_jx)
    if (self%io%save_divergence_fields) then
       call self%compute_divergence(hs=hs,ivar=VAR_DX,q=self%q,divergence=self%divergence(1,:,:,:,:))
       call self%compute_divergence(hs=hs,ivar=VAR_BX,q=self%q,divergence=self%divergence(2,:,:,:,:))
@@ -165,20 +171,19 @@ contains
    endassociate
    endsubroutine compute_auxiliary_fields
 
-   subroutine initialize(self, filename, memory_avail, verbose)
+   subroutine initialize(self, filename, memory_avail, nv, verbose)
    !< Initialize the equation common data.
    class(prism_common_object), intent(inout), target :: self         !< The equation.
    character(*),               intent(in)            :: filename     !< Input file name.
    real(R8P),                  intent(in), value     :: memory_avail !< Memory available for single MPI process.
+   integer(I4P),               intent(in), optional  :: nv           !< Number of field variables.
    logical,                    intent(in), optional  :: verbose      !< Trigger verbose output.
    logical                                           :: verbose_     !< Trigger verbose output, local variable.
 
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call self%equation_object%initialize(filename=filename, memory_avail=memory_avail, verbose=verbose_)
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize start')
+   call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-   call self%bc%initialize(file_parameters=file_parameters)
-   call self%grid%set_bc_type(bc_type=self%bc%bc_type)
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call self%numerics%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters,                              &
                                 reconstruction_vars=self%numerics%reconstruction_vars,        &
@@ -189,6 +194,9 @@ contains
    self%nv_s   => self%physics%nv_s
    self%nv_cl  => self%physics%nv_cl
    !self%nv_pic => physics%nv_pic
+   call self%equation_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, verbose=verbose_)
+   call self%bc%initialize(file_parameters=file_parameters)
+   call self%grid%set_bc_type(bc_type=self%bc%bc_type)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%pic%initialize(file_parameters=file_parameters,field=self%field)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
@@ -226,89 +234,59 @@ contains
             call self%mpih%error_stop(msg=': ghost cells number (ngc) must be >= of weno stencil number (weno%S):'//&
                                       ' ngc='//trim(str(self%grid%ngc))//' weno%S='//trim(str(self%weno%S)))
       endif
-      if (self%numerics%fdv_half_stencil > self%grid%ngc) &
-         call self%mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (numerics%fdv_hs):'//&
-                                  ' ngc='//trim(str(self%grid%ngc))//' numerics%fdv_hs='//trim(str(self%numerics%fdv_half_stencil)))
+      if (self%fdv_half_stencil > self%grid%ngc) &
+         call self%mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (fdv_hs):'//&
+                                   ' ngc='//trim(str(self%grid%ngc))//' fdv_hs='//trim(str(self%fdv_half_stencil)))
       endsubroutine check_ngc_number
 
       subroutine io_initialize
       !< Initialize IO data.
-      character(6),  allocatable :: q1_R8P_name(:) !< Variables names buffer.
-      character(5),  allocatable :: q2_R8P_name(:) !< Variables names buffer.
-      character(7),  allocatable :: q3_R8P_name(:) !< Variables names buffer.
-      character(7),  allocatable :: q4_R8P_name(:) !< Variables names buffer.
-      integer(I4P)               :: c              !< Counter.
+      character(9),  allocatable :: q_name(:) !< Variables names buffer.
+      logical                    :: add_rho   !< Flag to add rho for PIC.
+      integer(I4P)               :: v         !< Counter.
 
-      if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
-         select case(self%numerics%div_corr_var)
-         case(DIV_CORR_VAR_POISS)
-            self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-            q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz']
-            q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09']
-         case(DIV_CORR_VAR_HYPER)
-            if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
-               self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','Jx ','Jy ','Jz ']
-               q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_Jx','res_Jy','res_Jz']
-               q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
-            elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-               self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','psi','Jx ','Jy ','Jz ']
-               q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ps','res_Jx','res_Jy','res_Jz']
-               q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
-            elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-               self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','psi','Jx ','Jy ','Jz ']
-               q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_ps','res_Jx','res_Jy','res_Jz']
-               q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11']
-            endif
-         case default
-            self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-            q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz']
-            q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09']
-         endselect
-         q4_R8P_name = ['curlD_x','curlD_y','curlD_z','curlB_x','curlB_y','curlB_z','curlJ_x','curlJ_y','curlJ_z']
-         ! if (self%io%save_residual_fields) call self%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
-         ! if (self%io%save_divergence_fields) call self%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
-         if (self%coil%total_coils_number>0) then
-            q3_R8P_name = ['j_vec_1','j_vec_2','j_vec_3','f_Gauss']
-            ! call self%io%register_aux_field(q3_R8P=self%coil%j_vec(:,:,:,:,:,1),q3_R8P_name=q3_R8P_name)
-            ! call self%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
-         endif
-         ! if (self%io%save_curl_fields) call self%io%register_aux_field(q4_R8P=self%curl,q4_R8P_name=q4_R8P_name)
-      elseif(self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-         select case(self%numerics%div_corr_var)
-         case(DIV_CORR_VAR_POISS)
-            self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ','rho']
-            q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz','res_rh']
-            q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
-         case(DIV_CORR_VAR_HYPER)
-            if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
-               self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','Jx ','Jy ','Jz ','rho']
-               q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_Jx','res_Jy','res_Jz','res_rh']
-               q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11']
-            elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-               self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','psi','Jx ','Jy ','Jz ','rho']
-               q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ps','res_Jx','res_Jy','res_Jz','res_rh']
-               q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11']
-            elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-               self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','psi','Jx ','Jy ','Jz ','rho']
-               q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_ps','res_Jx','res_Jy', &
-                              'res_Jz','res_rh']
-               q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11','div12']
-            endif
-         case default
-            self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ','rho']
-            q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz','res_rh']
-            q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
-         endselect
-         q4_R8P_name = ['curlD_x','curlD_y','curlD_z','curlB_x','curlB_y','curlB_z','curlJ_x','curlJ_y','curlJ_z']
-         ! if (self%io%save_residual_fields) call self%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
-         ! if (self%io%save_divergence_fields) call self%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
-         if (self%coil%total_coils_number>0) then
-            q3_R8P_name = ['j_vec_1','j_vec_2','j_vec_3','f_Gauss']
-            ! call self%io%register_aux_field(q3_R8P=self%coil%j_vec(:,:,:,:,:,1),q3_R8P_name=q3_R8P_name)
-            ! call self%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
-         endif
-         ! if (self%io%save_curl_fields) call self%io%register_aux_field(q4_R8P=self%curl,q4_R8P_name=q4_R8P_name)
-      endif
+      add_rho = self%physics%physical_model == PIC_PHYSICAL_MODEL
+      associate(add_phi=>self%numerics%constrained_transport_D, &
+                add_psi=>self%numerics%constrained_transport_B)
+                   q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ']
+      if (add_phi) q_name = [q_name, 'phi']
+      if (add_psi) q_name = [q_name, 'psi']
+                   q_name = [q_name, 'Jx ','Jy ','Jz ']
+      if (add_rho) q_name = [q_name, 'rho']
+      do v=1, size(q_name,dim=1)
+         self%q_name(v) = trim(q_name(v))
+      enddo
+      if (allocated(q_name)) deallocate(q_name)
+
+                   q_name = ['res_Dx ','res_Dy ','res_Dz ','res_Bx ','res_By ','res_Bz ']
+      if (add_phi) q_name = [q_name, 'res_phi']
+      if (add_psi) q_name = [q_name, 'res_psi']
+                   q_name = [q_name, 'res_Jx ','res_Jy ','res_Jz ']
+      if (add_rho) q_name = [q_name, 'res_rho']
+      do v=1, size(q_name,dim=1)
+         self%dq_name(v) = trim(q_name(v))
+      enddo
+      if (allocated(q_name)) deallocate(q_name)
+
+                   q_name = ['div_D ','div_B ','div_J ','div_04','div_05','div_06']
+      if (add_phi) q_name = [q_name, 'div_07']
+      if (add_psi) q_name = [q_name, 'div_08']
+                   q_name = [q_name, 'div_09','div_10','div_11']
+      if (add_rho) q_name = [q_name, 'div_12']
+      do v=1, size(q_name,dim=1)
+         self%div_name(v) = trim(q_name(v))
+      enddo
+      if (allocated(q_name)) deallocate(q_name)
+
+                   q_name = ['curl_Dx','curl_Dy','curl_Dz','curl_Bx','curl_By','curl_Bz']
+      if (add_phi) q_name = [q_name, 'curl_07']
+      if (add_psi) q_name = [q_name, 'curl_08']
+                   q_name = [q_name, 'curl_Jx','curl_Jy','curl_Jz']
+      if (add_rho) q_name = [q_name, 'curl_12']
+      do v=1, size(q_name,dim=1)
+         self%curl_name(v) = trim(q_name(v))
+      enddo
+      endassociate
       endsubroutine io_initialize
    endsubroutine initialize
 
@@ -333,7 +311,7 @@ contains
    real(R8P)                                        :: max_div_J   !< Maximum of divergence of J field.
    real(R8P)                                        :: r           !< Auxiliary variable to identify fWL presence
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%numerics%fdv_half_stencils(1))
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
    r = nint(real(C)/(real(C)+1_I4P))
    if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
       max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
@@ -400,7 +378,6 @@ contains
    integer(I4P)                                     :: ngc              !< Ghost cells saved.
    integer(I4P)                                     :: ijk(2,3)         !< Blocks extents.
    integer(I8P)                                     :: nijk(3)          !< Blocks dimensions.
-   type(string), allocatable                        :: q_name(:)        !< Q-vector variables names [nv].
    character(:), allocatable                        :: bn               !< Block name.
    integer(I4P)                                     :: b, c, v          !< Counter.
 
@@ -412,12 +389,6 @@ contains
    with_ghost_      = .false. ; if (present(with_ghost      )) with_ghost_       = with_ghost
 
    if (present(output_basename)) output_basename_ = trim(output_basename)
-
-   ! call self%save_q_xh5f(basename=trim(output_basename_), &
-   !                       q=self%q, q_name=self%q_name,    &
-   !                       with_ghost=with_ghost,           &
-   !                       with_cell_morton=.true.,         &
-   !                       t=self%time%it, time=self%time%time)
 
    ngc = 0_I4P ; if (with_ghost_) ngc = self%grid%ngc
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
@@ -433,38 +404,30 @@ contains
       bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(self%mpih%myrank,6))
       call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
 
-      allocate(q_name(size(self%q, dim=1)))
-      do v=1, size(self%q, dim=1)
-         q_name(v) = trim(adjustl(self%q_name(v)))
-      enddo
-      call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=q_name)
-      deallocate(q_name)
+      call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=self%q_name)
 
       if (self%coil%total_coils_number>0) then
-         allocate(q_name(1))
-         q_name(1) = 'coil_flag'
-         call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%coil%coil_flag(:,:,:,b), q_name=q_name(1))
-         deallocate(q_name)
-
-         allocate(q_name(4))
+         call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
+                                 q=self%coil%coil_flag(:,:,:,b), q_name=self%coil%coil_flag_name)
          do c=1, self%coil%total_coils_number
-            q_name(1) = 'coil_'//trim(strz(c,2))//'j_vec_1'
-            q_name(2) = 'coil_'//trim(strz(c,2))//'j_vec_2'
-            q_name(3) = 'coil_'//trim(strz(c,2))//'j_vec_3'
-            q_name(4) = 'coil_'//trim(strz(c,2))//'f_Gauss'
-            call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%coil%j_vec(:,:,:,:,b,c), q_name=q_name)
+            call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
+                                    q=self%coil%j_vec(:,:,:,:,b,c), q_name=self%coil%j_vec_name(:,c))
          enddo
-         deallocate(q_name)
       endif
 
-      if (self%fWLayer%C>0) then
-         allocate(q_name(3))
-         q_name(1) = 'fWLayer_x'
-         q_name(2) = 'fWLayer_y'
-         q_name(3) = 'fWLayer_z'
-         call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%fWLayer%f(:,:,:,:,b), q_name=q_name)
-         deallocate(q_name)
-      endif
+      if (self%fWLayer%C>0) &
+         call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
+                                 q=self%fWLayer%f(:,:,:,:,b), q_name=self%fWLayer%f_name)
+
+      if (self%io%save_residual_fields) &
+         call self%io%save_field(xh5f=xh5f,block_name=bn,ijk=ijk,nijk=nijk,q=self%dq(:,:,:,:,b), q_name=self%dq_name)
+
+      if (self%io%save_curl_fields) &
+         call self%io%save_field(xh5f=xh5f,block_name=bn,ijk=ijk,nijk=nijk,q=self%curl(:,:,:,:,b), q_name=self%curl_name)
+
+      if (self%io%save_divergence_fields) &
+         call self%io%save_field(xh5f=xh5f,block_name=bn,ijk=ijk,nijk=nijk,q=self%divergence(:,:,:,:,b), q_name=self%div_name)
+
       call self%close_block_xh5f(xh5f=xh5f)
    enddo
    call self%close_file_xh5f(xh5f=xh5f)
@@ -763,7 +726,7 @@ contains
             call self%set_solenoid_z(n=n, verse = -1._R8P)
          endselect
       endselect
-      call self%compute_divergence(hs=self%numerics%fdv_half_stencil,ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),&
+      call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),&
                                    divergence=self%divergence(3,:,:,:,:))
       print '(A)', self%mpih%myrankstr//'Divergenza J vec della spira: ' &
                   //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
@@ -790,7 +753,7 @@ contains
             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
             z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
-            hs=>self%numerics%fdv_half_stencil)
+            hs=>self%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a x, e centro in (x_c, y_c, z_c)
    y_d = -lx/2 + y_c
@@ -894,7 +857,7 @@ contains
             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
             z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
-            hs=>self%numerics%fdv_half_stencil)
+            hs=>self%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a y, e centro in (x_c, y_c, z_c)
    x_l = -lx/2 + x_c
@@ -998,7 +961,7 @@ contains
             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
             z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
-            hs=>self%numerics%fdv_half_stencil)
+            hs=>self%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a z, e centro in (x_c, y_c, z_c)
    x_l = -lx/2 +x_c
@@ -1142,7 +1105,7 @@ contains
              coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
              dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
              y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n),         &
-             J_vec=>self%coil%J_vec, hs=>self%numerics%fdv_half_stencil)
+             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1227,7 +1190,7 @@ contains
              coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
              dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
              y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n),         &
-             J_vec=>self%coil%J_vec, hs=>self%numerics%fdv_half_stencil)
+             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1313,7 +1276,7 @@ contains
              coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
              dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
              y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n),         &
-             J_vec=>self%coil%J_vec, hs=>self%numerics%fdv_half_stencil)
+             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1400,7 +1363,7 @@ contains
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
             z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
-            hs=>self%numerics%fdv_half_stencil)
+            hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1485,7 +1448,7 @@ contains
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
             z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
-            hs=>self%numerics%fdv_half_stencil)
+            hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1570,7 +1533,7 @@ contains
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
             z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
-            hs=>self%numerics%fdv_half_stencil)
+            hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
