@@ -139,6 +139,7 @@ type :: field_object
       procedure, pass(self) :: load_from_ini_file            !< Load object data from INI file.
       procedure, pass(self) :: mark_all_blocks               !< Mark all blocks to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
+      procedure, pass(self) :: get_refinements_needed        !< Return gathered refinement flags and displacements.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
       procedure, pass(self) :: save_blocks                   !< Save blocks data, used for restarting.
@@ -674,6 +675,18 @@ contains
    call MPI_ALLGATHERV(self%refinements_needed, self%blocks_number, MPI_INTEGER, &
                        self%refinements_needed_all, recv_count, self%disp_count, MPI_INTEGER, MPI_COMM_WORLD, mpih%error)
    endsubroutine mpi_gather_refinements_needed
+
+   subroutine get_refinements_needed(self, flags, disp)
+   !< Return gathered refinement flags and process displacements.
+   !< Provides an accessor so callers do not reach into field internals.
+   !< Call mpi_gather_refinements_needed before invoking this procedure.
+   class(field_object),       intent(in)  :: self     !< The field.
+   integer(I4P), allocatable, intent(out) :: flags(:) !< Refinements needed of all blocks.
+   integer(I4P), allocatable, intent(out) :: disp(:)  !< Displacement of received blocks per process.
+
+   flags = self%refinements_needed_all
+   disp  = self%disp_count
+   endsubroutine get_refinements_needed
 
    subroutine mpi_redistribute(self, q)
    !< Redistribute blocks to processes.

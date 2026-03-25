@@ -342,13 +342,16 @@ contains
    logical                                   :: is_marked_by_field_ !< Flag to check if marker is field, local var.
    logical                                   :: is_marked_by_tree_  !< Flag to check if marker is tree, local var.
 
+   integer(I4P), allocatable :: flags(:) !< Refinements needed of all blocks.
+   integer(I4P), allocatable :: disp(:)  !< Displacement of received blocks per process.
+
    is_marked_by_field_ = .false. ; if (present(is_marked_by_field)) is_marked_by_field_ = is_marked_by_field
    is_marked_by_tree_  = .false. ; if (present(is_marked_by_tree )) is_marked_by_tree_  = is_marked_by_tree
 
    if (is_marked_by_field_) then
       call self%field%mpi_gather_refinements_needed
-      call self%tree%import_refinements_needed(refinements_needed_all=self%field%refinements_needed_all, &
-                                               disp_count=self%field%disp_count)
+      call self%field%get_refinements_needed(flags=flags, disp=disp)
+      call self%tree%import_refinements_needed(refinements_needed_all=flags, disp_count=disp)
    endif
 
    if (is_marked_by_tree_) then
