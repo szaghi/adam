@@ -20,6 +20,7 @@ public :: maps_object
 
 type :: maps_object
    !< Maps class definition
+   logical                    :: is_initialized_=.false. !< Flag: maps have been initialized.
    ! ADAM objects
    type(tree_object), pointer :: tree=>null() !< Tree data.
    ! local maps
@@ -145,6 +146,8 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('maps_object%initialize start')
+   if (.not.tree%is_initialized_) &
+      call mpih%error_stop(': maps_object%initialize: tree is not initialized')
    self%tree => tree
    allocate(self%comm_map_n_send(0:mpih%procs_number-1))
    allocate(self%comm_map_n_recv(0:mpih%procs_number-1))
@@ -159,6 +162,7 @@ contains
    allocate(self%comm_map_send_ptr_ghost(0:mpih%procs_number))
    allocate(self%comm_map_recv_ptr_ghost(0:mpih%procs_number))
    call self%make_comm_local_maps
+   self%is_initialized_ = .true.
    if (verbose_) call mpih%print_message('maps_object%initialize finish')
    endsubroutine initialize
 
