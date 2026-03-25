@@ -5,6 +5,7 @@ module adam_adam_object
 ! ADAM classes, libraries, parameters
 use :: adam_field_object
 use :: adam_maps_object
+use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
 use :: adam_tree_object
@@ -63,14 +64,13 @@ contains
                                           1-grid%ngc:,&
                                           1-grid%ngc:,&
                                           1:) !< Field cell centered variables.
+   type(refinement_plan_object) :: plan !< Refinement plan produced by tree, consumed by field.
 
-   call self%tree%adapt
+   call self%tree%adapt(plan=plan)
 
    call self%check_blocks_number
 
-   call self%field%adapt(ratio=self%tree%ratio,                                                            &
-                         block_to_refine=self%tree%block_to_refine, block_refined=self%tree%block_refined, &
-                         block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined, q=q)
+   call adam_field%adapt(plan=plan, q=q)
    endsubroutine adapt
 
    subroutine amr_update(self, q, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed)

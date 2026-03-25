@@ -65,6 +65,7 @@ module adam_field_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_maps_object
+use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_global_grid, only : grid
@@ -157,30 +158,26 @@ endtype field_object
 
 contains
    ! public methods
-   subroutine adapt(self, ratio, block_to_refine, block_refined, block_to_derefine, block_derefined, q)
+   subroutine adapt(self, plan, q)
    !< Adapt field accordingly to refine/derefine necessity.
-   class(field_object),       intent(inout) :: self                 !< The field.
-   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
-   integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of field blocks to be refined.
-   integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of field refined blocks with Morton code.
-   integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of field blocks to be derefined.
-   integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
-   real(R8P),                 intent(inout) :: q(1:,              &
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
-                                                 1:)                !< Field cell centered variables.
+   class(field_object),           intent(inout) :: self !< The field.
+   type(refinement_plan_object),  intent(in)    :: plan !< Refinement plan produced by tree%adapt.
+   real(R8P),                     intent(inout) :: q(1:,          &
+                                                     1-grid%ngc:, &
+                                                     1-grid%ngc:, &
+                                                     1-grid%ngc:, &
+                                                     1:)          !< Field cell centered variables.
 
-   select case(ratio)
+   select case(plan%ratio)
    case(2_I4P)
-      call self%refine1D(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined,     q=q)
-      call self%derefine1D(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined, q=q)
+      call self%refine1D(  ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
+      call self%derefine1D(ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
    case(4_I4P)
-      call self%refine2D(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined,     q=q)
-      call self%derefine2D(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined, q=q)
+      call self%refine2D(  ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
+      call self%derefine2D(ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
    case(8_I4P)
-      call self%refine3D(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined,     q=q)
-      call self%derefine3D(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined, q=q)
+      call self%refine3D(  ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
+      call self%derefine3D(ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
    endselect
    endsubroutine adapt
 

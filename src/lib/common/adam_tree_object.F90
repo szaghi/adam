@@ -128,8 +128,9 @@ module adam_tree_object
 !<  H  = fec-26
 
 ! ADAM classes, libraries, parameters
-use :: adam_tree_node_object,   only : tree_node_object
-use :: adam_tree_bucket_object, only : tree_bucket_object, iterator_interface
+use :: adam_tree_node_object,         only : tree_node_object
+use :: adam_tree_bucket_object,       only : tree_bucket_object, iterator_interface
+use :: adam_refinement_plan_object,   only : refinement_plan_object
 use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_global_mpih, only : mpih
@@ -285,9 +286,12 @@ endinterface
 
 contains
    ! public methods
-   subroutine adapt(self)
+   subroutine adapt(self, plan)
    !< Adapt tree accordingly to refine/derefine necessity.
-   class(tree_object), intent(inout) :: self !< The tree.
+   !< Ownership of the block lists produced by refine/derefine is transferred
+   !< to plan via move_alloc, leaving tree_object without field-domain state.
+   class(tree_object),           intent(inout) :: self !< The tree.
+   type(refinement_plan_object), intent(out)   :: plan !< Refinement plan for field.
 
    call self%sanitize
 
@@ -296,6 +300,12 @@ contains
    call self%derefine
 
    call self%make_neighborhood
+
+   plan%ratio = self%ratio
+   if (allocated(self%block_to_refine))   call move_alloc(self%block_to_refine,   plan%block_to_refine)
+   if (allocated(self%block_refined))     call move_alloc(self%block_refined,      plan%block_refined)
+   if (allocated(self%block_to_derefine)) call move_alloc(self%block_to_derefine, plan%block_to_derefine)
+   if (allocated(self%block_derefined))   call move_alloc(self%block_derefined,    plan%block_derefined)
    endsubroutine adapt
 
    function codes(self, only_mine, sort_by_level)
