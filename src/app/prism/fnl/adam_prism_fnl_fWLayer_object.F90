@@ -6,8 +6,9 @@ module adam_prism_fnl_fWLayer_object
 !< ADAM, PRISM (Plasma Research usIng Simulation Methods) fWLayer class definition, FNL backend.
 
 ! ADAM modules
-use :: adam_field_object, only : field_object
-use :: adam_global_grid, only: grid
+use :: adam_field_object,    only : field_object
+use :: adam_global_grid,     only : grid
+use :: adam_global_mpih_fnl, only : mpih_fnl
 use :: adam_fnl_library
 ! PRISM modules
 use :: adam_prism_fWLayer_object
@@ -24,7 +25,6 @@ public :: apply_fwl_correction_dev_kernel
 type :: prism_fnl_fwlayer_object
    !< PRISM fWLayer class definition.
    ! ADAM library objects
-   type(mpih_fnl_object) :: mpih_gpu !< MPI handler, FNL backend.
    ! PRISM library objects
    type(prism_fwlayer_object), pointer :: fwlayer=>null() !< Fwlayer common handler.
    ! device data
@@ -45,9 +45,9 @@ contains
    logical                                               :: verbose_ !< Flag to activate verbose mode, local var.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu start')
+   if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu start')
    call dev_assign_to_device(src=self%fwlayer%f,dst=self%f_gpu,ij=[1,5])
-   if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu finish')
+   if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, verbose)
@@ -57,9 +57,9 @@ contains
    logical                                               :: verbose_ !< Flag to activate verbose mode, local var.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu start')
+   if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu start')
    call dev_assign_from_device(src=self%f_gpu,dst=self%fwlayer%f,ij=[1,5])
-   if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu finish')
+   if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
    subroutine initialize(self, field, fwlayer)
@@ -69,14 +69,13 @@ contains
    type(prism_fwlayer_object),      intent(in), target :: fwlayer !< Fwlayer common handler.
    integer(I4P)                                        :: ierr    !< Error status.
 
-   call self%mpih_gpu%initialize(verbose=.true.)
    associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nb=>field%nb)
-   print '(A)', self%mpih_gpu%myrankstr//'prism_fnl_fwlayer_object%initialize start'
+   print '(A)', mpih_fnl%myrankstr//'prism_fnl_fwlayer_object%initialize start'
    self%fwlayer => fwlayer
    call dev_alloc(fptr_dev=self%f_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,size(fwlayer%f,dim=1)], &
                   lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
-   print '(A)', self%mpih_gpu%myrankstr//'prism_fnl_fwlayer_object%initialize finish'
+   print '(A)', mpih_fnl%myrankstr//'prism_fnl_fwlayer_object%initialize finish'
    endassociate
    endsubroutine initialize
 

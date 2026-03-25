@@ -2,16 +2,21 @@
 module adam_fnl_ib_object
 !< ADAM, IB class FNL (FNL backend of [[ib_object]]).
 
-use adam_ib_object
-use adam_global_grid, only: grid
-use adam_fnl_ib_kernels
-use adam_fnl_field_object
-use adam_fnl_mpih_object
-use fundal
-use penf
+! ADAM classes, libraries, parameters
+use :: adam_ib_object
+! ADAM singleton objects
+use :: adam_global_field, only : field
+use :: adam_global_grid,  only : grid
+! ADAM FNL classes, libraries, parameters
+use :: adam_fnl_ib_kernels
+use :: adam_fnl_field_object
+! ADAM FNL singleton objects
+use :: adam_global_mpih_fnl, only : mpih_fnl
+! third party modules
+use :: fundal
+use :: penf
 
 implicit none
-save
 private
 public :: ib_fnl_object
 
@@ -20,7 +25,6 @@ type :: ib_fnl_object
    ! ADAM library objects
    type(ib_object), pointer :: ib=>null() !< IB common handler.
    ! ADAM FNL library objects
-   type(mpih_fnl_object)           :: mpih              !< MPI handler.
    type(field_fnl_object), pointer :: field_gpu=>null() !< Field FNL handler.
    ! device data
    real(R8P), pointer :: q_bcs_vars_gpu(:,:) !< Variables array for immersed boundary on GPU.
@@ -71,18 +75,18 @@ contains
 
    subroutine initialize(self, ib, field_gpu)
    !< Initialize class.
+   !< Requires `mpih_fnl` (adam_global_mpih_fnl) and the global `grid` singleton to be
+   !< initialized before calling.
    class(ib_fnl_object),   intent(inout)      :: self      !< IB FNL object.
    type(ib_object),        intent(in), target :: ib        !< IB object.
    type(field_fnl_object), intent(in), target :: field_gpu !< The field.
    integer(I4P)                               :: ierr      !< Error status.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('ib_fnl_object%initialize start')
+   call mpih_fnl%print_message('ib_fnl_object%initialize start')
    self%ib => ib
    self%field_gpu => field_gpu
    call dev_assign_to_device(dst=self%q_bcs_vars_gpu, src=self%ib%q)
-   associate(ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nb=>self%ib%field%nb, &
-             solids_number=>self%ib%solids_number)
+   associate(ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nb=>field%nb, solids_number=>self%ib%solids_number)
    if (solids_number>0) then
       call dev_alloc(fptr_dev=self%phi_gpu,                             &
                      ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,solids_number+1], &
@@ -90,13 +94,13 @@ contains
                      ierr=ierr, init_value=-1._R8P)
    endif
    endassociate
-   self%blocks_number => ib%field%blocks_number
+   self%blocks_number => field%blocks_number
    self%ni            => grid%ni
    self%nj            => grid%nj
    self%nk            => grid%nk
    self%ngc           => grid%ngc
-   self%nb            => ib%field%nb
-   self%nv            => ib%field%nv
+   self%nb            => field%nb
+   self%nv            => field%nv
    endsubroutine initialize
 
    subroutine invert_eikonal(self, q_gpu)

@@ -8,7 +8,7 @@ module adam_fnl_field_object
 use adam_common_library
 use adam_fnl_field_kernels
 use adam_fnl_maps_object
-use adam_fnl_mpih_object
+use adam_global_mpih_fnl, only : mpih_fnl
 use fundal
 use penf
 use mpi
@@ -20,7 +20,6 @@ public :: field_fnl_object
 
 type :: field_fnl_object
    !< Field class, FNL backend.
-   type(mpih_fnl_object)       :: mpih           !< MPI handler.
    type(maps_fnl_object)       :: maps           !< Maps handler.
    type(field_object), pointer :: field=>null()  !< The field.
    ! device data
@@ -76,14 +75,14 @@ contains
    character(:), allocatable                     :: r        !< My rank stringified.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) call self%mpih%print_message('field_fnl_object%copy_cpu_gpu start')
-   r = self%mpih%myrankstr
+   if (verbose_) call mpih_fnl%print_message('field_fnl_object%copy_cpu_gpu start')
+   r = mpih_fnl%myrankstr
    call self%maps%copy_cpu_gpu
    call dev_assign_to_device(src=self%field%x_cell, dst=self%x_cell_gpu, ij=[1,2])
    call dev_assign_to_device(src=self%field%y_cell, dst=self%y_cell_gpu, ij=[1,2])
    call dev_assign_to_device(src=self%field%z_cell, dst=self%z_cell_gpu, ij=[1,2])
    call dev_assign_to_device(src=self%field%dxyz,   dst=self%dxyz_gpu,   ij=[1,2])
-   if (verbose_) call self%mpih%print_message('field_fnl_object%copy_cpu_gpu finish')
+   if (verbose_) call mpih_fnl%print_message('field_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
    subroutine copy_transpose_cpu_gpu(self, nv, q_cpu, q_t, q_gpu)
@@ -166,6 +165,8 @@ contains
 
    subroutine initialize(self, field, nv_aux, q_gpu, verbose)
    !< Initialize field.
+   !< Requires `mpih_fnl` (adam_global_mpih_fnl) and the global `grid` singleton to be
+   !< initialized before calling.
    class(field_fnl_object), intent(inout)           :: self             !< The field.
    type(field_object),      intent(in), target      :: field            !< Field variable array.
    integer(I4P),            intent(in),    optional :: nv_aux           !< Number of auxiliary variables.
@@ -174,8 +175,7 @@ contains
    integer(I4P)                                     :: nv_aux_          !< Number of auxiliary variables (local var).
    integer(I4P)                                     :: ierr             !< Error status.
 
-   call self%mpih%initialize
-   call self%mpih%print_message('field_fnl_object%initialize start')
+   call mpih_fnl%print_message('field_fnl_object%initialize start')
    self%field         => field
    self%ngc           => field%ngc
    self%ni            => field%ni
@@ -192,7 +192,7 @@ contains
       nv_aux_ = self%field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    endassociate
    call self%copy_cpu_gpu
-   call self%mpih%print_message('field_fnl_object%initialize finish')
+   call mpih_fnl%print_message('field_fnl_object%initialize finish')
    endsubroutine initialize
 
    subroutine update_ghost_local_gpu(self, q_gpu)
@@ -220,9 +220,9 @@ contains
    integer(I4P)                                  :: ptr_start, ptr_end !< Counter.
    integer(I4P)                                  :: n_recv, n_send     !< Counter.
 
-   associate(procs_number=>self%mpih%procs_number,                                 &
-             error=>self%mpih%error,                                               &
-             req_send_recv=>self%mpih%req_send_recv,                               &
+   associate(procs_number=>mpih_fnl%procs_number,                                 &
+             error=>mpih_fnl%error,                                               &
+             req_send_recv=>mpih_fnl%req_send_recv,                               &
              comm_map_send_ptr_ghost=>self%maps%maps%comm_map_send_ptr_ghost,      &
              comm_map_recv_ptr_ghost=>self%maps%maps%comm_map_recv_ptr_ghost,      &
              recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu,               &

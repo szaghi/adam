@@ -54,9 +54,14 @@ host↔device transfer via `field_gpu%copy_transpose_cpu_gpu` / `copy_transpose_
 
 ### GPU-specific ADAM library objects
 
+> **Singleton**: the GPU-aware MPI handler is the program-scope `mpih_fnl` singleton
+> (module `adam_global_mpih_fnl`), not an embedded member of `prism_fnl_object`.
+> It must be initialized once — via `call mpih_fnl%initialize(do_mpi_init=.true.,
+> do_device_init=.true., verbose=.true.)` — at the start of `prism_fnl_object%initialize`,
+> before any other FNL object is constructed.
+
 | Member | Type | Description |
 |--------|------|-------------|
-| `mpih_gpu` | `mpih_fnl_object` | MPI handler with GPU device initialization |
 | `field_gpu` | `field_fnl_object` | Field object with GPU memory and transposed halo exchange |
 | `ib_gpu` | `ib_fnl_object` | Immersed Boundary with device-resident `phi_gpu` |
 | `rk_gpu` | `rk_fnl_object` | RK stage arrays on device (`q_rk_gpu`) |
@@ -92,9 +97,9 @@ implementations operating on GPU arrays.
 ## Initialization sequence (`initialize`)
 
 ```
-mpih_gpu%initialize             ← MPI init + CUDA device selection
-initialize_common               ← 34-step common setup (CPU side)
-field_gpu%initialize            ← mirror field metadata on device
+mpih_fnl%initialize             ← GPU-aware MPI init + CUDA device selection (singleton)
+prism_common_object%initialize  ← 34-step common CPU setup; also initializes CPU mpih singleton
+field_gpu%initialize(field)     ← mirror global field singleton metadata on device
 ib_gpu%initialize               ← copy IB phi to device
 rk_gpu%initialize               ← allocate q_rk_gpu stages
 weno_gpu%initialize             ← copy WENO coefficients to device
@@ -104,6 +109,11 @@ fwlayer_gpu%initialize          ← allocate f_gpu
 external_fields_initialize_dev  ← copy external field data to device
 set procedure pointers          ← based on scheme_space / scheme_time
 ```
+
+> **Global singletons in scope** (via `adam_fnl_library` → `adam_common_library`):
+> `mpih_fnl` (GPU MPI handler), `mpih` (CPU MPI handler), `grid`, `field`, `maps`.
+> The global `field` singleton is passed directly to `field_gpu%initialize(field=field, ...)`;
+> do not use `self%adam%field` — that pointer is equivalent but less explicit.
 
 ## Dispatch table
 

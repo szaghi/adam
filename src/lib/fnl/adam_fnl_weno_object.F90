@@ -2,7 +2,7 @@
 module adam_fnl_weno_object
 !< ADAM, WENO class FNL (FNL backend of [[weno_object]]).
 
-use adam_fnl_mpih_object
+use adam_global_mpih_fnl, only : mpih_fnl
 use adam_weno_object
 use fundal
 use penf
@@ -16,8 +16,6 @@ type :: weno_fnl_object
    !< WENO FNL class definition.
    ! ADAM library objects
    type(weno_object), pointer :: weno=>null() !< WENO common handler.
-   ! ADAM FNL library objects
-   type(mpih_fnl_object) :: mpih !< MPI handler.
    ! device data
    real(R8P),    pointer :: a_gpu(:,:,:)               !< Optimal weights                    [1:2,0:S-1,1:S].
    real(R8P),    pointer :: p_gpu(:,:,:,:)             !< Polinomials coefficients           [1:2,0:S-1,0:S-1,1:S].
@@ -34,11 +32,11 @@ contains
    ! public methods
    subroutine initialize(self, weno)
    !< Initialize class.
+   !< Requires `mpih_fnl` (adam_global_mpih_fnl) to be initialized before calling.
    class(weno_fnl_object), intent(inout)      :: self !< WENO FNL object.
    type(weno_object),      intent(in), target :: weno !< WENO object.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('weno_fnl_object%initialize start')
+   call mpih_fnl%print_message('weno_fnl_object%initialize start')
    self%weno => weno
    call dev_assign_to_device(dst=self%a_gpu,           src=weno%a          )
    call dev_assign_to_device(dst=self%p_gpu,           src=weno%p          )
@@ -47,6 +45,6 @@ contains
    call dev_assign_to_device(dst=self%ror_ivar_gpu,    src=weno%ror_ivar   )
    call dev_assign_to_device(dst=self%ror_stats_gpu,   src=weno%ror_stats  )
    call dev_assign_to_device(dst=self%cell_scheme_gpu, src=weno%cell_scheme)
-   call self%mpih%print_message('weno_fnl_object%initialize finish')
+   call mpih_fnl%print_message('weno_fnl_object%initialize finish')
    endsubroutine initialize
 endmodule adam_fnl_weno_object

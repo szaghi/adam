@@ -1,6 +1,6 @@
 !< ADAM, PRISM coil source definition, CPU backend.
 module adam_prism_coil_object
-    !< ADAM, PRISM coil source definition, CPU backend.
+!< ADAM, PRISM coil source definition, CPU backend.
 
 ! ADAM singleton objects
 use :: adam_global_field, only : field

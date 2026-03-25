@@ -5,14 +5,16 @@
 module adam_prism_fnl_object
 !< ADAM, PRISM (Plasma Research usIng Simulation Methods) equations system class definition, GPU (FNL) backend.
 
-! ADAM modules
+! ADAM classes, libraries, parameters
 use :: adam_common_library
-! PRSIM modules
+! PRISM classes, libraries, parameters
 use :: adam_prism_common_library
+! PRISM FNL classes, libraries, parameters
 use :: adam_prism_fnl_library
 ! third party modules
 use :: fundal, save_memory_status_gpu=>save_memory_status
 use :: penf,   save_memory_status_cpu=>save_memory_status
+! sdk modules
 use :: mpi
 
 implicit none
@@ -22,7 +24,6 @@ public :: prism_fnl_object
 type, extends(prism_common_object) :: prism_fnl_object
    !< PRISM equations system class definition, GPU (FNL) backend.
    ! ADAM library objects
-   type(mpih_fnl_object)  :: mpih_gpu  !< MPI handler, FNL backend.
    type(field_fnl_object) :: field_gpu !< The field, FNL backend.
    type(ib_fnl_object)    :: ib_gpu    !< IB handler, FNL backend.
    type(rk_fnl_object)    :: rk_gpu    !< RK integrator, FNL backend.
@@ -51,10 +52,10 @@ type, extends(prism_common_object) :: prism_fnl_object
    procedure(integrate_interface_dev),          pass(self),pointer :: integrate_dev          =>null()!< Integrate, time operator.
    contains
       ! auxiliary methods
-      procedure, pass(self) :: allocate_gpu !< Allocate GPU data.
-      procedure, pass(self) :: copy_cpu_gpu !< Copy data from CPU to GPU.
-      procedure, pass(self) :: copy_gpu_cpu !< Copy data from GPU to CPU.
-      procedure, pass(self) :: initialize   !< Initialize the equation.
+      procedure, pass(self) :: allocate_gpu     !< Allocate GPU data.
+      procedure, pass(self) :: copy_cpu_gpu     !< Copy data from CPU to GPU.
+      procedure, pass(self) :: copy_gpu_cpu     !< Copy data from GPU to CPU.
+      procedure, pass(self) :: initialize_prism !< Initialize PRISM equation.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
       procedure, pass(self) :: save_residuals       !< Save residuals history.
@@ -191,7 +192,7 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: ierr !< Error status.
 
-   call self%mpih%print_message('prism_fnl_object%allocate_gpu start')
+   call mpih_fnl%print_message('prism_fnl_object%allocate_gpu start')
    associate(nv=>self%nv, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
    call dev_alloc(fptr_dev=self%q_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
@@ -210,7 +211,7 @@ contains
    call dev_alloc(fptr_dev=self%divergence_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    endassociate
-   call self%mpih%print_message('prism_fnl_object%allocate_gpu finish')
+   call mpih_fnl%print_message('prism_fnl_object%allocate_gpu finish')
    endsubroutine allocate_gpu
 
    subroutine copy_cpu_gpu(self)
@@ -239,16 +240,15 @@ contains
    call self%fwlayer_gpu%copy_gpu_cpu
    endsubroutine copy_gpu_cpu
 
-   subroutine initialize(self, filename)
-   !< Initialize the equation.
+   subroutine initialize_prism(self, filename)
+   !< Initialize PRISM equation.
    class(prism_fnl_object), intent(inout) :: self     !< The equation.
    character(*),            intent(in)    :: filename !< Input file name.
 
-   call self%mpih_gpu%initialize(do_mpi_init=.true., do_device_init=.true., verbose=.true.)
-   call self%mpih_gpu%print_message('prism_fnl_object%initialize start')
-   call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=real(self%mpih_gpu%dev_memory_avail,R8P), &
-                               verbose=.true.)
-   call self%field_gpu%initialize(field=self%adam%field, verbose=.true.)
+   call mpih_fnl%initialize(do_mpi_init=.true., do_device_init=.true., verbose=.true.)
+   call mpih_fnl%print_message('prism_fnl_object%initialize start')
+   call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail,R8P), verbose=.true.)
+   call self%field_gpu%initialize(field=field, verbose=.true.)
    call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
    call self%rk_gpu%initialize(rk=self%rk, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv)
    call self%weno_gpu%initialize(weno=self%weno)
@@ -323,8 +323,8 @@ contains
 
    call external_fields_initialize_dev(external_fields=self%external_fields)
 
-   call self%mpih%print_message('prism_fnl_object%initialize finish')
-   endsubroutine initialize
+   call mpih_fnl%print_message('prism_fnl_object%initialize finish')
+   endsubroutine initialize_prism
 
    ! IO methods
    subroutine load_restart_files(self, t, time)
@@ -346,10 +346,10 @@ contains
       call compute_normL2_residuals_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
                                         blocks_number=self%blocks_number, dq_gpu=self%dq_gpu, norm=self%field%residuals)
       do v=1, self%nv
-         call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
+         call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
          self%field%residuals(v) = sqrt(self%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
-      if (self%mpih_gpu%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
+      if (mpih_fnl%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
                                                                blocks_number=self%blocks_number, residuals=self%field%residuals)
    endif
    endsubroutine save_residuals
@@ -367,17 +367,16 @@ contains
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
-      if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
-         call self%slices%save_mat(basename=self%io%output_basename, &
-                                   it=self%time%it,                  &
-                                   it_max=self%time%it_max,          &
-                                   time=self%time%time,              &
-                                   time_max=self%time%time_max,      &
-                                   adam=self%adam,                   &
-                                   q=self%q,                         &
-                                   q_name=self%q_name)
-
-      endif
+      ! if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
+      !    call self%slices%save_mat(basename=self%io%output_basename, &
+      !                              it=self%time%it,                  &
+      !                              it_max=self%time%it_max,          &
+      !                              time=self%time%time,              &
+      !                              time_max=self%time%time_max,      &
+      !                              adam=self%adam,                   &
+      !                              q=self%q,                         &
+      !                              q_name=self%q_name)
+      ! endif
    endif
    endsubroutine save_simulation_data
 
@@ -1260,15 +1259,15 @@ contains
    integer(I4P)                           :: v
 
    ! initialization
-   call self%initialize(filename=filename)
+   call self%initialize_prism(filename=filename)
    if (self%io%restart) then
-      call self%mpih_gpu%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
+      call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
       call self%load_restart_files(t=self%time%it, time=self%time%time)
-      call self%mpih_gpu%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
+      call mpih_fnl%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
    else
-      call self%mpih_gpu%print_message('impose initial conditions start')
+      call mpih_fnl%print_message('impose initial conditions start')
       do i=1, self%ic%amr_iterations
-         call self%mpih_gpu%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
+         call mpih_fnl%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions
          !if (self%ib%solids_number > 0) call self%compute_phi()
          !call self%amr_update
@@ -1276,7 +1275,7 @@ contains
       call self%set_initial_conditions
       self%time%time = 0._R8P
       self%time%it = 0
-      call self%mpih_gpu%print_message('impose initial conditions finish')
+      call mpih_fnl%print_message('impose initial conditions finish')
    endif
 
    call self%update_ghost(q_gpu=self%q_gpu)
@@ -1305,20 +1304,20 @@ contains
    endif
 
    ! integration
-   call self%mpih_gpu%barrier(tictoc=.true., timing=timing(1), single=.true.)
+   call mpih_fnl%barrier(tictoc=.true., timing=timing(1), single=.true.)
    integration: do
-      call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
+      call mpih_fnl%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
       self%time%it = self%time%it + 1
 
       if (self%io%save_memory_status) then
-         call save_memory_status_cpu(file_name='memory_cpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
-         call save_memory_status_gpu(file_name='memory_gpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
+         call save_memory_status_cpu(file_name='memory_cpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
+         call save_memory_status_gpu(file_name='memory_gpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
       endif
 
       if (mod(self%time%it,self%amr%frequency)==0) then
-         call self%mpih_gpu%barrier(tictoc=.true.)
+         call mpih_fnl%barrier(tictoc=.true.)
          !call self%amr_update
-         call self%mpih_gpu%barrier(tictoc=.true.)
+         call mpih_fnl%barrier(tictoc=.true.)
       endif
 
       call self%compute_dt
@@ -1337,20 +1336,20 @@ contains
       if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
          ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
 
-      call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
+      call mpih_fnl%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
-   call self%mpih_gpu%barrier(tictoc=.true., timing=timing(2), single=.true.)
+   call mpih_fnl%barrier(tictoc=.true., timing=timing(2), single=.true.)
    call self%compute_energy_error
    call self%save_simulation_data
    call self%io%close_file_residuals
    call self%save_energy_error(is_to_close=.true.)
-   call self%mpih_gpu%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
+   call mpih_fnl%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
                                                                          trim(str(sqrt(self%energy_D(size(self%energy_D))))))
-   call self%mpih_gpu%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
+   call mpih_fnl%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
                                                                          trim(str(sqrt(self%energy_D(size(self%energy_B))))))
-   call self%mpih_gpu%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
-   call self%mpih_gpu%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
-   call self%mpih_gpu%finalize
+   call mpih_fnl%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
+   call mpih_fnl%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
+   call mpih_fnl%finalize
    endsubroutine simulate
 
    ! numerical methods, miscellanea
@@ -1362,7 +1361,7 @@ contains
    call compute_dxyz_min_kernel(blocks_number=self%blocks_number, dxyz_gpu=self%field_gpu%dxyz_gpu, dxyz_min=dxyz_min)
    dxyz_min = dxyz_min * 0.5_R8P
    self%time%dt = self%time%CFL*dxyz_min / self%physics%evmax
-   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih_gpu%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
    contains
       subroutine compute_dxyz_min_kernel(blocks_number, dxyz_gpu, dxyz_min)
       !< Compute minimum space step accordingly, kernel device.
@@ -1401,10 +1400,10 @@ contains
    call compute_poynting_flux_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
                                          s=self%fdv_half_stencils(1),                                                   &
                                          dxyz_gpu=self%field_gpu%dxyz_gpu,q_gpu=self%q_gpu,poynting_flux=poynting_flux)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, poynting_flux, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, poynting_flux, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    if (allocated(self%energy_D  ).and.allocated(self%energy_B     ).and. &
        allocated(self%coil_power).and.allocated(self%Poynting_flux)) then
       self%energy_D      = [self%energy_D,      energy_D     ]
@@ -1645,7 +1644,7 @@ contains
          !                                  iterations_coarse=self%flail%iterations_coarse)
          if (dq_max < self%flail%tolerance) exit
       enddo
-      call self%mpih_gpu%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
+      call mpih_fnl%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
       ! call self%compute_gradient(ivar=1,q_gpu=buffer(:,:,:,:,7:7),gradient_gpu=buffer(:,:,:,:,4:6))
       !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q_gpu,buffer)
       do b=1, blocks_number

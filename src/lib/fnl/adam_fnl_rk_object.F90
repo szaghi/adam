@@ -2,11 +2,18 @@
 module adam_fnl_rk_object
 !< ADAM, RK class FNL (FNL backend of [[rk_object]]).
 
-use adam_rk_object
-use adam_fnl_mpih_object
-use adam_fnl_rk_kernels
-use fundal
-use penf
+! ADAM classes, libraries, parameters
+use :: adam_rk_object
+! ADAM singleton objects
+use :: adam_global_field, only : field
+use :: adam_global_grid,  only : grid
+! ADAM FNL classes, libraries, parameters
+use :: adam_fnl_rk_kernels
+! ADAM FNL singleton objects
+use :: adam_global_mpih_fnl, only : mpih_fnl
+! third party modules
+use :: fundal
+use :: penf
 
 implicit none
 save
@@ -17,8 +24,6 @@ type :: rk_fnl_object
    !< RK FNL class definition.
    ! ADAM library objects
    type(rk_object), pointer :: rk=>null() !< RK common handler.
-   ! ADAM FNL library objects
-   type(mpih_fnl_object) :: mpih !< MPI handler.
    ! device data
    real(R8P), pointer :: alph_gpu(:,:)=>null()         !< RK alpha coefficients.
    real(R8P), pointer :: beta_gpu(:)=>null()           !< RK beta coefficients.
@@ -50,7 +55,7 @@ contains
                                                          1-self%rk%ngc:, &
                                                          1:) !< IB distance.
 
-   associate(ni=>self%rk%ni, nj=>self%rk%nj, nk=>self%rk%nk, ngc=>self%rk%ngc, nv=>self%rk%nv, blocks_number=>self%rk%blocks_number)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
       call rk_assign_stage_dev(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,s=s,phi_gpu=phi_gpu,q_gpu=q_gpu, &
                                q_rk_gpu=self%q_rk_gpu)
    endassociate
@@ -67,7 +72,7 @@ contains
                                                          1-self%rk%ngc:, &
                                                          1:) !< IB distance.
 
-   associate(ni=>self%rk%ni, nj=>self%rk%nj, nk=>self%rk%nk, ngc=>self%rk%ngc, nv=>self%rk%nv, blocks_number=>self%rk%blocks_number)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
       call rk_compute_stage_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, s=s, dt=dt, alph=self%alph_gpu,&
                                 phi_gpu=phi_gpu, q_rk_gpu=self%q_rk_gpu)
    endassociate
@@ -95,7 +100,7 @@ contains
                                                        1-self%rk%ngc:, &
                                                        1:)   !< Conservative variables stage.
 
-   associate(ni=>self%rk%ni, nj=>self%rk%nj, nk=>self%rk%nk, ngc=>self%rk%ngc, nv=>self%rk%nv, blocks_number=>self%rk%blocks_number)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
       call rk_compute_stage_ls_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, dt=dt, &
                                    ark=self%rk%ark(s), brk=self%rk%brk(s), crk=self%rk%crk(s),              &
                                    phi_gpu=phi_gpu, q_n_gpu=self%q_rk_gpu(:,:,:,:,:,1), dq_gpu=dq_gpu, q_rk_gpu=q_gpu)
@@ -104,6 +109,7 @@ contains
 
    subroutine initialize(self, rk, nb, ngc, ni, nj, nk, nv)
    !< Initialize class.
+   !< Requires `mpih_fnl` (adam_global_mpih_fnl) to be initialized before calling.
    class(rk_fnl_object), intent(inout)      :: self !< RK FNL object.
    type(rk_object),      intent(in), target :: rk   !< RK object.
    integer(I4P),         intent(in)         :: nb   !< Total blocks number for MPI.
@@ -115,8 +121,7 @@ contains
    integer(I4P)                             :: ierr !< Error status.
    integer(I4P)                             :: nrk  !< RK stages.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('rk_fnl_object%initialize start')
+   call mpih_fnl%print_message('rk_fnl_object%initialize start')
    self%rk => rk
    call dev_assign_to_device(src=rk%alph, dst=self%alph_gpu)
    call dev_assign_to_device(src=rk%beta, dst=self%beta_gpu)
@@ -132,7 +137,7 @@ contains
                   lbounds=[1,1-ngc,1-ngc,1-ngc,1,1],        &
                   init_value=0._R8P,                        &
                   ierr=ierr)
-   call self%mpih%print_message('rk_fnl_object%initialize finish')
+   call mpih_fnl%print_message('rk_fnl_object%initialize finish')
    endsubroutine initialize
 
    subroutine initialize_stages(self, q_gpu)
@@ -144,7 +149,7 @@ contains
                                                 1-self%rk%ngc:, &
                                                 1:) !< Conservative variables.
 
-   associate(ni=>self%rk%ni, nj=>self%rk%nj, nk=>self%rk%nk, ngc=>self%rk%ngc, nv=>self%rk%nv, blocks_number=>self%rk%blocks_number)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
       call rk_initialize_stages_dev(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,q_gpu=q_gpu,q_rk_gpu=self%q_rk_gpu)
    endassociate
    endsubroutine initialize_stages
@@ -164,7 +169,7 @@ contains
                                                     1-self%rk%ngc:, &
                                                     1:)      !< Conservative variables.
 
-   associate(ni=>self%rk%ni, nj=>self%rk%nj, nk=>self%rk%nk, ngc=>self%rk%ngc, nv=>self%rk%nv, blocks_number=>self%rk%blocks_number)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
       call rk_update_q_dev(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,nrk=self%rk%nrk,dt=dt,beta=self%beta_gpu, &
                            phi_gpu=phi_gpu,q_rk_gpu=self%q_rk_gpu,q_gpu=q_gpu)
    endassociate
