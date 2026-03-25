@@ -5,7 +5,7 @@ module adam_grid_object
 ! ADAM classes, libraries, parameters
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_global_mpih, only : mpih
+use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer, only : file_ini
 use :: penf

@@ -3,7 +3,7 @@ module adam_ib_gmp_object
 !< ADAM, IB class GMP (GMP backend of [[ib_object]]).
 
 use adam_ib_object
-use adam_global_grid, only: grid
+use adam_grid_global, only: grid
 use adam_ib_gmp_kernels
 use adam_field_gmp_object
 use adam_memory_gmp_library

@@ -24,9 +24,9 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
-use :: adam_global_field, only : adam_field => field
-use :: adam_global_grid,  only : grid
-use :: adam_global_mpih,  only : mpih
+use :: adam_field_global, only : adam_field => field
+use :: adam_grid_global,  only : grid
+use :: adam_mpih_global,  only : mpih
 ! third party modules
 use :: finer
 use :: motion

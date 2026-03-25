@@ -5,13 +5,13 @@ module adam_fnl_ib_object
 ! ADAM classes, libraries, parameters
 use :: adam_ib_object
 ! ADAM singleton objects
-use :: adam_global_field, only : field
-use :: adam_global_grid,  only : grid
+use :: adam_field_global, only : field
+use :: adam_grid_global,  only : grid
 ! ADAM FNL classes, libraries, parameters
 use :: adam_fnl_ib_kernels
 use :: adam_fnl_field_object
 ! ADAM FNL singleton objects
-use :: adam_global_mpih_fnl, only : mpih_fnl
+use :: adam_fnl_mpih_global, only : mpih_fnl
 ! third party modules
 use :: fundal
 use :: penf
@@ -75,7 +75,7 @@ contains
 
    subroutine initialize(self, ib, field_gpu)
    !< Initialize class.
-   !< Requires `mpih_fnl` (adam_global_mpih_fnl) and the global `grid` singleton to be
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) and the global `grid` singleton to be
    !< initialized before calling.
    class(ib_fnl_object),   intent(inout)      :: self      !< IB FNL object.
    type(ib_object),        intent(in), target :: ib        !< IB object.

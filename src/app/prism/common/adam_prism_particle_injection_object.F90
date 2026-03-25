@@ -5,8 +5,8 @@ module adam_prism_particle_injection_object
 ! ADAM classes, libraries, parameters
 use :: adam_field_object, only : field_object
 ! ADAM singleton objects
-use :: adam_global_mpih, only : mpih
-use :: adam_global_grid, only : grid
+use :: adam_mpih_global, only : mpih
+use :: adam_grid_global, only : grid
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_pic_object, only : prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM

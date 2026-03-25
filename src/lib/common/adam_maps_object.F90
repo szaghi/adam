@@ -7,8 +7,8 @@ use :: adam_tree_object
 use :: adam_tree_node_object
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_global_mpih, only : mpih
-use :: adam_global_grid, only : grid
+use :: adam_mpih_global, only : mpih
+use :: adam_grid_global, only : grid
 ! third party modules
 use :: penf
 ! sdk modules

@@ -11,9 +11,9 @@ module adam_prism_fWLayer_object
     !vale a livello matematico, altrimenti dovrai aggiungere un flag(3) per individuare se la cella appartiene a uno o più lati dello strato e a quali (in ogni elemento + o -1)
 
 ! ADAM singleton objects
-use :: adam_global_mpih,  only : mpih
-use :: adam_global_grid,  only : grid
-use :: adam_global_field, only : field
+use :: adam_mpih_global,  only : mpih
+use :: adam_grid_global,  only : grid
+use :: adam_field_global, only : field
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_physics_object, only : prism_physics_object

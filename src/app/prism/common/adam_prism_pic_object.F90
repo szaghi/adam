@@ -5,9 +5,9 @@ module adam_prism_pic_object
 ! ADAM classes, libraries, parameters
 use :: adam_field_object, only : field_object
 ! ADAM singleton objects
-use :: adam_global_mpih,  only : mpih
-use :: adam_global_grid,  only : grid
-use :: adam_global_field, only : adam_field => field
+use :: adam_mpih_global,  only : mpih
+use :: adam_grid_global,  only : grid
+use :: adam_field_global, only : adam_field => field
 ! PRISM modules
 use :: adam_prism_parameters
 ! third party modules

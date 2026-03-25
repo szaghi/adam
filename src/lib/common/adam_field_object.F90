@@ -68,9 +68,9 @@ use :: adam_maps_object
 use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_global_grid, only : grid
-use :: adam_global_maps, only : maps
-use :: adam_global_mpih, only : mpih
+use :: adam_grid_global, only : grid
+use :: adam_maps_global, only : maps
+use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer, only : file_ini
 use :: penf

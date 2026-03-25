@@ -55,7 +55,7 @@ host↔device transfer via `field_gpu%copy_transpose_cpu_gpu` / `copy_transpose_
 ### GPU-specific ADAM library objects
 
 > **Singleton**: the GPU-aware MPI handler is the program-scope `mpih_fnl` singleton
-> (module `adam_global_mpih_fnl`), not an embedded member of `prism_fnl_object`.
+> (module `adam_fnl_mpih_global`), not an embedded member of `prism_fnl_object`.
 > It must be initialized once — via `call mpih_fnl%initialize(do_mpi_init=.true.,
 > do_device_init=.true., verbose=.true.)` — at the start of `prism_fnl_object%initialize`,
 > before any other FNL object is constructed.

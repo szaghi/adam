@@ -524,37 +524,37 @@ ADAM uses **module-level singletons** for program-scope objects rather than embe
 
 | Singleton | Module | Type |
 |-----------|--------|------|
-| `mpih` | `adam_global_mpih` | `mpih_object` — MPI handler |
-| `grid` | `adam_global_grid` | `grid_object` — structured grid |
-| `field` | `adam_global_field` | `field_object` — field variables and metrics |
-| `maps` | `adam_global_maps` | `maps_object` — AMR block/communication maps |
+| `mpih` | `adam_mpih_global` | `mpih_object` — MPI handler |
+| `grid` | `adam_grid_global` | `grid_object` — structured grid |
+| `field` | `adam_field_global` | `field_object` — field variables and metrics |
+| `maps` | `adam_maps_global` | `maps_object` — AMR block/communication maps |
 
 All follow the same definition pattern:
 
 ```fortran
-module adam_global_mpih          ! or adam_global_grid, adam_global_field, adam_global_maps
+module adam_mpih_global          ! or adam_grid_global, adam_field_global, adam_maps_global
 use :: adam_mpih_object, only: mpih_object
 implicit none
 private
 public :: mpih
 type(mpih_object), target :: mpih  !< Program-scope singleton.
-endmodule adam_global_mpih
+endmodule adam_mpih_global
 ```
 
 All four are re-exported by `adam_common_library`. Modules that already `use adam_common_library` get all four without further `use` statements. Others should add explicit imports:
 
 ```fortran
-use :: adam_global_mpih,  only: mpih
-use :: adam_global_grid,  only: grid
-use :: adam_global_field, only: field
-use :: adam_global_maps,  only: maps
+use :: adam_mpih_global,  only: mpih
+use :: adam_grid_global,  only: grid
+use :: adam_field_global, only: field
+use :: adam_maps_global,  only: maps
 ```
 
 If a local variable or dummy argument shares a name with a singleton, use an alias:
 
 ```fortran
-use :: adam_global_field, only: adam_field => field
-use :: adam_global_maps,  only: adam_maps  => maps
+use :: adam_field_global, only: adam_field => field
+use :: adam_maps_global,  only: adam_maps  => maps
 ```
 
 ### How to Use Singletons in New Objects
@@ -601,7 +601,7 @@ Do **not** embed `type(mpih_object) :: mpih`, `type(grid_object), pointer :: gri
 | `intent(out)` | Assign all derived type components |
 | Modules | Use `private` by default, expose with `public` |
 | OpenMP | Use `default(none)`, `reduction` for accumulation |
-| MPI handler | Use `mpih` singleton from `adam_global_mpih`, never embed in types |
-| Grid | Use `grid` singleton from `adam_global_grid`, never embed as pointer in types |
-| Field | Use `field` singleton from `adam_global_field`, never embed as pointer in types |
-| Maps | Use `maps` singleton from `adam_global_maps`, never embed as value/pointer in types |
+| MPI handler | Use `mpih` singleton from `adam_mpih_global`, never embed in types |
+| Grid | Use `grid` singleton from `adam_grid_global`, never embed as pointer in types |
+| Field | Use `field` singleton from `adam_field_global`, never embed as pointer in types |
+| Maps | Use `maps` singleton from `adam_maps_global`, never embed as value/pointer in types |

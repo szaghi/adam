@@ -3,7 +3,7 @@ module adam_prism_bc_object
 !< ADAM, PRISM Boundary Conditions class definition, CPU backend.
 
 ! ADAM singleton objects
-use :: adam_global_mpih, only : mpih
+use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
 use :: penf

@@ -4,7 +4,7 @@ module adam_prism_numerics_object
 !<
 
 ! ADAM singleton objects
-use :: adam_global_mpih, only : mpih
+use :: adam_mpih_global, only : mpih
 ! PRISM modules
 use :: adam_prism_parameters
 ! third party modules

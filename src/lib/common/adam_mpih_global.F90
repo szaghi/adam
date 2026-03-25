@@ -1,5 +1,5 @@
 !< ADAM, global MPI handler singleton — single program-scope mpih_object instance.
-module adam_global_mpih
+module adam_mpih_global
 !< ADAM, global MPI handler singleton — single program-scope mpih_object instance.
 
 ! ADAM classes, libraries, parameters
@@ -10,4 +10,4 @@ private
 public :: mpih
 
 type(mpih_object), target :: mpih !< Program-scope MPI handler singleton.
-endmodule adam_global_mpih
+endmodule adam_mpih_global

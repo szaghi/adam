@@ -62,10 +62,10 @@ src/
 | `adam_ib_object` | Immersed boundary method |
 | `adam_io_object` | HDF5 and restart file I/O |
 | `adam_mpih_object` | MPI wrapper and communication |
-| `adam_global_mpih` | Program-scope MPI handler singleton (module variable, not embedded in types) |
-| `adam_global_grid` | Program-scope grid singleton (module variable, not embedded in types) |
-| `adam_global_field` | Program-scope field singleton (module variable, not embedded in types) |
-| `adam_global_maps` | Program-scope maps singleton (module variable, not embedded in types) |
+| `adam_mpih_global` | Program-scope MPI handler singleton (module variable, not embedded in types) |
+| `adam_grid_global` | Program-scope grid singleton (module variable, not embedded in types) |
+| `adam_field_global` | Program-scope field singleton (module variable, not embedded in types) |
+| `adam_maps_global` | Program-scope maps singleton (module variable, not embedded in types) |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian operators |
 | `adam_riemann_euler_library` | Euler equation Riemann solvers |
 

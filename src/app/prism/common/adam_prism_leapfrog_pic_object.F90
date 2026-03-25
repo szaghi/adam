@@ -36,8 +36,8 @@ module adam_prism_leapfrog_pic_object
 !< Weather Review, vol. 139(6), pages 1996--2007, June 2011.
 
 ! ADAM singleton objects
-use :: adam_global_mpih,      only : mpih
-use :: adam_global_grid,      only : grid
+use :: adam_mpih_global,      only : mpih
+use :: adam_grid_global,      only : grid
 use :: adam_prism_pic_object, only : prism_pic_object
 ! third party modules
 use :: finer

@@ -1,5 +1,5 @@
 !< ADAM, global field singleton — single program-scope field_object instance.
-module adam_global_field
+module adam_field_global
 !< ADAM, global field singleton — single program-scope field_object instance.
 
 ! ADAM classes, libraries, parameters
@@ -10,4 +10,4 @@ private
 public :: field
 
 type(field_object), target :: field !< Program-scope field singleton.
-endmodule adam_global_field
+endmodule adam_field_global

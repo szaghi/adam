@@ -28,7 +28,7 @@ module adam_prism_physics_object
 !<```
 
 ! ADAM singleton objects
-use :: adam_global_mpih, only : mpih
+use :: adam_mpih_global, only : mpih
 ! PRISM modules
 use :: adam_prism_numerics_object, only : RECONSTRUCTION_VARS_CONS, RECONSTRUCTION_VARS_CHAR, &
                                           DIV_CORR_VAR_HYPER, DIV_CORR_VAR_POISS

@@ -3,7 +3,7 @@ module adam_eos_ic_object
 !< ADAM, Equations Of State (EOS) and physics for Ideal Compressible fluids, class definition, common to all backends.
 
 ! ADAM modules
-use :: adam_global_mpih, only: mpih
+use :: adam_mpih_global, only: mpih
 ! Third party modules
 use :: finer, only : file_ini
 use :: penf, only : I4P, R8P, str

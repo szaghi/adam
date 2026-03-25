@@ -4,7 +4,7 @@ module adam_fnl_library
 
 ! ADAM modules
 use :: adam_common_library
-use :: adam_global_mpih_fnl
+use :: adam_fnl_mpih_global
 use :: adam_fnl_fdv_operators_library
 use :: adam_fnl_field_kernels
 use :: adam_fnl_field_object

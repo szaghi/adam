@@ -9,7 +9,7 @@ module adam_fnl_field_object
 use :: adam_common_library
 use :: adam_fnl_field_kernels
 use :: adam_fnl_maps_object
-use :: adam_global_mpih_fnl, only : mpih_fnl
+use :: adam_fnl_mpih_global, only : mpih_fnl
 ! third party modules
 use :: fundal
 use :: penf
@@ -168,7 +168,7 @@ contains
 
    subroutine initialize(self, field, nv_aux, q_gpu, verbose)
    !< Initialize field.
-   !< Requires `mpih_fnl` (adam_global_mpih_fnl) and the global `grid` singleton to be
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) and the global `grid` singleton to be
    !< initialized before calling.
    class(field_fnl_object), intent(inout)           :: self             !< The field.
    type(field_object),      intent(in), target      :: field            !< Field variable array.

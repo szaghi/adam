@@ -3,9 +3,9 @@ module adam_ib_object
 !< ADAM, IB class definition, CPU backend.
 
 ! ADAM singleton objects
-use :: adam_global_field, only : field
-use :: adam_global_grid,  only : grid
-use :: adam_global_mpih,  only : mpih
+use :: adam_field_global, only : field
+use :: adam_grid_global,  only : grid
+use :: adam_mpih_global,  only : mpih
 ! third party modules
 use :: finer
 use :: penf
@@ -54,7 +54,7 @@ type :: ib_object
    type(analytical_sphere_object),    allocatable :: sphere(:)       !< Analytical sphere/circle solid.
    type(analytical_rectangle_object), allocatable :: rectangle(:)    !< Analytical rectangle solid.
    integer(I4P)                                   :: n_eikonal=2     !< Number of eikonal integration steps.
-   ! (field is accessed via the adam_global_field module-level singleton)
+   ! (field is accessed via the adam_field_global module-level singleton)
    ! Large arrays.
    real(R8P), allocatable ::  phi(:,:,:,:,:) !< IB distance function.
    contains

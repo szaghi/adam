@@ -5,7 +5,7 @@ module adam_prism_rk_pic_object
 ! ADAM classes, libraries, parameters
 use :: adam_rk_object
 ! ADAM singleton objects
-use :: adam_global_mpih,  only : mpih
+use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_pic_object

@@ -7,9 +7,9 @@ module adam_prism_fnl_coil_object
 
 ! ADAM modules
 use :: adam_field_object,  only : field_object
-use :: adam_global_grid,   only : grid
+use :: adam_grid_global,   only : grid
 ! ADAM FNL singleton objects
-use :: adam_global_mpih_fnl, only : mpih_fnl
+use :: adam_fnl_mpih_global, only : mpih_fnl
 ! PRISM modules
 use :: adam_prism_coil_object
 use :: adam_prism_parameters

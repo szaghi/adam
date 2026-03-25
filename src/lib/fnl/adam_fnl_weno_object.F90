@@ -3,7 +3,7 @@ module adam_fnl_weno_object
 !< ADAM, WENO class FNL (FNL backend of [[weno_object]]).
 
 ! ADAM singleton objects
-use :: adam_global_mpih_fnl, only : mpih_fnl
+use :: adam_fnl_mpih_global, only : mpih_fnl
 ! ADAM modules
 use :: adam_weno_object
 ! third party modules
@@ -35,7 +35,7 @@ contains
    ! public methods
    subroutine initialize(self, weno)
    !< Initialize class.
-   !< Requires `mpih_fnl` (adam_global_mpih_fnl) to be initialized before calling.
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) to be initialized before calling.
    class(weno_fnl_object), intent(inout)      :: self !< WENO FNL object.
    type(weno_object),      intent(in), target :: weno !< WENO object.
 

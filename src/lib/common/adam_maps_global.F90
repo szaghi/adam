@@ -1,5 +1,5 @@
 !< ADAM, global maps singleton — single program-scope maps_object instance.
-module adam_global_maps
+module adam_maps_global
 !< ADAM, global maps singleton — single program-scope maps_object instance.
 
 ! ADAM classes, libraries, parameters
@@ -10,4 +10,4 @@ private
 public :: maps
 
 type(maps_object), target :: maps !< Program-scope maps singleton.
-endmodule adam_global_maps
+endmodule adam_maps_global

@@ -3,9 +3,9 @@ module adam_cfm_object
 !< ADAM, Commutator-Free Magnus integrators class definition.
 
 ! ADAM singleton objects
-use :: adam_global_field, only : field
-use :: adam_global_mpih,  only : mpih
-use :: adam_global_grid,  only : grid
+use :: adam_field_global, only : field
+use :: adam_mpih_global,  only : mpih
+use :: adam_grid_global,  only : grid
 ! third party modules
 use :: finer
 use :: penf

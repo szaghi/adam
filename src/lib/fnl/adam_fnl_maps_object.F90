@@ -4,7 +4,7 @@ module adam_fnl_maps_object
 
 ! ADAM modules
 use :: adam_maps_object,      only : maps_object
-use :: adam_global_mpih_fnl,  only : mpih_fnl
+use :: adam_fnl_mpih_global,  only : mpih_fnl
 ! third party modules
 use :: fundal
 use :: penf
@@ -57,7 +57,7 @@ contains
 
    subroutine initialize(self, maps)
    !< Initialize maps.
-   !< Requires `mpih_fnl` (adam_global_mpih_fnl) to be initialized before calling.
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) to be initialized before calling.
    class(maps_fnl_object), intent(inout)      :: self !< The maps, FNL backend.
    type(maps_object),      intent(in), target :: maps !< The maps.
 

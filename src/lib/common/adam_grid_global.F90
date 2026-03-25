@@ -1,5 +1,5 @@
 !< ADAM, global grid singleton — single program-scope grid_object instance.
-module adam_global_grid
+module adam_grid_global
 !< ADAM, global grid singleton — single program-scope grid_object instance.
 
 ! ADAM classes, libraries, parameters
@@ -10,4 +10,4 @@ private
 public :: grid
 
 type(grid_object), target :: grid !< Program-scope grid singleton.
-endmodule adam_global_grid
+endmodule adam_grid_global

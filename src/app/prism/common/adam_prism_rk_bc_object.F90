@@ -5,9 +5,9 @@ module adam_prism_rk_bc_object
 ! ADAM classes, libraries, parameters
 use :: adam_rk_object
 ! ADAM singleton objects
-use :: adam_global_field, only : field
-use :: adam_global_grid,  only : grid
-use :: adam_global_mpih,  only : mpih
+use :: adam_field_global, only : field
+use :: adam_grid_global,  only : grid
+use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_physics_object
 ! third party modules

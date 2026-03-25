@@ -3,7 +3,7 @@ module adam_flail_object
 !< ADAM, FLAIL Fortran Linear Algebra Interface Library class definition, CPU common backend.
 
 ! ADAM singleton objects
-use :: adam_global_mpih, only : mpih
+use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
 use :: penf

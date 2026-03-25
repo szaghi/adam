@@ -28,10 +28,10 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
-use :: adam_global_mpih
-use :: adam_global_grid
-use :: adam_global_field
-use :: adam_global_maps
+use :: adam_mpih_global
+use :: adam_grid_global
+use :: adam_field_global
+use :: adam_maps_global
 
 implicit none
 public

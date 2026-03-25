@@ -3,7 +3,7 @@ module adam_amr_object
 !< ADAM, AMR markers class definition, CPU backend.
 
 ! ADAM singleton objects
-use :: adam_global_mpih, only : mpih
+use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 ! third party modules
 use :: finer

@@ -5,12 +5,12 @@ module adam_fnl_rk_object
 ! ADAM classes, libraries, parameters
 use :: adam_rk_object
 ! ADAM singleton objects
-use :: adam_global_field, only : field
-use :: adam_global_grid,  only : grid
+use :: adam_field_global, only : field
+use :: adam_grid_global,  only : grid
 ! ADAM FNL classes, libraries, parameters
 use :: adam_fnl_rk_kernels
 ! ADAM FNL singleton objects
-use :: adam_global_mpih_fnl, only : mpih_fnl
+use :: adam_fnl_mpih_global, only : mpih_fnl
 ! third party modules
 use :: fundal
 use :: penf
@@ -109,7 +109,7 @@ contains
 
    subroutine initialize(self, rk, nb, ngc, ni, nj, nk, nv)
    !< Initialize class.
-   !< Requires `mpih_fnl` (adam_global_mpih_fnl) to be initialized before calling.
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) to be initialized before calling.
    class(rk_fnl_object), intent(inout)      :: self !< RK FNL object.
    type(rk_object),      intent(in), target :: rk   !< RK object.
    integer(I4P),         intent(in)         :: nb   !< Total blocks number for MPI.

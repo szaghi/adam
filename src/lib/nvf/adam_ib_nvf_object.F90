@@ -3,7 +3,7 @@ module adam_ib_nvf_object
 !< ADAM, IB class NVF (NVF backend of [[ib_object]]).
 
 use adam_ib_object
-use adam_global_grid, only: grid
+use adam_grid_global, only: grid
 use adam_ib_nvf_kernels
 use adam_field_nvf_object
 use adam_memory_nvf_library
