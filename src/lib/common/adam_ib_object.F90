@@ -2,10 +2,10 @@
 module adam_ib_object
 !< ADAM, IB class definition, CPU backend.
 
-! ADAM modules
-use :: adam_global_field, only: field
-use :: adam_global_mpih, only: mpih
-use :: adam_global_grid, only: grid
+! ADAM singleton objects
+use :: adam_global_field, only : field
+use :: adam_global_grid,  only : grid
+use :: adam_global_mpih,  only : mpih
 ! third party modules
 use :: finer
 use :: penf

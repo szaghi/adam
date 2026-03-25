@@ -2,11 +2,14 @@
 module adam_slices_object
    !< ADAM, slices (of domain) class definition, CPU backend.
 
-use adam_adam_object, only : adam_object
-use adam_global_grid, only: grid
-use adam_global_mpih, only: mpih
-use finer
-use penf
+! ADAM classes, libraries, parameters
+use :: adam_adam_object, only : adam_object
+! ADAM singleton objects
+use :: adam_global_grid, only : grid
+use :: adam_global_mpih, only : mpih
+! third party modules
+use :: finer
+use :: penf
 
 implicit none
 private

@@ -2,9 +2,9 @@
 module adam_io_object
 !< ADAM, IO class definition.
 
-! ADAM modules
-use :: adam_global_mpih, only: mpih
-use :: adam_global_grid, only: grid
+! ADAM singleton objects
+use :: adam_global_mpih, only : mpih
+use :: adam_global_grid, only : grid
 use :: finer
 ! third party modules
 use :: finer

@@ -35,9 +35,11 @@ module adam_leapfrog_object
 !< [3] *The RAW filter: An improvement to the Robert–Asselin filter in semi-implicit integrations*, Williams, P.D., Monthly
 !< Weather Review, vol. 139(6), pages 1996--2007, June 2011.
 
-use adam_global_field, only: field
-use adam_global_mpih, only: mpih
-use adam_global_grid, only: grid
+! ADAM singleton objects
+use adam_global_field, only : field
+use adam_global_mpih,  only : mpih
+use adam_global_grid,  only : grid
+! third party modules
 use finer
 use penf
 

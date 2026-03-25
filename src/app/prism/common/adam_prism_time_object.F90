@@ -2,9 +2,11 @@
 module adam_prism_time_object
 !< ADAM, PRISM time handler class definition, CPU backend.
 
-use adam_global_mpih, only: mpih
-use finer
-use penf
+! ADAM singleton objects
+use :: adam_global_mpih,  only : mpih
+! third party modules
+use :: finer
+use :: penf
 
 implicit none
 private

@@ -3,10 +3,9 @@ module adam_prism_parameters
 !< PRISM, general parameters.
 
 ! third party modules
-use penf
+use :: penf
 
 implicit none
-save
 private
 public :: NV_MAX
 public :: MU0

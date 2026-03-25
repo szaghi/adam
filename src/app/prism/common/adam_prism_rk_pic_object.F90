@@ -2,14 +2,16 @@
 module adam_prism_rk_pic_object
 !< ADAM, RK-BC class definition.
 
-!use adam_field_object
-!use adam_grid_object
-use adam_global_mpih, only: mpih
-use adam_rk_object
-use adam_prism_parameters
-use adam_prism_pic_object
-use finer
-use penf
+! ADAM classes, libraries, parameters
+use :: adam_rk_object
+! ADAM singleton objects
+use :: adam_global_mpih,  only : mpih
+! PRISM modules
+use :: adam_prism_parameters
+use :: adam_prism_pic_object
+! third party modules
+use :: finer
+use :: penf
 
 implicit none
 save
@@ -209,7 +211,6 @@ contains
       endsubroutine associate_adam_data
    endsubroutine initialize
 
-
    subroutine initialize_stages(self, q_pic)
    !< Initialize RK stages.
    class(prism_rk_pic_object), intent(inout) :: self         !< RK object.
@@ -328,7 +329,7 @@ contains
          self%q_pic_rk(1,p,s) = v_p(1)
          self%q_pic_rk(2,p,s) = v_p(2)
          self%q_pic_rk(3,p,s) = v_p(3)
-         self%q_pic_rk(4,p,s) = F_p(1)/m_p 
+         self%q_pic_rk(4,p,s) = F_p(1)/m_p
          self%q_pic_rk(5,p,s) = F_p(2)/m_p
          self%q_pic_rk(6,p,s) = F_p(3)/m_p
          self%q_pic_rk(7,p,s) = 0._R8P

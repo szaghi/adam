@@ -3,13 +3,13 @@ module adam_prism_numerics_object
 !< ADAM, PRISM (Plasma Research usIng Simulation Methods) numerics class definition, common backend.
 !<
 
-! ADAM modules
-use :: adam_global_mpih, only: mpih
+! ADAM singleton objects
+use :: adam_global_mpih, only : mpih
 ! PRISM modules
 use :: adam_prism_parameters
 ! third party modules
 use :: finer, only : file_ini
-use :: penf, only : I4P, R8P, str
+use :: penf,  only : I4P, R8P, str
 
 implicit none
 private

@@ -2,16 +2,19 @@
 module adam_prism_rk_bc_object
 !< ADAM, RK-BC class definition.
 
-use adam_global_field, only: field
-use adam_global_grid, only: grid
-use adam_global_mpih, only: mpih
-use adam_rk_object
-use adam_prism_physics_object
-use finer
-use penf
+! ADAM classes, libraries, parameters
+use :: adam_rk_object
+! ADAM singleton objects
+use :: adam_global_field, only : field
+use :: adam_global_grid,  only : grid
+use :: adam_global_mpih,  only : mpih
+! PRISM modules
+use :: adam_prism_physics_object
+! third party modules
+use :: finer
+use :: penf
 
 implicit none
-save
 private
 public :: prism_rk_bc_object
 
@@ -30,8 +33,8 @@ type :: prism_rk_bc_object
    real(R8P), allocatable :: ssa(:) !< Runge-Kutta sympletic-splitting part A coefficients.
    real(R8P), allocatable :: ssb(:) !< Runge-Kutta sympletic-splitting part B coefficients.
    ! RK data
-   real(R8P), allocatable    :: q_bc_rk(:,:,:,:,:,:)  
-   real(R8P), allocatable    :: dq_bc_rk(:,:,:,:,:) 
+   real(R8P), allocatable    :: q_bc_rk(:,:,:,:,:,:)
+   real(R8P), allocatable    :: dq_bc_rk(:,:,:,:,:)
    ! grid/field data replica for easy handling
    integer(I4P),       pointer :: ngc=>null()  !< Number of ghost cells.
    integer(I4P),       pointer :: ni=>null()   !< Number of cells in i direction.
@@ -349,6 +352,6 @@ contains
       !$omp end parallel do
    endif
    endassociate
-   endsubroutine assign_stage   
+   endsubroutine assign_stage
 
 endmodule adam_prism_rk_bc_object

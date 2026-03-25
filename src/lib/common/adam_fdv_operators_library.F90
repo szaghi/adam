@@ -2,10 +2,10 @@
 module adam_fdv_operators_library
 !< ADAM, finite difference/volume operators approximations library.
 
-use penf
+! third party modules
+use :: penf
 
 implicit none
-save
 private
 public :: FDV_S_MAX
 public :: FD0_CC

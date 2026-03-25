@@ -35,7 +35,7 @@ module adam_prism_leapfrog_pic_object
 !< [3] *The RAW filter: An improvement to the Robert–Asselin filter in semi-implicit integrations*, Williams, P.D., Monthly
 !< Weather Review, vol. 139(6), pages 1996--2007, June 2011.
 
-!< ADAM modules
+! ADAM singleton objects
 use :: adam_global_mpih,      only : mpih
 use :: adam_global_grid,      only : grid
 use :: adam_prism_pic_object, only : prism_pic_object

@@ -2,11 +2,13 @@
 module adam_rk_object
 !< ADAM, RK class definition.
 
-use adam_global_field, only: field
-use adam_global_mpih, only: mpih
-use adam_global_grid, only: grid
-use finer
-use penf
+! ADAM singleton objects
+use :: adam_global_field, only : field
+use :: adam_global_mpih,  only : mpih
+use :: adam_global_grid,  only : grid
+! third party modules
+use :: finer
+use :: penf
 
 implicit none
 private

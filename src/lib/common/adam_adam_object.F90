@@ -2,16 +2,18 @@
 module adam_adam_object
 !< ADAM, ADAM class definition.
 
-! ADAM modules
+! ADAM classes, libraries, parameters
 use :: adam_field_object
-use :: adam_global_field, only : adam_field => field
-use :: adam_global_grid, only : grid
 use :: adam_maps_object
-use :: adam_global_mpih, only : mpih
-use :: adam_parameters
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
 use :: adam_tree_object
+use :: adam_parameters
+! ADAM singleton objects
+use :: adam_global_field, only : adam_field => field
+use :: adam_global_grid,  only : grid
+use :: adam_global_maps,  only : adam_maps => maps
+use :: adam_global_mpih,  only : mpih
 ! third party modules
 use :: finer, only : file_ini
 use :: motion
@@ -27,8 +29,8 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   type(tree_object)          :: tree        !< The tree.
-   type(maps_object)          :: maps        !< The maps.
+   type(tree_object)           :: tree          !< The tree.
+   type(maps_object),  pointer :: maps=>null()  !< The maps (backward-compat alias → global singleton).
    type(field_object), pointer :: field=>null() !< The field (points to program-scope singleton).
    contains
       ! public methods
@@ -119,7 +121,7 @@ contains
                                           1-grid%ngc:,&
                                           1:)!< Field cell centered variables.
 
-   call self%maps%blocks_reorder
+   call adam_maps%blocks_reorder
    call self%field%blocks_reorder(q=q)
    endsubroutine blocks_reorder
 
@@ -212,9 +214,9 @@ contains
                              nodes_number=nodes_number,      &
                              add_adam=add_adam,              &
                              verbose=verbose_)
-   call self%maps%initialize(tree=self%tree,verbose=verbose_)
-   call self%field%initialize(maps=self%maps,                 &
-                              file_parameters=file_parameters,&
+   call adam_maps%initialize(tree=self%tree,verbose=verbose_)
+   self%maps => adam_maps
+   call self%field%initialize(file_parameters=file_parameters,&
                               nb=1,                           &! remember to change
                               nv=nv,                          &
                               verbose=verbose_)
@@ -327,8 +329,8 @@ contains
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc start')
-   call self%maps%make_comm_local_maps_ghost(nv=self%field%nv)
-   call self%maps%make_local_maps_bc
+   call adam_maps%make_comm_local_maps_ghost(nv=self%field%nv)
+   call adam_maps%make_local_maps_bc
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc finish')
    endsubroutine make_comm_local_maps_ghost_bc
 
@@ -350,7 +352,7 @@ contains
    endif
 
    if (is_marked_by_tree_) then
-      call self%maps%mpi_gather_nodes_data(node_member='refinement_needed')
+      call adam_maps%mpi_gather_nodes_data(node_member='refinement_needed')
    endif
    endsubroutine mpi_gather_refinement_needed
 
@@ -364,7 +366,7 @@ contains
                                           1:)!< Field cell centered variables.
 
    call self%tree%mpi_redistribute
-   call self%maps%make_comm_local_maps
+   call adam_maps%make_comm_local_maps
    call self%field%mpi_redistribute(q=q)
 
    endsubroutine mpi_redistribute

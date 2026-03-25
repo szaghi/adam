@@ -2,7 +2,8 @@
 module adam_tree_node_object
 !< ADAM, tree node class definition.
 
-use PENF
+! third party modules
+use :: penf
 
 implicit none
 private

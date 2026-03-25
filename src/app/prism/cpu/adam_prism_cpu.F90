@@ -2,7 +2,8 @@
 program adam_prism_cpu
 !< ADAM, Maxwell application solver, CPU backend.
 
-use adam_prism_cpu_object, only : prism_cpu_object
+! PRISM modules
+use :: adam_prism_cpu_object, only : prism_cpu_object
 
 implicit none
 

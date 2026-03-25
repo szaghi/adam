@@ -1,8 +1,8 @@
 !< ADAM, Maxwell equations system class definition, common data to all backends.
 module adam_prism_common_object
 
-! ADAM modules
-use adam_common_library
+! ADAM common library
+use :: adam_common_library
 ! PRISM modules
 use :: adam_prism_bc_object
 use :: adam_prism_coil_object

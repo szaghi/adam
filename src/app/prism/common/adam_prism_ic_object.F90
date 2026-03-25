@@ -2,10 +2,10 @@
 module adam_prism_ic_object
 !< ADAM, PRISM Initial Conditions class definition, CPU backend.
 
-! ADAM modules
+! ADAM singleton objects
 use adam_field_object, only : field_object
-use adam_global_grid, only: grid
-use adam_global_mpih, only: mpih
+use adam_global_grid,  only : grid
+use adam_global_mpih,  only : mpih
 ! PRISM modules
 use adam_prism_physics_object, only : prism_physics_object
 ! third party modules

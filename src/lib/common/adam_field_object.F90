@@ -63,13 +63,19 @@ module adam_field_object
 !<         1    2    3    4    5
 !<```
 
-use adam_global_grid, only: grid
-use adam_maps_object
-use adam_global_mpih, only: mpih
-use adam_parameters
-use finer, only : file_ini
-use penf
-use MPI
+! ADAM classes, libraries, parameters
+use :: adam_maps_object
+use :: adam_parameters
+! ADAM singleton objects
+use :: adam_global_grid, only : grid
+use :: adam_global_maps, only : maps
+use :: adam_global_mpih, only : mpih
+! third party modules
+use :: finer, only : file_ini
+use :: penf
+! sdk modules
+use :: mpi
+! intrinsic modules
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
@@ -387,10 +393,9 @@ contains
       endsubroutine check_slab
    endfunction do_ray_intersect
 
-   subroutine initialize(self, maps, nb, file_parameters, nv, verbose)
+   subroutine initialize(self, nb, file_parameters, nv, verbose)
    !< Initialize field.
    class(field_object),    intent(inout)        :: self            !< The field.
-   type(maps_object),      intent(in), target   :: maps            !< The maps.
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
    integer(I4P),           intent(in)           :: nb              !< Number of all blocks that can be stored.
    integer(I4P),           intent(in), optional :: nv              !< Number of field variables.

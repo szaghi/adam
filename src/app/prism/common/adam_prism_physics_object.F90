@@ -27,15 +27,15 @@ module adam_prism_physics_object
 !< Fx(9) =  0       Fy(9) =  0       Fz(9) =  0
 !<```
 
-! ADAM modules
-use :: adam_global_mpih, only: mpih
+! ADAM singleton objects
+use :: adam_global_mpih, only : mpih
 ! PRISM modules
 use :: adam_prism_numerics_object, only : RECONSTRUCTION_VARS_CONS, RECONSTRUCTION_VARS_CHAR, &
                                           DIV_CORR_VAR_HYPER, DIV_CORR_VAR_POISS
 use :: adam_prism_parameters
 ! third party modules
 use :: finer, only : file_ini
-use :: penf, only : I4P, R8P, str
+use :: penf,  only : I4P, R8P, str
 
 implicit none
 private

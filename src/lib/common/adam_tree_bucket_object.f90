@@ -3,8 +3,10 @@ module adam_tree_bucket_object
 !< ADAM, tree bucket class definition.
 !< The bucket is implemented as a dictionary based on a double linked list.
 
-use adam_tree_node_object, only : destroy_tree_node, tree_node_object
-use PENF, only : I4P, I8P, str
+! ADAM classes, libraries, parameters
+use :: adam_tree_node_object, only : destroy_tree_node, tree_node_object
+! third party modules
+use :: penf, only : I4P, I8P, str
 
 implicit none
 private

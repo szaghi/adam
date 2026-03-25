@@ -65,6 +65,7 @@ src/
 | `adam_global_mpih` | Program-scope MPI handler singleton (module variable, not embedded in types) |
 | `adam_global_grid` | Program-scope grid singleton (module variable, not embedded in types) |
 | `adam_global_field` | Program-scope field singleton (module variable, not embedded in types) |
+| `adam_global_maps` | Program-scope maps singleton (module variable, not embedded in types) |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian operators |
 | `adam_riemann_euler_library` | Euler equation Riemann solvers |
 

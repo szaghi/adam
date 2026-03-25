@@ -1,10 +1,12 @@
 !< ADAM, PRISM Particle-in-Cell class definition, CPU backend.
 module adam_prism_particle_injection_object
 !< ADAM, PRISM Particle-in-Cell class definition, CPU backend.
-! ADAM modules
-use :: adam_global_mpih, only: mpih
-use :: adam_global_grid, only: grid
-use adam_field_object, only : field_object
+
+! ADAM classes, libraries, parameters
+use :: adam_field_object, only : field_object
+! ADAM singleton objects
+use :: adam_global_mpih, only : mpih
+use :: adam_global_grid, only : grid
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_pic_object, only: prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM
@@ -81,8 +83,8 @@ endtype prism_particle_injection_object
 interface
    subroutine particle_space_injection_interface(self, field, pic, q_pic)
    import :: prism_particle_injection_object, field_object, prism_pic_object, I4P, R8P
-	class(prism_particle_injection_object), intent(inout) :: self 
-	type(field_object),                  	 intent(in) 	:: field 
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)                                                         !< Number of variables.
    endsubroutine particle_space_injection_interface
@@ -91,14 +93,14 @@ interface
 	import :: I4P, R8P
 	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
 	integer(I4P), intent(in) 	 :: i_numb
-	integer(I4P), intent(in) 	 :: N 		
-	real(R8P), intent(inout) 	 :: r_n(1:) 
+	integer(I4P), intent(in) 	 :: N
+	real(R8P), intent(inout) 	 :: r_n(1:)
 	endsubroutine space_random_number_generator_interface
 
 	subroutine particle_velocity_injection_interface(self, field, pic, q_pic)
    import :: prism_particle_injection_object, field_object, prism_pic_object, I4P, R8P
-	class(prism_particle_injection_object), intent(inout) :: self 
-	type(field_object),                  	 intent(in) 	:: field 
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)                                                         !< Number of variables.
    endsubroutine particle_velocity_injection_interface
@@ -107,8 +109,8 @@ interface
 	import :: I4P, R8P
 	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
 	integer(I4P), intent(in) 	 :: i_numb
-	integer(I4P), intent(in) 	 :: N 		
-	real(R8P), intent(inout) 	 :: r_n(1:) 
+	integer(I4P), intent(in) 	 :: N
+	real(R8P), intent(inout) 	 :: r_n(1:)
 	endsubroutine velocity_random_number_generator_interface
 endinterface
 
@@ -192,7 +194,7 @@ contains
    	case(SPACE_LAYERED_NUMBER_GENERATOR)
    	   space_rand_num_generator => layered_number_generator
    	case default
-   	   call mpih%error_stop & 
+   	   call mpih%error_stop &
 			(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
    	endselect
 		select case(self%velocity_distribution)
@@ -239,14 +241,14 @@ contains
 		case('Cell_uniform', 'cell_uniform', 'cell_Uniform')
    	   self%space_distribution = UNIFORM_CELL_SPACE_DISTRIBUTION
 		case default
-			call mpih%error_stop(msg=': invalid particle space distribution ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid particle space distribution ['//trim(adjustl(buff))//'] in  &
    	   ['//INI_SECTION_NAME//'].(space_distribution)')
 		endselect
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, &
 										 option_name='space_random_number_generator', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
-   	   call mpih%error_stop(msg=': failed to load [' & 
+   	   call mpih%error_stop(msg=': failed to load [' &
 													//INI_SECTION_NAME//'].(space_random_number_generator) from file')
    	select case(trim(adjustl(buff)))
    	case('Random', 'random', 'RANDOM')
@@ -254,14 +256,14 @@ contains
    	case('Layered', 'layered', 'LAYERED')
    	   self%space_random_number_generator = SPACE_LAYERED_NUMBER_GENERATOR
 		case default
-			call mpih%error_stop(msg=': invalid space random number generator ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid space random number generator ['//trim(adjustl(buff))//'] in  &
    	   ['//INI_SECTION_NAME//'].(space_random_number_generator)')
 		endselect
 
 		if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_number', &
    		val=self%box_number, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_number)')
 		endif
 
@@ -274,7 +276,7 @@ contains
 		case('YES', 'yes', 'Yes')
 			self%space_pairing = .true.
 		case default
-			call mpih%error_stop(msg=': invalid space pairing flag ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid space pairing flag ['//trim(adjustl(buff))//'] in  &
    	   ['//INI_SECTION_NAME//'].(space_pairing)')
 		endselect
 
@@ -282,79 +284,77 @@ contains
    	if (.not.go_on_fail_.and.error>0) &
    	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_distribution) from file')
    	select case(trim(adjustl(buff)))
-   	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', & 
+   	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
 				'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
    	   self%velocity_distribution = UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
    	case('Non_Uniform_Maxwellian', 'non_uniform_maxwellian', 'non_uniform_Maxwellian')
    	   self%velocity_distribution = NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
 		case default
-			call mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  &
    	   ['//INI_SECTION_NAME//'].(velocity_distribution)')
 		endselect
 
 		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature', &
    		val=self%T_i, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature', &
    		val=self%T_e, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature', &
    		val=self%T_n, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature)')
 
 		elseif (self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_x', &
    		val=self%T_i_x, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_x)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_y', &
    		val=self%T_i_y, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_y)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_z', &
    		val=self%T_i_z, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_z)')
-
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_x', &
    		val=self%T_e_x, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_x)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_y', &
    		val=self%T_e_y, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_y)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_z', &
    		val=self%T_e_z, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_z)')	
-
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_z)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_x', &
    		val=self%T_n_x, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_x)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_y', &
    		val=self%T_n_y, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
+   		if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_y)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_z', &
    		val=self%T_n_z, error=error)
-   		if (.not.go_on_fail_.and.error>0) & 
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_z)')	
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_z)')
 		endif
 
 		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
@@ -363,7 +363,7 @@ contains
 			call file_parameters%get(section_name=INI_SECTION_NAME, &
 											 option_name='velocity_random_number_generator', val=buff,error=error)
    		if (.not.go_on_fail_.and.error>0) &
-   		   call mpih%error_stop(msg=': failed to load [' & 
+   		   call mpih%error_stop(msg=': failed to load [' &
 														//INI_SECTION_NAME//'].(velocity_random_number_generator) from file')
    		select case(trim(adjustl(buff)))
    		case('Random', 'random', 'RANDOM')
@@ -371,7 +371,7 @@ contains
    		case('Layered', 'layered', 'LAYERED')
    		   self%velocity_random_number_generator = VELOCITY_LAYERED_NUMBER_GENERATOR
 			case default
-				call mpih%error_stop(msg=': invalid velocity random number generator ['//trim(adjustl(buff))//'] in  & 
+				call mpih%error_stop(msg=': invalid velocity random number generator ['//trim(adjustl(buff))//'] in  &
    		   ['//INI_SECTION_NAME//'].(velocity_random_number_generator)')
 			endselect
 
@@ -384,7 +384,7 @@ contains
 			case('YES', 'yes', 'Yes')
 				self%velocity_pairing = .true.
 			case default
-				call mpih%error_stop(msg=': invalid velocity pairing flag ['//trim(adjustl(buff))//'] in  & 
+				call mpih%error_stop(msg=': invalid velocity pairing flag ['//trim(adjustl(buff))//'] in  &
    		   ['//INI_SECTION_NAME//'].(velocity_pairing)')
 			endselect
 		endif
@@ -398,7 +398,7 @@ contains
 		case('YES', 'yes', 'Yes')
 			self%v_av_correction = .true.
 		case default
-			call mpih%error_stop(msg=': invalid velocity average correction flag ['//trim(adjustl(buff))//'] in  & 
+			call mpih%error_stop(msg=': invalid velocity average correction flag ['//trim(adjustl(buff))//'] in  &
    	   ['//INI_SECTION_NAME//'].(v_av_correction)')
 		endselect
 	endif
@@ -406,53 +406,53 @@ contains
 	if (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_position', &
    		val=self%x_position, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
+   	if (.not.go_on_fail_.and.error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_position)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_position', &
    		val=self%y_position, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
+   	if (.not.go_on_fail_.and.error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_position)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_position', &
    		val=self%z_position, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
+   	if (.not.go_on_fail_.and.error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_position)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='charge', &
    		val=self%charge, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
+   	if (.not.go_on_fail_.and.error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(charge)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='mass', &
    		val=self%mass, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
+   	if (.not.go_on_fail_.and.error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(mass)')
 	endif
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_x', &
    		val=self%v_drift_x, error=error)
-   if (.not.go_on_fail_.and.error>0) & 
+   if (.not.go_on_fail_.and.error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_x)')
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_y', &
    		val=self%v_drift_y, error=error)
-   if (.not.go_on_fail_.and.error>0) & 
+   if (.not.go_on_fail_.and.error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_y)')
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_z', &
    		val=self%v_drift_z, error=error)
-   if (.not.go_on_fail_.and.error>0) & 
+   if (.not.go_on_fail_.and.error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_z)')
 
    endsubroutine load_from_file
 
 	subroutine set_particle_initial_injection(self, field, pic, q_pic)
-	class(prism_particle_injection_object), intent(inout) :: self 
-	type(field_object),                  	 intent(in) 	:: field 
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
 	type(prism_pic_object),					 	 intent(inout)	:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
-	
+
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
 		!Setta posizione spaziale delle particelle e relativa tipologia
 		call self%particle_space_injection(field=field, pic=pic, q_pic=q_pic)
@@ -475,7 +475,7 @@ contains
 	endsubroutine
 
 	subroutine single_particle_injection(self, q_pic)
-	class(prism_particle_injection_object), intent(inout) :: self 
+	class(prism_particle_injection_object), intent(inout) :: self
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 
 	associate(x_p=>self%x_position, y_p=>self%y_position, z_p=>self%z_position, vx_p=>self%v_drift_x, &
@@ -493,8 +493,8 @@ contains
 	endsubroutine single_particle_injection
 
    subroutine uniform_domain_space_injection(self, field, pic, q_pic)
-	class(prism_particle_injection_object), intent(inout) :: self 
-	type(field_object),                  	 intent(in) 	:: field 
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 	real(R8P)															:: r_n(3)
@@ -504,8 +504,8 @@ contains
 	integer(I4P), allocatable										:: shuffled_list_ions(:,:)
 	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
 	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
-	character(len=:), allocatable		                   	:: desc             
-   character(len=1), parameter  		                   	:: NL=new_line('a') 
+	character(len=:), allocatable		                   	:: desc
+   character(len=1), parameter  		                   	:: NL=new_line('a')
 
 	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,              &
       		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),          &
@@ -523,9 +523,9 @@ contains
 	!if(.not.space_pairing) then
 		do i = 1, n_ions
 			call space_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
-			x_p = e_min(1)+r_n(1)*(e_max(1)-e_min(1)) 
-			y_p = e_min(2)+r_n(2)*(e_max(2)-e_min(2)) 
-			z_p = e_min(3)+r_n(3)*(e_max(3)-e_min(3)) 
+			x_p = e_min(1)+r_n(1)*(e_max(1)-e_min(1))
+			y_p = e_min(2)+r_n(2)*(e_max(2)-e_min(2))
+			z_p = e_min(3)+r_n(3)*(e_max(3)-e_min(3))
 			q_pic(1,i) = x_p
 			q_pic(2,i) = y_p
 			q_pic(3,i) = z_p
@@ -536,9 +536,9 @@ contains
 		enddo
 		do i = 1, n_electrons
 			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
-			x_p = e_min(1)+r_n(1)*(e_max(1)-e_min(1)) 
-			y_p = e_min(2)+r_n(2)*(e_max(2)-e_min(2)) 
-			z_p = e_min(3)+r_n(3)*(e_max(3)-e_min(3)) 
+			x_p = e_min(1)+r_n(1)*(e_max(1)-e_min(1))
+			y_p = e_min(2)+r_n(2)*(e_max(2)-e_min(2))
+			z_p = e_min(3)+r_n(3)*(e_max(3)-e_min(3))
 			q_pic(1,i+n_ions) = x_p
 			q_pic(2,i+n_ions) = y_p
 			q_pic(3,i+n_ions) = z_p
@@ -547,9 +547,9 @@ contains
 		enddo
 		do i = 1, n_neutrals
 			call space_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
-			x_p = e_min(1)+r_n(1)*(e_max(1)-e_min(1)) 
-			y_p = e_min(2)+r_n(2)*(e_max(2)-e_min(2)) 
-			z_p = e_min(3)+r_n(3)*(e_max(3)-e_min(3)) 
+			x_p = e_min(1)+r_n(1)*(e_max(1)-e_min(1))
+			y_p = e_min(2)+r_n(2)*(e_max(2)-e_min(2))
+			z_p = e_min(3)+r_n(3)*(e_max(3)-e_min(3))
 			q_pic(1,i+n_ions+n_electrons) = x_p
 			q_pic(2,i+n_ions+n_electrons) = y_p
 			q_pic(3,i+n_ions+n_electrons) = z_p
@@ -559,7 +559,7 @@ contains
 	!else
 
 	!endif
-	
+
 	domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
 
 	desc =       mpih%myrankstr//'Injected particles:'
@@ -576,8 +576,8 @@ contains
 	!endsubroutine uniform_box_space_injection
 
 	subroutine uniform_cell_space_injection(self, field, pic, q_pic)
-	class(prism_particle_injection_object), intent(inout) :: self 
-	type(field_object),                  	 intent(in) 	:: field 
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 	real(R8P)															:: r_n(3)
@@ -594,8 +594,8 @@ contains
 	integer(I4P), allocatable										:: shuffled_list_ions(:,:)
 	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
 	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
-	character(len=:), allocatable		                   	:: desc             
-   character(len=1), parameter  		                   	:: NL=new_line('a') 
+	character(len=:), allocatable		                   	:: desc
+   character(len=1), parameter  		                   	:: NL=new_line('a')
 
 	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,              &
       		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),          &
@@ -634,9 +634,9 @@ contains
 							p = p + 1_I4P
 							call space_rand_num_generator(N=n_i_4c, &
 									shuffled_list=shuffled_list_ions, i_numb=n_p, r_n=r_n)
-							x_p = x_min+r_n(1)*(x_max-x_min) 
-							y_p = y_min+r_n(2)*(y_max-y_min) 
-							z_p = z_min+r_n(3)*(z_max-z_min) 
+							x_p = x_min+r_n(1)*(x_max-x_min)
+							y_p = y_min+r_n(2)*(y_max-y_min)
+							z_p = z_min+r_n(3)*(z_max-z_min)
 							q_pic(1,p) = x_p
 							q_pic(2,p) = y_p
 							q_pic(3,p) = z_p
@@ -662,14 +662,14 @@ contains
 						y_min = e_min(2) + deltay * real(j-1,R8P)
 						y_max = e_min(2) + deltay * real(j	,R8P)
 						z_min = e_min(3) + deltaz * real(k-1,R8P)
-						z_max = e_min(3) + deltaz * real(k	,R8P)	
+						z_max = e_min(3) + deltaz * real(k	,R8P)
 						do n_p = 1, n_e_4c
 							p = p + 1_I4P
-							call space_rand_num_generator(N=n_e_4c, & 
+							call space_rand_num_generator(N=n_e_4c, &
 									shuffled_list=shuffled_list_electrons, i_numb=n_p, r_n=r_n)
-							x_p = x_min+r_n(1)*(x_max-x_min) 
-							y_p = y_min+r_n(2)*(y_max-y_min) 
-							z_p = z_min+r_n(3)*(z_max-z_min) 
+							x_p = x_min+r_n(1)*(x_max-x_min)
+							y_p = y_min+r_n(2)*(y_max-y_min)
+							z_p = z_min+r_n(3)*(z_max-z_min)
 							q_pic(1,p) = x_p
 							q_pic(2,p) = y_p
 							q_pic(3,p) = z_p
@@ -698,9 +698,9 @@ contains
 							p = p + 1_I4P
 							call space_rand_num_generator(N=n_n_4c, &
 									shuffled_list=shuffled_list_neutrals, i_numb=n_p, r_n=r_n)
-							x_p = x_min+r_n(1)*(x_max-x_min) 
-							y_p = y_min+r_n(2)*(y_max-y_min) 
-							z_p = z_min+r_n(3)*(z_max-z_min) 
+							x_p = x_min+r_n(1)*(x_max-x_min)
+							y_p = y_min+r_n(2)*(y_max-y_min)
+							z_p = z_min+r_n(3)*(z_max-z_min)
 							q_pic(1,p) = x_p
 							q_pic(2,p) = y_p
 							q_pic(3,p) = z_p
@@ -721,7 +721,7 @@ contains
    desc = desc//NL//mpih%myrankstr//'    	Electrons number: '//trim(str(n_e_4c*n_cells))
 	desc = desc//NL//mpih%myrankstr//'    	Ions number: '//trim(str(n_i_4c*n_cells))
 	desc = desc//NL//mpih%myrankstr//'    	Neutrals number: '//trim(str(n_n_4c*n_cells))
-	desc = desc//NL//mpih%myrankstr//'		Effective particle total number: ' & 
+	desc = desc//NL//mpih%myrankstr//'		Effective particle total number: ' &
 													//trim(str((n_e_4c*n_cells+n_i_4c*n_cells+n_n_4c*n_cells)))
 	desc = desc//NL//mpih%myrankstr//'		Effective plasma density: ' &
 													//trim(str(real(n_e_4c*n_cells+n_i_4c*n_cells+n_n_4c*n_cells)/domain_volume))
@@ -730,8 +730,8 @@ contains
 	endsubroutine uniform_cell_space_injection
 
 	subroutine uniform_maxwellian_velocity_injection(self, field, pic, q_pic)
-	class(prism_particle_injection_object), intent(inout) :: self 
-	type(field_object),                  	 intent(in) 	:: field 
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 	real(R8P)															:: r_n(4)
@@ -765,9 +765,9 @@ contains
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
-			vx_p = v_t*Zx 
+			vx_p = v_t*Zx
 			vy_p = v_t*Zy
-			vz_p = v_t*Zz 
+			vz_p = v_t*Zz
 			q_pic(4,i) = vx_p
 			q_pic(5,i) = vy_p
 			q_pic(6,i) = vz_p
@@ -786,9 +786,9 @@ contains
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
-			vx_p = v_t*Zx 
+			vx_p = v_t*Zx
 			vy_p = v_t*Zy
-			vz_p = v_t*Zz 
+			vz_p = v_t*Zz
 			q_pic(4,i+n_ions) = vx_p
 			q_pic(5,i+n_ions) = vy_p
 			q_pic(6,i+n_ions) = vz_p
@@ -807,9 +807,9 @@ contains
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
-			vx_p = v_t*Zx 
+			vx_p = v_t*Zx
 			vy_p = v_t*Zy
-			vz_p = v_t*Zz 
+			vz_p = v_t*Zz
 			q_pic(4,i+n_ions+n_electrons) = vx_p
 			q_pic(5,i+n_ions+n_electrons) = vy_p
 			q_pic(6,i+n_ions+n_electrons) = vz_p
@@ -825,13 +825,13 @@ contains
 	!else
 
 	!endif
-	
+
 	endassociate
 	endsubroutine uniform_maxwellian_velocity_injection
 
 	subroutine non_uniform_maxwellian_velocity_injection(self, field, pic, q_pic)
-	class(prism_particle_injection_object), intent(inout) :: self 
-	type(field_object),                  	 intent(in) 	:: field 
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 	real(R8P)															:: r_n(4)
@@ -870,9 +870,9 @@ contains
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
-			vx_p = v_tx*Zx 
+			vx_p = v_tx*Zx
 			vy_p = v_ty*Zy
-			vz_p = v_tz*Zz 
+			vz_p = v_tz*Zz
 			q_pic(4,i) = vx_p
 			q_pic(5,i) = vy_p
 			q_pic(6,i) = vz_p
@@ -893,9 +893,9 @@ contains
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
-			vx_p = v_tx*Zx 
+			vx_p = v_tx*Zx
 			vy_p = v_ty*Zy
-			vz_p = v_tz*Zz 
+			vz_p = v_tz*Zz
 			q_pic(4,i+n_ions) = vx_p
 			q_pic(5,i+n_ions) = vy_p
 			q_pic(6,i+n_ions) = vz_p
@@ -916,9 +916,9 @@ contains
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
-			vx_p = v_tx*Zx 
+			vx_p = v_tx*Zx
 			vy_p = v_ty*Zy
-			vz_p = v_tz*Zz 
+			vz_p = v_tz*Zz
 			q_pic(4,i+n_ions+n_electrons) = vx_p
 			q_pic(5,i+n_ions+n_electrons) = vy_p
 			q_pic(6,i+n_ions+n_electrons) = vz_p
@@ -934,7 +934,7 @@ contains
 	!else
 
 	!endif
-	
+
 	endassociate
 	endsubroutine non_uniform_maxwellian_velocity_injection
 
@@ -963,8 +963,8 @@ contains
 	integer(I4P), intent(in) 	 :: i_numb !Non utilizzato qui
 	integer(I4P), intent(in) 	 :: N !Numero di elementi Non utilizzato qui
 	real(R8P), intent(inout) 	 :: r_n(1:) !Random numbers Non utilizzato qui
-	
-	call random_number(r_n) 
+
+	call random_number(r_n)
 	endsubroutine random_number_generator
 
 	subroutine layered_number_generator(N, shuffled_list, i_numb, r_n)
@@ -978,19 +978,19 @@ contains
 
 	n_rn = size(r_n)
 	if (i_numb == 1) then
-		do w = 1, N 
+		do w = 1, N
 			index_list(w) = w
 		enddo
-		do h = 1, n_rn 
+		do h = 1, n_rn
 			if (h == 1) then
 				shuffled_list(1,:) = index_list
 			else
 				shuffled_list(h,:) = fisher_yates_shuffle(index_list=index_list, nn=N)
-			endif	
+			endif
 			r_n(h) = (real(shuffled_list(h,i_numb),R8P)-0.5_R8P)/real(N,R8P)
 		enddo
 	else
-		do h = 1, n_rn 
+		do h = 1, n_rn
 			r_n(h) = (real(shuffled_list(h,i_numb),R8P)-0.5_R8P)/real(N,R8P)
 		enddo
 	endif
@@ -1002,7 +1002,7 @@ contains
 	integer(I4P)				  :: shuffled_list(nn)
 	integer(I4P) 				  :: ii, jj, tmp
 	real(R8P) 	 				  :: u
-	
+
 	shuffled_list = index_list
 	do ii = nn, 2, -1
       call random_number(u)     ! u in [0,1)
@@ -1011,7 +1011,7 @@ contains
       shuffled_list(ii) = shuffled_list(jj)
       shuffled_list(jj) = tmp
    enddo
-	endfunction fisher_yates_shuffle	
+	endfunction fisher_yates_shuffle
 
 	subroutine add_drift_velocity(q_pic, v_drift)
 	real(R8P), intent(inout) :: q_pic(1:)

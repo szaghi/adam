@@ -2,13 +2,15 @@
 module adam_mpih_object
 !< ADAM, MPI handler class definition.
 
-use penf
-use mpi
-use, intrinsic :: iso_c_binding, only : C_LONG
+! third party modules
+use :: penf
+! sdk modules
+use :: mpi
+! intrinsic modules
+use, intrinsic :: iso_c_binding,   only : C_LONG
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
-save
 private
 public :: mpih_object
 

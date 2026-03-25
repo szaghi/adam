@@ -2,10 +2,10 @@
 module adam_prism_coil_object
     !< ADAM, PRISM coil source definition, CPU backend.
 
-! ADAM modules
-use :: adam_global_field, only: field
-use :: adam_global_grid, only: grid
-use :: adam_global_mpih, only: mpih
+! ADAM singleton objects
+use :: adam_global_field, only : field
+use :: adam_global_grid,  only : grid
+use :: adam_global_mpih,  only : mpih
 ! PRISM modules
 use :: adam_prism_physics_object, only : prism_physics_object
 use :: adam_prism_parameters

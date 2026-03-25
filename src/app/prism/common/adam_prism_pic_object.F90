@@ -1,16 +1,18 @@
 !< ADAM, PRISM Particle-in-Cell class definition, CPU backend.
 module adam_prism_pic_object
 !< ADAM, PRISM Particle-in-Cell class definition, CPU backend.
-! ADAM modules
+
+! ADAM classes, libraries, parameters
+use :: adam_field_object, only : field_object
+! ADAM singleton objects
 use :: adam_global_mpih,  only : mpih
 use :: adam_global_grid,  only : grid
-use :: adam_global_field, only: adam_field => field
-use :: adam_field_object, only : field_object
+use :: adam_global_field, only : adam_field => field
 ! PRISM modules
 use :: adam_prism_parameters
 ! third party modules
 use :: finer, only : file_ini
-use :: penf, only : I4P, R8P, str
+use :: penf,  only : I4P, R8P, str
 
 implicit none
 private

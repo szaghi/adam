@@ -2,10 +2,10 @@
 module adam_parameters
 !< ADAM, general parameters.
 
-use PENF
+! third party modules
+use :: penf
 
 implicit none
-save
 private
 public :: BC_PERIODIC
 public :: TO_BE_REFINED,   &

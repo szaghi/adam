@@ -10,16 +10,16 @@ module adam_prism_fWLayer_object
     !ragiona su come scrivere (in cpu però, non qui) la funzione di aggiornamento dei campi. La puoi fare ricorsiva e senza if se
     !vale a livello matematico, altrimenti dovrai aggiungere un flag(3) per individuare se la cella appartiene a uno o più lati dello strato e a quali (in ogni elemento + o -1)
 
-! ADAM modules
-use :: adam_global_mpih, only: mpih
-use :: adam_global_grid, only: grid
-use :: adam_global_field, only: field
+! ADAM singleton objects
+use :: adam_global_mpih,  only : mpih
+use :: adam_global_grid,  only : grid
+use :: adam_global_field, only : field
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_physics_object, only : prism_physics_object
 ! third party modules
 use :: finer, only : file_ini
-use :: penf, only : I4P, R8P, str
+use :: penf,  only : I4P, R8P, str
 use :: stringifor
 
 implicit none

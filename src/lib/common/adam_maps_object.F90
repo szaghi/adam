@@ -2,13 +2,17 @@
 module adam_maps_object
 !< ADAM, maps class definition
 
-use adam_global_mpih, only: mpih
-use adam_global_grid, only: grid
-use adam_tree_object
-use adam_tree_node_object
-use adam_parameters
-use penf
-use mpi
+! ADAM classes, libraries, parameters
+use :: adam_tree_object
+use :: adam_tree_node_object
+use :: adam_parameters
+! ADAM singleton objects
+use :: adam_global_mpih, only : mpih
+use :: adam_global_grid, only : grid
+! third party modules
+use :: penf
+! sdk modules
+use :: mpi
 
 implicit none
 private

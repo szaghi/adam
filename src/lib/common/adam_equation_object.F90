@@ -2,7 +2,7 @@
 module adam_equation_object
 !< ADAM, equation system class definition, common data to all backends and applications.
 
-! ADAM modules
+! ADAM classes, libraries, parameters
 use :: adam_adam_object
 use :: adam_amr_object
 use :: adam_blanes_moan_object
@@ -11,13 +11,10 @@ use :: adam_eos_ic_object
 use :: adam_fdv_operators_library
 use :: adam_field_object
 use :: adam_flail_object
-use :: adam_global_field, only: adam_field => field
-use :: adam_global_grid, only: grid
 use :: adam_ib_object
 use :: adam_io_object
 use :: adam_leapfrog_object
 use :: adam_maps_object
-use :: adam_global_mpih, only: mpih
 use :: adam_parameters
 use :: adam_rk_object
 use :: adam_riemann_euler_library
@@ -26,6 +23,10 @@ use :: adam_tree_node_object
 use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
+! ADAM singleton objects
+use :: adam_global_field, only : adam_field => field
+use :: adam_global_grid,  only : grid
+use :: adam_global_mpih,  only : mpih
 ! third party modules
 use :: finer
 use :: motion

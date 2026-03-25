@@ -2,11 +2,11 @@
 module adam_prism_io_object
 !< ADAM, Maxwell IO handler class definition, CPU backend.
 
-! ADAM modules
-use adam_global_mpih, only: mpih
+! ADAM singleton objects
+use :: adam_global_mpih, only : mpih
 ! third party modules
-use finer
-use penf
+use :: finer
+use :: penf
 
 implicit none
 private

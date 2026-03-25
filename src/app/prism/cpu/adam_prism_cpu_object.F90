@@ -2,7 +2,7 @@
 module adam_prism_cpu_object
 !< ADAM, PRISM (Plasma Research usIng Simulation Methods) equations system class definition, CPU backend.
 
-! ADAM modules
+! ADAM classes, libraries, parameters
 use :: adam_common_library
 ! PRISM modules
 use :: adam_prism_common_library
@@ -386,13 +386,13 @@ contains
    real(R8P)                              :: ngc_r, crown_r          !< Numero di gc totale, reale
    real(R8P)                              :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
 
-   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown,                                                             &
+   associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                             &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),               &
              dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,           &
              nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, constrained_transport_B=>self%numerics%constrained_transport_B, &
              constrained_transport_D=>self%numerics%constrained_transport_D)
 
-   if (allocated(self%field%maps%local_map_bc_crown)) then
+   if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
             b = local_map_bc_crown(c, 1 ,crown)
@@ -574,7 +574,7 @@ contains
          !Imponi effettivamente la BC su q: unico punto del ciclo in cui si "uniscono"
          !Quindi basta cambiare gli indici di quel do per imporlo su una sola variabile, eventualmente
          !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
-         if (allocated(self%field%maps%local_map_bc_crown)) then
+         if (allocated(maps%local_map_bc_crown)) then
             do crown=1, ngc
                do c=1, size(local_map_bc_crown, dim=1)
                   b = local_map_bc_crown(c, 1 ,crown)
@@ -623,14 +623,14 @@ contains
    integer(I4P)                           :: crown                   !< Crown counter.
    integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
    integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
-   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown,                                                     &
+   associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                     &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),       &
              dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,   &
              nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,               &
              constrained_transport_B=>self%numerics%constrained_transport_B,                                             &
              constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>self%rk%q_rk,                         &
              q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
-   if (allocated(self%field%maps%local_map_bc_crown)) then
+   if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
             b = local_map_bc_crown(c, 1 ,crown)
@@ -1682,7 +1682,7 @@ contains
    integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
    integer(I4P)                           :: bc_type                 !< Boundary condition type.
    integer(I4P)                           :: crown                   !< Crown counter.
-   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown,                                                       &
+   associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                       &
                 nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
                 dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
                 nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                        &
@@ -1727,7 +1727,7 @@ contains
       enddo
       !$omp end parallel do
    endif
-   if (allocated(self%field%maps%local_map_bc_crown)) then
+   if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
             b = local_map_bc_crown(c, 1 ,crown)

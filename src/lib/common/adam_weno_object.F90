@@ -40,9 +40,11 @@ module adam_weno_object
 !<
 !< Non TBP procedures are also provided for use without class object in device backend kernels.
 
-use adam_global_mpih, only: mpih
-use finer
-use penf
+! ADAM singleton objects
+use :: adam_global_mpih, only : mpih
+! third party modules
+use :: finer
+use :: penf
 
 implicit none
 save

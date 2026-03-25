@@ -4,10 +4,10 @@ module adam_prism_riemann_library
 !< @NOTE see `adam_prism_physics_object` for the field variables arrangment.
 
 ! PRISM modules
-use adam_prism_parameters
-use adam_prism_physics_object
+use :: adam_prism_parameters
+use :: adam_prism_physics_object
 ! third party modules
-use penf, only : I4P, R8P
+use :: penf, only : I4P, R8P
 
 implicit none
 private
@@ -29,7 +29,7 @@ interface
    endsubroutine compute_convective_fluxes_interface
 endinterface
 
-contains 
+contains
    subroutine compute_riemann_maxwell_llf(sir, nv, q1, q4, chi, f, lmax)
    !< Solve the Riemann problem between the state 1 (left) and 4 (right) using the Local-Lax-Friedrichs (LLF, Rusanov) solver.
    real(R8P),    intent(in)            :: sir(3)   !< Directional (1=x,2=y,3=z) increment.
@@ -89,7 +89,7 @@ contains
    !< Fx(5) = -Dz/epsz Fy(5) =  0       Fz(5) =  Dx/epsx
    !< Fx(6) =  Dy/epsy Fy(6) = -Dx/epsx Fz(6) =  0
    !<```
-   real(R8P), intent(in)    :: sir(3) !< Direction array 
+   real(R8P), intent(in)    :: sir(3) !< Direction array
    real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi (non usato)
@@ -139,7 +139,7 @@ contains
    !< Fx(9)  =  0       Fy(9)  =  0        Fz(9)  =  0
    !< Fx(10) =  ch^2*Dx Fy(10) =  ch^2*Dy  Fz(10) =  ch^2*Dz
    !<```
-   real(R8P), intent(in)    :: sir(3) !< Direction array 
+   real(R8P), intent(in)    :: sir(3) !< Direction array
    real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
@@ -205,7 +205,7 @@ contains
    !< Fx(9)  =  0       Fy(9)  =  0        Fz(9)  =  0
    !< Fx(10) =  ch^2*Dx Fy(10) =  ch^2*Dy  Fz(10) =  ch^2*Dz
    !<```
-   real(R8P), intent(in)    :: sir(3) !< Direction array 
+   real(R8P), intent(in)    :: sir(3) !< Direction array
    real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
@@ -272,7 +272,7 @@ contains
    !< Fx(10) =  ch^2*Dx Fy(10) =  ch^2*Dy   Fz(10) =  ch^2*Dz
    !< Fx(11) =  ch^2*Bx Fy(10) =  ch^2*By   Fz(10) =  ch^2*Bz
    !<```
-   real(R8P), intent(in)    :: sir(3) !< Direction array 
+   real(R8P), intent(in)    :: sir(3) !< Direction array
    real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi

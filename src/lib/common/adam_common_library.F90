@@ -2,10 +2,9 @@
 module adam_common_library
 !< ADAM common library, entry for all common classes and libraries.
 
+! ADAM classes, libraries, parameters
 use :: adam_adam_object
 use :: adam_amr_object
-use :: adam_global_mpih
-use :: adam_global_grid
 use :: adam_blanes_moan_object
 use :: adam_cfm_object
 use :: adam_eos_ic_object
@@ -27,6 +26,11 @@ use :: adam_tree_node_object
 use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
+! ADAM singleton objects
+use :: adam_global_mpih
+use :: adam_global_grid
+use :: adam_global_field
+use :: adam_global_maps
 
 implicit none
 public

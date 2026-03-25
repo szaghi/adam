@@ -520,18 +520,19 @@ dd = aa + bb
 
 ## Module-Level Singleton Pattern
 
-ADAM uses **module-level singletons** for program-scope objects rather than embedding instances in every derived type. Three singletons exist:
+ADAM uses **module-level singletons** for program-scope objects rather than embedding instances in every derived type. Four singletons exist:
 
 | Singleton | Module | Type |
 |-----------|--------|------|
 | `mpih` | `adam_global_mpih` | `mpih_object` — MPI handler |
 | `grid` | `adam_global_grid` | `grid_object` — structured grid |
 | `field` | `adam_global_field` | `field_object` — field variables and metrics |
+| `maps` | `adam_global_maps` | `maps_object` — AMR block/communication maps |
 
 All follow the same definition pattern:
 
 ```fortran
-module adam_global_mpih          ! or adam_global_grid, adam_global_field
+module adam_global_mpih          ! or adam_global_grid, adam_global_field, adam_global_maps
 use :: adam_mpih_object, only: mpih_object
 implicit none
 private
@@ -540,18 +541,20 @@ type(mpih_object), target :: mpih  !< Program-scope singleton.
 endmodule adam_global_mpih
 ```
 
-All three are re-exported by `adam_common_library`. Modules that already `use adam_common_library` get all three without further `use` statements. Others should add explicit imports:
+All four are re-exported by `adam_common_library`. Modules that already `use adam_common_library` get all four without further `use` statements. Others should add explicit imports:
 
 ```fortran
-use :: adam_global_mpih, only: mpih
-use :: adam_global_grid, only: grid
+use :: adam_global_mpih,  only: mpih
+use :: adam_global_grid,  only: grid
 use :: adam_global_field, only: field
+use :: adam_global_maps,  only: maps
 ```
 
-If a local variable or dummy argument is also named `field`, use an alias:
+If a local variable or dummy argument shares a name with a singleton, use an alias:
 
 ```fortran
 use :: adam_global_field, only: adam_field => field
+use :: adam_global_maps,  only: adam_maps  => maps
 ```
 
 ### How to Use Singletons in New Objects
@@ -578,9 +581,11 @@ associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc)
 
 `field` is initialized in `adam_object%initialize` via `call field%initialize(...)`. The pointer alias `self%field => field` is also set there for backward compatibility with backends that access `self%adam%field`.
 
+`maps` is initialized in `adam_object%initialize` via `call adam_maps%initialize(tree=...)` (using the import alias). The pointer alias `self%maps => adam_maps` is also set there for backward compatibility with GPU backends that access `self%adam%maps`. `field_object` also holds a `self%maps` pointer alias (set from the global) so that `field%maps%xxx` access in out-of-scope backends continues to work.
+
 ### What Not to Do
 
-Do **not** embed `type(mpih_object) :: mpih`, `type(grid_object), pointer :: grid`, or `type(field_object), pointer :: field` in new derived types. Do **not** pass any of them as dummy arguments. Do **not** write `field%grid%xxx` or `ib%grid%xxx` — access `grid%xxx` from the singleton directly. Access `field%nv`, `field%nb`, `field%dxyz`, etc. from the `field` singleton directly.
+Do **not** embed `type(mpih_object) :: mpih`, `type(grid_object), pointer :: grid`, `type(field_object), pointer :: field`, or `type(maps_object) :: maps` in new derived types. Do **not** pass any of them as dummy arguments. Do **not** write `field%grid%xxx` or `ib%grid%xxx` — access `grid%xxx` from the singleton directly. Do **not** write `self%field%maps%xxx` — access `maps%xxx` from the singleton directly.
 
 ## Quick Reference Table
 
@@ -599,3 +604,4 @@ Do **not** embed `type(mpih_object) :: mpih`, `type(grid_object), pointer :: gri
 | MPI handler | Use `mpih` singleton from `adam_global_mpih`, never embed in types |
 | Grid | Use `grid` singleton from `adam_global_grid`, never embed as pointer in types |
 | Field | Use `field` singleton from `adam_global_field`, never embed as pointer in types |
+| Maps | Use `maps` singleton from `adam_global_maps`, never embed as value/pointer in types |

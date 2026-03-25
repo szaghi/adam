@@ -1,7 +1,8 @@
 !< ADAM, PRISM external fields definition, CPU backend.
 module adam_prism_external_fields_object
 !< ADAM, PRISM external fields definition, CPU backend.
-! ADAM modules
+
+! ADAM singleton objects
 use :: adam_global_mpih,  only : mpih
 use :: adam_global_grid,  only : grid
 use :: adam_field_object, only : field_object

@@ -2,11 +2,15 @@
 module adam_grid_object
 !< ADAM, grid class definition.
 
-use adam_global_mpih, only: mpih
-use adam_parameters
-use FINER, only : file_ini
-use PENF
-use MPI
+! ADAM classes, libraries, parameters
+use :: adam_parameters
+! ADAM singleton objects
+use :: adam_global_mpih, only : mpih
+! third party modules
+use :: finer, only : file_ini
+use :: penf
+! sdk modules
+use :: mpi
 
 implicit none
 private

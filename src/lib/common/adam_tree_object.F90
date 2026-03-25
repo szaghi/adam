@@ -127,17 +127,20 @@ module adam_tree_object
 !<  G  = fec-25
 !<  H  = fec-26
 
-use adam_global_mpih, only: mpih
-use adam_global_grid, only: grid
-use adam_tree_node_object, only : tree_node_object
-use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface
-use adam_parameters
-use finer, only : file_ini
-! use fossil
-use mortif
-use penf
-! use vecfor
-use mpi
+! ADAM classes, libraries, parameters
+use :: adam_tree_node_object,   only : tree_node_object
+use :: adam_tree_bucket_object, only : tree_bucket_object, iterator_interface
+use :: adam_parameters
+! ADAM singleton objects
+use :: adam_global_mpih, only : mpih
+use :: adam_global_grid, only : grid
+! third party modules
+use :: finer, only : file_ini
+use :: mortif
+use :: penf
+! sdk modules
+use :: mpi
+! intrinsic modules
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
