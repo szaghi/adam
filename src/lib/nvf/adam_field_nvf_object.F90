@@ -50,13 +50,13 @@ contains
    integer(I4P),            intent(in)         :: b         !< Block index.
    integer(I4P),            intent(in)         :: ivar      !< Index of q variable.
    real(R8P),               intent(in), device :: q_gpu(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
+                                                        1-grid%ngc:,&
+                                                        1-grid%ngc:,&
+                                                        1-grid%ngc:,&
                                                         1:) !< Field component to which apply gradient.
    real(R8P),               intent(out)        :: gradient  !< Maximum gradient of q(ivar).
 
-   call compute_q_gradient_cuf(b=b, ni=self%field%grid%ni, nj=self%field%grid%nj, nk=self%field%grid%nk, ngc=self%field%grid%ngc, &
+   call compute_q_gradient_cuf(b=b, ni=grid%ni, nj=grid%nj, nk=grid%nk, ngc=grid%ngc, &
                                dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b),     &
                                q_gpu=q_gpu, ivar=ivar, gradient=gradient)
    endsubroutine compute_q_gradient
@@ -89,22 +89,22 @@ contains
    class(field_nvf_object), intent(inout)       :: self          !< The equation.
    integer(I4P),            intent(in)          :: nv            !< Number of varibales.
    real(R8P),               intent(in)          :: q_cpu(1:,                    &
-                                                         1-self%field%grid%ngc:,&
-                                                         1-self%field%grid%ngc:,&
-                                                         1-self%field%grid%ngc:,&
+                                                         1-grid%ngc:,&
+                                                         1-grid%ngc:,&
+                                                         1-grid%ngc:,&
                                                          1:)     !< Conservative variables on CPU.
    real(R8P),               intent(out), device :: q_gpu(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
+                                                        1-grid%ngc:,&
+                                                        1-grid%ngc:,&
+                                                        1-grid%ngc:,&
                                                         1:)      !< Conservative variables on GPU.
    integer(I4P)                                 :: i, j, k, b, v !< Counter.
 
    associate(blocks_number=>self%field%blocks_number, &
-             ni=>self%field%grid%ni,                  &
-             nj=>self%field%grid%nj,                  &
-             nk=>self%field%grid%nk,                  &
-             ngc=>self%field%grid%ngc,                &
+             ni=>grid%ni,                  &
+             nj=>grid%nj,                  &
+             nk=>grid%nk,                  &
+             ngc=>grid%ngc,                &
              q_t=>self%q_t)
       do b=1, blocks_number
          do k=1-ngc, nk+ngc
@@ -127,21 +127,21 @@ contains
    class(field_nvf_object), intent(inout)      :: self      !< The equation.
    integer(I4P),            intent(in)         :: nv        !< Number of varibales.
    real(R8P),               intent(in), device :: q_gpu(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
+                                                        1-grid%ngc:,&
+                                                        1-grid%ngc:,&
+                                                        1-grid%ngc:,&
                                                         1:) !< Conservative variables on GPU.
    real(R8P),               intent(inout)      :: q_cpu(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
+                                                        1-grid%ngc:,&
+                                                        1-grid%ngc:,&
+                                                        1-grid%ngc:,&
                                                         1:) !< Conservative variables on CPU.
 
    associate(blocks_number=>self%field%blocks_number, &
-             ni=>self%field%grid%ni,                  &
-             nj=>self%field%grid%nj,                  &
-             nk=>self%field%grid%nk,                  &
-             ngc=>self%field%grid%ngc,                &
+             ni=>grid%ni,                  &
+             nj=>grid%nj,                  &
+             nk=>grid%nk,                  &
+             ngc=>grid%ngc,                &
              q_t_gpu=>self%q_t_gpu)
 
       call self%mpih%check_cuda_error(error_code=-15, msg='field_nvf_object%copy_transpose_gpu_cpu start')
@@ -167,9 +167,9 @@ contains
    call self%maps%initialize(maps=field%maps)
    call alloc_var_gpu(var=self%q_gpu,&
                       ulb=reshape([1,field%nb,                                   &
-                                   1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
-                                   1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
-                                   1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
+                                   1-grid%ngc,grid%ni+grid%ngc,&
+                                   1-grid%ngc,grid%nj+grid%ngc,&
+                                   1-grid%ngc,grid%nk+grid%ngc,&
                                    1,field%nv],[2,5]),                           &
                       msg=self%mpih%myrankstr//'field_nvf_object%initialize alloc_var_cpu(q_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=self%fec_1_6_array_gpu, &
@@ -178,16 +178,16 @@ contains
    nv_aux_ = self%field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    call alloc_var_cpu(var=self%q_t,                                              &
                       ulb=reshape([1,field%nb,                                   &
-                                   1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
-                                   1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
-                                   1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
+                                   1-grid%ngc,grid%ni+grid%ngc,&
+                                   1-grid%ngc,grid%nj+grid%ngc,&
+                                   1-grid%ngc,grid%nk+grid%ngc,&
                                    1,nv_aux_],[2,5]),                            &
                       msg=self%mpih%myrankstr//'field_nvf_object%initialize alloc_var_cpu(q_t) ', verbose=verbose)
    call alloc_var_gpu(var=self%q_t_gpu,                                          &
                       ulb=reshape([1,nv_aux_,                                    &
-                                   1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
-                                   1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
-                                   1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
+                                   1-grid%ngc,grid%ni+grid%ngc,&
+                                   1-grid%ngc,grid%nj+grid%ngc,&
+                                   1-grid%ngc,grid%nk+grid%ngc,&
                                    1,field%nb],[2,5]),                           &
                       msg=self%mpih%myrankstr//'field_nvf_object%initialize alloc_var_gpu(q_t) ', verbose=verbose)
    call self%copy_cpu_gpu
@@ -198,12 +198,12 @@ contains
    !< Update (local) ghost cells.
    class(field_nvf_object), intent(in)            :: self      !< The field.
    real(R8P),               intent(inout), device :: q_gpu(1:,                    &
-                                                           1-self%field%grid%ngc:,&
-                                                           1-self%field%grid%ngc:,&
-                                                           1-self%field%grid%ngc:,&
+                                                           1-grid%ngc:,&
+                                                           1-grid%ngc:,&
+                                                           1-grid%ngc:,&
                                                            1:) !< Field component to be updated.
    call self%mpih%check_cuda_error(error_code=-15, msg='field_nvf_object%update_ghost_local_gpu start')
-   call update_ghost_local_gpu_cuf(local_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%field%grid%ngc,q_gpu=q_gpu)
+   call update_ghost_local_gpu_cuf(local_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=grid%ngc,q_gpu=q_gpu)
    call self%mpih%check_cuda_error(error_code=-15, msg='field_nvf_object%update_ghost_local_gpu finish')
    endsubroutine update_ghost_local_gpu
 
@@ -211,9 +211,9 @@ contains
    !< Update ghost cells within other processes.
    class(field_nvf_object), intent(inout)         :: self      !< The field.
    real(R8P),               intent(inout), device :: q_gpu(1:,                    &
-                                                           1-self%field%grid%ngc:,&
-                                                           1-self%field%grid%ngc:,&
-                                                           1-self%field%grid%ngc:,&
+                                                           1-grid%ngc:,&
+                                                           1-grid%ngc:,&
+                                                           1-grid%ngc:,&
                                                            1:) !< Field component to be updated.
    integer(I4P),            intent(in), optional  :: step      !< Step to be perfordmed in asyncronous comp.
    logical                                        :: do_step(3)!< Steps performed in async comp.
@@ -229,7 +229,7 @@ contains
              comm_map_recv_ptr_ghost=>self%maps%maps%comm_map_recv_ptr_ghost,      &
              recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu,               &
              send_buffer_ghost_gpu=>self%maps%send_buffer_ghost_gpu,               &
-             ngc=>self%field%grid%ngc, q_gpu=>q_gpu)
+             ngc=>grid%ngc, q_gpu=>q_gpu)
    do_step = .true.
    if (present(step)) then
       do_step = .false.

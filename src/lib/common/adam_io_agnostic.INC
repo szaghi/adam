@@ -5,9 +5,9 @@
    character(*),           intent(in)    :: block_name          !< Block name.
    integer(I4P),           intent(in)    :: ijk(2,3)            !< Blocks extents.
    integer(I8P),           intent(in)    :: nijk(3)             !< Blocks dimensions.
-   VARTYPE(KKP),           intent(in)    :: q(1-self%grid%ngc:,&
-                                              1-self%grid%ngc:,&
-                                              1-self%grid%ngc:) !< Scalar field [ni,nj,nk].
+   VARTYPE(KKP),           intent(in)    :: q(1-grid%ngc:,&
+                                              1-grid%ngc:,&
+                                              1-grid%ngc:) !< Scalar field [ni,nj,nk].
    type(string),           intent(in)    :: q_name              !< Scalar field name.
           
    call xh5f%save_block_field(xdmf_field_name = q_name%chars(),                                           &
@@ -25,10 +25,10 @@
    character(*),           intent(in)    :: block_name          !< Block name.
    integer(I4P),           intent(in)    :: ijk(2,3)            !< Blocks extents.
    integer(I8P),           intent(in)    :: nijk(3)             !< Blocks dimensions.
-   VARTYPE(KKP),           intent(in)    :: q(1:,              &
-                                              1-self%grid%ngc:,&
-                                              1-self%grid%ngc:,&
-                                              1-self%grid%ngc:) !< Vector fields [nv,ni,nj,nk].
+   VARTYPE(KKP),           intent(in)    :: q(1:,          &
+                                              1-grid%ngc:,&
+                                              1-grid%ngc:,&
+                                              1-grid%ngc:) !< Vector fields [nv,ni,nj,nk].
    type(string),           intent(in)    :: q_name(:)           !< Vector fields names [nv].
    integer(I4P)                          :: v                   !< Counter.
           

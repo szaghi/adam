@@ -63,7 +63,7 @@ module adam_field_object
 !<         1    2    3    4    5
 !<```
 
-use adam_grid_object
+use adam_global_grid, only: grid
 use adam_maps_object
 use adam_global_mpih, only: mpih
 use adam_parameters
@@ -81,7 +81,6 @@ character(len=5), parameter :: INI_SECTION_NAME="field" !< INI (config) file sec
 type :: field_object
    !< Field class definition.
    ! ADAM objects
-   type(grid_object), pointer :: grid=>null() !< The grid.
    type(maps_object), pointer :: maps=>null() !< The maps.
    ! field data dimensions
    integer(I4P) :: nv=0_I4P               !< Number of field variables.
@@ -160,9 +159,9 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of field blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
    real(R8P),                 intent(inout) :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                !< Field cell centered variables.
 
    select case(ratio)
@@ -182,9 +181,9 @@ contains
    !< Reorder blocks indexes in field.
    class(field_object), intent(inout) :: self                 !< The field.
    real(R8P),           intent(inout) :: q(1:,              &
-                                           1-self%grid%ngc:,&
-                                           1-self%grid%ngc:,&
-                                           1-self%grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
                                            1:)                !< Field cell centered variables.
    integer(I4P), allocatable          :: coordinates_new(:,:) !< Temporary coordinates array.
    integer(I8P), allocatable          :: code_new(:)          !< Temporary Morton codes.
@@ -214,7 +213,7 @@ contains
    integer(I4P)                       :: b     !< Counter.
 
    do b=1, self%blocks_number
-      call self%grid%compute_metrics(coordinates=self%coordinates(:,b),                                         &
+      call grid%compute_metrics(coordinates=self%coordinates(:,b),                                         &
                                      emin=self%emin(:,b), emax=self%emax(:,b),                                  &
                                      dx=self%dxyz(1,b), dy=self%dxyz(2,b), dz=self%dxyz(3,b),                   &
                                      x_node=self%x_node(:,b), y_node=self%y_node(:,b), z_node=self%z_node(:,b), &
@@ -226,18 +225,18 @@ contains
    !< Compute L2 norm of residuals.
    class(field_object), intent(in)    :: self       !< The field.
    real(R8P),           intent(in)    :: dq(1:,               &
-                                            1-self%grid%ngc:, &
-                                            1-self%grid%ngc:, &
-                                            1-self%grid%ngc:, &
+                                            1-grid%ngc:, &
+                                            1-grid%ngc:, &
+                                            1-grid%ngc:, &
                                             1:)     !< Residuals.
    real(R8P),           intent(inout) :: norm(1:)   !< Residuals norm.
    integer(I4P)                       :: b, i, j, k !< Counter.
 
    norm   = 0._R8P
    do b=1, self%blocks_number
-      do k=1, self%grid%nk
-         do j=1, self%grid%nj
-            do i=1, self%grid%ni
+      do k=1, grid%nk
+         do j=1, grid%nj
+            do i=1, grid%ni
                norm(:) = norm(:) + dq(:, i, j, k, b)**2
             enddo
          enddo
@@ -314,7 +313,7 @@ contains
    integer(I4P),        intent(out), optional :: cplane_block_indexes(3) !< Block-local indexes of cplane intersection.
    logical                                    :: do_intersect            !< Test result.
 
-   do_intersect = self%grid%do_cplane_intersect(emin=self%emin(:,b),         &
+   do_intersect = grid%do_cplane_intersect(emin=self%emin(:,b),         &
                                                 emax=self%emax(:,b),         &
                                                 dxyz=self%dxyz(:,b),         &
                                                 cplane_origin=cplane_origin, &
@@ -388,10 +387,9 @@ contains
       endsubroutine check_slab
    endfunction do_ray_intersect
 
-   subroutine initialize(self, grid, maps, nb, file_parameters, nv, verbose)
+   subroutine initialize(self, maps, nb, file_parameters, nv, verbose)
    !< Initialize field.
    class(field_object),    intent(inout)        :: self            !< The field.
-   type(grid_object),      intent(in), target   :: grid            !< The grid.
    type(maps_object),      intent(in), target   :: maps            !< The maps.
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
    integer(I4P),           intent(in)           :: nb              !< Number of all blocks that can be stored.
@@ -403,13 +401,12 @@ contains
    if (allocated(self%req_send_recv)) deallocate(self%req_send_recv)
    allocate(self%req_send_recv(0:mpih%procs_number*2-1))
    if (verbose_) call mpih%print_message('field_object%initialize start')
-   self%grid => grid
    self%maps => maps
    self%nb = nb
    call self%load_from_ini_file(file_parameters, nv)
-   self%block_weight = (self%grid%ngc+self%grid%ni+self%grid%ngc)* &
-                       (self%grid%ngc+self%grid%nj+self%grid%ngc)* &
-                       (self%grid%ngc+self%grid%nk+self%grid%ngc)*self%nv
+   self%block_weight = (grid%ngc+grid%ni+grid%ngc)* &
+                       (grid%ngc+grid%nj+grid%ngc)* &
+                       (grid%ngc+grid%nk+grid%ngc)*self%nv
    if (self%nb>0) then
       call allocate_variable(var=self%code, ulb=[1,self%nb],&
                              msg=mpih%myrankstr//'field_object%initialize(code) ', verbose=verbose_)
@@ -423,48 +420,48 @@ contains
                              msg=mpih%myrankstr//'field_object%initialize(emin) ', verbose=verbose_)
       call allocate_variable(var=self%emax, ulb=reshape([1,3, 1,self%nb],[2,2]), &
                              msg=mpih%myrankstr//'field_object%initialize(emax) ', verbose=verbose_)
-      self%emin(:,1) = self%grid%domain_emin
-      self%emax(:,1) = self%grid%domain_emax
+      self%emin(:,1) = grid%domain_emin
+      self%emax(:,1) = grid%domain_emax
       call allocate_variable(var=self%dxyz, ulb=reshape([1,3, 1,self%nb],[2,2]), &
                              msg=mpih%myrankstr//'field_object%initialize(dxyz) ', verbose=verbose_)
       call allocate_variable(var=self%x_cell,                                         &
-                             ulb=reshape([1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
+                             ulb=reshape([1-grid%ngc,grid%ni+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(x_cell) ', verbose=verbose_)
       call allocate_variable(var=self%y_cell,                                         &
-                             ulb=reshape([1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
+                             ulb=reshape([1-grid%ngc,grid%nj+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(y_cell) ', verbose=verbose_)
       call allocate_variable(var=self%z_cell,                                         &
-                             ulb=reshape([1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
+                             ulb=reshape([1-grid%ngc,grid%nk+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(z_cell) ', verbose=verbose_)
       call allocate_variable(var=self%x_node,                                         &
-                             ulb=reshape([0-self%grid%ngc,self%grid%ni+self%grid%ngc, &
+                             ulb=reshape([0-grid%ngc,grid%ni+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(x_node) ', verbose=verbose_)
       call allocate_variable(var=self%y_node,                                         &
-                             ulb=reshape([0-self%grid%ngc,self%grid%nj+self%grid%ngc, &
+                             ulb=reshape([0-grid%ngc,grid%nj+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(y_node) ', verbose=verbose_)
       call allocate_variable(var=self%z_node,                                         &
-                             ulb=reshape([0-self%grid%ngc,self%grid%nk+self%grid%ngc, &
+                             ulb=reshape([0-grid%ngc,grid%nk+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(z_node) ', verbose=verbose_)
       ! if (present(q)) then
       !    call allocate_variable(var=q,                                                   &
       !                           ulb=reshape([1,self%nv,                                  &
-      !                                        1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
-      !                                        1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
-      !                                        1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
+      !                                        1-grid%ngc,grid%ni+grid%ngc, &
+      !                                        1-grid%ngc,grid%nj+grid%ngc, &
+      !                                        1-grid%ngc,grid%nk+grid%ngc, &
       !                                        1,self%nb],[2,5]),                          &
       !                           msg=mpih%myrankstr//'field_object%initialize(q) ', verbose=verbose_)
       ! endif
       call allocate_variable(var=self%q_work,                                         &
                              ulb=reshape([1,self%nv,                                  &
-                                          1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
-                                          1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
-                                          1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
+                                          1-grid%ngc,grid%ni+grid%ngc, &
+                                          1-grid%ngc,grid%nj+grid%ngc, &
+                                          1-grid%ngc,grid%nk+grid%ngc, &
                                           1,self%nb],[2,5]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(q_work) ', verbose=verbose_)
       call allocate_variable(var=self%residuals, &
@@ -493,9 +490,9 @@ contains
    class(field_object), intent(inout) :: self                            !< The field.
    character(*),        intent(in)    :: basename                        !< Output base name.
    real(R8P),           intent(inout) :: q(1:,              &
-                                           1-self%grid%ngc:,&
-                                           1-self%grid%ngc:,&
-                                           1-self%grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
                                            1:)                           !< Field cell centered variables.
    character(:), allocatable          :: filename                        !< Output file name.
    integer(I4P)                       :: file_unit                       !< Output file unit.
@@ -510,7 +507,7 @@ contains
       call mpih%print_message('field_object%load_blocks from file '//filename)
       open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM')
       read(unit=file_unit) nv, ni, nj, nk, ngc, nv_pic, np
-      if (nv==self%nv.and.ni==self%grid%ni.and.nj==self%grid%nj.and.nk==self%grid%nk.and.ngc==self%grid%ngc) then
+      if (nv==self%nv.and.ni==grid%ni.and.nj==grid%nj.and.nk==grid%nk.and.ngc==grid%ngc) then
          read(unit=file_unit) blocks_number
          call mpih%print_message('field blocks number '//trim(str(blocks_number)))
          if (blocks_number <= self%nb) then
@@ -519,9 +516,9 @@ contains
                read(unit=file_unit) self%code(b)
                read(unit=file_unit) self%coordinates(1:4,b)
                read(unit=file_unit) q(1:self%nv,                                  &
-                                      1-self%grid%ngc:self%grid%ni+self%grid%ngc, &
-                                      1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
-                                      1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
+                                      1-grid%ngc:grid%ni+grid%ngc, &
+                                      1-grid%ngc:grid%nj+grid%ngc, &
+                                      1-grid%ngc:grid%nk+grid%ngc,b)
             enddo
             call self%compute_metrics
          else
@@ -532,10 +529,10 @@ contains
          call mpih%abort(error_code=-103,                                                            &
                               msg='ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
                                   '" are different than blocks allocated "'//trim(str([self%nv,           &
-                                                                                       self%grid%ni,      &
-                                                                                       self%grid%nj,      &
-                                                                                       self%grid%nk,      &
-                                                                                       self%grid%ngc]))//'"!')
+                                                                                       grid%ni,      &
+                                                                                       grid%nj,      &
+                                                                                       grid%nk,      &
+                                                                                       grid%ngc]))//'"!')
       endif
       close(file_unit)
       call mpih%print_message('field_object%load_blocks from file '//filename//' completed')
@@ -587,7 +584,7 @@ contains
                             (self%emax(2,b) - self%emin(2,b))**2 + &
                             (self%emax(3,b) - self%emin(3,b))**2)
 
-      associate (emin=>self%emin(:,b), emax=>self%emax(:,b), ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+      associate (emin=>self%emin(:,b), emax=>self%emax(:,b), ni=>grid%ni, nj=>grid%nj, nk=>grid%nk)
          distance(0) = sphere_distance(point=block_center)
          distance(1) = sphere_distance(point=[emin(1), emin(2), emin(3)])
          distance(2) = sphere_distance(point=[emax(1), emin(2), emin(3)])
@@ -678,9 +675,9 @@ contains
    !< @TODO: Morton codes are not yet redistributed, must be fixed.
    class(field_object), intent(inout) :: self                   !< The field.
    real(R8P),           intent(inout) :: q(1:,              &
-                                           1-self%grid%ngc:,&
-                                           1-self%grid%ngc:,&
-                                           1-self%grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
                                            1:)                  !< Field cell centered variables.
    real(R8P),    allocatable          :: send_buffer(:)         !< Send buffer of field cell centered variables.
    real(R8P),    allocatable          :: recv_buffer(:)         !< Recv buffer of field cell centered variables.
@@ -738,9 +735,9 @@ contains
           bi = self%maps%comm_map_recv(b)
           self%q_work(:,:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + bw -1),&
                                             [self%nv,                                    &
-                                             self%grid%ngc+self%grid%ni+self%grid%ngc,   &
-                                             self%grid%ngc+self%grid%nj+self%grid%ngc,   &
-                                             self%grid%ngc+self%grid%nk+self%grid%ngc])
+                                             grid%ngc+grid%ni+grid%ngc,   &
+                                             grid%ngc+grid%nj+grid%ngc,   &
+                                             grid%ngc+grid%nk+grid%ngc])
           recv_offset = recv_offset + bw
       enddo
    endif
@@ -760,9 +757,9 @@ contains
    class(field_object), intent(in) :: self      !< The field.
    character(*),        intent(in) :: basename  !< Output base name.
    real(R8P),           intent(in) :: q(1:,              &
-                                        1-self%grid%ngc:,&
-                                        1-self%grid%ngc:,&
-                                        1-self%grid%ngc:,&
+                                        1-grid%ngc:,&
+                                        1-grid%ngc:,&
+                                        1-grid%ngc:,&
                                         1:)     !< Field cell centered variables.
    integer(I4P)                    :: file_unit !< Output file unit.
    integer(I4P)                    :: b         !< Counter.
@@ -772,15 +769,15 @@ contains
            file=trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank,6))//'.fbd', &
            form='UNFORMATTED',                                                            &
            access='STREAM')
-      write(unit=file_unit) self%nv, self%grid%ni, self%grid%nj, self%grid%nk, self%grid%ngc, self%nv_pic, self%np
+      write(unit=file_unit) self%nv, grid%ni, grid%nj, grid%nk, grid%ngc, self%nv_pic, self%np
       write(unit=file_unit) self%blocks_number
       do b=1, self%blocks_number
          write(unit=file_unit) self%code(b)
          write(unit=file_unit) self%coordinates(1:4,b)
          write(unit=file_unit) q(1:self%nv,                                  &
-                                 1-self%grid%ngc:self%grid%ni+self%grid%ngc, &
-                                 1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
-                                 1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
+                                 1-grid%ngc:grid%ni+grid%ngc, &
+                                 1-grid%ngc:grid%nj+grid%ngc, &
+                                 1-grid%ngc:grid%nk+grid%ngc,b)
       enddo
       close(file_unit)
    endif
@@ -790,9 +787,9 @@ contains
    !< Update (local) ghost cells.
    class(field_object), intent(in)    :: self              !< The base backend.
    real(R8P),           intent(inout) :: q(1:,              &
-                                           1-self%grid%ngc:,&
-                                           1-self%grid%ngc:,&
-                                           1-self%grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
                                            1:)             !< Field component to be updated.
    integer(I4P)                       :: ic, jc, kc, mf, v !< Counter.
    integer(I4P)                       :: b_recv            !< Index of receiving block.
@@ -837,9 +834,9 @@ contains
    !< Update ghost cells within other processes.
    class(field_object), intent(inout)        :: self                               !< The base backend.
    real(R8P),           intent(inout)        :: q(1:,              &
-                                                  1-self%grid%ngc:,&
-                                                  1-self%grid%ngc:,&
-                                                  1-self%grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,&
                                                   1:)                              !< Field component to be updated.
    integer(I4P),        intent(in), optional :: step                               !< Step to be perfordmed in asyncronous comp.
    logical                                   :: do_step(3)                         !< Steps performed in async comp.
@@ -861,7 +858,7 @@ contains
              comm_map_recv_ptr_ghost=>self%maps%comm_map_recv_ptr_ghost, &
              recv_buffer_ghost=>self%maps%recv_buffer_ghost,             &
              send_buffer_ghost=>self%maps%send_buffer_ghost,             &
-             ngc=>self%grid%ngc)
+             ngc=>grid%ngc)
    do_step = .true.
    if (present(step)) then
       do_step = .false.
@@ -944,16 +941,16 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
    real(R8P),                 intent(inout) :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                !< Field cell centered variables.
    integer(I4P)                             :: b, ib                !< Counter.
    integer(I4P)                             :: ic(ratio)            !< Counter.
    integer(I4P)                             :: iii                  !< Counter.
    integer(I4P)                             :: i, j, k              !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, q_work=>self%q_work)
    if (allocated(block_derefined)) then
       do b=1, size(block_derefined, dim=2)
          ib = block_derefined(2,b)
@@ -985,16 +982,16 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
    real(R8P),                 intent(inout) :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                !< Field cell centered variables.
    integer(I4P)                             :: b, ib                !< Counter.
    integer(I4P)                             :: ic(ratio)            !< Counter.
    integer(I4P)                             :: iii, jjj             !< Counter.
    integer(I4P)                             :: i, j, k              !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, q_work=>self%q_work)
    if (allocated(block_derefined)) then
       do b=1, size(block_derefined, dim=2)
          ib = block_derefined(2,b)
@@ -1033,16 +1030,16 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
    real(R8P),                 intent(inout) :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                !< Field cell centered variables.
    integer(I4P)                             :: b, ib                !< Counter.
    integer(I4P)                             :: ic(ratio)            !< Counter.
    integer(I4P)                             :: iii, jjj, kkk        !< Counter.
    integer(I4P)                             :: i, j, k              !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, q_work=>self%q_work)
    if (allocated(block_derefined)) then
       do b=1, size(block_derefined, dim=2)
          ib = block_derefined(2,b)
@@ -1106,9 +1103,9 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of blocks to be refined.
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
    real(R8P),                 intent(inout) :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                !< Field cell centered variables.
    integer(I4P)                             :: b, i, j, k           !< Spatial counter.
    integer(I4P)                             :: ib, ic, ic_local     !< Counter.
@@ -1116,7 +1113,7 @@ contains
    integer(I4P)                             :: i_delta              !< Counter.
    integer(I4P)                             :: ic1, ic2             !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
          if (mpih%myrank /= block_to_refine(2,b)) cycle
@@ -1161,9 +1158,9 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of blocks to be refined.
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
    real(R8P),                 intent(inout) :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                !< Field cell centered variables.
    integer(I4P)                             :: b, i, j, k           !< Spatial counter.
    integer(I4P)                             :: ib, ic, ic_local     !< Counter.
@@ -1171,7 +1168,7 @@ contains
    integer(I4P)                             :: i_delta, j_delta     !< Counter.
    integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
          if (mpih%myrank /= block_to_refine(2,b)) cycle
@@ -1236,9 +1233,9 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:)      !< List of blocks to be refined.
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)        !< List of refined blocks with Morton code.
    real(R8P),                 intent(inout) :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                     !< Field cell centered variables.
    integer(I4P)                             :: b, i, j, k                !< Spatial counter.
    integer(I4P)                             :: ib, ic, ic_local          !< Counter.
@@ -1247,7 +1244,7 @@ contains
    integer(I4P)                             :: ic1, ic2, ic3, ic4        !< Counter.
    integer(I4P)                             :: ic5, ic6, ic7, ic8        !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
          if (mpih%myrank /= block_to_refine(2,b)) cycle

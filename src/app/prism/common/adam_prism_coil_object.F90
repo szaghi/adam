@@ -4,6 +4,7 @@ module adam_prism_coil_object
 
 ! ADAM modules
 use :: adam_field_object, only : field_object
+use :: adam_global_grid, only: grid
 use :: adam_global_mpih, only: mpih
 ! PRISM modules
 use :: adam_prism_physics_object, only : prism_physics_object
@@ -337,10 +338,10 @@ contains
       type(field_object), intent(in), target :: field !< The field.
 
       self%blocks_number => field%blocks_number
-      self%ni            => field%grid%ni
-      self%nj            => field%grid%nj
-      self%nk            => field%grid%nk
-      self%ngc           => field%grid%ngc
+      self%ni            => grid%ni
+      self%nj            => grid%nj
+      self%nk            => grid%nk
+      self%ngc           => grid%ngc
       self%nb            => field%nb
       endsubroutine associate_adam_data
    endsubroutine load_from_file

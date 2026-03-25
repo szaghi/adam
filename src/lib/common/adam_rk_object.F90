@@ -4,7 +4,7 @@ module adam_rk_object
 
 use adam_field_object
 use adam_global_mpih, only: mpih
-use adam_grid_object
+use adam_global_grid, only: grid
 use finer
 use penf
 
@@ -47,7 +47,6 @@ type :: rk_object
    real(R8P), allocatable    :: q_rk(:,:,:,:,:,:) !< Field cell centered variables, RK stages.
    ! grid/field data replica for easy handling
    type(field_object), pointer :: field=>null()         !< The field.
-   type(grid_object),  pointer :: grid=>null()          !< The grid.
    integer(I4P),       pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P),       pointer :: ni=>null()            !< Number of cells in i direction.
    integer(I4P),       pointer :: nj=>null()            !< Number of cells in j direction.
@@ -301,17 +300,16 @@ contains
    desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, scheme, grid, field)
+   subroutine initialize(self, file_parameters, scheme, field)
    !< Initialize class.
    class(rk_object),   intent(inout)        :: self            !< RK object.
    type(file_ini),     intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),       intent(in), optional :: scheme          !< Runge-Kutta scheme.
-   type(grid_object),  intent(in), target   :: grid            !< The grid.
    type(field_object), intent(in), target   :: field           !< The field.
    real(R8P)                                :: w0, w1          !< Sympletic RK coefficients.
 
    call mpih%print_message('rk_object%initialize start')
-   call associate_adam_data(grid=grid, field=field)
+   call associate_adam_data(field=field)
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    elseif (present(scheme)) then
@@ -423,18 +421,16 @@ contains
    print '(A)', self%description()
    call mpih%print_message('rk_object%initialize finish')
    contains
-      subroutine associate_adam_data(grid, field)
+      subroutine associate_adam_data(field)
       !< Associate objects data to equation for easy handling.
-      type(grid_object),          intent(in), target :: grid    !< The grid.
-      type(field_object),         intent(in), target :: field   !< The field.
+      type(field_object), intent(in), target :: field !< The field.
 
-      self%grid          => grid
       self%field         => field
       self%blocks_number => field%blocks_number
-      self%ni            => field%grid%ni
-      self%nj            => field%grid%nj
-      self%nk            => field%grid%nk
-      self%ngc           => field%grid%ngc
+      self%ni            => grid%ni
+      self%nj            => grid%nj
+      self%nk            => grid%nk
+      self%ngc           => grid%ngc
       self%nb            => field%nb
       self%nv            => field%nv
       endsubroutine associate_adam_data

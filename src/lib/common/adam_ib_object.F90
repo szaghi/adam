@@ -5,7 +5,7 @@ module adam_ib_object
 ! ADAM modules
 use :: adam_field_object, only : field_object
 use :: adam_global_mpih, only: mpih
-use :: adam_grid_object, only : grid_object
+use :: adam_global_grid, only: grid
 ! third party modules
 use :: finer
 use :: penf
@@ -56,7 +56,6 @@ type :: ib_object
    integer(I4P)                                   :: n_eikonal=2     !< Number of eikonal integration steps.
    ! Pointers to ADAM data for easy handling.
    type(field_object), pointer :: field=>null() !< The field.
-   type(grid_object),  pointer :: grid =>null() !< The grid.
    ! Large arrays.
    real(R8P), allocatable ::  phi(:,:,:,:,:) !< IB distance function.
    contains
@@ -115,9 +114,9 @@ contains
       if (verbose_) call mpih%print_message('ib_object%compute_phi_all_solids start')
       all_solids = ubound(self%phi, dim=1)
       do b=1, self%field%blocks_number
-         do k=1, self%grid%nk
-            do j=1, self%grid%nj
-               do i=1, self%grid%ni
+         do k=1, grid%nk
+            do j=1, grid%nj
+               do i=1, grid%ni
                   self%phi(all_solids,i,j,k,b) = maxval(self%phi(1:all_solids-1,i,j,k,b))
                enddo
             enddo
@@ -153,10 +152,9 @@ contains
    enddo
    endfunction description
 
-   subroutine initialize(self, grid, field, file_parameters)
+   subroutine initialize(self, field, file_parameters)
    !< Initialize the equation.
    class(ib_object),   intent(inout)      :: self            !< IB.
-   type(grid_object),  intent(in), target :: grid            !< The grid.
    type(field_object), intent(in), target :: field           !< The field.
    type(file_ini),     intent(inout)      :: file_parameters !< INI file handler.
 
@@ -164,12 +162,11 @@ contains
 
    ! associate ADAM main data
    self%field => field
-   self%grid  => grid
 
    call self%load_from_file(file_parameters=file_parameters)
 
    ! allocate large arrays
-   associate(ngc=>self%grid%ngc, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, nb=>self%field%nb, &
+   associate(ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nb=>self%field%nb, &
              solids_number=>self%solids_number)
    if (solids_number > 0) then
       ! the phi array is allocated with solids_number + 1 elements: in the last element there is the all-solids-summary, namely it
@@ -275,15 +272,15 @@ contains
    !< Evolve eikonal equation.
    class(ib_object), intent(in)    :: self                             !< IB.
    real(R8P),        intent(inout) ::  q(1:,               &
-                                         1-self%grid%ngc:, &
-                                         1-self%grid%ngc:, &
-                                         1-self%grid%ngc:, &
+                                         1-grid%ngc:, &
+                                         1-grid%ngc:, &
+                                         1-grid%ngc:, &
                                          1:)                           !< Conservative variables.
    real(R8P)                       :: dq(1:self%field%nv)              !< Conservative variables differences.
    real(R8P)                       :: n_phi_x, n_phi_y, n_phi_z, n_phi !< Eikonal directions.
    integer(I4P)                    :: i, j, k, b, s                    !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, &
              nv=>self%field%nv, solids_number=>self%solids_number)
    !$omp parallel do collapse(4) default(firstprivate) shared(q,self)
    do b=1, blocks_number
@@ -334,15 +331,15 @@ contains
    !< Invert eikonal equation over q inside IB.
    class(ib_object), intent(in)    :: self                  !< IB.
    real(R8P),        intent(inout) ::  q(1:,               &
-                                         1-self%grid%ngc:, &
-                                         1-self%grid%ngc:, &
-                                         1-self%grid%ngc:, &
+                                         1-grid%ngc:, &
+                                         1-grid%ngc:, &
+                                         1-grid%ngc:, &
                                          1:)                !< Conservative variables.
    integer(I4P)                :: i, j, k, b, s             !< Counter.
    real(R8P)                   :: n_phi_x, n_phi_y, n_phi_z !< Distance function normals.
    real(R8P)                   :: n_phi_mod, un_mod         !< Distance abs normal and normal velocity.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, &
              solids_number=>self%solids_number)
    !$omp parallel do collapse(4) default(firstprivate) shared(q,self)
    do b=1, blocks_number
@@ -389,7 +386,7 @@ contains
    type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical sphere solid.
    integer(I4P)                                  :: b, i, j, k !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc)
    !$omp parallel do collapse(4) default(firstprivate) shared(self)
    do b=1, blocks_number
       do i=1-ngc, ni+ngc
@@ -413,7 +410,7 @@ contains
    type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical circle solid.
    integer(I4P)                                  :: b, i, j, k !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc)
    select case(sphere%axis)
    case('x')
       !$omp parallel do collapse(4) default(firstprivate) shared(self)
@@ -467,7 +464,7 @@ contains
    real(R8P)                                        :: edges_min(2) !< Rectangle min edges position.
    real(R8P)                                        :: edges_max(2) !< Rectangle max edges position.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, &
              x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, phi=>self%phi)
    select case(rectangle%axis)
    case('x')

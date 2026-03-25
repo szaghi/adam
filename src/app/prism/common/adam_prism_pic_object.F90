@@ -2,8 +2,9 @@
 module adam_prism_pic_object
 !< ADAM, PRISM Particle-in-Cell class definition, CPU backend.
 ! ADAM modules
-use :: adam_global_mpih, only: mpih
-use adam_field_object, only : field_object
+use :: adam_global_mpih,  only : mpih
+use :: adam_global_grid,  only : grid
+use :: adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
 ! third party modules
@@ -88,36 +89,42 @@ contains
    procedure, pass(self) :: NGP_current_weighting         !< Nearest Grid Point weighting of particle quantities to the grid.
    procedure, pass(self) :: TSC_current_weighting         !< Triangular Shaped Cloud weighting of particle quantities to the grid.
    procedure, pass(self) :: zeroD_field_weighting
-   procedure, pass(self) :: oneD_field_weighting 
+   procedure, pass(self) :: oneD_field_weighting
 endtype prism_pic_object
 
 interface
    subroutine particle_weighting_interface(self, field, q, q_pic, nv)
-   import :: prism_pic_object, field_object, I4P, R8P
-   class(prism_pic_object), intent(inout) :: self                                                                          !< External fields.
-   type(field_object),                  intent(inout) :: field                                                             !< The field.
-   real(R8P),                           intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Field variables.
-   real(R8P),                           intent(in)    :: q_pic(1:,1:)   !< PIC variables.
-   integer(I4P),                        intent(in)    :: nv                                                                !< Number of variables.
+   import :: prism_pic_object, grid, field_object, I4P, R8P
+   class(prism_pic_object), intent(inout) :: self                             !< External fields.
+   type(field_object),                  intent(inout) :: field                !< The field.
+   real(R8P),                           intent(inout) :: q(1:,1-grid%ngc:,&
+                                                              1-grid%ngc:,&
+                                                              1-grid%ngc:,1:) !< Field variables.
+   real(R8P),                           intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),                        intent(in)    :: nv                   !< Number of variables.
    endsubroutine particle_weighting_interface
 
    subroutine current_weighting_interface(self, field, q, q_pic, nv)
-   import :: prism_pic_object, field_object, I4P, R8P
-   class(prism_pic_object), intent(inout) :: self                                                                          !< External fields.
-   type(field_object),                  intent(inout) :: field                                                             !< The field.
-   real(R8P),                           intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Field variables.
-   real(R8P),                           intent(in)    :: q_pic(1:,1:)                                                      !< PIC variables.
-   integer(I4P),                        intent(in)    :: nv                                                                !< Number of variables.
+   import :: prism_pic_object, grid, field_object, I4P, R8P
+   class(prism_pic_object), intent(inout) :: self                             !< External fields.
+   type(field_object),                  intent(inout) :: field                !< The field.
+   real(R8P),                           intent(inout) :: q(1:,1-grid%ngc:,&
+                                                              1-grid%ngc:,&
+                                                              1-grid%ngc:,1:) !< Field variables.
+   real(R8P),                           intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),                        intent(in)    :: nv                   !< Number of variables.
    endsubroutine current_weighting_interface
 
    subroutine field_weighting_interface(self, field, pic_fields, q, q_pic, nv)
-   import :: prism_pic_object, field_object, I4P, R8P
-   class(prism_pic_object), intent(inout) :: self                                                                          !< External fields.
-   type(field_object),                  intent(inout) :: field                                                             !< The field.
-   real(R8P),                           intent(inout) :: pic_fields(1:,1:)                                                 !< Fields value at particle locations.
-   real(R8P),                           intent(in)    :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Field variables.
-   real(R8P),                           intent(in)    :: q_pic(1:,1:)                                                      !< PIC variables.
-   integer(I4P),                        intent(in)    :: nv                                                                !< Number of variables.
+   import :: prism_pic_object, grid, field_object, I4P, R8P
+   class(prism_pic_object), intent(inout) :: self                             !< External fields.
+   type(field_object),                  intent(inout) :: field                !< The field.
+   real(R8P),                           intent(inout) :: pic_fields(1:,1:)    !< Fields value at particle locations.
+   real(R8P),                           intent(in)    :: q(1:,1-grid%ngc:,&
+                                                              1-grid%ngc:,&
+                                                              1-grid%ngc:,1:) !< Field variables.
+   real(R8P),                           intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),                        intent(in)    :: nv                   !< Number of variables.
    endsubroutine field_weighting_interface
 endinterface
 
@@ -125,8 +132,9 @@ contains
    function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(prism_pic_object), intent(in) :: self             !< External fields.
-   character(len=:), allocatable                   :: desc             !< Description.
-   character(len=1), parameter                     :: NL=new_line('a') !< New line character.
+   character(len=:), allocatable       :: desc             !< Description.
+   character(len=1), parameter         :: NL=new_line('a') !< New line character.
+
    desc =            mpih%myrankstr//'PIC object description:'
    desc = desc//NL//mpih%myrankstr//'    Problem type: '//trim(self%problem_type)
    if (self%problem_type == PLASMA_TYPE_PROBLEM) then
@@ -146,17 +154,17 @@ contains
    type(field_object),      intent(in) 	:: field           !< Field object
    real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
                                                              !< present at t0
-	character(len=:),        allocatable   :: desc             
-   character(len=1),        parameter     :: NL=new_line('a') 
+	character(len=:),        allocatable   :: desc
+   character(len=1),        parameter     :: NL=new_line('a')
 
    print '(A)', mpih%myrankstr//'prism_pic_object%initialize start'
 
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
 
-   associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
-               e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax)
-   
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, &
+               e_min=>grid%domain_emin, e_max=>grid%domain_emax)
+
    if (self%problem_type == PLASMA_TYPE_PROBLEM) then
       domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
       self%particle_number = nint(self%plasma_density*domain_volume)
@@ -204,7 +212,7 @@ contains
    case default
       call mpih%error_stop(msg=': invalid field weighting model in prism_cpu_object%initialize')
    endselect
-   
+
    print '(A)', mpih%myrankstr//'prism_pic_object%initialize finish'
    endsubroutine initialize
 
@@ -230,7 +238,7 @@ contains
 	case('TSC', 'tsc', 'Tsc')
 		self%particle_weighting_model = TSC_WEIGHTING_MODEL
 	case default
-		call mpih%error_stop(msg=': invalid particle weighting model ['//trim(adjustl(buff))//'] in  & 
+		call mpih%error_stop(msg=': invalid particle weighting model ['//trim(adjustl(buff))//'] in  &
       ['//INI_SECTION_NAME//'].(particle_weighting_model)')
 	endselect
 
@@ -245,7 +253,7 @@ contains
 	case('TSC', 'tsc', 'Tsc')
 		self%current_weighting_model = TSC_WEIGHTING_MODEL
 	case default
-		call mpih%error_stop(msg=': invalid current weighting model ['//trim(adjustl(buff))//'] in  & 
+		call mpih%error_stop(msg=': invalid current weighting model ['//trim(adjustl(buff))//'] in  &
       ['//INI_SECTION_NAME//'].(current_weighting_model)')
 	endselect
 
@@ -258,7 +266,7 @@ contains
    case('1D', '1d', '1_d', '1_D')
       self%field_weighting_model = ONED_FIELDS_WEIGHTING_MODEL
    case default
-      call mpih%error_stop(msg=': invalid field weighting model ['//trim(adjustl(buff))//'] in  & 
+      call mpih%error_stop(msg=': invalid field weighting model ['//trim(adjustl(buff))//'] in  &
       ['//INI_SECTION_NAME//'].(field_weighting_model)')
    endselect
 
@@ -276,33 +284,33 @@ contains
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='problem_type', &
    val=self%problem_type, error=error)
-   if (.not.go_on_fail_.and.error>0) & 
+   if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
 
    if(self%problem_type == PLASMA_TYPE_PROBLEM) then
 	   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &
       val=self%plasma_density, error=error)
-      if (.not.go_on_fail_.and.error>0) & 
+      if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_density)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
       val=self%neutral_fraction, error=error)
-      if (.not.go_on_fail_.and.error>0) & 
+      if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
    endif
    endsubroutine load_from_file
 
    subroutine particle_cartesian_grid_index(self, field, q_pic)
    !< Compute the grid index corresponding to a particle position. Good for cartesian grids only.
-   class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
-   type(field_object),      intent(in)    :: field                                                           !< The field.
-   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
-   real(R8P)                              :: n                                                               !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
+   class(prism_pic_object), intent(inout) :: self               !< External fields.
+   type(field_object),      intent(in)    :: field              !< The field.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)       !< PIC variables.
+   real(R8P)                              :: n                  !< Particle counter
+   real(R8P)                              :: i_p, j_p, k_p, b_p !< Particle grid indices
 
-   associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, &
-            nk=>field%grid%nk, ngc=>field%grid%ngc, dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), &
-            np => self%particle_number, e_min => field%grid%domain_emin, e_max => field%grid%domain_emax, &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                                  &
+            nk=>grid%nk, ngc=>grid%ngc, dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:),&
+            np => self%particle_number, e_min => grid%domain_emin, e_max => grid%domain_emax,               &
             neighbour_list => self%neighbour_list)
 
    !Va completato considerando la presenza di più blocchi, questo funziona per un blocco solo
@@ -322,16 +330,18 @@ contains
 
    subroutine NGP_charge_weighting(self, field, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.
-   class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
-   type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
-   integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
-   real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
-   real(R8P)                              :: dx, dy, dz                                                      !< Cell dimensions
-   real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,1:) !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
+   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
+   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   real(R8P)                              :: wx, wy, wz           !< Weighting factors
+   real(R8P)                              :: dx, dy, dz           !< Cell dimensions
+   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
    !Per iniziare, azzero tutte le cariche altrimenti vado a sommare le cariche del tempo precedente
    q(nv,:,:,:,:) = 0.0_R8P
@@ -356,16 +366,18 @@ contains
 
    subroutine CIC_charge_weighting(self, field, q, q_PIC, nv)
    !< Cloud-in-Cell weighting of particle quantities to the grid.
-   class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
-   type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_PIC(1:,1:)                                                    !< PIC variables.
-   integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
-   real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
-   real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,1:) !< Field variables.
+   real(R8P),               intent(in)    :: q_PIC(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
+   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
+   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   real(R8P)                              :: dx, dy, dz           !< Grid spacing
+   real(R8P)                              :: wx, wy, wz           !< Weighting factors
+   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
 
@@ -394,7 +406,7 @@ contains
                   Wx = 1.0_R8P - abs((q_pic(1,n) - cell_coord(1))/dx)
                else
                   Wx = 0.0_R8P
-               end if   
+               end if
                if (abs((q_pic(2,n) - cell_coord(2))/dy) <= 1.0_R8P) then
                   Wy = 1.0_R8P - abs((q_pic(2,n) - cell_coord(2))/dy)
                else
@@ -418,16 +430,18 @@ contains
 
    subroutine TSC_charge_weighting(self, field, q, q_pic, nv)
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
-   class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
-   type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
-   integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
-   real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
-   real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,1:) !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
+   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
+   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   real(R8P)                              :: dx, dy, dz           !< Grid spacing
+   real(R8P)                              :: wx, wy, wz           !< Weighting factors
+   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
 
@@ -479,16 +493,18 @@ contains
 
    subroutine NGP_current_weighting(self, field, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.
-   class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
-   type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
-   integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
-   real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
-   real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,1:) !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
+   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
+   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   real(R8P)                              :: dx, dy, dz           !< Grid spacing
+   real(R8P)                              :: wx, wy, wz           !< Weighting factors
+   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
    !Per iniziare, azzero tutte le correnti altrimenti vado a sommare le cariche del tempo precedente
    q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
@@ -510,22 +526,24 @@ contains
       q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)
       q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)
       !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
-      !se scritta in questo modo 
+      !se scritta in questo modo
    enddo
    endsubroutine NGP_current_weighting
 
    subroutine CIC_current_weighting(self, field, q, q_pic, nv)
    !< Cloud-in-Cell weighting of particle quantities to the grid.
-   class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
-   type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
-   integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
-   real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
-   real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,1:) !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
+   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
+   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   real(R8P)                              :: dx, dy, dz           !< Grid spacing
+   real(R8P)                              :: wx, wy, wz           !< Weighting factors
+   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
 
@@ -554,7 +572,7 @@ contains
                   Wx = 1.0_R8P - abs((q_pic(1,n) - cell_coord(1))/dx)
                else
                   Wx = 0.0_R8P
-               end if   
+               end if
                if (abs((q_pic(2,n) - cell_coord(2))/dy) <= 1.0_R8P) then
                   Wy = 1.0_R8P - abs((q_pic(2,n) - cell_coord(2))/dy)
                else
@@ -580,16 +598,18 @@ contains
 
    subroutine TSC_current_weighting(self, field, q, q_pic, nv)
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
-   class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
-   type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
-   integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
-   real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
-   real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,1:) !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
+   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
+   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   real(R8P)                              :: dx, dy, dz           !< Grid spacing
+   real(R8P)                              :: wx, wy, wz           !< Weighting factors
+   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
 
@@ -642,15 +662,17 @@ contains
    endsubroutine TSC_current_weighting
 
    subroutine zeroD_field_weighting(self, field, pic_fields, q, q_pic, nv)
-   class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
-   type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: pic_fields(1:,1:)                                               !< Fields value at particle locations
-   real(R8P),               intent(in)    :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
-   integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, block_p                                          !< Particle grid indices
-   real(R8P)                              :: v_p(3), D_p(3), B_p(3), F_p(3), F_l(3), m_p, q_p                !< Particle scalars
+   class(prism_pic_object), intent(inout) :: self                                             !< External fields.
+   type(field_object),      intent(inout) :: field                                            !< The field.
+   real(R8P),               intent(inout) :: pic_fields(1:,1:)                                !< Fields value at particle locations
+   real(R8P),               intent(in)    :: q(1:,1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,1:)                             !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                     !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                                               !< Number of variables.
+   real(R8P)                              :: n, i, j, k ,b                                    !< Particle counter
+   real(R8P)                              :: i_p, j_p, k_p, block_p                           !< Particle grid indices
+   real(R8P)                              :: v_p(3), D_p(3), B_p(3), F_p(3), F_l(3), m_p, q_p !< Particle scalars
 
    do n = 1, self%particle_number
       ! Get particle grid indices
@@ -686,21 +708,23 @@ contains
    endsubroutine zeroD_field_weighting
 
    subroutine oneD_field_weighting(self, field, pic_fields, q, q_pic, nv)
-   class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
-   type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: pic_fields(1:,1:)                                               !< Fields value at particle locations
-   real(R8P),               intent(in)    :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
-   integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, block_p                                          !< Particle grid indices
-   real(R8P)                              :: x_p, y_p, z_p                                                   !< Particle position scalar
-   real(R8P)                              :: v_p(3), D_p(3), B_p(3), F_p(3), F_l(3), m_p, q_p                !< Particle scalars
-   real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: dDx_dx, dDx_dy, dDx_dz     
+   class(prism_pic_object), intent(inout) :: self                                             !< External fields.
+   type(field_object),      intent(inout) :: field                                            !< The field.
+   real(R8P),               intent(inout) :: pic_fields(1:,1:)                                !< Fields value at particle locations
+   real(R8P),               intent(in)    :: q(1:,1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,1:)                             !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                     !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                                               !< Number of variables.
+   real(R8P)                              :: n, i, j, k ,b                                    !< Particle counter
+   real(R8P)                              :: i_p, j_p, k_p, block_p                           !< Particle grid indices
+   real(R8P)                              :: x_p, y_p, z_p                                    !< Particle position scalar
+   real(R8P)                              :: v_p(3), D_p(3), B_p(3), F_p(3), F_l(3), m_p, q_p !< Particle scalars
+   real(R8P)                              :: dx, dy, dz                                       !< Grid spacing
+   real(R8P)                              :: dDx_dx, dDx_dy, dDx_dz
    real(R8P)                              :: dDy_dx, dDy_dy, dDy_dz
    real(R8P)                              :: dDz_dx, dDz_dy, dDz_dz
-   real(R8P)                              :: dBx_dx, dBx_dy, dBx_dz     
+   real(R8P)                              :: dBx_dx, dBx_dy, dBx_dz
    real(R8P)                              :: dBy_dx, dBy_dy, dBy_dz
    real(R8P)                              :: dBz_dx, dBz_dy, dBz_dz
 
@@ -718,88 +742,88 @@ contains
       !Interpolazione lineare dei campi nella posizione delle particelle
       !x
       if (x_cell(i_p,block_p) >= q_pic(1,n)) then !La particella è nella metà sinistra della cella
-         dDx_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(1,i_p-1,j_p,k_p,block_p), & 
-                            x1=x_cell(i_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dDx_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(1,i_p-1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dDy_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(2,i_p-1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dDz_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(3,i_p-1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dBx_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(4,i_p-1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dBy_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(5,i_p-1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dBz_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(6,i_p-1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
       else
          dDx_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(1,i_p+1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dDy_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(2,i_p+1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dDz_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(3,i_p+1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dBx_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(4,i_p+1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dBy_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(5,i_p+1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
          dBz_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(6,i_p+1,j_p,k_p,block_p), &
-                            x1=x_cell(i_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+                            x1=x_cell(i_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(1,n))
       endif
       !y
       if (y_cell(j_p,block_p) >= q_pic(2,n)) then !La particella è nella metà sinistra della cella
          dDx_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(1,i_p,j_p-1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dDy_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(2,i_p,j_p-1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dDz_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(3,i_p,j_p-1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dBx_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(4,i_p,j_p-1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dBy_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(5,i_p,j_p-1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dBz_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(6,i_p,j_p-1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
       else
          dDx_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(1,i_p,j_p+1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dDy_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(2,i_p,j_p+1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dDz_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(3,i_p,j_p+1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dBx_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(4,i_p,j_p+1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dBy_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(5,i_p,j_p+1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
          dBz_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(6,i_p,j_p+1,k_p,block_p), &
-                            x1=y_cell(j_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+                            x1=y_cell(j_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(2,n))
       endif
       !z
       if (z_cell(k_p,block_p) >= q_pic(3,n)) then !La particella è nella metà sinistra della cella
          dDx_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(1,i_p,j_p,k_p-1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dDy_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(2,i_p,j_p,k_p-1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dDz_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(3,i_p,j_p,k_p-1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dBx_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(4,i_p,j_p,k_p-1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dBy_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(5,i_p,j_p,k_p-1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dBz_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(6,i_p,j_p,k_p-1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
       else
          dDx_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(1,i_p,j_p,k_p+1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dDy_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(2,i_p,j_p,k_p+1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dDz_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(3,i_p,j_p,k_p+1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dBx_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(4,i_p,j_p,k_p+1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dBy_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(5,i_p,j_p,k_p+1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+                            x1=z_cell(k_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
          dBz_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(6,i_p,j_p,k_p+1,block_p), &
-                            x1=z_cell(k_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
-      endif     
+                            x1=z_cell(k_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(3,n))
+      endif
 
       D_p(1) = q(1,i_p,j_p,k_p,block_p) + dDx_dx + dDx_dy + dDx_dz
       D_p(2) = q(2,i_p,j_p,k_p,block_p) + dDy_dx + dDy_dy + dDy_dz
@@ -838,7 +862,7 @@ contains
    endfunction crossproduct
 
    function lininterp(x1, y1, x2, y2, xp) result(delta)
-   real(R8P), intent(in) :: x1, x2 
+   real(R8P), intent(in) :: x1, x2
    real(R8P), intent(in) :: y1, y2
    real(R8P), intent(in) :: xp
    real(R8P)             :: delta
@@ -847,5 +871,4 @@ contains
    m = (y2-y1)/(x2-x1)
    delta = m*(xp-x1)
    endfunction lininterp
-
 endmodule adam_prism_pic_object

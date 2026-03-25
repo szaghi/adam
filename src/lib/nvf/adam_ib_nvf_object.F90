@@ -3,6 +3,7 @@ module adam_ib_nvf_object
 !< ADAM, IB class NVF (NVF backend of [[ib_object]]).
 
 use adam_ib_object
+use adam_global_grid, only: grid
 use adam_ib_nvf_kernels
 use adam_field_nvf_object
 use adam_memory_nvf_library
@@ -84,7 +85,7 @@ contains
    self%field_gpu => field_gpu
    msg_ = self%mpih%myrankstr//'ib_nvf_object%initialize'
    call assign_allocatable_gpu(lhs=self%q_bcs_vars_gpu, rhs=self%ib%q, msg=msg_//' q_bcs_vars_gpu ')
-   associate(ngc=>self%ib%grid%ngc, ni=>self%ib%grid%ni, nj=>self%ib%grid%nj, nk=>self%ib%grid%nk, nb=>self%ib%field%nb, &
+   associate(ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nb=>self%ib%field%nb, &
              solids_number=>self%ib%solids_number)
    if (solids_number>0) then
       ms = msg_//' phi_gpu '
@@ -99,10 +100,10 @@ contains
       type(ib_object), intent(in), target :: ib !< IB object.
 
       self%blocks_number => ib%field%blocks_number
-      self%ni            => ib%field%grid%ni
-      self%nj            => ib%field%grid%nj
-      self%nk            => ib%field%grid%nk
-      self%ngc           => ib%field%grid%ngc
+      self%ni            => grid%ni
+      self%nj            => grid%nj
+      self%nk            => grid%nk
+      self%ngc           => grid%ngc
       self%nb            => ib%field%nb
       self%nv            => ib%field%nv
       endsubroutine associate_adam_data

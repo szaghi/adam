@@ -518,33 +518,37 @@ dd = aa + bb
 !$omp end parallel
 ```
 
-## MPI Handler Singleton Pattern
+## Module-Level Singleton Pattern
 
-ADAM uses a **module-level singleton** for the program-scope MPI handler rather than embedding an `mpih_object` instance in every derived type.
+ADAM uses **module-level singletons** for program-scope objects rather than embedding instances in every derived type. Two singletons exist:
 
-### The Singleton
+| Singleton | Module | Type |
+|-----------|--------|------|
+| `mpih` | `adam_global_mpih` | `mpih_object` — MPI handler |
+| `grid` | `adam_global_grid` | `grid_object` — structured grid |
 
-Defined in `src/lib/common/adam_global_mpih.F90`:
+Both follow the same definition pattern:
 
 ```fortran
-module adam_global_mpih
+module adam_global_mpih          ! or adam_global_grid
 use :: adam_mpih_object, only: mpih_object
 implicit none
 private
 public :: mpih
-type(mpih_object), target :: mpih  !< Program-scope MPI handler singleton.
+type(mpih_object), target :: mpih  !< Program-scope singleton.
 endmodule adam_global_mpih
 ```
 
-### How to Use It in New Objects
-
-Access the singleton by importing it:
+Both are re-exported by `adam_common_library`. Modules that already `use adam_common_library` get both without further `use` statements. Others should add explicit imports:
 
 ```fortran
 use :: adam_global_mpih, only: mpih
+use :: adam_global_grid, only: grid
 ```
 
-Then call it directly without `self%`:
+### How to Use Singletons in New Objects
+
+Access directly without `self%`:
 
 ```fortran
 call mpih%print_message('my_object%initialize start')
@@ -552,15 +556,21 @@ if (mpih%myrank == 0) then
    ! root-only work
 endif
 call mpih%error_stop(msg=': initialization failed')
+
+self%ni  => grid%ni
+self%ngc => grid%ngc
+associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc)
 ```
 
 ### Initialization
 
-`mpih` must be initialized exactly once, before any other object uses it. The authoritative init call lives in `equation_object%initialize` (and in `prism_cpu_object%initialize_prism` for the PRISM backend). Sub-objects must **not** call `mpih%initialize` — the singleton is already set up when they are called.
+`mpih` must be initialized exactly once before any other object uses it. The authoritative init call lives in `equation_object%initialize` (and in `prism_cpu_object%initialize_prism` for the PRISM backend). Sub-objects must **not** call `mpih%initialize`.
+
+`grid` must be initialized exactly once via `call grid%initialize(...)` before any object reads its values. This call belongs in the top-level common object (e.g. `prism_common_object%initialize`).
 
 ### What Not to Do
 
-Do **not** embed `type(mpih_object) :: mpih` in a new derived type. Do **not** call `mpih%initialize` from sub-object `initialize` procedures (only the top-level application object does this). Do **not** pass `mpih` as a dummy argument — use the module variable directly.
+Do **not** embed `type(mpih_object) :: mpih` or `type(grid_object), pointer :: grid` in new derived types. Do **not** pass either as dummy arguments. Do **not** write `field%grid%xxx` or `ib%grid%xxx` — access `grid%xxx` from the singleton directly.
 
 ## Quick Reference Table
 
@@ -577,3 +587,4 @@ Do **not** embed `type(mpih_object) :: mpih` in a new derived type. Do **not** c
 | Modules | Use `private` by default, expose with `public` |
 | OpenMP | Use `default(none)`, `reduction` for accumulation |
 | MPI handler | Use `mpih` singleton from `adam_global_mpih`, never embed in types |
+| Grid | Use `grid` singleton from `adam_global_grid`, never embed as pointer in types |

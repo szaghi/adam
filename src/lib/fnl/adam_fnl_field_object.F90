@@ -57,13 +57,13 @@ contains
    integer(I4P),            intent(in)  :: b         !< Block index.
    integer(I4P),            intent(in)  :: ivar      !< Index of q variable.
    real(R8P),               intent(in)  :: q_gpu(1:,                    &
-                                                 1-self%field%grid%ngc:,&
-                                                 1-self%field%grid%ngc:,&
-                                                 1-self%field%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:) !< Field component to which apply gradient.
    real(R8P),               intent(out) :: gradient  !< Maximum gradient of q(ivar).
 
-   call compute_q_gradient_dev(b=b, ni=self%field%grid%ni, nj=self%field%grid%nj, nk=self%field%grid%nk, ngc=self%field%grid%ngc, &
+   call compute_q_gradient_dev(b=b, ni=grid%ni, nj=grid%nj, nk=grid%nk, ngc=grid%ngc, &
                                dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b),     &
                                q_gpu=q_gpu, ivar=ivar, gradient=gradient)
    endsubroutine compute_q_gradient
@@ -185,7 +185,7 @@ contains
    self%blocks_number => field%blocks_number
    self%nv            => field%nv
    call self%maps%initialize(maps=field%maps)
-   associate(nb=>field%nb, ngc=>field%grid%ngc, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, nv=>field%nv)
+   associate(nb=>field%nb, ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nv=>field%nv)
       if (present(q_gpu)) &
          call dev_alloc(fptr_dev=q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
       call dev_assign_to_device(dst=self%fec_1_6_array_gpu, src=FEC_1_6_ARRAY)
@@ -199,20 +199,20 @@ contains
    !< Update (local) ghost cells.
    class(field_fnl_object), intent(in)    :: self      !< The field.
    real(R8P),               intent(inout) :: q_gpu(1:,                    &
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
+                                                   1-grid%ngc:,&
+                                                   1-grid%ngc:,&
+                                                   1-grid%ngc:,&
                                                    1:) !< Field component to be updated.
-   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%field%grid%ngc,q_gpu=q_gpu)
+   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=grid%ngc,q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
 
    subroutine update_ghost_mpi_gpu(self, q_gpu, step)
    !< Update ghost cells within other processes.
    class(field_fnl_object), intent(inout)        :: self               !< The field.
    real(R8P),               intent(inout)        :: q_gpu(1:,                    &
-                                                          1-self%field%grid%ngc:,&
-                                                          1-self%field%grid%ngc:,&
-                                                          1-self%field%grid%ngc:,&
+                                                          1-grid%ngc:,&
+                                                          1-grid%ngc:,&
+                                                          1-grid%ngc:,&
                                                           1:)          !< Field component to be updated.
    integer(I4P),            intent(in), optional :: step               !< Step to be perfordmed in asyncronous comp.
    logical                                       :: do_step(3)         !< Steps performed in async comp.
@@ -227,7 +227,7 @@ contains
              comm_map_recv_ptr_ghost=>self%maps%maps%comm_map_recv_ptr_ghost,      &
              recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu,               &
              send_buffer_ghost_gpu=>self%maps%send_buffer_ghost_gpu,               &
-             ngc=>self%field%grid%ngc, q_gpu=>q_gpu)
+             ngc=>grid%ngc, q_gpu=>q_gpu)
    do_step = .true.
    if (present(step)) then
       do_step = .false.

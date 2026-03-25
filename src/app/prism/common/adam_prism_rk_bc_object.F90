@@ -3,7 +3,7 @@ module adam_prism_rk_bc_object
 !< ADAM, RK-BC class definition.
 
 use adam_field_object
-use adam_grid_object
+use adam_global_grid, only: grid
 use adam_global_mpih, only: mpih
 use adam_rk_object
 use adam_prism_physics_object
@@ -34,7 +34,6 @@ type :: prism_rk_bc_object
    real(R8P), allocatable    :: dq_bc_rk(:,:,:,:,:) 
    ! grid/field data replica for easy handling
    type(field_object), pointer :: field=>null()         !< The field.
-   type(grid_object),  pointer :: grid=>null()          !< The grid.
    integer(I4P),       pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P),       pointer :: ni=>null()            !< Number of cells in i direction.
    integer(I4P),       pointer :: nj=>null()            !< Number of cells in j direction.
@@ -80,18 +79,17 @@ contains
    desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, grid, field, rk, physics)
+   subroutine initialize(self, file_parameters, field, rk, physics)
    !< Initialize class.
    class(prism_rk_bc_object),   intent(inout)        :: self            !< RK object.
    type(file_ini),              intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
-   type(grid_object),           intent(in), target   :: grid            !< The grid.
    type(field_object),          intent(in), target   :: field           !< The field.
    type(rk_object),             intent(in), target   :: rk              !< RK scheme
    type(prism_physics_object),  intent(in), target   :: physics         !< Physics object
    real(R8P)                                         :: w0, w1          !< Sympletic RK coefficients.
 
    call mpih%print_message('rk_object%initialize start')
-   call associate_adam_data(grid=grid, field=field, rk=rk, physics=physics)
+   call associate_adam_data(field=field, rk=rk, physics=physics)
    select case(self%scheme)
    case(RK_1) ! 1 stage, 1st order, Euler
       self%nrk = 1
@@ -197,20 +195,18 @@ contains
    print '(A)', self%description()
    call mpih%print_message('rk_object%initialize finish')
    contains
-      subroutine associate_adam_data(grid, field, rk, physics)
+      subroutine associate_adam_data(field, rk, physics)
       !< Associate objects data to equation for easy handling.
-      type(grid_object),          intent(in), target :: grid    !< The grid.
       type(field_object),         intent(in), target :: field   !< The field.
       type(rk_object),            intent(in), target :: rk      !< The RK scheme.
       type(prism_physics_object), intent(in), target :: physics !< The physics.
 
-      self%grid          => grid
       self%field         => field
       self%blocks_number => field%blocks_number
-      self%ni            => field%grid%ni
-      self%nj            => field%grid%nj
-      self%nk            => field%grid%nk
-      self%ngc           => field%grid%ngc
+      self%ni            => grid%ni
+      self%nj            => grid%nj
+      self%nk            => grid%nk
+      self%ngc           => grid%ngc
       self%nb            => field%nb
       self%nv            => field%nv
       self%nv_c          => physics%nv_c

@@ -3,6 +3,7 @@ module adam_prism_particle_injection_object
 !< ADAM, PRISM Particle-in-Cell class definition, CPU backend.
 ! ADAM modules
 use :: adam_global_mpih, only: mpih
+use :: adam_global_grid, only: grid
 use adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
@@ -506,9 +507,9 @@ contains
 	character(len=:), allocatable		                   	:: desc             
    character(len=1), parameter  		                   	:: NL=new_line('a') 
 
-	associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
-      		ngc=>field%grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), 	 		 &
-      		np=>pic%particle_number, e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax,  		 &
+	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,              &
+      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),          &
+      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		 &
 				neutral_fraction=>pic%neutral_fraction, n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, 	 &
 				n_neutrals=>pic%n_neutrals)
 
@@ -596,9 +597,9 @@ contains
 	character(len=:), allocatable		                   	:: desc             
    character(len=1), parameter  		                   	:: NL=new_line('a') 
 
-	associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
-      		ngc=>field%grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), 	 		 &
-      		np=>pic%particle_number, e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax,  		 &
+	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,              &
+      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),          &
+      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		 &
 				neutral_fraction=>pic%neutral_fraction, n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, 	 &
 				n_neutrals=>pic%n_neutrals)
 
@@ -742,9 +743,9 @@ contains
 	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
 	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
 
-	associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
-      		ngc=>field%grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), 	 		 &
-      		np=>pic%particle_number, e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax,  		 &
+	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,              &
+      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),          &
+      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		 &
 				neutral_fraction=>pic%neutral_fraction, v_av_correction=>self%v_av_correction, 				 	 &
 				v_drift_x=>self%v_drift_x, v_drift_y=>self%v_drift_y, v_drift_z=>self%v_drift_z, 				 &
 				T_i=>self%T_i, T_e=>self%T_e, T_n=>self%T_n, 																 &
@@ -842,9 +843,9 @@ contains
 	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
 	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
 
-	associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
-      		ngc=>field%grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), 	 		 &
-      		np=>pic%particle_number, e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax,  		 &
+	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,              &
+      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),          &
+      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		 &
 				neutral_fraction=>pic%neutral_fraction, 																		 &
 				T_i_x=>self%T_i_x, T_e_x=>self%T_e_x, T_n_x=>self%T_n_x, 												 &
 				T_i_y=>self%T_i_y, T_e_y=>self%T_e_y, T_n_y=>self%T_n_y, 												 &

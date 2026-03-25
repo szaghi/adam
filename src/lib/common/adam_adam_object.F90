@@ -4,7 +4,7 @@ module adam_adam_object
 
 ! ADAM modules
 use :: adam_field_object
-use :: adam_grid_object
+use :: adam_global_grid, only: grid
 use :: adam_maps_object
 use :: adam_global_mpih, only: mpih
 use :: adam_parameters
@@ -26,7 +26,6 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   type(grid_object)  :: grid  !< The grid.
    type(tree_object)  :: tree  !< The tree.
    type(maps_object)  :: maps  !< The maps.
    type(field_object) :: field !< The field.
@@ -56,10 +55,10 @@ contains
    subroutine adapt(self, q)
    !< Adapt tree/field accordingly to refine/derefine necessity.
    class(adam_object), intent(inout) :: self  !< ADAM.
-   real(R8P),          intent(inout) :: q(1:,              &
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
+   real(R8P),          intent(inout) :: q(1:,         &
+                                          1-grid%ngc:,&
+                                          1-grid%ngc:,&
+                                          1-grid%ngc:,&
                                           1:) !< Field cell centered variables.
 
    call self%tree%adapt
@@ -80,9 +79,9 @@ contains
    !< otherwise mpi_gather_refinement_nedeed is not safe (having wrong nodes number counters).
    class(adam_object), intent(inout)         :: self                 !< ADAM.
    real(R8P),          intent(inout)         :: q(1:,              &
-                                                  1-self%grid%ngc:,&
-                                                  1-self%grid%ngc:,&
-                                                  1-self%grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,&
                                                   1:)                !< Field cell centered variables.
    logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
    logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
@@ -114,9 +113,9 @@ contains
    !< Reorder blocks (for asyncrhonous MPI)
    class(adam_object), intent(inout) :: self !< ADAM.
    real(R8P),          intent(inout) :: q(1:,              &
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
+                                          1-grid%ngc:,&
+                                          1-grid%ngc:,&
+                                          1-grid%ngc:,&
                                           1:)!< Field cell centered variables.
 
    call self%maps%blocks_reorder
@@ -154,7 +153,7 @@ contains
 
    size_of_real = storage_size(1._R8P)/8._R8P
    save_factor = 0.95_R8P
-   nb = nint(save_factor * memory_avail*1e9 / (fields_number * self%grid%block_weight * size_of_real))
+   nb = nint(save_factor * memory_avail*1e9 / (fields_number * grid%block_weight * size_of_real))
    nodes_number  = nb * mpih%procs_number
    endsubroutine compute_blocks_number
 
@@ -164,7 +163,7 @@ contains
    character(len=:), allocatable  :: desc             !< Description.
    character(len=1), parameter    :: NL=new_line('a') !< New line character.
 
-   desc = self%grid%description()//NL//self%tree%description()//NL//self%field%description()
+   desc = grid%description()//NL//self%tree%description()//NL//self%field%description()
    endfunction description
 
    subroutine load_restart_files(self, basename, t, time, q)
@@ -174,9 +173,9 @@ contains
    integer(I4P),       intent(out)   :: t         !< Time iteration.
    real(R8P),          intent(out)   :: time      !< Time.
    real(R8P),          intent(inout) :: q(1:,              &
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
+                                          1-grid%ngc:,&
+                                          1-grid%ngc:,&
+                                          1-grid%ngc:,&
                                           1:)              !< Field cell centered variables.
    integer(I4P)                      :: file_unit !< Output file unit.
 
@@ -206,15 +205,13 @@ contains
   !                                nodes_number=nodes_number)
    nodes_number = 11
    self%field%blocks_number = 1
-   call self%grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%adam%grid%set_bc_type
-   call self%tree%initialize(grid=self%grid,                 &
-                             file_parameters=file_parameters,&
+   call grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%adam%grid%set_bc_type
+   call self%tree%initialize(file_parameters=file_parameters,&
                              nodes_number=nodes_number,      &
                              add_adam=add_adam,              &
                              verbose=verbose_)
-   call self%maps%initialize(grid=self%grid,tree=self%tree,verbose=verbose_)
-   call self%field%initialize(grid=self%grid,                 &
-                              maps=self%maps,                 &
+   call self%maps%initialize(tree=self%tree,verbose=verbose_)
+   call self%field%initialize(maps=self%maps,                 &
                               file_parameters=file_parameters,&
                               nb=1,                           &! remember to change
                               nv=nv,                          &
@@ -230,9 +227,9 @@ contains
    character(*),       intent(in)            :: itype     !< Type of interpolation.
    real(R8P),          intent(in)            :: point(3)  !< Interpolation point xyz coordinates.
    real(R8P),          intent(in)            :: q(1:,              &
-                                                  1-self%grid%ngc:,&
-                                                  1-self%grid%ngc:,&
-                                                  1-self%grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,&
+                                                  1-grid%ngc:,&
                                                   1:)     !< Q variables to be interpolated.
    real(R8P),          intent(out)           :: qp(1:)    !< Q variables interpolated at given point.
    logical,            intent(out)           :: is_mine   !< Flag to check if point interpolation belongs to myrank.
@@ -359,9 +356,9 @@ contains
    !< Redistribute nodes/blocks to processes, load balancing.
    class(adam_object), intent(inout) :: self !< ADAM.
    real(R8P),          intent(inout) :: q(1:,              &
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
+                                          1-grid%ngc:,&
+                                          1-grid%ngc:,&
+                                          1-grid%ngc:,&
                                           1:)!< Field cell centered variables.
 
    call self%tree%mpi_redistribute
@@ -374,9 +371,9 @@ contains
    !< Prune nodes/blocks.
    class(adam_object), intent(inout)        :: self               !< Adam.
    real(R8P),          intent(inout)        :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)              !< Field cell centered variables.
    integer(I4P),       intent(inout)        :: ijkl_prune(4)      !< Maximum coordinates after which the prune operates.
    logical,            intent(in), optional :: do_blocks_reorder  !< Flag to activate blocks reorder.
@@ -394,9 +391,9 @@ contains
    class(adam_object), intent(inout)        :: self                 !< Adam.
    integer(I4P),       intent(in)           :: refinement_levels    !< Number of refinement to be performed.
    real(R8P),          intent(inout)        :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                !< Field cell centered variables.
    logical,            intent(in), optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
    logical,            intent(in), optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
@@ -416,9 +413,9 @@ contains
    integer(I4P),       intent(in) :: t         !< Time iteration.
    real(R8P),          intent(in) :: time      !< Time.
    real(R8P),          intent(in) :: q(1:,              &
-                                       1-self%grid%ngc:,&
-                                       1-self%grid%ngc:,&
-                                       1-self%grid%ngc:,&
+                                       1-grid%ngc:,&
+                                       1-grid%ngc:,&
+                                       1-grid%ngc:,&
                                        1:)     !< Field cell centered variables.
    integer(I4P)                   :: file_unit !< Output file unit.
 
@@ -438,15 +435,15 @@ contains
    real(R8P),          intent(in)           :: points(1:,1:,1:,1:)   !< Interpolation points coordinates [1:3,1:ni,1:nj,1:nk].
    character(*),       intent(in)           :: basename              !< Base name of output files.
    real(R8P),          intent(in)           :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                 !< Q variables to be saved.
    character(*),       intent(in), optional :: q_name(:)             !< Variables names.
    real(R8P),          intent(in), optional :: phi(1:,              &
-                                                   1-self%grid%ngc:,&
-                                                   1-self%grid%ngc:,&
-                                                   1-self%grid%ngc:) !< Distance function.
+                                                   1-grid%ngc:,&
+                                                   1-grid%ngc:,&
+                                                   1-grid%ngc:) !< Distance function.
    integer(I4P),       intent(in), optional :: t                     !< Time iteration.
    real(R8P),          intent(in), optional :: time                  !< Time.
    character(:), allocatable                :: q_name_(:)            !< Variables names, local var.
@@ -518,14 +515,14 @@ contains
    class(adam_object), intent(inout)        :: self                                          !< ADAM.
    character(*),       intent(in)           :: basename                                      !< Base name of output files.
    real(R8P),          intent(in)           :: q(1:,              &
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
-                                                 1-self%grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
+                                                 1-grid%ngc:,&
                                                  1:)                                         !< Q variables to be saved.
    real(R8P),          intent(in), optional :: q_aux(1:,              &
-                                                     1-self%grid%ngc:,&
-                                                     1-self%grid%ngc:,&
-                                                     1-self%grid%ngc:,&
+                                                     1-grid%ngc:,&
+                                                     1-grid%ngc:,&
+                                                     1-grid%ngc:,&
                                                      1:)                                     !< Q auxiliary variables to be saved.
    character(*),       intent(in), optional :: directory                                     !< Output directory name.
    character(*),       intent(in), optional :: q_name(:)                                     !< Variables names.
@@ -547,9 +544,9 @@ contains
    integer(I4P)                             :: max_level                                     !< Maximum level.
    integer(I4P)                             :: ngc                                           !< Ghost cells saved.
    integer(I4P)                             :: error                                         !< Error traping flag.
-   real(R8P)                                :: x(0-self%grid%ngc:self%grid%ni+self%grid%ngc) !< X coordinates.
-   real(R8P)                                :: y(0-self%grid%ngc:self%grid%nj+self%grid%ngc) !< Y coordinates.
-   real(R8P)                                :: z(0-self%grid%ngc:self%grid%nk+self%grid%ngc) !< Z coordinates.
+   real(R8P)                                :: x(0-grid%ngc:grid%ni+grid%ngc) !< X coordinates.
+   real(R8P)                                :: y(0-grid%ngc:grid%nj+grid%ngc) !< Y coordinates.
+   real(R8P)                                :: z(0-grid%ngc:grid%nk+grid%ngc) !< Z coordinates.
 
    if (present(q_name)) then
       allocate(character(len(q_name(1))):: q_name_(size(q, dim=1)))
@@ -568,14 +565,14 @@ contains
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
    with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
    if (with_ghost_) then
-      ngc = self%grid%ngc
+      ngc = grid%ngc
    else
       ngc = 0_I4P
    endif
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk)
       max_level = 0_I4P
       vtr_loop : do b=1, self%field%blocks_number
-         call self%grid%compute_metrics(coordinates=self%field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
+         call grid%compute_metrics(coordinates=self%field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
          max_level = max(max_level, self%field%coordinates(4,b))
          error = vtk%initialize(format='raw', filename=directory_//trim(basename)//                          &
                                                        '-morton-'//trim(str(self%field%code(b),.true.))//    &

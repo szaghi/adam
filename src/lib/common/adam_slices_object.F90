@@ -3,6 +3,7 @@ module adam_slices_object
    !< ADAM, slices (of domain) class definition, CPU backend.
 
 use adam_adam_object, only : adam_object
+use adam_global_grid, only: grid
 use adam_global_mpih, only: mpih
 use finer
 use penf
@@ -127,9 +128,9 @@ contains
    real(R8P),            intent(in)           :: time_max  !< Time iteration max.
    type(adam_object),    intent(inout)        :: adam      !< Adam object.
    real(R8P),            intent(in)           :: q(1:,               &
-                                                   1-adam%grid%ngc:, &
-                                                   1-adam%grid%ngc:, &
-                                                   1-adam%grid%ngc:, &
+                                                   1-grid%ngc:, &
+                                                   1-grid%ngc:, &
+                                                   1-grid%ngc:, &
                                                    1:)     !< Field variables.
    character(*),         intent(in), optional :: q_name(:) !< Variables names.
    integer(I4P)                               :: s         !< Slices counter.

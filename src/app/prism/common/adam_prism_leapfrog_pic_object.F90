@@ -36,7 +36,7 @@ module adam_prism_leapfrog_pic_object
 !< Weather Review, vol. 139(6), pages 1996--2007, June 2011.
 
 use adam_field_object, only: field_object
-use adam_grid_object, only: grid_object
+use adam_global_grid, only: grid
 use adam_global_mpih, only: mpih
 use adam_prism_pic_object, only: prism_pic_object
 use finer
@@ -56,7 +56,6 @@ type :: prism_leapfrog_pic_object
    real(R8P), allocatable    :: q_pic_old(:,:,:)    !< Pic variables, old time steps.
    ! Adam data replica for easy handling
    type(field_object),       pointer :: field=>null()            !< The field.
-   type(grid_object),        pointer :: grid=>null()             !< The grid.
    integer(I4P),             pointer :: ngc=>null()              !< Number of ghost cells.
    integer(I4P),             pointer :: ni=>null()               !< Number of cells in i direction.
    integer(I4P),             pointer :: nj=>null()               !< Number of cells in j direction.
@@ -90,17 +89,16 @@ contains
    desc = desc//mpih%myrankstr//'  alpha:           '//trim(str(self%alpha      ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, scheme, grid, field, pic)
+   subroutine initialize(self, file_parameters, scheme, field, pic)
    !< Initialize class.
    class(prism_leapfrog_pic_object),   intent(inout)        :: self            !< Leapfrog object.
    type(file_ini),           		      intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),             		      intent(in), optional :: scheme          !< Runge-Kutta scheme.
-   type(grid_object),        	 	      intent(in), target   :: grid            !< The grid.
    type(field_object),       	 	      intent(in), target   :: field           !< The field.
 	type(prism_pic_object),   		      intent(in), target   :: pic             !< The PIC object.
 
    call mpih%print_message('leapfrog_pic_object%initialize start')
-   call associate_adam_data(pic=pic, grid=grid, field=field)
+   call associate_adam_data(pic=pic, field=field)
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    endif
@@ -114,20 +112,19 @@ contains
    print '(A)', self%description()
    call mpih%print_message('leapfrog_pic_object%initialize finish')
    contains
-      subroutine associate_adam_data(grid, field, pic)
+      subroutine associate_adam_data(field, pic)
       !< Associate objects data to equation for easy handling.
-      type(grid_object),          intent(in), target :: grid    !< The grid.
-      type(field_object),         intent(in), target :: field   !< The field.
-		type(prism_pic_object),     intent(in), target :: pic     !< The PIC object.
-      self%field         	 => field
-      self%blocks_number 	 => field%blocks_number
-      self%ni            	 => field%grid%ni
-      self%nj            	 => field%grid%nj
-      self%nk            	 => field%grid%nk
-      self%ngc           	 => field%grid%ngc
-      self%nb            	 => field%nb
-      self%nv            	 => field%nv
-		self%pic           	 => pic
+      type(field_object),     intent(in), target :: field !< The field.
+		type(prism_pic_object), intent(in), target :: pic   !< The PIC object.
+      self%field            => field
+      self%blocks_number    => field%blocks_number
+      self%ni               => grid%ni
+      self%nj               => grid%nj
+      self%nk               => grid%nk
+      self%ngc              => grid%ngc
+      self%nb               => field%nb
+      self%nv               => field%nv
+		self%pic              => pic
 		self%particle_number  => pic%particle_number
       endsubroutine associate_adam_data
    endsubroutine initialize

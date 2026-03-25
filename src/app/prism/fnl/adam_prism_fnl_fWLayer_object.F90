@@ -7,6 +7,7 @@ module adam_prism_fnl_fWLayer_object
 
 ! ADAM modules
 use :: adam_field_object, only : field_object
+use :: adam_global_grid, only: grid
 use :: adam_fnl_library
 ! PRISM modules
 use :: adam_prism_fWLayer_object
@@ -69,7 +70,7 @@ contains
    integer(I4P)                                        :: ierr    !< Error status.
 
    call self%mpih_gpu%initialize(verbose=.true.)
-   associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, nb=>field%nb)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nb=>field%nb)
    print '(A)', self%mpih_gpu%myrankstr//'prism_fnl_fwlayer_object%initialize start'
    self%fwlayer => fwlayer
    call dev_alloc(fptr_dev=self%f_gpu, &

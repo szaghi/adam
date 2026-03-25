@@ -12,6 +12,7 @@ module adam_prism_fWLayer_object
 
 ! ADAM modules
 use :: adam_global_mpih, only: mpih
+use :: adam_global_grid, only: grid
 use :: adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
@@ -87,8 +88,8 @@ contains
    if (self%C == 0_I4P) return
 
    !Inizializzo funzione f nelle celle dello strato
-   associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number,     &
-            ngc=>field%grid%ngc, nb=>field%nb, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), &
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, blocks_number=>field%blocks_number,          &
+            ngc=>grid%ngc, nb=>field%nb, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), &
             C=>self%C, ni_fWL=>self%ni_fWL, nj_fWL=>self%nj_fWL, nk_fWL=>self%nk_fWL, n=>self%n, s2=>self%s2, &
             alfa_D=>self%alfa_D, alfa_B=>self%alfa_B, beta_D=>self%beta_D, beta_B=>self%beta_B)
 

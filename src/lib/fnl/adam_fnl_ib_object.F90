@@ -3,6 +3,7 @@ module adam_fnl_ib_object
 !< ADAM, IB class FNL (FNL backend of [[ib_object]]).
 
 use adam_ib_object
+use adam_global_grid, only: grid
 use adam_fnl_ib_kernels
 use adam_fnl_field_object
 use adam_fnl_mpih_object
@@ -80,7 +81,7 @@ contains
    self%ib => ib
    self%field_gpu => field_gpu
    call dev_assign_to_device(dst=self%q_bcs_vars_gpu, src=self%ib%q)
-   associate(ngc=>self%ib%grid%ngc, ni=>self%ib%grid%ni, nj=>self%ib%grid%nj, nk=>self%ib%grid%nk, nb=>self%ib%field%nb, &
+   associate(ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nb=>self%ib%field%nb, &
              solids_number=>self%ib%solids_number)
    if (solids_number>0) then
       call dev_alloc(fptr_dev=self%phi_gpu,                             &
@@ -90,10 +91,10 @@ contains
    endif
    endassociate
    self%blocks_number => ib%field%blocks_number
-   self%ni            => ib%field%grid%ni
-   self%nj            => ib%field%grid%nj
-   self%nk            => ib%field%grid%nk
-   self%ngc           => ib%field%grid%ngc
+   self%ni            => grid%ni
+   self%nj            => grid%nj
+   self%nk            => grid%nk
+   self%ngc           => grid%ngc
    self%nb            => ib%field%nb
    self%nv            => ib%field%nv
    endsubroutine initialize

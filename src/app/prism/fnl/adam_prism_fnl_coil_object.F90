@@ -7,6 +7,7 @@ module adam_prism_fnl_coil_object
 
 ! ADAM modules
 use :: adam_field_object, only : field_object
+use :: adam_global_grid, only: grid
 use :: adam_fnl_mpih_object
 ! PRSIM modules
 use :: adam_prism_coil_object
@@ -86,7 +87,7 @@ contains
    integer(I4P)                                     :: ierr  !< Error status.
 
    call self%mpih%initialize(do_mpi_init=.false.)
-   associate(ni=>field%grid%ni,nj=>field%grid%nj,nk=>field%grid%nk,ngc=>field%grid%ngc,nb=>field%nb,nc=>coil%total_coils_number)
+   associate(ni=>grid%ni,nj=>grid%nj,nk=>grid%nk,ngc=>grid%ngc,nb=>field%nb,nc=>coil%total_coils_number)
    print '(A)', self%mpih%myrankstr//'prism_fnl_coil_object%initialize start'
    self%coil          => coil
    self%blocks_number => field%blocks_number

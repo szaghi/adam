@@ -4,6 +4,7 @@ module adam_prism_ic_object
 
 ! ADAM modules
 use adam_field_object, only : field_object
+use adam_global_grid, only: grid
 use adam_global_mpih, only: mpih
 ! PRISM modules
 use adam_prism_physics_object, only : prism_physics_object
@@ -223,21 +224,21 @@ contains
       class(prism_ic_object),     intent(in)    :: self                 !< IC.
       type(prism_physics_object), intent(in)    :: physics              !< Fluids physiscs.
       type(field_object),         intent(in)    :: field                !< Field object.
-      real(R8P),                  intent(inout) :: q(1:,             &
-                                                   1-field%grid%ngc:,&
-                                                   1-field%grid%ngc:,&
-                                                   1-field%grid%ngc:,&
+      real(R8P),                  intent(inout) :: q(1:,        &
+                                                   1-grid%ngc:,&
+                                                   1-grid%ngc:,&
+                                                   1-grid%ngc:,&
                                                    1:)                  !< Field cell centered variables.
-      real(R8P)                                 :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                   y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                   z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)
+      real(R8P)                                 :: x_cell(1-grid%ngc:grid%ni+grid%ngc), &
+                                                   y_cell(1-grid%ngc:grid%nj+grid%ngc), &
+                                                   z_cell(1-grid%ngc:grid%nk+grid%ngc)
                                                                         !< Vettori posizione centro celle del blocco b
       integer(I4P)                              :: b, i, j, k, ri, var  !< Counter.
 	   real(R8P) 										   :: B_r, B_theta 			!< Radial and azimuthal components of the rotating magnetic field
 	   real(R8P)										   :: theta                !< Angles in cylindrical coordinates
 	   real(R8P)										   :: cell_coord(3)
       real(R8P)                                 :: x, y, r, omega, phase, c, s
-   associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, &
              nv=>physics%nv, nv_c=>physics%nv_c, nv_cl=>physics%nv_cl)
    select case(self%ic_type)
    case(IC_TYPE_VACUUM) ! vacuum initial conditions
@@ -254,7 +255,7 @@ contains
       enddo
    case(IC_TYPE_PLANE_WAVE) !plane wave initial conditions
       do b=1, blocks_number
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), &
+         call grid%cell_xyz(coordinates = field%coordinates(:,b), &
                x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k=1, nk
             do j=1, nj
@@ -282,7 +283,7 @@ contains
    case(IC_TYPE_RMF) !rotating magnetic field initial conditions
    associate(alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)
    do b = 1, blocks_number
-		call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+		call grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do i = 1, ni
             do j = 1, nj
                do k = 1, nk

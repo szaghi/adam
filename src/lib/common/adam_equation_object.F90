@@ -11,7 +11,7 @@ use :: adam_eos_ic_object
 use :: adam_fdv_operators_library
 use :: adam_field_object
 use :: adam_flail_object
-use :: adam_grid_object
+use :: adam_global_grid, only: grid
 use :: adam_ib_object
 use :: adam_io_object
 use :: adam_leapfrog_object
@@ -40,7 +40,6 @@ type :: equation_object
    ! ADAM library objects
    type(io_object)             :: io            !< IO handler.
    type(adam_object)           :: adam          !< ADAM.
-   type(grid_object),  pointer :: grid=>null()  !< The grid.
    type(field_object), pointer :: field=>null() !< The field.
    type(amr_object)            :: amr           !< AMR marker handler.
    type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
@@ -197,20 +196,19 @@ contains
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
       call self%adam%initialize(file_parameters=file_parameters, nv=nv, verbose=verbose_)
-      self%grid => self%adam%grid
       self%field => self%adam%field
-      call self%io%associate_grid_field(grid=self%adam%grid, field=self%adam%field)
+      call self%io%associate_grid_field(field=self%adam%field)
       call self%amr%initialize(file_parameters=file_parameters)
-      call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+      call self%ib%initialize(file_parameters=file_parameters, field=self%field)
       call self%slices%initialize(file_parameters=file_parameters)
-      ! call self%blanesmoan%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
-      ! call self%cfm%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
-      ! call self%leapfrog%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
-      call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
-      self%ngc           => self%grid%ngc
-      self%ni            => self%grid%ni
-      self%nj            => self%grid%nj
-      self%nk            => self%grid%nk
+      ! call self%blanesmoan%initialize(file_parameters=file_parameters, field=self%field)
+      ! call self%cfm%initialize(file_parameters=file_parameters, field=self%field)
+      ! call self%leapfrog%initialize(file_parameters=file_parameters, field=self%field)
+      call self%rk%initialize(file_parameters=file_parameters, field=self%field)
+      self%ngc           => grid%ngc
+      self%ni            => grid%ni
+      self%nj            => grid%nj
+      self%nk            => grid%nk
       self%nb            => self%field%blocks_number
       self%blocks_number => self%field%blocks_number
       self%nv            => self%field%nv
@@ -339,9 +337,9 @@ contains
    class(equation_object), intent(inout)        :: self                   !< The equation.
    character(*),           intent(in)           :: basename                !< Base name of output files.
    real(R8P),              intent(in)           :: q(1:,              &
-                                                     1-self%grid%ngc:,&
-                                                     1-self%grid%ngc:,&
-                                                     1-self%grid%ngc:,&
+                                                     1-grid%ngc:,&
+                                                     1-grid%ngc:,&
+                                                     1-grid%ngc:,&
                                                      1:)                   !< Q-vector variables [nv,ni,nj,nk,nb].
    character(*),           intent(in), optional :: q_name(:)               !< Q-vector variables names [nv].
    character(*),           intent(in), optional :: directory               !< Directory name of output files.
@@ -381,11 +379,11 @@ contains
    t_                = 0_I4P   ; if (present(t               )) t_                = t
    time_             = 0._R8P  ; if (present(time            )) time_             = time
    if (with_ghost_) then
-      ngc = self%grid%ngc
+      ngc = grid%ngc
    else
       ngc = 0_I4P
    endif
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk)
    ijk(:,1) = [1-ngc,ni+ngc]
    ijk(:,2) = [1-ngc,nj+ngc]
    ijk(:,3) = [1-ngc,nk+ngc]

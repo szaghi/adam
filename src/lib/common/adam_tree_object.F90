@@ -128,7 +128,7 @@ module adam_tree_object
 !<  H  = fec-26
 
 use adam_global_mpih, only: mpih
-use adam_grid_object, only : grid_object
+use adam_global_grid, only: grid
 use adam_tree_node_object, only : tree_node_object
 use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface
 use adam_parameters
@@ -161,7 +161,6 @@ integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P   !< Default nu
 type :: tree_object
    !< Tree class definition.
    ! ADAM objects
-   type(grid_object), pointer :: grid=>null() !< Grid data.
    ! tree data
    type(tree_bucket_object), allocatable :: bucket(:)                   !< Tree buckets.
    integer(I8P)                          :: buckets_number=0_I8P        !< Number of buckets used.
@@ -427,7 +426,7 @@ contains
    logical                           :: block_found !< Flag to check if block has been found.
 
    ! find the block closest to the point in the finest refinement level
-   ijkl(1:3) = self%grid%get_closest_block(point=point, level=self%max_level)
+   ijkl(1:3) = grid%get_closest_block(point=point, level=self%max_level)
    code = self%coordinates_to_morton(i=ijkl(1), j=ijkl(2), k=ijkl(3), l=self%max_level)
    if (.not.self%has_code(code=code)) then
       ! finest-level block does not exist, return the finest living into its parents-path
@@ -468,7 +467,7 @@ contains
 
    ! get metrics of the closest block
    call self%morton_to_coordinates(code=code, i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4))
-   call self%grid%compute_metrics(coordinates=ijkl, emin=emin, dx=dxyz(1), dy=dxyz(2), dz=dxyz(3))
+   call grid%compute_metrics(coordinates=ijkl, emin=emin, dx=dxyz(1), dy=dxyz(2), dz=dxyz(3))
    ijk(1,1) = floor((point(1) - 0.5_R8P*dxyz(1) - emin(1)) / dxyz(1), I4P) + 1
    ijk(2,1) = floor((point(2) - 0.5_R8P*dxyz(2) - emin(2)) / dxyz(2), I4P) + 1
    ijk(3,1) = floor((point(3) - 0.5_R8P*dxyz(3) - emin(3)) / dxyz(3), I4P) + 1
@@ -529,10 +528,9 @@ contains
    bucket = modulo(code, int(self%buckets_number, I8P)) + 1
    endfunction hash
 
-   subroutine initialize(self, grid, file_parameters, nodes_number, buckets_number, add_adam, verbose, ratio, max_level)
+   subroutine initialize(self, file_parameters, nodes_number, buckets_number, add_adam, verbose, ratio, max_level)
    !< Initialize the tree.
    class(tree_object), intent(inout)           :: self            !< The tree.
-   type(grid_object),  intent(in), target      :: grid            !< Grid data.
    type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
    integer(I8P),       intent(in),    optional :: nodes_number    !< Nodes number to be stored in the tree.
    integer(I8P),       intent(in),    optional :: buckets_number  !< Buckets number.
@@ -546,7 +544,6 @@ contains
    add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('tree_object%initialize start')
-   self%grid => grid
    call self%load_from_ini_file(file_parameters)
    if (present(nodes_number)) then
       self%buckets_number = self%prime_buckets_number(nodes_number=nodes_number)
@@ -732,13 +729,13 @@ contains
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    do while(self%loop(node_ptr=node_ptr))
       call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
-      call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
+      call grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
       block_center = (emax + emin) / 2._R8P
       block_diagonal = sqrt((emax(1) - emin(1))**2 + &
                             (emax(2) - emin(2))**2 + &
                             (emax(3) - emin(3))**2)
 
-      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+      associate (ni=>grid%ni, nj=>grid%nj, nk=>grid%nk)
       distance(0) = sphere_distance(point=block_center)
       distance(1) = sphere_distance(point=[emin(1), emin(2), emin(3)])
       distance(2) = sphere_distance(point=[emax(1), emin(2), emin(3)])
@@ -846,7 +843,7 @@ contains
    if (self%is_initialized_) then
       if (present(max_load)) self%max_load = max_load
       if (self%nodes_number > int((1._R8P/self%max_load)*nodes_number, I4P)) return ! new size too small, cannot previous nodes
-      call swap%initialize(grid=self%grid, nodes_number=nodes_number, add_adam=.false., ratio=self%ratio, max_level=self%max_level)
+      call swap%initialize(nodes_number=nodes_number, add_adam=.false., ratio=self%ratio, max_level=self%max_level)
       do while(self%loop(node_ptr=node_ptr)) ! re-hash all codes
          call swap%add_node(code=node_ptr%code,                           &
                             refinement_needed=node_ptr%refinement_needed, &
@@ -1288,7 +1285,7 @@ contains
       if (ijk(i)<0.or.ijk(i)>ijk_size(i) - 1) then
          ! ijk of neighbor node is outside ADAM, it is a BC except for periodic BC that is indeed a standard node
          ! check for periodic BC
-         if (self%grid%is_ijk_periodic(i)) then
+         if (grid%is_ijk_periodic(i)) then
             ! direction ijk(i) is periodic, preserve the standard node initialization because direct neighbor is a standard node
             ijk(i) = modulo(ijk(i)+ijk_size(i), ijk_size(i)) ! ijk of neighbor node set to the direct neighbor in opposite direction
          else

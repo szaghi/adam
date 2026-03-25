@@ -180,10 +180,11 @@ contains
    logical,                    intent(in), optional  :: verbose      !< Trigger verbose output.
    logical                                           :: verbose_     !< Trigger verbose output, local variable.
 
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   call mpih%initialize(verbose=verbose_)
    if (verbose_) call mpih%print_message('prism_common_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call self%numerics%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters,                              &
                                 reconstruction_vars=self%numerics%reconstruction_vars,        &
@@ -196,7 +197,7 @@ contains
    !self%nv_pic => physics%nv_pic
    call self%equation_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, verbose=verbose_)
    call self%bc%initialize(file_parameters=file_parameters)
-   call self%grid%set_bc_type(bc_type=self%bc%bc_type)
+   call grid%set_bc_type(bc_type=self%bc%bc_type)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%pic%initialize(file_parameters=file_parameters,field=self%field)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
@@ -205,17 +206,16 @@ contains
    call self%ic%initialize(file_parameters=file_parameters)
    call self%fWLayer%initialize(file_parameters=file_parameters, physics=self%physics, field=self%field)
    call self%coil%initialize(file_parameters=file_parameters, field=self%field)
-   call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+   call self%ib%initialize(file_parameters=file_parameters, field=self%field)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
       call self%rk_bc%initialize(file_parameters=file_parameters,&
-                                 grid=self%grid,                 &
                                  field=self%field,               &
                                  rk=self%rk,                     &
                                  physics=self%physics)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
-         call self%leapfrog_pic%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field, pic=self%pic)
+         call self%leapfrog_pic%initialize(file_parameters=file_parameters, field=self%field, pic=self%pic)
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
          call self%rk_pic%initialize(file_parameters=file_parameters, rk=self%rk, pic=self%pic)
    endif
@@ -230,13 +230,13 @@ contains
       !< the simulation is stop.
 
       if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) then
-         if (self%weno%S > self%grid%ngc) &
+         if (self%weno%S > grid%ngc) &
             call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of weno stencil number (weno%S):'//&
-                                      ' ngc='//trim(str(self%grid%ngc))//' weno%S='//trim(str(self%weno%S)))
+                                      ' ngc='//trim(str(grid%ngc))//' weno%S='//trim(str(self%weno%S)))
       endif
-      if (self%fdv_half_stencil > self%grid%ngc) &
+      if (self%fdv_half_stencil > grid%ngc) &
          call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (fdv_hs):'//&
-                                   ' ngc='//trim(str(self%grid%ngc))//' fdv_hs='//trim(str(self%fdv_half_stencil)))
+                                   ' ngc='//trim(str(grid%ngc))//' fdv_hs='//trim(str(self%fdv_half_stencil)))
       endsubroutine check_ngc_number
 
       subroutine io_initialize
@@ -390,8 +390,8 @@ contains
 
    if (present(output_basename)) output_basename_ = trim(output_basename)
 
-   ngc = 0_I4P ; if (with_ghost_) ngc = self%grid%ngc
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+   ngc = 0_I4P ; if (with_ghost_) ngc = grid%ngc
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk)
    ijk(:,1) = [1-ngc,ni+ngc]
    ijk(:,2) = [1-ngc,nj+ngc]
    ijk(:,3) = [1-ngc,nk+ngc]
@@ -448,14 +448,14 @@ contains
    integer(I4P)                              :: i, j, k          !< Counter.
 
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                     &
-             nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),    &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),    &
              lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,       &
              r_coil=>self%coil%r_coil(n), coil_type=>self%coil%coil_type(n),                     &
              y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),&
              dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n), &
              nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,         &
              z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,    &
-             e_min => self%field%grid%domain_emin, e_max => self%field%grid%domain_emax,      &
+             e_min => grid%domain_emin, e_max => grid%domain_emax,      &
              q=>self%q)
 
    !Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
@@ -568,7 +568,7 @@ contains
    integer(I4P)                              :: i, j, k          !< Counter.
 
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                     &
-             nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),    &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),    &
              lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,       &
              l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
              r_coil=>self%coil%r_coil(n), coil_type=>self%coil%coil_type(n),                  &
@@ -576,7 +576,7 @@ contains
              dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n), &
              nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,         &
              z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,    &
-             e_min => self%field%grid%domain_emin, e_max => self%field%grid%domain_emax,      &
+             e_min => grid%domain_emin, e_max => grid%domain_emax,      &
              q=>self%q)
 
    !Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
@@ -746,8 +746,8 @@ contains
    integer(I4P)                               :: b,i,j,k                 !< Counter.
 
    !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
             lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
@@ -850,8 +850,8 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counter.
 
    !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
             lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
@@ -954,8 +954,8 @@ contains
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
    !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
             lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
@@ -1099,8 +1099,8 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
-             nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),            &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),            &
              y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n),         &
              coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
              dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
@@ -1184,8 +1184,8 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
-             nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),            &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),            &
              y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n),         &
              coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
              dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
@@ -1270,8 +1270,8 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
-             nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),            &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),            &
              y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n),         &
              coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
              dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
@@ -1356,8 +1356,8 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),      &
             l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                           &
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
@@ -1441,8 +1441,8 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),      &
             l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                           &
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
@@ -1526,8 +1526,8 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),      &
             l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                           &
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
