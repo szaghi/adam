@@ -520,17 +520,18 @@ dd = aa + bb
 
 ## Module-Level Singleton Pattern
 
-ADAM uses **module-level singletons** for program-scope objects rather than embedding instances in every derived type. Two singletons exist:
+ADAM uses **module-level singletons** for program-scope objects rather than embedding instances in every derived type. Three singletons exist:
 
 | Singleton | Module | Type |
 |-----------|--------|------|
 | `mpih` | `adam_global_mpih` | `mpih_object` — MPI handler |
 | `grid` | `adam_global_grid` | `grid_object` — structured grid |
+| `field` | `adam_global_field` | `field_object` — field variables and metrics |
 
-Both follow the same definition pattern:
+All follow the same definition pattern:
 
 ```fortran
-module adam_global_mpih          ! or adam_global_grid
+module adam_global_mpih          ! or adam_global_grid, adam_global_field
 use :: adam_mpih_object, only: mpih_object
 implicit none
 private
@@ -539,11 +540,18 @@ type(mpih_object), target :: mpih  !< Program-scope singleton.
 endmodule adam_global_mpih
 ```
 
-Both are re-exported by `adam_common_library`. Modules that already `use adam_common_library` get both without further `use` statements. Others should add explicit imports:
+All three are re-exported by `adam_common_library`. Modules that already `use adam_common_library` get all three without further `use` statements. Others should add explicit imports:
 
 ```fortran
 use :: adam_global_mpih, only: mpih
 use :: adam_global_grid, only: grid
+use :: adam_global_field, only: field
+```
+
+If a local variable or dummy argument is also named `field`, use an alias:
+
+```fortran
+use :: adam_global_field, only: adam_field => field
 ```
 
 ### How to Use Singletons in New Objects
@@ -568,9 +576,11 @@ associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc)
 
 `grid` must be initialized exactly once via `call grid%initialize(...)` before any object reads its values. This call belongs in the top-level common object (e.g. `prism_common_object%initialize`).
 
+`field` is initialized in `adam_object%initialize` via `call field%initialize(...)`. The pointer alias `self%field => field` is also set there for backward compatibility with backends that access `self%adam%field`.
+
 ### What Not to Do
 
-Do **not** embed `type(mpih_object) :: mpih` or `type(grid_object), pointer :: grid` in new derived types. Do **not** pass either as dummy arguments. Do **not** write `field%grid%xxx` or `ib%grid%xxx` — access `grid%xxx` from the singleton directly.
+Do **not** embed `type(mpih_object) :: mpih`, `type(grid_object), pointer :: grid`, or `type(field_object), pointer :: field` in new derived types. Do **not** pass any of them as dummy arguments. Do **not** write `field%grid%xxx` or `ib%grid%xxx` — access `grid%xxx` from the singleton directly. Access `field%nv`, `field%nb`, `field%dxyz`, etc. from the `field` singleton directly.
 
 ## Quick Reference Table
 
@@ -588,3 +598,4 @@ Do **not** embed `type(mpih_object) :: mpih` or `type(grid_object), pointer :: g
 | OpenMP | Use `default(none)`, `reduction` for accumulation |
 | MPI handler | Use `mpih` singleton from `adam_global_mpih`, never embed in types |
 | Grid | Use `grid` singleton from `adam_global_grid`, never embed as pointer in types |
+| Field | Use `field` singleton from `adam_global_field`, never embed as pointer in types |

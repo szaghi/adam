@@ -2,7 +2,7 @@
 module adam_prism_rk_bc_object
 !< ADAM, RK-BC class definition.
 
-use adam_field_object
+use adam_global_field, only: field
 use adam_global_grid, only: grid
 use adam_global_mpih, only: mpih
 use adam_rk_object
@@ -33,15 +33,11 @@ type :: prism_rk_bc_object
    real(R8P), allocatable    :: q_bc_rk(:,:,:,:,:,:)  
    real(R8P), allocatable    :: dq_bc_rk(:,:,:,:,:) 
    ! grid/field data replica for easy handling
-   type(field_object), pointer :: field=>null()         !< The field.
-   integer(I4P),       pointer :: ngc=>null()           !< Number of ghost cells.
-   integer(I4P),       pointer :: ni=>null()            !< Number of cells in i direction.
-   integer(I4P),       pointer :: nj=>null()            !< Number of cells in j direction.
-   integer(I4P),       pointer :: nk=>null()            !< Number of cells in k direction.
-   integer(I4P),       pointer :: nb=>null()            !< Total blocks number for MPI.
-   integer(I4P),       pointer :: blocks_number=>null() !< Actual blocks number.
-   integer(I4P),       pointer :: nv=>null()            !< Number of variables.
-   integer(I4P),       pointer :: nv_c=>null()          !< Number of variables.
+   integer(I4P),       pointer :: ngc=>null()  !< Number of ghost cells.
+   integer(I4P),       pointer :: ni=>null()   !< Number of cells in i direction.
+   integer(I4P),       pointer :: nj=>null()   !< Number of cells in j direction.
+   integer(I4P),       pointer :: nk=>null()   !< Number of cells in k direction.
+   integer(I4P),       pointer :: nv_c=>null() !< Number of variables.
    contains
       ! public methods
       procedure, pass(self) :: assign_stage      !< Assign q to RK stage.
@@ -79,17 +75,16 @@ contains
    desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, field, rk, physics)
+   subroutine initialize(self, file_parameters, rk, physics)
    !< Initialize class.
    class(prism_rk_bc_object),   intent(inout)        :: self            !< RK object.
    type(file_ini),              intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
-   type(field_object),          intent(in), target   :: field           !< The field.
    type(rk_object),             intent(in), target   :: rk              !< RK scheme
    type(prism_physics_object),  intent(in), target   :: physics         !< Physics object
    real(R8P)                                         :: w0, w1          !< Sympletic RK coefficients.
 
    call mpih%print_message('rk_object%initialize start')
-   call associate_adam_data(field=field, rk=rk, physics=physics)
+   call associate_adam_data(rk=rk, physics=physics)
    select case(self%scheme)
    case(RK_1) ! 1 stage, 1st order, Euler
       self%nrk = 1
@@ -169,7 +164,7 @@ contains
       !@TODO write error trap
    endselect
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c, nb=>self%nb, nrk=>self%nrk)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c, nb=>field%nb, nrk=>self%nrk)
    select case(self%scheme)
    case(RK_1, RK_2, RK_3) ! low storage, only stage 1 is necessary
 
@@ -195,22 +190,17 @@ contains
    print '(A)', self%description()
    call mpih%print_message('rk_object%initialize finish')
    contains
-      subroutine associate_adam_data(field, rk, physics)
-      !< Associate objects data to equation for easy handling.
-      type(field_object),         intent(in), target :: field   !< The field.
+      subroutine associate_adam_data(rk, physics)
+      !< Associate grid/physics/rk data pointers for easy handling.
       type(rk_object),            intent(in), target :: rk      !< The RK scheme.
       type(prism_physics_object), intent(in), target :: physics !< The physics.
 
-      self%field         => field
-      self%blocks_number => field%blocks_number
-      self%ni            => grid%ni
-      self%nj            => grid%nj
-      self%nk            => grid%nk
-      self%ngc           => grid%ngc
-      self%nb            => field%nb
-      self%nv            => field%nv
-      self%nv_c          => physics%nv_c
-      self%scheme        => rk%scheme
+      self%ni    => grid%ni
+      self%nj    => grid%nj
+      self%nk    => grid%nk
+      self%ngc   => grid%ngc
+      self%nv_c  => physics%nv_c
+      self%scheme => rk%scheme
       endsubroutine associate_adam_data
    endsubroutine initialize
 
@@ -224,8 +214,8 @@ contains
                                              1:)                !< Conservative variables.
    integer(I4P)                             :: i, j, k, b, v, s !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c, &
-            blocks_number=>self%blocks_number)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, nv_c=>self%nv_c, &
+            blocks_number=>field%blocks_number)
    !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
    do s=lbound(self%q_bc_rk,dim=6),ubound(self%q_bc_rk,dim=6)-1
       do b=1, blocks_number
@@ -270,8 +260,8 @@ contains
    integer(I4P)                             :: all_solids         !< Last phi index, all solids summary.
    integer(I4P)                             :: i, j, k, b, v, ss  !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c, &
-             blocks_number=>self%blocks_number)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, nv_c=>self%nv_c, &
+             blocks_number=>field%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
       !$omp parallel do collapse(6) default(firstprivate) shared(phi,self)
@@ -325,7 +315,7 @@ contains
    integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
    integer(I4P)                           :: i, j, k, b, v !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c, blocks_number=>self%blocks_number)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c, blocks_number=>field%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
       !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,self)

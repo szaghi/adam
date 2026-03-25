@@ -3,7 +3,6 @@ module adam_io_object
 !< ADAM, IO class definition.
 
 ! ADAM modules
-use :: adam_field_object
 use :: adam_global_mpih, only: mpih
 use :: adam_global_grid, only: grid
 use :: finer
@@ -36,7 +35,6 @@ type :: io_object
    integer(I4P)                :: energy_history_unit            !< Energy history file unit.
    integer(I4P)                :: divergence_history_save=10_I4P !< Divergence history output iteration save frequency.
    integer(I4P)                :: divergence_history_unit        !< Divergence history file unit.
-   type(field_object), pointer :: field=>null()                  !< The field.
    logical                     :: is_initialized=.false.         !< Initialization status.
    ! auxiliary fields saving
    logical :: save_residual_fields  =.false. !< Flag to activate residual fields saving.
@@ -46,7 +44,6 @@ type :: io_object
    logical :: save_laplacian_fields =.false. !< Flag to activate gradient fields saving.
    contains
       ! public methods
-      procedure, pass(self) :: associate_grid_field !< Associate grid and field class.
       procedure, pass(self) :: description          !< Return pretty-printed object description.
       procedure, pass(self) :: initialize           !< Initialize class.
       procedure, pass(self) :: load_from_file       !< Load config from file.
@@ -88,14 +85,6 @@ type :: io_object
 endtype io_object
 contains
    ! public methods
-   subroutine associate_grid_field(self, field)
-   !< Associate field class.
-   class(io_object),   intent(inout)      :: self  !< IO handler.
-   type(field_object), intent(in), target :: field !< The field.
-
-   self%field => field
-   endsubroutine associate_grid_field
-
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(io_object), intent(in)  :: self             !< IO handler.

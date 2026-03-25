@@ -13,7 +13,7 @@ module adam_prism_fWLayer_object
 ! ADAM modules
 use :: adam_global_mpih, only: mpih
 use :: adam_global_grid, only: grid
-use :: adam_field_object, only : field_object
+use :: adam_global_field, only: field
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_physics_object, only : prism_physics_object
@@ -69,12 +69,11 @@ contains
     endif
    endfunction description
 
-   subroutine initialize(self, file_parameters, physics, field)
+   subroutine initialize(self, file_parameters, physics)
    !< Initialize the fWLayer.
    class(prism_fWLayer_object), intent(inout) :: self            !< fWLayer.
    type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(prism_physics_object),  intent(in)    :: physics         !< Physics.
-   type(field_object),          intent(in)    :: field           !< Field.
    integer(I4P)                               :: i,j,k,b         !< Counters.
    real(R8P)                                  :: fi              !< Cell function
    real(R8P)                                  :: distance        !< Distance between cell and physical boundary

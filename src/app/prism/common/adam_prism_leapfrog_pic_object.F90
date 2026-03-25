@@ -35,12 +35,13 @@ module adam_prism_leapfrog_pic_object
 !< [3] *The RAW filter: An improvement to the Robert–Asselin filter in semi-implicit integrations*, Williams, P.D., Monthly
 !< Weather Review, vol. 139(6), pages 1996--2007, June 2011.
 
-use adam_field_object, only: field_object
-use adam_global_grid, only: grid
-use adam_global_mpih, only: mpih
-use adam_prism_pic_object, only: prism_pic_object
-use finer
-use penf
+!< ADAM modules
+use :: adam_global_mpih,      only : mpih
+use :: adam_global_grid,      only : grid
+use :: adam_prism_pic_object, only : prism_pic_object
+! third party modules
+use :: finer
+use :: penf
 
 implicit none
 private
@@ -54,16 +55,6 @@ type :: prism_leapfrog_pic_object
    real(R8P)                 :: alpha=0.53_R8P      !< Robert-Asselin-Williams filter coefficient.
    logical                   :: is_filtered=.false. !< Flag to check if the integration if RAW filtered.
    real(R8P), allocatable    :: q_pic_old(:,:,:)    !< Pic variables, old time steps.
-   ! Adam data replica for easy handling
-   type(field_object),       pointer :: field=>null()            !< The field.
-   integer(I4P),             pointer :: ngc=>null()              !< Number of ghost cells.
-   integer(I4P),             pointer :: ni=>null()               !< Number of cells in i direction.
-   integer(I4P),             pointer :: nj=>null()               !< Number of cells in j direction.
-   integer(I4P),             pointer :: nk=>null()               !< Number of cells in k direction.
-   integer(I4P),             pointer :: nb=>null()               !< Total blocks number for MPI.
-   integer(I4P),             pointer :: blocks_number=>null()    !< Actual blocks number.
-   integer(I4P),             pointer :: ns=>null()               !< Number of fluids specie.
-   integer(I4P),             pointer :: nv=>null()               !< Number of conservative variables.
    ! Prism data replica for easy handling
    type(prism_pic_object),   pointer :: pic=>null()              !< The PIC object.
    integer(I4P),             pointer :: particle_number=>null()  !< Number of particles.
@@ -75,6 +66,7 @@ type :: prism_leapfrog_pic_object
       procedure, pass(self) :: integrate      !< Integrate.
       procedure, pass(self) :: load_from_file !< Load config from file.
 endtype prism_leapfrog_pic_object
+
 contains
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
@@ -89,43 +81,33 @@ contains
    desc = desc//mpih%myrankstr//'  alpha:           '//trim(str(self%alpha      ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, scheme, field, pic)
+   subroutine initialize(self, file_parameters, scheme, pic)
    !< Initialize class.
    class(prism_leapfrog_pic_object),   intent(inout)        :: self            !< Leapfrog object.
    type(file_ini),           		      intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),             		      intent(in), optional :: scheme          !< Runge-Kutta scheme.
-   type(field_object),       	 	      intent(in), target   :: field           !< The field.
 	type(prism_pic_object),   		      intent(in), target   :: pic             !< The PIC object.
 
    call mpih%print_message('leapfrog_pic_object%initialize start')
-   call associate_adam_data(pic=pic, field=field)
+   call associate_adam_data(pic=pic)
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    endif
    associate(particle_number=>self%particle_number)!, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nb=>self%nb)
    call allocate_variable(var=self%q_pic_old,        					 &
                           ulb=reshape([1,8,								 &
-                                       1,particle_number,			 &                             
+                                       1,particle_number,			 &
 													1,2], [2,3]),					 &
                           					msg=mpih%myrankstr//'leapfrog_pic_object%initialize allocate q_pic_old')
    endassociate
    print '(A)', self%description()
    call mpih%print_message('leapfrog_pic_object%initialize finish')
    contains
-      subroutine associate_adam_data(field, pic)
-      !< Associate objects data to equation for easy handling.
-      type(field_object),     intent(in), target :: field !< The field.
-		type(prism_pic_object), intent(in), target :: pic   !< The PIC object.
-      self%field            => field
-      self%blocks_number    => field%blocks_number
-      self%ni               => grid%ni
-      self%nj               => grid%nj
-      self%nk               => grid%nk
-      self%ngc              => grid%ngc
-      self%nb               => field%nb
-      self%nv               => field%nv
-		self%pic              => pic
-		self%particle_number  => pic%particle_number
+      subroutine associate_adam_data(pic)
+      !< Associate pic data pointers for easy handling.
+		type(prism_pic_object), intent(in), target :: pic !< The PIC object.
+		self%pic             => pic
+		self%particle_number => pic%particle_number
       endsubroutine associate_adam_data
    endsubroutine initialize
 
@@ -155,10 +137,10 @@ contains
    class(prism_leapfrog_pic_object), intent(inout)        :: self           !< Leapfrog object.
    integer(I4P),           	       intent(in)           :: s              !< Current step number.
    real(R8P),              	       intent(in)           :: q_pic(1:,1:)   !< Pic variables.
-   real(R8P),              	       intent(in), optional :: phi(1:,      & 
-                           	                               1-self%ngc:, & 
-                           	                               1-self%ngc:, & 
-                           	                               1-self%ngc:, & 
+   real(R8P),              	       intent(in), optional :: phi(1:,      &
+                           	                               1-grid%ngc:, &
+                           	                               1-grid%ngc:, &
+                           	                               1-grid%ngc:, &
                            	                               1:)            !< IB distance.
    integer(I4P)            	                            :: all_solids     !< Last phi index, all solids summary.
    integer(I4P)            	                            :: i, j, k, b, v  !< Counter.
@@ -213,7 +195,7 @@ contains
    ! In ingresso ho: q_pic (velocità e posizione)            al tempo n
    !                 pic_fields (campi elettromagnetici)     al tempo n
    !                 q_pic_old(:,:,1) (velocità e posizione) al tempo n-1
-   !                 q_pic_old(:,:,2) (velocità e posizione) al tempo n (tranne nella prima iterazione 
+   !                 q_pic_old(:,:,2) (velocità e posizione) al tempo n (tranne nella prima iterazione
    !                                                                     in cui è 0 da inizializzazione)
 
    do p=1, particle_number
@@ -222,7 +204,7 @@ contains
       v_star(1) = q_pic_old(4,p,1) + dt * pic_fields(1,p) * q_pic(7,p) / q_pic(8,p)
       v_star(2) = q_pic_old(5,p,1) + dt * pic_fields(2,p) * q_pic(7,p) / q_pic(8,p)
       v_star(3) = q_pic_old(6,p,1) + dt * pic_fields(3,p) * q_pic(7,p) / q_pic(8,p)
-                  
+
       t(1) = dt * q_pic(7,p) / q_pic(8,p) * pic_fields(4,p)
       t(2) = dt * q_pic(7,p) / q_pic(8,p) * pic_fields(5,p)
       t(3) = dt * q_pic(7,p) / q_pic(8,p) * pic_fields(6,p)
@@ -237,7 +219,7 @@ contains
       q_pic_old(4:6,p,1) = q_pic(4:6,p) !Salvo la velocità al tempo n, che userò nell'integrazione al tempo successivo e
                                         !nell'integrazione delle posizioni delle particelle
 
-      q_pic_old(4:6,p,2) = v_star_star + dt * pic_fields(1:3,p) * q_pic(7,p) / q_pic(8,p) !Integro la velocità 
+      q_pic_old(4:6,p,2) = v_star_star + dt * pic_fields(1:3,p) * q_pic(7,p) / q_pic(8,p) !Integro la velocità
                                                                                                     !al tempo n+1
 
       q_pic(4:6,p)       = q_pic_old(4:6,p,2) !Velocità al tempo n+1
@@ -247,7 +229,7 @@ contains
          q_pic_old(v,p,2) = q_pic_old(v,p,1) + 2._R8P * dt * q_pic_old(v+3_I4P,p,1) !Integro la posizione al tempo n+1
          q_pic_old(v,p,1) = q_pic(v,p) !Salvo la posizione al tempo n, che userò nell'integrazione al tempo successivo
          q_pic(v,p)       = q_pic_old(v,p,2) !Posizione al tempo n+1
-      enddo	
+      enddo
    enddo
    ! In uscita ho:   q_pic (velocità e posizione)            al tempo n+1
    !                 pic_fields (campi elettromagnetici)     al tempo n

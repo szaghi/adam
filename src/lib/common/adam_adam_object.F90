@@ -4,9 +4,10 @@ module adam_adam_object
 
 ! ADAM modules
 use :: adam_field_object
-use :: adam_global_grid, only: grid
+use :: adam_global_field, only : adam_field => field
+use :: adam_global_grid, only : grid
 use :: adam_maps_object
-use :: adam_global_mpih, only: mpih
+use :: adam_global_mpih, only : mpih
 use :: adam_parameters
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
@@ -26,9 +27,9 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   type(tree_object)  :: tree  !< The tree.
-   type(maps_object)  :: maps  !< The maps.
-   type(field_object) :: field !< The field.
+   type(tree_object)          :: tree        !< The tree.
+   type(maps_object)          :: maps        !< The maps.
+   type(field_object), pointer :: field=>null() !< The field (points to program-scope singleton).
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
@@ -199,6 +200,7 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('adam_object%initialize start')
+   self%field => adam_field
   !call self%compute_blocks_number(memory_avail=memory_avail,&
   !                                fields_number=80,         & ! remember to change
   !                                nb=nb,                    &

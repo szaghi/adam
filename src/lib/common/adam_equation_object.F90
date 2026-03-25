@@ -11,6 +11,7 @@ use :: adam_eos_ic_object
 use :: adam_fdv_operators_library
 use :: adam_field_object
 use :: adam_flail_object
+use :: adam_global_field, only: adam_field => field
 use :: adam_global_grid, only: grid
 use :: adam_ib_object
 use :: adam_io_object
@@ -196,22 +197,21 @@ contains
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
       call self%adam%initialize(file_parameters=file_parameters, nv=nv, verbose=verbose_)
-      self%field => self%adam%field
-      call self%io%associate_grid_field(field=self%adam%field)
+      self%field => adam_field
       call self%amr%initialize(file_parameters=file_parameters)
-      call self%ib%initialize(file_parameters=file_parameters, field=self%field)
+      call self%ib%initialize(file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)
-      ! call self%blanesmoan%initialize(file_parameters=file_parameters, field=self%field)
-      ! call self%cfm%initialize(file_parameters=file_parameters, field=self%field)
-      ! call self%leapfrog%initialize(file_parameters=file_parameters, field=self%field)
-      call self%rk%initialize(file_parameters=file_parameters, field=self%field)
+      ! call self%blanesmoan%initialize(file_parameters=file_parameters)
+      ! call self%cfm%initialize(file_parameters=file_parameters)
+      ! call self%leapfrog%initialize(file_parameters=file_parameters)
+      call self%rk%initialize(file_parameters=file_parameters)
       self%ngc           => grid%ngc
       self%ni            => grid%ni
       self%nj            => grid%nj
       self%nk            => grid%nk
-      self%nb            => self%field%blocks_number
-      self%blocks_number => self%field%blocks_number
-      self%nv            => self%field%nv
+      self%nb            => adam_field%blocks_number
+      self%blocks_number => adam_field%blocks_number
+      self%nv            => adam_field%nv
       call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
       call self%flail%initialize(file_parameters=file_parameters)
       call self%load_fdv_from_file(file_parameters=file_parameters)

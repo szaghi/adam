@@ -2,7 +2,7 @@
 module adam_rk_object
 !< ADAM, RK class definition.
 
-use adam_field_object
+use adam_global_field, only: field
 use adam_global_mpih, only: mpih
 use adam_global_grid, only: grid
 use finer
@@ -45,16 +45,11 @@ type :: rk_object
    real(R8P), allocatable :: ssb(:) !< Runge-Kutta sympletic-splitting part B coefficients.
    ! RK data
    real(R8P), allocatable    :: q_rk(:,:,:,:,:,:) !< Field cell centered variables, RK stages.
-   ! grid/field data replica for easy handling
-   type(field_object), pointer :: field=>null()         !< The field.
+   ! grid data replica for easy handling
    integer(I4P),       pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P),       pointer :: ni=>null()            !< Number of cells in i direction.
    integer(I4P),       pointer :: nj=>null()            !< Number of cells in j direction.
    integer(I4P),       pointer :: nk=>null()            !< Number of cells in k direction.
-   integer(I4P),       pointer :: nb=>null()            !< Total blocks number for MPI.
-   integer(I4P),       pointer :: blocks_number=>null() !< Actual blocks number.
-   integer(I4P),       pointer :: ns=>null()            !< Number of fluids specie.
-   integer(I4P),       pointer :: nv=>null()            !< Number of conservative variables.
    contains
       ! public methods
       procedure, pass(self) :: assign_stage      !< Assign q to RK stage.
@@ -85,7 +80,7 @@ contains
    integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
    integer(I4P)                           :: i, j, k, b, v !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
       !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,self)
@@ -134,7 +129,7 @@ contains
    integer(I4P)                           :: all_solids        !< Last phi index, all solids summary.
    integer(I4P)                           :: i, j, k, b, v, ss !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
       !$omp parallel do collapse(6) default(firstprivate) shared(phi,self)
@@ -198,7 +193,7 @@ contains
    integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
    integer(I4P)                           :: i, j, k, b, v !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
 
    !print *, maxval(dq(7,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo x, RK input'
    !print *, maxval(dq(8,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo y, RK input'
@@ -300,16 +295,15 @@ contains
    desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, scheme, field)
+   subroutine initialize(self, file_parameters, scheme)
    !< Initialize class.
    class(rk_object),   intent(inout)        :: self            !< RK object.
    type(file_ini),     intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),       intent(in), optional :: scheme          !< Runge-Kutta scheme.
-   type(field_object), intent(in), target   :: field           !< The field.
    real(R8P)                                :: w0, w1          !< Sympletic RK coefficients.
 
    call mpih%print_message('rk_object%initialize start')
-   call associate_adam_data(field=field)
+   call associate_adam_data
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    elseif (present(scheme)) then
@@ -396,7 +390,7 @@ contains
       !@TODO write error trap
    endselect
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nb=>self%nb, nrk=>self%nrk)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, nb=>field%nb, nrk=>self%nrk)
    select case(self%scheme)
    case(RK_1, RK_2, RK_3) ! low storage, only stage 1 is necessary
       call allocate_variable(var=self%q_rk,         &
@@ -421,18 +415,13 @@ contains
    print '(A)', self%description()
    call mpih%print_message('rk_object%initialize finish')
    contains
-      subroutine associate_adam_data(field)
-      !< Associate objects data to equation for easy handling.
-      type(field_object), intent(in), target :: field !< The field.
+      subroutine associate_adam_data
+      !< Associate grid data pointers for easy handling.
 
-      self%field         => field
-      self%blocks_number => field%blocks_number
-      self%ni            => grid%ni
-      self%nj            => grid%nj
-      self%nk            => grid%nk
-      self%ngc           => grid%ngc
-      self%nb            => field%nb
-      self%nv            => field%nv
+      self%ni  => grid%ni
+      self%nj  => grid%nj
+      self%nk  => grid%nk
+      self%ngc => grid%ngc
       endsubroutine associate_adam_data
    endsubroutine initialize
 
@@ -446,7 +435,7 @@ contains
                                         1:)            !< Conservative variables.
    integer(I4P)                    :: i, j, k, b, v, s !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
    !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
    do s=lbound(self%q_rk,dim=6),ubound(self%q_rk,dim=6)
       do b=1, blocks_number
@@ -503,7 +492,7 @@ contains
    integer(I4P)                              :: all_solids           !< Last phi index, all solids summary.
    integer(I4P)                              :: i, j, k, b, v, s     !< Counter.
 
-   associate(nrk=>self%nrk, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
+   associate(nrk=>self%nrk, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
       !$omp parallel do collapse(6) default(firstprivate) shared(phi,q,self)

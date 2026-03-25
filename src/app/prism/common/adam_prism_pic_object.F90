@@ -4,6 +4,7 @@ module adam_prism_pic_object
 ! ADAM modules
 use :: adam_global_mpih,  only : mpih
 use :: adam_global_grid,  only : grid
+use :: adam_global_field, only: adam_field => field
 use :: adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
@@ -147,11 +148,10 @@ contains
    desc = desc//NL//mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
    endfunction description
 
-   subroutine initialize(self, file_parameters, field)
+   subroutine initialize(self, file_parameters)
    !< Initialize PIC.
    class(prism_pic_object), intent(inout) :: self            !< Pic object.
    type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
-   type(field_object),      intent(in) 	:: field           !< Field object
    real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
                                                              !< present at t0
 	character(len=:),        allocatable   :: desc
@@ -162,7 +162,7 @@ contains
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
 
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, &
+   associate(blocks_number=>adam_field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, &
                e_min=>grid%domain_emin, e_max=>grid%domain_emax)
 
    if (self%problem_type == PLASMA_TYPE_PROBLEM) then

@@ -3,7 +3,7 @@ module adam_prism_coil_object
     !< ADAM, PRISM coil source definition, CPU backend.
 
 ! ADAM modules
-use :: adam_field_object, only : field_object
+use :: adam_global_field, only: field
 use :: adam_global_grid, only: grid
 use :: adam_global_mpih, only: mpih
 ! PRISM modules
@@ -70,8 +70,6 @@ type :: prism_coil_object
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
    integer(I4P), pointer :: nj=>null()            !< Number of cells in j direction.
    integer(I4P), pointer :: nk=>null()            !< Number of cells in k direction.
-   integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
-   integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
    contains
       ! public methods
       procedure, pass(self) :: allocate_coil                             !< Allocate coil data.
@@ -95,7 +93,7 @@ contains
    class(prism_coil_object), intent(inout) :: self !< Coils.
    integer(I4P)                            :: c    !< Counter.
 
-   associate(ngc=>self%ngc,ni=>self%ni,nj=>self%nj,nk=>self%nk,nb=>self%nb,total_coils_number=>self%total_coils_number)
+   associate(ngc=>self%ngc,ni=>self%ni,nj=>self%nj,nk=>self%nk,nb=>field%nb,total_coils_number=>self%total_coils_number)
 
    allocate(self%r_coil              (0:total_coils_number)) ; self%r_coil = 0.0_R8P
    allocate(self%ly                  (0:total_coils_number)) ; self%ly = 0.0_R8P
@@ -185,23 +183,21 @@ contains
    endif
    endfunction description
 
-   subroutine initialize(self, file_parameters, field) !Cfr ic%initialize, ma commentata parte descrizione perchè da implementare
+   subroutine initialize(self, file_parameters) !Cfr ic%initialize, ma commentata parte descrizione perchè da implementare
    !< Initialize the equation.
    class(prism_coil_object), intent(inout) :: self            !< Coils.
    type(file_ini),           intent(in)    :: file_parameters !< Simulation parameters ini file handler.
-   type(field_object),       intent(in)    :: field           !< The field.
 
    print '(A)', mpih%myrankstr//'prism_coil_object%initialize start'
-   call self%load_from_file(file_parameters=file_parameters, field=field)
+   call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'prism_coil_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, field, go_on_fail)
+   subroutine load_from_file(self, file_parameters, go_on_fail)
    !< Load config from file.
    class(prism_coil_object), intent(inout)        :: self            !< coils.
    type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   type(field_object),       intent(in), target   :: field           !< The field.
    logical,                  intent(in), optional :: go_on_fail      !< Go on if load fails.
    logical                                        :: go_on_fail_     !< Go on if load fails.
    character(:), allocatable                      :: sname           !< Section name.
@@ -225,7 +221,7 @@ contains
 
    if (self%total_coils_number==0_I4P) return
 
-   call associate_adam_data(field=field)
+   call associate_adam_data
 
    call self%allocate_coil
 
@@ -333,16 +329,13 @@ contains
       endselect
    enddo
    contains
-      subroutine associate_adam_data(field)
-      !< Associate objects data for easy handling.
-      type(field_object), intent(in), target :: field !< The field.
+      subroutine associate_adam_data
+      !< Associate grid data pointers for easy handling.
 
-      self%blocks_number => field%blocks_number
-      self%ni            => grid%ni
-      self%nj            => grid%nj
-      self%nk            => grid%nk
-      self%ngc           => grid%ngc
-      self%nb            => field%nb
+      self%ni  => grid%ni
+      self%nj  => grid%nj
+      self%nk  => grid%nk
+      self%ngc => grid%ngc
       endsubroutine associate_adam_data
    endsubroutine load_from_file
 

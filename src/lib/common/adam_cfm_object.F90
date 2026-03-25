@@ -2,7 +2,7 @@
 module adam_cfm_object
 !< ADAM, Commutator-Free Magnus integrators class definition.
 
-use adam_field_object
+use adam_global_field, only: field
 use adam_global_mpih, only: mpih
 use adam_global_grid, only: grid
 use finer
@@ -32,16 +32,11 @@ type :: cfm_object
    character(:), allocatable :: scheme          !< CFM scheme name.
    real(R8P),    allocatable :: dq(:,:,:,:,:,:) !< Field cell centered variables residuals, CFM stages.
    real(R8P),    allocatable ::  q(:,:,:,:,:)   !< Field cell centered variables, CFM buffer.
-   ! grid/field data replica for easy handling
-   type(field_object), pointer :: field=>null()         !< The field.
+   ! grid data replica for easy handling
    integer(I4P),       pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P),       pointer :: ni=>null()            !< Number of cells in i direction.
    integer(I4P),       pointer :: nj=>null()            !< Number of cells in j direction.
    integer(I4P),       pointer :: nk=>null()            !< Number of cells in k direction.
-   integer(I4P),       pointer :: nb=>null()            !< Total blocks number for MPI.
-   integer(I4P),       pointer :: blocks_number=>null() !< Actual blocks number.
-   integer(I4P),       pointer :: ns=>null()            !< Number of fluids specie.
-   integer(I4P),       pointer :: nv=>null()            !< Number of conservative variables.
    contains
       ! public methods
       procedure, pass(self) :: compute_exponential_update !< Compute exponential update.
@@ -86,15 +81,14 @@ contains
    desc = desc//mpih%myrankstr//'  number of exponentials: '//trim(str(self%n_exponentials))
    endfunction description
 
-   subroutine initialize(self, file_parameters, scheme, field)
+   subroutine initialize(self, file_parameters, scheme)
    !< Initialize class.
    class(cfm_object),   intent(inout)        :: self            !< CFM object.
    type(file_ini),      intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),        intent(in), optional :: scheme          !< CFM scheme.
-   type(field_object),  intent(in), target   :: field           !< The field.
 
    call mpih%print_message('cfm_object%initialize start')
-   call associate_adam_data(field=field)
+   call associate_adam_data
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    elseif (present(scheme)) then
@@ -117,18 +111,13 @@ contains
    print '(A)', self%description()
    call mpih%print_message('cfm_object%initialize finish')
    contains
-      subroutine associate_adam_data(field)
-      !< Associate objects data for easy handling.
-      type(field_object), intent(in), target :: field !< The field.
+      subroutine associate_adam_data
+      !< Associate grid data pointers for easy handling.
 
-      self%field         => field
-      self%blocks_number => field%blocks_number
-      self%ni            => grid%ni
-      self%nj            => grid%nj
-      self%nk            => grid%nk
-      self%ngc           => grid%ngc
-      self%nb            => field%nb
-      self%nv            => field%nv
+      self%ni  => grid%ni
+      self%nj  => grid%nj
+      self%nk  => grid%nk
+      self%ngc => grid%ngc
       endsubroutine associate_adam_data
    endsubroutine initialize
 
@@ -140,7 +129,7 @@ contains
    self%order          = 4_I4P
    self%n_stages       = 4_I4P
    self%n_exponentials = 4_I4P
-   associate(ns=>self%n_stages,ne=>self%n_exponentials,ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,nv=>self%nv,nb=>self%nb)
+   associate(ns=>self%n_stages,ne=>self%n_exponentials,ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,nv=>field%nv,nb=>field%nb)
    if (allocated(self%s_coeffs)) deallocate(self%s_coeffs) ; allocate(self%s_coeffs(ns,ns))
    if (allocated(self%e_coeffs)) deallocate(self%e_coeffs) ; allocate(self%e_coeffs(ne   ))
    call allocate_variable(var=self%dq,               &
