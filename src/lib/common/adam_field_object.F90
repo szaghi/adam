@@ -752,7 +752,7 @@ contains
    self%blocks_number = n_keep  + recv_size / bwt
    q(:,:,:,:,1:self%blocks_number) = self%q_work(:,:,:,:,1:self%blocks_number)
    call self%update_coordinates
-   self%code(1:self%blocks_number) = self%maps%tree%block_code
+   call self%maps%get_block_layout(code=self%code(1:self%blocks_number))
    call self%compute_metrics
    endassociate
    endsubroutine mpi_redistribute
@@ -1345,6 +1345,6 @@ contains
    !< Update coordinates using the updated data in maps (that in turn is updated by tree).
    class(field_object), intent(inout) :: self !< The field.
 
-   if (self%blocks_number>0) self%coordinates(:, 1:self%blocks_number) = self%maps%tree%block_coordinates
+   if (self%blocks_number>0) call self%maps%get_block_layout(coordinates=self%coordinates(:, 1:self%blocks_number))
    endsubroutine update_coordinates
 endmodule adam_field_object

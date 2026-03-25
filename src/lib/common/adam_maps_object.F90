@@ -59,6 +59,7 @@ type :: maps_object
    contains
       ! public methods
       procedure, pass(self) :: blocks_reorder             !< Reorder blocks indexes in field.
+      procedure, pass(self) :: get_block_layout          !< Return block Morton codes and/or coordinates.
       procedure, pass(self) :: initialize                 !< Initialize maps.
       procedure, pass(self) :: make_comm_local_maps       !< Make communication/local maps.
       procedure, pass(self) :: make_comm_local_maps_ghost !< Make communication/local maps of ghost cells.
@@ -136,6 +137,17 @@ contains
    enddo
    call self%mpi_gather_nodes_data(node_member='block_index')
    endsubroutine blocks_reorder
+
+   subroutine get_block_layout(self, code, coordinates)
+   !< Return block Morton codes and/or coordinates from the underlying tree.
+   !< Provides a single-level accessor so callers do not traverse self%tree directly.
+   class(maps_object), intent(in)            :: self           !< The maps.
+   integer(I8P),       intent(out), optional :: code(:)        !< Block Morton codes [blocks_number].
+   integer(I4P),       intent(out), optional :: coordinates(:,:) !< Block coordinates IJKL [4,blocks_number].
+
+   if (present(code))        code        = self%tree%block_code
+   if (present(coordinates)) coordinates = self%tree%block_coordinates
+   endsubroutine get_block_layout
 
    subroutine initialize(self, tree, verbose)
    !< Initialize maps.
