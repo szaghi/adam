@@ -5,8 +5,9 @@
 module adam_fnl_rk_kernels
 !< ADAM, RK FNL kernels (FNL backend of [[rk_fnl_object]]).
 
-use fundal
-use penf, only : I4P, R8P
+! third party modules
+use :: fundal
+use :: penf, only : I4P, R8P
 
 implicit none
 private

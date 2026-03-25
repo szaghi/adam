@@ -5,13 +5,16 @@
 module adam_fnl_field_object
 !< ADAM, field class definition, FNL backend.
 
-use adam_common_library
-use adam_fnl_field_kernels
-use adam_fnl_maps_object
-use adam_global_mpih_fnl, only : mpih_fnl
-use fundal
-use penf
-use mpi
+! ADAM modules
+use :: adam_common_library
+use :: adam_fnl_field_kernels
+use :: adam_fnl_maps_object
+use :: adam_global_mpih_fnl, only : mpih_fnl
+! third party modules
+use :: fundal
+use :: penf
+! sdk modules
+use :: mpi
 
 implicit none
 save

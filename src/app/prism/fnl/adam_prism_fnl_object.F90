@@ -7,9 +7,9 @@ module adam_prism_fnl_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_common_library
-! PRISM classes, libraries, parameters
+! PRISM modules
 use :: adam_prism_common_library
-! PRISM FNL classes, libraries, parameters
+! PRISM FNL modules
 use :: adam_prism_fnl_library
 ! third party modules
 use :: fundal, save_memory_status_gpu=>save_memory_status

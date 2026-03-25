@@ -9,7 +9,7 @@ use :: adam_global_mpih, only : mpih
 use :: adam_global_grid, only : grid
 ! PRISM modules
 use :: adam_prism_parameters
-use :: adam_prism_pic_object, only: prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM
+use :: adam_prism_pic_object, only : prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str

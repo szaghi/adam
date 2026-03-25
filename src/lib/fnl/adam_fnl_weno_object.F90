@@ -2,10 +2,13 @@
 module adam_fnl_weno_object
 !< ADAM, WENO class FNL (FNL backend of [[weno_object]]).
 
-use adam_global_mpih_fnl, only : mpih_fnl
-use adam_weno_object
-use fundal
-use penf
+! ADAM singleton objects
+use :: adam_global_mpih_fnl, only : mpih_fnl
+! ADAM modules
+use :: adam_weno_object
+! third party modules
+use :: fundal
+use :: penf
 
 implicit none
 save

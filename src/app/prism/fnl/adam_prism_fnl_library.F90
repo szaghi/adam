@@ -2,7 +2,7 @@
 module adam_prism_fnl_library
 !< ADAM PRISM FNL library, entry for all PRISM FNL (and common) classes and libraries.
 
-! PRSIM modules
+! PRISM modules
 use :: adam_prism_common_library
 use :: adam_prism_fnl_coil_object
 use :: adam_prism_fnl_external_fields_kernels

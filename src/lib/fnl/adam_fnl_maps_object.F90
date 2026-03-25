@@ -2,11 +2,14 @@
 module adam_fnl_maps_object
 !< ADAM, maps class definition, FNL backend.
 
-use adam_maps_object,      only : maps_object
-use adam_global_mpih_fnl,  only : mpih_fnl
-use fundal
-use penf
-use mpi
+! ADAM modules
+use :: adam_maps_object,      only : maps_object
+use :: adam_global_mpih_fnl,  only : mpih_fnl
+! third party modules
+use :: fundal
+use :: penf
+! sdk modules
+use :: mpi
 
 implicit none
 private

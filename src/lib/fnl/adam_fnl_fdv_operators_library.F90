@@ -4,9 +4,9 @@ module adam_fnl_fdv_operators_library
 !< ADAM, finite difference/volume operators approximations library, FNL device backend.
 
 ! ADAM modules
-use adam_fdv_operators_library
+use :: adam_fdv_operators_library
 ! third party modules
-use penf
+use :: penf
 
 implicit none
 save

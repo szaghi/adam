@@ -5,7 +5,8 @@
 module adam_fnl_ib_kernels
 !< ADAM, IB class FNL kernels (FNL backend of [[ib_object]]).
 
-use penf, only : I4P, R8P
+! third party modules
+use :: penf, only : I4P, R8P
 
 implicit none
 private

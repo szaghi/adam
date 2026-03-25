@@ -5,8 +5,9 @@
 module adam_fnl_field_kernels
 !< ADAM, field class FNL kernels (FNL backend of [[field_object]]).
 
-use fundal
-use penf, only : I8P, I4P, R8P
+! third party modules
+use :: fundal
+use :: penf, only : I8P, I4P, R8P
 
 implicit none
 private

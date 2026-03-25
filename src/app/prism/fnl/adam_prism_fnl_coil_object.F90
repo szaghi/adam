@@ -10,7 +10,7 @@ use :: adam_field_object,  only : field_object
 use :: adam_global_grid,   only : grid
 ! ADAM FNL singleton objects
 use :: adam_global_mpih_fnl, only : mpih_fnl
-! PRSIM modules
+! PRISM modules
 use :: adam_prism_coil_object
 use :: adam_prism_parameters
 ! third party modules

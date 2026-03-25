@@ -3,8 +3,10 @@
 module adam_fnl_weno_kernels
 !< ADAM, WENO class FNL kernels (FNL backend of [[weno_fnl_object]]).
 
-use adam_weno_object, only : S_max, S_max_m1
-use penf, only : I4P, R8P
+! ADAM modules
+use :: adam_weno_object, only : S_max, S_max_m1
+! third party modules
+use :: penf, only : I4P, R8P
 
 implicit none
 private
