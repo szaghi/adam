@@ -105,7 +105,7 @@ contains
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
                           msg=mpih%myrankstr//'prism_common_object%allocate_common(q) ', verbose=.true.)
-   self%dq = 0._R8P
+   self%q = 0._R8P
    call allocate_variable(var=self%dq,               &
                           ulb=reshape([1,nv,         &
                                        1-ngc,ni+ngc, &
