@@ -6,8 +6,8 @@ module adam_prism_fnl_fWLayer_object
 !< ADAM, PRISM (Plasma Research usIng Simulation Methods) fWLayer class definition, FNL backend.
 
 ! ADAM modules
-use :: adam_field_object,    only : field_object
-use :: adam_grid_global,     only : grid
+use :: adam_field_global,   only : field
+use :: adam_grid_global,    only : grid
 use :: adam_fnl_mpih_global, only : mpih_fnl
 use :: adam_fnl_library
 ! PRISM modules
@@ -33,7 +33,7 @@ type :: prism_fnl_fwlayer_object
       ! public methods
       procedure, pass(self) :: copy_cpu_gpu !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_gpu_cpu !< Copy data from GPU to CPU.
-      procedure, pass(self) :: initialize   !< Initialize object.
+      procedure, pass(self) :: initialize   !< Initialize object from global singletons.
 endtype prism_fnl_fwlayer_object
 
 contains
@@ -62,10 +62,10 @@ contains
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
-   subroutine initialize(self, field, fwlayer)
-   !< Initialize the fWLayer.
+   subroutine initialize(self, fwlayer)
+   !< Initialize the fWLayer from program-scope `field` (adam_field_global) and `grid` (adam_grid_global) singletons.
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global), `field` and `grid` singletons to be ready.
    class(prism_fnl_fwlayer_object), intent(inout)      :: self    !< fWLayer.
-   type(field_object),              intent(in)         :: field   !< Field.
    type(prism_fwlayer_object),      intent(in), target :: fwlayer !< Fwlayer common handler.
    integer(I4P)                                        :: ierr    !< Error status.
 

@@ -54,6 +54,9 @@ Structured protocols for common tasks and emergency debugging.
 
 1. Understand existing architecture (which backend? CPU/GPU/both?)
 2. Propose design: module structure, type extensions, interfaces
+   - For new CPU program-scope state: add a `adam_<name>_global.F90` singleton module and expose it via `adam_common_library`
+   - For new FNL GPU state: add a `adam_fnl_<name>_global.F90` singleton and expose it via `adam_fnl_library`
+   - Never embed singleton types as members of new derived types; never pass singletons as dummy arguments
 3. Identify test cases for verification
 4. Consider multi-compiler compatibility
 5. Document with references (papers, standards)

@@ -3,6 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 See also:
+- [Architecture Reference](.claude/docs/architecture.md) - Class hierarchy, singletons, key type members, library aggregation
 - [Fortran Style Guide](.claude/docs/fortran-style.md) - Zen of Fortran, coding style, modern patterns and examples
 - [HPC Optimization Guide](.claude/docs/hpc-optimization.md) - GPU, MPI, memory optimization, benchmarking, pitfalls
 - [Agent Workflows](.claude/docs/agent-workflows.md) - Task protocols, debugging checklists
@@ -66,8 +67,34 @@ src/
 | `adam_grid_global` | Program-scope grid singleton (module variable, not embedded in types) |
 | `adam_field_global` | Program-scope field singleton (module variable, not embedded in types) |
 | `adam_maps_global` | Program-scope maps singleton (module variable, not embedded in types) |
+| `adam_weno_global` | Program-scope WENO singleton (module variable, not embedded in types) |
+| `adam_ib_global` | Program-scope IB singleton (module variable, not embedded in types) |
+| `adam_rk_global` | Program-scope RK singleton (module variable, not embedded in types) |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian operators |
 | `adam_riemann_euler_library` | Euler equation Riemann solvers |
+
+### FNL Backend Singletons (src/lib/fnl/ and src/app/prism/fnl/)
+
+FNL GPU objects are also exposed as program-scope singletons, eliminating composition-by-pointer in solver types:
+
+| Singleton | Module | Purpose |
+|-----------|--------|---------|
+| `mpih_fnl` | `adam_fnl_mpih_global` | FNL MPI handler |
+| `field_fnl` | `adam_fnl_field_global` | FNL field (GPU arrays, ghost maps) |
+| `ib_fnl` | `adam_fnl_ib_global` | FNL immersed boundary |
+| `rk_fnl` | `adam_fnl_rk_global` | FNL Runge-Kutta integrator |
+| `weno_fnl` | `adam_fnl_weno_global` | FNL WENO reconstructor |
+| `coil_fnl` | `adam_prism_fnl_coil_global` | FNL coil source (PRISM only) |
+| `fwlayer_fnl` | `adam_prism_fnl_fwlayer_global` | FNL fWLayer (PRISM only) |
+
+**Initialization pattern**: Solver `initialize` must copy CPU value singletons before calling FNL inits:
+```fortran
+ib = self%ib ; rk = self%rk ; weno = self%weno  ! populate CPU singletons
+call field_fnl%initialize(verbose=.true.)
+call ib_fnl%initialize()
+call rk_fnl%initialize()
+call weno_fnl%initialize()
+```
 
 ### Backend Pattern
 

@@ -6,8 +6,8 @@ module adam_prism_fnl_coil_object
 !< ADAM, PRISM coil source definition, FNL backend.
 
 ! ADAM modules
-use :: adam_field_object,  only : field_object
-use :: adam_grid_global,   only : grid
+use :: adam_field_global, only : field
+use :: adam_grid_global,  only : grid
 ! ADAM FNL singleton objects
 use :: adam_fnl_mpih_global, only : mpih_fnl
 ! PRISM modules
@@ -30,18 +30,11 @@ type :: prism_fnl_coil_object
    real(R8P),    pointer :: phase_gpu(:)=>null()           !< Current initial phase, if AC
    real(R8P),    pointer :: J_vec_gpu(:,:,:,:,:,:)=>null() !< Matrice contenente versori corrente spire (se assente = 0)
    integer(I4P), pointer :: coil_flag_gpu(:,:,:,:)=>null() !< Matrice contenente informazioni su quale spira pass.
-   ! grid/field data replica for easy handling
-   integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
-   integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
-   integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
-   integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
-   integer(I4P), pointer :: nj=>null()            !< Number of cells in j direction.
-   integer(I4P), pointer :: nk=>null()            !< Number of cells in k direction.
    contains
       ! public methods
       procedure, pass(self) :: copy_cpu_gpu !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_gpu_cpu !< Copy data from GPU to CPU.
-      procedure, pass(self) :: initialize   !< Initialize class.
+      procedure, pass(self) :: initialize   !< Initialize class from global singletons.
 endtype prism_fnl_coil_object
 
 contains
@@ -78,23 +71,17 @@ contains
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
-   subroutine initialize(self, field, coil)
-   !< Initialize class.
-   class(prism_fnl_coil_object), intent(inout)      :: self  !< Coils.
-   type(field_object),           intent(in), target :: field !< Field.
-   class(prism_coil_object),     intent(in), target :: coil  !< Coils on host.
-   integer(I4P)                                     :: nv    !< Counter.
-   integer(I4P)                                     :: ierr  !< Error status.
+   subroutine initialize(self, coil)
+   !< Initialize class from program-scope `field` (adam_field_global) and `grid` (adam_grid_global) singletons.
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global), `field` and `grid` singletons to be ready.
+   class(prism_fnl_coil_object), intent(inout)      :: self !< Coils.
+   class(prism_coil_object),     intent(in), target :: coil !< Coils on host.
+   integer(I4P)                                     :: nv   !< Counter.
+   integer(I4P)                                     :: ierr !< Error status.
 
-   associate(ni=>grid%ni,nj=>grid%nj,nk=>grid%nk,ngc=>grid%ngc,nb=>field%nb,nc=>coil%total_coils_number)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nb=>field%nb, nc=>coil%total_coils_number)
    print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize start'
-   self%coil          => coil
-   self%blocks_number => field%blocks_number
-   self%nb            => field%nb
-   self%ngc           => field%ngc
-   self%ni            => field%ni
-   self%nj            => field%nj
-   self%nk            => field%nk
+   self%coil => coil
    nv = size(self%coil%j_vec,dim=1)
    call dev_alloc(fptr_dev=self%j_vec_gpu    ,ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv,nc],lbounds=[1,1-ngc,1-ngc,1-ngc,1,1],ierr=ierr)
    call dev_alloc(fptr_dev=self%coil_flag_gpu,ubounds=[nb,ni+ngc,nj+ngc,nk+ngc      ],lbounds=[1,1-ngc,1-ngc,1-ngc    ],ierr=ierr)

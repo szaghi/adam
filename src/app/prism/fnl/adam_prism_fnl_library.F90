@@ -5,8 +5,10 @@ module adam_prism_fnl_library
 ! PRISM modules
 use :: adam_prism_common_library
 use :: adam_prism_fnl_coil_object
+use :: adam_prism_fnl_coil_global
 use :: adam_prism_fnl_external_fields_kernels
 use :: adam_prism_fnl_fwlayer_object
+use :: adam_prism_fnl_fwlayer_global
 ! ADAM modules
 use :: adam_fnl_library
 

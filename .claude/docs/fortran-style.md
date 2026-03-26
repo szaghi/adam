@@ -520,19 +520,10 @@ dd = aa + bb
 
 ## Module-Level Singleton Pattern
 
-ADAM uses **module-level singletons** for program-scope objects rather than embedding instances in every derived type. Four singletons exist:
-
-| Singleton | Module | Type |
-|-----------|--------|------|
-| `mpih` | `adam_mpih_global` | `mpih_object` — MPI handler |
-| `grid` | `adam_grid_global` | `grid_object` — structured grid |
-| `field` | `adam_field_global` | `field_object` — field variables and metrics |
-| `maps` | `adam_maps_global` | `maps_object` — AMR block/communication maps |
-
-All follow the same definition pattern:
+ADAM uses **module-level singletons** for program-scope objects rather than embedding instances in every derived type. All follow the same 13-line definition pattern:
 
 ```fortran
-module adam_mpih_global          ! or adam_grid_global, adam_field_global, adam_maps_global
+module adam_mpih_global
 use :: adam_mpih_object, only: mpih_object
 implicit none
 private
@@ -541,23 +532,35 @@ type(mpih_object), target :: mpih  !< Program-scope singleton.
 endmodule adam_mpih_global
 ```
 
-All four are re-exported by `adam_common_library`. Modules that already `use adam_common_library` get all four without further `use` statements. Others should add explicit imports:
+### CPU Singletons (`src/lib/common/`)
 
-```fortran
-use :: adam_mpih_global,  only: mpih
-use :: adam_grid_global,  only: grid
-use :: adam_field_global, only: field
-use :: adam_maps_global,  only: maps
-```
+All re-exported by `adam_common_library`:
 
-If a local variable or dummy argument shares a name with a singleton, use an alias:
+| Singleton | Module | Type | Purpose |
+|-----------|--------|------|---------|
+| `mpih` | `adam_mpih_global` | `mpih_object` | MPI handler |
+| `grid` | `adam_grid_global` | `grid_object` | Structured grid geometry |
+| `field` | `adam_field_global` | `field_object` | Field variables and metrics |
+| `maps` | `adam_maps_global` | `maps_object` | AMR block/communication maps |
+| `weno` | `adam_weno_global` | `weno_object` | WENO reconstruction coefficients |
+| `ib` | `adam_ib_global` | `ib_object` | Immersed boundary data |
+| `rk` | `adam_rk_global` | `rk_object` | Runge-Kutta scheme coefficients |
 
-```fortran
-use :: adam_field_global, only: adam_field => field
-use :: adam_maps_global,  only: adam_maps  => maps
-```
+### FNL Backend Singletons (`src/lib/fnl/`, `src/app/prism/fnl/`)
 
-### How to Use Singletons in New Objects
+All re-exported by `adam_fnl_library` (or `adam_prism_fnl_library` for PRISM-specific):
+
+| Singleton | Module | Type | Purpose |
+|-----------|--------|------|---------|
+| `mpih_fnl` | `adam_fnl_mpih_global` | `mpih_fnl_object` | FNL MPI handler |
+| `field_fnl` | `adam_fnl_field_global` | `field_fnl_object` | FNL field (GPU arrays, ghost maps) |
+| `ib_fnl` | `adam_fnl_ib_global` | `ib_fnl_object` | FNL immersed boundary GPU arrays |
+| `rk_fnl` | `adam_fnl_rk_global` | `rk_fnl_object` | FNL RK GPU coefficient arrays |
+| `weno_fnl` | `adam_fnl_weno_global` | `weno_fnl_object` | FNL WENO GPU coefficient arrays |
+| `coil_fnl` | `adam_prism_fnl_coil_global` | `prism_fnl_coil_object` | FNL coil source (PRISM only) |
+| `fwlayer_fnl` | `adam_prism_fnl_fwlayer_global` | `prism_fnl_fwlayer_object` | FNL fWLayer (PRISM only) |
+
+### Accessing Singletons
 
 Access directly without `self%`:
 
@@ -566,26 +569,52 @@ call mpih%print_message('my_object%initialize start')
 if (mpih%myrank == 0) then
    ! root-only work
 endif
-call mpih%error_stop(msg=': initialization failed')
 
 self%ni  => grid%ni
 self%ngc => grid%ngc
 associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc)
+
+! FNL backend: access GPU data from any method
+call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+call ib_fnl%evolve_eikonal(dq_gpu=dq_gpu, q_gpu=q_gpu, dxyz_gpu=field_fnl%dxyz_gpu)
 ```
 
-### Initialization
+If a local variable or dummy argument shares a name with a singleton, use an import alias:
 
-`mpih` must be initialized exactly once before any other object uses it. The authoritative init call lives in `equation_object%initialize` (and in `prism_cpu_object%initialize_prism` for the PRISM backend). Sub-objects must **not** call `mpih%initialize`.
+```fortran
+use :: adam_field_global, only: adam_field => field
+use :: adam_maps_global,  only: adam_maps  => maps
+```
 
-`grid` must be initialized exactly once via `call grid%initialize(...)` before any object reads its values. This call belongs in the top-level common object (e.g. `prism_common_object%initialize`).
+### Initialization Order
 
-`field` is initialized in `adam_object%initialize` via `call field%initialize(...)`. The pointer alias `self%field => field` is also set there for backward compatibility with backends that access `self%adam%field`.
+**CPU singletons** (`mpih`, `grid`, `field`, `maps`, `weno`, `ib`, `rk`) are initialized once in the top-level solver `initialize` / `initialize_common`. Sub-objects must not reinitialize them.
 
-`maps` is initialized in `adam_object%initialize` via `call adam_maps%initialize(tree=...)` (using the import alias). The pointer alias `self%maps => adam_maps` is also set there for backward compatibility with GPU backends that access `self%adam%maps`. `field_object` also holds a `self%maps` pointer alias (set from the global) so that `field%maps%xxx` access in out-of-scope backends continues to work.
+**FNL singletons** must be initialized after the corresponding CPU singletons are populated. For `weno`, `ib`, and `rk`, which are VALUE members of `equation_object`, the solver must copy them into the global singletons before calling the FNL inits:
+
+```fortran
+! Populate CPU value singletons from self (equation_object members)
+ib   = self%ib
+rk   = self%rk
+weno = self%weno
+! Now FNL inits can read the singletons
+call field_fnl%initialize(verbose=.true.)
+call ib_fnl%initialize()
+call rk_fnl%initialize()
+call weno_fnl%initialize()
+call coil_fnl%initialize(coil=self%coil)    ! PRISM only
+call fwlayer_fnl%initialize(fwlayer=self%fwlayer)  ! PRISM only
+```
+
+`field` and `maps` are already pointers to the global singletons in `adam_object`, so no copy is needed for them.
 
 ### What Not to Do
 
-Do **not** embed `type(mpih_object) :: mpih`, `type(grid_object), pointer :: grid`, `type(field_object), pointer :: field`, or `type(maps_object) :: maps` in new derived types. Do **not** pass any of them as dummy arguments. Do **not** write `field%grid%xxx` or `ib%grid%xxx` — access `grid%xxx` from the singleton directly. Do **not** write `self%field%maps%xxx` — access `maps%xxx` from the singleton directly.
+- Do **not** embed any singleton type in a new derived type (neither as value nor as pointer member).
+- Do **not** pass any singleton as a dummy argument — just `use` the global module.
+- Do **not** write `field%grid%xxx` or `ib%grid%xxx` — access `grid%xxx` from the singleton directly.
+- Do **not** write `self%field%maps%xxx` — access `maps%xxx` from the singleton directly.
+- Do **not** write `self%field_gpu%xxx` or `self%ib_gpu%xxx` in FNL solvers — use `field_fnl%xxx`, `ib_fnl%xxx`, etc.
 
 ## Quick Reference Table
 
@@ -601,7 +630,6 @@ Do **not** embed `type(mpih_object) :: mpih`, `type(grid_object), pointer :: gri
 | `intent(out)` | Assign all derived type components |
 | Modules | Use `private` by default, expose with `public` |
 | OpenMP | Use `default(none)`, `reduction` for accumulation |
-| MPI handler | Use `mpih` singleton from `adam_mpih_global`, never embed in types |
-| Grid | Use `grid` singleton from `adam_grid_global`, never embed as pointer in types |
-| Field | Use `field` singleton from `adam_field_global`, never embed as pointer in types |
-| Maps | Use `maps` singleton from `adam_maps_global`, never embed as value/pointer in types |
+| CPU singletons | Use `mpih`, `grid`, `field`, `maps`, `weno`, `ib`, `rk` from `adam_common_library`; never embed in types |
+| FNL singletons | Use `field_fnl`, `ib_fnl`, `rk_fnl`, `weno_fnl`, `mpih_fnl` from `adam_fnl_library`; never embed in types |
+| FNL init order | Copy CPU value singletons (`ib=self%ib; rk=self%rk; weno=self%weno`) before calling FNL `%initialize()` |

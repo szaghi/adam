@@ -23,11 +23,10 @@ public :: field_fnl_object
 
 type :: field_fnl_object
    !< Field class, FNL backend.
-   type(maps_fnl_object)       :: maps           !< Maps handler.
-   type(field_object), pointer :: field=>null()  !< The field.
+   type(maps_fnl_object)  :: maps                            !< Maps handler.
    ! device data
-   integer(I4P), pointer :: fec_1_6_array_gpu(:)=>null() !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
-   ! device data copied from field object
+   integer(I4P), pointer :: fec_1_6_array_gpu(:)=>null()    !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
+   ! device data copied from field singleton
    real(R8P), pointer :: x_cell_gpu(:,:)=>null() !< Cells x coordinates on GPU [nb,1-ngc:ni+ngc].
    real(R8P), pointer :: y_cell_gpu(:,:)=>null() !< Cells y coordinates on GPU [nb,1-ngc:nj+ngc].
    real(R8P), pointer :: z_cell_gpu(:,:)=>null() !< Cells z coordinates on GPU [nb,1-ngc:nk+ngc].
@@ -43,10 +42,10 @@ type :: field_fnl_object
    contains
       ! public methods
       procedure, pass(self) :: compute_q_gradient     !< Compute maximum gradient module of q element of a block.
-      procedure, pass(self) :: copy_cpu_gpu           !< Copy data from (field_object) CPU to (field_fnl_object) GPU.
+      procedure, pass(self) :: copy_cpu_gpu           !< Copy data from field global singleton CPU to (field_fnl_object) GPU.
       ! procedure, pass(self) :: copy_transpose_cpu_gpu !< Transpose data from GPU to CPU.
       ! procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
-      procedure, pass(self) :: initialize             !< Initialize field.
+      procedure, pass(self) :: initialize             !< Initialize field from global singletons.
       procedure, pass(self) :: update_ghost_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu   !< Update ghosts MPI.
 endtype field_fnl_object
@@ -66,12 +65,12 @@ contains
    real(R8P),               intent(out) :: gradient  !< Maximum gradient of q(ivar).
 
    call compute_q_gradient_dev(b=b, ni=grid%ni, nj=grid%nj, nk=grid%nk, ngc=grid%ngc, &
-                               dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b),     &
+                               dx=field%dxyz(1,b), dy=field%dxyz(2,b), dz=field%dxyz(3,b),     &
                                q_gpu=q_gpu, ivar=ivar, gradient=gradient)
    endsubroutine compute_q_gradient
 
    subroutine copy_cpu_gpu(self, verbose)
-   !< Copy data from (field_object) CPU to (field_fnl_object) GPU.
+   !< Copy data from field global singleton CPU to (field_fnl_object) GPU.
    class(field_fnl_object), intent(inout)        :: self     !< The field.
    logical,                 intent(in), optional :: verbose  !< Flag to activate verbose mode.
    logical                                       :: verbose_ !< Flag to activate verbose mode, local var.
@@ -81,10 +80,10 @@ contains
    if (verbose_) call mpih_fnl%print_message('field_fnl_object%copy_cpu_gpu start')
    r = mpih_fnl%myrankstr
    call self%maps%copy_cpu_gpu
-   call dev_assign_to_device(src=self%field%x_cell, dst=self%x_cell_gpu, ij=[1,2])
-   call dev_assign_to_device(src=self%field%y_cell, dst=self%y_cell_gpu, ij=[1,2])
-   call dev_assign_to_device(src=self%field%z_cell, dst=self%z_cell_gpu, ij=[1,2])
-   call dev_assign_to_device(src=self%field%dxyz,   dst=self%dxyz_gpu,   ij=[1,2])
+   call dev_assign_to_device(src=field%x_cell, dst=self%x_cell_gpu, ij=[1,2])
+   call dev_assign_to_device(src=field%y_cell, dst=self%y_cell_gpu, ij=[1,2])
+   call dev_assign_to_device(src=field%z_cell, dst=self%z_cell_gpu, ij=[1,2])
+   call dev_assign_to_device(src=field%dxyz,   dst=self%dxyz_gpu,   ij=[1,2])
    if (verbose_) call mpih_fnl%print_message('field_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
@@ -166,12 +165,11 @@ contains
    endassociate
    endsubroutine copy_transpose_gpu_cpu
 
-   subroutine initialize(self, field, nv_aux, q_gpu, verbose)
-   !< Initialize field.
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global) and the global `grid` singleton to be
-   !< initialized before calling.
+   subroutine initialize(self, nv_aux, q_gpu, verbose)
+   !< Initialize field from program-scope `field` and `grid` singletons.
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global), `field` (adam_field_global) and
+   !< `grid` (adam_grid_global) to be initialized before calling.
    class(field_fnl_object), intent(inout)           :: self             !< The field.
-   type(field_object),      intent(in), target      :: field            !< Field variable array.
    integer(I4P),            intent(in),    optional :: nv_aux           !< Number of auxiliary variables.
    real(R8P), pointer,      intent(inout), optional :: q_gpu(:,:,:,:,:) !< Field cell centered variables.
    logical,                 intent(in),    optional :: verbose          !< Flag to activate verbose mode.
@@ -179,20 +177,19 @@ contains
    integer(I4P)                                     :: ierr             !< Error status.
 
    call mpih_fnl%print_message('field_fnl_object%initialize start')
-   self%field         => field
-   self%ngc           => field%ngc
-   self%ni            => field%ni
-   self%nj            => field%nj
-   self%nk            => field%nk
+   self%ngc           => grid%ngc
+   self%ni            => grid%ni
+   self%nj            => grid%nj
+   self%nk            => grid%nk
    self%nb            => field%nb
    self%blocks_number => field%blocks_number
    self%nv            => field%nv
-   call self%maps%initialize(maps=field%maps)
+   call self%maps%initialize()
    associate(nb=>field%nb, ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nv=>field%nv)
       if (present(q_gpu)) &
          call dev_alloc(fptr_dev=q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
       call dev_assign_to_device(dst=self%fec_1_6_array_gpu, src=FEC_1_6_ARRAY)
-      nv_aux_ = self%field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
+      nv_aux_ = field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    endassociate
    call self%copy_cpu_gpu
    call mpih_fnl%print_message('field_fnl_object%initialize finish')
@@ -226,8 +223,8 @@ contains
    associate(procs_number=>mpih_fnl%procs_number,                                 &
              error=>mpih_fnl%error,                                               &
              req_send_recv=>mpih_fnl%req_send_recv,                               &
-             comm_map_send_ptr_ghost=>self%maps%maps%comm_map_send_ptr_ghost,      &
-             comm_map_recv_ptr_ghost=>self%maps%maps%comm_map_recv_ptr_ghost,      &
+             comm_map_send_ptr_ghost=>maps%comm_map_send_ptr_ghost,               &
+             comm_map_recv_ptr_ghost=>maps%comm_map_recv_ptr_ghost,               &
              recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu,               &
              send_buffer_ghost_gpu=>self%maps%send_buffer_ghost_gpu,               &
              ngc=>grid%ngc, q_gpu=>q_gpu)
