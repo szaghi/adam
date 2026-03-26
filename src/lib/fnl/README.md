@@ -4,13 +4,14 @@ The FNL backend is ADAM's **OpenACC GPU acceleration layer**, built on top of th
 
 No physics or algorithmic logic is duplicated — all equations, coefficients, and data structures are defined once in `src/lib/common` and mirrored to the GPU by the FNL layer.
 
-The aggregate entry point `adam_fnl_library` re-exports the entire FNL API together with `adam_common_library`; a single `use adam_fnl_library` statement in application code exposes both layers.
+The aggregate entry point `adam_fnl_library` re-exports the entire FNL API together with `adam_common_library`, including all FNL singleton modules; a single `use adam_fnl_library` statement in application code exposes both layers.
 
 ---
 
 ## Contents
 
 - [Design and memory model](#design-and-memory-model)
+- [Program-scope singletons](#program-scope-singletons)
 - [Field](#field)
 - [WENO reconstruction](#weno-reconstruction)
 - [Runge-Kutta integration](#runge-kutta-integration)
@@ -19,6 +20,37 @@ The aggregate entry point `adam_fnl_library` re-exports the entire FNL API toget
 - [Finite difference/volume operators](#finite-differencevolume-operators)
 - [MPI handler](#mpi-handler)
 - [Module summary](#module-summary)
+
+---
+
+## Program-scope singletons
+
+Each FNL object is exposed as a **module-level target variable** in its own singleton module. GPU backend code accesses these singletons via `use`; they are never passed as dummy arguments and never embedded in derived types.
+
+| Module | Variable | Type | Purpose |
+|--------|----------|------|---------|
+| `adam_fnl_mpih_global` | `mpih_fnl` | `mpih_fnl_object` | GPU-aware MPI handler and device initialization |
+| `adam_fnl_field_global` | `field_fnl` | `field_fnl_object` | Device field arrays, coordinates, communication maps |
+| `adam_fnl_ib_global` | `ib_fnl` | `ib_fnl_object` | Device distance function `phi_gpu` and wall BC variables |
+| `adam_fnl_rk_global` | `rk_fnl` | `rk_fnl_object` | Device RK stage arrays |
+| `adam_fnl_weno_global` | `weno_fnl` | `weno_fnl_object` | Device WENO coefficients and ROR tables |
+
+All five are re-exported by `adam_fnl_library`.
+
+**Initialization order** — CPU value singletons must be populated from the solver's owned state before calling FNL `%initialize()`:
+
+```fortran
+ib   = self%ib    ! cpu ib_object  → ib  singleton
+rk   = self%rk    ! cpu rk_object  → rk  singleton
+weno = self%weno  ! cpu weno_object → weno singleton
+call mpih_fnl%initialize(do_mpi_init=.true., do_device_init=.true., verbose=.true.)
+call field_fnl%initialize(...)
+call ib_fnl%initialize()
+call rk_fnl%initialize()
+call weno_fnl%initialize()
+```
+
+Application-level backends may define additional FNL singletons for app-specific GPU objects (e.g. `coil_fnl`, `fwlayer_fnl` in the PRISM application).
 
 ---
 
@@ -201,8 +233,8 @@ The sign convention: `phi < 0` inside the solid (ghost region), `phi > 0` in the
 
 | Method | Purpose |
 |--------|---------|
-| `initialize(ib, field_gpu)` | Allocate `phi_gpu` and `q_bcs_vars_gpu`; copy BCS data to device |
-| `evolve_eikonal(dq_gpu, q_gpu)` | Advance eikonal equation inside solid: `q -= ∇φ·(q_bc − q)` |
+| `initialize` | Allocate `phi_gpu` and `q_bcs_vars_gpu` (reads dimensions from `field_fnl` singleton); copy BCS data to device |
+| `evolve_eikonal(dxyz_gpu, dq_gpu, q_gpu)` | Advance eikonal equation inside solid: `q -= ∇φ·(q_bc − q)`; `dxyz_gpu` is passed explicitly by the caller (typically `field_fnl%dxyz_gpu`) |
 | `invert_eikonal(q_gpu)` | Enforce wall BC at solid surface (φ > 0): reflect momentum |
 
 Wall BC modes applied by `invert_eikonal`:
@@ -300,6 +332,11 @@ A direct re-export of FUNDAL's MPI handler under the FNL-namespaced type alias `
 | `adam_fnl_maps_object` | GPU communication index tables + MPI buffer staging | `maps_object` |
 | `adam_fnl_mpih_object` | FUNDAL MPI handler alias | — |
 | `adam_fnl_fdv_operators_library` | Device-callable FD/FV spatial operators | — |
+| `adam_fnl_mpih_global` | Singleton — `mpih_fnl` | — |
+| `adam_fnl_field_global` | Singleton — `field_fnl` | — |
+| `adam_fnl_ib_global` | Singleton — `ib_fnl` | — |
+| `adam_fnl_rk_global` | Singleton — `rk_fnl` | — |
+| `adam_fnl_weno_global` | Singleton — `weno_fnl` | — |
 
 ---
 

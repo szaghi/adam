@@ -298,11 +298,38 @@ Named integer constants shared across all modules: boundary condition type flags
 
 ### `adam_common_library` — aggregate entry point
 
-Re-exports every module listed above. Applications need only:
+Re-exports every module listed above, **including all seven singleton modules**. Applications need only:
 
 ```fortran
 use adam_common_library
 ```
+
+### Program-scope singletons
+
+Each core object is exposed as a **module-level target variable** in its own singleton module. Any Fortran module that `use`-es the singleton module gains direct access to the object without receiving it as a dummy argument or embedding it in a derived type.
+
+| Module | Variable | Type | Re-exported by |
+|--------|----------|------|----------------|
+| `adam_mpih_global` | `mpih` | `mpih_object` | `adam_common_library` |
+| `adam_grid_global` | `grid` | `grid_object` | `adam_common_library` |
+| `adam_field_global` | `field` | `field_object` | `adam_common_library` |
+| `adam_maps_global` | `maps` | `maps_object` | `adam_common_library` |
+| `adam_weno_global` | `weno` | `weno_object` | `adam_common_library` |
+| `adam_ib_global` | `ib` | `ib_object` | `adam_common_library` |
+| `adam_rk_global` | `rk` | `rk_object` | `adam_common_library` |
+
+**Access pattern:**
+
+```fortran
+use :: adam_grid_global,  only: grid
+use :: adam_field_global, only: field
+
+associate(ni=>grid%ni, ngc=>grid%ngc, nb=>field%nb)
+  ! numerical kernel — no argument passing needed
+endassociate
+```
+
+Singletons are never passed as dummy arguments and never embedded as members of other derived types.
 
 ---
 
@@ -333,6 +360,13 @@ use adam_common_library
 | `adam_slices_object` | Infrastructure | `adam_slices_object.F90` |
 | `adam_adam_object` | Infrastructure | `adam_adam_object.F90` |
 | `adam_common_library` | Entry point | `adam_common_library.F90` |
+| `adam_mpih_global` | Singleton | `adam_mpih_global.F90` |
+| `adam_grid_global` | Singleton | `adam_grid_global.F90` |
+| `adam_field_global` | Singleton | `adam_field_global.F90` |
+| `adam_maps_global` | Singleton | `adam_maps_global.F90` |
+| `adam_weno_global` | Singleton | `adam_weno_global.F90` |
+| `adam_ib_global` | Singleton | `adam_ib_global.F90` |
+| `adam_rk_global` | Singleton | `adam_rk_global.F90` |
 
 ---
 

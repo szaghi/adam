@@ -45,6 +45,67 @@ The SDK provides physics-agnostic building blocks reused identically by every ap
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian finite difference operators |
 | `adam_riemann_euler_library` | Riemann solvers for the Euler equations |
 
+### Program-scope singletons
+
+Every core object is exposed as a **program-scope module variable** — a singleton accessible anywhere by `use`-ing its module, without passing it as a dummy argument or embedding it inside another derived type. This eliminates composition-by-pointer chains and makes inter-module dependencies explicit and local.
+
+#### CPU singletons (`src/lib/common/`)
+
+| Module | Variable | Type |
+|--------|----------|------|
+| `adam_mpih_global` | `mpih` | `mpih_object` |
+| `adam_grid_global` | `grid` | `grid_object` |
+| `adam_field_global` | `field` | `field_object` |
+| `adam_maps_global` | `maps` | `maps_object` |
+| `adam_weno_global` | `weno` | `weno_object` |
+| `adam_ib_global` | `ib` | `ib_object` |
+| `adam_rk_global` | `rk` | `rk_object` |
+
+All seven are re-exported by `adam_common_library`.
+
+#### FNL GPU singletons (`src/lib/fnl/`)
+
+| Module | Variable | Type |
+|--------|----------|------|
+| `adam_fnl_mpih_global` | `mpih_fnl` | `mpih_fnl_object` |
+| `adam_fnl_field_global` | `field_fnl` | `field_fnl_object` |
+| `adam_fnl_ib_global` | `ib_fnl` | `ib_fnl_object` |
+| `adam_fnl_rk_global` | `rk_fnl` | `rk_fnl_object` |
+| `adam_fnl_weno_global` | `weno_fnl` | `weno_fnl_object` |
+
+All five are re-exported by `adam_fnl_library`.
+
+Application-level FNL backends may define additional singletons for app-specific GPU objects (e.g. `coil_fnl`, `fwlayer_fnl` in PRISM).
+
+#### Usage pattern
+
+```fortran
+! Access grid dimensions and field block count from any module — no passing needed
+use :: adam_grid_global,  only: grid
+use :: adam_field_global, only: field
+
+associate(ni=>grid%ni, nj=>grid%nj, ngc=>grid%ngc, nb=>field%nb)
+  ! ... kernel loops
+endassociate
+```
+
+Singletons are **never** passed as dummy arguments and **never** embedded as members of other derived types.
+
+### FNL initialization order
+
+CPU value singletons (`ib`, `rk`, `weno`) must be populated from the solver's owned copies **before** FNL objects are initialized, because FNL `%initialize()` reads them at startup:
+
+```fortran
+ib   = self%ib    ! copy cpu ib_object  → ib  singleton
+rk   = self%rk    ! copy cpu rk_object  → rk  singleton
+weno = self%weno  ! copy cpu weno_object → weno singleton
+call mpih_fnl%initialize(do_mpi_init=.true., do_device_init=.true.)
+call field_fnl%initialize(...)
+call ib_fnl%initialize()
+call rk_fnl%initialize()
+call weno_fnl%initialize()
+```
+
 ### Backend libraries
 
 Each backend extends the common objects with hardware-specific implementations:
@@ -93,24 +154,46 @@ app/<name>/gmp/       # OpenMP offloading entry point
 
 ### Adding a new solver
 
-A new physics application requires only implementing the problem-specific layer; the entire SDK is reused unchanged:
+A new physics application requires only implementing the problem-specific layer; the entire SDK is reused unchanged. SDK objects are accessed through the program-scope singletons — the solver type owns only the physics-specific state:
 
 ```fortran
+! SDK objects are singletons — accessed via `use`, not stored in the type
+use :: adam_grid_global,  only: grid   ! grid_object  singleton
+use :: adam_field_global, only: field  ! field_object singleton
+use :: adam_ib_global,    only: ib     ! ib_object    singleton
+use :: adam_rk_global,    only: rk     ! rk_object    singleton
+use :: adam_weno_global,  only: weno   ! weno_object  singleton
+
 type :: my_solver_object
-   ! ---- reused from src/lib — zero extra work ----
-   type(mpih_object)  :: mpih     ! MPI handler
-   type(grid_object)  :: grid     ! AMR block grid
-   type(field_object) :: field    ! conservative variables
-   type(amr_object)   :: amr      ! refinement markers
-   type(ib_object)    :: ib       ! solid bodies
-   type(weno_object)  :: weno     ! spatial reconstruction
-   type(rk_object)    :: rk       ! time integration
-   ! ---- only this part is new ----
+   ! ---- infrastructure still owned (set up before singletons) ----
+   type(mpih_object) :: mpih     ! MPI handler
+   type(amr_object)  :: amr      ! refinement markers
+   ! ---- only physics-specific state is new ----
    type(my_physics_object) :: physics
    type(my_bc_object)      :: bc
    type(my_ic_object)      :: ic
    type(my_io_object)      :: io
 end type
+```
+
+During `initialize`, the solver populates the CPU singletons from its owned objects before handing off to the GPU layer:
+
+```fortran
+subroutine initialize(self, filename)
+class(my_solver_object), intent(inout) :: self
+character(*),            intent(in)    :: filename
+! 1. initialise owned state
+call self%mpih%initialize(...)
+call grid%initialize(...)
+call field%initialize(...)
+ib = self%ib ; rk = self%rk ; weno = self%weno  ! populate singletons
+! 2. initialise GPU layer (FNL)
+call mpih_fnl%initialize(...)
+call field_fnl%initialize(...)
+call ib_fnl%initialize()
+call rk_fnl%initialize()
+call weno_fnl%initialize()
+endsubroutine
 ```
 
 ## AMR data design: inverse indexing
