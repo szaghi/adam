@@ -66,10 +66,10 @@ type :: prism_coil_object
    type(string), allocatable      :: j_vec_name(:,:)                       !< J vec names.
    type(string)                   :: coil_flag_name                        !< Coil flag name.
    ! grid data replica for easy handling
-   integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
-   integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
-   integer(I4P), pointer :: nj=>null()            !< Number of cells in j direction.
-   integer(I4P), pointer :: nk=>null()            !< Number of cells in k direction.
+   integer(I4P), pointer :: ngc=>null() !< Number of ghost cells.
+   integer(I4P), pointer :: ni=>null()  !< Number of cells in i direction.
+   integer(I4P), pointer :: nj=>null()  !< Number of cells in j direction.
+   integer(I4P), pointer :: nk=>null()  !< Number of cells in k direction.
    contains
       ! public methods
       procedure, pass(self) :: allocate_coil                             !< Allocate coil data.

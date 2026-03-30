@@ -24,9 +24,7 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
-use :: adam_field_global, only : adam_field => field
-use :: adam_grid_global,  only : grid
-use :: adam_mpih_global,  only : mpih
+use :: adam_globals, only : field, grid, ib, mpih, rk, weno
 ! third party modules
 use :: finer
 use :: motion
@@ -40,18 +38,14 @@ public :: equation_object
 type :: equation_object
    !< Equation system class definition, common data to all backends and applications.
    ! ADAM library objects
-   type(io_object)             :: io            !< IO handler.
-   type(adam_object)           :: adam          !< ADAM.
-   type(field_object), pointer :: field=>null() !< The field.
-   type(amr_object)            :: amr           !< AMR marker handler.
-   type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
-   type(slices_object)         :: slices        !< Slices handler.
-   type(blanesmoan_object)     :: blanesmoan    !< Blanes-Moan integrator.
-   type(cfm_object)            :: cfm           !< Commutator-Free Magnus integrator.
-   type(leapfrog_object)       :: leapfrog      !< Leapfrog integrator.
-   type(rk_object)             :: rk            !< RK integrator.
-   type(weno_object)           :: weno          !< WENO reconstructor.
-   type(flail_object)          :: flail         !< Linear algebra methods handler.
+   type(io_object)         :: io         !< IO handler.
+   type(adam_object)       :: adam       !< ADAM.
+   type(amr_object)        :: amr        !< AMR marker handler.
+   type(slices_object)     :: slices     !< Slices handler.
+   type(blanesmoan_object) :: blanesmoan !< Blanes-Moan integrator.
+   type(cfm_object)        :: cfm        !< Commutator-Free Magnus integrator.
+   type(leapfrog_object)   :: leapfrog   !< Leapfrog integrator.
+   type(flail_object)      :: flail      !< Linear algebra methods handler.
    ! FDV data
    character(:), allocatable :: fdv_scheme                   !< FDV scheme, fd/fv.
    integer(I4P)              :: fdv_order=2_I4P              !< Order of finite difference/volume schemes, general order.
@@ -198,22 +192,21 @@ contains
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
       call self%adam%initialize(file_parameters=file_parameters, nv=nv, verbose=verbose_)
-      self%field => adam_field
       call self%amr%initialize(file_parameters=file_parameters)
-      call self%ib%initialize(file_parameters=file_parameters)
+      call ib%initialize(file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
       ! call self%cfm%initialize(file_parameters=file_parameters)
       ! call self%leapfrog%initialize(file_parameters=file_parameters)
-      call self%rk%initialize(file_parameters=file_parameters)
+      call rk%initialize(file_parameters=file_parameters)
       self%ngc           => grid%ngc
       self%ni            => grid%ni
       self%nj            => grid%nj
       self%nk            => grid%nk
-      self%nb            => adam_field%blocks_number
-      self%blocks_number => adam_field%blocks_number
-      self%nv            => adam_field%nv
-      call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+      self%nb            => field%blocks_number
+      self%blocks_number => field%blocks_number
+      self%nv            => field%nv
+      call weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
       call self%flail%initialize(file_parameters=file_parameters)
       call self%load_fdv_from_file(file_parameters=file_parameters)
    endassociate
@@ -298,15 +291,15 @@ contains
 
    t_    = 0_I4P   ; if (present(t   )) t_    = t
    time_ = 0._R8P  ; if (present(time)) time_ = time
-   emin = [self%field%emin(1,b)-self%ngc*self%field%dxyz(1,b), &
-           self%field%emin(2,b)-self%ngc*self%field%dxyz(2,b), &
-           self%field%emin(3,b)-self%ngc*self%field%dxyz(3,b)]
+   emin = [field%emin(1,b)-self%ngc*field%dxyz(1,b), &
+           field%emin(2,b)-self%ngc*field%dxyz(2,b), &
+           field%emin(3,b)-self%ngc*field%dxyz(3,b)]
    bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
    call xh5f%open_block(block_type = XH5F_PARAMETERS%XH5F_BLOCK_CARTESIAN_UNIFORM, &
                         block_name = bn,                                           &
                         nijk       = nijk,                                         &
                         emin       = emin,                                         &
-                        dxyz       = self%field%dxyz(:,b),                         &
+                        dxyz       = field%dxyz(:,b),                              &
                         time       = time_)
    call xh5f%save_block_field(xdmf_field_name = 'time_iteration',                                &
                               field           = t_,                                              &
@@ -397,16 +390,16 @@ contains
    call xh5f%open_file(filename_hdf5=filename_hdf5, filename_xdmf=filename_xdmf, act=FILE_PARAMETERS%FILE_ACTION_OVERWRITE)
    call xh5f%open_grid(grid_name='adam',                                 grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION_ASYNC)
    call xh5f%open_grid(grid_name='mpi_'//trim(strz(mpih%myrank,6)), grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION)
-   do b=1, self%field%blocks_number
-      emin = [self%field%emin(1,b)-ngc*self%field%dxyz(1,b), &
-              self%field%emin(2,b)-ngc*self%field%dxyz(2,b), &
-              self%field%emin(3,b)-ngc*self%field%dxyz(3,b)]
+   do b=1, field%blocks_number
+      emin = [field%emin(1,b)-ngc*field%dxyz(1,b), &
+              field%emin(2,b)-ngc*field%dxyz(2,b), &
+              field%emin(3,b)-ngc*field%dxyz(3,b)]
       bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
       call xh5f%open_block(block_type = XH5F_PARAMETERS%XH5F_BLOCK_CARTESIAN_UNIFORM, &
                            block_name = bn,                                           &
                            nijk       = nijk,                                         &
                            emin       = emin,                                         &
-                           dxyz       = self%field%dxyz(:,b),                         &
+                           dxyz       = field%dxyz(:,b),                              &
                            time       = time_)
       call xh5f%save_block_field(xdmf_field_name = 'time_iteration',                                &
                                  field           = t_,                                              &
@@ -431,7 +424,7 @@ contains
    real(R8P),              intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
    integer(I4P)                          :: i,j,k,b                                         !< Counter.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    do b=1, self%blocks_number
    do k=1, self%nk
    do j=1, self%nj
@@ -453,7 +446,7 @@ contains
    real(R8P),              intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
    integer(I4P)                          :: i,j,k,b                                         !< Counter.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    do b=1, self%blocks_number
    do k=1, self%nk
    do j=1, self%nj
@@ -477,7 +470,7 @@ contains
    integer(I4P)                          :: i,j,k,b                                      !< Counter.
    integer(I4P)                          :: is,js,ks                                     !< Stencils.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    select case(dir)
    case(1)
       do b=1, self%blocks_number
@@ -523,7 +516,7 @@ contains
    real(R8P),              intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Derivative1, dq/ds.
    integer(I4P)                          :: i,j,k,b                                      !< Counter.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    select case(dir)
    case(1)
       do b=1, self%blocks_number
@@ -570,7 +563,7 @@ contains
    integer(I4P)                          :: i,j,k,b                                        !< Counter.
    integer(I4P)                          :: is,js,ks                                       !< Stencils.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    select case(dir)
    case(1)
       do b=1, self%blocks_number
@@ -617,7 +610,7 @@ contains
    integer(I4P)                          :: i,j,k,b                                         !< Counter.
    integer(I4P)                          :: is,js,ks                                        !< Stencils.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    select case(dir)
    case(1)
       do b=1, self%blocks_number
@@ -664,7 +657,7 @@ contains
    integer(I4P)                          :: i,j,k,b                                         !< Counter.
    integer(I4P)                          :: is,js,ks                                        !< Stencils.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    select case(dir)
    case(1)
       do b=1, self%blocks_number
@@ -709,7 +702,7 @@ contains
    real(R8P),              intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
    integer(I4P)                          :: i,j,k,b                                            !< Counter.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    do b=1, self%blocks_number
    do k=1, self%nk
    do j=1, self%nj
@@ -732,7 +725,7 @@ contains
    real(R8P),              intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
    integer(I4P)                          :: i,j,k,b                                            !< Counter.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    do b=1, self%blocks_number
    do k=1, self%nk
    do j=1, self%nj
@@ -755,7 +748,7 @@ contains
    real(R8P),              intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Gradient.
    integer(I4P)                          :: i, j, k, b                                         !< Counter.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    do b=1, self%blocks_number
    do k=1, self%nk
    do j=1, self%nj
@@ -778,7 +771,7 @@ contains
    real(R8P),              intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Gradient.
    integer(I4P)                          :: i, j, k, b                                         !< Counter.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    do b=1, self%blocks_number
    do k=1, self%nk
    do j=1, self%nj
@@ -801,7 +794,7 @@ contains
    real(R8P),              intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
    integer(I4P)                          :: i, j, k, b                                        !< Counter.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    do b=1, self%blocks_number
    do k=1, self%nk
    do j=1, self%nj
@@ -823,7 +816,7 @@ contains
    real(R8P),              intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
    integer(I4P)                          :: i, j, k, b                                        !< Counter.
 
-   associate(dxyz=>self%field%dxyz)
+   associate(dxyz=>field%dxyz)
    do b=1, self%blocks_number
    do k=1, self%nk
    do j=1, self%nj

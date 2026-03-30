@@ -328,8 +328,8 @@ include  = $HDF5_nvf/include
 mod_dir  = ./mod/nvf/aoc/
 obj_dir  = ./obj/nvf/aoc/
 template = template-nvf-oac
-cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
-lflags   = -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
+cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Mdetail
+lflags   = -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Mdetail
 
 # NVF CUDA Fortran
 [template-nvf-cuda]

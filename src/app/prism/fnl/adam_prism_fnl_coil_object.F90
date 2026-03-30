@@ -39,35 +39,79 @@ endtype prism_fnl_coil_object
 
 contains
    ! public methods
-   subroutine copy_cpu_gpu(self, verbose)
+   subroutine copy_cpu_gpu(self, buf4D, buf6D, verbose)
    !< Copy data from CPU to GPU.
-   class(prism_fnl_coil_object), intent(inout)        :: self     !< The field.
-   logical,                      intent(in), optional :: verbose  !< Flag to activate verbose mode.
-   logical                                            :: verbose_ !< Flag to activate verbose mode, local var.
+   class(prism_fnl_coil_object), intent(inout)           :: self         !< The field.
+   integer(I4P),                 intent(inout), optional :: buf4D(1:,                                &
+                                                                  1-grid%ngc:,1-grid%ngc:,1-grid%ngc:&
+                                                                  )      !< Buffer (host memory, device shape), rank 4D.
+   real(R8P),                    intent(inout), optional :: buf6D(1:,                                 &
+                                                                  1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
+                                                                  1:,1:) !< Buffer (host memory, device shape), rank 6D.
+   logical,                      intent(in),    optional :: verbose      !< Flag to activate verbose mode.
+   logical                                               :: verbose_     !< Flag to activate verbose mode, local var.
+   integer(I4P)                                          :: db4(2,4)     !< Device data bounds, rank 4.
+   integer(I4P)                                          :: hb4(2,4)     !< Host   data bounds, rank 4.
+   integer(I4P)                                          :: db6(2,6)     !< Device data bounds, rank 6.
+   integer(I4P)                                          :: hb6(2,6)     !< Host   data bounds, rank 6.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_cpu_gpu start')
-   call dev_assign_to_device(src=self%coil%A        ,dst=self%A_gpu                 )
-   call dev_assign_to_device(src=self%coil%f        ,dst=self%f_gpu                 )
-   call dev_assign_to_device(src=self%coil%phase    ,dst=self%phase_gpu             )
-   call dev_assign_to_device(src=self%coil%j_vec    ,dst=self%j_vec_gpu    ,ij=[1,5])
-   call dev_assign_to_device(src=self%coil%coil_flag,dst=self%coil_flag_gpu,ij=[1,4])
+   call dev_memcpy_to_device(src=self%coil%A    ,dst=self%A_gpu    )
+   call dev_memcpy_to_device(src=self%coil%f    ,dst=self%f_gpu    )
+   call dev_memcpy_to_device(src=self%coil%phase,dst=self%phase_gpu)
+   if (present(buf4D)) then
+      db4(1,:) = lbound(self%coil_flag_gpu ) ; db4(2,:) = ubound(self%coil_flag_gpu )
+      hb4(1,:) = lbound(self%coil%coil_flag) ; hb4(2,:) = ubound(self%coil%coil_flag)
+      call dev_memcpy_to_device(bb=db4,ij=[1,4],tb=hb4,dst=self%coil_flag_gpu,src=self%coil%coil_flag,buf=buf4D)
+   else
+      call dev_assign_to_device(src=self%coil%coil_flag,dst=self%coil_flag_gpu,ij=[1,4])
+   endif
+   if (present(buf6D)) then
+      db6(1,:) = lbound(self%j_vec_gpu ) ; db6(2,:) = ubound(self%j_vec_gpu )
+      hb6(1,:) = lbound(self%coil%j_vec) ; hb6(2,:) = ubound(self%coil%j_vec)
+      call dev_memcpy_to_device(bb=db6,ij=[1,5],tb=hb6,dst=self%j_vec_gpu,src=self%coil%j_vec,buf=buf6D)
+   else
+      call dev_assign_to_device(src=self%coil%j_vec,dst=self%j_vec_gpu,ij=[1,5])
+   endif
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
-   subroutine copy_gpu_cpu(self, verbose)
+   subroutine copy_gpu_cpu(self, buf4D, buf6D, verbose)
    !< Copy data from GPU to CPU.
-   class(prism_fnl_coil_object), intent(inout)        :: self     !< The field.
-   logical,                      intent(in), optional :: verbose  !< Flag to activate verbose mode.
-   logical                                            :: verbose_ !< Flag to activate verbose mode, local var.
+   class(prism_fnl_coil_object), intent(inout)           :: self         !< The field.
+   integer(I4P),                 intent(inout), optional :: buf4D(1:,                                &
+                                                                  1-grid%ngc:,1-grid%ngc:,1-grid%ngc:&
+                                                                  )      !< Buffer (host memory, device shape), rank 4D.
+   real(R8P),                    intent(inout), optional :: buf6D(1:,                                 &
+                                                                  1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
+                                                                  1:,1:) !< Buffer (host memory, device shape), rank 6D.
+   logical,                      intent(in),    optional :: verbose      !< Flag to activate verbose mode.
+   logical                                               :: verbose_     !< Flag to activate verbose mode, local var.
+   integer(I4P)                                          :: db4(2,4)     !< Device data bounds, rank 4.
+   integer(I4P)                                          :: hb4(2,4)     !< Host   data bounds, rank 4.
+   integer(I4P)                                          :: db6(2,6)     !< Device data bounds, rank 6.
+   integer(I4P)                                          :: hb6(2,6)     !< Host   data bounds, rank 6.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_gpu_cpu start')
-   call dev_assign_from_device(src=self%A_gpu        ,dst=self%coil%A                 )
-   call dev_assign_from_device(src=self%f_gpu        ,dst=self%coil%f                 )
-   call dev_assign_from_device(src=self%phase_gpu    ,dst=self%coil%phase             )
-   call dev_assign_from_device(src=self%j_vec_gpu    ,dst=self%coil%j_vec    ,ij=[1,5])
-   call dev_assign_from_device(src=self%coil_flag_gpu,dst=self%coil%coil_flag,ij=[1,4])
+   call dev_memcpy_from_device(src=self%A_gpu        ,dst=self%coil%A                 )
+   call dev_memcpy_from_device(src=self%f_gpu        ,dst=self%coil%f                 )
+   call dev_memcpy_from_device(src=self%phase_gpu    ,dst=self%coil%phase             )
+   if (present(buf4D)) then
+      db4(1,:) = lbound(self%coil_flag_gpu ) ; db4(2,:) = ubound(self%coil_flag_gpu )
+      hb4(1,:) = lbound(self%coil%coil_flag) ; hb4(2,:) = ubound(self%coil%coil_flag)
+      call dev_memcpy_from_device(bb=db4,ij=[1,4],tb=hb4,dst=self%coil%coil_flag,src=self%coil_flag_gpu,buf=buf4D)
+   else
+      call dev_assign_from_device(src=self%coil_flag_gpu,dst=self%coil%coil_flag,ij=[1,4])
+   endif
+   if (present(buf6D)) then
+      db6(1,:) = lbound(self%j_vec_gpu ) ; db6(2,:) = ubound(self%j_vec_gpu )
+      hb6(1,:) = lbound(self%coil%j_vec) ; hb6(2,:) = ubound(self%coil%j_vec)
+      call dev_memcpy_from_device(bb=db6,ij=[1,5],tb=hb6,dst=self%coil%j_vec,src=self%j_vec_gpu,buf=buf6D)
+   else
+      call dev_assign_from_device(src=self%j_vec_gpu    ,dst=self%coil%j_vec    ,ij=[1,5])
+   endif
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
@@ -83,6 +127,9 @@ contains
    print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize start'
    self%coil => coil
    nv = size(self%coil%j_vec,dim=1)
+   call dev_alloc(fptr_dev=self%A_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
+   call dev_alloc(fptr_dev=self%f_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
+   call dev_alloc(fptr_dev=self%phase_gpu    ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
    call dev_alloc(fptr_dev=self%j_vec_gpu    ,ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv,nc],lbounds=[1,1-ngc,1-ngc,1-ngc,1,1],ierr=ierr)
    call dev_alloc(fptr_dev=self%coil_flag_gpu,ubounds=[nb,ni+ngc,nj+ngc,nk+ngc      ],lbounds=[1,1-ngc,1-ngc,1-ngc    ],ierr=ierr)
    call self%copy_cpu_gpu

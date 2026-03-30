@@ -38,27 +38,49 @@ endtype prism_fnl_fwlayer_object
 
 contains
    ! public methods
-   subroutine copy_cpu_gpu(self, verbose)
+   subroutine copy_cpu_gpu(self, buffer, verbose)
    !< Copy data from CPU to GPU.
-   class(prism_fnl_fwlayer_object), intent(inout)        :: self     !< The field.
-   logical,                         intent(in), optional :: verbose  !< Flag to activate verbose mode.
-   logical                                               :: verbose_ !< Flag to activate verbose mode, local var.
+   class(prism_fnl_fwlayer_object), intent(inout)           :: self       !< The field.
+   real(R8P),                       intent(inout), optional :: buffer(1:,                                 &
+                                                                      1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
+                                                                      1:) !< Buffer (host memory, device shape).
+   logical,                         intent(in),    optional :: verbose    !< Flag to activate verbose mode.
+   logical                                                  :: verbose_   !< Flag to activate verbose mode, local var.
+   integer(I4P)                                             :: db(2,5)    !< Device data bounds.
+   integer(I4P)                                             :: hb(2,5)    !< Host   data bounds.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu start')
-   call dev_assign_to_device(src=self%fwlayer%f,dst=self%f_gpu,ij=[1,5])
+   if (present(buffer)) then
+      db(1,:) = lbound(self%f_gpu    ) ; db(2,:) = ubound(self%f_gpu    )
+      hb(1,:) = lbound(self%fwlayer%f) ; hb(2,:) = ubound(self%fwlayer%f)
+      call dev_memcpy_to_device(bb=db,ij=[1,5],tb=hb,dst=self%f_gpu,src=self%fwlayer%f,buf=buffer)
+   else
+      call dev_assign_to_device(src=self%fwlayer%f,dst=self%f_gpu,ij=[1,5])
+   endif
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
-   subroutine copy_gpu_cpu(self, verbose)
+   subroutine copy_gpu_cpu(self, buffer, verbose)
    !< Copy data from GPU to CPU.
-   class(prism_fnl_fwlayer_object), intent(inout)        :: self     !< The field.
-   logical,                         intent(in), optional :: verbose  !< Flag to activate verbose mode.
-   logical                                               :: verbose_ !< Flag to activate verbose mode, local var.
+   class(prism_fnl_fwlayer_object), intent(inout)           :: self       !< The field.
+   real(R8P),                       intent(inout), optional :: buffer(1:,                                 &
+                                                                      1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
+                                                                      1:) !< Buffer (host memory, device shape).
+   logical,                         intent(in), optional    :: verbose    !< Flag to activate verbose mode.
+   logical                                                  :: verbose_   !< Flag to activate verbose mode, local var.
+   integer(I4P)                                             :: db(2,5)    !< Device data bounds.
+   integer(I4P)                                             :: hb(2,5)    !< Host   data bounds.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu start')
-   call dev_assign_from_device(src=self%f_gpu,dst=self%fwlayer%f,ij=[1,5])
+   if (present(buffer)) then
+      db(1,:) = lbound(self%f_gpu    ) ; db(2,:) = ubound(self%f_gpu    )
+      hb(1,:) = lbound(self%fwlayer%f) ; hb(2,:) = ubound(self%fwlayer%f)
+      call dev_memcpy_from_device(bb=db,ij=[1,5],tb=hb,src=self%f_gpu,dst=self%fwlayer%f,buf=buffer)
+   else
+      call dev_assign_from_device(src=self%f_gpu,dst=self%fwlayer%f,ij=[1,5])
+   endif
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 

@@ -206,17 +206,14 @@ contains
    call self%ic%initialize(file_parameters=file_parameters)
    call self%fWLayer%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%coil%initialize(file_parameters=file_parameters)
-   call self%ib%initialize(file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-      call self%rk_bc%initialize(file_parameters=file_parameters,&
-                                 rk=self%rk,                     &
-                                 physics=self%physics)
+      call self%rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=self%physics)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-         call self%rk_pic%initialize(file_parameters=file_parameters, rk=self%rk, pic=self%pic)
+         call self%rk_pic%initialize(file_parameters=file_parameters, rk=rk, pic=self%pic)
    endif
    call check_ngc_number
    call self%allocate_common
@@ -229,9 +226,9 @@ contains
       !< the simulation is stop.
 
       if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) then
-         if (self%weno%S > grid%ngc) &
+         if (weno%S > grid%ngc) &
             call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of weno stencil number (weno%S):'//&
-                                      ' ngc='//trim(str(grid%ngc))//' weno%S='//trim(str(self%weno%S)))
+                                      ' ngc='//trim(str(grid%ngc))//' weno%S='//trim(str(weno%S)))
       endif
       if (self%fdv_half_stencil > grid%ngc) &
          call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (fdv_hs):'//&
@@ -399,7 +396,7 @@ contains
            ijk(2,3)-ijk(1,3)+1]
    endassociate
    call self%open_file_xh5f(basename=trim(output_basename_), xh5f=xh5f)
-   do b=1, self%field%blocks_number
+   do b=1, field%blocks_number
       bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
       call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
 
@@ -446,15 +443,15 @@ contains
    integer(I4P)                              :: i_s, j_s, k_s    !< Flux center cell coordinates
    integer(I4P)                              :: i, j, k          !< Counter.
 
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                     &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),    &
-             lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,       &
-             r_coil=>self%coil%r_coil(n), coil_type=>self%coil%coil_type(n),                     &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),&
-             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n), &
-             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,         &
-             z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,    &
-             e_min => grid%domain_emin, e_max => grid%domain_emax,      &
+   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                 &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
+             lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
+             r_coil=>self%coil%r_coil(n), coil_type=>self%coil%coil_type(n),              &
+             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
+             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
+             z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
+             e_min => grid%domain_emin, e_max => grid%domain_emax,                        &
              q=>self%q)
 
    !Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
@@ -566,16 +563,16 @@ contains
    integer(I4P)                              :: i_s, j_s, k_s    !< Flux center cell coordinates
    integer(I4P)                              :: i, j, k          !< Counter.
 
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                     &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),    &
-             lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,       &
-             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
-             r_coil=>self%coil%r_coil(n), coil_type=>self%coil%coil_type(n),                  &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),&
-             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n), &
-             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,         &
-             z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,    &
-             e_min => grid%domain_emin, e_max => grid%domain_emax,      &
+   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                 &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
+             lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
+             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),             &
+             r_coil=>self%coil%r_coil(n), coil_type=>self%coil%coil_type(n),              &
+             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
+             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
+             z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
+             e_min => grid%domain_emin, e_max => grid%domain_emax,                        &
              q=>self%q)
 
    !Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
@@ -745,13 +742,13 @@ contains
    integer(I4P)                               :: b,i,j,k                 !< Counter.
 
    !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
-            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
+            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
+            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
+            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
             hs=>self%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a x, e centro in (x_c, y_c, z_c)
@@ -849,13 +846,13 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counter.
 
    !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
-            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
+            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
+            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
+            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
             hs=>self%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a y, e centro in (x_c, y_c, z_c)
@@ -953,13 +950,13 @@ contains
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
    !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
-            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
+            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
+            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
+            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
             hs=>self%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a z, e centro in (x_c, y_c, z_c)
@@ -1098,12 +1095,12 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),            &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n),         &
-             coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
-             dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
-             y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n),         &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                          &
+             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n), &
+             coil_flag=>self%coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
+             dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
+             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%coil%sigma(n),           &
              J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1183,12 +1180,12 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),            &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n),         &
-             coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
-             dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
-             y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n),         &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                          &
+             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n), &
+             coil_flag=>self%coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
+             dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
+             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%coil%sigma(n),           &
              J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1269,12 +1266,12 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),            &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n),         &
-             coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
-             dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
-             y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n),         &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                          &
+             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n), &
+             coil_flag=>self%coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
+             dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
+             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%coil%sigma(n),           &
              J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1355,13 +1352,13 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),      &
-            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                           &
-            dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                              &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n), &
+            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                      &
+            dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
+            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1440,13 +1437,13 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),      &
-            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                           &
-            dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                              &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n), &
+            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                      &
+            dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
+            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1525,13 +1522,13 @@ contains
    real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>grid%ni, nj=>grid%nj, &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),             &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),      &
-            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                           &
-            dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                              &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n), &
+            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                      &
+            dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
+            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))

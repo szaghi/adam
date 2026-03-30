@@ -32,6 +32,10 @@ type, extends(prism_common_object) :: prism_fnl_object
    real(R8P), pointer :: flz_f_gpu(:,:,:,:,:)=>null()       !< Fluxes along z at cell face.
    real(R8P), pointer :: curl_gpu(:,:,:,:,:)=>null()        !< Curl fields.
    real(R8P), pointer :: divergence_gpu(:,:,:,:,:)=>null()  !< Divergence fields.
+   ! host-device data, transposing buffers
+   integer(I4P)           :: db5(2,5)              !< Device data bounds (rank 5): bb(1,:)=lower, bb(2,:)=upper.
+   integer(I4P)           :: hb5(2,5)              !< Host buffer data bounds (rank 5): bb(1,:)=lower, bb(2,:)=upper.
+   real(R8P), allocatable :: buf_5D_R8P(:,:,:,:,:) !< Buffer (host memory, device shape), rank 5, R8P.
    !< Pointer (abstract) TBP.
    procedure(compute_curl_interface_dev),       pass(self),pointer :: compute_curl_dev       =>null()!< Compute curl.
    procedure(compute_derivative1_interface_dev),pass(self),pointer :: compute_derivative1_dev=>null()!< Compute derivative1.
@@ -202,51 +206,76 @@ contains
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%divergence_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+   ! buffer for transposed copy
+   call allocate_variable(var=self%buf_5D_R8P,       &
+                          ulb=reshape([1,nb,         &
+                                       1-ngc,ni+ngc, &
+                                       1-ngc,nj+ngc, &
+                                       1-ngc,nk+ngc, &
+                                       1,nv],[2,5]), &
+                          msg=mpih%myrankstr//'prism_fnl_object%allocate_common(buf_5D_R8P_hh) ', verbose=.true.)
+   self%db5(1,:) = [1 ,1-ngc ,1-ngc ,1-ngc ,1 ] ! lower device bounds, rank 5D
+   self%db5(2,:) = [nb,ni+ngc,nj+ngc,nk+ngc,nv] ! upper device bounds, rank 5D
+   self%hb5(1,:) = [1 ,1-ngc ,1-ngc ,1-ngc ,1 ] ! lower host   bounds, rank 5D
+   self%hb5(2,:) = [nv,ni+ngc,nj+ngc,nk+ngc,nb] ! upper host   bounds, rank 5D
    endassociate
    call mpih_fnl%print_message('prism_fnl_object%allocate_gpu finish')
    endsubroutine allocate_gpu
 
-   subroutine copy_cpu_gpu(self)
+   subroutine copy_cpu_gpu(self, verbose)
    !< Copy data from CPU to GPU.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   class(prism_fnl_object), intent(inout)        :: self    !< The equation.
+   logical,                 intent(in), optional :: verbose !< Trigger verbose output.
 
-   call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
-   call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
-   call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
-   call dev_assign_to_device(src=self%fwlayer%f ,dst=fwlayer_fnl%f_gpu,ij=[1,5])
+   call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q_gpu         ,src=self%q         ,buf=self%buf_5D_R8P)
+   call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%curl_gpu      ,src=self%curl      ,buf=self%buf_5D_R8P)
+   call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%divergence_gpu,src=self%divergence,buf=self%buf_5D_R8P)
+   ! call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
+   ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
+   ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
    call coil_fnl%copy_cpu_gpu
-   call fwlayer_fnl%copy_cpu_gpu
-   call field_fnl%copy_cpu_gpu(verbose=.false.)
+   call fwlayer_fnl%copy_cpu_gpu(buffer=self%buf_5D_R8P, verbose=verbose)
+   call field_fnl%copy_cpu_gpu(verbose=verbose)
    endsubroutine copy_cpu_gpu
 
-   subroutine copy_gpu_cpu(self, compute_copy_q_aux, copy_phi)
+   subroutine copy_gpu_cpu(self, compute_copy_q_aux, copy_phi, verbose)
    !< Copy data from GPU to CPU.
    class(prism_fnl_object), intent(inout)        :: self               !< The equation.
    logical,                 intent(in), optional :: compute_copy_q_aux !< Flag to compute auxiliary variables.
    logical,                 intent(in), optional :: copy_phi           !< Copy also phi.
+   logical,                 intent(in), optional :: verbose            !< Trigger verbose output.
 
-   call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,ij=[1,5])
-   call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
-   call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
+   call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q         ,src=self%q_gpu         ,buf=self%buf_5D_R8P)
+   call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%curl      ,src=self%curl_gpu      ,buf=self%buf_5D_R8P)
+   call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%divergence,src=self%divergence_gpu,buf=self%buf_5D_R8P)
+   ! call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,ij=[1,5])
+   ! call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
+   ! call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
    call coil_fnl%copy_gpu_cpu
-   call fwlayer_fnl%copy_gpu_cpu
+   call fwlayer_fnl%copy_gpu_cpu(buffer=self%buf_5D_R8P, verbose=verbose)
    endsubroutine copy_gpu_cpu
 
    subroutine initialize_prism(self, filename)
    !< Initialize PRISM equation.
-   class(prism_fnl_object), intent(inout) :: self     !< The equation.
-   character(*),            intent(in)    :: filename !< Input file name.
+   class(prism_fnl_object), intent(inout) :: self                !< The equation.
+   character(*),            intent(in)    :: filename            !< Input file name.
+   logical                                :: is_mpih_initialized !< Flag to check if MPI has been inizialied.
 
-   call mpih_fnl%initialize(do_mpi_init=.true., do_device_init=.true., verbose=.true.)
+   ! @NOTE: this is necessary because fundal currently is not auto-checking if MPI is alreay
+   ! initialized; fundal must be corrected with this auto-check as done for adam CPU mpi handler
+   call MPI_INITIALIZED(is_mpih_initialized, mpih_fnl%error)
+   call mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
    call mpih_fnl%print_message('prism_fnl_object%initialize start')
    call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail,R8P), verbose=.true.)
-   ib   = self%ib
-   rk   = self%rk
-   weno = self%weno
+      print*, 'cazzo 111 ', self%coil%A(0)
+      print*, 'cazzo 111 ', self%coil%A(1)
+      print*, 'cazzo 111 ', self%coil%A(2)
+      print*, 'cazzo 111 ', self%coil%A(3)
+      print*, 'cazzo 111 ', self%coil%A(4)
    call field_fnl%initialize(verbose=.true.)
-   call ib_fnl%initialize()
-   call rk_fnl%initialize()
-   call weno_fnl%initialize()
+   call ib_fnl%initialize
+   call rk_fnl%initialize
+   call weno_fnl%initialize
    call self%allocate_gpu
    call coil_fnl%initialize(coil=self%coil)
    call fwlayer_fnl%initialize(fwlayer=self%fwlayer)
@@ -261,7 +290,7 @@ contains
       case(NUM_SCHEME_TIME_LEAPFROG)
          self%integrate_dev => integrate_leapfrog_dev
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-         select case(self%rk%scheme)
+         select case(rk%scheme)
          case(RK_1, RK_2, RK_3)
             self%integrate_dev => integrate_rk_ls_dev
          case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -339,13 +368,13 @@ contains
 
    if (self%time%is_to_save(it_save=self%io%residuals_save)) then
       call compute_normL2_residuals_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
-                                        blocks_number=self%blocks_number, dq_gpu=self%dq_gpu, norm=self%field%residuals)
+                                        blocks_number=self%blocks_number, dq_gpu=self%dq_gpu, norm=field%residuals)
       do v=1, self%nv
-         call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-         self%field%residuals(v) = sqrt(self%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
+         call MPI_ALLREDUCE(MPI_IN_PLACE, field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+         field%residuals(v) = sqrt(field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
       if (mpih_fnl%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
-                                                               blocks_number=self%blocks_number, residuals=self%field%residuals)
+                                                               blocks_number=self%blocks_number, residuals=field%residuals)
    endif
    endsubroutine save_residuals
 
@@ -486,6 +515,7 @@ contains
          ! Unica formula: DC e AC
          current_density = A(coil_id) * g * cos(theta)
 
+         print*, 'cazzo ',n, A(n), g , cos(theta), coil_id
          call apply_j_vec_kernel(ni              = ni                     ,&
                                  nj              = nj                     ,&
                                  nk              = nk                     ,&
@@ -542,9 +572,9 @@ contains
       do k=1, nk
       do j=1, nj
       do i=1, ni
-         q_gpu(b,i,j,k,var_Jx) = q_gpu(b,i,j,k,var_Jx) + current_density * J_vec_gpu(b,i,j,k,1,n)
-         q_gpu(b,i,j,k,var_Jy) = q_gpu(b,i,j,k,var_Jy) + current_density * J_vec_gpu(b,i,j,k,2,n)
-         q_gpu(b,i,j,k,var_Jz) = q_gpu(b,i,j,k,var_Jz) + current_density * J_vec_gpu(b,i,j,k,3,n)
+         q_gpu(b,i,j,k,var_Jx) = q_gpu(b,i,j,k,var_Jx) + current_density * j_vec_gpu(b,i,j,k,1,n)
+         q_gpu(b,i,j,k,var_Jy) = q_gpu(b,i,j,k,var_Jy) + current_density * j_vec_gpu(b,i,j,k,2,n)
+         q_gpu(b,i,j,k,var_Jz) = q_gpu(b,i,j,k,var_Jz) + current_density * j_vec_gpu(b,i,j,k,3,n)
       enddo
       enddo
       enddo
@@ -630,21 +660,21 @@ contains
    !< Set initial conditions of field.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   call self%ic%set_initial_conditions(physics=self%physics, field=self%field, q=self%q)
+   call self%ic%set_initial_conditions(physics=self%physics, field=field, q=self%q)
    ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%particle_injection%set_particle_initial_injection(field=self%field, pic=self%pic, q_pic=self%q_pic)
+   !    call self%particle_injection%set_particle_initial_injection(field=field, pic=self%pic, q_pic=self%q_pic)
    !    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
    !    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
    !                                     np=self%pic%particle_number)
    ! endif
-   ! call self%coil%set_coils(physics=self%physics, field=self%field)
+   ! call self%coil%set_coils(physics=self%physics, field=field)
 
    call self%initialize_coils
 
    ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%particle_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%field_weighting(field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+   !    call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   !    call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   !    call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    ! endif
 
    call self%copy_cpu_gpu
@@ -1166,10 +1196,10 @@ contains
 
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call rk_fnl%initialize_stages(q_gpu=self%q_gpu)
-   do s=1, self%rk%nrk
+   do s=1, rk%nrk
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
-      if (self%ib%solids_number>0) then
+      if (ib%solids_number>0) then
          call rk_fnl%compute_stage_ls(s=s, dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu, &
                                            dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       else
@@ -1190,22 +1220,22 @@ contains
       call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=field_fnl, &
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call rk_fnl%initialize_stages(q_gpu=self%q_gpu)
-   do s=1, self%rk%nrk
-      if (self%ib%solids_number>0) then
+   do s=1, rk%nrk
+      if (ib%solids_number>0) then
          call rk_fnl%compute_stage(s=s, dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu)
       else
          call rk_fnl%compute_stage(s=s, dt=self%time%dt)
       endif
-      call self%compute_coils_current(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
+      call self%compute_coils_current(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=rk%gamm(s))
       call self%compute_residuals_dev(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       ! if (s==1) call self%save_residuals
-      if (self%ib%solids_number>0) then
+      if (ib%solids_number>0) then
          call rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=ib_fnl%phi_gpu)
       else
          call rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
       endif
    enddo
-   if (self%ib%solids_number>0) then
+   if (ib%solids_number>0) then
       call rk_fnl%update_q(dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu, q_gpu=self%q_gpu)
       ! call self%update_rk_ghost(dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu)
    else
@@ -1226,21 +1256,21 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    ! call self%compute_coils_current(q_gpu=self%q_gpu)
-   ! do s=1, self%rk%nrk - 1
+   ! do s=1, rk%nrk - 1
    !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
    !    if (s==1) call self%save_residuals
-   !    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   !    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   !    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   !    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+   !    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+   !    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   !    self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-   !    self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-   !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+   !    self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
+   !    self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
+   !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
    ! enddo
    ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   ! self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   ! self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   ! self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   ! self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+   ! self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+   ! self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    ! call self%impose_div_free
    endsubroutine integrate_rk_yoshida_dev
 
@@ -1264,24 +1294,29 @@ contains
       do i=1, self%ic%amr_iterations
          call mpih_fnl%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions
-         !if (self%ib%solids_number > 0) call self%compute_phi()
+         !if (ib%solids_number > 0) call self%compute_phi()
          !call self%amr_update
       enddo
       call self%set_initial_conditions
+      call self%adam%make_comm_local_maps_ghost_bc
       self%time%time = 0._R8P
       self%time%it = 0
       call mpih_fnl%print_message('impose initial conditions finish')
    endif
-
-   call self%update_ghost(q_gpu=self%q_gpu)
-   !if (self%ib%solids_number > 0) call self%compute_phi()
+   !if (ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
-   ! call self%compute_divergence(ivar=1,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
-   ! call self%compute_divergence(ivar=4,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
-   ! call self%compute_divergence(ivar=7,ovar=3,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+   ! call self%update_ghost(q=self%q) ! Aggiunto da FN
+   call self%update_ghost(q_gpu=self%q_gpu)
+
+   associate(hs=>self%fdv_half_stencil)
+   call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    call self%save_simulation_data
    call self%compute_energy
-   call self%save_energy_error(is_to_open=.true.)
+   !call self%save_energy_error(is_to_open=.true.)
+   ! call self%save_energy_history(is_to_open=.true.)
+   ! call self%save_divergence_history(is_to_open=.true.)
    call self%io%open_file_residuals(nv=self%nv)
 
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
@@ -1345,6 +1380,7 @@ contains
    call mpih_fnl%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
    call mpih_fnl%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call mpih_fnl%finalize
+   endassociate
    endsubroutine simulate
 
    ! numerical methods, miscellanea
@@ -1629,7 +1665,7 @@ contains
       ! call self%compute_divergence(ivar=ivar,ovar=4,q_gpu=q_gpu,divergence_gpu=buffer)
       do iter=1, self%flail%iterations
          ! call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-         !                                  dxyz=self%field%dxyz,                                           &
+         !                                  dxyz=field%dxyz,                                                &
          !                                  f=-buffer(4:4,:,:,:,:),                                         &
          !                                  q=buffer(7:7,:,:,:,:),                                          &
          !                                  dq_max=dq_max,                                                  &
