@@ -139,14 +139,14 @@ contains
    elseif (physics%physical_model == PIC_PHYSICAL_MODEL) then !Metterei qualche error stop sulle combinazioni non valide
       select case(numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
-         select case(self%pic%scheme_time)
+         select case(pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
             self%integrate => integrate_leapfrog_pic
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
             !self%integrate =>
          endselect
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-         select case(self%pic%scheme_time)
+         select case(pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
             self%integrate => integrate_leapfrog_pic
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
@@ -231,7 +231,7 @@ contains
 
       ! endif
    endif
-   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+   if (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
       call write_single_particle_output(filename='single_particle_output.dat', time=time%time, q_pic=self%q_pic)
    endif
    endsubroutine save_simulation_data
@@ -699,10 +699,10 @@ contains
 
    call ic%set_initial_conditions(physics=physics, field=field, q=self%q)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call self%particle_injection%set_particle_initial_injection(field=field, pic=self%pic, q_pic=self%q_pic)
-      call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
-      call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
-                                       np=self%pic%particle_number)
+      call self%particle_injection%set_particle_initial_injection(field=field, pic=pic, q_pic=self%q_pic)
+      call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=pic%particle_number)
+      call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(pic%neighbour_list,R8P), &
+                                       np=pic%particle_number)
    endif
    !call coil%set_coils(physics=physics, field=field) !Lo metto dopo perchè l'interpolatore di correnti azzera
                                                                     !tutto per poter poi fare la sommatoria al relativo tempo
@@ -711,9 +711,9 @@ contains
    call self%initialize_coils
 
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-      call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-      call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+      call pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+      call pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+      call pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    endif
    endsubroutine set_initial_conditions
 
@@ -1055,7 +1055,7 @@ contains
    call self%io%open_file_residuals(nv=self%nv)
 
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
+      if(pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! first time integration done apart with explicit euler scheme to iniziale leapfrog
          call self%leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
          call self%compute_dt
@@ -1066,13 +1066,13 @@ contains
          self%q_pic(1,:) = self%q_pic(1,:) + time%dt * self%q_pic(4,:)
          self%q_pic(2,:) = self%q_pic(2,:) + time%dt * self%q_pic(5,:)
          self%q_pic(3,:) = self%q_pic(3,:) + time%dt * self%q_pic(6,:)
-         do i = 1, self%pic%particle_number
+         do i = 1, pic%particle_number
             F_l = crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i))
             self%q_pic(4,i) = self%q_pic(4,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(1,i)+F_l(1))
             self%q_pic(5,i) = self%q_pic(5,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(2,i)+F_l(2))
             self%q_pic(6,i) = self%q_pic(6,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(3,i)+F_l(3))
             !self%q_pic(4:6,i) = self%q_pic(4:6,i) + time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
-            !                  (self%pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i)))
+            !                  (pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), pic_fields(4:6,i)))
          enddo
       endif
    endif
@@ -1535,14 +1535,14 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
    !< Maxwell source terms computation: particles and coils
-   call self%pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)
-   call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)
+   call pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%compute_coils_current(q=self%q)
    !< Maxwell residuals computation
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
    !< Pic residual computation
-   call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+   call pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    !< Integration of equations
    call self%leapfrog%integrate(dt=time%dt, q=self%q, dq=self%dq)
    call self%leapfrog_pic%integrate(dt=time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
@@ -1629,8 +1629,8 @@ contains
       endif
       call self%rk_pic%compute_stage(s=s, dt=time%dt)
       !Calcolo termini sorgente Maxwell da particelle e bobine
-      call self%pic%particle_cartesian_grid_index(field=field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
-      call self%pic%current_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
+      call pic%particle_cartesian_grid_index(field=field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
+      call pic%current_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
       call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s))
       !Calcolo residui Maxwell
@@ -1638,7 +1638,7 @@ contains
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
-      call self%pic%field_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
+      call pic%field_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
                                     q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (ib%solids_number>0) then
@@ -1659,9 +1659,9 @@ contains
    call self%rk_pic%update_q_pic(dt=time%dt, q_pic=self%q_pic)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%impose_div_free
-   call self%pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)
-   call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)
+   call pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%compute_coils_current(q=self%q)
    !call add_external_fields(self = self%external_fields, field = field, &
    !                        time = time%time, dt = time%dt, q = self%q)

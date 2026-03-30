@@ -302,14 +302,14 @@ contains
    !elseif (physics%physical_model == PIC_PHYSICAL_MODEL) then
    !   select case(numerics%scheme_time)
    !   case(NUM_SCHEME_TIME_LEAPFROG)
-   !      select case(self%pic%scheme_time)
+   !      select case(pic%scheme_time)
    !      case(NUM_SCHEME_TIME_PIC_LEAPFROG)
    !         self%integrate => integrate_leapfrog_pic
    !      case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
    !         !self%integrate =>
    !      endselect
    !   case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-   !      select case(self%pic%scheme_time)
+   !      select case(pic%scheme_time)
    !      case(NUM_SCHEME_TIME_PIC_LEAPFROG)
    !         self%integrate => integrate_leapfrog_pic
    !      case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
@@ -662,19 +662,19 @@ contains
 
    call ic%set_initial_conditions(physics=physics, field=field, q=self%q)
    ! if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%particle_injection%set_particle_initial_injection(field=field, pic=self%pic, q_pic=self%q_pic)
-   !    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
-   !    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
-   !                                     np=self%pic%particle_number)
+   !    call self%particle_injection%set_particle_initial_injection(field=field, pic=pic, q_pic=self%q_pic)
+   !    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=pic%particle_number)
+   !    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(pic%neighbour_list,R8P), &
+   !                                     np=pic%particle_number)
    ! endif
    ! call coil%set_coils(physics=physics, field=field)
 
    call self%initialize_coils
 
    ! if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+   !    call pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   !    call pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   !    call pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=pic_fields, nv=self%nv)
    ! endif
 
    call self%copy_cpu_gpu
@@ -1328,7 +1328,7 @@ contains
    endif
 
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
+      if (pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! to be implemented
       endif
    endif

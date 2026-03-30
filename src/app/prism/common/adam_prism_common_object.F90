@@ -25,6 +25,7 @@ use :: adam_prism_fWLayer_global,        only : fWLayer
 use :: adam_prism_ic_global,             only : ic
 use :: adam_prism_numerics_global,       only : numerics
 use :: adam_prism_physics_global,        only : physics
+use :: adam_prism_pic_global,            only : pic
 use :: adam_prism_rk_bc_global,          only : rk_bc
 use :: adam_prism_time_global,           only : time
 ! third party modules
@@ -38,7 +39,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_pic_object)                :: pic                !< Particle-in-Cell (PIC) handler.
    type(prism_particle_injection_object) :: particle_injection !< Particle injection handler.
    type(prism_leapfrog_pic_object)       :: leapfrog_pic       !< Leapfrog PIC integrator.
    type(prism_rk_pic_object)             :: rk_pic             !< RK PIC integrator.
@@ -98,7 +98,7 @@ contains
    class(prism_common_object), intent(inout) :: self !< The equation.
 
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
-             particle_number=>self%pic%particle_number)
+             particle_number=>pic%particle_number)
    call allocate_variable(var=self%q,                &
                           ulb=reshape([1,nv,         &
                                        1-ngc,ni+ngc, &
@@ -200,9 +200,9 @@ contains
    call bc%initialize(file_parameters=file_parameters)
    call grid%set_bc_type(bc_type=bc%bc_type)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &
-      call self%pic%initialize(file_parameters=file_parameters)
+      call pic%initialize(file_parameters=file_parameters)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &
-      call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic)
+      call self%particle_injection%initialize(file_parameters=file_parameters, pic=pic)
    call time%initialize(file_parameters=file_parameters)
    call ic%initialize(file_parameters=file_parameters)
    call fWLayer%initialize(file_parameters=file_parameters, physics=physics)
@@ -211,10 +211,10 @@ contains
    if (numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
       call rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=physics)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
-         call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)
-      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-         call self%rk_pic%initialize(file_parameters=file_parameters, rk=rk, pic=self%pic)
+      if (pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
+         call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=pic)
+      if (pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
+         call self%rk_pic%initialize(file_parameters=file_parameters, rk=rk, pic=pic)
    endif
    call check_ngc_number
    call self%allocate_common
