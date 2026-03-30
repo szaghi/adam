@@ -697,7 +697,7 @@ contains
    !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   call self%ic%set_initial_conditions(physics=physics, field=field, q=self%q)
+   call ic%set_initial_conditions(physics=physics, field=field, q=self%q)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       call self%particle_injection%set_particle_initial_injection(field=field, pic=self%pic, q_pic=self%q_pic)
       call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
@@ -1027,7 +1027,7 @@ contains
       call mpih%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
    else
       call mpih%print_message('impose initial conditions start')
-      do i=1, self%ic%amr_iterations
+      do i=1, ic%amr_iterations
          call mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions
          !if (ib%solids_number > 0) call self%compute_phi()
