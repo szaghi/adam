@@ -18,16 +18,17 @@ use :: adam_prism_rk_pic_object
 use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! PRISM singleton objects
-use :: adam_prism_bc_global,             only : bc
-use :: adam_prism_coil_global,           only : coil
-use :: adam_prism_external_fields_global,only : external_fields
-use :: adam_prism_fWLayer_global,        only : fWLayer
-use :: adam_prism_ic_global,             only : ic
-use :: adam_prism_numerics_global,       only : numerics
-use :: adam_prism_physics_global,        only : physics
-use :: adam_prism_pic_global,            only : pic
-use :: adam_prism_rk_bc_global,          only : rk_bc
-use :: adam_prism_time_global,           only : time
+use :: adam_prism_bc_global,                 only : bc
+use :: adam_prism_coil_global,               only : coil
+use :: adam_prism_external_fields_global,    only : external_fields
+use :: adam_prism_fWLayer_global,            only : fWLayer
+use :: adam_prism_ic_global,                 only : ic
+use :: adam_prism_numerics_global,           only : numerics
+use :: adam_prism_particle_injection_global, only : particle_injection
+use :: adam_prism_physics_global,            only : physics
+use :: adam_prism_pic_global,                only : pic
+use :: adam_prism_rk_bc_global,              only : rk_bc
+use :: adam_prism_time_global,               only : time
 ! third party modules
 use :: motion
 use :: penf
@@ -39,7 +40,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_particle_injection_object) :: particle_injection !< Particle injection handler.
    type(prism_leapfrog_pic_object)       :: leapfrog_pic       !< Leapfrog PIC integrator.
    type(prism_rk_pic_object)             :: rk_pic             !< RK PIC integrator.
    ! physics data replica for easy handling
@@ -202,7 +202,7 @@ contains
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &
       call pic%initialize(file_parameters=file_parameters)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &
-      call self%particle_injection%initialize(file_parameters=file_parameters, pic=pic)
+      call particle_injection%initialize(file_parameters=file_parameters, pic=pic)
    call time%initialize(file_parameters=file_parameters)
    call ic%initialize(file_parameters=file_parameters)
    call fWLayer%initialize(file_parameters=file_parameters, physics=physics)

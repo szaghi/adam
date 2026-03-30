@@ -699,7 +699,7 @@ contains
 
    call ic%set_initial_conditions(physics=physics, field=field, q=self%q)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call self%particle_injection%set_particle_initial_injection(field=field, pic=pic, q_pic=self%q_pic)
+      call particle_injection%set_particle_initial_injection(field=field, pic=pic, q_pic=self%q_pic)
       call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=pic%particle_number)
       call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(pic%neighbour_list,R8P), &
                                        np=pic%particle_number)
