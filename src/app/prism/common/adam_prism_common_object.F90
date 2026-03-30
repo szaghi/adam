@@ -18,6 +18,7 @@ use :: adam_prism_rk_pic_object
 use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! PRISM singleton objects
+use :: adam_prism_bc_global,       only : bc
 use :: adam_prism_ic_global,       only : ic
 use :: adam_prism_numerics_global, only : numerics
 use :: adam_prism_physics_global,  only : physics
@@ -32,7 +33,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_bc_object)                 :: bc                 !< Boundary Conditions (BC) handler.
    type(prism_rk_bc_object)              :: rk_bc              !< RK integrator for BC.
    type(prism_time_object)               :: time               !< Time handler.
    type(prism_fWLayer_object)            :: fWLayer            !< fWLayer handler.
@@ -197,8 +197,8 @@ contains
    self%nv_cl  => physics%nv_cl
    !self%nv_pic => physics%nv_pic
    call self%equation_object%initialize(filename=filename, memory_avail=memory_avail, nv=physics%nv, verbose=verbose_)
-   call self%bc%initialize(file_parameters=file_parameters)
-   call grid%set_bc_type(bc_type=self%bc%bc_type)
+   call bc%initialize(file_parameters=file_parameters)
+   call grid%set_bc_type(bc_type=bc%bc_type)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%pic%initialize(file_parameters=file_parameters)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &

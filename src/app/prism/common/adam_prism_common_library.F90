@@ -3,6 +3,7 @@ module adam_prism_common_library
 !< ADAM PRISM common library, entry for all common classes and libraries.
 
 ! PRISM modules
+use :: adam_prism_bc_global
 use :: adam_prism_bc_object
 use :: adam_prism_coil_object
 use :: adam_prism_common_object

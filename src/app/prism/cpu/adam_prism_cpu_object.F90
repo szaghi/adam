@@ -387,7 +387,7 @@ contains
    real(R8P)                              :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
 
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                                        &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),                         &
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),                         &
              dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,                &
              nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, constrained_transport_B=>numerics%constrained_transport_B, &
              constrained_transport_D=>numerics%constrained_transport_D)
@@ -559,9 +559,9 @@ contains
       enddo
    endif
 
-   if (self%bc%bc_type(1) == BC_radiative .or. self%bc%bc_type(2) == BC_radiative &
-       .or. self%bc%bc_type(3) == BC_radiative .or. self%bc%bc_type(4) == BC_radiative &
-       .or. self%bc%bc_type(5) == BC_radiative .or. self%bc%bc_type(6) == BC_radiative) then !Al momento scritta per funzionare solo con un secondo ordine
+   if (bc%bc_type(1) == BC_radiative .or. bc%bc_type(2) == BC_radiative &
+       .or. bc%bc_type(3) == BC_radiative .or. bc%bc_type(4) == BC_radiative &
+       .or. bc%bc_type(5) == BC_radiative .or. bc%bc_type(6) == BC_radiative) then !Al momento scritta per funzionare solo con un secondo ordine
       if (present(s)) then
          if (s==1_I4P) call self%rk_bc%initialize_stages(q=q)
          if (ib%solids_number>0) then !calcolo stadio per le BC
@@ -624,7 +624,7 @@ contains
    integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
    integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                        &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
              dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,&
              nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, div_corr_var=>numerics%div_corr_var,       &
              constrained_transport_B=>numerics%constrained_transport_B,                                     &
@@ -1683,7 +1683,7 @@ contains
    integer(I4P)                           :: bc_type                 !< Boundary condition type.
    integer(I4P)                           :: crown                   !< Crown counter.
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                           &
-                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
+                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
                 dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,&
                 nv_c=>physics%nv_c, nv_cl=>physics%nv_cl,                                                 &
                 constrained_transport_B=>numerics%constrained_transport_B,                                     &
