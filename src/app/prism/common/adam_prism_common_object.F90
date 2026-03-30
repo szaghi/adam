@@ -23,6 +23,7 @@ use :: adam_prism_coil_global,               only : coil
 use :: adam_prism_external_fields_global,    only : external_fields
 use :: adam_prism_fWLayer_global,            only : fWLayer
 use :: adam_prism_ic_global,                 only : ic
+use :: adam_prism_leapfrog_pic_global,       only : leapfrog_pic
 use :: adam_prism_numerics_global,           only : numerics
 use :: adam_prism_particle_injection_global, only : particle_injection
 use :: adam_prism_physics_global,            only : physics
@@ -40,7 +41,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_leapfrog_pic_object)       :: leapfrog_pic       !< Leapfrog PIC integrator.
    type(prism_rk_pic_object)             :: rk_pic             !< RK PIC integrator.
    ! physics data replica for easy handling
    integer(I4P), pointer :: nv_c=>null()  !< Number of conservative variables in q vector.
@@ -212,7 +212,7 @@ contains
       call rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=physics)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
-         call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=pic)
+         call leapfrog_pic%initialize(file_parameters=file_parameters, pic=pic)
       if (pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
          call self%rk_pic%initialize(file_parameters=file_parameters, rk=rk, pic=pic)
    endif

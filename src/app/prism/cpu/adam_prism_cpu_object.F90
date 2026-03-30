@@ -1057,7 +1057,7 @@ contains
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       if(pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! first time integration done apart with explicit euler scheme to iniziale leapfrog
-         call self%leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
+         call leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
          call self%compute_dt
          !< Pic residual computation
          !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
@@ -1545,7 +1545,7 @@ contains
    call pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    !< Integration of equations
    call self%leapfrog%integrate(dt=time%dt, q=self%q, dq=self%dq)
-   call self%leapfrog_pic%integrate(dt=time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
+   call leapfrog_pic%integrate(dt=time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
    call self%impose_div_free
    endsubroutine integrate_leapfrog_pic
 
