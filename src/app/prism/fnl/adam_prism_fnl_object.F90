@@ -366,14 +366,14 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: v    !< Counter.
 
-   if (self%time%is_to_save(it_save=self%io%residuals_save)) then
+   if (time%is_to_save(it_save=self%io%residuals_save)) then
       call compute_normL2_residuals_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
                                         blocks_number=self%blocks_number, dq_gpu=self%dq_gpu, norm=field%residuals)
       do v=1, self%nv
          call MPI_ALLREDUCE(MPI_IN_PLACE, field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
          field%residuals(v) = sqrt(field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
-      if (mpih_fnl%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
+      if (mpih_fnl%myrank==0) call self%io%save_residuals(it=time%it, time=time%time, &
                                                                blocks_number=self%blocks_number, residuals=field%residuals)
    endif
    endsubroutine save_residuals
@@ -382,21 +382,21 @@ contains
    !< Save all simulation data.
    class(prism_fnl_object), intent(inout) :: self      !< The equation.
 
-   if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
-       (self%time%is_to_save(it_save=self%io%restart_save)).or. &
-       (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
+   if ((time%is_to_save(it_save=self%io%it_save)).or.      &
+       (time%is_to_save(it_save=self%io%restart_save)).or. &
+       (self%slices%is_to_save(it=time%it,it_max=time%it_max,time=time%time,time_max=time%time_max))) then
       call self%update_ghost(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu
       call self%compute_auxiliary_fields
 
-      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
-      if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
-      ! if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
+      if (time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
+      if (mod(time%it,self%io%restart_save)==0) call self%save_restart_files
+      ! if (self%slices%is_to_save(it=time%it,it_max=time%it_max,time=time%time,time_max=time%time_max)) then
       !    call self%slices%save_mat(basename=self%io%output_basename, &
-      !                              it=self%time%it,                  &
-      !                              it_max=self%time%it_max,          &
-      !                              time=self%time%time,              &
-      !                              time_max=self%time%time_max,      &
+      !                              it=time%it,                  &
+      !                              it_max=time%it_max,          &
+      !                              time=time%time,              &
+      !                              time_max=time%time_max,      &
       !                              adam=self%adam,                   &
       !                              q=self%q,                         &
       !                              q_name=self%q_name)
@@ -479,7 +479,7 @@ contains
    real(R8P), parameter                          :: f_tol=1.e-30_R8P!< Tolerance on frequency for branchless switch AC/DC.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,    &
-             time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                                   &
+             time=>time%time, dt=>time%dt, td=>self%coil%td,                                   &
              A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,                                     &
              var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
    time_s = time ; if (present(gamm)) time_s = time + dt*gamm
@@ -1114,13 +1114,13 @@ contains
    ! do s=1, nc
    !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
    !    if (s==1) call self%save_residuals
-   !    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   !    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   !    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   !    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + b(s) * time%dt * self%dq(VAR_BX,:,:,:,:)
+   !    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + b(s) * time%dt * self%dq(VAR_BY,:,:,:,:)
+   !    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + b(s) * time%dt * self%dq(VAR_BZ,:,:,:,:)
    !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   !    self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-   !    self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-   !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+   !    self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + a(s) * time%dt * self%dq(VAR_DX,:,:,:,:)
+   !    self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * time%dt * self%dq(VAR_DY,:,:,:,:)
+   !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * time%dt * self%dq(VAR_DZ,:,:,:,:)
    ! enddo
    ! call self%impose_div_free
    ! endassociate
@@ -1133,7 +1133,7 @@ contains
    integer(I4P)                           :: s,ss             !< Counter.
 
    ! call self%compute_coils_current(q_gpu=self%q_gpu)
-   ! associate(dt=>self%time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
+   ! associate(dt=>time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
    ! self%cfm%q = self%q
    ! call self%compute_residuals_dev(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,1))
    ! do s=2, self%cfm%n_stages
@@ -1160,7 +1160,7 @@ contains
    ! call self%compute_coils_current(q_gpu=self%q_gpu)
    ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
    ! call self%save_residuals
-   ! call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
+   ! call self%leapfrog%integrate(dt=time%dt, q=self%q, dq=self%dq)
    ! call self%impose_div_free
    endsubroutine integrate_leapfrog_dev
 
@@ -1179,7 +1179,7 @@ contains
 
    !!Qua ci va la chiamata alla subroutine che calcola i resiudi delle particellle dq_pic
 
-   !call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
+   !call self%leapfrog%integrate(dt=time%dt, q=self%q, dq=self%dq)
 
    !!Qua ci va la chiamata alla subroutine che integra aggiornando le velocita e le posizioni delle particelle
    !            !decidi se fare qui all'inizio del tempo successivo l'aggiornamento della neighbour list delle particelle
@@ -1200,10 +1200,10 @@ contains
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
       if (ib%solids_number>0) then
-         call rk_fnl%compute_stage_ls(s=s, dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu, &
+         call rk_fnl%compute_stage_ls(s=s, dt=time%dt, phi_gpu=ib_fnl%phi_gpu, &
                                            dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       else
-         call rk_fnl%compute_stage_ls(s=s, dt=self%time%dt, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
+         call rk_fnl%compute_stage_ls(s=s, dt=time%dt, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       endif
    enddo
    call self%impose_div_free
@@ -1218,13 +1218,13 @@ contains
 
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
+                                   dt=time%dt, time=time%time, q_gpu=self%q_gpu)
    call rk_fnl%initialize_stages(q_gpu=self%q_gpu)
    do s=1, rk%nrk
       if (ib%solids_number>0) then
-         call rk_fnl%compute_stage(s=s, dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu)
+         call rk_fnl%compute_stage(s=s, dt=time%dt, phi_gpu=ib_fnl%phi_gpu)
       else
-         call rk_fnl%compute_stage(s=s, dt=self%time%dt)
+         call rk_fnl%compute_stage(s=s, dt=time%dt)
       endif
       call self%compute_coils_current(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=rk%gamm(s))
       call self%compute_residuals_dev(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
@@ -1236,18 +1236,18 @@ contains
       endif
    enddo
    if (ib%solids_number>0) then
-      call rk_fnl%update_q(dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu, q_gpu=self%q_gpu)
-      ! call self%update_rk_ghost(dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu)
+      call rk_fnl%update_q(dt=time%dt, phi_gpu=ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+      ! call self%update_rk_ghost(dt=time%dt, phi_gpu=ib_fnl%phi_gpu)
    else
-      call rk_fnl%update_q(dt=self%time%dt, q_gpu=self%q_gpu)
-      ! call self%update_rk_ghost(dt=self%time%dt)
+      call rk_fnl%update_q(dt=time%dt, q_gpu=self%q_gpu)
+      ! call self%update_rk_ghost(dt=time%dt)
    endif
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
    ! call self%apply_fwl_correction  ! to be removed, probably
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call add_external_fields_dev(external_fields=self%external_fields, field_gpu=field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
+                                   dt=time%dt, time=time%time, q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ssp_dev
 
    subroutine integrate_rk_yoshida_dev(self)
@@ -1259,18 +1259,18 @@ contains
    ! do s=1, rk%nrk - 1
    !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
    !    if (s==1) call self%save_residuals
-   !    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   !    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   !    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   !    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(s) * time%dt * self%dq(VAR_BX,:,:,:,:)
+   !    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(s) * time%dt * self%dq(VAR_BY,:,:,:,:)
+   !    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(s) * time%dt * self%dq(VAR_BZ,:,:,:,:)
    !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   !    self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-   !    self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-   !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+   !    self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + rk%ssb(s) * time%dt * self%dq(VAR_DX,:,:,:,:)
+   !    self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + rk%ssb(s) * time%dt * self%dq(VAR_DY,:,:,:,:)
+   !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + rk%ssb(s) * time%dt * self%dq(VAR_DZ,:,:,:,:)
    ! enddo
    ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   ! self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   ! self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   ! self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   ! self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * time%dt * self%dq(VAR_BX,:,:,:,:)
+   ! self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * time%dt * self%dq(VAR_BY,:,:,:,:)
+   ! self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * time%dt * self%dq(VAR_BZ,:,:,:,:)
    ! call self%impose_div_free
    endsubroutine integrate_rk_yoshida_dev
 
@@ -1287,8 +1287,8 @@ contains
    call self%initialize_prism(filename=filename)
    if (self%io%restart) then
       call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
-      call self%load_restart_files(t=self%time%it, time=self%time%time)
-      call mpih_fnl%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
+      call self%load_restart_files(t=time%it, time=time%time)
+      call mpih_fnl%print_message('restart [t, time]: '//trim(str(time%it))//', '//trim(str(time%time)))
    else
       call mpih_fnl%print_message('impose initial conditions start')
       do i=1, ic%amr_iterations
@@ -1299,8 +1299,8 @@ contains
       enddo
       call self%set_initial_conditions
       call self%adam%make_comm_local_maps_ghost_bc
-      self%time%time = 0._R8P
-      self%time%it = 0
+      time%time = 0._R8P
+      time%it = 0
       call mpih_fnl%print_message('impose initial conditions finish')
    endif
    !if (ib%solids_number > 0) call self%compute_phi()
@@ -1324,7 +1324,7 @@ contains
       ! call self%leapfrog%assign_step(s=1, q=self%q)
       ! call self%compute_dt
       ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
-      ! self%q = self%q + self%time%dt * self%dq
+      ! self%q = self%q + time%dt * self%dq
    endif
 
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -1337,34 +1337,34 @@ contains
    call mpih_fnl%barrier(tictoc=.true., timing=timing(1), single=.true.)
    integration: do
       call mpih_fnl%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
-      self%time%it = self%time%it + 1
+      time%it = time%it + 1
 
       if (self%io%save_memory_status) then
-         call save_memory_status_cpu(file_name='memory_cpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
-         call save_memory_status_gpu(file_name='memory_gpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
+         call save_memory_status_cpu(file_name='memory_cpu-'//mpih_fnl%myrankstr//'.dat', tag=str(time%it,.true.))
+         call save_memory_status_gpu(file_name='memory_gpu-'//mpih_fnl%myrankstr//'.dat', tag=str(time%it,.true.))
       endif
 
-      if (mod(self%time%it,self%amr%frequency)==0) then
+      if (mod(time%it,self%amr%frequency)==0) then
          call mpih_fnl%barrier(tictoc=.true.)
          !call self%amr_update
          call mpih_fnl%barrier(tictoc=.true.)
       endif
 
       call self%compute_dt
-      if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
-         self%time%dt=self%time%time_max-self%time%time
+      if ((time%it_max <= 0).and.(time%time+time%dt > time%time_max)) &
+         time%dt=time%time_max-time%time
 
       call self%integrate_dev
 
-      self%time%time = self%time%time + self%time%dt
-      call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
+      time%time = time%time + time%dt
+      call time%print_progress(nodes_number=self%adam%tree%nodes_number)
 
       call self%save_simulation_data
       call self%compute_energy
       call self%save_energy_error
 
-      if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
-         ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
+      if (((time%it_max <= 0).and.(time%time >= time%time_max)).or.&
+         ((time%it>=time%it_max).and.(time%it_max > 0))) exit integration
 
       call mpih_fnl%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
@@ -1391,8 +1391,8 @@ contains
 
    call compute_dxyz_min_kernel(blocks_number=self%blocks_number, dxyz_gpu=field_fnl%dxyz_gpu, dxyz_min=dxyz_min)
    dxyz_min = dxyz_min * 0.5_R8P
-   self%time%dt = self%time%CFL*dxyz_min / physics%evmax
-   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
+   time%dt = time%CFL*dxyz_min / physics%evmax
+   call MPI_ALLREDUCE(MPI_IN_PLACE, time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
    contains
       subroutine compute_dxyz_min_kernel(blocks_number, dxyz_gpu, dxyz_min)
       !< Compute minimum space step accordingly, kernel device.
@@ -1442,10 +1442,10 @@ contains
       self%coil_power    = [self%coil_power,    coil_power   ]
       self%poynting_flux = [self%poynting_flux, poynting_flux]
    else
-      allocate(self%energy_D(     1:self%time%it))
-      allocate(self%energy_B(     1:self%time%it))
-      allocate(self%coil_power(   1:self%time%it))
-      allocate(self%poynting_flux(1:self%time%it))
+      allocate(self%energy_D(     1:time%it))
+      allocate(self%energy_B(     1:time%it))
+      allocate(self%coil_power(   1:time%it))
+      allocate(self%poynting_flux(1:time%it))
       self%energy_D      = energy_D
       self%energy_B      = energy_B
       self%coil_power    = coil_power

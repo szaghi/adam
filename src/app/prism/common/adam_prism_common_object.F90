@@ -23,6 +23,7 @@ use :: adam_prism_ic_global,       only : ic
 use :: adam_prism_numerics_global, only : numerics
 use :: adam_prism_physics_global,  only : physics
 use :: adam_prism_rk_bc_global,    only : rk_bc
+use :: adam_prism_time_global,     only : time
 ! third party modules
 use :: motion
 use :: penf
@@ -34,7 +35,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_time_object)               :: time               !< Time handler.
    type(prism_fWLayer_object)            :: fWLayer            !< fWLayer handler.
    type(prism_coil_object)               :: coil               !< Coils handler.
    type(prism_external_fields_object)    :: external_fields    !< External fields handler.
@@ -203,7 +203,7 @@ contains
       call self%pic%initialize(file_parameters=file_parameters)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic)
-   call self%time%initialize(file_parameters=file_parameters)
+   call time%initialize(file_parameters=file_parameters)
    call ic%initialize(file_parameters=file_parameters)
    call self%fWLayer%initialize(file_parameters=file_parameters, physics=physics)
    call self%coil%initialize(file_parameters=file_parameters)
@@ -310,14 +310,14 @@ contains
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
    r = nint(real(C)/(real(C)+1_I4P))
-   if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
+   if (time%is_to_save(it_save=self%io%divergence_history_save)) then
       max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
                                              1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
       max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
                                              1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
       max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
                                              1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
+      call self%io%save_divergence_history(it=time%it,time=time%time,blocks_number=self%blocks_number, &
                                            div_D=max_div_D,div_B=max_div_B,div_J=max_div_J, &
                                            is_to_open=is_to_open,is_to_close=is_to_close)
    endif
@@ -330,8 +330,8 @@ contains
    logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
 
-   if (self%time%is_to_save(it_save=self%io%energy_error_save)) then
-      call self%io%save_energy_error(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                  &
+   if (time%is_to_save(it_save=self%io%energy_error_save)) then
+      call self%io%save_energy_error(it=time%it,time=time%time,blocks_number=self%blocks_number,                  &
                                      energy_D=self%energy_D,energy_B=self%energy_B,                                         &
                                      rms_energy_error_D=self%rms_energy_error_D,rms_energy_error_B=self%rms_energy_error_B, &
                                      is_to_open=is_to_open,is_to_close=is_to_close)
@@ -344,8 +344,8 @@ contains
    logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
 
-   if (self%time%is_to_save(it_save=self%io%energy_history_save)) then
-      call self%io%save_energy_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
+   if (time%is_to_save(it_save=self%io%energy_history_save)) then
+      call self%io%save_energy_history(it=time%it,time=time%time,blocks_number=self%blocks_number, &
                                        energy_D=self%energy_D,energy_B=self%energy_B,                        &
                                        coil_power=self%coil_power,Poynting_flux=self%Poynting_flux,          &
                                        is_to_open=is_to_open,is_to_close=is_to_close)
@@ -357,9 +357,9 @@ contains
    class(prism_common_object), intent(inout) :: self !< The equation.
 
    call mpih%barrier(tictoc=.true.)
-   call mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
-                                    trim(str(self%time%time,.true.)))
-   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
+   call mpih%print_message('save restart files t: '//trim(str(time%it,.true.))//', time: '//&
+                                    trim(str(time%time,.true.)))
+   call self%adam%save_restart_files(basename=self%io%restart_basename, t=time%it, time=time%time, q=self%q)
    call self%save_xh5f(output_basename=self%io%restart_basename)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
@@ -379,10 +379,10 @@ contains
    integer(I4P)                                     :: b, c, v          !< Counter.
 
    call mpih%barrier(tictoc=.true.)
-   call mpih%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
-                                trim(str(self%time%time,.true.)))
+   call mpih%print_message('save HDF5 files t: '//trim(str(time%it,.true.))//', time: '//&
+                                trim(str(time%time,.true.)))
 
-   output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
+   output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(time%it,9))
    with_ghost_      = .false. ; if (present(with_ghost      )) with_ghost_       = with_ghost
 
    if (present(output_basename)) output_basename_ = trim(output_basename)
@@ -399,7 +399,7 @@ contains
    call self%open_file_xh5f(basename=trim(output_basename_), xh5f=xh5f)
    do b=1, field%blocks_number
       bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
-      call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
+      call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=time%it, time=time%time)
 
       call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=self%q_name)
 

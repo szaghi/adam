@@ -24,6 +24,7 @@ use :: adam_prism_rk_bc_global
 use :: adam_prism_rk_bc_object
 use :: adam_prism_rk_pic_object
 use :: adam_prism_riemann_library
+use :: adam_prism_time_global
 use :: adam_prism_time_object
 
 implicit none

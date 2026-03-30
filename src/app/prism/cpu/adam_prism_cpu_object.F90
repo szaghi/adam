@@ -196,13 +196,13 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: v    !< Counter.
 
-   if (self%time%is_to_save(it_save=self%io%residuals_save)) then
+   if (time%is_to_save(it_save=self%io%residuals_save)) then
       call field%compute_normL2_residuals(dq=self%dq, norm=field%residuals)
       do v=1, self%nv
          call MPI_ALLREDUCE(MPI_IN_PLACE, field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
          field%residuals(v) = sqrt(field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
-      if (mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
+      if (mpih%myrank==0) call self%io%save_residuals(it=time%it, time=time%time, &
                                                            blocks_number=self%blocks_number, residuals=field%residuals)
    endif
    endsubroutine save_residuals
@@ -211,20 +211,20 @@ contains
    !< Save all simulation data.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
-       (self%time%is_to_save(it_save=self%io%restart_save)).or. &
-       (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
+   if ((time%is_to_save(it_save=self%io%it_save)).or.      &
+       (time%is_to_save(it_save=self%io%restart_save)).or. &
+       (self%slices%is_to_save(it=time%it,it_max=time%it_max,time=time%time,time_max=time%time_max))) then
       call self%update_ghost(q=self%q)
       call self%compute_auxiliary_fields
 
-      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
-      if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
-      ! if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
+      if (time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
+      if (mod(time%it,self%io%restart_save)==0) call self%save_restart_files
+      ! if (self%slices%is_to_save(it=time%it,it_max=time%it_max,time=time%time,time_max=time%time_max)) then
       !    call self%slices%save_mat(basename=self%io%output_basename, &
-      !                              it=self%time%it,                  &
-      !                              it_max=self%time%it_max,          &
-      !                              time=self%time%time,              &
-      !                              time_max=self%time%time_max,      &
+      !                              it=time%it,                  &
+      !                              it_max=time%it_max,          &
+      !                              time=time%time,              &
+      !                              time_max=time%time_max,      &
       !                              adam=self%adam,                   &
       !                              q=self%q,                         &
       !                              q_name=self%q_name)
@@ -232,7 +232,7 @@ contains
       ! endif
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
-      call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic)
+      call write_single_particle_output(filename='single_particle_output.dat', time=time%time, q_pic=self%q_pic)
    endif
    endsubroutine save_simulation_data
 
@@ -259,7 +259,7 @@ contains
    real(R8P),                          parameter :: f_tol = 1.0e-30_R8P
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, &
-             time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                 &
+             time=>time%time, dt=>time%dt, td=>self%coil%td,                 &
              A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,                   &
              J_vec=>self%coil%J_vec,                                                   &
              var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
@@ -388,7 +388,7 @@ contains
 
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                                        &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),                         &
-             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,                &
+             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>time%dt, chi=>physics%chi,                &
              nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, constrained_transport_B=>numerics%constrained_transport_B, &
              constrained_transport_D=>numerics%constrained_transport_D)
 
@@ -565,9 +565,9 @@ contains
       if (present(s)) then
          if (s==1_I4P) call rk_bc%initialize_stages(q=q)
          if (ib%solids_number>0) then !calcolo stadio per le BC
-            call rk_bc%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
+            call rk_bc%compute_stage(s=s, dt=time%dt, phi=ib%phi)
          else
-            call rk_bc%compute_stage(s=s, dt=self%time%dt)
+            call rk_bc%compute_stage(s=s, dt=time%dt)
          endif
          !Calcolo i residui per l'integrazione temporale delle BC (in un futuro da allineare con operatore spaziale qualsiasi)
          call self%compute_residuals_BC(s=s)
@@ -625,7 +625,7 @@ contains
    integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                        &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
-             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,&
+             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>time%dt, chi=>physics%chi,&
              nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, div_corr_var=>numerics%div_corr_var,       &
              constrained_transport_B=>numerics%constrained_transport_B,                                     &
              constrained_transport_D=>numerics%constrained_transport_D, q_rk=>rk%q_rk,                      &
@@ -758,9 +758,9 @@ contains
    associate(blocks_number=>self%blocks_number, dxyz=>field%dxyz,chi=>physics%chi, evmax=>physics%evmax)
    call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
    umax = evmax
-   self%time%dt = self%time%CFL*dxyz_min / umax
+   time%dt = time%CFL*dxyz_min / umax
    endassociate
-   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
    endsubroutine compute_dt
 
    subroutine compute_energy(self)
@@ -786,10 +786,10 @@ contains
       self%coil_power    = [self%coil_power,    coil_power   ]
       self%poynting_flux = [self%poynting_flux, poynting_flux]
    else
-      allocate(self%energy_D(     1:self%time%it))
-      allocate(self%energy_B(     1:self%time%it))
-      allocate(self%coil_power(   1:self%time%it))
-      allocate(self%poynting_flux(1:self%time%it))
+      allocate(self%energy_D(     1:time%it))
+      allocate(self%energy_B(     1:time%it))
+      allocate(self%coil_power(   1:time%it))
+      allocate(self%poynting_flux(1:time%it))
       self%energy_D      = energy_D
       self%energy_B      = energy_B
       self%coil_power    = coil_power
@@ -1023,8 +1023,8 @@ contains
    call self%initialize_prism(filename=filename)
    if (self%io%restart) then
       call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
-      call self%load_restart_files(t=self%time%it, time=self%time%time)
-      call mpih%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
+      call self%load_restart_files(t=time%it, time=time%time)
+      call mpih%print_message('restart [t, time]: '//trim(str(time%it))//', '//trim(str(time%time)))
    else
       call mpih%print_message('impose initial conditions start')
       do i=1, ic%amr_iterations
@@ -1035,8 +1035,8 @@ contains
       enddo
       call self%set_initial_conditions
       call self%adam%make_comm_local_maps_ghost_bc
-      self%time%time = 0._R8P
-      self%time%it = 0
+      time%time = 0._R8P
+      time%it = 0
       call mpih%print_message('impose initial conditions finish')
    endif
    !if (ib%solids_number > 0) call self%compute_phi()
@@ -1063,15 +1063,15 @@ contains
          !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
          !ma devi metterlo nell'inizializzazione per coerenza
          !< Integration of equations
-         self%q_pic(1,:) = self%q_pic(1,:) + self%time%dt * self%q_pic(4,:)
-         self%q_pic(2,:) = self%q_pic(2,:) + self%time%dt * self%q_pic(5,:)
-         self%q_pic(3,:) = self%q_pic(3,:) + self%time%dt * self%q_pic(6,:)
+         self%q_pic(1,:) = self%q_pic(1,:) + time%dt * self%q_pic(4,:)
+         self%q_pic(2,:) = self%q_pic(2,:) + time%dt * self%q_pic(5,:)
+         self%q_pic(3,:) = self%q_pic(3,:) + time%dt * self%q_pic(6,:)
          do i = 1, self%pic%particle_number
             F_l = crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i))
-            self%q_pic(4,i) = self%q_pic(4,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(1,i)+F_l(1))
-            self%q_pic(5,i) = self%q_pic(5,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(2,i)+F_l(2))
-            self%q_pic(6,i) = self%q_pic(6,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(3,i)+F_l(3))
-            !self%q_pic(4:6,i) = self%q_pic(4:6,i) + self%time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
+            self%q_pic(4,i) = self%q_pic(4,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(1,i)+F_l(1))
+            self%q_pic(5,i) = self%q_pic(5,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(2,i)+F_l(2))
+            self%q_pic(6,i) = self%q_pic(6,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(3,i)+F_l(3))
+            !self%q_pic(4:6,i) = self%q_pic(4:6,i) + time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
             !                  (self%pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i)))
          enddo
       endif
@@ -1084,33 +1084,33 @@ contains
       !Qua c'era il calcolo delle correnti delle particelle se PIC
       !Ora è nelle condizioni iniziali per coerenza con if legato a se ho pic o meno
       call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q = self%q + self%time%dt * self%dq
+      self%q = self%q + time%dt * self%dq
    endif
 
    ! integration
    call mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
    integration: do
       call mpih%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
-      self%time%it = self%time%it + 1
+      time%it = time%it + 1
 
       if (self%io%save_memory_status) then
-         call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
+         call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(time%it,.true.))
       endif
 
-      if (mod(self%time%it,self%amr%frequency)==0) then
+      if (mod(time%it,self%amr%frequency)==0) then
          call mpih%barrier(tictoc=.true.)
          !call self%amr_update
          call mpih%barrier(tictoc=.true.)
       endif
 
       call self%compute_dt
-      if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
-         self%time%dt=self%time%time_max-self%time%time
+      if ((time%it_max <= 0).and.(time%time+time%dt > time%time_max)) &
+         time%dt=time%time_max-time%time
 
       call self%integrate
 
-      self%time%time = self%time%time + self%time%dt
-      call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
+      time%time = time%time + time%dt
+      call time%print_progress(nodes_number=self%adam%tree%nodes_number)
 
       call self%save_simulation_data
       call self%update_ghost(q=self%q) ! Aggiunto da FN
@@ -1122,8 +1122,8 @@ contains
       call self%compute_divergence(hs=hs,ivar=physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
       call self%save_divergence_history
 
-      if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
-         ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
+      if (((time%it_max <= 0).and.(time%time >= time%time_max)).or.&
+         ((time%it>=time%it_max).and.(time%it_max > 0))) exit integration
 
       call mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
@@ -1480,13 +1480,13 @@ contains
    do s=1, nc
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
-      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + b(s) * time%dt * self%dq(VAR_BX,:,:,:,:)
+      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + b(s) * time%dt * self%dq(VAR_BY,:,:,:,:)
+      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + b(s) * time%dt * self%dq(VAR_BZ,:,:,:,:)
       call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + a(s) * time%dt * self%dq(VAR_DX,:,:,:,:)
+      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * time%dt * self%dq(VAR_DY,:,:,:,:)
+      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * time%dt * self%dq(VAR_DZ,:,:,:,:)
    enddo
    call self%impose_div_free
    endassociate
@@ -1499,7 +1499,7 @@ contains
    integer(I4P)                           :: s,ss             !< Counter.
 
    call self%compute_coils_current(q=self%q)
-   associate(dt=>self%time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
+   associate(dt=>time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
    self%cfm%q = self%q
    call self%compute_residuals(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,1))
    do s=2, self%cfm%n_stages
@@ -1526,7 +1526,7 @@ contains
    call self%compute_coils_current(q=self%q)
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
-   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%leapfrog%integrate(dt=time%dt, q=self%q, dq=self%dq)
    call self%impose_div_free
    endsubroutine integrate_leapfrog
 
@@ -1544,8 +1544,8 @@ contains
    !< Pic residual computation
    call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    !< Integration of equations
-   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
-   call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
+   call self%leapfrog%integrate(dt=time%dt, q=self%q, dq=self%dq)
+   call self%leapfrog_pic%integrate(dt=time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
    call self%impose_div_free
    endsubroutine integrate_leapfrog_pic
 
@@ -1561,9 +1561,9 @@ contains
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
       if (ib%solids_number>0) then
-         call rk%compute_stage_ls(s=s,dt=self%time%dt,phi=ib%phi,dq=self%dq,q=self%q)
+         call rk%compute_stage_ls(s=s,dt=time%dt,phi=ib%phi,dq=self%dq,q=self%q)
       else
-         call rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
+         call rk%compute_stage_ls(s=s,dt=time%dt,dq=self%dq,q=self%q)
       endif
    enddo
    call self%impose_div_free
@@ -1576,13 +1576,13 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%sub_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
    call rk%initialize_stages(q=self%q)
    do s=1, rk%nrk
       if (ib%solids_number>0) then
-         call rk%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
+         call rk%compute_stage(s=s, dt=time%dt, phi=ib%phi)
       else
-         call rk%compute_stage(s=s, dt=self%time%dt)
+         call rk%compute_stage(s=s, dt=time%dt)
       endif
       call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s))
       call self%compute_residuals(q=rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
@@ -1594,17 +1594,17 @@ contains
       endif
    enddo
    if (ib%solids_number>0) then
-      call rk%update_q(dt=self%time%dt, phi=ib%phi, q=self%q)
-      call self%update_q_BC(dt=self%time%dt, phi=ib%phi)
+      call rk%update_q(dt=time%dt, phi=ib%phi, q=self%q)
+      call self%update_q_BC(dt=time%dt, phi=ib%phi)
    else
-      call rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
-      call self%update_q_BC(dt=self%time%dt)
+      call rk%update_q(dt=time%dt, q=self%q, dq=self%dq)
+      call self%update_q_BC(dt=time%dt)
       call self%save_residuals
    endif
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%add_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
    endsubroutine integrate_rk_ssp
 
    subroutine integrate_rk_ssp_pic(self)
@@ -1614,7 +1614,7 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    !call sub_external_fields(self = self%external_fields, field = field, &
-   !                        time = self%time%time, dt = self%time%dt, q = self%q)
+   !                        time = time%time, dt = time%dt, q = self%q)
 
    !Inizializzo stadi RK per campi e PIC
    call rk%initialize_stages(q=self%q)
@@ -1623,11 +1623,11 @@ contains
    do s=1, rk%nrk
       !Calcolo stadio RK per campi e PIC
       if (ib%solids_number>0) then
-         call rk%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
+         call rk%compute_stage(s=s, dt=time%dt, phi=ib%phi)
       else
-         call rk%compute_stage(s=s, dt=self%time%dt)
+         call rk%compute_stage(s=s, dt=time%dt)
       endif
-      call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
+      call self%rk_pic%compute_stage(s=s, dt=time%dt)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
       call self%pic%current_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
@@ -1650,13 +1650,13 @@ contains
    enddo
    ! Completo l'integrazione temporale
    if (ib%solids_number>0) then
-      call rk%update_q(dt=self%time%dt, phi=ib%phi, q=self%q)
-      call self%update_q_BC(dt=self%time%dt, phi=ib%phi)
+      call rk%update_q(dt=time%dt, phi=ib%phi, q=self%q)
+      call self%update_q_BC(dt=time%dt, phi=ib%phi)
    else
-      call rk%update_q(dt=self%time%dt, q=self%q)
-      call self%update_q_BC(dt=self%time%dt)
+      call rk%update_q(dt=time%dt, q=self%q)
+      call self%update_q_BC(dt=time%dt)
    endif
-   call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
+   call self%rk_pic%update_q_pic(dt=time%dt, q_pic=self%q_pic)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%impose_div_free
    call self%pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)
@@ -1664,7 +1664,7 @@ contains
    call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%compute_coils_current(q=self%q)
    !call add_external_fields(self = self%external_fields, field = field, &
-   !                        time = self%time%time, dt = self%time%dt, q = self%q)
+   !                        time = time%time, dt = time%dt, q = self%q)
    endsubroutine integrate_rk_ssp_pic
 
    subroutine update_q_BC(self, dt, phi)
@@ -1684,7 +1684,7 @@ contains
    integer(I4P)                           :: crown                   !< Crown counter.
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                           &
                 nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
-                dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,&
+                dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>time%dt, chi=>physics%chi,&
                 nv_c=>physics%nv_c, nv_cl=>physics%nv_cl,                                                 &
                 constrained_transport_B=>numerics%constrained_transport_B,                                     &
                 constrained_transport_D=>numerics%constrained_transport_D, nrk=>rk_bc%nrk,                &
@@ -1762,18 +1762,18 @@ contains
    do s=1, rk%nrk - 1
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
-      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(s) * time%dt * self%dq(VAR_BX,:,:,:,:)
+      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(s) * time%dt * self%dq(VAR_BY,:,:,:,:)
+      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(s) * time%dt * self%dq(VAR_BZ,:,:,:,:)
       call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + rk%ssb(s) * time%dt * self%dq(VAR_DX,:,:,:,:)
+      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + rk%ssb(s) * time%dt * self%dq(VAR_DY,:,:,:,:)
+      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + rk%ssb(s) * time%dt * self%dq(VAR_DZ,:,:,:,:)
    enddo
    call self%compute_residuals(q=self%q, dq=self%dq)
-   self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * time%dt * self%dq(VAR_BX,:,:,:,:)
+   self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * time%dt * self%dq(VAR_BY,:,:,:,:)
+   self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * time%dt * self%dq(VAR_BZ,:,:,:,:)
    call self%impose_div_free
    endsubroutine integrate_rk_yoshida
 
