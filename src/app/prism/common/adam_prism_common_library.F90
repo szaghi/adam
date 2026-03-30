@@ -5,6 +5,7 @@ module adam_prism_common_library
 ! PRISM modules
 use :: adam_prism_bc_global
 use :: adam_prism_bc_object
+use :: adam_prism_coil_global
 use :: adam_prism_coil_object
 use :: adam_prism_common_object
 use :: adam_prism_external_fields_object

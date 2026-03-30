@@ -19,6 +19,7 @@ use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! PRISM singleton objects
 use :: adam_prism_bc_global,       only : bc
+use :: adam_prism_coil_global,     only : coil
 use :: adam_prism_fWLayer_global,  only : fWLayer
 use :: adam_prism_ic_global,       only : ic
 use :: adam_prism_numerics_global, only : numerics
@@ -36,7 +37,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_coil_object)               :: coil               !< Coils handler.
    type(prism_external_fields_object)    :: external_fields    !< External fields handler.
    type(prism_pic_object)                :: pic                !< Particle-in-Cell (PIC) handler.
    type(prism_particle_injection_object) :: particle_injection !< Particle injection handler.
@@ -206,7 +206,7 @@ contains
    call time%initialize(file_parameters=file_parameters)
    call ic%initialize(file_parameters=file_parameters)
    call fWLayer%initialize(file_parameters=file_parameters, physics=physics)
-   call self%coil%initialize(file_parameters=file_parameters)
+   call coil%initialize(file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
       call rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=physics)
@@ -403,12 +403,12 @@ contains
 
       call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=self%q_name)
 
-      if (self%coil%total_coils_number>0) then
+      if (coil%total_coils_number>0) then
          call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
-                                 q=self%coil%coil_flag(:,:,:,b), q_name=self%coil%coil_flag_name)
-         do c=1, self%coil%total_coils_number
+                                 q=coil%coil_flag(:,:,:,b), q_name=coil%coil_flag_name)
+         do c=1, coil%total_coils_number
             call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
-                                    q=self%coil%j_vec(:,:,:,:,b,c), q_name=self%coil%j_vec_name(:,c))
+                                    q=coil%j_vec(:,:,:,:,b,c), q_name=coil%j_vec_name(:,c))
          enddo
       endif
 
@@ -445,13 +445,13 @@ contains
    integer(I4P)                              :: i, j, k          !< Counter.
 
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                 &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
-             lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
-             r_coil=>self%coil%r_coil(n), coil_type=>self%coil%coil_type(n),              &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
-             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
+             lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+             r_coil=>coil%r_coil(n), coil_type=>coil%coil_type(n),              &
+             y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
+             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
              nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-             z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
+             z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
              e_min => grid%domain_emin, e_max => grid%domain_emax,                        &
              q=>self%q)
 
@@ -482,8 +482,8 @@ contains
       j_s = max(1_I4P, min(nj, j_s))
       k_s = max(1_I4P, min(nk, k_s))
 
-      do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
-         do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
+      do j = j_s - nint(3.5_R8P*coil%sigma(n)), j_s + nint(3.5_R8P*coil%sigma(n))
+         do i = i_s - nint(3.5_R8P*coil%sigma(n)), i_s + nint(3.5_R8P*coil%sigma(n))
                flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
          enddo
       enddo
@@ -505,8 +505,8 @@ contains
       j_s = max(1_I4P, min(nj, j_s))
       k_s = max(1_I4P, min(nk, k_s))
 
-      do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
-         do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
+      do j = j_s - nint(3.5_R8P*coil%sigma(n)), j_s + nint(3.5_R8P*coil%sigma(n))
+         do i = i_s - nint(3.5_R8P*coil%sigma(n)), i_s + nint(3.5_R8P*coil%sigma(n))
                flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
          enddo
       enddo
@@ -528,25 +528,25 @@ contains
       j_s = max(1_I4P, min(nj, j_s))
       k_s = max(1_I4P, min(nk, k_s))
 
-      do k = k_s - nint(3.5_R8P*self%coil%sigma(n)), k_s + nint(3.5_R8P*self%coil%sigma(n))
-         do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
+      do k = k_s - nint(3.5_R8P*coil%sigma(n)), k_s + nint(3.5_R8P*coil%sigma(n))
+         do i = i_s - nint(3.5_R8P*coil%sigma(n)), i_s + nint(3.5_R8P*coil%sigma(n))
                flux = flux + J_vec(2,i,j_s,k,1,n)*dx(1)*dz(1)
          enddo
       enddo
 
    endif
-   flux = abs(flux)*self%coil%A(n)
+   flux = abs(flux)*coil%A(n)
 
    if (adjust_amplitude) then
       print '(A)', mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
-      print '(A)', mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//') pre correzione'
-      correction = (self%coil%A(n)/flux)
+      print '(A)', mpih%myrankstr//trim(str(coil%A(n)))//'Ampiezza A('//trim(str(n))//') pre correzione'
+      correction = (coil%A(n)/flux)
       print '(A)', mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))
-      self%coil%A(n) = self%coil%A(n)*correction
-      print '(A)', mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//') post correzione'
+      coil%A(n) = coil%A(n)*correction
+      print '(A)', mpih%myrankstr//trim(str(coil%A(n)))//'Ampiezza A('//trim(str(n))//') post correzione'
       print '(A)', mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux*correction))
    else
-      print '(A)', mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(self%coil%A(n)))
+      print '(A)', mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(coil%A(n)))
       print '(A)', mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux))
    endif
 
@@ -565,14 +565,14 @@ contains
    integer(I4P)                              :: i, j, k          !< Counter.
 
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                 &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
-             lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
-             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),             &
-             r_coil=>self%coil%r_coil(n), coil_type=>self%coil%coil_type(n),              &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
-             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
+             lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+             l_sol=>coil%l_solenoid(n), windings=>coil%windings(n),             &
+             r_coil=>coil%r_coil(n), coil_type=>coil%coil_type(n),              &
+             y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
+             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
              nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-             z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
+             z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
              e_min => grid%domain_emin, e_max => grid%domain_emax,                        &
              q=>self%q)
 
@@ -652,18 +652,18 @@ contains
       enddo
 
    endif
-   flux = abs(flux)*self%coil%A(n)*windings !Valore calcolato (corrente complessiva, deve essere N*A)
+   flux = abs(flux)*coil%A(n)*windings !Valore calcolato (corrente complessiva, deve essere N*A)
                                             !A*windings è il valore target
    if (adjust_amplitude) then
       print '(A)', mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
-      print '(A)', mpih%myrankstr//trim(str(self%coil%A(n)*windings))//'Ampiezza A('//trim(str(n))//')*N pre correzione'
-      correction = (self%coil%A(n)*windings/flux)
+      print '(A)', mpih%myrankstr//trim(str(coil%A(n)*windings))//'Ampiezza A('//trim(str(n))//')*N pre correzione'
+      correction = (coil%A(n)*windings/flux)
       print '(A)', mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))
-      self%coil%A(n) = self%coil%A(n)*correction*windings
-      print '(A)', mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//')*N post correzione'
+      coil%A(n) = coil%A(n)*correction*windings
+      print '(A)', mpih%myrankstr//trim(str(coil%A(n)))//'Ampiezza A('//trim(str(n))//')*N post correzione'
       print '(A)', mpih%myrankstr//'Valore finale corrente solenoide'//trim(str(n))//': '//trim(str(flux*correction))
    else
-      print '(A)', mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(self%coil%A(n)))
+      print '(A)', mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(coil%A(n)))
       print '(A)', mpih%myrankstr//'Valore finale corrente solenoide'//trim(str(n))//': '//trim(str(flux))
    endif
 
@@ -675,10 +675,10 @@ contains
    class(prism_common_object), intent(inout) :: self !< The equation.
    integer(I4P)                              :: n    !< Counter.
 
-   do n=1, self%coil%total_coils_number
-      selectcase(self%coil%coil_type(n))
+   do n=1, coil%total_coils_number
+      selectcase(coil%coil_type(n))
       case(COIL_TYPE_RECTANGULAR)
-         select case(self%coil%normal(n))
+         select case(coil%normal(n))
          case(NORMAL_P_X)
             call self%set_rectangular_coil_x(n=n, verse = 1._R8P)
          case(NORMAL_P_Y)
@@ -693,7 +693,7 @@ contains
             call self%set_rectangular_coil_z(n=n, verse = -1._R8P)
          endselect
       case(COIL_TYPE_CIRCULAR)
-         select case(self%coil%normal(n))
+         select case(coil%normal(n))
          case(NORMAL_P_X)
             call self%set_circular_coil_x(n=n, verse = 1._R8P)
          case(NORMAL_P_Y)
@@ -708,7 +708,7 @@ contains
             call self%set_circular_coil_z(n=n, verse = -1._R8P)
          endselect
       case(COIL_TYPE_SOLENOID)
-         select case(self%coil%normal(n))
+         select case(coil%normal(n))
          case(NORMAL_P_X)
             call self%set_solenoid_x(n=n, verse = 1._R8P)
          case(NORMAL_P_Y)
@@ -723,7 +723,7 @@ contains
             call self%set_solenoid_z(n=n, verse = -1._R8P)
          endselect
       endselect
-      call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),&
+      call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=coil%J_vec(1:3,:,:,:,:,n),&
                                    divergence=self%divergence(3,:,:,:,:))
       print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
                   //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
@@ -744,12 +744,12 @@ contains
 
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
-            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
+            lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
+            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
             hs=>self%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a x, e centro in (x_c, y_c, z_c)
@@ -829,7 +829,7 @@ contains
    if (n == 1_I4P) then
       call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
    else
-      self%coil%A(n) = self%coil%A(1)
+      coil%A(n) = coil%A(1)
       call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
    endif
    endsubroutine set_rectangular_coil_x
@@ -848,12 +848,12 @@ contains
 
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
-            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
+            lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
+            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
             hs=>self%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a y, e centro in (x_c, y_c, z_c)
@@ -932,7 +932,7 @@ contains
    if (n == 1_I4P) then
       call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
    else
-      self%coil%A(n) = self%coil%A(1)
+      coil%A(n) = coil%A(1)
       call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
    endif
    endsubroutine set_rectangular_coil_y
@@ -952,12 +952,12 @@ contains
 
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,   &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>field%dxyz(1,:), &
-            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>self%coil%normal(n),       &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
+            lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
+            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,     &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
             hs=>self%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a z, e centro in (x_c, y_c, z_c)
@@ -1035,36 +1035,36 @@ contains
    if (n == 1_I4P) then
       call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
    else
-      self%coil%A(n) = self%coil%A(1)
+      coil%A(n) = coil%A(1)
       call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
    endif
 
    !!Calcolo divergenza di J (ampiezza massima) prima della correzione alla Poisson
-   !self%coil%J_vec(n,1:3,:,:,:,:) = self%coil%J_vec(n,1:3,:,:,:,:) * self%coil%A(n)
+   !coil%J_vec(n,1:3,:,:,:,:) = coil%J_vec(n,1:3,:,:,:,:) * coil%A(n)
    !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
+   !call self%compute_divergence(ivar=1_I4P,q=coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
    !print *, 'Divergenza J max pre Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
 !
    !!Applico correzione alla Poisson per ridurre divergenza residua
-   !call self%impose_div_coil_correction(ivar=1_I4P, q=self%coil%J_vec(n,1:3,:,:,:,:))
+   !call self%impose_div_coil_correction(ivar=1_I4P, q=coil%J_vec(n,1:3,:,:,:,:))
    !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
+   !call self%compute_divergence(ivar=1_I4P,q=coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
    !print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
 !
    !!Riscalo J_vec a versore
-   !self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)
+   !coil%J_vec(n,1:3,:,:,:,:)=coil%J_vec(n,1:3,:,:,:,:)/coil%A(n)
 !
 !
    !!!Prove per capire se il problema è il round-off
-   !!print *, 'max|J| pre  = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
-   !!J_vec_buffer = self%coil%J_vec(n,1:3,:,:,:,:)
-   !!self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)*self%coil%A(n)
-   !!print *, 'max|J| post = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
-   !!print *, 'max|dJ|     = ', maxval(abs( self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer(1:3,:,:,:,:) ))
-   !!print *, 'rel err max = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer)) / &
+   !!print *, 'max|J| pre  = ', maxval(abs(coil%J_vec(n,1:3,:,:,:,:)))
+   !!J_vec_buffer = coil%J_vec(n,1:3,:,:,:,:)
+   !!coil%J_vec(n,1:3,:,:,:,:)=coil%J_vec(n,1:3,:,:,:,:)/coil%A(n)*coil%A(n)
+   !!print *, 'max|J| post = ', maxval(abs(coil%J_vec(n,1:3,:,:,:,:)))
+   !!print *, 'max|dJ|     = ', maxval(abs( coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer(1:3,:,:,:,:) ))
+   !!print *, 'rel err max = ', maxval(abs(coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer)) / &
    !!                           maxval(abs(J_vec_buffer))
    !!self%divergence(3,:,:,:,:) = 0.0_R8P
-   !!call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec,divergence=self%divergence(3,:,:,:,:))
+   !!call self%compute_divergence(ivar=1_I4P,q=coil%J_vec,divergence=self%divergence(3,:,:,:,:))
    !!print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
 !
 !
@@ -1075,11 +1075,11 @@ contains
    !!Calcolo le divergenze di J_vec e J come J = A*J_vec. Non dovrebbe cambiare nulla riseptto alla divergenza di Jmax
    !!precedentemente calcolata e stampata (a meno di errori legati al roundoff numerico)
    !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:), &
+   !call self%compute_divergence(ivar=1_I4P,q=coil%J_vec(n,1:3,:,:,:,:), &
    !                             divergence=self%divergence(3,:,:,:,:))
    !print *, 'Divergenza finale J_vec: ', maxval(abs(self%divergence(3,:,:,:,:)))
    !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:)*self%coil%A(n), &
+   !call self%compute_divergence(ivar=1_I4P,q=coil%J_vec(n,1:3,:,:,:,:)*coil%A(n), &
    !                             divergence=self%divergence(3,:,:,:,:))
    !print *, 'Divergenza finale corrente: ', maxval(abs(self%divergence(3,:,:,:,:)))
    endsubroutine set_rectangular_coil_z
@@ -1097,12 +1097,12 @@ contains
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                          &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n), &
-             coil_flag=>self%coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                          &
+             y_c=>coil%y_center(n), z_c=>coil%z_center(n), rc=>coil%r_coil(n), &
+             coil_flag=>coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
              dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
-             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%coil%sigma(n),           &
-             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
+             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),           &
+             J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1163,7 +1163,7 @@ contains
    !if (n == 1_I4P) then
       call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
    !else
-   !   self%coil%A(n) = self%coil%A(1)
+   !   coil%A(n) = coil%A(1)
    !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
    !endif
 
@@ -1182,12 +1182,12 @@ contains
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                          &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n), &
-             coil_flag=>self%coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                          &
+             y_c=>coil%y_center(n), z_c=>coil%z_center(n), rc=>coil%r_coil(n), &
+             coil_flag=>coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
              dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
-             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%coil%sigma(n),           &
-             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
+             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),           &
+             J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1248,7 +1248,7 @@ contains
    !if (n == 1_I4P) then
       call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
    !else
-   !   self%coil%A(n) = self%coil%A(1)
+   !   coil%A(n) = coil%A(1)
    !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
    !endif
 
@@ -1268,12 +1268,12 @@ contains
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                          &
-             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), rc=>self%coil%r_coil(n), &
-             coil_flag=>self%coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
+             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                          &
+             y_c=>coil%y_center(n), z_c=>coil%z_center(n), rc=>coil%r_coil(n), &
+             coil_flag=>coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
              dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
-             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%coil%sigma(n),           &
-             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
+             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),           &
+             J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1335,7 +1335,7 @@ contains
    !if (n == 1_I4P) then
       call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
    !else
-   !   self%coil%A(n) = self%coil%A(1)
+   !   coil%A(n) = coil%A(1)
    !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
    !endif
 
@@ -1354,12 +1354,12 @@ contains
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                              &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n), &
-            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                      &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                              &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n), &
+            l_sol=>coil%l_solenoid(n), coil_flag=>coil%coil_flag,                      &
             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,             &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1421,7 +1421,7 @@ contains
    !if (n == 1_I4P) then
       call self%compute_solenoid_current_density_flux(n=n, adjust_amplitude=.true.)
    !else
-   !   self%coil%A(n) = self%coil%A(1)
+   !   coil%A(n) = coil%A(1)
    !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
    !endif
    endsubroutine set_solenoid_x
@@ -1439,12 +1439,12 @@ contains
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                              &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n), &
-            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                      &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                              &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n), &
+            l_sol=>coil%l_solenoid(n), coil_flag=>coil%coil_flag,                      &
             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,             &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1506,7 +1506,7 @@ contains
    !if (n == 1_I4P) then
       call self%compute_solenoid_current_density_flux(n=n, adjust_amplitude=.true.)
    !else
-   !   self%coil%A(n) = self%coil%A(1)
+   !   coil%A(n) = coil%A(1)
    !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
    !endif
    endsubroutine set_solenoid_y
@@ -1524,12 +1524,12 @@ contains
    integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                              &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n), &
-            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                      &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                              &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n), &
+            l_sol=>coil%l_solenoid(n), coil_flag=>coil%coil_flag,                      &
             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,             &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1591,7 +1591,7 @@ contains
    !if (n == 1_I4P) then
       call self%compute_solenoid_current_density_flux(n=n, adjust_amplitude=.true.)
    !else
-   !   self%coil%A(n) = self%coil%A(1)
+   !   coil%A(n) = coil%A(1)
    !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
    !endif
    endsubroutine set_solenoid_z

@@ -4,7 +4,7 @@ module adam_prism_fnl_coil_global
 !<
 !< Requires explicit initialization after the CPU-side coil object is populated:
 !<```fortran
-!< call coil_fnl%initialize(coil=self%coil)
+!< call coil_fnl%initialize(coil=coil)
 !<```
 
 ! PRISM FNL classes

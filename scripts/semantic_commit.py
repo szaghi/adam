@@ -12,6 +12,7 @@ Requirements:
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import textwrap
@@ -111,7 +112,6 @@ def ask_ollama(model: str, user_prompt: str) -> str:
                 chunk = json.loads(line)
                 token = chunk.get("message", {}).get("content", "")
                 if token:
-                    print(token, end="", flush=True)
                     collected.append(token)
                 if chunk.get("done"):
                     break
@@ -119,7 +119,6 @@ def ask_ollama(model: str, user_prompt: str) -> str:
         print(f"\nError: cannot reach Ollama at {OLLAMA_URL}\n{exc}", file=sys.stderr)
         sys.exit(1)
 
-    print()  # final newline
     return "".join(collected).strip()
 
 
@@ -131,13 +130,19 @@ def wrap_message(message: str, width: int = 90) -> str:
         if len(line) <= width:
             wrapped.append(line)
             continue
-        indent = len(line) - len(line.lstrip())
-        prefix = line[:indent]
+        # Leading whitespace becomes initial_indent (passed separately so
+        # textwrap measures it correctly against width).
+        n_indent = len(line) - len(line.lstrip())
+        initial_indent = line[:n_indent]
+        # Bullet lines ("- " / "* " / numbered "1. ") need a hanging indent
+        # so continuation lines align under the text, not the marker.
+        bullet = re.match(r'^(\s*(?:[-*]|\d+\.)\s+)', line)
+        subsequent_indent = ' ' * len(bullet.group(1)) if bullet else initial_indent
         wrapped.append(textwrap.fill(
             line,
             width=width,
-            initial_indent=prefix,
-            subsequent_indent=prefix,
+            initial_indent=initial_indent,
+            subsequent_indent=subsequent_indent,
             break_long_words=False,
             break_on_hyphens=False,
         ))
@@ -181,6 +186,7 @@ def main() -> None:
 
     print(f"[{args.model}] Generating commit message...\n", file=sys.stderr)
     message = wrap_message(ask_ollama(args.model, prompt))
+    print(message)
 
     if args.commit:
         print("\n--- Confirm commit? [y/N] ", end="", flush=True)

@@ -259,9 +259,9 @@ contains
    real(R8P),                          parameter :: f_tol = 1.0e-30_R8P
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, &
-             time=>time%time, dt=>time%dt, td=>self%coil%td,                 &
-             A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,                   &
-             J_vec=>self%coil%J_vec,                                                   &
+             time=>time%time, dt=>time%dt, td=>coil%td,                 &
+             A=>coil%A, f=>coil%f, phase=>coil%phase,                   &
+             J_vec=>coil%J_vec,                                                   &
              var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
 
       if (present(gamma)) then
@@ -269,7 +269,7 @@ contains
       else
          time_s = time
       end if
-      if (self%coil%total_coils_number >= 1_I4P) then
+      if (coil%total_coils_number >= 1_I4P) then
 
          ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
          q(var_Jx,:,:,:,:) = 0._R8P
@@ -285,7 +285,7 @@ contains
          s = max(0._R8P, min(1._R8P, s))
          g = 10._R8P*s**3 - 15._R8P*s**4 + 6._R8P*s**5
 
-         do n=1, self%coil%total_coils_number
+         do n=1, coil%total_coils_number
             coil_id = n
 
             phi_rad = phase(coil_id) * PI / 180._R8P
@@ -314,7 +314,7 @@ contains
             enddo
          enddo
          ! Diagnostiche
-         do n = 1, self%coil%total_coils_number
+         do n = 1, coil%total_coils_number
             theta = nint( (sign(1._R8P, abs(f(n)) - f_tol) + 1._R8P) * 0.5_R8P ) * (2._R8P*PI*f(n)) * (time_s - td) + &
                     phase(n)*PI/180._R8P
             current_density_o = A(n) * g * cos(theta)
@@ -704,7 +704,7 @@ contains
       call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
                                        np=self%pic%particle_number)
    endif
-   !call self%coil%set_coils(physics=physics, field=field) !Lo metto dopo perchè l'interpolatore di correnti azzera
+   !call coil%set_coils(physics=physics, field=field) !Lo metto dopo perchè l'interpolatore di correnti azzera
                                                                     !tutto per poter poi fare la sommatoria al relativo tempo
 
   call field%compute_metrics
@@ -773,7 +773,7 @@ contains
 
    call compute_e(ivar=VAR_DX, energy=energy_D)
    call compute_e(ivar=VAR_BX, energy=energy_B)
-   if (self%coil%total_coils_number > 0_I4P) call compute_coil_power(ivar=physics%var_Jx, coil_power=coil_power)
+   if (coil%total_coils_number > 0_I4P) call compute_coil_power(ivar=physics%var_Jx, coil_power=coil_power)
    call compute_Poynting_flux(Poynting_flux=Poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
@@ -833,7 +833,7 @@ contains
 
       coil_power = 0.0_R8P
       associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
-                coil_flag=>self%coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
+                coil_flag=>coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj

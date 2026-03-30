@@ -267,18 +267,18 @@ contains
    call mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
    call mpih_fnl%print_message('prism_fnl_object%initialize start')
    call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail,R8P), verbose=.true.)
-      print*, 'cazzo 111 ', self%coil%A(0)
-      print*, 'cazzo 111 ', self%coil%A(1)
-      print*, 'cazzo 111 ', self%coil%A(2)
-      print*, 'cazzo 111 ', self%coil%A(3)
-      print*, 'cazzo 111 ', self%coil%A(4)
+      print*, 'cazzo 111 ', coil%A(0)
+      print*, 'cazzo 111 ', coil%A(1)
+      print*, 'cazzo 111 ', coil%A(2)
+      print*, 'cazzo 111 ', coil%A(3)
+      print*, 'cazzo 111 ', coil%A(4)
    call field_fnl%initialize(verbose=.true.)
    call ib_fnl%initialize
    call rk_fnl%initialize
    call weno_fnl%initialize
    call self%allocate_gpu
-   call coil_fnl%initialize(coil=self%coil)
-   call fwlayer_fnl%initialize(fwlayer=self%fwlayer)
+   call coil_fnl%initialize(coil=coil)
+   call fwlayer_fnl%initialize(fwlayer=fWLayer)
 
    ! set pointer (abstract) TBP
    if (physics%physical_model == EM_PHYSICAL_MODEL) then
@@ -479,11 +479,11 @@ contains
    real(R8P), parameter                          :: f_tol=1.e-30_R8P!< Tolerance on frequency for branchless switch AC/DC.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,    &
-             time=>time%time, dt=>time%dt, td=>self%coil%td,                                   &
-             A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,                                     &
+             time=>time%time, dt=>time%dt, td=>coil%td,                                   &
+             A=>coil%A, f=>coil%f, phase=>coil%phase,                                     &
              var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
    time_s = time ; if (present(gamm)) time_s = time + dt*gamm
-   if (self%coil%total_coils_number >= 1_I4P) then
+   if (coil%total_coils_number >= 1_I4P) then
       ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
       call nullify_j_vec_vars_kernel(ni            = ni           ,&
                                      nj            = nj           ,&
@@ -499,7 +499,7 @@ contains
       s = 1._R8P ; if (td > 0._R8P) s = time_s / td ; s = max(0._R8P, min(1._R8P, s))
       g = 10._R8P*s**3 - 15._R8P*s**4 + 6._R8P*s**5
 
-      do n=1, self%coil%total_coils_number
+      do n=1, coil%total_coils_number
          coil_id = n
 
          phi_rad = phase(coil_id) * PI / 180._R8P
@@ -667,7 +667,7 @@ contains
    !    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
    !                                     np=self%pic%particle_number)
    ! endif
-   ! call self%coil%set_coils(physics=physics, field=field)
+   ! call coil%set_coils(physics=physics, field=field)
 
    call self%initialize_coils
 
@@ -1421,7 +1421,7 @@ contains
                              ivar=VAR_DX,dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_D)
    call compute_e_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
                              ivar=VAR_BX,dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_B)
-   if (self%coil%total_coils_number > 0_I4P) then
+   if (coil%total_coils_number > 0_I4P) then
       call compute_coil_power_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
                                          ivar=physics%var_Jx,coil_flag_gpu=coil_fnl%coil_flag_gpu,            &
                                          dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,coil_power=coil_power)
