@@ -420,7 +420,7 @@ contains
    integer(I4P)                           :: alfa_B(6), beta_B(6)    !< Corrected var index of D (Barbas' notation).
    integer(I4P)                           :: face                    !< Counter.
 
-   associate(C=>self%fWLayer%C, layer=>self%fWLayer%layer)
+   associate(C=>fWLayer%C, layer=>fWLayer%layer)
    if (C>0) then
       ! below arrays should be initialized elsewhere...
         ni(1,1)=1_I4P   ;   ni(1,2)=self%ni-C ;   ni(1,3)=1_I4P   ;   ni(1,4)=1_I4P     ;   ni(1,5)=1_I4P   ;   ni(1,6)=1_I4P

@@ -19,6 +19,7 @@ use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! PRISM singleton objects
 use :: adam_prism_bc_global,       only : bc
+use :: adam_prism_fWLayer_global,  only : fWLayer
 use :: adam_prism_ic_global,       only : ic
 use :: adam_prism_numerics_global, only : numerics
 use :: adam_prism_physics_global,  only : physics
@@ -35,7 +36,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_fWLayer_object)            :: fWLayer            !< fWLayer handler.
    type(prism_coil_object)               :: coil               !< Coils handler.
    type(prism_external_fields_object)    :: external_fields    !< External fields handler.
    type(prism_pic_object)                :: pic                !< Particle-in-Cell (PIC) handler.
@@ -205,7 +205,7 @@ contains
       call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic)
    call time%initialize(file_parameters=file_parameters)
    call ic%initialize(file_parameters=file_parameters)
-   call self%fWLayer%initialize(file_parameters=file_parameters, physics=physics)
+   call fWLayer%initialize(file_parameters=file_parameters, physics=physics)
    call self%coil%initialize(file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
@@ -308,7 +308,7 @@ contains
    real(R8P)                                        :: max_div_J   !< Maximum of divergence of J field.
    real(R8P)                                        :: r           !< Auxiliary variable to identify fWL presence
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>fWLayer%C, hs=>self%fdv_half_stencils(1))
    r = nint(real(C)/(real(C)+1_I4P))
    if (time%is_to_save(it_save=self%io%divergence_history_save)) then
       max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
@@ -412,9 +412,9 @@ contains
          enddo
       endif
 
-      if (self%fWLayer%C>0) &
+      if (fWLayer%C>0) &
          call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
-                                 q=self%fWLayer%f(:,:,:,:,b), q_name=self%fWLayer%f_name)
+                                 q=fWLayer%f(:,:,:,:,b), q_name=fWLayer%f_name)
 
       if (self%io%save_residual_fields) &
          call self%io%save_field(xh5f=xh5f,block_name=bn,ijk=ijk,nijk=nijk,q=self%dq(:,:,:,:,b), q_name=self%dq_name)
