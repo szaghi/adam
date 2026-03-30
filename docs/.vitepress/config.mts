@@ -3,6 +3,9 @@ import apiSidebar from '../api/_sidebar.json'
 
 export default withMermaid({
   title: 'ADAM Documentation',
+  head: [
+    ['style', {}, '.dark-only{display:none}.dark .dark-only{display:block}.dark .light-only{display:none}'],
+  ],
   base: '/adam/',
   description: 'Accelerated fluid Dynamics on Adaptive Mesh refinement grids — fluid dynamics SDK and apps for High-Performance Computing — from laptop to exascale device-accelerated superpc',
   markdown: {

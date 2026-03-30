@@ -48,6 +48,19 @@ jobs:
       id: cov
       uses: ./.github/actions/run-coverage-analysis
 
+    - name: Generate coverage badge JSON
+      env:
+        PCT: ${{ steps.cov.outputs.pct }}
+      run: |
+        python3 - <<'EOF'
+        import os, json
+        pct = float(os.environ["PCT"])
+        color = "brightgreen" if pct >= 80 else "yellow" if pct >= 60 else "red"
+        badge = {"schemaVersion": 1, "label": "coverage", "message": f"{pct:.1f}%", "color": color}
+        with open("docs/public/coverage-badge.json", "w") as f:
+            json.dump(badge, f)
+        EOF
+
     - name: Build documentation
       env:
         COVERAGE_PCT: ${{ steps.cov.outputs.pct }}

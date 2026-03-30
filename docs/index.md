@@ -5,6 +5,10 @@ hero:
   name: ADAM
   text: Accelerated fluid Dynamics on Adaptive Mesh refinement grids
   tagline: fluid dynamics SDK and apps for High Performance Computing — from laptop to exascale device-accelerated superpc.
+  image:
+    light: /adam-logo-bga.png
+    dark:  /adam-logo-bgai.png
+    alt:   MOSAIC logo
   actions:
     - theme: brand
       text: Guide

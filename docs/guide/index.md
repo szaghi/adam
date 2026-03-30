@@ -2,6 +2,9 @@
 title: About ADAM
 ---
 
+<img src="/adam-logo-bga.png" alt="MOSAIC logo" width="480" class="light-only">
+<img src="/adam-logo-bgai.png" alt="MOSAIC logo" width="480" class="dark-only">
+
 # About ADAM
 
 **ADAM** (Accelerated fluid Dynamics on Adaptive Mesh refinement grids) is a high-performance fluid dynamics framework written in modern Fortran for device(GPU)-accelerated HPC simulations and traditional CPU-based superpc. It provides physics-agnostic SDK library offering AMR, IB, WENO, RK, parellel I/O, ecc... on top of which is easy to develop CFD solvers (currently a compressible Navier-Stokes solver named NASTO and an electromagnetic plasma solver named PRSIM are the principal applications developed with ADAM).

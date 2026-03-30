@@ -1,11 +1,18 @@
 <div align="center">
 
-# ADAM
+<picture>
+  <source media="(prefers-color-scheme: dark)"  srcset="docs/public/adam-logo-bgai.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/public/adam-logo-bga.png">
+  <img src="docs/public/adam-logo-bgai.png" alt="ADAM logo" width="480">
+</picture>
+
+> Multi-physics AMR SDK and apps for High Performance Computing — from laptop to exascale device-accelerated superpc
 
 ### *A*ccelerated fluid *D*ynamics on *A*daptive *M*esh refinement grids
 
-> fluid dynamics SDK and apps for High Performance Computing — from laptop to exascale device-accelerated superpc
-
+[![Version](https://img.shields.io/github/v/tag/szaghi/adam?sort=semver&label=version)](https://github.com/szaghi/adam/releases/latest)
+[![Tests](https://github.com/szaghi/adam/actions/workflows/tests.yml/badge.svg)](https://github.com/szaghi/adam/actions/workflows/tests.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://szaghi.github.io/adam/coverage-badge.json)](https://szaghi.github.io/adam/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![License: LGPLv3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
 
