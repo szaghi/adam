@@ -3,7 +3,7 @@ module adam_prism_common_object
 
 ! ADAM common library
 use :: adam_common_library
-! PRISM modules
+! PRISM classes, libraries, parameters
 use :: adam_prism_bc_object
 use :: adam_prism_coil_object
 use :: adam_prism_external_fields_object
@@ -17,6 +17,8 @@ use :: adam_prism_particle_injection_object
 use :: adam_prism_rk_pic_object
 use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
+! PRISM singleton objects
+use :: adam_prism_numerics_global, only : numerics
 ! third party modules
 use :: motion
 use :: penf
@@ -28,7 +30,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_numerics_object)           :: numerics           !< Numerics handler.
    type(prism_physics_object)            :: physics            !< Fluids physiscs handler.
    type(prism_ic_object)                 :: ic                 !< Initial Conditions (IC) handler.
    type(prism_bc_object)                 :: bc                 !< Boundary Conditions (BC) handler.
@@ -185,12 +186,12 @@ contains
    if (verbose_) call mpih%print_message('prism_common_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-   call self%numerics%initialize(file_parameters=file_parameters)
+   call numerics%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters,                              &
-                                reconstruction_vars=self%numerics%reconstruction_vars,        &
-                                div_corr_var=self%numerics%div_corr_var,                      &
-                                constrained_transport_D=self%numerics%constrained_transport_D,&
-                                constrained_transport_B=self%numerics%constrained_transport_B)
+                                reconstruction_vars=numerics%reconstruction_vars,        &
+                                div_corr_var=numerics%div_corr_var,                      &
+                                constrained_transport_D=numerics%constrained_transport_D,&
+                                constrained_transport_B=numerics%constrained_transport_B)
    self%nv_c   => self%physics%nv_c
    self%nv_s   => self%physics%nv_s
    self%nv_cl  => self%physics%nv_cl
@@ -207,7 +208,7 @@ contains
    call self%fWLayer%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%coil%initialize(file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
+   if (numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
       call self%rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=self%physics)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
@@ -225,7 +226,7 @@ contains
       !< Check if the number of ghost cells is consistent with the numerical schemes used, if not an error is echoed and
       !< the simulation is stop.
 
-      if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) then
+      if (numerics%scheme_space==NUM_SCHEME_SPACE_WENO) then
          if (weno%S > grid%ngc) &
             call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of weno stencil number (weno%S):'//&
                                       ' ngc='//trim(str(grid%ngc))//' weno%S='//trim(str(weno%S)))
@@ -242,8 +243,8 @@ contains
       integer(I4P)               :: v         !< Counter.
 
       add_rho = self%physics%physical_model == PIC_PHYSICAL_MODEL
-      associate(add_phi=>self%numerics%constrained_transport_D, &
-                add_psi=>self%numerics%constrained_transport_B)
+      associate(add_phi=>numerics%constrained_transport_D, &
+                add_psi=>numerics%constrained_transport_B)
                    q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ']
       if (add_phi) q_name = [q_name, 'phi']
       if (add_psi) q_name = [q_name, 'psi']

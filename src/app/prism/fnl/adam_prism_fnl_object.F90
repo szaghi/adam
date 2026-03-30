@@ -282,7 +282,7 @@ contains
 
    ! set pointer (abstract) TBP
    if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
-      select case(self%numerics%scheme_time)
+      select case(numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
          self%integrate_dev => integrate_blanesmoan_dev
       case(NUM_SCHEME_TIME_CFM)
@@ -300,7 +300,7 @@ contains
          endselect
       endselect
    !elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !   select case(self%numerics%scheme_time)
+   !   select case(numerics%scheme_time)
    !   case(NUM_SCHEME_TIME_LEAPFROG)
    !      select case(self%pic%scheme_time)
    !      case(NUM_SCHEME_TIME_PIC_LEAPFROG)
@@ -318,7 +318,7 @@ contains
    !   endselect
    endif
 
-   select case(self%numerics%scheme_space)
+   select case(numerics%scheme_space)
    case(NUM_SCHEME_SPACE_WENO)
       self%compute_curl_dev        => compute_curl_fv_dev
       self%compute_derivative1_dev => compute_derivative1_fv_dev
@@ -1319,7 +1319,7 @@ contains
    ! call self%save_divergence_history(is_to_open=.true.)
    call self%io%open_file_residuals(nv=self%nv)
 
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
+   if (numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
       ! to be implemented leapfrog on device
       ! call self%leapfrog%assign_step(s=1, q=self%q)
       ! call self%compute_dt
@@ -1697,8 +1697,8 @@ contains
    !< Impose divergence-free property.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
-             constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
+   associate(constrained_transport_D=>numerics%constrained_transport_D,&
+             constrained_transport_B=>numerics%constrained_transport_B,div_corr_var=>numerics%div_corr_var)
    if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
    if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
    ! here should go also other corrections...

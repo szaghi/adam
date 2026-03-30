@@ -119,7 +119,7 @@ contains
 
    ! set pointer (abstract) TBP
    if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
-      select case(self%numerics%scheme_time)
+      select case(numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
          self%integrate => integrate_blanesmoan
       case(NUM_SCHEME_TIME_CFM)
@@ -137,7 +137,7 @@ contains
          endselect
       endselect
    elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then !Metterei qualche error stop sulle combinazioni non valide
-      select case(self%numerics%scheme_time)
+      select case(numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
          select case(self%pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
@@ -162,7 +162,7 @@ contains
       endselect
    endif
 
-   select case(self%numerics%scheme_space)
+   select case(numerics%scheme_space)
    case(NUM_SCHEME_SPACE_WENO)
       self%compute_residuals   => compute_residuals_weno
    case(NUM_SCHEME_SPACE_FD_CENTERED)
@@ -171,15 +171,15 @@ contains
       self%compute_residuals   => compute_residuals_fv_centered
    endselect
 
-   select case(self%numerics%div_corr_var)
+   select case(numerics%div_corr_var)
    case(DIV_CORR_VAR_POISS)
       compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
    case(DIV_CORR_VAR_HYPER)
-      if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
+      if (numerics%constrained_transport_D .and. .not.numerics%constrained_transport_B) then
          compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_d
-      elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+      elseif (.not.numerics%constrained_transport_D .and. numerics%constrained_transport_B) then
          compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_b
-      elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+      elseif (numerics%constrained_transport_D .and. numerics%constrained_transport_B) then
          compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_d_b
       endif
    case default
@@ -389,8 +389,8 @@ contains
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                                        &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),                         &
              dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,                &
-             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, constrained_transport_B=>self%numerics%constrained_transport_B, &
-             constrained_transport_D=>self%numerics%constrained_transport_D)
+             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, constrained_transport_B=>numerics%constrained_transport_B, &
+             constrained_transport_D=>numerics%constrained_transport_D)
 
    if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
@@ -626,9 +626,9 @@ contains
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                        &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
              dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
-             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,       &
-             constrained_transport_B=>self%numerics%constrained_transport_B,                                     &
-             constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>rk%q_rk,                      &
+             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>numerics%div_corr_var,       &
+             constrained_transport_B=>numerics%constrained_transport_B,                                     &
+             constrained_transport_D=>numerics%constrained_transport_D, q_rk=>rk%q_rk,                      &
              q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
    if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
@@ -960,8 +960,8 @@ contains
    !< Impose divergence-free property.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
-             constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
+   associate(constrained_transport_D=>numerics%constrained_transport_D,&
+             constrained_transport_B=>numerics%constrained_transport_B,div_corr_var=>numerics%div_corr_var)
    if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
    if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
    ! here should go also other corrections...
@@ -1077,7 +1077,7 @@ contains
       endif
    endif
 
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
+   if (numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
       ! first time integration done apart with explicit euler scheme to iniziale leapfrog
       call self%leapfrog%assign_step(s=1, q=self%q)
       call self%compute_dt
@@ -1180,11 +1180,11 @@ contains
 	          dxyz=>field%dxyz,                                                                                        &
 	          s1=>self%fdv_half_stencils(1),                                                                           &
 	          s4=>self%fdv_half_stencils(4),                                                                           &
-				 chi =>self%physics%chi, constrained_transport_D=>self%numerics%constrained_transport_D,						 &
-             constrained_transport_B=>self%numerics%constrained_transport_B,														 &
+				 chi =>self%physics%chi, constrained_transport_D=>numerics%constrained_transport_D,						 &
+             constrained_transport_B=>numerics%constrained_transport_B,														 &
 	          var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
 	if (blocks_number > 0) then
-		if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+		if (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
 		   .not.constrained_transport_B) then
 		! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
 			do b=1,blocks_number
@@ -1214,7 +1214,7 @@ contains
 		   enddo
 		   enddo
 		   enddo
-		elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
+		elseif (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
 		   		constrained_transport_B) then
 		! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
 			do b=1,blocks_number
@@ -1244,7 +1244,7 @@ contains
 		   enddo
 		   enddo
 		   enddo
-		elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+		elseif (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
 		   		constrained_transport_B) then
 		! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
 		!             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
@@ -1686,8 +1686,8 @@ contains
                 nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
                 dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
                 nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                 &
-                constrained_transport_B=>self%numerics%constrained_transport_B,                                     &
-                constrained_transport_D=>self%numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                &
+                constrained_transport_B=>numerics%constrained_transport_B,                                     &
+                constrained_transport_D=>numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                &
                 q_bc_rk=>self%rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>self%rk_bc%beta)
 
    if (present(phi)) then

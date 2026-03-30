@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-DEFAULT_MODEL = "llama3.2"
+DEFAULT_MODEL = "qwen3-coder:30b-a3b-q4_K_M"
 MAX_DIFF_CHARS = 12_000
 
 SYSTEM_PROMPT = """\
