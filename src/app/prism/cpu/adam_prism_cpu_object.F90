@@ -1575,8 +1575,8 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
+   if (external_fields%ef_type/=EF_TYPE_NONE) &
+      call external_fields%sub_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
    call rk%initialize_stages(q=self%q)
    do s=1, rk%nrk
       if (ib%solids_number>0) then
@@ -1603,8 +1603,8 @@ contains
    endif
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
+   if (external_fields%ef_type/=EF_TYPE_NONE) &
+      call external_fields%add_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
    endsubroutine integrate_rk_ssp
 
    subroutine integrate_rk_ssp_pic(self)

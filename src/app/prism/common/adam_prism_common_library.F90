@@ -8,6 +8,7 @@ use :: adam_prism_bc_object
 use :: adam_prism_coil_global
 use :: adam_prism_coil_object
 use :: adam_prism_common_object
+use :: adam_prism_external_fields_global
 use :: adam_prism_external_fields_object
 use :: adam_prism_fWLayer_global
 use :: adam_prism_fWLayer_object

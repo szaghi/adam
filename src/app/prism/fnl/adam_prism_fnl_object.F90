@@ -345,7 +345,7 @@ contains
       ! self%compute_residuals_dev   => compute_residuals_fv_centered_dev
    endselect
 
-   call external_fields_initialize_dev(external_fields=self%external_fields)
+   call external_fields_initialize_dev(external_fields=external_fields)
 
    call mpih_fnl%print_message('prism_fnl_object%initialize finish')
    endsubroutine initialize_prism
@@ -1216,8 +1216,8 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=field_fnl, &
+   if (external_fields%ef_type/=EF_TYPE_NONE) &
+      call sub_external_fields_dev(external_fields=external_fields, field_gpu=field_fnl, &
                                    dt=time%dt, time=time%time, q_gpu=self%q_gpu)
    call rk_fnl%initialize_stages(q_gpu=self%q_gpu)
    do s=1, rk%nrk
@@ -1245,8 +1245,8 @@ contains
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
    ! call self%apply_fwl_correction  ! to be removed, probably
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=field_fnl, &
+   if (external_fields%ef_type/=EF_TYPE_NONE) &
+      call add_external_fields_dev(external_fields=external_fields, field_gpu=field_fnl, &
                                    dt=time%dt, time=time%time, q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ssp_dev
 

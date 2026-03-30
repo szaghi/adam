@@ -18,14 +18,15 @@ use :: adam_prism_rk_pic_object
 use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! PRISM singleton objects
-use :: adam_prism_bc_global,       only : bc
-use :: adam_prism_coil_global,     only : coil
-use :: adam_prism_fWLayer_global,  only : fWLayer
-use :: adam_prism_ic_global,       only : ic
-use :: adam_prism_numerics_global, only : numerics
-use :: adam_prism_physics_global,  only : physics
-use :: adam_prism_rk_bc_global,    only : rk_bc
-use :: adam_prism_time_global,     only : time
+use :: adam_prism_bc_global,             only : bc
+use :: adam_prism_coil_global,           only : coil
+use :: adam_prism_external_fields_global,only : external_fields
+use :: adam_prism_fWLayer_global,        only : fWLayer
+use :: adam_prism_ic_global,             only : ic
+use :: adam_prism_numerics_global,       only : numerics
+use :: adam_prism_physics_global,        only : physics
+use :: adam_prism_rk_bc_global,          only : rk_bc
+use :: adam_prism_time_global,           only : time
 ! third party modules
 use :: motion
 use :: penf
@@ -37,7 +38,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_external_fields_object)    :: external_fields    !< External fields handler.
    type(prism_pic_object)                :: pic                !< Particle-in-Cell (PIC) handler.
    type(prism_particle_injection_object) :: particle_injection !< Particle injection handler.
    type(prism_leapfrog_pic_object)       :: leapfrog_pic       !< Leapfrog PIC integrator.
@@ -207,7 +207,7 @@ contains
    call ic%initialize(file_parameters=file_parameters)
    call fWLayer%initialize(file_parameters=file_parameters, physics=physics)
    call coil%initialize(file_parameters=file_parameters)
-   call self%external_fields%initialize(file_parameters=file_parameters)
+   call external_fields%initialize(file_parameters=file_parameters)
    if (numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
       call rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=physics)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
