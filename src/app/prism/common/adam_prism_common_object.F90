@@ -22,6 +22,7 @@ use :: adam_prism_bc_global,       only : bc
 use :: adam_prism_ic_global,       only : ic
 use :: adam_prism_numerics_global, only : numerics
 use :: adam_prism_physics_global,  only : physics
+use :: adam_prism_rk_bc_global,    only : rk_bc
 ! third party modules
 use :: motion
 use :: penf
@@ -33,7 +34,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_rk_bc_object)              :: rk_bc              !< RK integrator for BC.
    type(prism_time_object)               :: time               !< Time handler.
    type(prism_fWLayer_object)            :: fWLayer            !< fWLayer handler.
    type(prism_coil_object)               :: coil               !< Coils handler.
@@ -209,7 +209,7 @@ contains
    call self%coil%initialize(file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-      call self%rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=physics)
+      call rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=physics)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)

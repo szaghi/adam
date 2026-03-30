@@ -563,11 +563,11 @@ contains
        .or. bc%bc_type(3) == BC_radiative .or. bc%bc_type(4) == BC_radiative &
        .or. bc%bc_type(5) == BC_radiative .or. bc%bc_type(6) == BC_radiative) then !Al momento scritta per funzionare solo con un secondo ordine
       if (present(s)) then
-         if (s==1_I4P) call self%rk_bc%initialize_stages(q=q)
+         if (s==1_I4P) call rk_bc%initialize_stages(q=q)
          if (ib%solids_number>0) then !calcolo stadio per le BC
-            call self%rk_bc%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
+            call rk_bc%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
          else
-            call self%rk_bc%compute_stage(s=s, dt=self%time%dt)
+            call rk_bc%compute_stage(s=s, dt=self%time%dt)
          endif
          !Calcolo i residui per l'integrazione temporale delle BC (in un futuro da allineare con operatore spaziale qualsiasi)
          call self%compute_residuals_BC(s=s)
@@ -590,7 +590,7 @@ contains
                      fec_1_6 = fec_1_6_array(fec)
                      if (bc_type == BC_radiative) then
                         do v=1, nv_c
-                           q(v,i,j,k,b) = 2*self%rk_bc%q_bc_rk(v,i,j,k,b,s)-q(v,i-idelta,j-jdelta,k-kdelta,b)
+                           q(v,i,j,k,b) = 2*rk_bc%q_bc_rk(v,i,j,k,b,s)-q(v,i-idelta,j-jdelta,k-kdelta,b)
                         enddo
                      endif
                   endif
@@ -599,9 +599,9 @@ contains
          endif
          !Concludi assegnando lo stadio
          if (ib%solids_number>0) then
-            call self%rk_bc%assign_stage(s=s, phi=ib%phi)
+            call rk_bc%assign_stage(s=s, phi=ib%phi)
          else
-            call self%rk_bc%assign_stage(s=s)
+            call rk_bc%assign_stage(s=s)
          endif
       else !Mi serve solo per il t0, tanto ic è il vuoto praticamente sempre
          q(v,i,j,k,b) = 0.0_R8P
@@ -629,7 +629,7 @@ contains
              nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, div_corr_var=>numerics%div_corr_var,       &
              constrained_transport_B=>numerics%constrained_transport_B,                                     &
              constrained_transport_D=>numerics%constrained_transport_D, q_rk=>rk%q_rk,                      &
-             q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
+             q_bc_rk=>rk_bc%q_bc_rk,dq_bc_rk=>rk_bc%dq_bc_rk)
    if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
@@ -1687,8 +1687,8 @@ contains
                 dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,&
                 nv_c=>physics%nv_c, nv_cl=>physics%nv_cl,                                                 &
                 constrained_transport_B=>numerics%constrained_transport_B,                                     &
-                constrained_transport_D=>numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                &
-                q_bc_rk=>self%rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>self%rk_bc%beta)
+                constrained_transport_D=>numerics%constrained_transport_D, nrk=>rk_bc%nrk,                &
+                q_bc_rk=>rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>rk_bc%beta)
 
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
