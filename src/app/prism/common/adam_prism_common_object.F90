@@ -19,6 +19,7 @@ use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! PRISM singleton objects
 use :: adam_prism_numerics_global, only : numerics
+use :: adam_prism_physics_global,  only : physics
 ! third party modules
 use :: motion
 use :: penf
@@ -30,7 +31,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_physics_object)            :: physics            !< Fluids physiscs handler.
    type(prism_ic_object)                 :: ic                 !< Initial Conditions (IC) handler.
    type(prism_bc_object)                 :: bc                 !< Boundary Conditions (BC) handler.
    type(prism_rk_bc_object)              :: rk_bc              !< RK integrator for BC.
@@ -138,7 +138,7 @@ contains
    allocate(self%div_name( self%nv))
    allocate(self%curl_name(self%nv))
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       ! allocate(q_pic_name(:))
       call allocate_variable(var=self%q_pic,                          &
                              ulb=reshape([1,8,                        &
@@ -158,7 +158,7 @@ contains
    !< Compute auxiliary fields.
    class(prism_common_object), intent(inout) :: self !< The equation.
 
-   associate(hs=>self%fdv_half_stencil,var_jx=>self%physics%var_jx)
+   associate(hs=>self%fdv_half_stencil,var_jx=>physics%var_jx)
    if (self%io%save_divergence_fields) then
       call self%compute_divergence(hs=hs,ivar=VAR_DX,q=self%q,divergence=self%divergence(1,:,:,:,:))
       call self%compute_divergence(hs=hs,ivar=VAR_BX,q=self%q,divergence=self%divergence(2,:,:,:,:))
@@ -187,30 +187,30 @@ contains
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
    call numerics%initialize(file_parameters=file_parameters)
-   call self%physics%initialize(file_parameters=file_parameters,                              &
+   call physics%initialize(file_parameters=file_parameters,                              &
                                 reconstruction_vars=numerics%reconstruction_vars,        &
                                 div_corr_var=numerics%div_corr_var,                      &
                                 constrained_transport_D=numerics%constrained_transport_D,&
                                 constrained_transport_B=numerics%constrained_transport_B)
-   self%nv_c   => self%physics%nv_c
-   self%nv_s   => self%physics%nv_s
-   self%nv_cl  => self%physics%nv_cl
+   self%nv_c   => physics%nv_c
+   self%nv_s   => physics%nv_s
+   self%nv_cl  => physics%nv_cl
    !self%nv_pic => physics%nv_pic
-   call self%equation_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, verbose=verbose_)
+   call self%equation_object%initialize(filename=filename, memory_avail=memory_avail, nv=physics%nv, verbose=verbose_)
    call self%bc%initialize(file_parameters=file_parameters)
    call grid%set_bc_type(bc_type=self%bc%bc_type)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+   if (physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%pic%initialize(file_parameters=file_parameters)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+   if (physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
-   call self%fWLayer%initialize(file_parameters=file_parameters, physics=self%physics)
+   call self%fWLayer%initialize(file_parameters=file_parameters, physics=physics)
    call self%coil%initialize(file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-      call self%rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=self%physics)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      call self%rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=physics)
+   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
@@ -242,7 +242,7 @@ contains
       logical                    :: add_rho   !< Flag to add rho for PIC.
       integer(I4P)               :: v         !< Counter.
 
-      add_rho = self%physics%physical_model == PIC_PHYSICAL_MODEL
+      add_rho = physics%physical_model == PIC_PHYSICAL_MODEL
       associate(add_phi=>numerics%constrained_transport_D, &
                 add_psi=>numerics%constrained_transport_B)
                    q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ']

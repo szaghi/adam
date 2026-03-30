@@ -281,7 +281,7 @@ contains
    call fwlayer_fnl%initialize(fwlayer=self%fwlayer)
 
    ! set pointer (abstract) TBP
-   if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
+   if (physics%physical_model == EM_PHYSICAL_MODEL) then
       select case(numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
          self%integrate_dev => integrate_blanesmoan_dev
@@ -299,7 +299,7 @@ contains
             self%integrate_dev => integrate_rk_yoshida_dev
          endselect
       endselect
-   !elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   !elseif (physics%physical_model == PIC_PHYSICAL_MODEL) then
    !   select case(numerics%scheme_time)
    !   case(NUM_SCHEME_TIME_LEAPFROG)
    !      select case(self%pic%scheme_time)
@@ -481,7 +481,7 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,    &
              time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                                   &
              A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,                                     &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
+             var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
    time_s = time ; if (present(gamm)) time_s = time + dt*gamm
    if (self%coil%total_coils_number >= 1_I4P) then
       ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
@@ -660,18 +660,18 @@ contains
    !< Set initial conditions of field.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   call self%ic%set_initial_conditions(physics=self%physics, field=field, q=self%q)
-   ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   call self%ic%set_initial_conditions(physics=physics, field=field, q=self%q)
+   ! if (physics%physical_model == PIC_PHYSICAL_MODEL) then
    !    call self%particle_injection%set_particle_initial_injection(field=field, pic=self%pic, q_pic=self%q_pic)
    !    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
    !    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
    !                                     np=self%pic%particle_number)
    ! endif
-   ! call self%coil%set_coils(physics=self%physics, field=field)
+   ! call self%coil%set_coils(physics=physics, field=field)
 
    call self%initialize_coils
 
-   ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   ! if (physics%physical_model == PIC_PHYSICAL_MODEL) then
    !    call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    !    call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    !    call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
@@ -1033,9 +1033,9 @@ contains
                                                     nk            = self%nk                  ,&
                                                     ngc           = self%ngc                 ,&
                                                     blocks_number = self%blocks_number       ,&
-                                                    var_jx        = self%physics%var_jx      ,&
-                                                    var_jy        = self%physics%var_jy      ,&
-                                                    var_jz        = self%physics%var_jz      ,&
+                                                    var_jx        = physics%var_jx      ,&
+                                                    var_jy        = physics%var_jy      ,&
+                                                    var_jz        = physics%var_jz      ,&
                                                     s1            = self%fdv_half_stencils(1),&
                                                     dxyz_gpu      = field_fnl%dxyz_gpu  ,&
                                                     q_gpu         = q_gpu                    ,&
@@ -1311,7 +1311,7 @@ contains
    associate(hs=>self%fdv_half_stencil)
    call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
@@ -1327,7 +1327,7 @@ contains
       ! self%q = self%q + self%time%dt * self%dq
    endif
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! to be implemented
       endif
@@ -1391,7 +1391,7 @@ contains
 
    call compute_dxyz_min_kernel(blocks_number=self%blocks_number, dxyz_gpu=field_fnl%dxyz_gpu, dxyz_min=dxyz_min)
    dxyz_min = dxyz_min * 0.5_R8P
-   self%time%dt = self%time%CFL*dxyz_min / self%physics%evmax
+   self%time%dt = self%time%CFL*dxyz_min / physics%evmax
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
    contains
       subroutine compute_dxyz_min_kernel(blocks_number, dxyz_gpu, dxyz_min)
@@ -1423,7 +1423,7 @@ contains
                              ivar=VAR_BX,dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_B)
    if (self%coil%total_coils_number > 0_I4P) then
       call compute_coil_power_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
-                                         ivar=self%physics%var_Jx,coil_flag_gpu=coil_fnl%coil_flag_gpu,            &
+                                         ivar=physics%var_Jx,coil_flag_gpu=coil_fnl%coil_flag_gpu,            &
                                          dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,coil_power=coil_power)
    else
       coil_power = 0._R8P

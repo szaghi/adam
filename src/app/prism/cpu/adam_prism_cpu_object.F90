@@ -118,7 +118,7 @@ contains
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
-   if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
+   if (physics%physical_model == EM_PHYSICAL_MODEL) then
       select case(numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
          self%integrate => integrate_blanesmoan
@@ -136,7 +136,7 @@ contains
             self%integrate => integrate_rk_yoshida
          endselect
       endselect
-   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then !Metterei qualche error stop sulle combinazioni non valide
+   elseif (physics%physical_model == PIC_PHYSICAL_MODEL) then !Metterei qualche error stop sulle combinazioni non valide
       select case(numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
          select case(self%pic%scheme_time)
@@ -262,7 +262,7 @@ contains
              time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                 &
              A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,                   &
              J_vec=>self%coil%J_vec,                                                   &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
+             var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
 
       if (present(gamma)) then
          time_s = time + dt*gamma
@@ -388,8 +388,8 @@ contains
 
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                                        &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),                         &
-             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,                &
-             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, constrained_transport_B=>numerics%constrained_transport_B, &
+             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,                &
+             nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, constrained_transport_B=>numerics%constrained_transport_B, &
              constrained_transport_D=>numerics%constrained_transport_D)
 
    if (allocated(maps%local_map_bc_crown)) then
@@ -625,8 +625,8 @@ contains
    integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                        &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
-             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
-             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>numerics%div_corr_var,       &
+             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,&
+             nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, div_corr_var=>numerics%div_corr_var,       &
              constrained_transport_B=>numerics%constrained_transport_B,                                     &
              constrained_transport_D=>numerics%constrained_transport_D, q_rk=>rk%q_rk,                      &
              q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
@@ -697,20 +697,20 @@ contains
    !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   call self%ic%set_initial_conditions(physics=self%physics, field=field, q=self%q)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   call self%ic%set_initial_conditions(physics=physics, field=field, q=self%q)
+   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       call self%particle_injection%set_particle_initial_injection(field=field, pic=self%pic, q_pic=self%q_pic)
       call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
       call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
                                        np=self%pic%particle_number)
    endif
-   !call self%coil%set_coils(physics=self%physics, field=field) !Lo metto dopo perchè l'interpolatore di correnti azzera
+   !call self%coil%set_coils(physics=physics, field=field) !Lo metto dopo perchè l'interpolatore di correnti azzera
                                                                     !tutto per poter poi fare la sommatoria al relativo tempo
 
   call field%compute_metrics
    call self%initialize_coils
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
       call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
       call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
@@ -755,7 +755,7 @@ contains
    integer(I4P)                           :: b                               !< Counter.
 
    dxyz_min = huge(1._R8P)
-   associate(blocks_number=>self%blocks_number, dxyz=>field%dxyz,chi=>self%physics%chi, evmax=>self%physics%evmax)
+   associate(blocks_number=>self%blocks_number, dxyz=>field%dxyz,chi=>physics%chi, evmax=>physics%evmax)
    call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
    umax = evmax
    self%time%dt = self%time%CFL*dxyz_min / umax
@@ -773,7 +773,7 @@ contains
 
    call compute_e(ivar=VAR_DX, energy=energy_D)
    call compute_e(ivar=VAR_BX, energy=energy_B)
-   if (self%coil%total_coils_number > 0_I4P) call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
+   if (self%coil%total_coils_number > 0_I4P) call compute_coil_power(ivar=physics%var_Jx, coil_power=coil_power)
    call compute_Poynting_flux(Poynting_flux=Poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
@@ -1046,7 +1046,7 @@ contains
    associate(hs=>self%fdv_half_stencil)
    call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
@@ -1054,7 +1054,7 @@ contains
    call self%save_divergence_history(is_to_open=.true.)
    call self%io%open_file_residuals(nv=self%nv)
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! first time integration done apart with explicit euler scheme to iniziale leapfrog
          call self%leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
@@ -1119,7 +1119,7 @@ contains
       call self%save_energy_history
       call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
       call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-      call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+      call self%compute_divergence(hs=hs,ivar=physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
       call self%save_divergence_history
 
       if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
@@ -1142,7 +1142,7 @@ contains
    call self%update_ghost(q=self%q) ! Aggiunto da FN
    call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    endassociate
    call self%save_divergence_history(is_to_close=.true.)
    call mpih%finalize
@@ -1180,9 +1180,9 @@ contains
 	          dxyz=>field%dxyz,                                                                                        &
 	          s1=>self%fdv_half_stencils(1),                                                                           &
 	          s4=>self%fdv_half_stencils(4),                                                                           &
-				 chi =>self%physics%chi, constrained_transport_D=>numerics%constrained_transport_D,						 &
+				 chi =>physics%chi, constrained_transport_D=>numerics%constrained_transport_D,						 &
              constrained_transport_B=>numerics%constrained_transport_B,														 &
-	          var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
+	          var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
 	if (blocks_number > 0) then
 		if (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
 		   .not.constrained_transport_B) then
@@ -1351,7 +1351,7 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,        &
              s=>self%fdv_half_stencils(1),                                                                            &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi)
+             var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz, chi=>physics%chi)
    if (blocks_number > 0) then
       ! compute fluxes at cell centers
       do b=1, blocks_number
@@ -1447,8 +1447,8 @@ contains
              flx=>self%flxyz_c(:,1,1,:,:,:,:), fly=>self%flxyz_c(:,1,2,:,:,:,:), flz=>self%flxyz_c(:,1,3,:,:,:,:),                &
              weno_s=>weno%S, weno_zeps=>weno%zeps,                                                                                &
              weno_a=>weno%a, weno_p=>weno%p, weno_d=>weno%d, weno_c=>weno%c,                                                      &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,        &
-             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
+             var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz, chi=>physics%chi,        &
+             evmax=>physics%evmax, erw=>physics%erw, elw=>physics%elw)
 
    if (blocks_number > 0) then
       call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
@@ -1684,8 +1684,8 @@ contains
    integer(I4P)                           :: crown                   !< Crown counter.
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                           &
                 nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
-                dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
-                nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                 &
+                dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>physics%chi,&
+                nv_c=>physics%nv_c, nv_cl=>physics%nv_cl,                                                 &
                 constrained_transport_B=>numerics%constrained_transport_B,                                     &
                 constrained_transport_D=>numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                &
                 q_bc_rk=>self%rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>self%rk_bc%beta)
