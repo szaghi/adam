@@ -150,7 +150,7 @@ contains
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
             self%integrate => integrate_leapfrog_pic
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-         select case(self%rk_pic%scheme)
+         select case(rk_pic%scheme)
          case(RK_1, RK_2, RK_3)
             !self%integrate => integrate_rk_ls_pic
          case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -1618,7 +1618,7 @@ contains
 
    !Inizializzo stadi RK per campi e PIC
    call rk%initialize_stages(q=self%q)
-   call self%rk_pic%initialize_stages(q_pic=self%q_pic)
+   call rk_pic%initialize_stages(q_pic=self%q_pic)
 
    do s=1, rk%nrk
       !Calcolo stadio RK per campi e PIC
@@ -1627,11 +1627,11 @@ contains
       else
          call rk%compute_stage(s=s, dt=time%dt)
       endif
-      call self%rk_pic%compute_stage(s=s, dt=time%dt)
+      call rk_pic%compute_stage(s=s, dt=time%dt)
       !Calcolo termini sorgente Maxwell da particelle e bobine
-      call pic%particle_cartesian_grid_index(field=field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
+      call pic%particle_cartesian_grid_index(field=field, q_pic=rk_pic%q_pic_rk(:,:,s))
       call pic%current_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
-                                       q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
+                                       q_pic=rk_pic%q_pic_rk(:,:,s), nv=self%nv)
       call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s))
       !Calcolo residui Maxwell
       call self%compute_residuals(q=rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
@@ -1639,14 +1639,14 @@ contains
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
       call pic%field_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
-                                    q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+                                    q_pic=rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (ib%solids_number>0) then
          call rk%assign_stage(s=s, q=self%dq, phi=ib%phi)
       else
          call rk%assign_stage(s=s, q=self%dq)
       endif
-      call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
+      call rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
    enddo
    ! Completo l'integrazione temporale
    if (ib%solids_number>0) then
@@ -1656,7 +1656,7 @@ contains
       call rk%update_q(dt=time%dt, q=self%q)
       call self%update_q_BC(dt=time%dt)
    endif
-   call self%rk_pic%update_q_pic(dt=time%dt, q_pic=self%q_pic)
+   call rk_pic%update_q_pic(dt=time%dt, q_pic=self%q_pic)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%impose_div_free
    call pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)

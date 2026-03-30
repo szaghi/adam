@@ -29,6 +29,7 @@ use :: adam_prism_particle_injection_global, only : particle_injection
 use :: adam_prism_physics_global,            only : physics
 use :: adam_prism_pic_global,                only : pic
 use :: adam_prism_rk_bc_global,              only : rk_bc
+use :: adam_prism_rk_pic_global,             only : rk_pic
 use :: adam_prism_time_global,               only : time
 ! third party modules
 use :: motion
@@ -41,7 +42,6 @@ public :: prism_common_object
 
 type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   type(prism_rk_pic_object)             :: rk_pic             !< RK PIC integrator.
    ! physics data replica for easy handling
    integer(I4P), pointer :: nv_c=>null()  !< Number of conservative variables in q vector.
    integer(I4P), pointer :: nv_s=>null()  !< Number of source variables in q vector.
@@ -214,7 +214,7 @@ contains
       if (pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call leapfrog_pic%initialize(file_parameters=file_parameters, pic=pic)
       if (pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-         call self%rk_pic%initialize(file_parameters=file_parameters, rk=rk, pic=pic)
+         call rk_pic%initialize(file_parameters=file_parameters, rk=rk, pic=pic)
    endif
    call check_ngc_number
    call self%allocate_common

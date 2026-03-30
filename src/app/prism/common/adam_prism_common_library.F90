@@ -28,6 +28,7 @@ use :: adam_prism_particle_injection_global
 use :: adam_prism_particle_injection_object
 use :: adam_prism_rk_bc_global
 use :: adam_prism_rk_bc_object
+use :: adam_prism_rk_pic_global
 use :: adam_prism_rk_pic_object
 use :: adam_prism_riemann_library
 use :: adam_prism_time_global
