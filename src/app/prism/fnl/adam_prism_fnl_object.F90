@@ -267,11 +267,6 @@ contains
    call mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
    call mpih_fnl%print_message('prism_fnl_object%initialize start')
    call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail,R8P), verbose=.true.)
-      print*, 'cazzo 111 ', coil%A(0)
-      print*, 'cazzo 111 ', coil%A(1)
-      print*, 'cazzo 111 ', coil%A(2)
-      print*, 'cazzo 111 ', coil%A(3)
-      print*, 'cazzo 111 ', coil%A(4)
    call field_fnl%initialize(verbose=.true.)
    call ib_fnl%initialize
    call rk_fnl%initialize
@@ -515,7 +510,6 @@ contains
          ! Unica formula: DC e AC
          current_density = A(coil_id) * g * cos(theta)
 
-         print*, 'cazzo ',n, A(n), g , cos(theta), coil_id
          call apply_j_vec_kernel(ni              = ni                     ,&
                                  nj              = nj                     ,&
                                  nk              = nk                     ,&
