@@ -228,8 +228,8 @@ contains
    logical,                 intent(in), optional :: verbose !< Trigger verbose output.
 
    call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q_gpu         ,src=self%q         ,buf=self%buf_5D_R8P)
-   call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%curl_gpu      ,src=self%curl      ,buf=self%buf_5D_R8P)
-   call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%divergence_gpu,src=self%divergence,buf=self%buf_5D_R8P)
+   ! call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%curl_gpu      ,src=self%curl      ,buf=self%buf_5D_R8P)
+   ! call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%divergence_gpu,src=self%divergence,buf=self%buf_5D_R8P)
    ! call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
    ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
    ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
@@ -744,7 +744,7 @@ contains
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                                     !< Delta cells GPU [nb,3].
       real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                   !< Field cell centered variables.
       real(R8P),    intent(inout) :: curl_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-      integer(I4P)                :: i,j,k,b                                             !< Counter
+      integer(I4P)                :: i,j,k,b,s                                           !< Counter
       ! rank 1D stencil for computations on device that contiguos memory is mandatory
       real(R8P) :: qsx_y(1-s1:1+s1) !< Y component of vector field over the x stencil.
       real(R8P) :: qsx_z(1-s1:1+s1) !< Z component of vector field over the x stencil.
@@ -760,12 +760,15 @@ contains
       do k=1,nk
       do j=1,nj
       do i=1,ni
-         qsx_y = q_gpu(b,i-s1:i+s1,j,k,ivar+1)
-         qsx_z = q_gpu(b,i-s1:i+s1,j,k,ivar+2)
-         qsy_x = q_gpu(b,i,j-s1:j+s1,k,ivar+0)
-         qsy_z = q_gpu(b,i,j-s1:j+s1,k,ivar+2)
-         qsz_x = q_gpu(b,i,j,k-s1:k+s1,ivar+0)
-         qsz_y = q_gpu(b,i,j,k-s1:k+s1,ivar+1)
+         !$acc loop seq
+         do s=1-s1, 1+s1
+            qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,ivar+1)
+            qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,ivar+2)
+            qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,ivar+0)
+            qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,ivar+2)
+            qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,ivar+0)
+            qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,ivar+1)
+         enddo
          call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
                                            qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
                                            qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
@@ -888,7 +891,7 @@ contains
                                           ivar           = ivar                     ,&
                                           ovar           = ovar                     ,&
                                           s1             = self%fdv_half_stencils(1),&
-                                          dxyz_gpu       = field_fnl%dxyz_gpu  ,&
+                                          dxyz_gpu       = field_fnl%dxyz_gpu       ,&
                                           q_gpu          = q_gpu                    ,&
                                           divergence_gpu = divergence_gpu)
    contains
@@ -902,29 +905,65 @@ contains
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                                           !< Delta cells GPU [nb,3].
       real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                         !< Field cell centered variables.
       real(R8P),    intent(inout) :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-      ! real(R8P)                   :: div_x, div_y, div_z                                       !< Partial derivatives.
-      integer(I4P)                :: i,j,k,b                                                   !< Counter
-      ! ! rank 1D stencil for computations on device that contiguos memory is mandatory
-      ! real(R8P) :: qsx_y(1-s1:1+s1) !< Y component of vector field over the x stencil.
-      ! real(R8P) :: qsx_z(1-s1:1+s1) !< Z component of vector field over the x stencil.
-      ! real(R8P) :: qsy_x(1-s1:1+s1) !< X component of vector field over the y stencil.
-      ! real(R8P) :: qsy_z(1-s1:1+s1) !< Z component of vector field over the y stencil.
-      ! real(R8P) :: qsz_x(1-s1:1+s1) !< X component of vector field over the z stencil.
-      ! real(R8P) :: qsz_y(1-s1:1+s1) !< Y component of vector field over the z stencil.
+      integer(I4P)                :: i,j,k,b,s                                                 !< Counter
+      ! rank 1D stencil for computations on device that contiguos memory is mandatory
+      real(R8P) :: qsx(1-s1:1+s1) !< X component of vector field over the x stencil.
+      real(R8P) :: qsy(1-s1:1+s1) !< Y component of vector field over the y stencil.
+      real(R8P) :: qsz(1-s1:1+s1) !< Z component of vector field over the z stencil.
+      real(R8P) :: maxdiv, mindiv
+
+      maxdiv = -huge(1._R8P)
+      mindiv =  huge(1._R8P)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(divergence_gpu) &
+      !$acc& reduction(max: maxdiv)  reduction(min: mindiv)
+      do b=1,blocks_number
+      do k=1-ngc,nk+ngc
+      do j=1-ngc,nj+ngc
+      do i=1-ngc,ni+ngc
+         maxdiv = max(maxdiv, divergence_gpu(b,i,j,k,ovar))
+         mindiv = min(mindiv, divergence_gpu(b,i,j,k,ovar))
+      enddo
+      enddo
+      enddo
+      enddo
+      print*, 'cazzo before compute div ',ovar,maxdiv,mindiv
 
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,divergence_gpu) &
-      !$acc& firstprivate(ivar,ovar,s1)
+      !$acc& firstprivate(ivar,ovar,s1)                                                                &
+      !$acc& private(qsx,qsy,qsz)
       do b=1,blocks_number
       do k=1,nk
       do j=1,nj
       do i=1,ni
-         call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                           &
-                                                 q=q_gpu(b,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,ivar:ivar+2),&
+         !$acc loop seq
+         do s=1-s1, 1+s1
+            qsx(s) = q_gpu(b,i+s-1,j    ,k    ,ivar+0)
+            qsy(s) = q_gpu(b,i    ,j+s-1,k    ,ivar+1)
+            qsz(s) = q_gpu(b,i    ,j    ,k+s-1,ivar+2)
+         enddo
+         call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3), &
+                                                 qsx=qsx,qsy=qsy,qsz=qsz,   &
                                                  divergence=divergence_gpu(b,i,j,k,ovar))
       enddo
       enddo
       enddo
       enddo
+
+      maxdiv = -huge(1._R8P)
+      mindiv =  huge(1._R8P)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(divergence_gpu) &
+      !$acc& reduction(max: maxdiv)  reduction(min: mindiv)
+      do b=1,blocks_number
+      do k=1-ngc,nk+ngc
+      do j=1-ngc,nj+ngc
+      do i=1-ngc,ni+ngc
+         maxdiv = max(maxdiv, divergence_gpu(b,i,j,k,ovar))
+         mindiv = min(mindiv, divergence_gpu(b,i,j,k,ovar))
+      enddo
+      enddo
+      enddo
+      enddo
+      print*, 'cazzo after compute div ',ovar,maxdiv,mindiv
       endsubroutine compute_divergence_fd_dev_kernel
    endsubroutine compute_divergence_fd_dev
 
@@ -1046,7 +1085,7 @@ contains
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Delta cells GPU [nb,3].
       real(R8P),    intent(in)    :: q_gpu( 1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
       real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
-      integer(I4P)                :: i,j,k,b                            !< Counter
+      integer(I4P)                :: i,j,k,b,s                          !< Counter
       real(R8P)                   :: curlD(3), curlB(3)                 !< Residuals components.
       ! rank 1D stencil for computations on device that contiguos memory is mandatory
       real(R8P) :: qsx_y(1-s1:1+s1) !< Y component of vector field over the x stencil.
@@ -1064,22 +1103,28 @@ contains
       do k=1,nk
       do j=1,nj
       do i=1,ni
-         qsx_y = q_gpu(b,i-s1:i+s1,j,k,VAR_DY)
-         qsx_z = q_gpu(b,i-s1:i+s1,j,k,VAR_DZ)
-         qsy_x = q_gpu(b,i,j-s1:j+s1,k,VAR_DX)
-         qsy_z = q_gpu(b,i,j-s1:j+s1,k,VAR_DZ)
-         qsz_x = q_gpu(b,i,j,k-s1:k+s1,VAR_DX)
-         qsz_y = q_gpu(b,i,j,k-s1:k+s1,VAR_DY)
+         !$acc loop seq
+         do s=1-s1, 1+s1
+            qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
+            qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DZ)
+            qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DX)
+            qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DZ)
+            qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
+            qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
+         enddo
          call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
                                            qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
                                            qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
                                            curl=curlD)
-         qsx_y = q_gpu(b,i-s1:i+s1,j,k,VAR_BY)
-         qsx_z = q_gpu(b,i-s1:i+s1,j,k,VAR_BZ)
-         qsy_x = q_gpu(b,i,j-s1:j+s1,k,VAR_BX)
-         qsy_z = q_gpu(b,i,j-s1:j+s1,k,VAR_BZ)
-         qsz_x = q_gpu(b,i,j,k-s1:k+s1,VAR_BX)
-         qsz_y = q_gpu(b,i,j,k-s1:k+s1,VAR_BY)
+         !$acc loop seq
+         do s=1-s1, 1+s1
+            qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BY)
+            qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BZ)
+            qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BX)
+            qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BZ)
+            qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
+            qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
+         enddo
          call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
                                            qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
                                            qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
@@ -1303,9 +1348,9 @@ contains
    call self%update_ghost(q_gpu=self%q_gpu)
 
    associate(hs=>self%fdv_half_stencil)
-   call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
-   call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs,ivar=physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence_dev(ivar=1             ,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+   call self%compute_divergence_dev(ivar=4             ,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+   call self%compute_divergence_dev(ivar=physics%var_jx,ovar=3,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)

@@ -57,19 +57,21 @@ contains
    curl(3) = dqy_dx - dqx_dy
    endsubroutine compute_curl_fd_centered_dev
 
-   pure subroutine compute_divergence_fd_centered_dev(s,dxyz,q,divergence)
+   pure subroutine compute_divergence_fd_centered_dev(s,dxyz,qsx,qsy,qsz,divergence)
    !< Compute divergence of q vector field with finite difference centered scheme.
    !< FNL device backend: q has variables as last dimension [1-s:1+s,1-s:1+s,1-s:1+s,1:3].
-   integer(I4P), intent(in)  :: s                    !< Stencil len, half of accuracy order.
-   real(R8P),    intent(in)  :: dxyz(1:)             !< Space steps [1:3].
-   real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:,1:) !< Vector field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s,1:3].
-   real(R8P),    intent(out) :: divergence           !< Divergence of q.
-   real(R8P)                 :: div_x, div_y, div_z  !< Divergence components.
+   integer(I4P), intent(in)  :: s                   !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: dxyz(1:)            !< Space steps [1:3].
+   real(R8P),    intent(in)  :: qsx(1-s:)           !< X component of vector field over the x stencil.
+   real(R8P),    intent(in)  :: qsy(1-s:)           !< Y component of vector field over the y stencil.
+   real(R8P),    intent(in)  :: qsz(1-s:)           !< Z component of vector field over the z stencil.
+   real(R8P),    intent(out) :: divergence          !< Divergence of q.
+   real(R8P)                 :: div_x, div_y, div_z !< Divergence components.
    !$acc routine seq
 
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1,1),dq_ds=div_x)
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1,2),dq_ds=div_y)
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=q(1,1,1-s:1+s,3),dq_ds=div_z)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=qsx(1-s:1+s),dq_ds=div_x)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy(1-s:1+s),dq_ds=div_y)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=qsz(1-s:1+s),dq_ds=div_z)
    divergence = div_x + div_y + div_z
    endsubroutine compute_divergence_fd_centered_dev
 
