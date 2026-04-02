@@ -1174,6 +1174,11 @@ contains
 	real(R8P)                              :: KO_By_x,KO_By_y,KO_By_z
 	real(R8P)                              :: KO_Bz_x,KO_Bz_y,KO_Bz_z
 	real(R8P), parameter :: sigma = 1000.01_R8P
+      real(R8P) :: min_curlD,max_curlD
+
+      min_curlD =  huge(1._R8P)
+      max_curlD = -huge(1._R8P)
+
 	call self%apply_fWL_correction(q=q)
 	call self%update_ghost(q=q, s=s)
 	associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
@@ -1291,6 +1296,8 @@ contains
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
 		    	                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	&
 		    	                           curl=curlD)
+         min_curlD = min(min_curlD, curlD(1), curlD(2), curlD(3))
+         max_curlD = max(max_curlD, curlD(1), curlD(2), curlD(3))
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                            	&
 		    	                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),  	&
 		    	                           curl=curlB)
@@ -1325,6 +1332,7 @@ contains
 		endif
 	endif
 	endassociate
+      print*, 'cazzo min/max curlD', min_curlD, max_curlD
 	endsubroutine compute_residuals_fd_centered
 
    subroutine compute_residuals_fv_centered(self, q, dq, s)

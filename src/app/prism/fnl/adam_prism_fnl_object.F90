@@ -1094,11 +1094,15 @@ contains
       real(R8P) :: qsy_z(1-s1:1+s1) !< Z component of vector field over the y stencil.
       real(R8P) :: qsz_x(1-s1:1+s1) !< X component of vector field over the z stencil.
       real(R8P) :: qsz_y(1-s1:1+s1) !< Y component of vector field over the z stencil.
+      real(R8P) :: min_curlD,max_curlD
 
+      min_curlD =  huge(1._R8P)
+      max_curlD = -huge(1._R8P)
       ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
       !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                             &
-      !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)
+      !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)                          &
+      !$acc& reduction(min: min_curlD) reduction(max: max_curlD)
       do b=1,blocks_number
       do k=1,nk
       do j=1,nj
@@ -1116,6 +1120,8 @@ contains
                                            qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
                                            qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
                                            curl=curlD)
+         min_curlD = min(min_curlD, curlD(1), curlD(2), curlD(3))
+         max_curlD = max(max_curlD, curlD(1), curlD(2), curlD(3))
          !$acc loop seq
          do s=1-s1, 1+s1
             qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BY)
@@ -1139,6 +1145,8 @@ contains
       enddo
       enddo
       enddo
+
+      print*, 'cazzo min/max curlD', min_curlD, max_curlD
       endsubroutine compute_residuals_fd_centered_dev_kernel
    endsubroutine compute_residuals_fd_centered_dev
 

@@ -129,11 +129,12 @@ contains
    real(R8P) :: qsz_x(1-s:1+s) !< X component over z stencil.
    real(R8P) :: qsz_y(1-s:1+s) !< Y component over z stencil.
    real(R8P) :: dxyz(3) = [h,h,h]
+   real(R8P) :: curl_(3)
 
    !$acc parallel loop independent collapse(3) gang vector &
    !$acc& DEVICEVAR(q_dev, curl_dev)                       &
    !$acc& firstprivate(s, ni, dxyz)                        &
-   !$acc& private(qsx_y, qsx_z, qsy_x, qsy_z, qsz_x, qsz_y)
+   !$acc& private(qsx_y, qsx_z, qsy_x, qsy_z, qsz_x, qsz_y, curl_)
    do k=1, ni
    do j=1, ni
    do i=1, ni
@@ -150,7 +151,10 @@ contains
                                         qsx_y=qsx_y, qsx_z=qsx_z,&
                                         qsy_x=qsy_x, qsy_z=qsy_z,&
                                         qsz_x=qsz_x, qsz_y=qsz_y,&
-                                        curl=curl_dev(i,j,k,1:3))
+                                        curl=curl_)
+      curl_dev(i,j,k,1) = curl_(1)
+      curl_dev(i,j,k,2) = curl_(2)
+      curl_dev(i,j,k,3) = curl_(3)
    enddo
    enddo
    enddo

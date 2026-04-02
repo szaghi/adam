@@ -37,6 +37,7 @@ modes = ascot-nvf-cuda
         patch-gnu                             patch-gnu-debug
         test-fdv-curl-trigonometric-gnu       test-fdv-curl-trigonometric-gnu-debug
         test-fdv-fnl-curl-trigonometric-nvf-oac
+        test-fdv-fnl-operators-trigonometric-nvf-oac
         test-fdv-divergence-trigonometric-gnu test-fdv-divergence-trigonometric-gnu-debug
         test-fdv-gradient-trigonometric-gnu   test-fdv-gradient-trigonometric-gnu-debug
         test-fdv-laplacian-trigonometric-gnu  test-fdv-laplacian-trigonometric-gnu-debug
@@ -210,6 +211,12 @@ help     = Build test fdv FNL curl trigonometric app with NVF OpenACC compiler
 template = template-nvf-oac
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = test_fdv_fnl_curl_trigonometric.F90
+
+[test-fdv-fnl-operators-trigonometric-nvf-oac]
+help     = Build test fdv FNL operators trigonometric app with NVF OpenACC compiler
+template = template-nvf-oac
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = test_fdv_fnl_operators_trigonometric.F90
 
 [test-fdv-curl-trigonometric-gnu-debug]
 help     = Build test fdv curl trigonometric app with GNU compiler, debug mode
