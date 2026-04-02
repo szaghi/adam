@@ -46,12 +46,12 @@ contains
    !$acc routine seq
    !$acc routine(compute_derivative1_fd_centered)
 
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy_x,dq_ds=dqx_dy)
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=qsz_x,dq_ds=dqx_dz)
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=qsx_y,dq_ds=dqy_dx)
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=qsz_y,dq_ds=dqy_dz)
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=qsx_z,dq_ds=dqz_dx)
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy_z,dq_ds=dqz_dy)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy_x(1-s:1+s),dq_ds=dqx_dy)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=qsz_x(1-s:1+s),dq_ds=dqx_dz)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=qsx_y(1-s:1+s),dq_ds=dqy_dx)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=qsz_y(1-s:1+s),dq_ds=dqy_dz)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=qsx_z(1-s:1+s),dq_ds=dqz_dx)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy_z(1-s:1+s),dq_ds=dqz_dy)
    curl(1) = dqz_dy - dqy_dz
    curl(2) = dqx_dz - dqz_dx
    curl(3) = dqy_dx - dqx_dy
