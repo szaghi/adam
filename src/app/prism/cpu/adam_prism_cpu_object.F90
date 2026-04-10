@@ -1296,8 +1296,8 @@ contains
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
 		    	                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	&
 		    	                           curl=curlD)
-         min_curlD = min(min_curlD, curlD(1), curlD(2), curlD(3))
-         max_curlD = max(max_curlD, curlD(1), curlD(2), curlD(3))
+         !min_curlD = min(min_curlD, curlD(1), curlD(2), curlD(3))
+         !max_curlD = max(max_curlD, curlD(1), curlD(2), curlD(3))
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                            	&
 		    	                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),  	&
 		    	                           curl=curlB)
@@ -1332,7 +1332,7 @@ contains
 		endif
 	endif
 	endassociate
-      print*, 'cazzo min/max curlD', min_curlD, max_curlD
+      !print*, 'cazzo min/max curlD', min_curlD, max_curlD
 	endsubroutine compute_residuals_fd_centered
 
    subroutine compute_residuals_fv_centered(self, q, dq, s)
