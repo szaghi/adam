@@ -85,9 +85,9 @@ contains
    character(len=1), parameter     :: NL=new_line('a') !< New line character.
 
    desc =       self%myrankstr//'MPIH main data'//NL
-   desc = desc//self%myrankstr//'  myrank:       '//trim(str(self%myrank      ))//NL
-   desc = desc//self%myrankstr//'  procs_number: '//trim(str(self%procs_number))//NL
-   desc = desc//self%myrankstr//'  memory_avail: '//trim(str(self%memory_avail))
+   desc = desc//self%myrankstr//'  myrank:            '//trim(str(self%myrank      ))//NL
+   desc = desc//self%myrankstr//'  procs_number:      '//trim(str(self%procs_number))//NL
+   desc = desc//self%myrankstr//'  memory_avail [GB]: '//trim(str(self%memory_avail))
    endfunction description
 
    subroutine error_stop(self, msg)

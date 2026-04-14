@@ -151,12 +151,12 @@ contains
    integer(I4P),       intent(in)           :: fields_number !< Fields number.
    integer(I4P),       intent(out)          :: nb            !< Maximum blocks number for single MPI process.
    integer(I8P),       intent(out)          :: nodes_number  !< Maximum blocks number for all MPI processes (nodes).
-   integer(I4P)                             :: size_of_real  !< Size (bytes) of (one) real.
+   real(R8P)                                :: size_of_block !< Size (bytes) of (one) block.
    real(R8P)                                :: save_factor   !< Factor to avoid memory completely full.
 
-   size_of_real = storage_size(1._R8P)/8._R8P
-   save_factor = 0.95_R8P
-   nb = nint(save_factor * memory_avail*1e9 / (fields_number * grid%block_weight * size_of_real))
+   size_of_block = (storage_size(1._R8P)/8._R8P) * grid%block_weight
+   save_factor = 0.25_R8P
+   nb = nint(save_factor * memory_avail*1e9 / (fields_number * size_of_block))
    nodes_number  = nb * mpih%procs_number
    endsubroutine compute_blocks_number
 
@@ -189,10 +189,11 @@ contains
    call self%field%load_blocks(basename=basename, q=q)
    endsubroutine load_restart_files
 
-   subroutine initialize(self, file_parameters, add_adam, nv, verbose)
+   subroutine initialize(self, file_parameters, memory_avail, add_adam, nv, verbose)
    !< Initialize ADAM.
    class(adam_object),     intent(inout)        :: self            !< ADAM.
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
+   real(R8P),              intent(in), value    :: memory_avail    !< Memory available for single MPI process.
    logical,                intent(in), optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
    integer(I4P),           intent(in), optional :: nv              !< Number of field variables.
    logical,                intent(in), optional :: verbose         !< Trigger verbose output.
@@ -203,13 +204,12 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('adam_object%initialize start')
    self%field => adam_field
-  !call self%compute_blocks_number(memory_avail=memory_avail,&
-  !                                fields_number=80,         & ! remember to change
-  !                                nb=nb,                    &
-  !                                nodes_number=nodes_number)
-   nodes_number = 11
-   self%field%blocks_number = 1
    call grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%adam%grid%set_bc_type
+   call self%compute_blocks_number(memory_avail=memory_avail,&
+                                   fields_number=80,         & ! remember to change
+                                   nb=nb,                    &
+                                   nodes_number=nodes_number)
+   self%field%blocks_number = 1
    call self%tree%initialize(file_parameters=file_parameters,&
                              nodes_number=nodes_number,      &
                              add_adam=add_adam,              &
@@ -217,7 +217,7 @@ contains
    call adam_maps%initialize(tree=self%tree,verbose=verbose_)
    self%maps => adam_maps
    call self%field%initialize(file_parameters=file_parameters,&
-                              nb=1,                           &! remember to change
+                              nb=nb,                          &
                               nv=nv,                          &
                               verbose=verbose_)
    if (verbose_) call mpih%print_message('adam_object%initialize finish')

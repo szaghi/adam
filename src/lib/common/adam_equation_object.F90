@@ -191,7 +191,7 @@ contains
    if (verbose_) call mpih%print_message('equation_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-      call self%adam%initialize(file_parameters=file_parameters, nv=nv, verbose=verbose_)
+      call self%adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_)
       call self%amr%initialize(file_parameters=file_parameters)
       call ib%initialize(file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)
@@ -203,7 +203,7 @@ contains
       self%ni            => grid%ni
       self%nj            => grid%nj
       self%nk            => grid%nk
-      self%nb            => field%blocks_number
+      self%nb            => field%nb
       self%blocks_number => field%blocks_number
       self%nv            => field%nv
       call weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)

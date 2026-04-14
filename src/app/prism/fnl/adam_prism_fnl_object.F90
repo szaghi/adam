@@ -268,7 +268,7 @@ contains
    call MPI_INITIALIZED(is_mpih_initialized, mpih_fnl%error)
    call mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
    call mpih_fnl%print_message('prism_fnl_object%initialize start')
-   call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail,R8P), verbose=.true.)
+   call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail/1e9,R8P), verbose=.true.)
    call field_fnl%initialize(verbose=.true.)
    call ib_fnl%initialize
    call rk_fnl%initialize
@@ -1088,13 +1088,13 @@ contains
 
 		if (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
          numerics%constrained_transport_D .and. &
-		   .not.numerics%constrained_transport_B) then 
+		   .not.numerics%constrained_transport_B) then
          ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
 
          !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
          !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
          !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-         !$acc&         qsx_x,qsy_y,qsz_z,qs,divergenceD,gradphi)                                                            
+         !$acc&         qsx_x,qsy_y,qsz_z,qs,divergenceD,gradphi)
          do b=1,blocks_number
          do k=1,nk
          do j=1,nj
@@ -1145,7 +1145,7 @@ contains
                qs(1,1,s) = q_gpu(b,i,j,k+s-1,nv_c)
             enddo
             call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),q=qs,gradient=gradphi)
-            
+
             dq_gpu(b,i,j,k,VAR_DX) =  curlB(1)/MU0 - gradphi(1) - q_gpu(b,i,j,k,var_Jx)
             dq_gpu(b,i,j,k,VAR_DY) =  curlB(2)/MU0 - gradphi(2) - q_gpu(b,i,j,k,var_Jy)
             dq_gpu(b,i,j,k,VAR_DZ) =  curlB(3)/MU0 - gradphi(3) - q_gpu(b,i,j,k,var_Jz)
@@ -1160,13 +1160,13 @@ contains
 
 		elseif (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
               .not.numerics%constrained_transport_D .and.       &
-		        numerics%constrained_transport_B) then 
+		        numerics%constrained_transport_B) then
          ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
 
          !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
          !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
          !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-         !$acc&         qsx_x,qsy_y,qsz_z,qs,divergenceB,gradpsi)                                                            
+         !$acc&         qsx_x,qsy_y,qsz_z,qs,divergenceB,gradpsi)
          do b=1,blocks_number
          do k=1,nk
          do j=1,nj
@@ -1227,14 +1227,14 @@ contains
 
 		elseif (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
               numerics%constrained_transport_D .and. &
-		        numerics%constrained_transport_B) then 
+		        numerics%constrained_transport_B) then
 		! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
 		!             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
 
          !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
          !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
          !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-         !$acc&         qsx_x,qsy_y,qsz_z,qs,divergenceD,divergenceB,gradphi,gradpsi)                                                            
+         !$acc&         qsx_x,qsy_y,qsz_z,qs,divergenceD,divergenceB,gradphi,gradpsi)
          do b=1,blocks_number
          do k=1,nk
          do j=1,nj
@@ -1311,10 +1311,10 @@ contains
          enddo
       else
          ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
-         
+
          !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
          !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                             &
-         !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)                          
+         !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)
          do b=1,blocks_number
          do k=1,nk
          do j=1,nj
