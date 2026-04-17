@@ -804,6 +804,10 @@ contains
    logical, allocatable           :: is_prime(:)    !< List of prime numbers up to buckets number.
    integer(I8P)                   :: b              !< Counter.
 
+   if (nodes_number == 1_I8P) then
+      buckets_number = 1_I8P
+      return
+   endif
    buckets_number = int((1._R8P / self%max_load) * nodes_number)
    allocate(is_prime(buckets_number))
    is_prime = .true.
