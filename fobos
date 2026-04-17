@@ -135,8 +135,8 @@ help     = Build PRISM app with FNL library and NVF OpenACC compiler on CINECA L
 template = template-nvf-oac
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_prism_fnl.F90
-cflags   = -cpp -c -acc -gpu=sm_90 -fast -Minfo=all
-lflags   = -acc -gpu=sm_90 -fast -Minfo=all
+cflags   = -cpp -c -acc -gpu=cc80 -fast -Minfo=all
+lflags   = -acc -gpu=cc80 -fast -Minfo=all
 libs     = $HDF5_leonardo_nvf/lib/libhdf5_fortran.a $HDF5_leonardo_nvf/lib/libhdf5_f90cstub.a $HDF5_leonardo_nvf/lib/libhdf5.a
 lib_dir  = $HDF5_leonardo_nvf/lib
 include  = $HDF5_leonardo_nvf/include

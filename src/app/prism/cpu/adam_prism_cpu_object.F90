@@ -693,11 +693,12 @@ contains
    endassociate
    endsubroutine compute_residuals_BC
 
-   subroutine set_initial_conditions(self) !DA CORREGGERE CON NV_PIC QUANDO SERVE PER BC CARICA SE MODELLO PIC ATTIVO
+   subroutine set_initial_conditions(self, is_restart) !DA CORREGGERE CON NV_PIC QUANDO SERVE PER BC CARICA SE MODELLO PIC ATTIVO
    !< Set initial conditions and coils on field.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   class(prism_cpu_object), intent(inout) :: self       !< The equation.
+   logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
 
-   call ic%set_initial_conditions(physics=physics, field=field, q=self%q)
+   if (.not.is_restart) call ic%set_initial_conditions(physics=physics, field=field, q=self%q)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       call particle_injection%set_particle_initial_injection(field=field, pic=pic, q_pic=self%q_pic)
       call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=pic%particle_number)
@@ -707,7 +708,7 @@ contains
    !call coil%set_coils(physics=physics, field=field) !Lo metto dopo perchè l'interpolatore di correnti azzera
                                                                     !tutto per poter poi fare la sommatoria al relativo tempo
 
-  call field%compute_metrics
+   call field%compute_metrics
    call self%initialize_coils
 
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -1025,15 +1026,16 @@ contains
       call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
       call self%load_restart_files(t=time%it, time=time%time)
       call mpih%print_message('restart [t, time]: '//trim(str(time%it))//', '//trim(str(time%time)))
+      call self%set_initial_conditions(is_restart=self%io%restart)
    else
       call mpih%print_message('impose initial conditions start')
       do i=1, ic%amr_iterations
          call mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
-         call self%set_initial_conditions
+         call self%set_initial_conditions(is_restart=self%io%restart)
          !if (ib%solids_number > 0) call self%compute_phi()
          !call self%amr_update
       enddo
-      call self%set_initial_conditions
+      call self%set_initial_conditions(is_restart=self%io%restart)
       call self%adam%make_comm_local_maps_ghost_bc
       time%time = 0._R8P
       time%it = 0
