@@ -53,6 +53,9 @@ type, extends(equation_object) :: prism_common_object
    real(R8P), allocatable :: Poynting_flux(:)           !< Total Poynting flux from boundary, time history.
    real(R8P)              :: rms_energy_error_D=0.0_R8P !< RMS energy error of D field.
    real(R8P)              :: rms_energy_error_B=0.0_R8P !< RMS energy error of B field.
+   real(R8P)              :: max_divergence_D=0.0_R8P   !< Maximum of divergence of D field.
+   real(R8P)              :: max_divergence_B=0.0_R8P   !< Maximum of divergence of B field.
+   real(R8P)              :: max_divergence_J=0.0_R8P   !< Maximum of divergence of J field.
    contains
       procedure, pass(self) :: allocate_common          !< Allocate common data.
       procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
@@ -294,22 +297,22 @@ contains
    real(R8P)                                        :: max_div_D   !< Maximum of divergence of D field.
    real(R8P)                                        :: max_div_B   !< Maximum of divergence of B
    real(R8P)                                        :: max_div_J   !< Maximum of divergence of J field.
-   real(R8P)                                        :: r           !< Auxiliary variable to identify fWL presence
+   !real(R8P)                                        :: r           !< Auxiliary variable to identify fWL presence
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>fWLayer%C, hs=>self%fdv_half_stencils(1))
-   r = nint(real(C)/(real(C)+1_I4P))
+   !associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>fWLayer%C, hs=>self%fdv_half_stencils(1))
+   !r = nint(real(C)/(real(C)+1_I4P))
    if (time%is_to_save(it_save=self%io%divergence_history_save)) then
-      max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      call self%io%save_divergence_history(it=time%it,time=time%time,blocks_number=self%blocks_number, &
-                                           div_D=max_div_D,div_B=max_div_B,div_J=max_div_J, &
+      !max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+      !                                       1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+      !max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+      !                                       1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+      !max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+      !                                       1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+      call self%io%save_divergence_history(it=time%it,time=time%time,blocks_number=self%blocks_number,                          &
+                                           div_D=self%max_divergence_D,div_B=self%max_divergence_B,div_J=self%max_divergence_J, &
                                            is_to_open=is_to_open,is_to_close=is_to_close)
    endif
-   endassociate
+   !endassociate
    endsubroutine save_divergence_history
 
    subroutine save_energy_error(self, is_to_open, is_to_close)
@@ -392,8 +395,6 @@ contains
       call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=self%q_name)
 
       if (coil%total_coils_number>0) then
-         call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
-                                 q=coil%coil_flag(:,:,:,b), q_name=coil%coil_flag_name)
          do c=1, coil%total_coils_number
             call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
                                     q=coil%j_vec(:,:,:,:,b,c), q_name=coil%j_vec_name(:,c))
@@ -434,7 +435,7 @@ contains
 
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                 &
              nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-             lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+             lx=>coil%lx(n), ly=>coil%ly(n),   &
              r_coil=>coil%r_coil(n), coil_type=>coil%coil_type(n),              &
              y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
              dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
@@ -554,7 +555,7 @@ contains
 
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                 &
              nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-             lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+             lx=>coil%lx(n), ly=>coil%ly(n),    &
              l_sol=>coil%l_solenoid(n), windings=>coil%windings(n),             &
              r_coil=>coil%r_coil(n), coil_type=>coil%coil_type(n),              &
              y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
@@ -733,7 +734,7 @@ contains
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-            lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+            lx=>coil%lx(n), ly=>coil%ly(n),    &
             y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
@@ -798,19 +799,6 @@ contains
       enddo
    enddo
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
-                  .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
 
@@ -837,7 +825,7 @@ contains
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-            lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+            lx=>coil%lx(n), ly=>coil%ly(n), &
             y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
@@ -902,19 +890,6 @@ contains
       enddo
    enddo
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
-                  .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
    if (n == 1_I4P) then
@@ -941,7 +916,7 @@ contains
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-            lx=>coil%lx(n), ly=>coil%ly(n), coil_flag =>coil%coil_flag,   &
+            lx=>coil%lx(n), ly=>coil%ly(n),    &
             y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
@@ -1005,18 +980,6 @@ contains
       enddo
    enddo
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
-                  .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
 
@@ -1087,7 +1050,7 @@ contains
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
              nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                          &
              y_c=>coil%y_center(n), z_c=>coil%z_center(n), rc=>coil%r_coil(n), &
-             coil_flag=>coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
+             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
              dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
              y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),           &
              J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
@@ -1132,19 +1095,6 @@ contains
       enddo
    enddo
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P .or. &
-                   J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
 
@@ -1172,7 +1122,7 @@ contains
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
              nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                          &
              y_c=>coil%y_center(n), z_c=>coil%z_center(n), rc=>coil%r_coil(n), &
-             coil_flag=>coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
+             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
              dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
              y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),           &
              J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
@@ -1217,19 +1167,6 @@ contains
       enddo
    enddo
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P .or. &
-                   J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
 
@@ -1258,7 +1195,7 @@ contains
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
              nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                          &
              y_c=>coil%y_center(n), z_c=>coil%z_center(n), rc=>coil%r_coil(n), &
-             coil_flag=>coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
+             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
              dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
              y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),           &
              J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
@@ -1303,19 +1240,6 @@ contains
       enddo
    enddo
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P .or. &
-                   J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
    endassociate
@@ -1344,7 +1268,7 @@ contains
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                              &
             y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n), &
-            l_sol=>coil%l_solenoid(n), coil_flag=>coil%coil_flag,                      &
+            l_sol=>coil%l_solenoid(n),                      &
             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
             z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,             &
@@ -1390,19 +1314,6 @@ contains
       enddo
    enddo
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P .or. &
-                   J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
 
@@ -1429,7 +1340,7 @@ contains
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                              &
             y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n), &
-            l_sol=>coil%l_solenoid(n), coil_flag=>coil%coil_flag,                      &
+            l_sol=>coil%l_solenoid(n),                       &
             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
             z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,             &
@@ -1475,19 +1386,6 @@ contains
       enddo
    enddo
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P .or. &
-                   J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
 
@@ -1514,7 +1412,7 @@ contains
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                              &
             y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n), &
-            l_sol=>coil%l_solenoid(n), coil_flag=>coil%coil_flag,                      &
+            l_sol=>coil%l_solenoid(n),                    &
             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
             z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,             &
@@ -1554,19 +1452,6 @@ contains
             do i=1-ngc, ni+ngc
                if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1e-12_R8P) then
                   J_vec_buffer(:,i,j,k,b) = 0.0_R8P
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P .or. &
-                   J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
                endif
             enddo
          enddo

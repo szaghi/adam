@@ -89,12 +89,13 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: integrate_rk_ssp_dev     !< SSP RK schemes.
       procedure, pass(self) :: integrate_rk_yoshida_dev !< Yoshida schemes.
       ! numerical methods, miscellanea
-      procedure, pass(self) :: compute_dt           !< Compute time step.
-      procedure, pass(self) :: compute_energy       !< Compute energy.
-      procedure, pass(self) :: compute_energy_error !< Compute energy error.
-      procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
-      procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
-      procedure, pass(self) :: simulate             !< Perform the simulation.
+      procedure, pass(self) :: compute_dt           	!< Compute time step.
+      procedure, pass(self) :: compute_energy       	!< Compute energy.
+      procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
+		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
+      procedure, pass(self) :: impose_ct_correction 	!< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: impose_div_free      	!< Impose divergence-free property.
+      procedure, pass(self) :: simulate             	!< Perform the simulation.
 endtype prism_fnl_object
 
 interface
@@ -1571,6 +1572,7 @@ contains
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.) !Cazzo
+	call self%compute_max_divergence
    call self%save_divergence_history(is_to_open=.true.) !Cazzo
    call self%io%open_file_residuals(nv=self%nv)
 
@@ -1621,10 +1623,7 @@ contains
       !call self%save_energy_error !Cazzo
       call self%save_energy_history !Cazzo
 
-      !call self%compute_divergence_dev(ivar=1             ,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu) !Cazzo
-      !call self%compute_divergence_dev(ivar=4             ,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu) !Cazzo
-      !call self%compute_divergence_dev(ivar=physics%var_jx,ovar=3,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu) !Cazzo
-      !call self%copy_gpu_cpu !Cazzo
+		call self%compute_max_divergence
       call self%save_divergence_history !Cazzo
 
       if (((time%it_max <= 0).and.(time%time >= time%time_max)).or.&
@@ -1681,7 +1680,7 @@ contains
                              ivar=VAR_BX,dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_B)
    if (coil%total_coils_number > 0_I4P) then
       call compute_coil_power_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
-                                         ivar=physics%var_Jx,coil_flag_gpu=coil_fnl%coil_flag_gpu,            &
+                                         ivar=physics%var_Jx,            &
                                          dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,coil_power=coil_power)
    else
       coil_power = 0._R8P
@@ -1741,28 +1740,25 @@ contains
       enddo
       endsubroutine compute_e_dev_kernel
 
-      subroutine compute_coil_power_dev_kernel(ni,nj,nk,ngc,blocks_number,ivar,dxyz_gpu,coil_flag_gpu,q_gpu,coil_power)
+      subroutine compute_coil_power_dev_kernel(ni,nj,nk,ngc,blocks_number,ivar,dxyz_gpu,q_gpu,coil_power)
       !< Compute coil power of vector field starting from ivar, device kernel.
       integer(I4P), intent(in)  :: ni,nj,nk,ngc,blocks_number             !< Grids dimensions.
       integer(I4P), intent(in)  :: ivar                                   !< Starting position of vector field.
       real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                        !< Delta cells GPU [nb,3].
-      integer(I4P), intent(in)  :: coil_flag_gpu(1:,1-ngc:,1-ngc:,1-ngc:) !< Matrice contenente informazioni su quale spira pass.
       real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Conservative variables.
       real(R8P),    intent(out) :: coil_power                             !< Coil power of the vector field.
       integer(I4P)              :: i,j,k,b                                !< Counter.
 
       coil_power = 0.0_R8P
       !$acc parallel loop independent gang vector collapse(4) &
-      !$acc& DEVICEVAR(q_gpu,dxyz_gpu,coil_flag_gpu) firstprivate(ni,nj,nk,blocks_number,ivar) reduction(+: coil_power)
+      !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(ni,nj,nk,blocks_number,ivar) reduction(+: coil_power)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
       do i=1, ni
-         if (coil_flag_gpu(b,i,j,k) /= 0_I4P) then
-            coil_power = coil_power-(q_gpu(b,i,j,k,VAR_DX  )*q_gpu(b,i,j,k,ivar  ) + &
-                                     q_gpu(b,i,j,k,VAR_DX+1)*q_gpu(b,i,j,k,ivar+1) + &
-                                     q_gpu(b,i,j,k,VAR_DX+2)*q_gpu(b,i,j,k,ivar+2))/EPS0*(dxyz_gpu(b,1)*dxyz_gpu(b,2)*dxyz_gpu(b,3))
-         endif
+         coil_power = coil_power-(q_gpu(b,i,j,k,VAR_DX  )*q_gpu(b,i,j,k,ivar  ) + &
+                                  q_gpu(b,i,j,k,VAR_DX+1)*q_gpu(b,i,j,k,ivar+1) + &
+                                  q_gpu(b,i,j,k,VAR_DX+2)*q_gpu(b,i,j,k,ivar+2))/EPS0*(dxyz_gpu(b,1)*dxyz_gpu(b,2)*dxyz_gpu(b,3))
       enddo
       enddo
       enddo
@@ -1908,6 +1904,97 @@ contains
    endif
    endsubroutine compute_energy_error
 
+   subroutine compute_max_divergence(self)
+   !< Compute maximum divergence.
+   class(prism_fnl_object), intent(inout) :: self       !< The equation.
+   real(R8P)                              :: max_div(3) !< Maximum divergence.
+
+	call compute_max_divergence_dev_kernel( ni            = self%ni                  ,&
+                                           nj            = self%nj                  ,&
+                                           nk            = self%nk                  ,&
+                                           blocks_number = self%blocks_number       ,&
+														 ngc           = self%ngc                 ,&
+                                           var_jx        = physics%var_jx           ,&
+                                           var_jy        = physics%var_jy           ,&
+                                           var_jz        = physics%var_jz           ,&
+                                           s1            = self%fdv_half_stencils(1),&
+                                           dxyz_gpu      = field_fnl%dxyz_gpu       ,&
+                                           q_gpu         = self%q_gpu               ,&
+                                           max_div       = max_div)
+
+	self%max_divergence_D = max_div(1)
+	self%max_divergence_B = max_div(2)
+	self%max_divergence_J = max_div(3)
+   contains
+      subroutine compute_max_divergence_dev_kernel(ni, nj, nk, blocks_number, ngc, &
+                                                   var_Jx, var_Jy, var_Jz, s1, 	  &
+                                                   dxyz_gpu, q_gpu, max_div)
+
+			!< Compute maximum divergence of D, B and J fields, device kernel.
+			integer(I4P), intent(in)  :: ni, nj, nk, blocks_number, ngc        !< Grids dimensions.
+			integer(I4P), intent(in)  :: var_Jx, var_Jy, var_Jz                !< Current variables indices.
+			integer(I4P), intent(in)  :: s1                                    !< FDV half stencil.
+			real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Delta cells GPU [nb,3].
+			real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
+			real(R8P),    intent(out) :: max_div(3)                            !< Maximum divergence of D, B and J fields.
+			real(R8P)                 :: qsx_x(1-s1:1+s1)                      !< Buffer for x-derivative in x direction (for divergence).
+			real(R8P)                 :: qsy_y(1-s1:1+s1)                      !< Buffer for y-derivative in y direction (for divergence).
+			real(R8P)                 :: qsz_z(1-s1:1+s1)                      !< Buffer for z-derivative in z direction (for divergence).
+			real(R8P)                 :: divergenceD, divergenceB, divergenceJ !< Divergence of D, B and J fields.
+			real(R8P)                 :: max_divD, max_divB, max_divJ			 !< Maximum divergence of D, B and J fields.
+			integer(I4P)              :: i,j,k,b,s                             !< Counter.
+
+			max_divD = 0.0_R8P
+			max_divB = 0.0_R8P
+			max_divJ = 0.0_R8P
+	      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
+         !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                      &
+         !$acc& private(qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,divergenceJ)			 	 &
+			!$acc& reduction(max: max_divD, max_divB, max_divJ)
+         do b=1,blocks_number
+         do k=1,nk
+         do j=1,nj
+         do i=1,ni
+            !$acc loop seq
+            do s=1-s1, 1+s1
+               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DX)
+               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
+               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
+            enddo
+            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
+                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
+                                                    divergence=divergenceD)
+				max_divD = max(max_divD, abs(divergenceD))
+            !$acc loop seq
+            do s=1-s1, 1+s1
+               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BX)
+               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
+               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
+            enddo
+            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
+                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
+                                                    divergence=divergenceB)
+				max_divB = max(max_divB, abs(divergenceB))
+            !$acc loop seq
+            do s=1-s1, 1+s1
+               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,var_Jx)
+               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,var_Jy)
+               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,var_Jz)
+            enddo
+            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
+                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
+                                                    divergence=divergenceJ)
+				max_divJ = max(max_divJ, abs(divergenceJ))
+         enddo
+         enddo
+         enddo
+         enddo
+			max_div(1) = max_divD
+			max_div(2) = max_divB
+			max_div(3) = max_divJ
+		endsubroutine compute_max_divergence_dev_kernel
+	endsubroutine compute_max_divergence
+   
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
    !< Note that self%divergence memory is used as buffer, be carefull.

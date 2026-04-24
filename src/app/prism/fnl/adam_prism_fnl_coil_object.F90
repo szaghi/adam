@@ -24,7 +24,6 @@ type :: prism_fnl_coil_object
    real(R8P),    pointer :: f_gpu(:)=>null()               !< Current frequency, if AC (Hz)
    real(R8P),    pointer :: phase_gpu(:)=>null()           !< Current initial phase, if AC
    real(R8P),    pointer :: J_vec_gpu(:,:,:,:,:,:)=>null() !< Matrice contenente versori corrente spire (se assente = 0)
-   integer(I4P), pointer :: coil_flag_gpu(:,:,:,:)=>null() !< Matrice contenente informazioni su quale spira pass.
    contains
       ! public methods
       procedure, pass(self) :: copy_cpu_gpu !< Copy data from CPU to GPU.
@@ -55,13 +54,6 @@ contains
    call dev_memcpy_to_device(src=coil%A    ,dst=self%A_gpu    )
    call dev_memcpy_to_device(src=coil%f    ,dst=self%f_gpu    )
    call dev_memcpy_to_device(src=coil%phase,dst=self%phase_gpu)
-   if (present(buf4D)) then
-      db4(1,:) = lbound(self%coil_flag_gpu ) ; db4(2,:) = ubound(self%coil_flag_gpu )
-      hb4(1,:) = lbound(coil%coil_flag) ; hb4(2,:) = ubound(coil%coil_flag)
-      call dev_memcpy_to_device(bb=db4,ij=[1,4],tb=hb4,dst=self%coil_flag_gpu,src=coil%coil_flag,buf=buf4D)
-   else
-      call dev_assign_to_device(src=coil%coil_flag,dst=self%coil_flag_gpu,ij=[1,4])
-   endif
    if (present(buf6D)) then
       db6(1,:) = lbound(self%j_vec_gpu ) ; db6(2,:) = ubound(self%j_vec_gpu )
       hb6(1,:) = lbound(coil%j_vec) ; hb6(2,:) = ubound(coil%j_vec)
@@ -93,13 +85,6 @@ contains
    call dev_memcpy_from_device(src=self%A_gpu    ,dst=coil%A    )
    call dev_memcpy_from_device(src=self%f_gpu    ,dst=coil%f    )
    call dev_memcpy_from_device(src=self%phase_gpu,dst=coil%phase)
-   if (present(buf4D)) then
-      db4(1,:) = lbound(self%coil_flag_gpu) ; db4(2,:) = ubound(self%coil_flag_gpu)
-      hb4(1,:) = lbound(coil%coil_flag    ) ; hb4(2,:) = ubound(coil%coil_flag    )
-      call dev_memcpy_from_device(bb=db4,ij=[1,4],tb=hb4,dst=coil%coil_flag,src=self%coil_flag_gpu,buf=buf4D)
-   else
-      call dev_assign_from_device(src=self%coil_flag_gpu,dst=coil%coil_flag,ij=[1,4])
-   endif
    if (present(buf6D)) then
       db6(1,:) = lbound(self%j_vec_gpu) ; db6(2,:) = ubound(self%j_vec_gpu )
       hb6(1,:) = lbound(coil%j_vec    ) ; hb6(2,:) = ubound(coil%j_vec     )
@@ -125,7 +110,6 @@ contains
    call dev_alloc(fptr_dev=self%f_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
    call dev_alloc(fptr_dev=self%phase_gpu    ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
    call dev_alloc(fptr_dev=self%j_vec_gpu    ,ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv,nc],lbounds=[1,1-ngc,1-ngc,1-ngc,1,1],ierr=ierr)
-   call dev_alloc(fptr_dev=self%coil_flag_gpu,ubounds=[nb,ni+ngc,nj+ngc,nk+ngc      ],lbounds=[1,1-ngc,1-ngc,1-ngc    ],ierr=ierr)
    call self%copy_cpu_gpu
    print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize finish'
    endassociate
