@@ -68,8 +68,6 @@ type, extends(equation_object) :: prism_common_object
       procedure, pass(self) :: save_restart_files      !< Save restart files.
       procedure, pass(self) :: save_xh5f               !< Save simulation data in XH5F format.
       ! coils initialization methods
-      procedure, pass(self) :: compute_coil_current_density_flux     !< Compute coil current density fluxes for Maxwell equations.
-      procedure, pass(self) :: compute_solenoid_current_density_flux !< Compute solenoid current density fluxes for Maxwell equations.
       procedure, pass(self) :: initialize_coils                      !< Initialize coils.
       procedure, pass(self) :: set_rectangular_coil_x                !< Subroutine to set a rectangular coil source with +-x normal
       procedure, pass(self) :: set_rectangular_coil_y                !< Subroutine to set a rectangular coil source with +-y normal
@@ -422,243 +420,6 @@ contains
    endsubroutine save_xh5f
 
    ! coils initialization methods
-   subroutine compute_coil_current_density_flux(self, n, adjust_amplitude)
-   !< Subroutine to adjust current amplitude in order to match the input one
-   class(prism_common_object), intent(inout) :: self             !< Cpu object.
-   integer(I4P),               intent(in)    :: n                !< Coil number.
-   logical,                    intent(in)    :: adjust_amplitude !< If true, adjust amplitude
-   real(R8P)                                 :: x_s, y_s, z_s    !< Flux center coordinates
-   real(R8P)                                 :: flux, correction !< Computed flux
-   real(R8P)                                 :: l                !< Auxiliary variable to compute flux at a certain distance
-   integer(I4P)                              :: i_s, j_s, k_s    !< Flux center cell coordinates
-   integer(I4P)                              :: i, j, k          !< Counter.
-
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                 &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-             lx=>coil%lx(n), ly=>coil%ly(n),   &
-             r_coil=>coil%r_coil(n), coil_type=>coil%coil_type(n),              &
-             y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
-             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
-             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-             z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
-             e_min => grid%domain_emin, e_max => grid%domain_emax,                        &
-             q=>self%q)
-
-   !Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
-   flux = 0.0_R8P
-   correction = 1.0_R8P
-
-   if (coil_type == COIL_TYPE_RECTANGULAR) then
-      l = lx
-   elseif (coil_type == COIL_TYPE_CIRCULAR) then
-      l = r_coil*2._R8P
-   endif
-
-   if (normal == NORMAL_P_X .or. normal == NORMAL_M_X) then !Valuto corrente lungo z
-
-      x_s = x_c
-      y_s = y_c - l/2
-      z_s = z_c
-      i_s = ceiling((x_s - e_min(1)) / dx(1))
-      j_s = ceiling((y_s - e_min(2)) / dy(1))
-      k_s = ceiling((z_s - e_min(3)) / dz(1))
-      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
-      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
-      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
-
-      ! Clamp su celle fisiche
-      i_s = max(1_I4P, min(ni, i_s))
-      j_s = max(1_I4P, min(nj, j_s))
-      k_s = max(1_I4P, min(nk, k_s))
-
-      do j = j_s - nint(3.5_R8P*coil%sigma(n)), j_s + nint(3.5_R8P*coil%sigma(n))
-         do i = i_s - nint(3.5_R8P*coil%sigma(n)), i_s + nint(3.5_R8P*coil%sigma(n))
-               flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
-         enddo
-      enddo
-
-   elseif (normal == NORMAL_P_Y .or. normal == NORMAL_M_Y) then !Valuto corrente lungo z
-
-      x_s = x_c - l/2
-      y_s = y_c
-      z_s = z_c
-      i_s = ceiling((x_s - e_min(1)) / dx(1))
-      j_s = ceiling((y_s - e_min(2)) / dy(1))
-      k_s = ceiling((z_s - e_min(3)) / dz(1))
-      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
-      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
-      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
-
-      ! Clamp su celle fisiche
-      i_s = max(1_I4P, min(ni, i_s))
-      j_s = max(1_I4P, min(nj, j_s))
-      k_s = max(1_I4P, min(nk, k_s))
-
-      do j = j_s - nint(3.5_R8P*coil%sigma(n)), j_s + nint(3.5_R8P*coil%sigma(n))
-         do i = i_s - nint(3.5_R8P*coil%sigma(n)), i_s + nint(3.5_R8P*coil%sigma(n))
-               flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
-         enddo
-      enddo
-
-   elseif (normal == NORMAL_P_Z .or. normal == NORMAL_M_Z) then !Valuto corrente lungo y
-
-      x_s = x_c - l/2
-      y_s = y_c
-      z_s = z_c
-      i_s = ceiling((x_s - e_min(1)) / dx(1))
-      j_s = ceiling((y_s - e_min(2)) / dy(1))
-      k_s = ceiling((z_s - e_min(3)) / dz(1))
-      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
-      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
-      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
-
-      ! Clamp su celle fisiche
-      i_s = max(1_I4P, min(ni, i_s))
-      j_s = max(1_I4P, min(nj, j_s))
-      k_s = max(1_I4P, min(nk, k_s))
-
-      do k = k_s - nint(3.5_R8P*coil%sigma(n)), k_s + nint(3.5_R8P*coil%sigma(n))
-         do i = i_s - nint(3.5_R8P*coil%sigma(n)), i_s + nint(3.5_R8P*coil%sigma(n))
-               flux = flux + J_vec(2,i,j_s,k,1,n)*dx(1)*dz(1)
-         enddo
-      enddo
-
-   endif
-   flux = abs(flux)*coil%A(n)
-
-   if (adjust_amplitude) then
-      print '(A)', mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
-      print '(A)', mpih%myrankstr//trim(str(coil%A(n)))//'Ampiezza A('//trim(str(n))//') pre correzione'
-      correction = (coil%A(n)/flux)
-      print '(A)', mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))
-      coil%A(n) = coil%A(n)*correction
-      print '(A)', mpih%myrankstr//trim(str(coil%A(n)))//'Ampiezza A('//trim(str(n))//') post correzione'
-      print '(A)', mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux*correction))
-   else
-      print '(A)', mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(coil%A(n)))
-      print '(A)', mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux))
-   endif
-
-   endassociate
-   endsubroutine compute_coil_current_density_flux
-
-   subroutine compute_solenoid_current_density_flux(self, n, adjust_amplitude)
-   !< Subroutine to adjust current amplitude in order to match the input one
-   class(prism_common_object), intent(inout) :: self             !< Cpu object.
-   integer(I4P),               intent(in)    :: n                !< Coil number.
-   logical,                    intent(in)    :: adjust_amplitude !< If true, adjust amplitude
-   real(R8P)                                 :: x_s, y_s, z_s    !< Flux center coordinates
-   real(R8P)                                 :: flux, correction !< Computed flux
-   integer(I4P)                              :: delta            !< Auxiliary variable to compute flux
-   integer(I4P)                              :: i_s, j_s, k_s    !< Flux center cell coordinates
-   integer(I4P)                              :: i, j, k          !< Counter.
-
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                 &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-             lx=>coil%lx(n), ly=>coil%ly(n),    &
-             l_sol=>coil%l_solenoid(n), windings=>coil%windings(n),             &
-             r_coil=>coil%r_coil(n), coil_type=>coil%coil_type(n),              &
-             y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
-             dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
-             nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-             z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
-             e_min => grid%domain_emin, e_max => grid%domain_emax,                        &
-             q=>self%q)
-
-   !Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
-   flux = 0.0_R8P
-   correction = 1.0_R8P
-
-   if (normal == NORMAL_P_X .or. normal == NORMAL_M_X) then !Valuto corrente lungo z
-
-      x_s = x_c
-      y_s = y_c - r_coil
-      z_s = z_c
-      i_s = ceiling((x_s - e_min(1)) / dx(1))
-      j_s = ceiling((y_s - e_min(2)) / dy(1))
-      k_s = ceiling((z_s - e_min(3)) / dz(1))
-      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
-      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
-      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
-      delta = ceiling((l_sol/2)/dx(1))
-      ! Clamp su celle fisiche
-      i_s = max(1_I4P, min(ni, i_s))
-      j_s = max(1_I4P, min(nj, j_s))
-      k_s = max(1_I4P, min(nk, k_s))
-
-      do j = j_s - nint(3.5_R8P*sigma), j_s + nint(3.5_R8P*sigma)
-         do i = (i_s - delta) - nint(3.5_R8P*sigma), (i_s + delta) + nint(3.5_R8P*sigma)
-               flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
-         enddo
-      enddo
-
-   elseif (normal == NORMAL_P_Y .or. normal == NORMAL_M_Y) then !Valuto corrente lungo z
-
-      x_s = x_c - r_coil
-      y_s = y_c
-      z_s = z_c
-      i_s = ceiling((x_s - e_min(1)) / dx(1))
-      j_s = ceiling((y_s - e_min(2)) / dy(1))
-      k_s = ceiling((z_s - e_min(3)) / dz(1))
-      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
-      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
-      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
-      delta = ceiling((l_sol/2)/dy(1))
-
-      ! Clamp su celle fisiche
-      i_s = max(1_I4P, min(ni, i_s))
-      j_s = max(1_I4P, min(nj, j_s))
-      k_s = max(1_I4P, min(nk, k_s))
-
-      do j = (j_s - delta) - nint(3.5_R8P*sigma), (j_s + delta) + nint(3.5_R8P*sigma)
-         do i = i_s - nint(3.5_R8P*sigma), i_s + nint(3.5_R8P*sigma)
-               flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
-         enddo
-      enddo
-
-   elseif (normal == NORMAL_P_Z .or. normal == NORMAL_M_Z) then !Valuto corrente lungo y
-
-      x_s = x_c - r_coil
-      y_s = y_c
-      z_s = z_c
-      i_s = ceiling((x_s - e_min(1)) / dx(1))
-      j_s = ceiling((y_s - e_min(2)) / dy(1))
-      k_s = ceiling((z_s - e_min(3)) / dz(1))
-      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
-      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
-      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
-      delta = ceiling((l_sol/2)/dz(1))
-
-      ! Clamp su celle fisiche
-      i_s = max(1_I4P, min(ni, i_s))
-      j_s = max(1_I4P, min(nj, j_s))
-      k_s = max(1_I4P, min(nk, k_s))
-
-      do k = (k_s - delta) - nint(3.5_R8P*sigma), (k_s + delta) + nint(3.5_R8P*sigma)
-         do i = i_s - nint(3.5_R8P*sigma), i_s + nint(3.5_R8P*sigma)
-               flux = flux + J_vec(2,i,j_s,k,1,n)*dx(1)*dz(1)
-         enddo
-      enddo
-
-   endif
-   flux = abs(flux)*coil%A(n)*windings !Valore calcolato (corrente complessiva, deve essere N*A)
-                                            !A*windings è il valore target
-   if (adjust_amplitude) then
-      print '(A)', mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
-      print '(A)', mpih%myrankstr//trim(str(coil%A(n)*windings))//'Ampiezza A('//trim(str(n))//')*N pre correzione'
-      correction = (coil%A(n)*windings/flux)
-      print '(A)', mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))
-      coil%A(n) = coil%A(n)*correction*windings
-      print '(A)', mpih%myrankstr//trim(str(coil%A(n)))//'Ampiezza A('//trim(str(n))//')*N post correzione'
-      print '(A)', mpih%myrankstr//'Valore finale corrente solenoide'//trim(str(n))//': '//trim(str(flux*correction))
-   else
-      print '(A)', mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(coil%A(n)))
-      print '(A)', mpih%myrankstr//'Valore finale corrente solenoide'//trim(str(n))//': '//trim(str(flux))
-   endif
-
-   endassociate
-   endsubroutine compute_solenoid_current_density_flux
-
    subroutine initialize_coils(self)
    !< Initialize coils.
    class(prism_common_object), intent(inout) :: self !< The equation.
@@ -720,28 +481,37 @@ contains
    endsubroutine initialize_coils
 
    subroutine set_rectangular_coil_x(self, n, verse)
-   class(prism_common_object),  intent(inout) :: self                    !< Cpu object.
-   integer(I4P),                intent(in)    :: n                       !< Coil number.
-   real(R8P),                   intent(in)    :: verse                   !< Coil normal direction, +1=+x, -1=-x.
-   real(R8P),                   allocatable   :: A(:,:,:,:,:)            !< Campo vettoriale totale della spira
-   real(R8P),                   allocatable   :: J_vec_buffer(:,:,:,:,:) !< Variabile buffer per coil%J_vec
-   real(R8P)                                  :: A_1, A_2, A_3, A_4      !< Campo vettoriale lati spira
-   real(R8P)                                  :: cell_coord(3)           !< Vettore posizione centro cella
-   real(R8P)                                  :: y_d, y_t, z_b, z_f
-   real(R8P)                                  :: F_n, W_t, W_x
-   integer(I4P)                               :: b,i,j,k                 !< Counter.
+   !< Set rectangular coil with normal direction parallel to x.
+   class(prism_common_object), intent(inout) :: self                    !< Cpu object.
+   integer(I4P),               intent(in)    :: n                       !< Coil number.
+   real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+x, -1=-x.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for coil%J_vec.
+   real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
+   real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
+   real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
+   real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
+   real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
+   real(R8P)                                 :: y_d                     !< Lower y-boundary of the rectangular coil.
+   real(R8P)                                 :: y_t                     !< Upper y-boundary of the rectangular coil.
+   real(R8P)                                 :: z_b                     !< Lower z-boundary of the rectangular coil.
+   real(R8P)                                 :: z_f                     !< Upper z-boundary of the rectangular coil.
+   real(R8P)                                 :: F_n                     !< Normal error-function profile.
+   real(R8P)                                 :: W_t                     !< Tangential window function.
+   real(R8P)                                 :: W_x                     !< Coil thickness window function along x.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
 
-   !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-            lx=>coil%lx(n), ly=>coil%ly(n),    &
-            y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
-            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                     &
+            lx=>coil%lx(n), ly=>coil%ly(n),                                        &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), normal=>coil%normal(n),  &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,         &
             hs=>self%fdv_half_stencil)
 
-   !Fisso estremi della spira rettangolare con normale parallela a x, e centro in (x_c, y_c, z_c)
+   ! Set rectangular coil boundaries with normal direction parallel to x
+   ! and center located at (x_c, y_c, z_c).
    y_d = -lx/2 + y_c
    y_t = +lx/2 + y_c
    z_b = -ly/2 + z_c
@@ -749,6 +519,7 @@ contains
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
+
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
@@ -757,27 +528,32 @@ contains
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
                cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-               !Primo filo (y = y_d, tangenziale lungo z)
-               F_n = erf_function(s=cell_coord(2), mu = y_d, sigma = sigma*dy(b))
-               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
-               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
+
+               ! Side 1: y = y_d, tangential direction along z.
+               F_n = erf_function(s=cell_coord(2), mu=y_d, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(3), smin=z_b, smax=z_f, sigma=sigma)
+               W_x = tangential_window(s=cell_coord(1), smin=x_c-sigma, smax=x_c+sigma, sigma=sigma)
                A_1 = F_n*W_t*W_x
-               !Secondo filo (z = z_f, tangenziale lungo y)
-               F_n = erf_function(s=cell_coord(3), mu = z_f, sigma = sigma*dz(b))
-               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
-               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
+
+               ! Side 2: z = z_f, tangential direction along y.
+               F_n = erf_function(s=cell_coord(3), mu=z_f, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(2), smin=y_d, smax=y_t, sigma=sigma)
+               W_x = tangential_window(s=cell_coord(1), smin=x_c-sigma, smax=x_c+sigma, sigma=sigma)
                A_2 = -F_n*W_t*W_x
-               !Terzo filo (y = y_t, tangenziale lungo z)
-               F_n = erf_function(s=cell_coord(2), mu = y_t, sigma = sigma*dy(b))
-               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
-               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
+
+               ! Side 3: y = y_t, tangential direction along z.
+               F_n = erf_function(s=cell_coord(2), mu=y_t, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(3), smin=z_b, smax=z_f, sigma=sigma)
+               W_x = tangential_window(s=cell_coord(1), smin=x_c-sigma, smax=x_c+sigma, sigma=sigma)
                A_3 = -F_n*W_t*W_x
-               !Quarto filo (z = z_b, tangenziale lungo y)
-               F_n = erf_function(s=cell_coord(3), mu = z_b, sigma = sigma*dz(b))
-               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
-               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
+
+               ! Side 4: z = z_b, tangential direction along y.
+               F_n = erf_function(s=cell_coord(3), mu=z_b, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(2), smin=y_d, smax=y_t, sigma=sigma)
+               W_x = tangential_window(s=cell_coord(1), smin=x_c-sigma, smax=x_c+sigma, sigma=sigma)
                A_4 = F_n*W_t*W_x
-               !Somma dei campi vettoriali
+
+               ! Sum vector potential contributions.
                A(1,i,j,k,b) = A_1 + A_2 + A_3 + A_4
             enddo
          enddo
@@ -785,6 +561,7 @@ contains
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P,q=A,curl=J_vec_buffer)
+
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -800,39 +577,184 @@ contains
    enddo
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
-   endassociate
 
    if (n == 1_I4P) then
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_d=y_d, y_t=y_t, z_b=z_b, &
+                                                        z_f=z_f, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.true.)
    else
       coil%A(n) = coil%A(1)
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_d=y_d, y_t=y_t, z_b=z_b, &
+                                                        z_f=z_f, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
+
+   endassociate
+
+   contains
+
+      subroutine compute_coil_current_density_flux_analytic_x(x_c, y_c, z_c, y_d, y_t, z_b, z_f, sigma, A, n, adjust_amplitude)
+      !< Analytic amplitude correction for a rectangular coil normal to x.
+      !< The current is evaluated as the flux of Jy through the lower side z = z_b.
+      real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
+      real(R8P),    intent(in)    :: y_c              !< Coil center y-coordinate.
+      real(R8P),    intent(in)    :: z_c              !< Coil center z-coordinate.
+      real(R8P),    intent(in)    :: y_d              !< Lower y-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: y_t              !< Upper y-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: z_b              !< Lower z-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: z_f              !< Upper z-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: sigma            !< Coil Gaussian smoothing width.
+      real(R8P),    intent(inout) :: A                !< Coil amplitude, corrected in place.
+      integer(I4P), intent(in)    :: n                !< Coil number.
+      logical,      intent(in)    :: adjust_amplitude !< If true, correct the coil amplitude.
+      real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the integration interval in sigma units.
+      real(R8P)                   :: x_l              !< Lower x-boundary of the coil thickness window.
+      real(R8P)                   :: x_u              !< Upper x-boundary of the coil thickness window.
+      real(R8P)                   :: x_s              !< x-coordinate of the flux-section center.
+      real(R8P)                   :: y_s              !< y-coordinate of the flux-section plane.
+      real(R8P)                   :: z_s              !< z-coordinate of the flux-section center.
+      real(R8P)                   :: x_1              !< Lower x-integration boundary.
+      real(R8P)                   :: x_2              !< Upper x-integration boundary.
+      real(R8P)                   :: z_1              !< Lower z-integration boundary.
+      real(R8P)                   :: z_2              !< Upper z-integration boundary.
+      real(R8P)                   :: e_yd_ys          !< E_yd evaluated at y_s.
+      real(R8P)                   :: e_yt_ys          !< E_yt evaluated at y_s.
+      real(R8P)                   :: w_y_ys           !< W_y evaluated at y_s.
+      real(R8P)                   :: dw_z             !< Difference W_z(z_2)-W_z(z_1).
+      real(R8P)                   :: de_zb            !< Difference E_zb(z_2)-E_zb(z_1).
+      real(R8P)                   :: de_zf            !< Difference E_zf(z_2)-E_zf(z_1).
+      real(R8P)                   :: i_x              !< Integral of W_x over the x-integration interval.
+      real(R8P)                   :: i_y_1            !< Flux contribution associated with A_1.
+      real(R8P)                   :: i_y_2            !< Flux contribution associated with A_2.
+      real(R8P)                   :: i_y_3            !< Flux contribution associated with A_3.
+      real(R8P)                   :: i_y_4            !< Flux contribution associated with A_4.
+      real(R8P)                   :: flux_unit        !< Analytic current flux for unit amplitude.
+      real(R8P)                   :: flux             !< Analytic current flux before amplitude correction.
+      real(R8P)                   :: correction       !< Amplitude correction factor.
+      real(R8P)                   :: target_current   !< Target input current.
+
+      target_current = A
+
+      ! Set x-window boundaries:
+      ! W_x = 1/2 * [E_x_l - E_x_u].
+      x_l = x_c - sigma
+      x_u = x_c + sigma
+
+      ! Set flux section for the lower side, where the current is directed along +y.
+      x_s = x_c
+      y_s = y_c
+      z_s = z_b
+
+      x_1 = x_s - alpha * sigma
+      x_2 = x_s + alpha * sigma
+      z_1 = z_s - alpha * sigma
+      z_2 = z_s + alpha * sigma
+
+      ! Integral of W_x over x:
+      !
+      ! I_x = 1/2 * [ P_xl(x2) - P_xl(x1)
+      !              -P_xu(x2) + P_xu(x1) ]
+      i_x = 0.5_R8P * (                                      &
+            erf_primitive_function(s=x_2, mu=x_l, sigma=sigma)&
+          - erf_primitive_function(s=x_1, mu=x_l, sigma=sigma)&
+          - erf_primitive_function(s=x_2, mu=x_u, sigma=sigma)&
+          + erf_primitive_function(s=x_1, mu=x_u, sigma=sigma))
+
+      ! Evaluate y-dependent functions at the flux-section plane.
+      e_yd_ys = erf_function(s=y_s, mu=y_d, sigma=sigma)
+      e_yt_ys = erf_function(s=y_s, mu=y_t, sigma=sigma)
+
+      w_y_ys = tangential_window(s     = y_s,     &
+                                 smin  = y_d,     &
+                                 smax  = y_t,     &
+                                 sigma = sigma)
+
+      ! Compute Delta W_z = W_z(z_2) - W_z(z_1).
+      dw_z = tangential_window(s     = z_2,     &
+                               smin  = z_b,     &
+                               smax  = z_f,     &
+                               sigma = sigma)    &
+           - tangential_window(s     = z_1,     &
+                               smin  = z_b,     &
+                               smax  = z_f,     &
+                               sigma = sigma)
+
+      ! Compute Delta E_zb = E_zb(z_2) - E_zb(z_1).
+      de_zb = erf_function(s=z_2, mu=z_b, sigma=sigma) &
+            - erf_function(s=z_1, mu=z_b, sigma=sigma)
+
+      ! Compute Delta E_zf = E_zf(z_2) - E_zf(z_1).
+      de_zf = erf_function(s=z_2, mu=z_f, sigma=sigma) &
+            - erf_function(s=z_1, mu=z_f, sigma=sigma)
+
+      ! Contributions to Iy from the four vector-potential components:
+      !
+      ! A_1 =  E_yd(y) W_z(z) W_x(x)
+      ! A_2 = -E_zf(z) W_y(y) W_x(x)
+      ! A_3 = -E_yt(y) W_z(z) W_x(x)
+      ! A_4 =  E_zb(z) W_y(y) W_x(x)
+      i_y_1 =  e_yd_ys * i_x * dw_z
+      i_y_2 = -w_y_ys  * i_x * de_zf
+      i_y_3 = -e_yt_ys * i_x * dw_z
+      i_y_4 =  w_y_ys  * i_x * de_zb
+
+      flux_unit = abs(i_y_1 + i_y_2 + i_y_3 + i_y_4)
+      flux      = target_current * flux_unit
+
+      if (adjust_amplitude) then
+
+         correction = 1.0_R8P / flux_unit
+
+         print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux))
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') before correction'
+         print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
+
+         A = target_current * correction
+
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(A*flux_unit))
+
+      else
+
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(flux))
+
+      endif
+
+      endsubroutine compute_coil_current_density_flux_analytic_x
+
    endsubroutine set_rectangular_coil_x
 
    subroutine set_rectangular_coil_y(self, n, verse)
+   !< Set rectangular coil with normal direction parallel to y.
    class(prism_common_object), intent(inout) :: self                    !< Cpu object.
    integer(I4P),               intent(in)    :: n                       !< Coil number.
    real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+y, -1=-y.
-   real(R8P),                  allocatable   :: A(:,:,:,:,:)            !< Campo vettoriale totale della spira
-   real(R8P),                  allocatable   :: J_vec_buffer(:,:,:,:,:) !< Variabile buffer per coil%J_vec
-   real(R8P)                                 :: A_1, A_2, A_3, A_4      !< Campo vettoriale lati spira
-   real(R8P)                                 :: cell_coord(3)           !< Vettore posizione centro cella
-   real(R8P)                                 :: x_l, x_r, z_b, z_f
-   real(R8P)                                 :: F_n, W_t, W_y
-   integer(I4P)                              :: b,i,j,k                 !< Counter.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for coil%J_vec.
+   real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
+   real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
+   real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
+   real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
+   real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
+   real(R8P)                                 :: x_l                     !< Lower x-boundary of the rectangular coil.
+   real(R8P)                                 :: x_r                     !< Upper x-boundary of the rectangular coil.
+   real(R8P)                                 :: z_b                     !< Lower z-boundary of the rectangular coil.
+   real(R8P)                                 :: z_f                     !< Upper z-boundary of the rectangular coil.
+   real(R8P)                                 :: F_n                     !< Normal error-function profile.
+   real(R8P)                                 :: W_t                     !< Tangential window function.
+   real(R8P)                                 :: W_y                     !< Coil thickness window function along y.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
 
-   !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-            lx=>coil%lx(n), ly=>coil%ly(n), &
-            y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
-            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                     &
+            lx=>coil%lx(n), ly=>coil%ly(n),                                        &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), normal=>coil%normal(n),  &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,         &
             hs=>self%fdv_half_stencil)
 
-   !Fisso estremi della spira rettangolare con normale parallela a y, e centro in (x_c, y_c, z_c)
+   ! Set rectangular coil boundaries with normal direction parallel to y
+   ! and center located at (x_c, y_c, z_c).
    x_l = -lx/2 + x_c
    x_r = +lx/2 + x_c
    z_b = -ly/2 + z_c
@@ -840,6 +762,7 @@ contains
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
+
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
@@ -848,34 +771,40 @@ contains
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
                cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-               !Primo filo (z = z_b, tangenziale lungo x)
-               F_n = erf_function(s=cell_coord(3), mu = z_b, sigma = sigma*dz(b))
-               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
-               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
+
+               ! Side 1: z = z_b, tangential direction along x.
+               F_n = erf_function(s=cell_coord(3), mu=z_b, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(1), smin=x_l, smax=x_r, sigma=sigma)
+               W_y = tangential_window(s=cell_coord(2), smin=y_c-sigma, smax=y_c+sigma, sigma=sigma)
                A_1 = F_n*W_t*W_y
-               !Secondo filo (x = x_r, tangenziale lungo z)
-               F_n = erf_function(s=cell_coord(1), mu = x_r, sigma = sigma*dx(b))
-               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
-               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
+
+               ! Side 2: x = x_r, tangential direction along z.
+               F_n = erf_function(s=cell_coord(1), mu=x_r, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(3), smin=z_b, smax=z_f, sigma=sigma)
+               W_y = tangential_window(s=cell_coord(2), smin=y_c-sigma, smax=y_c+sigma, sigma=sigma)
                A_2 = -F_n*W_t*W_y
-               !Terzo filo (z = z_f, tangenziale lungo x)
-               F_n = erf_function(s=cell_coord(3), mu = z_f, sigma = sigma*dz(b))
-               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
-               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
+
+               ! Side 3: z = z_f, tangential direction along x.
+               F_n = erf_function(s=cell_coord(3), mu=z_f, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(1), smin=x_l, smax=x_r, sigma=sigma)
+               W_y = tangential_window(s=cell_coord(2), smin=y_c-sigma, smax=y_c+sigma, sigma=sigma)
                A_3 = -F_n*W_t*W_y
-               !Quarto filo (x = x_l, tangenziale lungo z)
-               F_n = erf_function(s=cell_coord(1), mu = x_l, sigma = sigma*dx(b))
-               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
-               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
+
+               ! Side 4: x = x_l, tangential direction along z.
+               F_n = erf_function(s=cell_coord(1), mu=x_l, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(3), smin=z_b, smax=z_f, sigma=sigma)
+               W_y = tangential_window(s=cell_coord(2), smin=y_c-sigma, smax=y_c+sigma, sigma=sigma)
                A_4 = F_n*W_t*W_y
-               !Somma dei campi vettoriali
+
+               ! Sum vector potential contributions.
                A(2,i,j,k,b) = A_1 + A_2 + A_3 + A_4
             enddo
          enddo
       enddo
    enddo
 
-   call self%compute_curl(hs=hs,ivar=1_I4P,q=A,curl=J_vec_buffer)
+   call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -891,46 +820,192 @@ contains
    enddo
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
-   endassociate
+
    if (n == 1_I4P) then
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, z_b=z_b, &
+                                                        z_f=z_f, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.true.)
    else
       coil%A(n) = coil%A(1)
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, z_b=z_b, &
+                                                        z_f=z_f, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
+
+   endassociate
+
+   contains
+
+      subroutine compute_coil_current_density_flux_analytic_y(x_c, y_c, z_c, x_l, x_r, z_b, z_f, sigma, A, n, adjust_amplitude)
+      !< Analytic amplitude correction for a rectangular coil normal to y.
+      !< The current is evaluated as the flux of Jz through the side x = x_l.
+      real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
+      real(R8P),    intent(in)    :: y_c              !< Coil center y-coordinate.
+      real(R8P),    intent(in)    :: z_c              !< Coil center z-coordinate.
+      real(R8P),    intent(in)    :: x_l              !< Lower x-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: x_r              !< Upper x-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: z_b              !< Lower z-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: z_f              !< Upper z-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: sigma            !< Coil Gaussian smoothing width.
+      real(R8P),    intent(inout) :: A                !< Coil amplitude, corrected in place.
+      integer(I4P), intent(in)    :: n                !< Coil number.
+      logical,      intent(in)    :: adjust_amplitude !< If true, correct the coil amplitude.
+      real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the integration interval in sigma units.
+      real(R8P)                   :: y_l              !< Lower y-boundary of the coil thickness window.
+      real(R8P)                   :: y_u              !< Upper y-boundary of the coil thickness window.
+      real(R8P)                   :: x_s              !< x-coordinate of the flux-section center.
+      real(R8P)                   :: y_s              !< y-coordinate of the flux-section center.
+      real(R8P)                   :: z_s              !< z-coordinate of the flux-section plane.
+      real(R8P)                   :: x_1              !< Lower x-integration boundary.
+      real(R8P)                   :: x_2              !< Upper x-integration boundary.
+      real(R8P)                   :: y_1              !< Lower y-integration boundary.
+      real(R8P)                   :: y_2              !< Upper y-integration boundary.
+      real(R8P)                   :: e_zb_zs          !< E_zb evaluated at z_s.
+      real(R8P)                   :: e_zf_zs          !< E_zf evaluated at z_s.
+      real(R8P)                   :: w_z_zs           !< W_z evaluated at z_s.
+      real(R8P)                   :: dw_x             !< Difference W_x(x_2)-W_x(x_1).
+      real(R8P)                   :: de_xl            !< Difference E_xl(x_2)-E_xl(x_1).
+      real(R8P)                   :: de_xr            !< Difference E_xr(x_2)-E_xr(x_1).
+      real(R8P)                   :: i_y              !< Integral of W_y over the y-integration interval.
+      real(R8P)                   :: i_z_1            !< Flux contribution associated with A_1.
+      real(R8P)                   :: i_z_2            !< Flux contribution associated with A_2.
+      real(R8P)                   :: i_z_3            !< Flux contribution associated with A_3.
+      real(R8P)                   :: i_z_4            !< Flux contribution associated with A_4.
+      real(R8P)                   :: flux_unit        !< Analytic current flux for unit amplitude.
+      real(R8P)                   :: flux             !< Analytic current flux before amplitude correction.
+      real(R8P)                   :: correction       !< Amplitude correction factor.
+      real(R8P)                   :: target_current   !< Target input current.
+
+      target_current = A
+
+      ! Set y-window boundaries:
+      ! W_y = 1/2 * [E_y_l - E_y_u].
+      y_l = y_c - sigma
+      y_u = y_c + sigma
+
+      ! Set flux section for the side x = x_l, where the current is directed along +z.
+      x_s = x_l
+      y_s = y_c
+      z_s = z_c
+
+      x_1 = x_s - alpha * sigma
+      x_2 = x_s + alpha * sigma
+      y_1 = y_s - alpha * sigma
+      y_2 = y_s + alpha * sigma
+
+      ! Integral of W_y over y:
+      !
+      ! I_y = 1/2 * [ P_yl(y2) - P_yl(y1)
+      !              -P_yu(y2) + P_yu(y1) ]
+      i_y = 0.5_R8P * (                                        &
+            erf_primitive_function(s=y_2, mu=y_l, sigma=sigma) &
+          - erf_primitive_function(s=y_1, mu=y_l, sigma=sigma) &
+          - erf_primitive_function(s=y_2, mu=y_u, sigma=sigma) &
+          + erf_primitive_function(s=y_1, mu=y_u, sigma=sigma))
+
+      ! Evaluate z-dependent functions at the flux-section plane.
+      e_zb_zs = erf_function(s=z_s, mu=z_b, sigma=sigma)
+      e_zf_zs = erf_function(s=z_s, mu=z_f, sigma=sigma)
+
+      w_z_zs = tangential_window(s     = z_s,     &
+                                 smin  = z_b,     &
+                                 smax  = z_f,     &
+                                 sigma = sigma)
+
+      ! Compute Delta W_x = W_x(x_2) - W_x(x_1).
+      dw_x = tangential_window(s     = x_2,     &
+                               smin  = x_l,     &
+                               smax  = x_r,     &
+                               sigma = sigma)   &
+           - tangential_window(s     = x_1,     &
+                               smin  = x_l,     &
+                               smax  = x_r,     &
+                               sigma = sigma)
+
+      ! Compute Delta E_xl = E_xl(x_2) - E_xl(x_1).
+      de_xl = erf_function(s=x_2, mu=x_l, sigma=sigma) &
+            - erf_function(s=x_1, mu=x_l, sigma=sigma)
+
+      ! Compute Delta E_xr = E_xr(x_2) - E_xr(x_1).
+      de_xr = erf_function(s=x_2, mu=x_r, sigma=sigma) &
+            - erf_function(s=x_1, mu=x_r, sigma=sigma)
+
+      ! Contributions to Iz from the four vector-potential components:
+      !
+      ! A_1 =  E_zb(z) W_x(x) W_y(y)
+      ! A_2 = -E_xr(x) W_z(z) W_y(y)
+      ! A_3 = -E_zf(z) W_x(x) W_y(y)
+      ! A_4 =  E_xl(x) W_z(z) W_y(y)
+      i_z_1 =  e_zb_zs * i_y * dw_x
+      i_z_2 = -w_z_zs  * i_y * de_xr
+      i_z_3 = -e_zf_zs * i_y * dw_x
+      i_z_4 =  w_z_zs  * i_y * de_xl
+
+      flux_unit = abs(i_z_1 + i_z_2 + i_z_3 + i_z_4)
+      flux      = target_current * flux_unit
+
+      if (adjust_amplitude) then
+
+         correction = 1.0_R8P / flux_unit
+
+         print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux))
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') before correction'
+         print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
+
+         A = target_current * correction
+
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(A*flux_unit))
+
+      else
+
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(flux))
+
+      endif
+
+      endsubroutine compute_coil_current_density_flux_analytic_y
+
    endsubroutine set_rectangular_coil_y
 
    subroutine set_rectangular_coil_z(self, n, verse)
-   class(prism_common_object),      intent(inout) :: self                    !< Cpu object.
-   integer(I4P),                    intent(in)    :: n                       !< Coil number.
-   real(R8P),                       intent(in)    :: verse                   !< Coil normal direction, +1=+z, -1=-z.
-   real(R8P),                       allocatable   :: A(:,:,:,:,:)            !< Campo vettoriale totale della spira, somma dei campi A_1, A_2, A_3 e A_4
-   real(R8P),                       allocatable   :: J_vec_buffer(:,:,:,:,:) !< Variabile buffer per il campo di corrente da assegnare alla variabile coil%J_vec
-   real(R8P)                                      :: A_1, A_2, A_3, A_4      !< Campo vettoriale lati spira
-   real(R8P)                                      :: c_c(3)                  !< Vettore posizione centro spira
-   real(R8P)                                      :: cell_coord(3)           !< Vettore posizione centro cella
-   real(R8P)                                      :: x_l, x_r, y_d, y_t
-   real(R8P)                                      :: F_n, W_t, W_z
-   integer(I4P)                                   :: b,i,j,k                 !< Counter.
+   !< Set rectangular coil with normal direction parallel to z.
+   class(prism_common_object), intent(inout) :: self                    !< Cpu object.
+   integer(I4P),               intent(in)    :: n                       !< Coil number.
+   real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+z, -1=-z.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for coil%J_vec.
+   real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
+   real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
+   real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
+   real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
+   real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
+   real(R8P)                                 :: x_l                     !< Lower x-boundary of the rectangular coil.
+   real(R8P)                                 :: x_r                     !< Upper x-boundary of the rectangular coil.
+   real(R8P)                                 :: y_d                     !< Lower y-boundary of the rectangular coil.
+   real(R8P)                                 :: y_t                     !< Upper y-boundary of the rectangular coil.
+   real(R8P)                                 :: F_n                     !< Normal error-function profile.
+   real(R8P)                                 :: W_t                     !< Tangential window function.
+   real(R8P)                                 :: W_z                     !< Coil thickness window function along z.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
 
-   !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,               &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
-            lx=>coil%lx(n), ly=>coil%ly(n),    &
-            y_c=>coil%y_center(n), z_c=>coil%z_center(n), dx=>field%dxyz(1,:), &
-            dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), normal=>coil%normal(n),       &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                    &
-            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,     &
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                     &
+            lx=>coil%lx(n), ly=>coil%ly(n),                                        &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), normal=>coil%normal(n),  &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,         &
             hs=>self%fdv_half_stencil)
 
-   !Fisso estremi della spira rettangolare con normale parallela a z, e centro in (x_c, y_c, z_c)
-   x_l = -lx/2 +x_c
-   x_r = +lx/2 +x_c
-   y_d = -ly/2 +y_c
-   y_t = +ly/2 +y_c
+   ! Set rectangular coil boundaries with normal direction parallel to z
+   ! and center located at (x_c, y_c, z_c).
+   x_l = -lx/2 + x_c
+   x_r = +lx/2 + x_c
+   y_d = -ly/2 + y_c
+   y_t = +ly/2 + y_c
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
+
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
@@ -939,148 +1014,40 @@ contains
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
                cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-               !Primo filo
-               F_n = erf_function(s=cell_coord(2), mu = y_d, sigma = sigma*dy(b))
-               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
-               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
+
+               ! Side 1: y = y_d, tangential direction along x.
+               F_n = erf_function(s=cell_coord(2), mu=y_d, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(1), smin=x_l, smax=x_r, sigma=sigma)
+               W_z = tangential_window(s=cell_coord(3), smin=z_c-sigma, smax=z_c+sigma, sigma=sigma)
                A_1 = F_n*W_t*W_z
-               !Secondo filo
-               F_n = erf_function(s=cell_coord(1), mu = x_r, sigma = sigma*dx(b))
-               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
-               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
+
+               ! Side 2: x = x_r, tangential direction along y.
+               F_n = erf_function(s=cell_coord(1), mu=x_r, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(2), smin=y_d, smax=y_t, sigma=sigma)
+               W_z = tangential_window(s=cell_coord(3), smin=z_c-sigma, smax=z_c+sigma, sigma=sigma)
                A_2 = -F_n*W_t*W_z
-               !Terzo filo
-               F_n = erf_function(s=cell_coord(2), mu = y_t, sigma = sigma*dy(b))
-               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
-               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
+
+               ! Side 3: y = y_t, tangential direction along x.
+               F_n = erf_function(s=cell_coord(2), mu=y_t, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(1), smin=x_l, smax=x_r, sigma=sigma)
+               W_z = tangential_window(s=cell_coord(3), smin=z_c-sigma, smax=z_c+sigma, sigma=sigma)
                A_3 = -F_n*W_t*W_z
-               !Quarto filo
-               F_n = erf_function(s=cell_coord(1), mu = x_l, sigma = sigma*dx(b))
-               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
-               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
+
+               ! Side 4: x = x_l, tangential direction along y.
+               F_n = erf_function(s=cell_coord(1), mu=x_l, sigma=sigma)
+               W_t = tangential_window(s=cell_coord(2), smin=y_d, smax=y_t, sigma=sigma)
+               W_z = tangential_window(s=cell_coord(3), smin=z_c-sigma, smax=z_c+sigma, sigma=sigma)
                A_4 = F_n*W_t*W_z
-               !Somma dei campi vettoriali
-               A(3,i,j,k,b) = A_1 + A_2+ A_3 + A_4
-            enddo
-         enddo
-      enddo
-   enddo
-   call self%compute_curl(hs=hs, ivar=1_I4P,q=A,curl=J_vec_buffer)
-   J_vec_buffer = J_vec_buffer * verse !* 10.0_R8P**4._R8P
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1e-12_R8P) then
-                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
-   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
-   endassociate
-
-   if (n == 1_I4P) then
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   else
-      coil%A(n) = coil%A(1)
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   endif
-
-   !!Calcolo divergenza di J (ampiezza massima) prima della correzione alla Poisson
-   !coil%J_vec(n,1:3,:,:,:,:) = coil%J_vec(n,1:3,:,:,:,:) * coil%A(n)
-   !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
-   !print *, 'Divergenza J max pre Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-!
-   !!Applico correzione alla Poisson per ridurre divergenza residua
-   !call self%impose_div_coil_correction(ivar=1_I4P, q=coil%J_vec(n,1:3,:,:,:,:))
-   !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
-   !print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-!
-   !!Riscalo J_vec a versore
-   !coil%J_vec(n,1:3,:,:,:,:)=coil%J_vec(n,1:3,:,:,:,:)/coil%A(n)
-!
-!
-   !!!Prove per capire se il problema è il round-off
-   !!print *, 'max|J| pre  = ', maxval(abs(coil%J_vec(n,1:3,:,:,:,:)))
-   !!J_vec_buffer = coil%J_vec(n,1:3,:,:,:,:)
-   !!coil%J_vec(n,1:3,:,:,:,:)=coil%J_vec(n,1:3,:,:,:,:)/coil%A(n)*coil%A(n)
-   !!print *, 'max|J| post = ', maxval(abs(coil%J_vec(n,1:3,:,:,:,:)))
-   !!print *, 'max|dJ|     = ', maxval(abs( coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer(1:3,:,:,:,:) ))
-   !!print *, 'rel err max = ', maxval(abs(coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer)) / &
-   !!                           maxval(abs(J_vec_buffer))
-   !!self%divergence(3,:,:,:,:) = 0.0_R8P
-   !!call self%compute_divergence(ivar=1_I4P,q=coil%J_vec,divergence=self%divergence(3,:,:,:,:))
-   !!print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-!
-!
-!
-   !!Verifico che la corrente complessiva sia effettivamente quella richiesta (printo solo, non modifico)
-   !call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-!
-   !!Calcolo le divergenze di J_vec e J come J = A*J_vec. Non dovrebbe cambiare nulla riseptto alla divergenza di Jmax
-   !!precedentemente calcolata e stampata (a meno di errori legati al roundoff numerico)
-   !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=coil%J_vec(n,1:3,:,:,:,:), &
-   !                             divergence=self%divergence(3,:,:,:,:))
-   !print *, 'Divergenza finale J_vec: ', maxval(abs(self%divergence(3,:,:,:,:)))
-   !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=coil%J_vec(n,1:3,:,:,:,:)*coil%A(n), &
-   !                             divergence=self%divergence(3,:,:,:,:))
-   !print *, 'Divergenza finale corrente: ', maxval(abs(self%divergence(3,:,:,:,:)))
-   endsubroutine set_rectangular_coil_z
-
-   subroutine set_circular_coil_x(self, n, verse)
-   class(prism_common_object),      intent(inout) :: self                    !< Cpu object.
-   integer(I4P),                    intent(in)    :: n                       !< Coil number.
-   real(R8P),                       intent(in)    :: verse                   !< Coil normal direction, +1=+x, -1=-x.
-   real(R8P),                       allocatable   :: A(:,:,:,:,:)            !< Campo vettoriale della spira
-   real(R8P),                       allocatable   :: J_vec_buffer(:,:,:,:,:) !< Buffer per il campo di corrente
-   real(R8P)                                      :: cell_coord(3)           !< Vettore posizione centro cella
-   real(R8P)                                      :: rho                     !< Distanza radiale dal centro spira nel piano yz
-   real(R8P)                                      :: F_n, W_x                !< Funzioni di shaping
-   real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
-   integer(I4P)                                   :: b,i,j,k                 !< Counter.
-
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                          &
-             y_c=>coil%y_center(n), z_c=>coil%z_center(n), rc=>coil%r_coil(n), &
-             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
-             dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
-             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),           &
-             J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
-
-   allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   A(:,:,:,:,:) = 0.0_R8P
-
-   allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   J_vec_buffer(:,:,:,:,:) = 0.0_R8P
-
-   do b=1, blocks_number
-      sigma_rho = sigma * max(dy(b),dz(b))
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-
-               rho = sqrt((cell_coord(2)-y_c)**2 + (cell_coord(3)-z_c)**2)
-
-               F_n = erf_function(s=rho, mu=rc, sigma=sigma_rho)
-               W_x = tangential_window(s=cell_coord(1), smin=x_c-sigma*dx(b), smax=x_c+sigma*dx(b), &
-                                       sigma=sigma*dx(b))
-
-               A(1,i,j,k,b) = -F_n * W_x
+               ! Sum vector potential contributions.
+               A(3,i,j,k,b) = A_1 + A_2 + A_3 + A_4
             enddo
          enddo
       enddo
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1096,36 +1063,349 @@ contains
    enddo
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+
+   if (n == 1_I4P) then
+      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, y_d=y_d, &
+                                                        y_t=y_t, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.true.)
+   else
+      coil%A(n) = coil%A(1)
+      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, y_d=y_d, &
+                                                        y_t=y_t, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.false.)
+   endif
+
    endassociate
 
-   !if (n == 1_I4P) then
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   !else
-   !   coil%A(n) = coil%A(1)
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   !endif
+   contains
+
+      subroutine compute_coil_current_density_flux_analytic_z(x_c, y_c, z_c, x_l, x_r, y_d, y_t, sigma, A, n, adjust_amplitude)
+      !< Analytic amplitude correction for a rectangular coil normal to z.
+      !< The current is evaluated as the flux of Jy through the side x = x_l.
+      real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
+      real(R8P),    intent(in)    :: y_c              !< Coil center y-coordinate.
+      real(R8P),    intent(in)    :: z_c              !< Coil center z-coordinate.
+      real(R8P),    intent(in)    :: x_l              !< Lower x-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: x_r              !< Upper x-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: y_d              !< Lower y-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: y_t              !< Upper y-boundary of the rectangular coil.
+      real(R8P),    intent(in)    :: sigma            !< Coil Gaussian smoothing width.
+      real(R8P),    intent(inout) :: A                !< Coil amplitude, corrected in place.
+      integer(I4P), intent(in)    :: n                !< Coil number.
+      logical,      intent(in)    :: adjust_amplitude !< If true, correct the coil amplitude.
+      real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the integration interval in sigma units.
+      real(R8P)                   :: z_l              !< Lower z-boundary of the coil thickness window.
+      real(R8P)                   :: z_u              !< Upper z-boundary of the coil thickness window.
+      real(R8P)                   :: x_s              !< x-coordinate of the flux-section center.
+      real(R8P)                   :: y_s              !< y-coordinate of the flux-section plane.
+      real(R8P)                   :: z_s              !< z-coordinate of the flux-section center.
+      real(R8P)                   :: x_1              !< Lower x-integration boundary.
+      real(R8P)                   :: x_2              !< Upper x-integration boundary.
+      real(R8P)                   :: z_1              !< Lower z-integration boundary.
+      real(R8P)                   :: z_2              !< Upper z-integration boundary.
+      real(R8P)                   :: e_yd_ys          !< E_yd evaluated at y_s.
+      real(R8P)                   :: e_yt_ys          !< E_yt evaluated at y_s.
+      real(R8P)                   :: w_y_ys           !< W_y evaluated at y_s.
+      real(R8P)                   :: dw_x             !< Difference W_x(x_2)-W_x(x_1).
+      real(R8P)                   :: de_xl            !< Difference E_xl(x_2)-E_xl(x_1).
+      real(R8P)                   :: de_xr            !< Difference E_xr(x_2)-E_xr(x_1).
+      real(R8P)                   :: i_z              !< Integral of W_z over the z-integration interval.
+      real(R8P)                   :: i_y_1            !< Flux contribution associated with A_1.
+      real(R8P)                   :: i_y_2            !< Flux contribution associated with A_2.
+      real(R8P)                   :: i_y_3            !< Flux contribution associated with A_3.
+      real(R8P)                   :: i_y_4            !< Flux contribution associated with A_4.
+      real(R8P)                   :: flux_unit        !< Analytic current flux for unit amplitude.
+      real(R8P)                   :: flux             !< Analytic current flux before amplitude correction.
+      real(R8P)                   :: correction       !< Amplitude correction factor.
+      real(R8P)                   :: target_current   !< Target input current.
+
+      target_current = A
+
+      ! Set z-window boundaries:
+      ! W_z = 1/2 * [E_z_l - E_z_u].
+      z_l = z_c - sigma
+      z_u = z_c + sigma
+
+      ! Set flux section for the side x = x_l, where the current is directed along -y.
+      x_s = x_l
+      y_s = y_c
+      z_s = z_c
+
+      x_1 = x_s - alpha * sigma
+      x_2 = x_s + alpha * sigma
+      z_1 = z_s - alpha * sigma
+      z_2 = z_s + alpha * sigma
+
+      ! Integral of W_z over z:
+      !
+      ! I_z = 1/2 * [ P_zl(z2) - P_zl(z1)
+      !              -P_zu(z2) + P_zu(z1) ]
+      i_z = 0.5_R8P * (                                        &
+            erf_primitive_function(s=z_2, mu=z_l, sigma=sigma) &
+          - erf_primitive_function(s=z_1, mu=z_l, sigma=sigma) &
+          - erf_primitive_function(s=z_2, mu=z_u, sigma=sigma) &
+          + erf_primitive_function(s=z_1, mu=z_u, sigma=sigma))
+
+      ! Evaluate y-dependent functions at the flux-section plane.
+      e_yd_ys = erf_function(s=y_s, mu=y_d, sigma=sigma)
+      e_yt_ys = erf_function(s=y_s, mu=y_t, sigma=sigma)
+
+      w_y_ys = tangential_window(s     = y_s,     &
+                                 smin  = y_d,     &
+                                 smax  = y_t,     &
+                                 sigma = sigma)
+
+      ! Compute Delta W_x = W_x(x_2) - W_x(x_1).
+      dw_x = tangential_window(s     = x_2,     &
+                               smin  = x_l,     &
+                               smax  = x_r,     &
+                               sigma = sigma)   &
+           - tangential_window(s     = x_1,     &
+                               smin  = x_l,     &
+                               smax  = x_r,     &
+                               sigma = sigma)
+
+      ! Compute Delta E_xl = E_xl(x_2) - E_xl(x_1).
+      de_xl = erf_function(s=x_2, mu=x_l, sigma=sigma) &
+            - erf_function(s=x_1, mu=x_l, sigma=sigma)
+
+      ! Compute Delta E_xr = E_xr(x_2) - E_xr(x_1).
+      de_xr = erf_function(s=x_2, mu=x_r, sigma=sigma) &
+            - erf_function(s=x_1, mu=x_r, sigma=sigma)
+
+      ! Contributions to Iy from the four vector-potential components:
+      !
+      ! A_1 =  E_yd(y) W_x(x) W_z(z)
+      ! A_2 = -E_xr(x) W_y(y) W_z(z)
+      ! A_3 = -E_yt(y) W_x(x) W_z(z)
+      ! A_4 =  E_xl(x) W_y(y) W_z(z)
+      !
+      ! Since A = (0,0,Az), Jy = -dAz/dx.
+      i_y_1 = -e_yd_ys * i_z * dw_x
+      i_y_2 =  w_y_ys  * i_z * de_xr
+      i_y_3 =  e_yt_ys * i_z * dw_x
+      i_y_4 = -w_y_ys  * i_z * de_xl
+
+      flux_unit = abs(i_y_1 + i_y_2 + i_y_3 + i_y_4)
+      flux      = target_current * flux_unit
+
+      if (adjust_amplitude) then
+
+         correction = 1.0_R8P / flux_unit
+
+         print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux))
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') before correction'
+         print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
+
+         A = target_current * correction
+
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(A*flux_unit))
+
+      else
+
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(flux))
+
+      endif
+
+      endsubroutine compute_coil_current_density_flux_analytic_z
+
+   endsubroutine set_rectangular_coil_z
+
+   subroutine set_circular_coil_x(self, n, verse)
+   !< Set circular coil with normal direction parallel to x.
+   class(prism_common_object), intent(inout) :: self                    !< Cpu object.
+   integer(I4P),               intent(in)    :: n                       !< Coil number.
+   real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+x, -1=-x.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for coil%J_vec.
+   real(R8P)                                 :: A_c                     !< Circular vector potential contribution.
+   real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
+   real(R8P)                                 :: r                       !< Radial distance in the y-z plane.
+   real(R8P)                                 :: F_r                     !< Radial error-function profile.
+   real(R8P)                                 :: W_x                     !< Coil thickness window function along x.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
+
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                     &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_c=>coil%r_coil(n),      &
+            normal=>coil%normal(n), nb=>field%nb, x_cell=>field%x_cell,             &
+            y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),       &
+            J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
+
+   allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   A(:,:,:,:,:) = 0.0_R8P
+
+   allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+
+               ! Circular coil in the y-z plane.
+               r = sqrt((cell_coord(2)-y_c)**2 + (cell_coord(3)-z_c)**2)
+
+               ! Radial profile. The minus sign gives positive circulation for verse = +1.
+               F_r = -erf_function(s=r, mu=r_c, sigma=sigma)
+
+               ! Thickness window along the coil normal direction.
+               W_x = tangential_window(s=cell_coord(1), smin=x_c-sigma, smax=x_c+sigma, sigma=sigma)
+
+               A_c = F_r*W_x
+
+               ! Store vector potential component normal to the circular coil plane.
+               A(1,i,j,k,b) = A_c
+            enddo
+         enddo
+      enddo
+   enddo
+
+   call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
+   J_vec_buffer = J_vec_buffer * verse
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1e-12_R8P) then
+                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+
+   if (n == 1_I4P) then
+      call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                                 A=coil%A(n), sigma=sigma, n=n,      &
+                                                                 adjust_amplitude=.true.)
+   else
+      coil%A(n) = coil%A(1)
+      call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                                 A=coil%A(n), sigma=sigma, n=n,      &
+                                                                 adjust_amplitude=.false.)
+   endif
+
+   endassociate
+
+   contains
+
+      subroutine compute_coil_current_density_flux_analytic_circular_x(x_c, y_c, z_c, r_c, sigma, A, n, adjust_amplitude)
+      !< Analytic amplitude correction for a circular coil normal to x.
+      !< The current is evaluated as the flux of Jy through the lower point z = z_c - r_c.
+      real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
+      real(R8P),    intent(in)    :: y_c              !< Coil center y-coordinate.
+      real(R8P),    intent(in)    :: z_c              !< Coil center z-coordinate.
+      real(R8P),    intent(in)    :: r_c              !< Circular coil radius.
+      real(R8P),    intent(in)    :: sigma            !< Coil Gaussian smoothing width.
+      real(R8P),    intent(inout) :: A                !< Coil amplitude, corrected in place.
+      integer(I4P), intent(in)    :: n                !< Coil number.
+      logical,      intent(in)    :: adjust_amplitude !< If true, correct the coil amplitude.
+      real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the integration interval in sigma units.
+      real(R8P)                   :: x_l              !< Lower x-boundary of the coil thickness window.
+      real(R8P)                   :: x_u              !< Upper x-boundary of the coil thickness window.
+      real(R8P)                   :: x_s              !< x-coordinate of the flux-section center.
+      real(R8P)                   :: z_s              !< z-coordinate of the lower flux-section center.
+      real(R8P)                   :: x_1              !< Lower x-integration boundary.
+      real(R8P)                   :: x_2              !< Upper x-integration boundary.
+      real(R8P)                   :: r_1              !< Lower radial integration boundary.
+      real(R8P)                   :: r_2              !< Upper radial integration boundary.
+      real(R8P)                   :: de_r             !< Difference E_R(r_2)-E_R(r_1).
+      real(R8P)                   :: i_x              !< Integral of W_x over the x-integration interval.
+      real(R8P)                   :: i_y_c            !< Flux contribution associated with the circular current profile.
+      real(R8P)                   :: flux_unit        !< Analytic current flux for unit amplitude.
+      real(R8P)                   :: flux             !< Analytic current flux before amplitude correction.
+      real(R8P)                   :: correction       !< Amplitude correction factor.
+      real(R8P)                   :: target_current   !< Target input current.
+
+      target_current = A
+
+      if (r_c <= alpha*sigma) then
+         error stop 'compute_coil_current_density_flux_analytic_circular_x: r_c must be larger than alpha*sigma'
+      endif
+
+      ! Set x-window boundaries:
+      ! W_x = 1/2 * [E_x_l - E_x_u].
+      x_l = x_c - sigma
+      x_u = x_c + sigma
+
+      ! Set flux section for the lower point of the circular coil.
+      x_s = x_c
+      z_s = z_c - r_c
+
+      x_1 = x_s - alpha * sigma
+      x_2 = x_s + alpha * sigma
+
+      r_1 = r_c - alpha * sigma
+      r_2 = r_c + alpha * sigma
+
+      ! Integral of W_x over x.
+      i_x = 0.5_R8P * (                                        &
+            erf_primitive_function(s=x_2, mu=x_l, sigma=sigma) &
+          - erf_primitive_function(s=x_1, mu=x_l, sigma=sigma) &
+          - erf_primitive_function(s=x_2, mu=x_u, sigma=sigma) &
+          + erf_primitive_function(s=x_1, mu=x_u, sigma=sigma))
+
+      ! Radial Gaussian flux contribution.
+      de_r = erf_function(s=r_2, mu=r_c, sigma=sigma) &
+           - erf_function(s=r_1, mu=r_c, sigma=sigma)
+
+      i_y_c = i_x * de_r
+
+      flux_unit = abs(i_y_c)
+      flux      = target_current * flux_unit
+
+      if (adjust_amplitude) then
+
+         correction = 1.0_R8P / flux_unit
+
+         print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux))
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') before correction'
+         print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
+
+         A = target_current * correction
+
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(A*flux_unit))
+
+      else
+
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(flux))
+
+      endif
+
+      endsubroutine compute_coil_current_density_flux_analytic_circular_x
 
    endsubroutine set_circular_coil_x
 
    subroutine set_circular_coil_y(self, n, verse)
-   class(prism_common_object),      intent(inout) :: self                    !< Cpu object.
-   integer(I4P),                    intent(in)    :: n                       !< Coil number.
-   real(R8P),                       intent(in)    :: verse                   !< Coil normal direction, +1=+y, -1=-y.
-   real(R8P),                       allocatable   :: A(:,:,:,:,:)            !< Campo vettoriale della spira
-   real(R8P),                       allocatable   :: J_vec_buffer(:,:,:,:,:) !< Buffer per il campo di corrente
-   real(R8P)                                      :: cell_coord(3)           !< Vettore posizione centro cella
-   real(R8P)                                      :: rho                     !< Distanza radiale dal centro spira nel piano xz
-   real(R8P)                                      :: F_n, W_y                !< Funzioni di shaping
-   real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
-   integer(I4P)                                   :: b,i,j,k                 !< Counter.
+   !< Set circular coil with normal direction parallel to y.
+   class(prism_common_object), intent(inout) :: self                    !< Cpu object.
+   integer(I4P),               intent(in)    :: n                       !< Coil number.
+   real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+y, -1=-y.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for coil%J_vec.
+   real(R8P)                                 :: A_c                     !< Circular vector potential contribution.
+   real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
+   real(R8P)                                 :: r                       !< Radial distance in the x-z plane.
+   real(R8P)                                 :: F_r                     !< Radial error-function profile.
+   real(R8P)                                 :: W_y                     !< Coil thickness window function along y.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
 
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                          &
-             y_c=>coil%y_center(n), z_c=>coil%z_center(n), rc=>coil%r_coil(n), &
-             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
-             dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
-             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),           &
-             J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                     &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_c=>coil%r_coil(n),      &
+            normal=>coil%normal(n), nb=>field%nb, x_cell=>field%x_cell,             &
+            y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),       &
+            J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1134,25 +1414,31 @@ contains
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
    do b=1, blocks_number
-      sigma_rho = sigma * max(dx(b),dz(b))
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
                cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-               rho = sqrt((cell_coord(1)-x_c)**2 + (cell_coord(3)-z_c)**2)
+               ! Circular coil in the x-z plane.
+               r = sqrt((cell_coord(1)-x_c)**2 + (cell_coord(3)-z_c)**2)
 
-               F_n = erf_function(s=rho, mu=rc, sigma=sigma_rho)
-               W_y = tangential_window(s=cell_coord(2), smin=y_c-sigma*dy(b), smax=y_c+sigma*dy(b), &
-                                       sigma=sigma*dy(b))
+               ! Radial profile. The minus sign gives positive circulation for verse = +1.
+               F_r = -erf_function(s=r, mu=r_c, sigma=sigma)
 
-               A(2,i,j,k,b) = -F_n * W_y
+               ! Thickness window along the coil normal direction.
+               W_y = tangential_window(s=cell_coord(2), smin=y_c-sigma, smax=y_c+sigma, sigma=sigma)
+
+               A_c = F_r*W_y
+
+               ! Store vector potential component normal to the circular coil plane.
+               A(2,i,j,k,b) = A_c
             enddo
          enddo
       enddo
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1168,37 +1454,132 @@ contains
    enddo
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+
+   if (n == 1_I4P) then
+      call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                                 A=coil%A(n), sigma=sigma, n=n,      &
+                                                                 adjust_amplitude=.true.)
+   else
+      coil%A(n) = coil%A(1)
+      call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                                 A=coil%A(n), sigma=sigma, n=n,      &
+                                                                 adjust_amplitude=.false.)
+   endif
+
    endassociate
 
-   !if (n == 1_I4P) then
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   !else
-   !   coil%A(n) = coil%A(1)
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   !endif
+   contains
+
+      subroutine compute_coil_current_density_flux_analytic_circular_y(x_c, y_c, z_c, r_c, sigma, A, n, adjust_amplitude)
+      !< Analytic amplitude correction for a circular coil normal to y.
+      !< The current is evaluated as the flux of Jz through the left point x = x_c - r_c.
+      real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
+      real(R8P),    intent(in)    :: y_c              !< Coil center y-coordinate.
+      real(R8P),    intent(in)    :: z_c              !< Coil center z-coordinate.
+      real(R8P),    intent(in)    :: r_c              !< Circular coil radius.
+      real(R8P),    intent(in)    :: sigma            !< Coil Gaussian smoothing width.
+      real(R8P),    intent(inout) :: A                !< Coil amplitude, corrected in place.
+      integer(I4P), intent(in)    :: n                !< Coil number.
+      logical,      intent(in)    :: adjust_amplitude !< If true, correct the coil amplitude.
+      real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the integration interval in sigma units.
+      real(R8P)                   :: y_l              !< Lower y-boundary of the coil thickness window.
+      real(R8P)                   :: y_u              !< Upper y-boundary of the coil thickness window.
+      real(R8P)                   :: x_s              !< x-coordinate of the left flux-section center.
+      real(R8P)                   :: y_s              !< y-coordinate of the flux-section center.
+      real(R8P)                   :: y_1              !< Lower y-integration boundary.
+      real(R8P)                   :: y_2              !< Upper y-integration boundary.
+      real(R8P)                   :: r_1              !< Lower radial integration boundary.
+      real(R8P)                   :: r_2              !< Upper radial integration boundary.
+      real(R8P)                   :: de_r             !< Difference E_R(r_2)-E_R(r_1).
+      real(R8P)                   :: i_y              !< Integral of W_y over the y-integration interval.
+      real(R8P)                   :: i_z_c            !< Flux contribution associated with the circular current profile.
+      real(R8P)                   :: flux_unit        !< Analytic current flux for unit amplitude.
+      real(R8P)                   :: flux             !< Analytic current flux before amplitude correction.
+      real(R8P)                   :: correction       !< Amplitude correction factor.
+      real(R8P)                   :: target_current   !< Target input current.
+
+      target_current = A
+
+      if (r_c <= alpha*sigma) then
+         error stop 'compute_coil_current_density_flux_analytic_circular_y: r_c must be larger than alpha*sigma'
+      endif
+
+      ! Set y-window boundaries:
+      ! W_y = 1/2 * [E_y_l - E_y_u].
+      y_l = y_c - sigma
+      y_u = y_c + sigma
+
+      ! Set flux section for the left point of the circular coil.
+      x_s = x_c - r_c
+      y_s = y_c
+
+      y_1 = y_s - alpha * sigma
+      y_2 = y_s + alpha * sigma
+
+      r_1 = r_c - alpha * sigma
+      r_2 = r_c + alpha * sigma
+
+      ! Integral of W_y over y.
+      i_y = 0.5_R8P * (                                        &
+            erf_primitive_function(s=y_2, mu=y_l, sigma=sigma) &
+          - erf_primitive_function(s=y_1, mu=y_l, sigma=sigma) &
+          - erf_primitive_function(s=y_2, mu=y_u, sigma=sigma) &
+          + erf_primitive_function(s=y_1, mu=y_u, sigma=sigma))
+
+      ! Radial Gaussian flux contribution.
+      de_r = erf_function(s=r_2, mu=r_c, sigma=sigma) &
+           - erf_function(s=r_1, mu=r_c, sigma=sigma)
+
+      i_z_c = i_y * de_r
+
+      flux_unit = abs(i_z_c)
+      flux      = target_current * flux_unit
+
+      if (adjust_amplitude) then
+
+         correction = 1.0_R8P / flux_unit
+
+         print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux))
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') before correction'
+         print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
+
+         A = target_current * correction
+
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(A*flux_unit))
+
+      else
+
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(flux))
+
+      endif
+
+      endsubroutine compute_coil_current_density_flux_analytic_circular_y
 
    endsubroutine set_circular_coil_y
 
    subroutine set_circular_coil_z(self, n, verse)
-   class(prism_common_object),      intent(inout) :: self                    !< Cpu object.
-   integer(I4P),                    intent(in)    :: n                       !< Coil number.
-   real(R8P),                       intent(in)    :: verse                   !< Coil normal direction, +1=+z, -1=-z.
-   real(R8P),                       allocatable   :: A(:,:,:,:,:)            !< Campo vettoriale della spira
-   real(R8P),                       allocatable   :: J_vec_buffer(:,:,:,:,:) !< Buffer per il campo di corrente
-   real(R8P)                                      :: c_c(3)                  !< Vettore posizione centro spira
-   real(R8P)                                      :: cell_coord(3)           !< Vettore posizione centro cella
-   real(R8P)                                      :: rho                     !< Distanza radiale dal centro spira nel piano xy
-   real(R8P)                                      :: F_n, W_z                !< Funzioni di shaping
-   real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
-   integer(I4P)                                   :: b,i,j,k                 !< Counter.
+   !< Set circular coil with normal direction parallel to z.
+   class(prism_common_object), intent(inout) :: self                    !< Cpu object.
+   integer(I4P),               intent(in)    :: n                       !< Coil number.
+   real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+z, -1=-z.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for coil%J_vec.
+   real(R8P)                                 :: A_c                     !< Circular vector potential contribution.
+   real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
+   real(R8P)                                 :: r                       !< Radial distance in the x-y plane.
+   real(R8P)                                 :: F_r                     !< Radial error-function profile.
+   real(R8P)                                 :: W_z                     !< Coil thickness window function along z.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
 
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                    &
-             nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                          &
-             y_c=>coil%y_center(n), z_c=>coil%z_center(n), rc=>coil%r_coil(n), &
-             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),        &
-             dz=>field%dxyz(3,:), nb=>field%nb, x_cell=>field%x_cell,                         &
-             y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),           &
-             J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,          &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                      &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_c=>coil%r_coil(n),      &
+            normal=>coil%normal(n), nb=>field%nb, x_cell=>field%x_cell,             &
+            y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>coil%sigma(n),       &
+            J_vec=>coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1207,25 +1588,31 @@ contains
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
    do b=1, blocks_number
-      sigma_rho = sigma * max(dx(b),dy(b))
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
                cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-               rho = sqrt((cell_coord(1)-x_c)**2 + (cell_coord(2)-y_c)**2)
+               ! Circular coil in the x-y plane.
+               r = sqrt((cell_coord(1)-x_c)**2 + (cell_coord(2)-y_c)**2)
 
-               F_n = erf_function(s=rho, mu=rc, sigma=sigma_rho)
-               W_z = tangential_window(s=cell_coord(3), smin=z_c-sigma*dz(b), smax=z_c+sigma*dz(b), &
-                                       sigma=sigma*dz(b))
+               ! Radial profile. The minus sign gives positive circulation for verse = +1.
+               F_r = -erf_function(s=r, mu=r_c, sigma=sigma)
 
-               A(3,i,j,k,b) = -F_n * W_z
+               ! Thickness window along the coil normal direction.
+               W_z = tangential_window(s=cell_coord(3), smin=z_c-sigma, smax=z_c+sigma, sigma=sigma)
+
+               A_c = F_r*W_z
+
+               ! Store vector potential component normal to the circular coil plane.
+               A(3,i,j,k,b) = A_c
             enddo
          enddo
       enddo
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1242,36 +1629,131 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
+   if (n == 1_I4P) then
+      call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                                 A=coil%A(n), sigma=sigma, n=n,      &
+                                                                 adjust_amplitude=.true.)
+   else
+      coil%A(n) = coil%A(1)
+      call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                                 A=coil%A(n), sigma=sigma, n=n,      &
+                                                                 adjust_amplitude=.false.)
+   endif
+
    endassociate
 
-   !if (n == 1_I4P) then
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   !else
-   !   coil%A(n) = coil%A(1)
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   !endif
+   contains
+
+      subroutine compute_coil_current_density_flux_analytic_circular_z(x_c, y_c, z_c, r_c, sigma, A, n, adjust_amplitude)
+      !< Analytic amplitude correction for a circular coil normal to z.
+      !< The current is evaluated as the flux of Jy through the left point x = x_c - r_c.
+      real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
+      real(R8P),    intent(in)    :: y_c              !< Coil center y-coordinate.
+      real(R8P),    intent(in)    :: z_c              !< Coil center z-coordinate.
+      real(R8P),    intent(in)    :: r_c              !< Circular coil radius.
+      real(R8P),    intent(in)    :: sigma            !< Coil Gaussian smoothing width.
+      real(R8P),    intent(inout) :: A                !< Coil amplitude, corrected in place.
+      integer(I4P), intent(in)    :: n                !< Coil number.
+      logical,      intent(in)    :: adjust_amplitude !< If true, correct the coil amplitude.
+      real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the integration interval in sigma units.
+      real(R8P)                   :: z_l              !< Lower z-boundary of the coil thickness window.
+      real(R8P)                   :: z_u              !< Upper z-boundary of the coil thickness window.
+      real(R8P)                   :: x_s              !< x-coordinate of the left flux-section center.
+      real(R8P)                   :: z_s              !< z-coordinate of the flux-section center.
+      real(R8P)                   :: z_1              !< Lower z-integration boundary.
+      real(R8P)                   :: z_2              !< Upper z-integration boundary.
+      real(R8P)                   :: r_1              !< Lower radial integration boundary.
+      real(R8P)                   :: r_2              !< Upper radial integration boundary.
+      real(R8P)                   :: de_r             !< Difference E_R(r_2)-E_R(r_1).
+      real(R8P)                   :: i_z              !< Integral of W_z over the z-integration interval.
+      real(R8P)                   :: i_y_c            !< Flux contribution associated with the circular current profile.
+      real(R8P)                   :: flux_unit        !< Analytic current flux for unit amplitude.
+      real(R8P)                   :: flux             !< Analytic current flux before amplitude correction.
+      real(R8P)                   :: correction       !< Amplitude correction factor.
+      real(R8P)                   :: target_current   !< Target input current.
+
+      target_current = A
+
+      if (r_c <= alpha*sigma) then
+         error stop 'compute_coil_current_density_flux_analytic_circular_z: r_c must be larger than alpha*sigma'
+      endif
+
+      ! Set z-window boundaries:
+      ! W_z = 1/2 * [E_z_l - E_z_u].
+      z_l = z_c - sigma
+      z_u = z_c + sigma
+
+      ! Set flux section for the left point of the circular coil.
+      x_s = x_c - r_c
+      z_s = z_c
+
+      z_1 = z_s - alpha * sigma
+      z_2 = z_s + alpha * sigma
+
+      r_1 = r_c - alpha * sigma
+      r_2 = r_c + alpha * sigma
+
+      ! Integral of W_z over z.
+      i_z = 0.5_R8P * (                                        &
+            erf_primitive_function(s=z_2, mu=z_l, sigma=sigma) &
+          - erf_primitive_function(s=z_1, mu=z_l, sigma=sigma) &
+          - erf_primitive_function(s=z_2, mu=z_u, sigma=sigma) &
+          + erf_primitive_function(s=z_1, mu=z_u, sigma=sigma))
+
+      ! Radial Gaussian flux contribution.
+      de_r = erf_function(s=r_2, mu=r_c, sigma=sigma) &
+           - erf_function(s=r_1, mu=r_c, sigma=sigma)
+
+      ! At x = x_c-r_c, the positive-normal circulation has Jy < 0.
+      i_y_c = -i_z * de_r
+
+      flux_unit = abs(i_y_c)
+      flux      = target_current * flux_unit
+
+      if (adjust_amplitude) then
+
+         correction = 1.0_R8P / flux_unit
+
+         print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux))
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') before correction'
+         print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
+
+         A = target_current * correction
+
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(A*flux_unit))
+
+      else
+
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(flux))
+
+      endif
+
+      endsubroutine compute_coil_current_density_flux_analytic_circular_z
 
    endsubroutine set_circular_coil_z
 
    subroutine set_solenoid_x(self, n, verse)
-   class(prism_common_object),      intent(inout) :: self                    !< Cpu object.
-   integer(I4P),                    intent(in)    :: n                       !< Coil number.
-   real(R8P),                       intent(in)    :: verse                   !< Solenoid normal direction, +1=+x, -1=-x.
-   real(R8P),                       allocatable   :: A(:,:,:,:,:)            !< Campo vettoriale del solenoide
-   real(R8P),                       allocatable   :: J_vec_buffer(:,:,:,:,:) !< Variabile buffer per il campo di corrente
-   real(R8P)                                      :: cell_coord(3)           !< Vettore posizione centro cella
-   real(R8P)                                      :: rho                     !< Distanza radiale nel piano yz
-   real(R8P)                                      :: F_n, W_x                !< Shaping functions
-   real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
-   integer(I4P)                                   :: b,i,j,k                 !< Counter.
+   !< Set solenoid with axis direction parallel to x.
+   class(prism_common_object), intent(inout) :: self                    !< Cpu object.
+   integer(I4P),               intent(in)    :: n                       !< Coil number.
+   real(R8P),                  intent(in)    :: verse                   !< Solenoid axis direction, +1=+x, -1=-x.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total solenoid vector potential field.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for coil%J_vec.
+   real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
+   real(R8P)                                 :: rho                     !< Radial distance in the y-z plane.
+   real(R8P)                                 :: F_n                     !< Radial error-function profile.
+   real(R8P)                                 :: W_x                     !< Axial window function along x.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
 
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                              &
-            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n), &
-            l_sol=>coil%l_solenoid(n),                      &
-            dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
-            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,             &
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                     &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n),  &
+            l_sol=>coil%l_solenoid(n), windings=>coil%windings(n),                 &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,         &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1281,7 +1763,6 @@ contains
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
    do b=1, blocks_number
-      sigma_rho = sigma * max(dy(b),dz(b))
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -1289,17 +1770,21 @@ contains
 
                rho = sqrt((cell_coord(2)-y_c)**2 + (cell_coord(3)-z_c)**2)
 
-               F_n = erf_function(s=rho, mu=r_coil, sigma=sigma_rho)
-               W_x = tangential_window(s=cell_coord(1), smin=x_c-0.5_R8P*l_sol, smax=x_c+0.5_R8P*l_sol, &
-                                       sigma=sigma*dx(b))
+               F_n = erf_function(s=rho, mu=r_coil, sigma=sigma)
 
-               A(1,i,j,k,b) = - F_n * W_x
+               W_x = tangential_window(s     = cell_coord(1),     &
+                                        smin  = x_c-0.5_R8P*l_sol, &
+                                        smax  = x_c+0.5_R8P*l_sol, &
+                                        sigma = sigma)
+
+               A(1,i,j,k,b) = -F_n*W_x
             enddo
          enddo
       enddo
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1315,35 +1800,127 @@ contains
    enddo
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+
+   if (n == 1_I4P) then
+      call compute_solenoid_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
+                                                            l_sol=l_sol, windings=windings,           &
+                                                            A=coil%A(n), sigma=sigma, n=n,            &
+                                                            adjust_amplitude=.true.)
+   else
+      coil%A(n) = coil%A(1)
+      call compute_solenoid_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
+                                                            l_sol=l_sol, windings=windings,           &
+                                                            A=coil%A(n), sigma=sigma, n=n,            &
+                                                            adjust_amplitude=.false.)
+   endif
+
    endassociate
 
-   !if (n == 1_I4P) then
-      call self%compute_solenoid_current_density_flux(n=n, adjust_amplitude=.true.)
-   !else
-   !   coil%A(n) = coil%A(1)
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   !endif
-   endsubroutine set_solenoid_x
+   contains
 
-   subroutine set_solenoid_y(self, n, verse)
-   class(prism_common_object),      intent(inout) :: self                    !< Cpu object.
-   integer(I4P),                    intent(in)    :: n                       !< Coil number.
-   real(R8P),                       intent(in)    :: verse                   !< Solenoid normal direction, +1=+y, -1=-y.
-   real(R8P),                       allocatable   :: A(:,:,:,:,:)            !< Campo vettoriale del solenoide
-   real(R8P),                       allocatable   :: J_vec_buffer(:,:,:,:,:) !< Variabile buffer per il campo di corrente
-   real(R8P)                                      :: cell_coord(3)           !< Vettore posizione centro cella
-   real(R8P)                                      :: rho                     !< Distanza radiale nel piano xz
-   real(R8P)                                      :: F_n, W_y                !< Shaping functions
-   real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
-   integer(I4P)                                   :: b,i,j,k                 !< Counter.
+      subroutine compute_solenoid_current_density_flux_analytic_x(x_c, y_c, z_c, r_coil, l_sol, windings, sigma, A, n, adjust_amplitude)
+      !< Analytic amplitude correction for a solenoid with axis parallel to x.
+      !< The current is evaluated as the flux of Jz through the lower radial section y = y_c-r_coil.
+      real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
+      real(R8P),    intent(in)    :: y_c              !< Solenoid center y-coordinate.
+      real(R8P),    intent(in)    :: z_c              !< Solenoid center z-coordinate.
+      real(R8P),    intent(in)    :: r_coil           !< Solenoid radius.
+      real(R8P),    intent(in)    :: l_sol            !< Solenoid length.
+      real(R8P),    intent(in)    :: windings         !< Number of solenoid windings.
+      real(R8P),    intent(in)    :: sigma            !< Solenoid Gaussian smoothing width.
+      real(R8P),    intent(inout) :: A                !< Solenoid amplitude, corrected in place.
+      integer(I4P), intent(in)    :: n                !< Coil number.
+      logical,      intent(in)    :: adjust_amplitude !< If true, correct the solenoid amplitude.
+      real(R8P),    parameter     :: alpha = 3.5_R8P  !< Half-width of the radial integration interval in sigma units.
+      real(R8P)                   :: x_l              !< Lower x-boundary of the solenoid axial window.
+      real(R8P)                   :: x_u              !< Upper x-boundary of the solenoid axial window.
+      real(R8P)                   :: x_1              !< Lower x-integration boundary.
+      real(R8P)                   :: x_2              !< Upper x-integration boundary.
+      real(R8P)                   :: rho_1            !< Lower radial integration boundary.
+      real(R8P)                   :: rho_2            !< Upper radial integration boundary.
+      real(R8P)                   :: i_x              !< Integral of W_x over the x-integration interval.
+      real(R8P)                   :: de_rho           !< Difference E_R(rho_2)-E_R(rho_1).
+      real(R8P)                   :: i_z              !< Analytic flux contribution of Jz.
+      real(R8P)                   :: flux_unit        !< Analytic current flux for unit amplitude.
+      real(R8P)                   :: flux             !< Analytic current flux before amplitude correction.
+      real(R8P)                   :: correction       !< Amplitude correction factor.
+      real(R8P)                   :: target_current   !< Target total current, equal to input A*windings.
 
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                              &
-            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n), &
-            l_sol=>coil%l_solenoid(n),                       &
-            dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
-            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,             &
+      x_l = x_c - 0.5_R8P*l_sol
+      x_u = x_c + 0.5_R8P*l_sol
+
+      x_1   = x_l - alpha*sigma
+      x_2   = x_u + alpha*sigma
+      rho_1 = r_coil - alpha*sigma
+      rho_2 = r_coil + alpha*sigma
+
+      i_x = 0.5_R8P * (                                        &
+            erf_primitive_function(s=x_2, mu=x_l, sigma=sigma) &
+          - erf_primitive_function(s=x_1, mu=x_l, sigma=sigma) &
+          - erf_primitive_function(s=x_2, mu=x_u, sigma=sigma) &
+          + erf_primitive_function(s=x_1, mu=x_u, sigma=sigma))
+
+      de_rho = erf_function(s=rho_2, mu=r_coil, sigma=sigma) &
+             - erf_function(s=rho_1, mu=r_coil, sigma=sigma)
+
+      ! For A_x = -E_R(rho) W_x(x), at y = y_c-r_coil, Jz is negative.
+      i_z = -i_x*de_rho
+
+      flux_unit = abs(i_z)
+
+      if (flux_unit <= tiny(1.0_R8P)) then
+         error stop 'compute_solenoid_current_density_flux_analytic_x: null analytic unit flux'
+      endif
+
+      if (adjust_amplitude) then
+
+         target_current = A * windings
+         flux           = target_current * flux_unit
+         correction     = 1.0_R8P / flux_unit
+
+         print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux))
+         print '(A)', mpih%myrankstr//trim(str(target_current))//' Target current A('//trim(str(n))//')*N before correction'
+         print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
+
+         A = target_current * correction
+
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(A*flux_unit))
+
+      else
+
+         flux = A * flux_unit
+
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(flux))
+
+      endif
+
+      endsubroutine compute_solenoid_current_density_flux_analytic_x
+
+endsubroutine set_solenoid_x
+
+
+subroutine set_solenoid_y(self, n, verse)
+   !< Set solenoid with axis direction parallel to y.
+   class(prism_common_object), intent(inout) :: self                    !< Cpu object.
+   integer(I4P),               intent(in)    :: n                       !< Coil number.
+   real(R8P),                  intent(in)    :: verse                   !< Solenoid axis direction, +1=+y, -1=-y.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total solenoid vector potential field.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for coil%J_vec.
+   real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
+   real(R8P)                                 :: rho                     !< Radial distance in the x-z plane.
+   real(R8P)                                 :: F_n                     !< Radial error-function profile.
+   real(R8P)                                 :: W_y                     !< Axial window function along y.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
+
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                     &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n),  &
+            l_sol=>coil%l_solenoid(n), windings=>coil%windings(n),                 &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,         &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1353,7 +1930,6 @@ contains
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
    do b=1, blocks_number
-      sigma_rho = sigma * max(dx(b),dz(b))
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -1361,17 +1937,21 @@ contains
 
                rho = sqrt((cell_coord(1)-x_c)**2 + (cell_coord(3)-z_c)**2)
 
-               F_n = erf_function(s=rho, mu=r_coil, sigma=sigma_rho)
-               W_y = tangential_window(s=cell_coord(2), smin=y_c-0.5_R8P*l_sol, smax=y_c+0.5_R8P*l_sol, &
-                                       sigma=sigma*dy(b))
+               F_n = erf_function(s=rho, mu=r_coil, sigma=sigma)
 
-               A(2,i,j,k,b) = - F_n * W_y
+               W_y = tangential_window(s     = cell_coord(2),     &
+                                        smin  = y_c-0.5_R8P*l_sol, &
+                                        smax  = y_c+0.5_R8P*l_sol, &
+                                        sigma = sigma)
+
+               A(2,i,j,k,b) = -F_n*W_y
             enddo
          enddo
       enddo
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1387,35 +1967,127 @@ contains
    enddo
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+
+   if (n == 1_I4P) then
+      call compute_solenoid_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
+                                                            l_sol=l_sol, windings=windings,           &
+                                                            A=coil%A(n), sigma=sigma, n=n,            &
+                                                            adjust_amplitude=.true.)
+   else
+      coil%A(n) = coil%A(1)
+      call compute_solenoid_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
+                                                            l_sol=l_sol, windings=windings,           &
+                                                            A=coil%A(n), sigma=sigma, n=n,            &
+                                                            adjust_amplitude=.false.)
+   endif
+
    endassociate
 
-   !if (n == 1_I4P) then
-      call self%compute_solenoid_current_density_flux(n=n, adjust_amplitude=.true.)
-   !else
-   !   coil%A(n) = coil%A(1)
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   !endif
+   contains
+
+      subroutine compute_solenoid_current_density_flux_analytic_y(x_c, y_c, z_c, r_coil, l_sol, windings, sigma, A, n, adjust_amplitude)
+      !< Analytic amplitude correction for a solenoid with axis parallel to y.
+      !< The current is evaluated as the flux of Jz through the section x = x_c-r_coil.
+      real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
+      real(R8P),    intent(in)    :: y_c              !< Solenoid center y-coordinate.
+      real(R8P),    intent(in)    :: z_c              !< Solenoid center z-coordinate.
+      real(R8P),    intent(in)    :: r_coil           !< Solenoid radius.
+      real(R8P),    intent(in)    :: l_sol            !< Solenoid length.
+      real(R8P),    intent(in)    :: windings         !< Number of solenoid windings.
+      real(R8P),    intent(in)    :: sigma            !< Solenoid Gaussian smoothing width.
+      real(R8P),    intent(inout) :: A                !< Solenoid amplitude, corrected in place.
+      integer(I4P), intent(in)    :: n                !< Coil number.
+      logical,      intent(in)    :: adjust_amplitude !< If true, correct the solenoid amplitude.
+      real(R8P),    parameter     :: alpha = 3.5_R8P  !< Half-width of the radial integration interval in sigma units.
+      real(R8P)                   :: y_l              !< Lower y-boundary of the solenoid axial window.
+      real(R8P)                   :: y_u              !< Upper y-boundary of the solenoid axial window.
+      real(R8P)                   :: y_1              !< Lower y-integration boundary.
+      real(R8P)                   :: y_2              !< Upper y-integration boundary.
+      real(R8P)                   :: rho_1            !< Lower radial integration boundary.
+      real(R8P)                   :: rho_2            !< Upper radial integration boundary.
+      real(R8P)                   :: i_y              !< Integral of W_y over the y-integration interval.
+      real(R8P)                   :: de_rho           !< Difference E_R(rho_2)-E_R(rho_1).
+      real(R8P)                   :: i_z              !< Analytic flux contribution of Jz.
+      real(R8P)                   :: flux_unit        !< Analytic current flux for unit amplitude.
+      real(R8P)                   :: flux             !< Analytic current flux before amplitude correction.
+      real(R8P)                   :: correction       !< Amplitude correction factor.
+      real(R8P)                   :: target_current   !< Target total current, equal to input A*windings.
+
+      y_l = y_c - 0.5_R8P*l_sol
+      y_u = y_c + 0.5_R8P*l_sol
+
+      y_1   = y_l - alpha*sigma
+      y_2   = y_u + alpha*sigma
+      rho_1 = r_coil - alpha*sigma
+      rho_2 = r_coil + alpha*sigma
+
+      i_y = 0.5_R8P * (                                        &
+            erf_primitive_function(s=y_2, mu=y_l, sigma=sigma) &
+          - erf_primitive_function(s=y_1, mu=y_l, sigma=sigma) &
+          - erf_primitive_function(s=y_2, mu=y_u, sigma=sigma) &
+          + erf_primitive_function(s=y_1, mu=y_u, sigma=sigma))
+
+      de_rho = erf_function(s=rho_2, mu=r_coil, sigma=sigma) &
+             - erf_function(s=rho_1, mu=r_coil, sigma=sigma)
+
+      ! For A_y = -E_R(rho) W_y(y), at x = x_c-r_coil, Jz is positive.
+      i_z = i_y*de_rho
+
+      flux_unit = abs(i_z)
+
+      if (flux_unit <= tiny(1.0_R8P)) then
+         error stop 'compute_solenoid_current_density_flux_analytic_y: null analytic unit flux'
+      endif
+
+      if (adjust_amplitude) then
+
+         target_current = A * windings
+         flux           = target_current * flux_unit
+         correction     = 1.0_R8P / flux_unit
+
+         print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux))
+         print '(A)', mpih%myrankstr//trim(str(target_current))//' Target current A('//trim(str(n))//')*N before correction'
+         print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
+
+         A = target_current * correction
+
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(A*flux_unit))
+
+      else
+
+         flux = A * flux_unit
+
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(flux))
+
+      endif
+
+      endsubroutine compute_solenoid_current_density_flux_analytic_y
+
    endsubroutine set_solenoid_y
 
-   subroutine set_solenoid_z(self, n, verse)
-   class(prism_common_object),      intent(inout) :: self                    !< Cpu object.
-   integer(I4P),                    intent(in)    :: n                       !< Coil number.
-   real(R8P),                       intent(in)    :: verse                   !< Solenoid normal direction, +1=+z, -1=-z.
-   real(R8P),                       allocatable   :: A(:,:,:,:,:)            !< Campo vettoriale del solenoide
-   real(R8P),                       allocatable   :: J_vec_buffer(:,:,:,:,:) !< Variabile buffer per il campo di corrente
-   real(R8P)                                      :: cell_coord(3)           !< Vettore posizione centro cella
-   real(R8P)                                      :: rho                     !< Distanza radiale nel piano xy
-   real(R8P)                                      :: F_n, W_z                !< Shaping functions
-   real(R8P)                                      :: sigma_rho               !< Spessore radiale effettivo
-   integer(I4P)                                   :: b,i,j,k                 !< Counter.
 
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                       &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                              &
-            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n), &
-            l_sol=>coil%l_solenoid(n),                    &
-            dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,                            &
-            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,             &
+   subroutine set_solenoid_z(self, n, verse)
+   !< Set solenoid with axis direction parallel to z.
+   class(prism_common_object), intent(inout) :: self                    !< Cpu object.
+   integer(I4P),               intent(in)    :: n                       !< Coil number.
+   real(R8P),                  intent(in)    :: verse                   !< Solenoid axis direction, +1=+z, -1=-z.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total solenoid vector potential field.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for coil%J_vec.
+   real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
+   real(R8P)                                 :: rho                     !< Radial distance in the x-y plane.
+   real(R8P)                                 :: F_n                     !< Radial error-function profile.
+   real(R8P)                                 :: W_z                     !< Axial window function along z.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
+
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+            nk=>grid%nk, ngc=>grid%ngc, x_c=>coil%x_center(n),                     &
+            y_c=>coil%y_center(n), z_c=>coil%z_center(n), r_coil=>coil%r_coil(n),  &
+            l_sol=>coil%l_solenoid(n), windings=>coil%windings(n),                 &
+            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
+            z_cell=>field%z_cell, sigma=>coil%sigma(n), J_vec=>coil%J_vec,         &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1425,7 +2097,6 @@ contains
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
    do b=1, blocks_number
-      sigma_rho = sigma * max(dx(b),dy(b))
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -1433,17 +2104,21 @@ contains
 
                rho = sqrt((cell_coord(1)-x_c)**2 + (cell_coord(2)-y_c)**2)
 
-               F_n = erf_function(s=rho, mu=r_coil, sigma=sigma_rho)
-               W_z = tangential_window(s=cell_coord(3), smin=z_c-0.5_R8P*l_sol, smax=z_c+0.5_R8P*l_sol, &
-                                       sigma=sigma*dz(b))
+               F_n = erf_function(s=rho, mu=r_coil, sigma=sigma)
 
-               A(3,i,j,k,b) = - F_n * W_z
+               W_z = tangential_window(s     = cell_coord(3),     &
+                                        smin  = z_c-0.5_R8P*l_sol, &
+                                        smax  = z_c+0.5_R8P*l_sol, &
+                                        sigma = sigma)
+
+               A(3,i,j,k,b) = -F_n*W_z
             enddo
          enddo
       enddo
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1459,14 +2134,104 @@ contains
    enddo
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+
+   if (n == 1_I4P) then
+      call compute_solenoid_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
+                                                            l_sol=l_sol, windings=windings,           &
+                                                            A=coil%A(n), sigma=sigma, n=n,            &
+                                                            adjust_amplitude=.true.)
+   else
+      coil%A(n) = coil%A(1)
+      call compute_solenoid_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
+                                                            l_sol=l_sol, windings=windings,           &
+                                                            A=coil%A(n), sigma=sigma, n=n,            &
+                                                            adjust_amplitude=.false.)
+   endif
+
    endassociate
 
-   !if (n == 1_I4P) then
-      call self%compute_solenoid_current_density_flux(n=n, adjust_amplitude=.true.)
-   !else
-   !   coil%A(n) = coil%A(1)
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   !endif
+   contains
+
+      subroutine compute_solenoid_current_density_flux_analytic_z(x_c, y_c, z_c, r_coil, l_sol, windings, sigma, A, n, adjust_amplitude)
+      !< Analytic amplitude correction for a solenoid with axis parallel to z.
+      !< The current is evaluated as the flux of Jy through the section x = x_c-r_coil.
+      real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
+      real(R8P),    intent(in)    :: y_c              !< Solenoid center y-coordinate.
+      real(R8P),    intent(in)    :: z_c              !< Solenoid center z-coordinate.
+      real(R8P),    intent(in)    :: r_coil           !< Solenoid radius.
+      real(R8P),    intent(in)    :: l_sol            !< Solenoid length.
+      real(R8P),    intent(in)    :: windings         !< Number of solenoid windings.
+      real(R8P),    intent(in)    :: sigma            !< Solenoid Gaussian smoothing width.
+      real(R8P),    intent(inout) :: A                !< Solenoid amplitude, corrected in place.
+      integer(I4P), intent(in)    :: n                !< Coil number.
+      logical,      intent(in)    :: adjust_amplitude !< If true, correct the solenoid amplitude.
+      real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the radial integration interval in sigma units.
+      real(R8P)                   :: z_l              !< Lower z-boundary of the solenoid axial window.
+      real(R8P)                   :: z_u              !< Upper z-boundary of the solenoid axial window.
+      real(R8P)                   :: z_1              !< Lower z-integration boundary.
+      real(R8P)                   :: z_2              !< Upper z-integration boundary.
+      real(R8P)                   :: rho_1            !< Lower radial integration boundary.
+      real(R8P)                   :: rho_2            !< Upper radial integration boundary.
+      real(R8P)                   :: i_z              !< Integral of W_z over the z-integration interval.
+      real(R8P)                   :: de_rho           !< Difference E_R(rho_2)-E_R(rho_1).
+      real(R8P)                   :: i_y              !< Analytic flux contribution of Jy.
+      real(R8P)                   :: flux_unit        !< Analytic current flux for unit amplitude.
+      real(R8P)                   :: flux             !< Analytic current flux before amplitude correction.
+      real(R8P)                   :: correction       !< Amplitude correction factor.
+      real(R8P)                   :: target_current   !< Target total current, equal to input A*windings.
+
+      z_l = z_c - 0.5_R8P*l_sol
+      z_u = z_c + 0.5_R8P*l_sol
+
+      z_1   = z_l - alpha*sigma
+      z_2   = z_u + alpha*sigma
+      rho_1 = r_coil - alpha*sigma
+      rho_2 = r_coil + alpha*sigma
+
+      i_z = 0.5_R8P * (                                        &
+            erf_primitive_function(s=z_2, mu=z_l, sigma=sigma) &
+          - erf_primitive_function(s=z_1, mu=z_l, sigma=sigma) &
+          - erf_primitive_function(s=z_2, mu=z_u, sigma=sigma) &
+          + erf_primitive_function(s=z_1, mu=z_u, sigma=sigma))
+
+      de_rho = erf_function(s=rho_2, mu=r_coil, sigma=sigma) &
+             - erf_function(s=rho_1, mu=r_coil, sigma=sigma)
+
+      ! For A_z = -E_R(rho) W_z(z), at x = x_c-r_coil, Jy is negative.
+      i_y = -i_z*de_rho
+
+      flux_unit = abs(i_y)
+
+      if (flux_unit <= tiny(1.0_R8P)) then
+         error stop 'compute_solenoid_current_density_flux_analytic_z: null analytic unit flux'
+      endif
+
+      if (adjust_amplitude) then
+
+         target_current = A * windings
+         flux           = target_current * flux_unit
+         correction     = 1.0_R8P / flux_unit
+
+         print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux))
+         print '(A)', mpih%myrankstr//trim(str(target_current))//' Target current A('//trim(str(n))//')*N before correction'
+         print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
+
+         A = target_current * correction
+
+         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(A*flux_unit))
+
+      else
+
+         flux = A * flux_unit
+
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(flux))
+
+      endif
+
+      endsubroutine compute_solenoid_current_density_flux_analytic_z
+
    endsubroutine set_solenoid_z
 
    function erf_function(s, mu, sigma) result(res)
@@ -1482,4 +2247,17 @@ contains
 
    res = 0.5_R8P * (erf_function(s, smin, sigma) - erf_function(s, smax, sigma))
    endfunction tangential_window
+
+   function erf_primitive_function(s, mu, sigma) result(res)
+   !< Primitive of erf((s-mu)/(sqrt(2)*sigma)).
+   real(R8P), intent(in) :: s
+   real(R8P), intent(in) :: mu
+   real(R8P), intent(in) :: sigma
+   real(R8P)             :: res
+
+   res = (s - mu) * erf_function(s=s, mu=mu, sigma=sigma)                       &
+       + sigma * sqrt(2.0_R8P / acos(-1.0_R8P))                                 &
+       * exp(-((s - mu)**2) / (2.0_R8P * sigma**2))
+
+   endfunction erf_primitive_function
 endmodule adam_prism_common_object
