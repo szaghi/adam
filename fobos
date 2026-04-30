@@ -126,7 +126,7 @@ target   = adam_prism_fnl.F90
 
 [prism-fnl-nvf-oac-debug]
 help     = Build PRISM app with FNL library and NVF OpenACC compiler, debug mode
-template = template-nvf-oac-debug
+template = template-nvf-oac-debug-mod
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_prism_fnl.F90
 
@@ -368,6 +368,13 @@ obj_dir  = ./obj/nvf/aoc/
 template = template-nvf-oac
 cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Mdetail
 lflags   = -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Mdetail
+
+[template-nvf-oac-debug-mod]
+mod_dir  = ./mod/nvf/aoc/
+obj_dir  = ./obj/nvf/aoc/
+template = template-nvf-oac
+cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
+lflags   = -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
 
 # NVF CUDA Fortran
 [template-nvf-cuda]

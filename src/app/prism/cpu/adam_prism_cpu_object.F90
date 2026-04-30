@@ -78,6 +78,48 @@ interface
 endinterface
 
 contains
+   !subroutine amr_update(self)
+   !!< Do AMR update.
+   !class(prism_cpu_object), intent(inout) :: self                !< The equation.
+   !logical                                :: is_grid_changed     !< Flag to check grid changes for each marker.
+   !logical                                :: is_grid_changed_all !< Flag to check grid changes for each iter.
+   !integer(I4P)                           :: i, i_marker         !< Counter.
+   !type(amr_marker_object)                :: amr_marker          !< Current amr marker.
+!
+   !!amr: do i=1, self%amr%iters
+   !!   is_grid_changed_all = .false.
+   !!   do i_marker=1, self%amr%markers_number
+   !!      amr_marker = self%amr%markers(i_marker)
+   !!      call self%update_ghost(q=self%q)
+   !!      !select case(amr_marker%mode)
+   !!      !case(AMR_GEO)
+   !!      !   call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
+   !!      !case(AMR_GRAD)
+   !!      !   select case(amr_marker%field)
+   !!      !   case(1)
+   !!      !      call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
+   !!      !                                 delta_fine=amr_marker%delta_fine,                          &
+   !!      !                                 delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
+   !!      !   case(2)
+   !!      !      call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
+   !!      !                                 delta_fine=amr_marker%delta_fine,                          &
+   !!      !                                 delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
+   !!      !   endselect
+   !!      !endselect
+   !!      call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
+   !!      !if (self%ib%solids_number > 0) call self%compute_phi()
+   !!      is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
+   !!   enddo
+   !!   if (.not.is_grid_changed_all) then
+   !!       call self%mpih%print_message('AMR Grid stabilized after : '//trim(str(i))//' AMR iterations')
+   !!       exit amr
+   !!    elseif (i==self%amr%iters) then
+   !!       call self%mpih%print_message('AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations')
+   !!   endif
+   !!enddo amr
+   !call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
+   !endsubroutine amr_update
+
    ! auxiliary methods
    subroutine allocate_cpu(self)
    !< Allocate CPU data.
@@ -386,9 +428,9 @@ contains
    real(R8P)                              :: ngc_r, crown_r          !< Numero di gc totale, reale
    real(R8P)                              :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
 
-   associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                                        &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),                         &
-             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>time%dt, chi=>physics%chi,                &
+   associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                         &
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),               &
+             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>time%dt, chi=>physics%chi,           &
              nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, constrained_transport_B=>numerics%constrained_transport_B, &
              constrained_transport_D=>numerics%constrained_transport_D)
 
@@ -705,10 +747,8 @@ contains
       call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(pic%neighbour_list,R8P), &
                                        np=pic%particle_number)
    endif
-   !call coil%set_coils(physics=physics, field=field) !Lo metto dopo perchè l'interpolatore di correnti azzera
-                                                                    !tutto per poter poi fare la sommatoria al relativo tempo
 
-   call field%compute_metrics
+   !call field%compute_metrics !cazzo
    call self%initialize_coils
 
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -834,16 +874,16 @@ contains
 
       coil_power = 0.0_R8P
       associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
-                coil_flag=>coil%coil_flag, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
+                dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
       do i=1, ni
-         if (coil_flag(i,j,k,b) /= 0_I4P) then
+         !if (coil_flag(i,j,k,b) /= 0_I4P) then
             coil_power = coil_power - (self%q(VAR_DX  ,i,j,k,b)*self%q(ivar  ,i,j,k,b) + &
                                        self%q(VAR_DX+1,i,j,k,b)*self%q(ivar+1,i,j,k,b) + &
                                        self%q(VAR_DX+2,i,j,k,b)*self%q(ivar+2,i,j,k,b))/EPS0*(dx(b)*dy(b)*dz(b))
-         endif
+         !endif
       enddo
       enddo
       enddo
@@ -1018,7 +1058,7 @@ contains
    real(R8P)                              :: timing(1:2)      !< Tic toc timing.
    real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
    real(R8P)                              :: F_l(3)           !< Lorentz force for leapfrog preliminary integration
-   integer(I4P)                           :: i                !< Counter.
+   integer(I4P)                           :: i,n,b            !< Counter.
 
    ! initialization
    call self%initialize_prism(filename=filename)
@@ -1044,6 +1084,18 @@ contains
    !if (ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
    call self%update_ghost(q=self%q) ! Aggiunto da FN
+
+   do n=1, coil%total_coils_number
+      call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=coil%J_vec(1:3,:,:,:,:,n),&
+                                   divergence=self%divergence(3,:,:,:,:))
+      print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
+                  //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
+   enddo
+   
+   print '(A)', mpih%myrankstr//'assign block number: '//trim(str(field%blocks_number))
+   do b = 1, field%blocks_number
+      print '(A)', mpih%myrankstr//'b = '//trim(str(b))//' field%code(b) = '//trim(str(field%code(b)))
+   enddo
 
    associate(hs=>self%fdv_half_stencil)
    call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))

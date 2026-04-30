@@ -207,6 +207,10 @@ contains
    endif
    call check_ngc_number
    call self%allocate_common
+   if (self%adam%tree%iu_ref_levels>0) then
+      call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
+                                    do_blocks_reorder=.false., q=self%q)
+   endif
    call io_initialize
    endassociate
    if (verbose_) call mpih%print_message('prism_common_object%initialize finish')
@@ -473,10 +477,10 @@ contains
             call self%set_solenoid_z(n=n, verse = -1._R8P)
          endselect
       endselect
-      call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=coil%J_vec(1:3,:,:,:,:,n),&
-                                   divergence=self%divergence(3,:,:,:,:))
-      print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
-                  //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
+      !call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=coil%J_vec(1:3,:,:,:,:,n),&
+      !                             divergence=self%divergence(3,:,:,:,:))
+      !print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
+      !            //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
    enddo
    endsubroutine initialize_coils
 
@@ -1818,7 +1822,8 @@ contains
 
    contains
 
-      subroutine compute_solenoid_current_density_flux_analytic_x(x_c, y_c, z_c, r_coil, l_sol, windings, sigma, A, n, adjust_amplitude)
+      subroutine compute_solenoid_current_density_flux_analytic_x(x_c, y_c, z_c, r_coil, l_sol, windings, &
+                                                                   sigma, A, n, adjust_amplitude)
       !< Analytic amplitude correction for a solenoid with axis parallel to x.
       !< The current is evaluated as the flux of Jz through the lower radial section y = y_c-r_coil.
       real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
@@ -1985,7 +1990,8 @@ subroutine set_solenoid_y(self, n, verse)
 
    contains
 
-      subroutine compute_solenoid_current_density_flux_analytic_y(x_c, y_c, z_c, r_coil, l_sol, windings, sigma, A, n, adjust_amplitude)
+      subroutine compute_solenoid_current_density_flux_analytic_y(x_c, y_c, z_c, r_coil, l_sol, windings, &
+                                                                  sigma, A, n, adjust_amplitude)
       !< Analytic amplitude correction for a solenoid with axis parallel to y.
       !< The current is evaluated as the flux of Jz through the section x = x_c-r_coil.
       real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
@@ -2152,7 +2158,8 @@ subroutine set_solenoid_y(self, n, verse)
 
    contains
 
-      subroutine compute_solenoid_current_density_flux_analytic_z(x_c, y_c, z_c, r_coil, l_sol, windings, sigma, A, n, adjust_amplitude)
+      subroutine compute_solenoid_current_density_flux_analytic_z(x_c, y_c, z_c, r_coil, l_sol, windings, &
+                                                                  sigma, A, n, adjust_amplitude)
       !< Analytic amplitude correction for a solenoid with axis parallel to z.
       !< The current is evaluated as the flux of Jy through the section x = x_c-r_coil.
       real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
