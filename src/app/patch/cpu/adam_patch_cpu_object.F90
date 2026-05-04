@@ -421,8 +421,8 @@ contains
    integer(I4P)                           :: fec                  !< Boundary fec (1 to 26).
    integer(I4P)                           :: fec_1_6              !< Boundary fec (1 to 6).
 
-   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, ngc=>self%ngc, q_bc_vars=>self%bc%q)
-   if (allocated(self%field%maps%local_map_bc_crown)) then
+   associate(local_map_bc_crown=>maps%local_map_bc_crown, ngc=>self%ngc, q_bc_vars=>self%bc%q)
+   if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
             b = local_map_bc_crown(c, 1 ,crown)

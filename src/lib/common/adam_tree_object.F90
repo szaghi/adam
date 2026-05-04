@@ -1043,9 +1043,9 @@ contains
       !< Return true if the split can be done.
       !<
       !< The split is not allowed if all siblings exist and the previous code in the ordered list is one of my siblings.
-      logical                   :: can_split   !< Result of test.
+      logical                   :: can_split    !< Result of test.
       integer(I8P), allocatable :: siblings_(:) !< List of siblings
-      integer(I4P)              :: s           !< Counter.
+      integer(I4P)              :: s            !< Counter.
 
       can_split = .true.
       if (c==1_I8P) return

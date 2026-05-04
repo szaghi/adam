@@ -64,7 +64,6 @@ module adam_field_object
 !<```
 
 ! ADAM classes, libraries, parameters
-use :: adam_maps_object
 use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_parameters
 ! ADAM singleton objects
@@ -87,8 +86,6 @@ character(len=5), parameter :: INI_SECTION_NAME="field" !< INI (config) file sec
 
 type :: field_object
    !< Field class definition.
-   ! ADAM objects
-   type(maps_object), pointer :: maps=>null() !< The maps.
    ! field data dimensions
    integer(I4P) :: nv=0_I4P               !< Number of field variables.
    integer(I4P) :: nv_pic=0_I4P           !< Number of PIC (Particle In Cell) variables.
@@ -196,16 +193,16 @@ contains
    allocate(coordinates_new(4,self%blocks_number))
    allocate(code_new(self%blocks_number))
    do b=1, self%blocks_number
-      self%q_work(:,:,:,:,b) = q(:,:,:,:,self%maps%inner_outer_block_map(b))
-      coordinates_new(:,b) = self%coordinates(:,self%maps%inner_outer_block_map(b))
-      code_new(b) = self%code(self%maps%inner_outer_block_map(b))
+      self%q_work(:,:,:,:,b) = q(:,:,:,:,maps%inner_outer_block_map(b))
+      coordinates_new(:,b) = self%coordinates(:,maps%inner_outer_block_map(b))
+      code_new(b) = self%code(maps%inner_outer_block_map(b))
    enddo
    do b=1, self%blocks_number
       q(:,:,:,:,b) = self%q_work(:,:,:,:,b)
       self%coordinates(:,b) = coordinates_new(:,b)
       self%code(b) = code_new(b)
    enddo
-   self%inner_blocks_number = self%maps%inner_blocks_number
+   self%inner_blocks_number = maps%inner_blocks_number
    call self%compute_metrics
    if (allocated(coordinates_new)) deallocate(coordinates_new)
    if (allocated(code_new)) deallocate(code_new)
@@ -404,7 +401,6 @@ contains
    if (allocated(self%req_send_recv)) deallocate(self%req_send_recv)
    allocate(self%req_send_recv(0:mpih%procs_number*2-1))
    if (verbose_) call mpih%print_message('field_object%initialize start')
-   self%maps => maps
    self%nb = nb
    call self%load_from_ini_file(file_parameters, nv)
    self%block_weight = (grid%ngc+grid%ni+grid%ngc)* &
@@ -709,24 +705,24 @@ contains
    req_recv = MPI_REQUEST_NULL
    associate(bw=>self%block_weight, bw_pic=>self%block_weight_pic)
    bwt = bw + bw_pic
-   send_size = 0_I8P ; if (allocated(self%maps%comm_map_send)) send_size = size(self%maps%comm_map_send, dim=1) * bwt
-   recv_size = 0_I8P ; if (allocated(self%maps%comm_map_recv)) recv_size = size(self%maps%comm_map_recv, dim=1) * bwt
-   n_keep    = 0_I8P ; if (allocated(self%maps%local_map    )) n_keep    = size(self%maps%local_map    , dim=1)
+   send_size = 0_I8P ; if (allocated(maps%comm_map_send)) send_size = size(maps%comm_map_send, dim=1) * bwt
+   recv_size = 0_I8P ; if (allocated(maps%comm_map_recv)) recv_size = size(maps%comm_map_recv, dim=1) * bwt
+   n_keep    = 0_I8P ; if (allocated(maps%local_map    )) n_keep    = size(maps%local_map    , dim=1)
    if (send_size > 0_I8P) allocate(send_buffer(send_size))
    if (recv_size > 0_I8P) allocate(recv_buffer(recv_size))
 
    if (send_size > 0_I8P) then
       send_offset = 1
-      do b=1, size(self%maps%comm_map_send, dim=1)
-         bi = self%maps%comm_map_send(b)
+      do b=1, size(maps%comm_map_send, dim=1)
+         bi = maps%comm_map_send(b)
          send_buffer(send_offset:send_offset+bw-1) = reshape(q(:,:,:,:,bi),[bw])
          send_offset = send_offset + bw
       enddo
    endif
 
    do p=0, mpih%procs_number - 1_I4P
-      ptr_start = self%maps%comm_map_recv_ptr(p)   * bwt + 1
-      ptr_end   = self%maps%comm_map_recv_ptr(p+1) * bwt
+      ptr_start = maps%comm_map_recv_ptr(p)   * bwt + 1
+      ptr_end   = maps%comm_map_recv_ptr(p+1) * bwt
       n_recv    = ptr_end - ptr_start + 1
       if (n_recv > 0) then
          call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), mpih%error)
@@ -734,8 +730,8 @@ contains
    enddo
 
    do p=0, mpih%procs_number - 1_I4P
-      ptr_start = self%maps%comm_map_send_ptr(p)   * bwt + 1
-      ptr_end   = self%maps%comm_map_send_ptr(p+1) * bwt
+      ptr_start = maps%comm_map_send_ptr(p)   * bwt + 1
+      ptr_end   = maps%comm_map_send_ptr(p+1) * bwt
       n_send    = ptr_end - ptr_start + 1
       if (n_send > 0) then
          call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, mpih%error)
@@ -746,8 +742,8 @@ contains
 
    if (recv_size > 0_I8P) then
       recv_offset = 1
-      do b=1, size(self%maps%comm_map_recv, dim=1)
-          bi = self%maps%comm_map_recv(b)
+      do b=1, size(maps%comm_map_recv, dim=1)
+          bi = maps%comm_map_recv(b)
           self%q_work(:,:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + bw -1),&
                                             [self%nv,                                    &
                                              grid%ngc+grid%ni+grid%ngc,   &
@@ -757,12 +753,12 @@ contains
       enddo
    endif
    do b=1, n_keep
-      self%q_work(:,:,:,:,self%maps%local_map(b,1)) = q(:,:,:,:,self%maps%local_map(b,2))
+      self%q_work(:,:,:,:,maps%local_map(b,1)) = q(:,:,:,:,maps%local_map(b,2))
    enddo
    self%blocks_number = n_keep  + recv_size / bwt
    q(:,:,:,:,1:self%blocks_number) = self%q_work(:,:,:,:,1:self%blocks_number)
    call self%update_coordinates
-   call self%maps%get_block_layout(code=self%code(1:self%blocks_number))
+   call maps%get_block_layout(code=self%code(1:self%blocks_number))
    call self%compute_metrics
    endassociate
    endsubroutine mpi_redistribute
@@ -817,8 +813,8 @@ contains
    integer(I4P)                       :: k_send            !< K send index.
    integer(I4P)                       :: one_or_eight      !< Flag triggering 8 cells mean.
 
-   if (.not.allocated(self%maps%local_map_ghost_cell)) return
-   associate(local_map_ghost_cell=>self%maps%local_map_ghost_cell)
+   if (.not.allocated(maps%local_map_ghost_cell)) return
+   associate(local_map_ghost_cell=>maps%local_map_ghost_cell)
    do mf=1, size(local_map_ghost_cell, dim=1)
       do v=1, size(q, dim=1)
          b_send       = local_map_ghost_cell(mf,1)
@@ -869,10 +865,10 @@ contains
    associate(procs_number=>mpih%procs_number,                       &
              error=>mpih%error,                                     &
              req_send_recv=>self%req_send_recv,                     &
-             comm_map_send_ptr_ghost=>self%maps%comm_map_send_ptr_ghost, &
-             comm_map_recv_ptr_ghost=>self%maps%comm_map_recv_ptr_ghost, &
-             recv_buffer_ghost=>self%maps%recv_buffer_ghost,             &
-             send_buffer_ghost=>self%maps%send_buffer_ghost,             &
+             comm_map_send_ptr_ghost=>maps%comm_map_send_ptr_ghost, &
+             comm_map_recv_ptr_ghost=>maps%comm_map_recv_ptr_ghost, &
+             recv_buffer_ghost=>maps%recv_buffer_ghost,             &
+             send_buffer_ghost=>maps%send_buffer_ghost,             &
              ngc=>grid%ngc)
    do_step = .true.
    if (present(step)) then
@@ -882,15 +878,15 @@ contains
 
    if (do_step(1)) then
       req_send_recv = MPI_REQUEST_NULL
-      if (allocated(self%maps%comm_map_send_ghost_cell)) then
-         do sf=1, size(self%maps%comm_map_send_ghost_cell, dim=1)
-            b_send       = self%maps%comm_map_send_ghost_cell(sf,1)
-            i_send       = self%maps%comm_map_send_ghost_cell(sf,2)
-            j_send       = self%maps%comm_map_send_ghost_cell(sf,3)
-            k_send       = self%maps%comm_map_send_ghost_cell(sf,4)
-            v_send       = self%maps%comm_map_send_ghost_cell(sf,5)
-            c_recv       = self%maps%comm_map_send_ghost_cell(sf,6)
-            one_or_eight = self%maps%comm_map_send_ghost_cell(sf,7)
+      if (allocated(maps%comm_map_send_ghost_cell)) then
+         do sf=1, size(maps%comm_map_send_ghost_cell, dim=1)
+            b_send       = maps%comm_map_send_ghost_cell(sf,1)
+            i_send       = maps%comm_map_send_ghost_cell(sf,2)
+            j_send       = maps%comm_map_send_ghost_cell(sf,3)
+            k_send       = maps%comm_map_send_ghost_cell(sf,4)
+            v_send       = maps%comm_map_send_ghost_cell(sf,5)
+            c_recv       = maps%comm_map_send_ghost_cell(sf,6)
+            one_or_eight = maps%comm_map_send_ghost_cell(sf,7)
             if (one_or_eight==1) then
                send_buffer_ghost(c_recv) = q(v_send,i_send,j_send,k_send,b_send)
             else
@@ -930,14 +926,14 @@ contains
       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
       call MPI_Barrier(MPI_COMM_WORLD, error)
       !RIMETTERE SENZA
-      if (allocated(self%maps%comm_map_recv_ghost_cell)) then
-         do rf=1, size(self%maps%comm_map_recv_ghost_cell, dim=1)
-            c_send = self%maps%comm_map_recv_ghost_cell(rf,1)
-            b_recv = self%maps%comm_map_recv_ghost_cell(rf,2)
-            i_recv = self%maps%comm_map_recv_ghost_cell(rf,3)
-            j_recv = self%maps%comm_map_recv_ghost_cell(rf,4)
-            k_recv = self%maps%comm_map_recv_ghost_cell(rf,5)
-            v_recv = self%maps%comm_map_recv_ghost_cell(rf,6)
+      if (allocated(maps%comm_map_recv_ghost_cell)) then
+         do rf=1, size(maps%comm_map_recv_ghost_cell, dim=1)
+            c_send = maps%comm_map_recv_ghost_cell(rf,1)
+            b_recv = maps%comm_map_recv_ghost_cell(rf,2)
+            i_recv = maps%comm_map_recv_ghost_cell(rf,3)
+            j_recv = maps%comm_map_recv_ghost_cell(rf,4)
+            k_recv = maps%comm_map_recv_ghost_cell(rf,5)
+            v_recv = maps%comm_map_recv_ghost_cell(rf,6)
             q(v_recv,i_recv,j_recv,k_recv,b_recv) = recv_buffer_ghost(c_send)
          enddo
       endif
@@ -1355,6 +1351,6 @@ contains
    !< Update coordinates using the updated data in maps (that in turn is updated by tree).
    class(field_object), intent(inout) :: self !< The field.
 
-   if (self%blocks_number>0) call self%maps%get_block_layout(coordinates=self%coordinates(:, 1:self%blocks_number))
+   if (self%blocks_number>0) call maps%get_block_layout(coordinates=self%coordinates(:, 1:self%blocks_number))
    endsubroutine update_coordinates
 endmodule adam_field_object

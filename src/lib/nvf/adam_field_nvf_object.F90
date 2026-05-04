@@ -164,7 +164,7 @@ contains
    call self%mpih%initialize
    call self%mpih%print_message('field_nvf_object%initialize start')
    self%field => field
-   call self%maps%initialize(maps=field%maps)
+   call self%maps%initialize(maps=maps)
    call alloc_var_gpu(var=self%q_gpu,&
                       ulb=reshape([1,field%nb,                                   &
                                    1-grid%ngc,grid%ni+grid%ngc,&
