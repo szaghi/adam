@@ -298,11 +298,13 @@ Named integer constants shared across all modules: boundary condition type flags
 
 ### `adam_common_library` — aggregate entry point
 
-Re-exports every module listed above, **including all seven singleton modules**. Applications need only:
+Re-exports every module listed above, **including all eight singleton modules**. Applications need only:
 
 ```fortran
 use adam_common_library
 ```
+
+For convenience, `adam_globals` bundles only the singleton variables (`mpih`, `grid`, `field`, `maps`, `tree`, `weno`, `ib`, `rk`) without dragging in the type-definition modules.
 
 ### Program-scope singletons
 
@@ -314,6 +316,7 @@ Each core object is exposed as a **module-level target variable** in its own sin
 | `adam_grid_global` | `grid` | `grid_object` | `adam_common_library` |
 | `adam_field_global` | `field` | `field_object` | `adam_common_library` |
 | `adam_maps_global` | `maps` | `maps_object` | `adam_common_library` |
+| `adam_tree_global` | `tree` | `tree_object` | `adam_common_library` |
 | `adam_weno_global` | `weno` | `weno_object` | `adam_common_library` |
 | `adam_ib_global` | `ib` | `ib_object` | `adam_common_library` |
 | `adam_rk_global` | `rk` | `rk_object` | `adam_common_library` |
@@ -364,9 +367,11 @@ Singletons are never passed as dummy arguments and never embedded as members of 
 | `adam_grid_global` | Singleton | `adam_grid_global.F90` |
 | `adam_field_global` | Singleton | `adam_field_global.F90` |
 | `adam_maps_global` | Singleton | `adam_maps_global.F90` |
+| `adam_tree_global` | Singleton | `adam_tree_global.F90` |
 | `adam_weno_global` | Singleton | `adam_weno_global.F90` |
 | `adam_ib_global` | Singleton | `adam_ib_global.F90` |
 | `adam_rk_global` | Singleton | `adam_rk_global.F90` |
+| `adam_globals` | Singleton aggregator | `adam_globals.F90` |
 
 ---
 

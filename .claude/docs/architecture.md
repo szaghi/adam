@@ -18,8 +18,8 @@ src/lib/common/  (CPU base layer)
 ├── ib_object    ←─ analytical_sphere_object, analytical_rectangle_object
 ├── io_object
 ├── amr_object
-├── adam_object  (has: tree_object, field_object*, maps_object*)
-└── equation_object  (has: io, adam, amr, ib, rk, weno, field*, blanesmoan, cfm, leapfrog, flail, slices)
+├── adam_object  (method-only — tree/field/maps accessed via singletons)
+└── equation_object  (has: io, adam, amr, ib, rk, weno, blanesmoan, cfm, leapfrog, flail, slices)
 
 src/lib/fnl/  (OpenACC GPU backend)
 ├── mpih_fnl_object   extends mpih_object
@@ -63,11 +63,12 @@ Singletons are 13-line modules exposing a single `target` module variable. They 
 | `adam_grid_global` | `grid` | `grid_object` | Domain/discretization parameters |
 | `adam_field_global` | `field` | `field_object` | Block field data and mesh arrays |
 | `adam_maps_global` | `maps` | `maps_object` | Ghost cell communication maps |
+| `adam_tree_global` | `tree` | `tree_object` | AMR Morton-ordered octree |
 | `adam_weno_global` | `weno` | `weno_object` | WENO scheme coefficients |
 | `adam_ib_global` | `ib` | `ib_object` | Immersed boundary / eikonal solver |
 | `adam_rk_global` | `rk` | `rk_object` | Runge-Kutta integrator + stage arrays |
 
-All 7 are re-exported via `adam_common_library`.
+All 8 are re-exported via `adam_common_library` (and bundled by the convenience module `adam_globals`).
 
 ### FNL GPU Singletons (`src/lib/fnl/`)
 
@@ -123,44 +124,45 @@ call weno_fnl%initialize()
 
 ### `adam_object` (`src/lib/common/adam_adam_object.F90`)
 
+`adam_object` is now a thin method-only type. The previous `tree`, `field`, and `maps` members have all been replaced by the program-scope singletons (`tree`, `field`, `maps`). Methods access them via `use :: adam_*_global, only : ...`, never via `self%`.
+
 ```fortran
 type :: adam_object
-   type(tree_object)            :: tree           ! AMR tree (owned)
-   type(maps_object),  pointer  :: maps  => null() ! → maps singleton
-   type(field_object), pointer  :: field => null() ! → field singleton
+   ! no data members — all state lives in singletons
 end type
 ```
 
 ### `equation_object` (`src/lib/common/adam_equation_object.F90`)
 
-Owned objects (no singletons used here — this is the CPU base for PRISM):
+Aggregator base class for equation solvers. Owns several auxiliary handlers as VALUE members (no singletons for these yet), plus FDV operator procedure pointers wired at init by the backend:
 
 ```fortran
 type :: equation_object
-   type(io_object)              :: io
-   type(adam_object)            :: adam
-   type(field_object), pointer  :: field    => null()
-   type(amr_object)             :: amr
-   type(ib_object)              :: ib
-   type(rk_object)              :: rk
-   type(weno_object)            :: weno
-   type(flail_object)           :: flail
-   type(slices_object)          :: slices
-   type(blanesmoan_object)      :: blanesmoan
-   type(cfm_object)             :: cfm
-   type(leapfrog_object)        :: leapfrog
-   ! Scalar replica pointers (point into grid/field):
+   type(io_object)         :: io
+   type(adam_object)       :: adam
+   type(amr_object)        :: amr
+   type(slices_object)     :: slices
+   type(blanesmoan_object) :: blanesmoan
+   type(cfm_object)        :: cfm
+   type(leapfrog_object)   :: leapfrog
+   type(flail_object)      :: flail
+   ! FDV scheme metadata (used by backend dispatch):
+   character(:), allocatable :: fdv_scheme
+   integer(I4P)              :: fdv_order, fdv_half_stencil, fdv_half_stencils(6)
+   ! Scalar replica pointers (point into grid/field singletons):
    integer(I4P), pointer :: ngc, ni, nj, nk, nb, blocks_number, nv
    ! FDV operator procedure pointers (set at init by backend):
-   procedure(compute_curl_interface),      pointer :: compute_curl
-   procedure(compute_gradient_interface),  pointer :: compute_gradient
-   procedure(compute_divergence_interface),pointer :: compute_divergence
-   procedure(compute_laplacian_interface), pointer :: compute_laplacian
+   procedure(compute_curl_interface),        pointer :: compute_curl
+   procedure(compute_gradient_interface),    pointer :: compute_gradient
+   procedure(compute_divergence_interface),  pointer :: compute_divergence
+   procedure(compute_laplacian_interface),   pointer :: compute_laplacian
    procedure(compute_derivative1_interface), pointer :: compute_derivative1
    procedure(compute_derivative2_interface), pointer :: compute_derivative2
    procedure(compute_derivative4_interface), pointer :: compute_derivative4
 end type
 ```
+
+Note: `ib`, `rk`, `weno`, `field`, `maps`, `tree` are NOT members of `equation_object` — they are accessed exclusively through their singletons.
 
 ### `grid_object` (`src/lib/common/adam_grid_object.F90`)
 
@@ -371,8 +373,9 @@ adam_common_library
  ├── adam_leapfrog_object, adam_flail_object, adam_slices_object
  ├── adam_tree_node_object, adam_tree_bucket_object
  ├── adam_fdv_operators_library, adam_riemann_euler_library
- └── [7 CPU singletons]: mpih_global, grid_global, field_global, maps_global,
-                          weno_global, ib_global, rk_global
+ └── [8 CPU singletons]: mpih_global, grid_global, field_global, maps_global,
+                          tree_global, weno_global, ib_global, rk_global
+                         (also bundled by `adam_globals` convenience aggregator)
 
 adam_fnl_library
  ├── adam_common_library  (full CPU layer)

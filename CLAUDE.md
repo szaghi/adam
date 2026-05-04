@@ -67,9 +67,11 @@ src/
 | `adam_grid_global` | Program-scope grid singleton (module variable, not embedded in types) |
 | `adam_field_global` | Program-scope field singleton (module variable, not embedded in types) |
 | `adam_maps_global` | Program-scope maps singleton (module variable, not embedded in types) |
+| `adam_tree_global` | Program-scope tree singleton (module variable, not embedded in types) |
 | `adam_weno_global` | Program-scope WENO singleton (module variable, not embedded in types) |
 | `adam_ib_global` | Program-scope IB singleton (module variable, not embedded in types) |
 | `adam_rk_global` | Program-scope RK singleton (module variable, not embedded in types) |
+| `adam_globals` | Convenience aggregator re-exporting all 8 CPU singletons (`mpih, grid, field, maps, tree, weno, ib, rk`) |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian operators |
 | `adam_riemann_euler_library` | Euler equation Riemann solvers |
 

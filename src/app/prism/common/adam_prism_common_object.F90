@@ -68,16 +68,16 @@ type, extends(equation_object) :: prism_common_object
       procedure, pass(self) :: save_restart_files      !< Save restart files.
       procedure, pass(self) :: save_xh5f               !< Save simulation data in XH5F format.
       ! coils initialization methods
-      procedure, pass(self) :: initialize_coils                      !< Initialize coils.
-      procedure, pass(self) :: set_rectangular_coil_x                !< Subroutine to set a rectangular coil source with +-x normal
-      procedure, pass(self) :: set_rectangular_coil_y                !< Subroutine to set a rectangular coil source with +-y normal
-      procedure, pass(self) :: set_rectangular_coil_z                !< Subroutine to set a rectangular coil source with +-z normal
-      procedure, pass(self) :: set_circular_coil_x                   !< Subroutine to set a circular coil source with +-x normal
-      procedure, pass(self) :: set_circular_coil_y                   !< Subroutine to set a circular coil source with +-y normal
-      procedure, pass(self) :: set_circular_coil_z                   !< Subroutine to set a circular coil source with +-z normal
-      procedure, pass(self) :: set_solenoid_x                        !< Subroutine to set a solenoid source with +-x normal
-      procedure, pass(self) :: set_solenoid_y                        !< Subroutine to set a solenoid source with +-y normal
-      procedure, pass(self) :: set_solenoid_z                        !< Subroutine to set a solenoid source with +-z normal
+      procedure, pass(self) :: initialize_coils       !< Initialize coils.
+      procedure, pass(self) :: set_rectangular_coil_x !< Subroutine to set a rectangular coil source with +-x normal
+      procedure, pass(self) :: set_rectangular_coil_y !< Subroutine to set a rectangular coil source with +-y normal
+      procedure, pass(self) :: set_rectangular_coil_z !< Subroutine to set a rectangular coil source with +-z normal
+      procedure, pass(self) :: set_circular_coil_x    !< Subroutine to set a circular coil source with +-x normal
+      procedure, pass(self) :: set_circular_coil_y    !< Subroutine to set a circular coil source with +-y normal
+      procedure, pass(self) :: set_circular_coil_z    !< Subroutine to set a circular coil source with +-z normal
+      procedure, pass(self) :: set_solenoid_x         !< Subroutine to set a solenoid source with +-x normal
+      procedure, pass(self) :: set_solenoid_y         !< Subroutine to set a solenoid source with +-y normal
+      procedure, pass(self) :: set_solenoid_z         !< Subroutine to set a solenoid source with +-z normal
 endtype prism_common_object
 
 contains
@@ -1905,7 +1905,6 @@ contains
 
 endsubroutine set_solenoid_x
 
-
 subroutine set_solenoid_y(self, n, verse)
    !< Set solenoid with axis direction parallel to y.
    class(prism_common_object), intent(inout) :: self                    !< Cpu object.
@@ -2072,7 +2071,6 @@ subroutine set_solenoid_y(self, n, verse)
       endsubroutine compute_solenoid_current_density_flux_analytic_y
 
    endsubroutine set_solenoid_y
-
 
    subroutine set_solenoid_z(self, n, verse)
    !< Set solenoid with axis direction parallel to z.

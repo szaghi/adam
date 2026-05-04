@@ -534,7 +534,7 @@ endmodule adam_mpih_global
 
 ### CPU Singletons (`src/lib/common/`)
 
-All re-exported by `adam_common_library`:
+All re-exported by `adam_common_library` (and bundled by the convenience module `adam_globals`):
 
 | Singleton | Module | Type | Purpose |
 |-----------|--------|------|---------|
@@ -542,6 +542,7 @@ All re-exported by `adam_common_library`:
 | `grid` | `adam_grid_global` | `grid_object` | Structured grid geometry |
 | `field` | `adam_field_global` | `field_object` | Field variables and metrics |
 | `maps` | `adam_maps_global` | `maps_object` | AMR block/communication maps |
+| `tree` | `adam_tree_global` | `tree_object` | AMR Morton-ordered octree |
 | `weno` | `adam_weno_global` | `weno_object` | WENO reconstruction coefficients |
 | `ib` | `adam_ib_global` | `ib_object` | Immersed boundary data |
 | `rk` | `adam_rk_global` | `rk_object` | Runge-Kutta scheme coefficients |
@@ -588,12 +589,14 @@ use :: adam_maps_global,  only: adam_maps  => maps
 
 ### Initialization Order
 
-**CPU singletons** (`mpih`, `grid`, `field`, `maps`, `weno`, `ib`, `rk`) are initialized once in the top-level solver `initialize` / `initialize_common`. Sub-objects must not reinitialize them.
+**CPU singletons** (`mpih`, `grid`, `field`, `maps`, `tree`, `weno`, `ib`, `rk`) are initialized once in the top-level solver `initialize` / `initialize_common`. Sub-objects must not reinitialize them.
 
-**FNL singletons** must be initialized after the corresponding CPU singletons are populated. For `weno`, `ib`, and `rk`, which are VALUE members of `equation_object`, the solver must copy them into the global singletons before calling the FNL inits:
+`field`, `maps`, and `tree` are now full-fledged singletons (no pointer members anywhere) — there is nothing to "wire up" for them; just `use` and call `%initialize`.
+
+**FNL singletons** must be initialized after the corresponding CPU singletons are populated. The integrator/scheme handlers `weno`, `ib`, and `rk` are still composed by VALUE in equation/solver types, so the solver must copy those into the global singletons before calling the FNL inits:
 
 ```fortran
-! Populate CPU value singletons from self (equation_object members)
+! Populate CPU value singletons from self
 ib   = self%ib
 rk   = self%rk
 weno = self%weno
@@ -602,18 +605,16 @@ call field_fnl%initialize(verbose=.true.)
 call ib_fnl%initialize()
 call rk_fnl%initialize()
 call weno_fnl%initialize()
-call coil_fnl%initialize(coil=self%coil)    ! PRISM only
+call coil_fnl%initialize(coil=self%coil)           ! PRISM only
 call fwlayer_fnl%initialize(fwlayer=self%fwlayer)  ! PRISM only
 ```
-
-`field` and `maps` are already pointers to the global singletons in `adam_object`, so no copy is needed for them.
 
 ### What Not to Do
 
 - Do **not** embed any singleton type in a new derived type (neither as value nor as pointer member).
 - Do **not** pass any singleton as a dummy argument — just `use` the global module.
 - Do **not** write `field%grid%xxx` or `ib%grid%xxx` — access `grid%xxx` from the singleton directly.
-- Do **not** write `self%field%maps%xxx` — access `maps%xxx` from the singleton directly.
+- Do **not** write `self%field%maps%xxx`, `self%adam%field%xxx`, `self%adam%maps%xxx`, or `self%adam%tree%xxx` — access `field%xxx`, `maps%xxx`, `tree%xxx` from the singletons directly.
 - Do **not** write `self%field_gpu%xxx` or `self%ib_gpu%xxx` in FNL solvers — use `field_fnl%xxx`, `ib_fnl%xxx`, etc.
 
 ## Quick Reference Table

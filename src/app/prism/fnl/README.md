@@ -111,9 +111,10 @@ set procedure pointers          ← based on scheme_space / scheme_time
 ```
 
 > **Global singletons in scope** (via `adam_fnl_library` → `adam_common_library`):
-> `mpih_fnl` (GPU MPI handler), `mpih` (CPU MPI handler), `grid`, `field`, `maps`.
-> The global `field` singleton is passed directly to `field_gpu%initialize(field=field, ...)`;
-> do not use `self%adam%field` — that pointer is equivalent but less explicit.
+> `mpih_fnl` (GPU MPI handler), `mpih` (CPU MPI handler), `grid`, `field`, `maps`, `tree`.
+> The global `field` singleton is passed directly to `field_gpu%initialize(field=field, ...)`.
+> `self%adam%field` / `self%adam%maps` / `self%adam%tree` no longer exist — `adam_object`
+> is method-only and these accessors have been replaced by direct singleton use.
 
 ## Dispatch table
 

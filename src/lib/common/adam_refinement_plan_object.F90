@@ -17,11 +17,11 @@ public :: refinement_plan_object
 
 type :: refinement_plan_object
    !< Refinement plan class definition.
-   integer(I4P)              :: ratio=0_I4P              !< Refinement ratio (2=1D, 4=2D, 8=3D).
-   integer(I8P), allocatable :: block_to_refine(:,:)     !< Field blocks to be refined [2, n_my_refine].
-   integer(I8P), allocatable :: block_refined(:,:)       !< Field refined blocks with Morton code [2, ratio*n_my_refine].
-   integer(I8P), allocatable :: block_to_derefine(:)     !< Field blocks to be derefined [n_my_derefine].
-   integer(I8P), allocatable :: block_derefined(:,:)     !< Field derefined blocks with Morton code [2, n_my_derefine/ratio].
+   integer(I4P)              :: ratio=0_I4P          !< Refinement ratio (2=1D, 4=2D, 8=3D).
+   integer(I8P), allocatable :: block_to_refine(:,:) !< Field blocks to be refined [2, n_my_refine].
+   integer(I8P), allocatable :: block_refined(:,:)   !< Field refined blocks with Morton code [2, ratio*n_my_refine].
+   integer(I8P), allocatable :: block_to_derefine(:) !< Field blocks to be derefined [n_my_derefine].
+   integer(I8P), allocatable :: block_derefined(:,:) !< Field derefined blocks with Morton code [2, n_my_derefine/ratio].
    contains
       procedure, pass(self) :: has_refinements   !< Return true if there are local blocks to refine.
       procedure, pass(self) :: has_derefinements !< Return true if there are local blocks to derefine.
