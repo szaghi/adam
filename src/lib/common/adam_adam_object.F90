@@ -203,16 +203,15 @@ contains
                                    fields_number=80,         & ! remember to change
                                    nb=nb,                    &
                                    nodes_number=nodes_number)
-   field%blocks_number = 1
    call tree%initialize(file_parameters=file_parameters,&
-                             nodes_number=nodes_number,      &
-                             add_adam=add_adam,              &
-                             verbose=verbose_)
+                        nodes_number=nodes_number,      &
+                        add_adam=add_adam,              &
+                        verbose=verbose_)
    call maps%initialize(verbose=verbose_)
    call field%initialize(file_parameters=file_parameters,&
-                              nb=nb,                          &
-                              nv=nv,                          &
-                              verbose=verbose_)
+                         nb=nb,                          &
+                         nv=nv,                          &
+                         verbose=verbose_)
    if (verbose_) call mpih%print_message('adam_object%initialize finish')
    if (verbose_) call mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(field%nb)))
    if (verbose_) call mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(tree%nodes_number)))

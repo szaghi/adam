@@ -366,15 +366,15 @@ ext_libs = z
 mod_dir  = ./mod/nvf/aoc/
 obj_dir  = ./obj/nvf/aoc/
 template = template-nvf-oac
-cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Mdetail
-lflags   = -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Mdetail
+cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Mdetail -Mchkptr -Mchkstk -Ktrap=fp -g -O0
+lflags   =         -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Mdetail -Mchkptr -Mchkstk -Ktrap=fp -g -O0
 
 [template-nvf-oac-debug-mod]
 mod_dir  = ./mod/nvf/aoc/
 obj_dir  = ./obj/nvf/aoc/
 template = template-nvf-oac
-cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
-lflags   = -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
+cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Ktrap=fp -g -O0
+lflags   =         -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback -Ktrap=fp -g -O0
 
 # NVF CUDA Fortran
 [template-nvf-cuda]
@@ -430,8 +430,8 @@ include  = $HDF5_gnu/include
 mod_dir  = ./mod/gnu/
 obj_dir  = ./obj/gnu/
 template = template-gnu
-cflags   = -cpp -c -pg -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
-lflags   = -O0 -g3 -pg -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
+cflags   = -cpp -c -pg -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan -fcheck=all -finit-real=snan -finit-integer=-2147483647 -finit-derived -ffpe-trap=invalid,zero,overflow
+lflags   =         -pg -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan -fcheck=all -finit-real=snan -finit-integer=-2147483647 -finit-derived -ffpe-trap=invalid,zero,overflow
 
 # aux rules
 [rule-hdf5-build-gnu]

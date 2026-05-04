@@ -212,7 +212,7 @@ contains
    logical                                :: is_to_open_       !< Flag to open  file before first saving, local var.
    logical                                :: is_to_close_      !< Flag to close file after last saving, local var.
 
-   if (mpih%myrank==0) then
+   if (mpih%myrank==0.and.it>0) then
       is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
       is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
       if (is_to_open_) then
@@ -245,7 +245,7 @@ contains
    logical                                :: is_to_open_       !< Flag to open  file before first saving, local var.
    logical                                :: is_to_close_      !< Flag to close file after last saving, local var.
 
-   if (mpih%myrank==0) then
+   if (mpih%myrank==0.and.it>0) then
       is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
       is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
       if (is_to_open_) then

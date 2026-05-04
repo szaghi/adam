@@ -398,14 +398,16 @@ contains
    logical                                      :: verbose_        !< Trigger verbose output, local variable.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (verbose_) call mpih%print_message('field_object%initialize start')
    if (allocated(self%req_send_recv)) deallocate(self%req_send_recv)
    allocate(self%req_send_recv(0:mpih%procs_number*2-1))
-   if (verbose_) call mpih%print_message('field_object%initialize start')
    self%nb = nb
+   self%blocks_number = 0
    call self%load_from_ini_file(file_parameters, nv)
    self%block_weight = (grid%ngc+grid%ni+grid%ngc)* &
                        (grid%ngc+grid%nj+grid%ngc)* &
                        (grid%ngc+grid%nk+grid%ngc)*self%nv
+   self%block_weight_pic = 0_I4P
    if (self%nb>0) then
       call allocate_variable(var=self%code, ulb=[1,self%nb],&
                              msg=mpih%myrankstr//'field_object%initialize(code) ', verbose=verbose_)
@@ -413,49 +415,51 @@ contains
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
       call allocate_variable(var=self%coordinates, ulb=reshape([1,4, 1,self%nb],[2,2]), &
                              msg=mpih%myrankstr//'field_object%initialize(coordinates) ', verbose=verbose_)
+      self%coordinates = 0_I4P
       call allocate_variable(var=self%particles_number, ulb=[1,self%nb],&
                              msg=mpih%myrankstr//'field_object%initialize(particles_number) ', verbose=verbose_)
+      self%particles_number = 0_I4P
       call allocate_variable(var=self%emin, ulb=reshape([1,3, 1,self%nb],[2,2]), &
                              msg=mpih%myrankstr//'field_object%initialize(emin) ', verbose=verbose_)
       call allocate_variable(var=self%emax, ulb=reshape([1,3, 1,self%nb],[2,2]), &
                              msg=mpih%myrankstr//'field_object%initialize(emax) ', verbose=verbose_)
+      self%emin = 0._R8P
+      self%emax = 0._R8P
       self%emin(:,1) = grid%domain_emin
       self%emax(:,1) = grid%domain_emax
       call allocate_variable(var=self%dxyz, ulb=reshape([1,3, 1,self%nb],[2,2]), &
                              msg=mpih%myrankstr//'field_object%initialize(dxyz) ', verbose=verbose_)
+      self%dxyz = 0._R8P
       call allocate_variable(var=self%x_cell,                                         &
                              ulb=reshape([1-grid%ngc,grid%ni+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(x_cell) ', verbose=verbose_)
+      self%x_cell = 0._R8P
       call allocate_variable(var=self%y_cell,                                         &
                              ulb=reshape([1-grid%ngc,grid%nj+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(y_cell) ', verbose=verbose_)
+      self%y_cell = 0._R8P
       call allocate_variable(var=self%z_cell,                                         &
                              ulb=reshape([1-grid%ngc,grid%nk+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(z_cell) ', verbose=verbose_)
+      self%z_cell = 0._R8P
       call allocate_variable(var=self%x_node,                                         &
                              ulb=reshape([0-grid%ngc,grid%ni+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(x_node) ', verbose=verbose_)
+      self%x_node = 0._R8P
       call allocate_variable(var=self%y_node,                                         &
                              ulb=reshape([0-grid%ngc,grid%nj+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(y_node) ', verbose=verbose_)
+      self%y_node = 0._R8P
       call allocate_variable(var=self%z_node,                                         &
                              ulb=reshape([0-grid%ngc,grid%nk+grid%ngc, &
                                           1,self%nb],[2,2]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(z_node) ', verbose=verbose_)
-      ! if (present(q)) then
-      !    call allocate_variable(var=q,                                                   &
-      !                           ulb=reshape([1,self%nv,                                  &
-      !                                        1-grid%ngc,grid%ni+grid%ngc, &
-      !                                        1-grid%ngc,grid%nj+grid%ngc, &
-      !                                        1-grid%ngc,grid%nk+grid%ngc, &
-      !                                        1,self%nb],[2,5]),                          &
-      !                           msg=mpih%myrankstr//'field_object%initialize(q) ', verbose=verbose_)
-      ! endif
+      self%z_node = 0._R8P
       call allocate_variable(var=self%q_work,                                         &
                              ulb=reshape([1,self%nv,                                  &
                                           1-grid%ngc,grid%ni+grid%ngc, &
@@ -463,15 +467,17 @@ contains
                                           1-grid%ngc,grid%nk+grid%ngc, &
                                           1,self%nb],[2,5]),                          &
                              msg=mpih%myrankstr//'field_object%initialize(q_work) ', verbose=verbose_)
+      self%q_work    = 0._R8P
       call allocate_variable(var=self%residuals, &
                              ulb=[1,self%nv],    &
                              msg=mpih%myrankstr//'field_object%initialize(residuals) ', verbose=verbose_)
-      self%q_work    = 0._R8P
       self%residuals = 0._R8P
-      self%block_weight_pic = 0_I4P
    endif
    call allocate_variable(var=self%blocks_numbers, ulb=[0,mpih%procs_number-1], &
                           msg=mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=verbose_)
+   self%blocks_numbers = 0
+   self%blocks_numbers(0) = 1 ! assign adam to proc 0
+
    self%ngc => grid%ngc
    self%ni  => grid%ni
    self%nj  => grid%nj
@@ -761,6 +767,9 @@ contains
    call maps%get_block_layout(code=self%code(1:self%blocks_number))
    call self%compute_metrics
    endassociate
+   call MPI_ALLGATHER(self%blocks_number, 1, MPI_INTEGER,  &
+                      self%blocks_numbers, 1, MPI_INTEGER, &
+                      MPI_COMM_WORLD, mpih%error)
    endsubroutine mpi_redistribute
 
    subroutine save_blocks(self, basename, q)

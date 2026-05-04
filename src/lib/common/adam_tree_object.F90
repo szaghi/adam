@@ -291,7 +291,7 @@ contains
    !< Ownership of the block lists produced by refine/derefine is transferred
    !< to plan via move_alloc, leaving tree_object without field-domain state.
    class(tree_object),           intent(inout) :: self !< The tree.
-   type(refinement_plan_object), intent(out)   :: plan !< Refinement plan for field.
+   type(refinement_plan_object), intent(inout) :: plan !< Refinement plan for field.
 
    call self%sanitize
 
@@ -301,11 +301,12 @@ contains
 
    call self%make_neighborhood
 
+   call plan%destroy
    plan%ratio = self%ratio
-   if (allocated(self%block_to_refine))   call move_alloc(self%block_to_refine,   plan%block_to_refine)
-   if (allocated(self%block_refined))     call move_alloc(self%block_refined,      plan%block_refined)
+   if (allocated(self%block_to_refine))   call move_alloc(self%block_to_refine,   plan%block_to_refine  )
+   if (allocated(self%block_refined))     call move_alloc(self%block_refined,     plan%block_refined    )
    if (allocated(self%block_to_derefine)) call move_alloc(self%block_to_derefine, plan%block_to_derefine)
-   if (allocated(self%block_derefined))   call move_alloc(self%block_derefined,    plan%block_derefined)
+   if (allocated(self%block_derefined))   call move_alloc(self%block_derefined,   plan%block_derefined  )
    endsubroutine adapt
 
    function codes(self, only_mine, sort_by_level)
@@ -1735,6 +1736,8 @@ contains
    if (derefined_number>0) then
       allocate(self%block_to_derefine(self%n_my_derefine))
       allocate(self%block_derefined(2, self%n_my_derefine/self%ratio))
+      self%block_to_derefine = 0_I8P
+      self%block_derefined = 0_I8P
       mn = -(self%ratio-1)
       do n=1, derefined_number, self%ratio
          first_child => self%node(code=self%node_to_derefine(n))
@@ -1784,9 +1787,8 @@ contains
    if (refined_number>0) then
       allocate(self%block_to_refine(2, self%n_my_refine))
       allocate(self%block_refined(2, self%ratio*self%n_my_refine))
-
-      self%block_refined = -100
-
+      self%block_to_refine = 0_I8P
+      self%block_refined = -100_I8P
       mn = 0
       do n=1, refined_number
          parent => self%node(code=self%node_to_refine(n))
