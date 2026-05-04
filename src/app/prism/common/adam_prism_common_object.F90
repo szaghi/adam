@@ -207,8 +207,8 @@ contains
    endif
    call check_ngc_number
    call self%allocate_common
-   if (self%adam%tree%iu_ref_levels>0) then
-      call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
+   if (tree%iu_ref_levels>0) then
+      call self%adam%refine_uniform(refinement_levels=tree%iu_ref_levels, do_mpi_redistribute=.true., &
                                     do_blocks_reorder=.false., q=self%q)
    endif
    call io_initialize

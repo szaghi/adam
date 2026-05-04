@@ -1164,7 +1164,7 @@ contains
       call self%integrate
 
       time%time = time%time + time%dt
-      call time%print_progress(nodes_number=self%adam%tree%nodes_number)
+      call time%print_progress(nodes_number=tree%nodes_number)
 
       call self%save_simulation_data
       call self%update_ghost(q=self%q) ! Aggiunto da FN

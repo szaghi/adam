@@ -4,7 +4,7 @@ module adam_globals
 !<
 !< Provides a single USE point for all CPU-side program-scope singleton objects:
 !<```fortran
-!< use :: adam_globals, only : mpih, grid, field, maps, weno, ib, rk
+!< use :: adam_globals, only : mpih, grid, field, maps, tree, weno, ib, rk
 !<```
 !< instead of listing every individual adam_*_global module.
 
@@ -13,6 +13,7 @@ use :: adam_mpih_global,  only : mpih
 use :: adam_grid_global,  only : grid
 use :: adam_field_global, only : field
 use :: adam_maps_global,  only : maps
+use :: adam_tree_global,  only : tree
 use :: adam_weno_global,  only : weno
 use :: adam_ib_global,    only : ib
 use :: adam_rk_global,    only : rk
@@ -23,6 +24,7 @@ public :: mpih
 public :: grid
 public :: field
 public :: maps
+public :: tree
 public :: weno
 public :: ib
 public :: rk

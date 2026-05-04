@@ -6,13 +6,13 @@ module adam_adam_object
 use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
-use :: adam_tree_object
 use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_field_global, only : field
 use :: adam_grid_global,  only : grid
 use :: adam_maps_global,  only : maps
 use :: adam_mpih_global,  only : mpih
+use :: adam_tree_global,  only : tree
 ! third party modules
 use :: finer, only : file_ini
 use :: motion
@@ -28,7 +28,6 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   type(tree_object) :: tree !< The tree.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
@@ -62,7 +61,7 @@ contains
                                           1:) !< Field cell centered variables.
    type(refinement_plan_object) :: plan !< Refinement plan produced by tree, consumed by field.
 
-   call self%tree%adapt(plan=plan)
+   call tree%adapt(plan=plan)
 
    call self%check_blocks_number
 
@@ -97,8 +96,8 @@ contains
 
    call self%adapt(q=q)
 
-   if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
-                                                   (size(self%tree%node_to_derefine, dim=1)>0_I4P)
+   if (present(is_grid_changed)) is_grid_changed = (size(tree%node_to_refine,   dim=1)>0_I4P).or.&
+                                                   (size(tree%node_to_derefine, dim=1)>0_I4P)
 
    if (do_mpi_redistribute_) call self%mpi_redistribute(q=q)
 
@@ -129,7 +128,7 @@ contains
    character(len=1), parameter       :: NL=new_line('a') !< New line character.
 
    max_nb = 0
-   do while(self%tree%loop(node_ptr=node_ptr))
+   do while(tree%loop(node_ptr=node_ptr))
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
    if (max_nb > field%nb) then
@@ -162,7 +161,7 @@ contains
    character(len=:), allocatable  :: desc             !< Description.
    character(len=1), parameter    :: NL=new_line('a') !< New line character.
 
-   desc = grid%description()//NL//self%tree%description()//NL//field%description()
+   desc = grid%description()//NL//tree%description()//NL//field%description()
    endfunction description
 
    subroutine load_restart_files(self, basename, t, time, q)
@@ -181,7 +180,7 @@ contains
    open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
    read(unit=file_unit) t, time
    close(file_unit)
-   call self%tree%load_nodes(file_name=trim(adjustl(basename))//'.tnd')
+   call tree%load_nodes(file_name=trim(adjustl(basename))//'.tnd')
    call field%load_blocks(basename=basename, q=q)
    endsubroutine load_restart_files
 
@@ -205,18 +204,18 @@ contains
                                    nb=nb,                    &
                                    nodes_number=nodes_number)
    field%blocks_number = 1
-   call self%tree%initialize(file_parameters=file_parameters,&
+   call tree%initialize(file_parameters=file_parameters,&
                              nodes_number=nodes_number,      &
                              add_adam=add_adam,              &
                              verbose=verbose_)
-   call maps%initialize(tree=self%tree,verbose=verbose_)
+   call maps%initialize(verbose=verbose_)
    call field%initialize(file_parameters=file_parameters,&
                               nb=nb,                          &
                               nv=nv,                          &
                               verbose=verbose_)
    if (verbose_) call mpih%print_message('adam_object%initialize finish')
    if (verbose_) call mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(field%nb)))
-   if (verbose_) call mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
+   if (verbose_) call mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(tree%nodes_number)))
    endsubroutine initialize
 
    subroutine interpolate_at_point(self, itype, point, q, qp, is_mine, p, qc, ijk, xyz, code, v)
@@ -243,11 +242,11 @@ contains
    real(R8P)                                 :: xyz_(3,8) !< Closest cells center-coordinates, local var.
    integer(I4P)                              :: i, j, k   !< Counter.
 
-   code_ = self%tree%get_closest_block(point=point)
-   node => self%tree%node(code=code_)
+   code_ = tree%get_closest_block(point=point)
+   node => tree%node(code=code_)
    if (node%myrank == mpih%myrank) then
       is_mine = .true.
-      call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_)
+      call tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_)
       select case(trim(itype))
       case('inverse_distance')
          call inverse_distance_interpolation
@@ -345,7 +344,7 @@ contains
    if (is_marked_by_field_) then
       call field%mpi_gather_refinements_needed
       call field%get_refinements_needed(flags=flags, disp=disp)
-      call self%tree%import_refinements_needed(refinements_needed_all=flags, disp_count=disp)
+      call tree%import_refinements_needed(refinements_needed_all=flags, disp_count=disp)
    endif
 
    if (is_marked_by_tree_) then
@@ -362,7 +361,7 @@ contains
                                           1-grid%ngc:,&
                                           1:)!< Field cell centered variables.
 
-   call self%tree%mpi_redistribute
+   call tree%mpi_redistribute
    call maps%make_comm_local_maps
    call field%mpi_redistribute(q=q)
 
@@ -381,7 +380,7 @@ contains
    logical                                  :: do_blocks_reorder_ !< Flag to activate blocks reorder, local var.
 
    do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
-   call self%tree%prune(ijkl_prune=ijkl_prune)
+   call tree%prune(ijkl_prune=ijkl_prune)
    call self%mpi_redistribute(q=q)
    if (do_blocks_reorder_) call self%blocks_reorder(q=q)
    call self%make_comm_local_maps_ghost_bc
@@ -402,7 +401,7 @@ contains
 
    call mpih%print_message('uniformly refine mesh with '//trim(str(refinement_levels))//' levels')
    do l=1, refinement_levels
-      call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
+      call tree%mark_all_nodes(mark=TO_BE_REFINED)
       call self%amr_update(q=q, do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
    enddo
    endsubroutine refine_uniform
@@ -424,7 +423,7 @@ contains
       open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
       write(unit=file_unit) t, time
       close(file_unit)
-      call self%tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
+      call tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
    endif
    call field%save_blocks(basename=basename, q=q)
    endsubroutine save_restart_files
@@ -496,7 +495,7 @@ contains
                ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, error)
                call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
                if (present(phi)) then
-                  node => self%tree%node(code=code)
+                  node => tree%node(code=code)
                   offset = offset + 8 * size(q, dim=1)
                   ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1)), 1, &
                   !                            MPI_REAL8, MPI_STATUS_IGNORE, error)
@@ -616,9 +615,9 @@ contains
          vtm_group_loop : do l=1, max_level
             error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
          enddo vtm_group_loop
-         vtm_filenames_loop : do while(self%tree%loop(node_ptr=node))
+         vtm_filenames_loop : do while(tree%loop(node_ptr=node))
             b = node%block_index
-            l = self%tree%level(code=node%code)
+            l = tree%level(code=node%code)
             error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//                                   &
                                                                         '-morton-'//trim(str(field%code(b),.true.))// &
                                                                         '-block-'//trim(str(b,.true.))//                   &

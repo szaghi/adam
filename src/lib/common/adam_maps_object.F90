@@ -3,12 +3,13 @@ module adam_maps_object
 !< ADAM, maps class definition
 
 ! ADAM classes, libraries, parameters
-use :: adam_tree_object
+use :: adam_tree_object, only : NODE_BOUNDARY_CONDITION, NODE_LESS_REFINED, NODE_MORE_REFINED, NODE_STANDARD
 use :: adam_tree_node_object
 use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_global, only : grid
+use :: adam_tree_global, only : tree
 ! third party modules
 use :: penf
 ! sdk modules
@@ -20,9 +21,7 @@ public :: maps_object
 
 type :: maps_object
    !< Maps class definition
-   logical                    :: is_initialized_=.false. !< Flag: maps have been initialized.
-   ! ADAM objects
-   type(tree_object), pointer :: tree=>null() !< Tree data.
+   logical :: is_initialized_=.false. !< Flag: maps have been initialized.
    ! local maps
    integer(I8P), allocatable :: local_map(:,:)            !< Local map, list block index changes of my nodes.
    integer(I8P), allocatable :: local_map_ghost(:,:)      !< Local map for ghost cells updating [fec_number, 4].
@@ -99,7 +98,7 @@ contains
    allocate(outer_block_map(self%my_nodes_number))
    if (allocated(self%inner_outer_block_map)) deallocate(self%inner_outer_block_map)
    allocate(self%inner_outer_block_map(self%my_nodes_number))
-   do while(self%tree%loop(node_ptr=node_ptr))
+   do while(tree%loop(node_ptr=node_ptr))
       if (mpih%myrank == node_ptr%myrank) then
          is_inner_block = .true.
          do fec=1, 26
@@ -107,7 +106,7 @@ contains
             neighbor_type = node_ptr%neighbor(fec)%ntype
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                do n=1, size(neighbor, dim=1)
-                  neigh => self%tree%node(code=neighbor(n))
+                  neigh => tree%node(code=neighbor(n))
                   if (mpih%myrank /= neigh%myrank) is_inner_block = .false.
                enddo
             endif
@@ -126,7 +125,7 @@ contains
    self%inner_blocks_number = inner_blocks_number
    self%inner_outer_block_map(1:inner_blocks_number ) = inner_block_map(1:inner_blocks_number)
    self%inner_outer_block_map(inner_blocks_number+1:) = outer_block_map(1:outer_blocks_number)
-   do while(self%tree%loop(node_ptr=node_ptr))
+   do while(tree%loop(node_ptr=node_ptr))
       if (mpih%myrank == node_ptr%myrank) then
          if (node_ptr%block_index_new < 0) then
             node_ptr%block_index = -node_ptr%block_index_new + inner_blocks_number
@@ -140,19 +139,18 @@ contains
 
    subroutine get_block_layout(self, code, coordinates)
    !< Return block Morton codes and/or coordinates from the underlying tree.
-   !< Provides a single-level accessor so callers do not traverse self%tree directly.
+   !< Provides a single-level accessor so callers do not traverse tree directly.
    class(maps_object), intent(in)            :: self           !< The maps.
    integer(I8P),       intent(out), optional :: code(:)        !< Block Morton codes [blocks_number].
    integer(I4P),       intent(out), optional :: coordinates(:,:) !< Block coordinates IJKL [4,blocks_number].
 
-   if (present(code))        code        = self%tree%block_code
-   if (present(coordinates)) coordinates = self%tree%block_coordinates
+   if (present(code))        code        = tree%block_code
+   if (present(coordinates)) coordinates = tree%block_coordinates
    endsubroutine get_block_layout
 
-   subroutine initialize(self, tree, verbose)
+   subroutine initialize(self, verbose)
    !< Initialize maps.
    class(maps_object), intent(inout)        :: self     !< The maps.
-   type(tree_object),  intent(in), target   :: tree     !< The tree.
    logical,            intent(in), optional :: verbose  !< Trigger verbose output.
    logical                                  :: verbose_ !< Trigger verbose output, local variable.
 
@@ -160,7 +158,6 @@ contains
    if (verbose_) call mpih%print_message('maps_object%initialize start')
    if (.not.tree%is_initialized_) &
       call mpih%error_stop(': maps_object%initialize: tree is not initialized')
-   self%tree => tree
    allocate(self%comm_map_n_send(0:mpih%procs_number-1))
    allocate(self%comm_map_n_recv(0:mpih%procs_number-1))
    allocate(self%comm_map_send_ptr(0:mpih%procs_number))
@@ -210,7 +207,7 @@ contains
 
    ! compute the number of blocks to send/receive
    my_nodes_number = 0_I8P
-   do while(self%tree%loop(node_ptr=node_ptr))
+   do while(tree%loop(node_ptr=node_ptr))
       if (node_ptr%myrank==mpih%myrank) my_nodes_number = my_nodes_number + 1_I8P
       if     (is_node_to_send(n=node_ptr)) then
          ! I have this node that must be sent to node_ptr%myrank_new
@@ -249,11 +246,11 @@ contains
    comm_map_recv_ctr = self%comm_map_recv_ptr
 
    ! populate communication maps
-   codes_sorted = self%tree%codes() ! sorted list of Morton codes
+   codes_sorted = tree%codes() ! sorted list of Morton codes
    ! send map
    if (n_send>0_I4P) then
       do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
-         node_ptr => self%tree%node(code=codes_sorted(c))
+         node_ptr => tree%node(code=codes_sorted(c))
          if (is_node_to_send(n=node_ptr)) then
             self%comm_map_send(comm_map_send_ctr(node_ptr%myrank_new)+1) = node_ptr%block_index
             comm_map_send_ctr(node_ptr%myrank_new) = comm_map_send_ctr(node_ptr%myrank_new) + 1
@@ -263,7 +260,7 @@ contains
    ! receive map
    if (n_recv>0_I4P) then
       do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
-         node_ptr => self%tree%node(code=codes_sorted(c))
+         node_ptr => tree%node(code=codes_sorted(c))
          if (is_node_to_receive(n=node_ptr)) then
             self%comm_map_recv(comm_map_recv_ctr(node_ptr%myrank)+1) = node_ptr%block_index_new
             comm_map_recv_ctr(node_ptr%myrank) = comm_map_recv_ctr(node_ptr%myrank) + 1
@@ -274,7 +271,7 @@ contains
    if (n_keep > 0_I4P) then
       l = 0
       do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
-         node_ptr => self%tree%node(code=codes_sorted(c))
+         node_ptr => tree%node(code=codes_sorted(c))
          if (is_node_to_keep(n=node_ptr)) then
             l = l + 1
             self%local_map(l,1) = node_ptr%block_index_new
@@ -284,7 +281,7 @@ contains
    endif
 
    ! update tree blocks coordinates
-   call self%tree%update_blocks_coordinates(my_nodes_number=self%my_nodes_number)
+   call tree%update_blocks_coordinates(my_nodes_number=self%my_nodes_number)
    call mpih%print_message('maps_object%make_comm_local_maps finish')
    contains
       function is_node_to_keep(n)
@@ -338,13 +335,13 @@ contains
    integer(I8P)                      :: n, p           !< Counter.
 
    allocate(send_buffer(self%my_nodes_number   * 2)) ! [Morton code, refinement_needed]
-   allocate(recv_buffer(self%tree%nodes_number * 2)) ! [Morton code, refinement_needed]
+   allocate(recv_buffer(tree%nodes_number * 2)) ! [Morton code, refinement_needed]
    allocate(recv_count(0:mpih%procs_number - 1))
    allocate(disp_count(0:mpih%procs_number - 1))
    ! populating receive counters and send buffer
    recv_count = 0_I4P
    n = 0_I8P
-   do while(self%tree%loop(node_ptr=node_ptr))
+   do while(tree%loop(node_ptr=node_ptr))
       recv_count(node_ptr%myrank) = recv_count(node_ptr%myrank) + 2
       if (mpih%myrank == node_ptr%myrank) then
          n = n + 1
@@ -368,8 +365,8 @@ contains
                        recv_buffer, recv_count, disp_count, MPI_INTEGER8, MPI_COMM_WORLD, mpih%error)
 
    ! update nodes data
-   do n=1, self%tree%nodes_number*2, 2
-      node_ptr => self%tree%node(code=recv_buffer(n))
+   do n=1, tree%nodes_number*2, 2
+      node_ptr => tree%node(code=recv_buffer(n))
       select case(trim(node_member))
       case('refinement_needed')
          node_ptr%refinement_needed = int(recv_buffer(n+1), I4P)
@@ -429,7 +426,7 @@ contains
       fec_bc_faces_number = 0_I4P
       fec_bc_edges_number = 0_I4P
       fec_bc_corners_number = 0_I4P
-      do while(self%tree%loop(node_ptr=node_ptr))
+      do while(tree%loop(node_ptr=node_ptr))
          if (node_ptr%myrank==mpih%myrank) then
             do fec=1, 26
                neighbor_type   = node_ptr%neighbor(fec)%ntype
@@ -517,7 +514,7 @@ contains
    send_fec_number = 0
    self%comm_map_n_recv_ghost = 0
    self%comm_map_n_send_ghost = 0
-   do while(self%tree%loop(node_ptr=node_ptr))
+   do while(tree%loop(node_ptr=node_ptr))
       do fec=1, 26
          weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
          if (allocated(node_ptr%neighbor(fec)%codes)) then
@@ -525,7 +522,7 @@ contains
             neighbor_type = node_ptr%neighbor(fec)%ntype
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                do n=1, size(neighbor, dim=1)
-                  neigh => self%tree%node(code=neighbor(n))
+                  neigh => tree%node(code=neighbor(n))
                   if (.not.associated(neigh)) then
                      call mpih%print_message(msg=': error neighbor n='//trim(str(n))//&
                                                       ' of neighbors='//trim(str(neighbor))//' not associated')
@@ -590,7 +587,7 @@ contains
    fec_bc_faces_number = 0_I4P
    fec_bc_edges_number = 0_I4P
    fec_bc_corners_number = 0_I4P
-   do while(self%tree%loop(node_ptr=node_ptr))
+   do while(tree%loop(node_ptr=node_ptr))
       if (node_ptr%myrank==mpih%myrank) then
          do fec=1, 26
             if (node_ptr%neighbor(fec)%ntype == NODE_BOUNDARY_CONDITION) then
@@ -1098,7 +1095,7 @@ contains
    sf = 0
    rf = 0
    mf = 0
-   do while(self%tree%loop(node_ptr=node_ptr))
+   do while(tree%loop(node_ptr=node_ptr))
       do fec=1, 26
          weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
          if (allocated(node_ptr%neighbor(fec)%codes)) then
@@ -1107,7 +1104,7 @@ contains
             neighbor_portion = node_ptr%neighbor(fec)%portion
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                do n=1, size(neighbor, dim=1)
-                  neigh => self%tree%node(code=neighbor(n))
+                  neigh => tree%node(code=neighbor(n))
                   if     ((mpih%myrank == neigh%myrank).and.(mpih%myrank == node_ptr%myrank)) then
                      mf = mf + 1
                      self%local_map_ghost(mf, 1) = node_ptr%block_index

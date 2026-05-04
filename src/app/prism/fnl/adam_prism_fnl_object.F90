@@ -1614,7 +1614,7 @@ contains
       call self%integrate_dev
 
       time%time = time%time + time%dt
-      call time%print_progress(nodes_number=self%adam%tree%nodes_number)
+      call time%print_progress(nodes_number=tree%nodes_number)
 
       call self%save_simulation_data
 
