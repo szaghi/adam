@@ -3,17 +3,15 @@ module adam_adam_object
 !< ADAM, ADAM class definition.
 
 ! ADAM classes, libraries, parameters
-use :: adam_field_object
-use :: adam_maps_object
 use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_field_global, only : adam_field => field
+use :: adam_field_global, only : field
 use :: adam_grid_global,  only : grid
-use :: adam_maps_global,  only : adam_maps => maps
+use :: adam_maps_global,  only : maps
 use :: adam_mpih_global,  only : mpih
 ! third party modules
 use :: finer, only : file_ini
@@ -30,9 +28,7 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   type(tree_object)           :: tree          !< The tree.
-   type(maps_object),  pointer :: maps=>null()  !< The maps (backward-compat alias → global singleton).
-   type(field_object), pointer :: field=>null() !< The field (points to program-scope singleton).
+   type(tree_object) :: tree !< The tree.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
@@ -70,7 +66,7 @@ contains
 
    call self%check_blocks_number
 
-   call adam_field%adapt(plan=plan, q=q)
+   call field%adapt(plan=plan, q=q)
    endsubroutine adapt
 
    subroutine amr_update(self, q, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed)
@@ -121,8 +117,8 @@ contains
                                           1-grid%ngc:,&
                                           1:)!< Field cell centered variables.
 
-   call adam_maps%blocks_reorder
-   call self%field%blocks_reorder(q=q)
+   call maps%blocks_reorder
+   call field%blocks_reorder(q=q)
    endsubroutine blocks_reorder
 
    subroutine check_blocks_number(self)
@@ -136,12 +132,12 @@ contains
    do while(self%tree%loop(node_ptr=node_ptr))
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
-   if (max_nb > self%field%nb) then
+   if (max_nb > field%nb) then
       call mpih%abort(error_code=-101, msg='ERROR: the number of new blocks after AMR is greater than Nb'//NL//&
-                                                'max blocks numer available [Nb]: '//trim(str(self%field%nb))//NL//&
+                                                'max blocks numer available [Nb]: '//trim(str(field%nb))//NL//&
                                                 'blocks numer required after AMR: '//trim(str(max_nb)))
    endif
-   call mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb))
+   call mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(field%nb))
    endsubroutine check_blocks_number
 
    subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
@@ -166,7 +162,7 @@ contains
    character(len=:), allocatable  :: desc             !< Description.
    character(len=1), parameter    :: NL=new_line('a') !< New line character.
 
-   desc = grid%description()//NL//self%tree%description()//NL//self%field%description()
+   desc = grid%description()//NL//self%tree%description()//NL//field%description()
    endfunction description
 
    subroutine load_restart_files(self, basename, t, time, q)
@@ -186,7 +182,7 @@ contains
    read(unit=file_unit) t, time
    close(file_unit)
    call self%tree%load_nodes(file_name=trim(adjustl(basename))//'.tnd')
-   call self%field%load_blocks(basename=basename, q=q)
+   call field%load_blocks(basename=basename, q=q)
    endsubroutine load_restart_files
 
    subroutine initialize(self, file_parameters, memory_avail, add_adam, nv, verbose)
@@ -203,25 +199,23 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('adam_object%initialize start')
-   self%field => adam_field
    call grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%adam%grid%set_bc_type
    call self%compute_blocks_number(memory_avail=memory_avail,&
                                    fields_number=80,         & ! remember to change
                                    nb=nb,                    &
                                    nodes_number=nodes_number)
-   self%field%blocks_number = 1
+   field%blocks_number = 1
    call self%tree%initialize(file_parameters=file_parameters,&
                              nodes_number=nodes_number,      &
                              add_adam=add_adam,              &
                              verbose=verbose_)
-   call adam_maps%initialize(tree=self%tree,verbose=verbose_)
-   self%maps => adam_maps
-   call self%field%initialize(file_parameters=file_parameters,&
+   call maps%initialize(tree=self%tree,verbose=verbose_)
+   call field%initialize(file_parameters=file_parameters,&
                               nb=nb,                          &
                               nv=nv,                          &
                               verbose=verbose_)
    if (verbose_) call mpih%print_message('adam_object%initialize finish')
-   if (verbose_) call mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))
+   if (verbose_) call mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(field%nb)))
    if (verbose_) call mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
    endsubroutine initialize
 
@@ -329,8 +323,8 @@ contains
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc start')
-   call adam_maps%make_comm_local_maps_ghost(nv=self%field%nv)
-   call adam_maps%make_local_maps_bc
+   call maps%make_comm_local_maps_ghost(nv=field%nv)
+   call maps%make_local_maps_bc
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc finish')
    endsubroutine make_comm_local_maps_ghost_bc
 
@@ -349,13 +343,13 @@ contains
    is_marked_by_tree_  = .false. ; if (present(is_marked_by_tree )) is_marked_by_tree_  = is_marked_by_tree
 
    if (is_marked_by_field_) then
-      call self%field%mpi_gather_refinements_needed
-      call self%field%get_refinements_needed(flags=flags, disp=disp)
+      call field%mpi_gather_refinements_needed
+      call field%get_refinements_needed(flags=flags, disp=disp)
       call self%tree%import_refinements_needed(refinements_needed_all=flags, disp_count=disp)
    endif
 
    if (is_marked_by_tree_) then
-      call adam_maps%mpi_gather_nodes_data(node_member='refinement_needed')
+      call maps%mpi_gather_nodes_data(node_member='refinement_needed')
    endif
    endsubroutine mpi_gather_refinement_needed
 
@@ -369,8 +363,8 @@ contains
                                           1:)!< Field cell centered variables.
 
    call self%tree%mpi_redistribute
-   call adam_maps%make_comm_local_maps
-   call self%field%mpi_redistribute(q=q)
+   call maps%make_comm_local_maps
+   call field%mpi_redistribute(q=q)
 
    endsubroutine mpi_redistribute
 
@@ -432,7 +426,7 @@ contains
       close(file_unit)
       call self%tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
    endif
-   call self%field%save_blocks(basename=basename, q=q)
+   call field%save_blocks(basename=basename, q=q)
    endsubroutine save_restart_files
 
    subroutine save_slice(self, itype, points, basename, q, q_name, phi, t, time)
@@ -578,17 +572,17 @@ contains
    endif
    associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk)
       max_level = 0_I4P
-      vtr_loop : do b=1, self%field%blocks_number
-         call grid%compute_metrics(coordinates=self%field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
-         max_level = max(max_level, self%field%coordinates(4,b))
+      vtr_loop : do b=1, field%blocks_number
+         call grid%compute_metrics(coordinates=field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
+         max_level = max(max_level, field%coordinates(4,b))
          error = vtk%initialize(format='raw', filename=directory_//trim(basename)//                          &
-                                                       '-morton-'//trim(str(self%field%code(b),.true.))//    &
+                                                       '-morton-'//trim(str(field%code(b),.true.))//    &
                                                        '-block-'//trim(str(b,.true.))//                      &
                                                        '-proc-'//trim(str(mpih%myrank,.true.))//'.vtr', &
                                 mesh_topology='RectilinearGrid',                                             &
                                 nx1=0-ngc, nx2=ni+ngc, ny1=0-ngc, ny2=nj+ngc, nz1=0-ngc, nz2=nk+ngc)
                             error = vtk%xml_writer%write_fielddata(action='open')
-                            error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
+                            error = vtk%xml_writer%write_fielddata(data_name='Morton', x=field%code(b))
                             error = vtk%xml_writer%write_fielddata(data_name='myrank', x=mpih%myrank)
          if (present(t))    error = vtk%xml_writer%write_fielddata(data_name='t', x=t)
          if (present(time)) error = vtk%xml_writer%write_fielddata(data_name='time', x=time)
@@ -608,7 +602,7 @@ contains
          endif
          if (with_cell_morton_) then
             error = vtk%xml_writer%write_dataarray(data_name='morton', &
-                                                   x=reshape([(self%field%code(b),i=1,(ni+2*ngc)*(nj+2*ngc)*(nk+2*ngc))], &
+                                                   x=reshape([(field%code(b),i=1,(ni+2*ngc)*(nj+2*ngc)*(nk+2*ngc))], &
                                                              [ni+2*ngc,nj+2*ngc,nk+2*ngc]))
          endif
          error = vtk%xml_writer%write_dataarray(location='cell', action='close')
@@ -626,7 +620,7 @@ contains
             b = node%block_index
             l = self%tree%level(code=node%code)
             error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//                                   &
-                                                                        '-morton-'//trim(str(self%field%code(b),.true.))// &
+                                                                        '-morton-'//trim(str(field%code(b),.true.))// &
                                                                         '-block-'//trim(str(b,.true.))//                   &
                                                                         '-proc-'//trim(str(mpih%myrank,.true.))//'.vtr')
          enddo vtm_filenames_loop
