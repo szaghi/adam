@@ -16,7 +16,9 @@ runs:
     - name: Install GCC
       shell: bash
       run: |
-        sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
+        # GCC 14 ships in Ubuntu 24.04 noble-updates — no PPA needed.
+        # Avoiding ppa:ubuntu-toolchain-r/test sidesteps Launchpad REST API
+        # outages (HTTP 503/504) that intermittently break add-apt-repository.
         sudo apt update
         sudo apt install -y \
           gcc-${{ inputs.gcc-version }} \
