@@ -1,0 +1,42 @@
+[rule-hdf5-build-gnu]
+help = Download HDF5 and build with GNU (openmpi/mpich)
+rule = scripts/hdf5_build.sh -build
+
+[rule-maketar]
+help = Make tar archive of the project
+rule = tar --xform="s%^%adam/%" -czf adam.tar.gz *
+
+[rule-makedoc]
+help   = Build documentation with formal + VitePress
+rule_1 = formal generate --mirror-sources --diagrams --project docs/ford.md --output docs/api
+rule_2 = cd docs && npm ci && npm run docs:build
+
+[rule-delexe]
+help = Delete exes
+rule = rm -rf exe/
+
+[rule-deldoc]
+help = Delete documentation build artifacts
+rule = rm -rf docs/.vitepress/dist/ docs/.vitepress/cache/ docs/api/
+
+[rule-cleanall]
+help   = Clean the project tree
+rule_1 = fobis rule --ex deldoc
+rule_2 = fobis rule --ex delexe
+rule_3 = rm -f *.gcov
+
+[rule-makecoverage]
+help   = Rule for performing coverage analysis
+rule_1 = fobis rule --ex build-tests-fdv
+rule_2 = ./scripts/run_tests.sh --np 1
+rule_3 = rm -f exe/obj/befor64* exe/obj/face* exe/obj/finer* exe/obj/fundal* exe/obj/fossil* exe/obj/foxy* exe/obj/mortif* exe/obj/motion* exe/obj/penf* exe/obj/stringifor* exe/obj/vtkfortran* exe/obj/vecfor*
+rule_4 = ./scripts/compute-coverage.sh
+
+[rule-makecoverage-analysis]
+help   = Rule for performing coverage analysis and saving reports in markdown
+rule_1 = fobis rule --ex build-tests-fdv
+rule_2 = ./scripts/run_tests.sh --np 1
+rule_3 = rm -f exe/obj/befor64* exe/obj/face* exe/obj/finer* exe/obj/fundal* exe/obj/fossil* exe/obj/foxy* exe/obj/mortif* exe/obj/motion* exe/obj/penf* exe/obj/stringifor* exe/obj/vtkfortran* exe/obj/vecfor*
+rule_4 = ./scripts/compute-coverage.sh
+rule_5 = fobis rule -gcov_analyzer docs/guide/
+rule_6 = rm -f *.gcov

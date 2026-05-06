@@ -1,0 +1,22 @@
+[modes]
+modes = patch-cpu-gnu patch-cpu-gnu-debug patch-fnl-nvf patch-fnl-nvf-debug
+
+[patch-cpu-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = adam_patch_cpu.F90
+
+[patch-cpu-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = adam_patch_cpu.F90
+
+[patch-fnl-nvf]
+template = template-nvf
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_patch_fnl.F90
+
+[patch-fnl-nvf-debug]
+template = template-nvf-debug
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_patch_fnl.F90

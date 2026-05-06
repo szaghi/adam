@@ -1,0 +1,25 @@
+[modes]
+modes = ascot-nvf-cuda
+
+[ascot-nvf-cuda]
+template = template-nvf-cuda
+target   = ascot.F90
+preproc  = -D_NVF
+
+[template-nvf-cuda]
+template = template-base
+mod_dir  = ./mod/nvf/cuda/
+obj_dir  = ./obj/nvf/cuda/
+compiler = nvfortran
+cflags   = -cpp -c -cuda -gpu=cc89,cuda12.8,ptxinfo -O2
+lflags   = -cuda -gpu=cc89,cuda12.8,ptxinfo -O2
+libs     = $HDF5_PREFIX/lib/libhdf5_fortran.a $HDF5_PREFIX/lib/libhdf5_f90cstub.a $HDF5_PREFIX/lib/libhdf5.a
+lib_dir  = $HDF5_PREFIX/lib
+include  = $HDF5_PREFIX/include
+
+[template-nvf-cuda-debug]
+template = template-nvf-cuda
+mod_dir  = ./mod/nvf/cuda/
+obj_dir  = ./obj/nvf/cuda/
+cflags   = -cpp -c -cuda -gpu=cc89,cuda12.8,ptxinfo -Minfo=all -C -gopt -traceback
+lflags   = -cuda -gpu=cc89,cuda12.8,ptxinfo -Minfo=all -C -gopt -traceback

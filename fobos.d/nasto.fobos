@@ -1,0 +1,22 @@
+[modes]
+modes = nasto-cpu-gnu nasto-cpu-gnu-debug nasto-fnl-nvf nasto-fnl-nvf-debug
+
+[nasto-cpu-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = adam_nasto_cpu.F90
+
+[nasto-cpu-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = adam_nasto_cpu.F90
+
+[nasto-fnl-nvf]
+template = template-nvf
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_nasto_fnl.F90
+
+[nasto-fnl-nvf-debug]
+template = template-nvf-debug
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_nasto_fnl.F90
