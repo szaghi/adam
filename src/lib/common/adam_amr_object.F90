@@ -15,6 +15,7 @@ public :: amr_object
 public :: amr_marker_object
 public :: AMR_GEO
 public :: AMR_GRAD
+public :: AMR_TV
 public :: AMR_DELTA_T_X
 public :: AMR_DELTA_T_Y
 public :: AMR_DELTA_T_Z
@@ -24,6 +25,7 @@ character(len=3), parameter :: INI_SECTION_NAME="amr" !< INI (config) file secti
 
 integer(I4P), parameter :: AMR_GEO         = 1_I4P !< Geometrical marker.
 integer(I4P), parameter :: AMR_GRAD        = 2_I4P !< Field gradient marker.
+integer(I4P), parameter :: AMR_TV          = 3_I4P !< Field total variation marker.
 character(1), parameter :: AMR_DELTA_T_X   = 'x'   !< Delta criterion type, dx.
 character(1), parameter :: AMR_DELTA_T_Y   = 'y'   !< Delta criterion type, dy.
 character(1), parameter :: AMR_DELTA_T_Z   = 'z'   !< Delta criterion type, dz.
@@ -125,7 +127,7 @@ contains
       case(AMR_GEO)
          call file_parameters%get(section_name=sname, option_name='solid', val=self%markers(i_marker)%solid, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(solid)')
-      case(AMR_GRAD)
+      case(AMR_GRAD,AMR_TV)
          call file_parameters%get(section_name=sname, option_name='field', val=self%markers(i_marker)%field, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
          call file_parameters%get(section_name=sname, option_name='var', val=self%markers(i_marker)%ivar, error=error)

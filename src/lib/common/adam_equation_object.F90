@@ -65,13 +65,14 @@ type :: equation_object
    integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
    integer(I4P), pointer :: nv=>null()            !< Number of variables in q vector.
    !< Procedure pointer TBPs for FDV operators (set at initialization by backend).
-   procedure(compute_curl_interface),       pass(self),pointer :: compute_curl       =>null()!< Compute curl of vector field.
-   procedure(compute_derivative1_interface),pass(self),pointer :: compute_derivative1=>null()!< Compute derivative1 of scalar field.
-   procedure(compute_derivative2_interface),pass(self),pointer :: compute_derivative2=>null()!< Compute derivative2 of scalar field.
-   procedure(compute_derivative4_interface),pass(self),pointer :: compute_derivative4=>null()!< Compute derivative4 of scalar field.
-   procedure(compute_divergence_interface), pass(self),pointer :: compute_divergence =>null()!< Compute divergence of vector field.
-   procedure(compute_gradient_interface),   pass(self),pointer :: compute_gradient   =>null()!< Compute gradient of scalar field.
-   procedure(compute_laplacian_interface),  pass(self),pointer :: compute_laplacian  =>null()!< Compute laplacian of scalar field.
+   procedure(compute_block_total_variation_interface), pass(self),pointer :: compute_block_total_variation=>null()!< Compute TV.
+   procedure(compute_curl_interface),                  pass(self),pointer :: compute_curl                 =>null()!< Compute curl.
+   procedure(compute_derivative1_interface),           pass(self),pointer :: compute_derivative1          =>null()!< Compute deriv1.
+   procedure(compute_derivative2_interface),           pass(self),pointer :: compute_derivative2          =>null()!< Compute deriv2.
+   procedure(compute_derivative4_interface),           pass(self),pointer :: compute_derivative4          =>null()!< Compute deriv4.
+   procedure(compute_divergence_interface),            pass(self),pointer :: compute_divergence           =>null()!< Compute dive.
+   procedure(compute_gradient_interface),              pass(self),pointer :: compute_gradient             =>null()!< Compute grad.
+   procedure(compute_laplacian_interface),             pass(self),pointer :: compute_laplacian            =>null()!< Compute laplac.
    contains
       ! public methods
       procedure, pass(self) :: initialize         !< Initialize common data.
@@ -83,22 +84,34 @@ type :: equation_object
       procedure, pass(self) :: open_file_xh5f   !< Open file XH5F.
       procedure, pass(self) :: save_q_xh5f      !< Save in XH5F (XDMF/HDF5) format.
       ! private FDV operators
-      procedure, pass(self), private :: compute_curl_fd        !< Compute curl of vector field, finite difference.
-      procedure, pass(self), private :: compute_curl_fv        !< Compute curl of vector field, finite volume.
-      procedure, pass(self), private :: compute_derivative1_fd !< Compute derivative1 of scalar field, finite difference.
-      procedure, pass(self), private :: compute_derivative1_fv !< Compute derivative1 of scalar field, finite volume.
-      procedure, pass(self), private :: compute_derivative2_fd !< Compute derivative2 of scalar field, finite difference.
-      procedure, pass(self), private :: compute_derivative2_fv !< Compute derivative2 of scalar field, finite volume.
-      procedure, pass(self), private :: compute_derivative4_fd !< Compute derivative4 of scalar field, finite difference.
-      procedure, pass(self), private :: compute_divergence_fd  !< Compute divergence of vector field, finite difference.
-      procedure, pass(self), private :: compute_divergence_fv  !< Compute divergence of vector field, finite volume.
-      procedure, pass(self), private :: compute_gradient_fd    !< Compute gradient of scalar field, finite difference.
-      procedure, pass(self), private :: compute_gradient_fv    !< Compute gradient of scalar field, finite volume.
-      procedure, pass(self), private :: compute_laplacian_fd   !< Compute laplacian of scalar field, finite difference.
-      procedure, pass(self), private :: compute_laplacian_fv   !< Compute laplacian of scalar field, finite volume.
+      procedure, pass(self), private :: compute_block_total_variation_fd !< Return the max of block total variation for a given var.
+      procedure, pass(self), private :: compute_curl_fd                  !< Compute curl of vector field, finite difference.
+      procedure, pass(self), private :: compute_curl_fv                  !< Compute curl of vector field, finite volume.
+      procedure, pass(self), private :: compute_derivative1_fd           !< Compute derivative1 of scalar field, finite difference.
+      procedure, pass(self), private :: compute_derivative1_fv           !< Compute derivative1 of scalar field, finite volume.
+      procedure, pass(self), private :: compute_derivative2_fd           !< Compute derivative2 of scalar field, finite difference.
+      procedure, pass(self), private :: compute_derivative2_fv           !< Compute derivative2 of scalar field, finite volume.
+      procedure, pass(self), private :: compute_derivative4_fd           !< Compute derivative4 of scalar field, finite difference.
+      procedure, pass(self), private :: compute_divergence_fd            !< Compute divergence of vector field, finite difference.
+      procedure, pass(self), private :: compute_divergence_fv            !< Compute divergence of vector field, finite volume.
+      procedure, pass(self), private :: compute_gradient_fd              !< Compute gradient of scalar field, finite difference.
+      procedure, pass(self), private :: compute_gradient_fv              !< Compute gradient of scalar field, finite volume.
+      procedure, pass(self), private :: compute_laplacian_fd             !< Compute laplacian of scalar field, finite difference.
+      procedure, pass(self), private :: compute_laplacian_fv             !< Compute laplacian of scalar field, finite volume.
 endtype equation_object
 
 interface
+   subroutine compute_block_total_variation_interface(self, hs, dxyz, ivar, q, total_variation)
+   !< Return the max of block total variation for a given var.
+   import :: equation_object, I4P, R8P
+   class(equation_object), intent(in)  :: self                                      !< Coils.
+   integer(I4P),           intent(in)  :: hs                                        !< FDV half stencil length.
+   real(R8P),              intent(in)  :: dxyz(3)                                   !< Space steps.
+   integer(I4P),           intent(in)  :: ivar                                      !< Index of first component of vec field.
+   real(R8P),              intent(in)  :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:) !< Field variables.
+   real(R8P),              intent(out) :: total_variation                           !< Max total variation on given block.
+   endsubroutine compute_block_total_variation_interface
+
    subroutine compute_curl_interface(self, hs, ivar, q, curl)
    !< Compute curl of vector field, curl(q(ivar:ivar+2)).
    import :: equation_object, I4P, R8P
@@ -229,20 +242,22 @@ contains
    select case(trim(adjustl(buff)))
    case('FD', 'fd', 'Fd', 'fD')
       self%fdv_scheme = 'FD'
-      self%compute_curl        => compute_curl_fd
-      self%compute_derivative1 => compute_derivative1_fd
-      self%compute_derivative2 => compute_derivative2_fd
-      self%compute_divergence  => compute_divergence_fd
-      self%compute_gradient    => compute_gradient_fd
-      self%compute_laplacian   => compute_laplacian_fd
+      self%compute_block_total_variation => compute_block_total_variation_fd
+      self%compute_curl                  => compute_curl_fd
+      self%compute_derivative1           => compute_derivative1_fd
+      self%compute_derivative2           => compute_derivative2_fd
+      self%compute_divergence            => compute_divergence_fd
+      self%compute_gradient              => compute_gradient_fd
+      self%compute_laplacian             => compute_laplacian_fd
    case('FV', 'fv', 'Fv', 'fV')
       self%fdv_scheme = 'FV'
-      self%compute_curl        => compute_curl_fv
-      self%compute_derivative1 => compute_derivative1_fv
-      self%compute_derivative2 => compute_derivative2_fv
-      self%compute_divergence  => compute_divergence_fv
-      self%compute_gradient    => compute_gradient_fv
-      self%compute_laplacian   => compute_laplacian_fv
+      ! self%compute_block_total_variation => compute_block_total_variation_fd
+      self%compute_curl                  => compute_curl_fv
+      self%compute_derivative1           => compute_derivative1_fv
+      self%compute_derivative2           => compute_derivative2_fv
+      self%compute_divergence            => compute_divergence_fv
+      self%compute_gradient              => compute_gradient_fv
+      self%compute_laplacian             => compute_laplacian_fv
    case default
       ! implement error message
    endselect
@@ -415,6 +430,37 @@ contains
    endsubroutine save_q_xh5f
 
    ! FDV operators numerical methods
+   subroutine compute_block_total_variation_fd(self, hs, dxyz, ivar, q, total_variation)
+   !< Return the max of block total variation for a given var.
+   class(equation_object), intent(in)  :: self                                      !< Coils.
+   integer(I4P),           intent(in)  :: hs                                        !< FDV half stencil length.
+   real(R8P),              intent(in)  :: dxyz(3)                                   !< Space steps.
+   integer(I4P),           intent(in)  :: ivar                                      !< Index of first component of vec field.
+   real(R8P),              intent(in)  :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:) !< Field variables.
+   real(R8P),              intent(out) :: total_variation                           !< Max total variation on given block.
+   real(R8P)                           :: gradient(3,3)                             !< Gradient.
+   real(R8P)                           :: tv                                        !< Total variation buffer.
+   integer(I4P)                        :: i,j,k                                     !< Counter.
+
+   total_variation = -huge(1._R8P)
+   do k=1, self%nk
+   do j=1, self%nj
+   do i=1, self%ni
+      call compute_gradient_fd_centered(s=hs,dxyz=dxyz,q=q(ivar,  i-hs:i+hs,j-hs:j+hs,k-hs:k+hs),&
+                                        gradient=gradient(:,1))
+      call compute_gradient_fd_centered(s=hs,dxyz=dxyz,q=q(ivar+1,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs),&
+                                        gradient=gradient(:,2))
+      call compute_gradient_fd_centered(s=hs,dxyz=dxyz,q=q(ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs),&
+                                        gradient=gradient(:,3))
+      tv = sqrt(gradient(1,1)*gradient(1,1) + gradient(2,1)*gradient(2,1) + gradient(3,1)*gradient(3,1) +&
+                gradient(1,2)*gradient(1,2) + gradient(2,2)*gradient(2,2) + gradient(3,2)*gradient(3,2) +&
+                gradient(1,3)*gradient(1,3) + gradient(2,3)*gradient(2,3) + gradient(3,3)*gradient(3,3))
+      total_variation = max(total_variation,tv)
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_block_total_variation_fd
+
    subroutine compute_curl_fd(self, hs, ivar, q, curl)
    !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
    class(equation_object), intent(in)    :: self                                            !< The equation.

@@ -334,5 +334,4 @@ contains
       self%ngc => grid%ngc
       endsubroutine associate_adam_data
    endsubroutine load_from_file
-
 endmodule adam_prism_coil_object

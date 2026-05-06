@@ -27,6 +27,9 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    procedure(compute_residuals_interface), pass(self),pointer :: compute_residuals=>null()!< Compute residuals, space operator.
    procedure(integrate_interface),         pass(self),pointer :: integrate        =>null()!< Integrate, time operator.
    contains
+      ! AMR methods
+      procedure, pass(self) :: amr_update                    !< Do AMR update.
+      procedure, pass(self) :: mark_by_j_vec_total_variation !< Mark blocks to be refined/derefined by j_vec total variation.
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu     !< Allocate CPU data.
       procedure, pass(self) :: initialize_prism !< Initialize PRSIM equation.
@@ -78,47 +81,103 @@ interface
 endinterface
 
 contains
-   !subroutine amr_update(self)
-   !!< Do AMR update.
-   !class(prism_cpu_object), intent(inout) :: self                !< The equation.
-   !logical                                :: is_grid_changed     !< Flag to check grid changes for each marker.
-   !logical                                :: is_grid_changed_all !< Flag to check grid changes for each iter.
-   !integer(I4P)                           :: i, i_marker         !< Counter.
-   !type(amr_marker_object)                :: amr_marker          !< Current amr marker.
-!
-   !!amr: do i=1, self%amr%iters
-   !!   is_grid_changed_all = .false.
-   !!   do i_marker=1, self%amr%markers_number
-   !!      amr_marker = self%amr%markers(i_marker)
-   !!      call self%update_ghost(q=self%q)
-   !!      !select case(amr_marker%mode)
-   !!      !case(AMR_GEO)
-   !!      !   call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
-   !!      !case(AMR_GRAD)
-   !!      !   select case(amr_marker%field)
-   !!      !   case(1)
-   !!      !      call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
-   !!      !                                 delta_fine=amr_marker%delta_fine,                          &
-   !!      !                                 delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
-   !!      !   case(2)
-   !!      !      call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
-   !!      !                                 delta_fine=amr_marker%delta_fine,                          &
-   !!      !                                 delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
-   !!      !   endselect
-   !!      !endselect
-   !!      call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
-   !!      !if (self%ib%solids_number > 0) call self%compute_phi()
-   !!      is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
-   !!   enddo
-   !!   if (.not.is_grid_changed_all) then
-   !!       call self%mpih%print_message('AMR Grid stabilized after : '//trim(str(i))//' AMR iterations')
-   !!       exit amr
-   !!    elseif (i==self%amr%iters) then
-   !!       call self%mpih%print_message('AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations')
-   !!   endif
-   !!enddo amr
-   !call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
-   !endsubroutine amr_update
+   ! AMR methods
+   subroutine amr_update(self)
+   !< Do AMR update.
+   class(prism_cpu_object), intent(inout) :: self                !< The equation.
+   logical                                :: is_grid_changed     !< Flag to check grid changes for each marker.
+   logical                                :: is_grid_changed_all !< Flag to check grid changes for each iter.
+   integer(I4P)                           :: i, i_marker         !< Counter.
+   type(amr_marker_object)                :: amr_marker          !< Current amr marker.
+
+   amr: do i=1, self%amr%iters
+      is_grid_changed_all = .false.
+      do i_marker=1, self%amr%markers_number
+         amr_marker = self%amr%markers(i_marker)
+         select case(amr_marker%mode)
+         case(AMR_GEO)
+         case(AMR_GRAD)
+         case(AMR_TV)
+               call self%mark_by_j_vec_total_variation(tv_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
+                                                       delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
+         endselect
+         call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
+         is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
+      enddo
+      if (.not.is_grid_changed_all) then
+          call mpih%print_message('AMR Grid stabilized after : '//trim(str(i))//' AMR iterations')
+          exit amr
+       elseif (i==self%amr%iters) then
+          call mpih%print_message('AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations')
+      endif
+   enddo amr
+   endsubroutine amr_update
+
+   subroutine mark_by_j_vec_total_variation(self, tv_tol, delta_type, delta_fine, delta_coarse, threshold, do_init)
+   !< Mark blocks to be refined/derefined by the value of total variation of j_vec.
+   class(prism_cpu_object), intent(inout)        :: self                     !< The equation.
+   real(R8P),               intent(in)           :: tv_tol                   !< Total variation tolerance value.
+   character(*),            intent(in)           :: delta_type               !< Delta criterion type.
+   real(R8P),               intent(in)           :: delta_fine               !< Maximum cell delta in fine grids.
+   real(R8P),               intent(in)           :: delta_coarse             !< Minimum cell delta in coarse grids.
+   real(R8P),               intent(in), optional :: threshold                !< Threshold for sphere proximity.
+   logical,                 intent(in), optional :: do_init                  !< Re-initialize refinements queries.
+   logical                                       :: do_init_                 !< Re-initialize refinements queries, local var.
+   real(R8P)                                     :: threshold_               !< Threshold for sphere proximity, local var.
+   real(R8P)                                     :: max_cell_delta           !< Maximum cell delta.
+   real(R8P)                                     :: max_total_variation      !< Total variation of j_vec, max on all coils.
+   real(R8P)                                     :: total_variation          !< Total variation of j_vec.
+   integer(I4P)                                  :: b,c                      !< Counter.
+   real(R8P)                                     :: dc(1:self%blocks_number) !< Delta criterion.
+
+   do_init_   = .true.  ; if (present(do_init  )) do_init_   = do_init
+   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   if (do_init_) field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
+   associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
+              blocks_number=>self%blocks_number, hs=>self%fdv_half_stencils(1), dxyz=>field%dxyz)
+      select case(delta_type)
+      case(AMR_DELTA_T_X)
+         dc(1:blocks_number) = dxyz(1,1:blocks_number)
+      case(AMR_DELTA_T_Y)
+         dc(1:blocks_number) = dxyz(2,1:blocks_number)
+      case(AMR_DELTA_T_Z)
+         dc(1:blocks_number) = dxyz(3,1:blocks_number)
+      case(AMR_DELTA_T_MAX)
+         do b=1, blocks_number
+            dc(b) = maxval(dxyz(:,b))
+         enddo
+      endselect
+      do b=1, blocks_number
+         max_total_variation = -huge(1._R8P)
+         do c=1, coil%total_coils_number
+            call self%compute_block_total_variation(hs=hs, dxyz=dxyz(:,b), ivar=1, &
+                                                    q=coil%j_vec(:,:,:,:,b,c),     &
+                                                    total_variation=total_variation)
+            max_total_variation = max(max_total_variation,total_variation)
+         enddo
+         max_cell_delta = max_cell_delta_grad(tv=max_total_variation)
+         if ((dc(b)) > max_cell_delta) then
+            field%refinements_needed(b) = TO_BE_REFINED
+         elseif ((dc(b)) * threshold_ < max_cell_delta) then
+            field%refinements_needed(b) = max(field%refinements_needed(b), TO_BE_DEREFINED)
+         else
+            field%refinements_needed(b) = max(field%refinements_needed(b), TO_NOT_TOUCH)
+         endif
+      enddo
+   endassociate
+   contains
+      function max_cell_delta_grad(tv) result(delta)
+      !< Return the maximum cell delta given a total variation tollerance.
+      real(R8P), intent(in) :: tv    !< Total variation value.
+      real(R8P)             :: delta !< Maximum cell delta admissible.
+
+      if (tv > tv_tol) then
+         delta = delta_fine
+      else
+         delta = delta_coarse
+      endif
+      endfunction max_cell_delta_grad
+   endsubroutine mark_by_j_vec_total_variation
 
    ! auxiliary methods
    subroutine allocate_cpu(self)
@@ -1072,8 +1131,7 @@ contains
       do i=1, ic%amr_iterations
          call mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions(is_restart=self%io%restart)
-         !if (ib%solids_number > 0) call self%compute_phi()
-         !call self%amr_update
+         call self%amr_update
       enddo
       call self%set_initial_conditions(is_restart=self%io%restart)
       call self%adam%make_comm_local_maps_ghost_bc
@@ -1081,8 +1139,6 @@ contains
       time%it = 0
       call mpih%print_message('impose initial conditions finish')
    endif
-   !if (ib%solids_number > 0) call self%compute_phi()
-   ! call self%amr_update
    call self%update_ghost(q=self%q) ! Aggiunto da FN
 
    do n=1, coil%total_coils_number
@@ -1091,7 +1147,7 @@ contains
       print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
                   //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
    enddo
-   
+
    print '(A)', mpih%myrankstr//'assign block number: '//trim(str(field%blocks_number))
    do b = 1, field%blocks_number
       print '(A)', mpih%myrankstr//'b = '//trim(str(b))//' field%code(b) = '//trim(str(field%code(b)))
