@@ -580,22 +580,25 @@ contains
       enddo
    enddo
 
-   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+   !J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+   J_vec(1:3,:,:,:,:,n) = J_vec_buffer
 
    if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_d=y_d, y_t=y_t, z_b=z_b, &
-                                                        z_f=z_f, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.true.)
+      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_d=y_d, y_t=y_t, z_b=z_b,   &
+                                                        z_f=z_f, A=coil%A(n), amplitude=coil%coil_amplitude(n), & 
+                                                        sigma=sigma, n=n, adjust_amplitude=.true.)
    else
-      coil%A(n) = coil%A(1)
-      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_d=y_d, y_t=y_t, z_b=z_b, &
-                                                        z_f=z_f, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.false.)
+      coil%coil_amplitude(n) = coil%coil_amplitude(1)
+      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_d=y_d, y_t=y_t, z_b=z_b,   &
+                                                        z_f=z_f, A=coil%A(n), amplitude=coil%coil_amplitude(n), &
+                                                        sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
 
    endassociate
 
    contains
 
-      subroutine compute_coil_current_density_flux_analytic_x(x_c, y_c, z_c, y_d, y_t, z_b, z_f, sigma, A, n, adjust_amplitude)
+      subroutine compute_coil_current_density_flux_analytic_x(x_c, y_c, z_c, y_d, y_t, z_b, z_f, sigma, A, amplitude, n, adjust_amplitude)
       !< Analytic amplitude correction for a rectangular coil normal to x.
       !< The current is evaluated as the flux of Jy through the lower side z = z_b.
       real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
@@ -606,7 +609,8 @@ contains
       real(R8P),    intent(in)    :: z_b              !< Lower z-boundary of the rectangular coil.
       real(R8P),    intent(in)    :: z_f              !< Upper z-boundary of the rectangular coil.
       real(R8P),    intent(in)    :: sigma            !< Coil Gaussian smoothing width.
-      real(R8P),    intent(inout) :: A                !< Coil amplitude, corrected in place.
+      real(R8P),    intent(in)    :: A                !< Coil amplitude, target.
+      real(R8P),    intent(inout) :: amplitude        !< Corrected amplitude.
       integer(I4P), intent(in)    :: n                !< Coil number.
       logical,      intent(in)    :: adjust_amplitude !< If true, correct the coil amplitude.
       real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the integration interval in sigma units.
@@ -711,15 +715,15 @@ contains
          print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') before correction'
          print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
 
-         A = target_current * correction
+         amplitude = target_current * correction
 
-         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
-         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(A*flux_unit))
+         print '(A)', mpih%myrankstr//trim(str(amplitude))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(amplitude*flux_unit))
 
       else
 
-         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
-         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(flux))
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(amplitude))
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(amplitude*flux_unit))
 
       endif
 
@@ -823,22 +827,25 @@ contains
       enddo
    enddo
 
-   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+   !J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+   J_vec(1:3,:,:,:,:,n) = J_vec_buffer
 
    if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, z_b=z_b, &
-                                                        z_f=z_f, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.true.)
+      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, z_b=z_b,   &
+                                                        z_f=z_f, A=coil%A(n), amplitude=coil%coil_amplitude(n), &
+                                                        sigma=sigma, n=n, adjust_amplitude=.true.)
    else
-      coil%A(n) = coil%A(1)
-      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, z_b=z_b, &
-                                                        z_f=z_f, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.false.)
+      coil%coil_amplitude(n) = coil%coil_amplitude(1)
+      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, z_b=z_b,   &
+                                                        z_f=z_f, A=coil%A(n), amplitude=coil%coil_amplitude(n), &
+                                                        sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
 
    endassociate
 
    contains
 
-      subroutine compute_coil_current_density_flux_analytic_y(x_c, y_c, z_c, x_l, x_r, z_b, z_f, sigma, A, n, adjust_amplitude)
+      subroutine compute_coil_current_density_flux_analytic_y(x_c, y_c, z_c, x_l, x_r, z_b, z_f, sigma, A, amplitude, n, adjust_amplitude)
       !< Analytic amplitude correction for a rectangular coil normal to y.
       !< The current is evaluated as the flux of Jz through the side x = x_l.
       real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
@@ -849,7 +856,8 @@ contains
       real(R8P),    intent(in)    :: z_b              !< Lower z-boundary of the rectangular coil.
       real(R8P),    intent(in)    :: z_f              !< Upper z-boundary of the rectangular coil.
       real(R8P),    intent(in)    :: sigma            !< Coil Gaussian smoothing width.
-      real(R8P),    intent(inout) :: A                !< Coil amplitude, corrected in place.
+      real(R8P),    intent(in)    :: A                !< Coil amplitude, target.
+      real(R8P),    intent(inout) :: amplitude        !< Corrected amplitude.
       integer(I4P), intent(in)    :: n                !< Coil number.
       logical,      intent(in)    :: adjust_amplitude !< If true, correct the coil amplitude.
       real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the integration interval in sigma units.
@@ -905,7 +913,6 @@ contains
           - erf_primitive_function(s=y_2, mu=y_u, sigma=sigma) &
           + erf_primitive_function(s=y_1, mu=y_u, sigma=sigma))
 
-      ! Evaluate z-dependent functions at the flux-section plane.
       e_zb_zs = erf_function(s=z_s, mu=z_b, sigma=sigma)
       e_zf_zs = erf_function(s=z_s, mu=z_f, sigma=sigma)
 
@@ -914,7 +921,6 @@ contains
                                  smax  = z_f,     &
                                  sigma = sigma)
 
-      ! Compute Delta W_x = W_x(x_2) - W_x(x_1).
       dw_x = tangential_window(s     = x_2,     &
                                smin  = x_l,     &
                                smax  = x_r,     &
@@ -924,20 +930,12 @@ contains
                                smax  = x_r,     &
                                sigma = sigma)
 
-      ! Compute Delta E_xl = E_xl(x_2) - E_xl(x_1).
       de_xl = erf_function(s=x_2, mu=x_l, sigma=sigma) &
             - erf_function(s=x_1, mu=x_l, sigma=sigma)
 
-      ! Compute Delta E_xr = E_xr(x_2) - E_xr(x_1).
       de_xr = erf_function(s=x_2, mu=x_r, sigma=sigma) &
             - erf_function(s=x_1, mu=x_r, sigma=sigma)
 
-      ! Contributions to Iz from the four vector-potential components:
-      !
-      ! A_1 =  E_zb(z) W_x(x) W_y(y)
-      ! A_2 = -E_xr(x) W_z(z) W_y(y)
-      ! A_3 = -E_zf(z) W_x(x) W_y(y)
-      ! A_4 =  E_xl(x) W_z(z) W_y(y)
       i_z_1 =  e_zb_zs * i_y * dw_x
       i_z_2 = -w_z_zs  * i_y * de_xr
       i_z_3 = -e_zf_zs * i_y * dw_x
@@ -954,15 +952,15 @@ contains
          print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') before correction'
          print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
 
-         A = target_current * correction
+         amplitude = target_current * correction
 
-         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
-         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(A*flux_unit))
+         print '(A)', mpih%myrankstr//trim(str(amplitude))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(amplitude*flux_unit))
 
       else
 
-         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
-         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(flux))
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(amplitude))
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(amplitude*flux_unit))
 
       endif
 
@@ -970,7 +968,7 @@ contains
 
    endsubroutine set_rectangular_coil_y
 
-   subroutine set_rectangular_coil_z(self, n, verse)
+      subroutine set_rectangular_coil_z(self, n, verse)
    !< Set rectangular coil with normal direction parallel to z.
    class(prism_common_object), intent(inout) :: self                    !< Cpu object.
    integer(I4P),               intent(in)    :: n                       !< Coil number.
@@ -1066,22 +1064,25 @@ contains
       enddo
    enddo
 
-   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+   !J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
+   J_vec(1:3,:,:,:,:,n) = J_vec_buffer
 
    if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, y_d=y_d, &
-                                                        y_t=y_t, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.true.)
+      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, y_d=y_d,   &
+                                                        y_t=y_t, A=coil%A(n), amplitude=coil%coil_amplitude(n), &
+                                                        sigma=sigma, n=n, adjust_amplitude=.true.)
    else
-      coil%A(n) = coil%A(1)
-      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, y_d=y_d, &
-                                                        y_t=y_t, A=coil%A(n), sigma=sigma, n=n, adjust_amplitude=.false.)
+      coil%coil_amplitude(n) = coil%coil_amplitude(1)
+      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_l=x_l, x_r=x_r, y_d=y_d,   &
+                                                        y_t=y_t, A=coil%A(n), amplitude=coil%coil_amplitude(n), &
+                                                        sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
 
    endassociate
 
    contains
 
-      subroutine compute_coil_current_density_flux_analytic_z(x_c, y_c, z_c, x_l, x_r, y_d, y_t, sigma, A, n, adjust_amplitude)
+      subroutine compute_coil_current_density_flux_analytic_z(x_c, y_c, z_c, x_l, x_r, y_d, y_t, sigma, A, amplitude, n, adjust_amplitude)
       !< Analytic amplitude correction for a rectangular coil normal to z.
       !< The current is evaluated as the flux of Jy through the side x = x_l.
       real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
@@ -1092,7 +1093,8 @@ contains
       real(R8P),    intent(in)    :: y_d              !< Lower y-boundary of the rectangular coil.
       real(R8P),    intent(in)    :: y_t              !< Upper y-boundary of the rectangular coil.
       real(R8P),    intent(in)    :: sigma            !< Coil Gaussian smoothing width.
-      real(R8P),    intent(inout) :: A                !< Coil amplitude, corrected in place.
+      real(R8P),    intent(in)    :: A                !< Coil amplitude, target.
+      real(R8P),    intent(inout) :: amplitude        !< Corrected amplitude.
       integer(I4P), intent(in)    :: n                !< Coil number.
       logical,      intent(in)    :: adjust_amplitude !< If true, correct the coil amplitude.
       real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the integration interval in sigma units.
@@ -1148,7 +1150,6 @@ contains
           - erf_primitive_function(s=z_2, mu=z_u, sigma=sigma) &
           + erf_primitive_function(s=z_1, mu=z_u, sigma=sigma))
 
-      ! Evaluate y-dependent functions at the flux-section plane.
       e_yd_ys = erf_function(s=y_s, mu=y_d, sigma=sigma)
       e_yt_ys = erf_function(s=y_s, mu=y_t, sigma=sigma)
 
@@ -1157,7 +1158,6 @@ contains
                                  smax  = y_t,     &
                                  sigma = sigma)
 
-      ! Compute Delta W_x = W_x(x_2) - W_x(x_1).
       dw_x = tangential_window(s     = x_2,     &
                                smin  = x_l,     &
                                smax  = x_r,     &
@@ -1167,21 +1167,12 @@ contains
                                smax  = x_r,     &
                                sigma = sigma)
 
-      ! Compute Delta E_xl = E_xl(x_2) - E_xl(x_1).
       de_xl = erf_function(s=x_2, mu=x_l, sigma=sigma) &
             - erf_function(s=x_1, mu=x_l, sigma=sigma)
 
-      ! Compute Delta E_xr = E_xr(x_2) - E_xr(x_1).
       de_xr = erf_function(s=x_2, mu=x_r, sigma=sigma) &
             - erf_function(s=x_1, mu=x_r, sigma=sigma)
 
-      ! Contributions to Iy from the four vector-potential components:
-      !
-      ! A_1 =  E_yd(y) W_x(x) W_z(z)
-      ! A_2 = -E_xr(x) W_y(y) W_z(z)
-      ! A_3 = -E_yt(y) W_x(x) W_z(z)
-      ! A_4 =  E_xl(x) W_y(y) W_z(z)
-      !
       ! Since A = (0,0,Az), Jy = -dAz/dx.
       i_y_1 = -e_yd_ys * i_z * dw_x
       i_y_2 =  w_y_ys  * i_z * de_xr
@@ -1199,15 +1190,15 @@ contains
          print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') before correction'
          print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
 
-         A = target_current * correction
+         amplitude = target_current * correction
 
-         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
-         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(A*flux_unit))
+         print '(A)', mpih%myrankstr//trim(str(amplitude))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(amplitude*flux_unit))
 
       else
 
-         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
-         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(flux))
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(amplitude))
+         print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(amplitude*flux_unit))
 
       endif
 

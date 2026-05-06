@@ -360,9 +360,8 @@ contains
    real(R8P),                          parameter :: f_tol = 1.0e-30_R8P
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, &
-             time=>time%time, dt=>time%dt, td=>coil%td,                 &
-             A=>coil%A, f=>coil%f, phase=>coil%phase,                   &
-             J_vec=>coil%J_vec,                                                   &
+             time=>time%time, dt=>time%dt, td=>coil%td,                                &
+             A=>coil%coil_amplitude, f=>coil%f, phase=>coil%phase, J_vec=>coil%J_vec,  &
              var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
 
       if (present(gamma)) then

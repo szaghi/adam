@@ -49,6 +49,7 @@ type :: prism_coil_object
    character(len=99), allocatable :: current_type(:)                       !< Current type.
    character(len=2 ), allocatable :: normal(:)                             !< Versore normale alla spira, che identifica anche verso
    real(R8P),         allocatable :: A(:)                                  !< Current amplitude (A)
+   real(R8P),         allocatable :: coil_amplitude(:)                     !< Current amplitude (A) for each coil, corrected for Gaussian current distribution.
    real(R8P),         allocatable :: f(:)                                  !< Current frequency, if AC (Hz)
    real(R8P),         allocatable :: phase(:)                              !< Current initial phase, if AC
    real(R8P),         allocatable :: x_center(:), y_center(:), z_center(:) !< Coil center
@@ -106,6 +107,7 @@ contains
    allocate(self%current_type        (0:total_coils_number)) ; self%current_type = ' '
    allocate(self%normal              (0:total_coils_number)) ; self%normal = ' '
    allocate(self%A                   (0:total_coils_number)) ; self%A = 0.0_R8P
+   allocate(self%coil_amplitude      (0:total_coils_number)) ; self%coil_amplitude = 0.0_R8P
    allocate(self%f                   (0:total_coils_number)) ; self%f = 0.0_R8P
    allocate(self%phase               (0:total_coils_number)) ; self%phase = 0.0_R8P
 

@@ -477,8 +477,8 @@ contains
    real(R8P), parameter                          :: f_tol=1.e-30_R8P!< Tolerance on frequency for branchless switch AC/DC.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,    &
-             time=>time%time, dt=>time%dt, td=>coil%td,                                   &
-             A=>coil%A, f=>coil%f, phase=>coil%phase,                                     &
+             time=>time%time, dt=>time%dt, td=>coil%td,                                                  &
+             A=>coil%coil_amplitude, f=>coil%f, phase=>coil%phase,                                       &
              var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
    time_s = time ; if (present(gamm)) time_s = time + dt*gamm
    if (coil%total_coils_number >= 1_I4P) then
