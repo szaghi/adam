@@ -149,12 +149,14 @@ contains
       endselect
       do b=1, blocks_number
          max_total_variation = -huge(1._R8P)
-         do c=1, coil%total_coils_number
-            call self%compute_block_total_variation(hs=hs, dxyz=dxyz(:,b), ivar=1, &
-                                                    q=coil%j_vec(:,:,:,:,b,c),     &
+         do c=1, 1!coil%total_coils_number
+            call self%compute_block_total_variation(hs=hs, dxyz=dxyz(:,b), ivar=1,            &
+                                                    q=coil%j_vec(:,:,:,:,b,c),                &
+                                                    tot_var_field=self%divergence(4,:,:,:,b), & !Cazzo
                                                     total_variation=total_variation)
             max_total_variation = max(max_total_variation,total_variation)
          enddo
+         call mpih%print_message('Block '//trim(str(b))//': max_total_variation = '//trim(str(max_total_variation))) !Cazzo
          max_cell_delta = max_cell_delta_grad(tv=max_total_variation)
          if ((dc(b)) > max_cell_delta) then
             field%refinements_needed(b) = TO_BE_REFINED

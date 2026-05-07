@@ -150,7 +150,7 @@ contains
    real(R8P)                                :: save_factor   !< Factor to avoid memory completely full.
 
    size_of_block = (storage_size(1._R8P)/8._R8P) * grid%block_weight
-   save_factor = 0.25_R8P
+   save_factor = 0.4_R8P
    nb = nint(save_factor * memory_avail*1e9 / (fields_number * size_of_block))
    nodes_number  = nb * mpih%procs_number
    endsubroutine compute_blocks_number

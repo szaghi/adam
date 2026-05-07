@@ -101,15 +101,16 @@ type :: equation_object
 endtype equation_object
 
 interface
-   subroutine compute_block_total_variation_interface(self, hs, dxyz, ivar, q, total_variation)
+   subroutine compute_block_total_variation_interface(self, hs, dxyz, ivar, q, tot_var_field, total_variation)
    !< Return the max of block total variation for a given var.
    import :: equation_object, I4P, R8P
-   class(equation_object), intent(in)  :: self                                      !< Coils.
-   integer(I4P),           intent(in)  :: hs                                        !< FDV half stencil length.
-   real(R8P),              intent(in)  :: dxyz(3)                                   !< Space steps.
-   integer(I4P),           intent(in)  :: ivar                                      !< Index of first component of vec field.
-   real(R8P),              intent(in)  :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:) !< Field variables.
-   real(R8P),              intent(out) :: total_variation                           !< Max total variation on given block.
+   class(equation_object), intent(in)     :: self                                                 !< Coils.
+   integer(I4P),           intent(in)     :: hs                                                   !< FDV half stencil length.
+   real(R8P),              intent(in)     :: dxyz(3)                                              !< Space steps.
+   integer(I4P),           intent(in)     :: ivar                                                 !< Index of first component of vec field.
+   real(R8P),              intent(in)     :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:)            !< Field variables.
+   real(R8P),              intent(inout)  :: tot_var_field(1-self%ngc:,1-self%ngc:,1-self%ngc:)   !< Total variation field on blocks.
+   real(R8P),              intent(out)    :: total_variation                                      !< Max total variation on given block.
    endsubroutine compute_block_total_variation_interface
 
    subroutine compute_curl_interface(self, hs, ivar, q, curl)
@@ -430,17 +431,18 @@ contains
    endsubroutine save_q_xh5f
 
    ! FDV operators numerical methods
-   subroutine compute_block_total_variation_fd(self, hs, dxyz, ivar, q, total_variation)
+   subroutine compute_block_total_variation_fd(self, hs, dxyz, ivar, q, tot_var_field, total_variation)
    !< Return the max of block total variation for a given var.
-   class(equation_object), intent(in)  :: self                                      !< Coils.
-   integer(I4P),           intent(in)  :: hs                                        !< FDV half stencil length.
-   real(R8P),              intent(in)  :: dxyz(3)                                   !< Space steps.
-   integer(I4P),           intent(in)  :: ivar                                      !< Index of first component of vec field.
-   real(R8P),              intent(in)  :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:) !< Field variables.
-   real(R8P),              intent(out) :: total_variation                           !< Max total variation on given block.
-   real(R8P)                           :: gradient(3,3)                             !< Gradient.
-   real(R8P)                           :: tv                                        !< Total variation buffer.
-   integer(I4P)                        :: i,j,k                                     !< Counter.
+   class(equation_object), intent(in)     :: self                                                 !< Coils.
+   integer(I4P),           intent(in)     :: hs                                                   !< FDV half stencil length.
+   real(R8P),              intent(in)     :: dxyz(3)                                              !< Space steps.
+   integer(I4P),           intent(in)     :: ivar                                                 !< Index of first component of vec field.
+   real(R8P),              intent(in)     :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:)            !< Field variables.
+   real(R8P),              intent(inout)  :: tot_var_field(1-self%ngc:,1-self%ngc:,1-self%ngc:)   !< Total variation field on blocks.
+   real(R8P),              intent(out)    :: total_variation                                      !< Max total variation on given block.
+   real(R8P)                              :: gradient(3,3)                                        !< Gradient.
+   real(R8P)                              :: tv                                                   !< Total variation buffer.
+   integer(I4P)                           :: i,j,k                                                !< Counter.
 
    total_variation = -huge(1._R8P)
    do k=1, self%nk
@@ -455,6 +457,7 @@ contains
       tv = sqrt(gradient(1,1)*gradient(1,1) + gradient(2,1)*gradient(2,1) + gradient(3,1)*gradient(3,1) +&
                 gradient(1,2)*gradient(1,2) + gradient(2,2)*gradient(2,2) + gradient(3,2)*gradient(3,2) +&
                 gradient(1,3)*gradient(1,3) + gradient(2,3)*gradient(2,3) + gradient(3,3)*gradient(3,3))
+      tot_var_field(i,j,k) = tv
       total_variation = max(total_variation,tv)
    enddo
    enddo

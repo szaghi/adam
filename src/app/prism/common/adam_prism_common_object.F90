@@ -258,7 +258,7 @@ contains
       enddo
       if (allocated(q_name)) deallocate(q_name)
 
-                   q_name = ['div_D ','div_B ','div_J ','div_04','div_05','div_06']
+                   q_name = ['div_D ','div_B ','div_J ','totvar','div_05','div_06']
       if (add_phi) q_name = [q_name, 'div_07']
       if (add_psi) q_name = [q_name, 'div_08']
                    q_name = [q_name, 'div_09','div_10','div_11']
