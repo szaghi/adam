@@ -147,6 +147,8 @@ contains
             dc(b) = maxval(dxyz(:,b))
          enddo
       endselect
+      call self%update_ghost(q=self%q)
+      call self%initialize_coils
       do b=1, blocks_number
          max_total_variation = -huge(1._R8P)
          do c=1, 1!coil%total_coils_number
