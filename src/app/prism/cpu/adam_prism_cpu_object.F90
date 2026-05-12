@@ -406,9 +406,9 @@ contains
             current_density = A(coil_id) * g * cos(theta)
 
             do b=1, blocks_number
-               do k=1, nk
-                  do j=1, nj
-                     do i=1, ni
+               do k=1-self%ngc, nk+self%ngc
+                  do j=1-self%ngc, nj+self%ngc
+                     do i=1-self%ngc, ni+self%ngc
                         q(var_Jx,i,j,k,b) = q(var_Jx,i,j,k,b) + current_density * J_vec(1,i,j,k,b,n)
                         q(var_Jy,i,j,k,b) = q(var_Jy,i,j,k,b) + current_density * J_vec(2,i,j,k,b,n)
                         q(var_Jz,i,j,k,b) = q(var_Jz,i,j,k,b) + current_density * J_vec(3,i,j,k,b,n)
@@ -847,6 +847,11 @@ contains
    if (do_local_update) call field%update_ghost_local(q=q)
                         call field%update_ghost_mpi(q=q, step=step)
    if (do_set_bc)       call self%set_boundary_conditions(q=q, s=s)
+   if (present(s)) then
+      call self%compute_coils_current(q=q, gamma=rk%gamm(s)) 
+   else
+      call self%compute_coils_current(q=q)
+   endif
    endsubroutine update_ghost
 
    ! numerical methods
@@ -1704,7 +1709,7 @@ contains
       else
          call rk%compute_stage(s=s, dt=time%dt)
       endif
-      call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s))
+      !call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s)) !Cazzo
       call self%compute_residuals(q=rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       !if (s==1) call self%save_residuals
       if (ib%solids_number>0) then
