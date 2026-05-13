@@ -8,12 +8,12 @@ Finite difference operator tests with trigonometric analytical solutions:
 
 ```bash
 # Build a specific test
-FoBiS.py build -mode test-fdv-gradient-trigonometric-gnu
-FoBiS.py build -mode test-fdv-divergence-trigonometric-gnu
-FoBiS.py build -mode test-fdv-curl-trigonometric-gnu
-FoBiS.py build -mode test-fdv-laplacian-trigonometric-gnu
-FoBiS.py build -mode test-fdv-operators-trigonometric-gnu
-FoBiS.py build -mode test-fdv-operators-step-gnu
+fobis build --mode test-fdv-gradient-trigonometric-gnu
+fobis build --mode test-fdv-divergence-trigonometric-gnu
+fobis build --mode test-fdv-curl-trigonometric-gnu
+fobis build --mode test-fdv-laplacian-trigonometric-gnu
+fobis build --mode test-fdv-operators-trigonometric-gnu
+fobis build --mode test-fdv-operators-step-gnu
 
 # Run with MPI
 mpirun -np <N> exe/<test_executable>

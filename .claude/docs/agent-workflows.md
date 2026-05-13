@@ -66,7 +66,7 @@ Structured protocols for common tasks and emergency debugging.
 ## Emergency Debugging Checklist
 
 ### Compilation Fails
-- [ ] Check module dependencies (`FoBiS.py build -lmodes` to verify mode exists)
+- [ ] Check module dependencies (`fobis build --lmodes` to verify mode exists)
 - [ ] Verify HDF5/MPI library paths in fobos configuration
 - [ ] Load correct module environment (compiler, MPI, HDF5 versions must match)
 - [ ] Check preprocessor macros (only one of `_NVF`, `_FNL`, `_GMP` should be defined)

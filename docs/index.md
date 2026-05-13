@@ -216,13 +216,13 @@ type = sod-x
 
 ```bash
 # Navier-Stokes on GPU
-FoBiS.py build -mode nasto-nvf-cuda && mpirun -np 4 exe/adam_nasto_nvf
+fobis build --mode nasto-nvf-cuda && mpirun -np 4 exe/adam_nasto_nvf
 
 # Maxwell / plasma on GPU
-FoBiS.py build -mode prism-fnl-nvf-oac && mpirun -np 4 exe/adam_prism_fnl
+fobis build --mode prism-fnl-nvf-oac && mpirun -np 4 exe/adam_prism_fnl
 
 # Any solver on CPU-only cluster — same source, same input file
-FoBiS.py build -mode nasto-cpu-gnu && mpirun -np 64 exe/adam_nasto_cpu
+fobis build --mode nasto-cpu-gnu && mpirun -np 64 exe/adam_nasto_cpu
 ```
 
 Results are written as HDF5 files, readable with ParaView or any HDF5 tool. For complete test cases see the [Tests](/tests/) section.

@@ -219,33 +219,33 @@ call obj%destroy()
 
 ## Build Commands
 
-The build system uses [FoBiS](https://github.com/szaghi/FoBiS). Common build commands:
+The build system uses [FoBiS](https://github.com/szaghi/FoBiS) — CLI binary `fobis` (3.8+). All flags are double-dash long form; the legacy `FoBiS.py build -mode X` short-form is no longer accepted.
 
 ```bash
 # List all available build modes
-FoBiS.py build -lmodes
+fobis build --lmodes
 
 # Build NASTO (Navier-Stokes solver)
-FoBiS.py build -mode nasto-cpu-gnu          # CPU with GNU compiler
-FoBiS.py build -mode nasto-nvf-cuda         # NVIDIA CUDA Fortran
-FoBiS.py build -mode nasto-fnl-nvf-oac      # OpenACC with NVF
+fobis build --mode nasto-cpu-gnu          # CPU with GNU compiler
+fobis build --mode nasto-nvf-cuda         # NVIDIA CUDA Fortran
+fobis build --mode nasto-fnl-nvf-oac      # OpenACC with NVF
 
 # Build PRISM (Maxwell equations solver)
-FoBiS.py build -mode prism-gnu              # CPU with GNU compiler
-FoBiS.py build -mode prism-fnl-nvf-oac      # OpenACC with NVF
+fobis build --mode prism-gnu              # CPU with GNU compiler
+fobis build --mode prism-fnl-nvf-oac      # OpenACC with NVF
 
 # Build other applications
-FoBiS.py build -mode chase-gnu              # CHASE app
-FoBiS.py build -mode patch-gnu              # PATCH app
-FoBiS.py build -mode ascot-nvf-cuda         # ASCOT converter utility
+fobis build --mode chase-gnu              # CHASE app
+fobis build --mode patch-gnu              # PATCH app
+fobis build --mode ascot-nvf-cuda         # ASCOT converter utility
 
 # Build ADAM core libraries
-FoBiS.py build -mode adam-com-gnu           # Common library (GNU)
-FoBiS.py build -mode adam-com-nvf           # Common library (NVF)
-FoBiS.py build -mode adam-nvf-cuda          # NVF CUDA library
+fobis build --mode adam-com-gnu           # Common library (GNU)
+fobis build --mode adam-com-nvf           # Common library (NVF)
+fobis build --mode adam-nvf-cuda          # NVF CUDA library
 
 # Debug builds (append -debug to mode name)
-FoBiS.py build -mode nasto-cpu-gnu-debug
+fobis build --mode nasto-cpu-gnu-debug
 ```
 
 ## Running Tests
@@ -254,12 +254,12 @@ Build and run FDV (finite difference/volume) operator tests:
 
 ```bash
 # Build a specific test
-FoBiS.py build -mode test-fdv-gradient-trigonometric-gnu
-FoBiS.py build -mode test-fdv-divergence-trigonometric-gnu
-FoBiS.py build -mode test-fdv-curl-trigonometric-gnu
-FoBiS.py build -mode test-fdv-laplacian-trigonometric-gnu
-FoBiS.py build -mode test-fdv-operators-trigonometric-gnu
-FoBiS.py build -mode test-fdv-operators-step-gnu
+fobis build --mode test-fdv-gradient-trigonometric-gnu
+fobis build --mode test-fdv-divergence-trigonometric-gnu
+fobis build --mode test-fdv-curl-trigonometric-gnu
+fobis build --mode test-fdv-laplacian-trigonometric-gnu
+fobis build --mode test-fdv-operators-trigonometric-gnu
+fobis build --mode test-fdv-operators-step-gnu
 
 # Run with MPI (executables are in exe/)
 mpirun -np <N> exe/<test_executable>
@@ -275,7 +275,7 @@ Integration test cases are in `src/tests/nasto/` (Riemann problems, shock-sphere
    - Finite difference operators: gradient, divergence, curl, Laplacian (trigonometric analytical solutions)
    - WENO reconstruction accuracy (known smooth and discontinuous test functions)
    - Riemann solvers (exact Riemann problem solutions: Sod, Lax, Shu-Osher)
-   - Build and run: `FoBiS.py build -mode test-fdv-<operator>-<test>-<compiler>`
+   - Build and run: `fobis build --mode test-fdv-<operator>-<test>-<compiler>`
 
 2. **Integration Tests** (`src/tests/nasto/`):
    - Riemann problems (1D/2D/3D): Sod shock tube, shock-sphere interaction

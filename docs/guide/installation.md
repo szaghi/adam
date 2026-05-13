@@ -24,10 +24,10 @@ Clone the repository, then fetch source dependencies with FoBiS:
 ```bash
 git clone https://github.com/szaghi/adam
 cd adam
-FoBiS.py fetch
+fobis fetch
 ```
 
-`FoBiS.py fetch` reads `src/third_party/.deps_config.ini` and downloads all required source libraries into `src/third_party/`.
+`fobis fetch` reads `src/third_party/.deps_config.ini` and downloads all required source libraries into `src/third_party/`.
 
 Alternatively, use the provided `install.sh` script which automates both steps:
 
@@ -43,11 +43,13 @@ Run `scripts/install.sh --help` for the full option list.
 
 ## Compile ADAM
 
-The preferred build system is [FoBiS](https://github.com/szaghi/FoBiS). Install it with:
+The preferred build system is [FoBiS](https://github.com/szaghi/FoBiS) — the CLI binary is `fobis` (version 3.8+); flags use double-dash long form. Install it from PyPI:
 
 ```bash
 pip install FoBiS.py
 ```
+
+(`FoBiS.py` is the PyPI package name; it installs the `fobis` command.)
 
 The repository root structure:
 
@@ -65,7 +67,7 @@ The repository root structure:
 List all available build modes:
 
 ```bash
-FoBiS.py build -lmodes
+fobis build --lmodes
 ```
 
 See [Architecture → Build Commands](/guide/architecture#build-commands) for a full list of build targets.
