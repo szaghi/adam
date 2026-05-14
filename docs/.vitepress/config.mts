@@ -19,6 +19,27 @@ export default withMermaid({
       'f08': 'fortran-free-form',
       'f77': 'fortran-fixed-form',
     },
+    // The auto-generated API pages (formal/FORD) carry Fortran docstrings
+    // with angle-bracket fragments in *plain text* — e.g. the literal
+    // `solid <name>` inside a doc comment. markdown-it tokenises `<name>`
+    // as an `html_inline` token and emits it verbatim; VitePress then runs
+    // the page through the Vue SFC compiler, which sees an unclosed
+    // `<name>` tag and aborts with "Element is missing end tag".
+    // (Inline code in backticks is already escaped by markdown-it, so it
+    // is not the problem — only raw-text html_inline / html_block tokens
+    // are.) Escaping `<` / `>` on those tokens keeps them as literal text
+    // the Vue compiler never parses as markup.
+    config: (md) => {
+      const escapeAngles = (s: string) =>
+        s.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      for (const rule of ['html_inline', 'html_block'] as const) {
+        const fallback =
+          md.renderer.rules[rule] ||
+          ((tokens, idx) => tokens[idx].content)
+        md.renderer.rules[rule] = (tokens, idx, options, env, self) =>
+          escapeAngles(fallback(tokens, idx, options, env, self))
+      }
+    },
   },
   themeConfig: {
     nav: [
