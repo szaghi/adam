@@ -23,8 +23,12 @@ public :: ib_fnl_object
 type :: ib_fnl_object
    !< IB FNL class definition.
    ! device data
-   real(R8P), pointer :: q_bcs_vars_gpu(:,:) !< Variables array for immersed boundary on GPU.
-   real(R8P), pointer :: phi_gpu(:,:,:,:,:)  !< Distance function on GPU.
+   ! `=> null()` is mandatory: dev_assign_to_device / dev_alloc test
+   ! `associated(dst)` before allocating, and associated() on a pointer
+   ! that was never nullified is undefined behaviour (nvfortran -Mchkptr
+   ! traps it as "Null pointer").
+   real(R8P), pointer :: q_bcs_vars_gpu(:,:) => null() !< Variables array for immersed boundary on GPU.
+   real(R8P), pointer :: phi_gpu(:,:,:,:,:)  => null() !< Distance function on GPU.
    contains
       ! public methods
       procedure, pass(self) :: evolve_eikonal !< Evolve eikonal equation.
@@ -70,9 +74,14 @@ contains
    integer(I4P)                        :: ierr !< Error status.
 
    call mpih_fnl%print_message('ib_fnl_object%initialize start')
-   call dev_assign_to_device(dst=self%q_bcs_vars_gpu, src=ib%q)
    associate(ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nb=>field%nb, solids_number=>ib%solids_number)
+   ! ib%q is allocated only when solids_number > 0; with no immersed solids
+   ! it is unallocated, and passing an unallocated allocatable as the
+   ! assumed-shape intent(in) src of dev_assign_to_device is illegal Fortran.
+   ! Gate on solids_number, matching the phi_gpu allocation below; with no
+   ! solids the GPU pointer stays null, the correct "nothing to offload" state.
    if (solids_number>0) then
+      call dev_assign_to_device(dst=self%q_bcs_vars_gpu, src=ib%q)
       call dev_alloc(fptr_dev=self%phi_gpu,                              &
                      ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,solids_number+1], &
                      lbounds=[1, 1-ngc, 1-ngc, 1-ngc, 1              ], &

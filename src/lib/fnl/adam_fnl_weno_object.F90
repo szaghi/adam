@@ -19,13 +19,17 @@ public :: weno_fnl_object
 type :: weno_fnl_object
    !< WENO FNL class definition.
    ! device data
-   real(R8P),    pointer :: a_gpu(:,:,:)               !< Optimal weights                    [1:2,0:S-1,1:S].
-   real(R8P),    pointer :: p_gpu(:,:,:,:)             !< Polinomials coefficients           [1:2,0:S-1,0:S-1,1:S].
-   real(R8P),    pointer :: d_gpu(:,:,:,:)             !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1,1:S].
-   integer(I4P), pointer :: ror_schemes_gpu(:)         !< Scheme (S value) for each ROR step.
-   integer(I4P), pointer :: ror_ivar_gpu(:)            !< Index variables to check in ROR.
-   integer(I4P), pointer :: ror_stats_gpu(:,:,:,:,:)   !< Scheme (S value) for each ROR step.
-   integer(I4P), pointer :: cell_scheme_gpu(:,:,:,:,:) !< Modified order close to solids (GPU variable).
+   ! `=> null()` is mandatory: dev_assign_to_device tests `associated(dst)`
+   ! before allocating, and associated() on a pointer that was never
+   ! nullified is undefined behaviour (nvfortran -Mchkptr traps it as
+   ! "Null pointer").
+   real(R8P),    pointer :: a_gpu(:,:,:)               => null() !< Optimal weights                    [1:2,0:S-1,1:S].
+   real(R8P),    pointer :: p_gpu(:,:,:,:)             => null() !< Polinomials coefficients           [1:2,0:S-1,0:S-1,1:S].
+   real(R8P),    pointer :: d_gpu(:,:,:,:)             => null() !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1,1:S].
+   integer(I4P), pointer :: ror_schemes_gpu(:)         => null() !< Scheme (S value) for each ROR step.
+   integer(I4P), pointer :: ror_ivar_gpu(:)            => null() !< Index variables to check in ROR.
+   integer(I4P), pointer :: ror_stats_gpu(:,:,:,:,:)   => null() !< Scheme (S value) for each ROR step.
+   integer(I4P), pointer :: cell_scheme_gpu(:,:,:,:,:) => null() !< Modified order close to solids (GPU variable).
    contains
       ! public methods
       procedure, pass(self) :: initialize !< Initialize class from weno global singleton.
@@ -44,7 +48,11 @@ contains
    call dev_assign_to_device(dst=self%d_gpu,           src=weno%d          )
    call dev_assign_to_device(dst=self%ror_schemes_gpu, src=weno%ror_schemes)
    call dev_assign_to_device(dst=self%ror_ivar_gpu,    src=weno%ror_ivar   )
-   call dev_assign_to_device(dst=self%ror_stats_gpu,   src=weno%ror_stats  )
+   ! weno%ror_stats is allocated only when enable_ror_stats is set; otherwise
+   ! it is unallocated and must not be passed to dev_assign_to_device's
+   ! assumed-shape intent(in) src. With ROR stats disabled the GPU pointer
+   ! stays null, the correct "nothing to offload" state.
+   if (allocated(weno%ror_stats)) call dev_assign_to_device(dst=self%ror_stats_gpu, src=weno%ror_stats)
    call dev_assign_to_device(dst=self%cell_scheme_gpu, src=weno%cell_scheme)
    call mpih_fnl%print_message('weno_fnl_object%initialize finish')
    endsubroutine initialize

@@ -569,10 +569,17 @@ contains
    if (send_fec_number>0) allocate(self%comm_map_send_ghost(1:send_fec_number,1:15))
    if (recv_fec_number>0) allocate(self%comm_map_recv_ghost(1:recv_fec_number,1:15))
    ! mpi buffers
+   ! Allocate only when there is something to exchange: on a single rank
+   ! (or any rank with no neighbours) the ghost counts sum to zero, and a
+   ! zero-size buffer must not be allocated — it would later be offloaded
+   ! to the device and fault. Leaving it unallocated is the correct
+   ! "nothing to exchange" state, which the FNL copy layer skips.
    if (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)
-   if (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost(1:sum(self%comm_map_n_send_ghost, dim=1)*nv))
+   if (sum(self%comm_map_n_send_ghost, dim=1) > 0) &
+      allocate(self%send_buffer_ghost(1:sum(self%comm_map_n_send_ghost, dim=1)*nv))
    if (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
-   if (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost(1:sum(self%comm_map_n_recv_ghost, dim=1)*nv))
+   if (sum(self%comm_map_n_recv_ghost, dim=1) > 0) &
+      allocate(self%recv_buffer_ghost(1:sum(self%comm_map_n_recv_ghost, dim=1)*nv))
    endsubroutine alloc_comm_local_maps_ghost
 
    subroutine count_bc_numbers(self, fec_bc_faces_number, fec_bc_edges_number, fec_bc_corners_number)
