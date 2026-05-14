@@ -50,6 +50,20 @@ jobs:
 
     - name: Run PRISM CPU regression
       # No HDF5_PREFIX needed: fobos resolves HDF5 paths from its default
-      # varset (local_gnu -> lib/hdf5/develop/gnu/14.2.0), the same tree the
-      # committed goldens were captured against.
+      # varset (local_gnu -> lib/hdf5/develop/gnu/14.2.0).
       run: ./src/tests/prism/regression/run.sh cpu
+
+    - name: Upload regression work outputs
+      # Runs even when the regression step fails — the produced digest and
+      # residuals are how a golden is (re)captured from a known-good CI run,
+      # and how a failing run is diagnosed. work-*/ is gitignored scratch on
+      # the runner, so without this upload the outputs are lost with the job.
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: prism-regression-cpu-work
+        path: |
+          src/tests/prism/regression/**/work-cpu/digest.txt
+          src/tests/prism/regression/**/work-cpu/*-residuals.dat
+        if-no-files-found: warn
+        retention-days: 14

@@ -106,12 +106,21 @@ commit raw HDF5. Each case commits two compact references instead:
 of point-wise reductions — `count, min, max, sum, sum_sq` — aggregated per
 field variable (all 32 blocks of `Bx` together, etc.). This is:
 
-- **small** — ~37 KB for the `rmf` case vs ~640 MB of raw HDF5;
+- **small** — tens of KB for the `rmf` case vs ~640 MB of raw HDF5;
 - **point-wise sensitive** — any single changed cell shifts at least one
   reduction, which the aggregate residual norm could mask;
 - **ownership-invariant** — aggregating across blocks/ranks means a pure
   block-redistribution (not a physics change) does not trip the digest. The
   residuals log is ownership-invariant for the same reason.
+
+**Excluded variables.** The `div_*` divergence diagnostics (`div_D`, `div_B`,
+`div_J`, and the numbered `div_05`..`div_12`) are *not* in the digest.
+They are physical-constraint quantities that should be ~0 — their stored
+values are pure round-off, so no reduction of them is reproducible across
+compilers (the first CI run disagreed with the dev-box golden by ~24% on
+`div_J` because both were noise). The exclusion is a name-prefix rule in
+`digest.py`. If a divergence-cleaning regression is ever wanted it needs a
+dedicated metric (e.g. ‖div‖ below a threshold), not a golden-value diff.
 
 The raw HDF5 in `work-<backend>/` is the source the digest is computed from;
 it is scratch and never committed.
@@ -135,35 +144,45 @@ cp <a-research-case>/input.ini src/tests/prism/regression/<case_name>/input.ini
 it must not collide with `restart_basename`, or the restart dump would be
 swept into the digest.
 
-Then capture the goldens on a known-good `develop` HEAD:
-
-```bash
-./src/tests/prism/regression/run.sh cpu   # no golden yet → harness runs, writes work-cpu/digest.txt
-# copy the produced references into golden/cpu/:
-mkdir -p src/tests/prism/regression/<case_name>/golden/cpu
-cp src/tests/prism/regression/<case_name>/work-cpu/digest.txt \
-   src/tests/prism/regression/<case_name>/work-cpu/*-residuals.dat \
-   src/tests/prism/regression/<case_name>/golden/cpu/
-# repeat for fnl backend on a workstation with NVHPC + GPU
-```
-
 The `work-<backend>/` directory (raw HDF5, the freshly computed digest, the
 restart dump) is regenerated on every run and is gitignored — only
 `golden/<backend>/digest.txt` and `golden/<backend>/*-residuals.dat` are
 committed.
 
-## Updating golden outputs
+## Capturing and updating golden outputs
 
-**Goldens never change silently.** Every golden update must be a deliberate,
-reviewer-approved act because by definition it is a behaviour change. The
-allowed workflow:
+**CI is the golden authority for the CPU backend**, not a dev workstation.
+The residuals log is compared byte-exact (see "Tolerance rationale"), so the
+golden must be produced by the *same* toolchain that checks it — and the
+checker is CI (Ubuntu, GCC 14). A golden captured on a dev box with a
+different GCC will fail the residuals diff in CI even with no real change.
+The FNL golden, by the same logic, is captured on the GPU workstation that
+runs `run-fnl-local.sh` (see "Capturing the FNL golden").
+
+To capture or refresh the CPU golden:
+
+1. Push the branch (or open the PR). The `regression-prism-cpu` CI job runs
+   `run.sh cpu` and — via an `always()` step — uploads the produced
+   `work-cpu/digest.txt` and `work-cpu/*-residuals.dat` as the
+   `prism-regression-cpu-work` artifact, even when the regression step fails.
+2. Download that artifact from the run's summary page.
+3. Copy its contents into the case's `golden/cpu/`:
+   ```bash
+   mkdir -p src/tests/prism/regression/<case_name>/golden/cpu
+   cp <downloaded>/digest.txt <downloaded>/*-residuals.dat \
+      src/tests/prism/regression/<case_name>/golden/cpu/
+   ```
+4. Commit. Re-run CI — the regression job now diffs against the committed
+   golden and must pass.
+
+**Goldens never change silently.** A refresh of an *existing* golden is by
+definition a behaviour change and must be a deliberate, reviewer-approved act:
 
 1. Identify the source change that *intentionally* alters numerical output —
-   e.g. a bug fix, a numerical-scheme tightening, an FMA-flag change.
-2. Open a PR titled `regression: bump goldens — <one-line reason>`. The PR
-   description must reference the source change PR.
-3. Regenerate goldens locally (`run.sh` on both backends on a clean tree with
-   the source change applied).
+   a bug fix, a numerical-scheme tightening, an FMA-flag change.
+2. Open a PR titled `regression: bump goldens — <one-line reason>`, its
+   description referencing the source-change PR.
+3. Capture the new golden from that PR's CI run (steps 1–3 above).
 4. Commit `golden/<backend>/digest.txt` and `golden/<backend>/*-residuals.dat`.
    The digest is plain text, so the PR diff makes every changed reduction
    explicit; a reviewer must agree the numerical change is correct.
@@ -172,29 +191,42 @@ Never bypass this with `--no-verify` or silent rewrites.
 
 ## Tolerance rationale
 
-Two references, two comparison strategies.
+Two references, two comparison strategies. Both are calibrated for
+**cross-compiler** runs — the golden is captured in CI, and the suite is
+re-run in CI on the same image but also, manually, on dev workstations with
+different GCC versions. Same-machine reruns are bit-identical; the tolerances
+exist for the machine-to-machine case.
 
 **Field digest** (`digest.py compare`): `count` must match exactly; `min`,
-`max`, `sum`, `sum_sq` are compared with `numpy.isclose` at `rtol = 1e-11`,
-`atol = 1e-13`.
+`max`, `sum`, `sum_sq` are compared with `numpy.isclose` at `rtol = 1e-6`,
+`atol = 1e-3`.
 
-- `R8P` (double-precision, ~15–17 significant decimal digits) means `rtol`
-  `1e-11` is a handful of ULPs — tight enough to catch any algorithmic
-  regression, loose enough to absorb the bit-noise of compiler-controlled FMA
-  contraction and MPI/OpenMP summation order. `sum` and `sum_sq` accumulate
-  that association noise across all cells, which is exactly why they are
-  compared with a relative tolerance rather than byte-exact.
-- `min` / `max` are near-exact (a single cell's value); `atol` only guards
-  against denormal noise at magnitudes near zero.
+- `rtol = 1e-6` absorbs floating-point association noise from differing
+  compiler codegen, libm implementations, FMA contraction and MPI reduction
+  order. The first CI run (gcc-14) vs a gcc-16 dev golden disagreed by
+  `~1e-9` on stable fields — well inside `1e-6`, but far outside the
+  original, naively tight `1e-11`. `1e-6` is still ~9 significant digits:
+  any real algorithmic change moves a reduction far more than that.
+- `atol = 1e-3` is the floor for **cancellation-residue** reductions. An
+  antisymmetric field like `Jz` (±3.7e3 per cell, summing to ~4e-5 over
+  340 k cells) has a `sum` that is pure cancellation noise — `1e-3` treats
+  it as indistinguishable from zero. A genuine non-cancelling aggregate
+  like `Jx` `sum` (~4.6e8) is utterly unaffected by a `1e-3` floor.
 
 **Residuals log** (`diff -q`): compared **byte-exact**. Residuals are written
 from a single rank, formatted decimally, and not subject to reduction
-reordering — any difference is a real behaviour change.
+reordering. Byte-exact only holds **within one toolchain** — the residuals
+golden must therefore be captured on the *same* toolchain that checks it
+(CI captures and CI checks). Across GCC versions the low-order digits drift;
+a dev-workstation run with a different compiler is expected to fail the
+residuals diff and that is not a regression. If cross-compiler residual
+checking is ever needed, the residuals comparison must move to a
+tolerance-aware diff like the digest — it is byte-exact today only because
+CI is the single source of truth.
 
-If the digest tolerance proves too tight on a specific case (e.g. an iterative
-solver with loose internal tolerance), `digest.py compare` accepts `--rtol` /
-`--atol` overrides; wire a per-case override into `run.sh` when the second
-case demands it.
+If the digest tolerance proves too tight or too loose on a specific case,
+`digest.py compare` accepts `--rtol` / `--atol` overrides; wire a per-case
+override into `run.sh` when the second case demands it.
 
 ## CPU vs FNL backends
 

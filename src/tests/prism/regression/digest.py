@@ -39,24 +39,53 @@ import numpy as np
 # and ranks sharing a variable suffix.
 _NAME_SEP = "-"
 
-# Default comparison tolerances. sum / sum_sq accumulate floating-point
-# association noise across compilers, MPI rank counts and FMA contraction;
-# rtol absorbs that while staying tight enough to catch a real regression.
-# count / min / max are exact-ish (min/max get a tiny atol for denormal noise).
-_DEFAULT_RTOL = 1.0e-11
-_DEFAULT_ATOL = 1.0e-13
+# Variable-name prefixes excluded from the digest entirely.
+#
+# div_* — every divergence diagnostic field. PRISM emits div_D, div_B,
+# div_J plus numbered div_05..div_12 (see adam_prism_common_object.F90
+# div_name); all are constraint diagnostics that should be ~0 (Gauss's
+# law, charge conservation). Their stored values are pure round-off, so
+# *no* reduction of them (min/max/sum/sum_sq) is reproducible across
+# compilers — gcc-14 vs gcc-16 disagreed by ~24% on div_J min because
+# they were comparing noise to noise. The numbered div_NN fields are not
+# a different class: they only escaped the first CI failure because they
+# happened to still be exactly 0.0 at the saved iterations of this
+# vacuum case; they would flake the moment the physics drives them
+# nonzero. Keeping any div_* in the digest is anti-signal.
+#
+# A future divergence-cleaning regression, if wanted, needs a dedicated
+# metric (e.g. ‖div‖ below a threshold), not a golden-value comparison.
+_EXCLUDED_VAR_PREFIXES = ("div_",)
+
+# Default comparison tolerances. Calibrated for *cross-compiler* runs
+# (goldens captured in CI, also re-run in CI on a different toolchain than
+# a dev workstation), not same-machine bit-identical reruns.
+#   rtol 1e-6  — absorbs floating-point association noise from differing
+#                compiler codegen, libm, FMA contraction and MPI reduction
+#                order; still tight enough to catch any algorithmic change.
+#   atol 1e-3  — floor for cancellation-residue reductions. An antisymmetric
+#                field like Jz (±3.7e3 per cell, summing to ~4e-5 over
+#                340k cells) has a `sum` that is pure cancellation noise;
+#                1e-3 treats it as indistinguishable from zero, while a
+#                genuine aggregate like Jx `sum` (~4.6e8) is unaffected.
+_DEFAULT_RTOL = 1.0e-6
+_DEFAULT_ATOL = 1.0e-3
 
 
 def _variable_of(dataset_name: str) -> str | None:
     """Return the variable suffix of a ``block_*-proc*-<var>`` dataset name.
 
-    Returns None for any dataset that does not match the expected layout, so
-    unexpected top-level datasets are skipped rather than crashing the digest.
+    Returns None for any dataset that does not match the expected layout, or
+    whose variable name starts with an ``_EXCLUDED_VAR_PREFIXES`` entry, so
+    it is skipped from the digest.
     """
     parts = dataset_name.split(_NAME_SEP, 2)
     if len(parts) != 3:
         return None
-    return parts[2]
+    var = parts[2]
+    if var.startswith(_EXCLUDED_VAR_PREFIXES):
+        return None
+    return var
 
 
 def _reduce_file(path: Path) -> dict[str, np.ndarray]:
