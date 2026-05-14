@@ -1499,6 +1499,7 @@ contains
    else
       call rk_fnl%update_q(dt=time%dt, q_gpu=self%q_gpu)
       ! call self%update_rk_ghost(dt=time%dt)
+      call self%save_residuals
    endif
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free

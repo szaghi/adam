@@ -254,14 +254,6 @@ therefore a **manually-invoked, workstation-local gate**: run it deliberately
 before an "important" push, not on every PR. There is no automation deciding
 what counts as "important" — that is the operator's judgement.
 
-> **FNL status (as of Step 0): golden intentionally deferred.** The
-> `prism-fnl-nvf` backend has known bugs under debugging, so `golden/fnl/`
-> is deliberately *not* captured yet — pinning a golden to broken output
-> would just enshrine the bug. The harness and `run-fnl-local.sh` are
-> wired and ready; capture the FNL golden once the backend is fixed (it
-> becomes load-bearing at Step 4 of the migration plan, the FNL kernel
-> refactors). An empty `golden/fnl/` is expected, not an oversight.
-
 `run-fnl-local.sh` is the trigger. It does only what the FNL run needs beyond
 the CPU run: loads the `nvhpc` module (nvfortran + bundled MPI), sets the
 OpenMPI/UCX tuning (the `nvhpc` module's `mpirun` alias does not expand in a
@@ -270,22 +262,73 @@ env vars instead), then calls `run.sh fnl --varset local_nvf`. The nvf HDF5
 prefix and `NVF_CC` come from the `local_nvf` fobos varset — the wrapper does
 not export them. `run.sh` itself stays backend-agnostic.
 
-The case runs `mpirun -np 2`; on a multi-GPU box that is one rank per GPU.
-The grid is small enough that two ranks could also share a single GPU if
-needed — the FNL hardware floor is one GPU, not two.
+`run.sh` runs every case under `mpirun -np 2`, the same rank count for both
+backends — the golden is therefore a two-rank golden. On a multi-GPU box that
+is one rank per GPU; the grid is small enough that two ranks can also share a
+single GPU if needed (the FNL hardware floor is one GPU, not two). When
+diagnosing FNL by hand it is common to run `mpirun -np 1` directly against the
+exe — useful for isolating a crash, but note a one-rank run will **not** match
+the committed two-rank golden.
 
-### Capturing the FNL golden
+> **FNL dependency note.** The FNL backend reaches the GPU through the
+> vendored **FUNDAL** library (`src/third_party/FUNDAL`). FUNDAL is a
+> `fobis fetch` dependency and its tree is gitignored — after any
+> `fobis fetch --update`, re-verify the FNL run, because a dependency bump
+> can re-introduce device-layer regressions that only the FNL backend
+> exercises.
 
-The FNL golden does not exist until captured once on a GPU workstation:
+### Capturing / refreshing the FNL golden
+
+The FNL golden is captured on a GPU workstation, never in CI. To capture a
+new case's golden, or to refresh an existing one after a reviewer-approved
+behaviour change:
 
 ```bash
 ./src/tests/prism/regression/run-fnl-local.sh   # runs, writes rmf/work-fnl/digest.txt
-mkdir -p src/tests/prism/regression/rmf/golden/fnl
-cp src/tests/prism/regression/rmf/work-fnl/digest.txt \
-   src/tests/prism/regression/rmf/work-fnl/*-residuals.dat \
-   src/tests/prism/regression/rmf/golden/fnl/
+mkdir -p src/tests/prism/regression/<case>/golden/fnl
+cp src/tests/prism/regression/<case>/work-fnl/digest.txt \
+   src/tests/prism/regression/<case>/work-fnl/*-residuals.dat \
+   src/tests/prism/regression/<case>/golden/fnl/
 ```
 
-The digest is ~37 KB of plain text — committable like the CPU golden. The
-"Updating golden outputs" rules above apply equally to the FNL golden: it
-changes only by a deliberate, reviewer-approved act.
+The digest is plain text and committable like the CPU golden. The "Capturing
+and updating golden outputs" rules above apply equally to the FNL golden — a
+refresh of an existing golden is a deliberate, reviewer-approved act, not a
+silent rewrite.
+
+Unlike the CPU golden (CI is the authority), the FNL golden's authority **is**
+the workstation that runs `run-fnl-local.sh` — there is no GPU CI to capture
+from. Whoever refreshes it must run on a known-good tree and review the digest
+diff before committing.
+
+## Debug builds for diagnosis
+
+`run.sh` builds the **release** modes (`prism-cpu-gnu`, `prism-fnl-nvf`) — that
+is what the suite validates, because release is what ships. The debug modes
+(`prism-cpu-gnu-debug`, `prism-fnl-nvf-debug`) are **not** driven by the
+harness; they are a manual diagnosis tool.
+
+When a regression run crashes and the release backtrace is unhelpful, rebuild
+the debug mode and run the case by hand:
+
+```bash
+# FNL example — debug mode adds -Mbounds, -Mchkptr, -Ktrap=fp, -traceback, -O0
+fobis build --mode prism-fnl-nvf-debug --varset local_nvf
+cd src/tests/prism/regression/<case>/work-fnl   # or run from a scratch dir
+mpirun -np 1 ../../../../../../exe/adam_prism_fnl input.ini
+```
+
+The debug mode catches several bug classes the release `-fast` build silently
+tolerates — uninitialised pointers (`-Mchkptr`), out-of-bounds access
+(`-Mbounds`), FP exceptions (`-Ktrap=fp`). It is the right tool for "release
+crashes somewhere in a device routine" — but two caveats:
+
+- **Stale objects.** FoBiS does not always recompile a `.F90` when an
+  `#include`d `.INC` it depends on changes (notably the vendored FUNDAL
+  templates). If a debug rebuild seems not to pick up a source edit, delete
+  the specific stale objects under `exe/obj/nvf/debug/` (and `exe/mod/...`)
+  and rebuild.
+- **`-fast`-only bugs.** Some failures appear *only* in the release build —
+  the optimiser exposes undefined behaviour the `-O0` debug build steps past.
+  If debug passes but release crashes, the bug is real and optimisation-
+  sensitive; do not assume "debug works" means "fixed".
