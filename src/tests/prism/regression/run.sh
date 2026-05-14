@@ -21,8 +21,8 @@
 # default varset; the FNL backend needs `--varset local_nvf`, which the
 # run-fnl-local.sh wrapper supplies.
 #
-# A private Python venv (.venv/, gitignored) is created on first run to
-# provide h5py for digest.py.
+# A private Python venv (exe/.regression-venv/, gitignored) is created on
+# first run to provide h5py for digest.py.
 
 set -euo pipefail
 
@@ -80,14 +80,20 @@ fi
 # Regression goldens are field *digests* (digest.py), not raw HDF5 — a full
 # checkpoint is ~100 MB/rank and cannot be committed. digest.py needs h5py;
 # WSL2 / CI system Python is externally managed, so use a private venv that
-# is created on first run and reused thereafter. The venv is gitignored.
+# is created on first run and reused thereafter.
 DIGEST_PY="$REGRESSION_DIR/digest.py"
 if [[ ! -f "$DIGEST_PY" ]]; then
    echo "ERROR: digest.py not found at $DIGEST_PY" >&2
    exit 2
 fi
 
-VENV_DIR="$REGRESSION_DIR/.venv"
+# The venv lives under exe/ — NOT under src/ — on purpose: every tool that
+# scans src/ (fobis for the build, formal for the API docs) would otherwise
+# pick up the Fortran test fixtures shipped inside numpy/h5py and either
+# break the link step or generate junk doc pages. exe/ is already gitignored
+# and ignored by those tools, so one location keeps the venv invisible to
+# all of them.
+VENV_DIR="$REPO_ROOT/exe/.regression-venv"
 VENV_PY="$VENV_DIR/bin/python"
 if [[ ! -x "$VENV_PY" ]]; then
    echo ">> creating digest venv at $VENV_DIR"

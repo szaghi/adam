@@ -13,7 +13,6 @@ libs         = $HDF5_PREFIX/lib/libhdf5_fortran.a $HDF5_PREFIX/lib/libhdf5_f90cs
 lib_dir      = $HDF5_PREFIX/lib
 include      = $HDF5_PREFIX/include
 exclude_dirs = references/
-               .venv/
                BeFoR64/src/tests/
                BeFoR64/src/third_party/
                FACE/src/tests/

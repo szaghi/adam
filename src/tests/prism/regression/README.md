@@ -83,13 +83,18 @@ varset is ever needed.
 |----------------|--------------|------------------------------------------------------------|
 | `mpirun`       | both         | On `PATH`; for FNL the wrapper loads it via `nvhpc`        |
 | `fobis` 3.8+   | both         | Long-form CLI; legacy `FoBiS.py -mode` not accepted        |
-| `python3`     | both         | A `.venv/` with `h5py` is created on first run             |
+| `python3`     | both         | A venv with `h5py` is created on first run                 |
 | `nvhpc` module | `fnl` only   | Loaded by `run-fnl-local.sh`; provides nvfortran + mpirun  |
 
-On first invocation `run.sh` creates a private `.venv/` in this directory and
-installs `h5py` + `numpy` into it — `digest.py` needs them, and WSL2 / CI
-system Python is externally managed. The venv is gitignored and reused across
-runs.
+On first invocation `run.sh` creates a private Python venv at
+`exe/.regression-venv/` and installs `h5py` + `numpy` into it — `digest.py`
+needs them, and WSL2 / CI system Python is externally managed. The venv is
+gitignored (it sits under the already-ignored `exe/`) and reused across runs.
+
+It deliberately lives under `exe/`, **not** under `src/`: `fobis` (the build)
+and `formal` (the API-doc generator) both scan `src/` and would otherwise
+compile or document the Fortran test fixtures shipped inside `numpy` —
+breaking the build link step and producing junk doc pages.
 
 ## Reference data
 
