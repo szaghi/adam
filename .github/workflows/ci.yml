@@ -27,3 +27,29 @@ jobs:
     - name: Run tests with coverage
       id: cov
       uses: ./.github/actions/run-coverage-analysis
+
+  regression-prism-cpu:
+    # PRISM CPU regression suite. Reference baseline for the
+    # forest-of-trees migration (issue #10): every structural change
+    # must leave this suite green.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
+
+    - name: Fetch dependencies
+      if: hashFiles('**/.deps_config.ini') != ''
+      run: FoBiS.py fetch
+
+    - name: Run PRISM CPU regression
+      # No HDF5_PREFIX needed: fobos resolves HDF5 paths from its default
+      # varset (local_gnu -> lib/hdf5/develop/gnu/14.2.0), the same tree the
+      # committed goldens were captured against.
+      run: ./src/tests/prism/regression/run.sh cpu
