@@ -110,90 +110,95 @@ when those backends come back into scope (out of scope per issue #10).
 
 ### `src/app/prism/fnl/adam_prism_fnl_object.F90`
 
-20 kernels — the densest single file. Where the directive is inside an
-explicit `contains`ed kernel subroutine the class is unambiguously A.
-Where the directive sits in a top-level method body without a kernel-
-subroutine wrapper, the class depends on whether the surrounding
-`associate` is reaching through `self%`.
+20 kernel directives, distributed across method bodies and contained
+`*_dev_kernel` subroutines. Each directive line is mapped below to the
+**actual** enclosing subroutine (verified by reading the file structure,
+not by trusting `grep` line proximity).
 
-| Line | Caller method (host) | Wrapper subroutine | Class | Notes |
-|------|---------------------|--------------------|-------|-------|
-|  539 | `compute_coils_current` | `nullify_j_vec_vars_kernel` | A | All dummies. |
-|  565 | `compute_coils_current` | `apply_j_vec_kernel` | A | All dummies. |
-|  617 | `set_boundary_conditions` | `set_boundary_conditions_kernel` | A | All dummies. |
-|  759 | `compute_curl` | `compute_curl_kernel` | A | All dummies. |
-|  922 | `compute_divergence` | `compute_divergence_kernel` | A | All dummies. |
-| 1096 | `compute_residuals_fd_centered` | (inline, branch 1) | **B/C** | Kernel uses `dxyz_gpu, q_gpu, dq_gpu` from enclosing `associate` reaching into `self%`. See "Hot file note" below. |
-| 1168 | `compute_residuals_fd_centered` | (inline, branch 2) | **B/C** | Same as 1096. |
-| 1236 | `compute_residuals_fd_centered` | (inline, branch 3) | **B/C** | Same as 1096. |
-| 1317 | `compute_residuals_fd_centered` | (inline, branch 4) | **B/C** | Same as 1096. |
-| 1663 | `compute_min_dxyz` | (inline) | **B/C** | `dxyz_gpu` from `associate(... =>self%...)`. Reduction kernel. |
-| 1729 | `nullify_q` | (inline) | **B/C** | `q_gpu` from `associate(... =>self%q_gpu)`. |
-| 1754 | `nullify_dq` | (inline) | **B/C** | `dq_gpu` from `associate(... =>self%dq_gpu)`. |
-| 1783 | `compute_poynting_flux` (face -x) | (inline) | **B/C** | `q_gpu, dxyz_gpu` from `associate`. |
-| 1801 | `compute_poynting_flux` (face +x) | (inline) | **B/C** | Same. |
-| 1818 | `compute_poynting_flux` (face -y) | (inline) | **B/C** | Same. |
-| 1835 | `compute_poynting_flux` (face +y) | (inline) | **B/C** | Same. |
-| 1852 | `compute_poynting_flux` (face -z) | (inline) | **B/C** | Same. |
-| 1869 | `compute_poynting_flux` (face +z) | (inline) | **B/C** | Same. |
-| 1951 | `compute_max_divergence` (in `compute_max_divergence_dev_kernel`) | A | All dummies. |
-| 2026 | `impose_ct_correction` | (inline) | **B/C** | `q_gpu, buffer` from `associate` reaching into `self%q_gpu, self%divergence_gpu`. |
+| Line | Enclosing subroutine | Class | Notes |
+|------|---------------------|-------|-------|
+|  539 | `nullify_j_vec_vars_kernel` (contained in `compute_coils_current`) | A | All dummies. |
+|  565 | `apply_j_vec_kernel` (contained in `compute_coils_current`) | A | All dummies. |
+|  617 | `set_boundary_conditions_kernel` (contained in `set_boundary_conditions`) | A | All dummies. |
+|  759 | `compute_curl_fd_dev_kernel` (contained in `compute_curl_fd_dev`) | A | All dummies. |
+|  922 | `compute_divergence_fd_dev_kernel` (contained in `compute_divergence_fd_dev`) | A | All dummies. |
+| 1096 | `compute_residuals_fd_centered_dev_kernel` branch 1 | A | All dummies; branch guarded by host `if (numerics%...)`. |
+| 1168 | `compute_residuals_fd_centered_dev_kernel` branch 2 | A | Same. |
+| 1236 | `compute_residuals_fd_centered_dev_kernel` branch 3 | A | Same. |
+| 1317 | `compute_residuals_fd_centered_dev_kernel` branch 4 | A | Same. |
+| 1663 | `compute_dxyz_min_kernel` (contained in `compute_dt`) | A | `dxyz_gpu` dummy; reduction kernel. |
+| 1729 | `compute_e_dev_kernel` (contained in `compute_energy`) | A | All dummies; reduction. |
+| 1754 | `compute_coil_power_dev_kernel` (contained in `compute_energy`) | A | All dummies; reduction. |
+| 1783 | `compute_poynting_flux_dev_kernel` face -x | A | All dummies; six faces, six directives, one wrapper. |
+| 1801 | `compute_poynting_flux_dev_kernel` face +x | A | Same. |
+| 1818 | `compute_poynting_flux_dev_kernel` face -y | A | Same. |
+| 1835 | `compute_poynting_flux_dev_kernel` face +y | A | Same. |
+| 1852 | `compute_poynting_flux_dev_kernel` face -z | A | Same. |
+| 1869 | `compute_poynting_flux_dev_kernel` face +z | A | Same. |
+| 1951 | `compute_max_divergence_dev_kernel` (contained in `compute_max_divergence`) | A | All dummies. |
+| 2026 | `impose_ct_correction` method body (no kernel wrapper) | **B/C** | `q_gpu, buffer` renamed via `associate` from `self%q_gpu, self%divergence_gpu`. The only inline kernel in this file. |
 
 #### Hot file note
 
-`adam_prism_fnl_object.F90` mixes two patterns deliberately:
+`adam_prism_fnl_object.F90` is **already almost fully refactored** to the
+dummy-argument pattern. 19 of 20 kernel directives sit inside `*_dev_kernel`
+contained subroutines that take explicit dummies — exactly the Step 4
+target shape.
 
-1. **Already-class-A:** kernels with `contains`ed wrapper subroutines
-   taking explicit dummies (lines 539, 565, 617, 759, 922, 1951). These
-   match the plan's target end-state. Six of twenty.
-2. **Class-B/C disguised by `associate`:** kernels that sit inline in a
-   host method body. The `associate(ni=>self%ni, q_gpu=>self%q_gpu, ...)`
-   on entry to the method gives the kernel a flat set of local names, so
-   the kernel *body* never writes `self%`. But the names are renamed
-   references into derived-type components — exactly what R3 of the plan
-   forbids in device regions ("`associate` blocks are not a substitute
-   for dummy arguments in device code").
-
-   Fourteen of twenty fall in this bucket. The classifier is B-vs-C in
-   the plan's spelling, but the practical class is "associate-renamed
-   chain through self." That is what Step 4 must eliminate.
+Exactly **one** kernel still sits inline in a method body: the
+constrained-transport-correction update at line 2026, inside
+`impose_ct_correction`. The surrounding `associate` renames
+`self%q_gpu` and `self%divergence_gpu` to local `q_gpu` and `buffer`,
+so the kernel body never spells `self%` — but per R3 of the plan,
+`associate`-renamed reaches through `self%` ARE the pattern we are
+eliminating. Step 4's PRISM-FNL work is to extract this one kernel
+into an `impose_ct_correction_kernel` contained subroutine matching
+the established template.
 
 No class-D found. The `q_gpu`, `dq_gpu`, `divergence_gpu`, etc. members
 of `prism_fnl_object` are `pointer :: ... => null()` to allocatable GPU
 storage — that *is* the D-class pattern at the type level, but the
-kernels go through `associate` rather than direct chain walks, so the
-device code never spells out `self%X`. The dispatch isn't D in practice.
-That said: the `associate` and the pointer-to-DT both depend on the
-program-local `prism` instance staying alive and bound for the duration
-of the kernel — which is the same invariant the rest of the codebase
-already depends on, so not a new risk surface.
+class-A wrappers pass these as plain dummies and never dereference the
+type chain inside a device region. The dispatch isn't D in practice.
+
+#### Audit-error note
+
+An earlier version of this file (commit 57e17d5c) classified 14 of these
+20 kernels as B/C. That was wrong: the lines I called "inline class B/C"
+are in fact inside `*_dev_kernel` contained subroutines. The error came
+from trusting `grep`-line proximity to subroutine boundaries instead of
+verifying each kernel against its enclosing scope. The corrected table
+above reflects what is actually in the source.
 
 ## Summary
 
 | Class | Count | Where |
 |-------|-------|-------|
-| A — clean | 35 | All of `lib/fnl/`, plus 6 in `app/prism/fnl/adam_prism_fnl_object.F90` (the kernels with `contains`ed wrappers), plus all 3 in the `app/prism/fnl/` aux files. |
-| B/C — associate-renamed chain through self | 14 | All inside `adam_prism_fnl_object.F90`. |
+| A — clean | 48 | All 26 in `lib/fnl/`, all 3 in `app/prism/fnl/` aux files, 19 of 20 in `adam_prism_fnl_object.F90`. |
+| B/C — associate-renamed chain through self | 1 | `adam_prism_fnl_object.F90:2026`, kernel inside `impose_ct_correction`. |
 | D — pointer-DT chain | 0 | none. |
 
-So Step 4 work is concentrated in **one file**: `adam_prism_fnl_object.F90`.
-The 14 inline kernels (lines 1096–1317, 1663–1869, 2026) each need to be
-extracted into a `contains`ed subroutine taking explicit dummies, the
-same shape the other 6 kernels in the same file already use.
+So Step 4 work is **one kernel**: extract `impose_ct_correction`'s inline
+kernel (line 2026) into an `impose_ct_correction_kernel` contained
+subroutine taking explicit dummies (`ni, nj, nk, ngc, blocks_number,
+ivar, q_gpu, buffer`).
 
 Pre-existing examples in this file (e.g. `set_boundary_conditions_kernel`
-at 603, `nullify_j_vec_vars_kernel` at 532, `apply_j_vec_kernel` at 555)
-are the template to follow.
+at 603, `nullify_j_vec_vars_kernel` at 532, `apply_j_vec_kernel` at 555,
+and the larger `compute_residuals_fd_centered_dev_kernel` at 1058) are
+the template to follow. The PRISM-FNL backend is otherwise already at
+the Step 4 end-state.
 
 ## Step 5 (CPU) scope
 
 The plan calls for the same audit on the CPU backend. `prism-cpu-gnu`
 has no OpenACC kernels by definition — the equivalent inner loops are
 just `do`-loops without device directives. The CPU pass is therefore a
-*style* refactor (kernel = inner-loop block → contained subroutine) for
-testability per R4, not a portability fix. It applies to the same loop
-bodies that are class-B/C above (the host-side loop nests inside
-`compute_residuals`, `compute_poynting_flux`, `impose_ct_correction`,
-`compute_min_dxyz`, `nullify_q`, `nullify_dq` — in `adam_prism_cpu_object.F90`).
+*style* refactor (inner-loop block → contained subroutine) for
+testability per R4, not a portability fix. The CPU side may still have
+inline loop nests in `adam_prism_cpu_object.F90` methods that, by R4,
+should be extracted to contained subroutines with explicit dummies —
+but unlike FNL there is no portability deadline driving the work.
 
-A full CPU audit will be added here as a follow-up at Step 5 entry.
+A full CPU audit will be added here as a follow-up at Step 5 entry,
+mirroring the corrected per-line table above for the CPU file.
