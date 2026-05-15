@@ -189,16 +189,42 @@ and the larger `compute_residuals_fd_centered_dev_kernel` at 1058) are
 the template to follow. The PRISM-FNL backend is otherwise already at
 the Step 4 end-state.
 
-## Step 5 (CPU) scope
+## Step 5 (CPU) scope — skipped
 
 The plan calls for the same audit on the CPU backend. `prism-cpu-gnu`
 has no OpenACC kernels by definition — the equivalent inner loops are
 just `do`-loops without device directives. The CPU pass is therefore a
 *style* refactor (inner-loop block → contained subroutine) for
-testability per R4, not a portability fix. The CPU side may still have
-inline loop nests in `adam_prism_cpu_object.F90` methods that, by R4,
-should be extracted to contained subroutines with explicit dummies —
-but unlike FNL there is no portability deadline driving the work.
+testability per R4, not a portability fix.
 
-A full CPU audit will be added here as a follow-up at Step 5 entry,
-mirroring the corrected per-line table above for the CPU file.
+**A CPU audit was performed and Step 5 was deliberately skipped.**
+Findings:
+
+- ~10 host methods in `adam_prism_cpu_object.F90` carry inline loop
+  nests that read `self%` — directly or through `associate` aliasing.
+  Candidates would have been `impose_ct_correction`,
+  `compute_residuals_fd_centered` (4 branches), `compute_residuals_fv_centered`
+  (5 branches), `compute_e`/`compute_coil_power`/`compute_Poynting_flux`
+  (contained inside `compute_energy`; they read `self%q` via host
+  association even though they ARE contained subroutines),
+  `mark_by_j_vec_total_variation`, `update_q_BC`,
+  `impose_div_coil_correction`.
+
+- The plan explicitly classifies the CPU pass as "strictly speaking
+  unnecessary for compiler portability (GNU and Intel don't have the
+  chain bug)" — its only payoff is R4 testability and pattern
+  consistency with FNL.
+
+- No subsequent step (6, 7) depends on Step 5. Step 6 (`forest_object`
+  cutover) modifies ownership and addressing, not kernel shape.
+
+- The CPU side's pattern is internally consistent today: every method
+  uses `associate` + inline loop. Refactoring some-but-not-all would
+  introduce a *new* inconsistency. Refactoring all would be ~10 commits
+  with no concrete payoff and real loop-ordering-changes-FP-noise risk.
+
+Decision (2026-05-15): skip Step 5 entirely. Migration proceeds Step 4
+→ Step 6. If R4 testability becomes the limiting factor later (e.g. for
+a unit-test campaign on individual kernels), Step 5 can be revisited as
+a self-contained refactor sweep with no migration dependencies blocking
+it.
