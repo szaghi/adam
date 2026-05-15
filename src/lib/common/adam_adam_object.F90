@@ -3,16 +3,16 @@ module adam_adam_object
 !< ADAM, ADAM class definition.
 
 ! ADAM classes, libraries, parameters
+use :: adam_field_object,           only : field_object
+use :: adam_grid_object,            only : grid_object
+use :: adam_maps_object,            only : maps_object
 use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
+use :: adam_tree_object,            only : tree_object
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_field_global, only : field
-use :: adam_grid_global,  only : grid
-use :: adam_maps_global,  only : maps
 use :: adam_mpih_global,  only : mpih
-use :: adam_tree_global,  only : tree
 ! third party modules
 use :: finer, only : file_ini
 use :: motion
@@ -28,6 +28,13 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
+   ! Owned sub-objects — Step 1 of forest-of-trees migration (issue #10).
+   ! Value components (no pointers): kernels never see this type, so the
+   ! pointer-to-derived-type chain-resolution bug class is irrelevant here.
+   type(grid_object)  :: grid  !< Structured-block grid.
+   type(tree_object)  :: tree  !< Morton-order octree/quadtree.
+   type(field_object) :: field !< Field variable storage.
+   type(maps_object)  :: maps  !< Communication/local maps for ghost cells.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
@@ -55,17 +62,17 @@ contains
    !< Adapt tree/field accordingly to refine/derefine necessity.
    class(adam_object), intent(inout) :: self  !< ADAM.
    real(R8P),          intent(inout) :: q(1:,         &
-                                          1-grid%ngc:,&
-                                          1-grid%ngc:,&
-                                          1-grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
                                           1:) !< Field cell centered variables.
    type(refinement_plan_object) :: plan !< Refinement plan produced by tree, consumed by field.
 
-   call tree%adapt(plan=plan)
+   call self%tree%adapt(plan=plan)
 
    call self%check_blocks_number
 
-   call field%adapt(plan=plan, q=q)
+   call self%field%adapt(plan=plan, q=q)
    endsubroutine adapt
 
    subroutine amr_update(self, q, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed)
@@ -77,9 +84,9 @@ contains
    !< otherwise mpi_gather_refinement_nedeed is not safe (having wrong nodes number counters).
    class(adam_object), intent(inout)         :: self                 !< ADAM.
    real(R8P),          intent(inout)         :: q(1:,              &
-                                                  1-grid%ngc:,&
-                                                  1-grid%ngc:,&
-                                                  1-grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
                                                   1:)                !< Field cell centered variables.
    logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
    logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
@@ -96,8 +103,8 @@ contains
 
    call self%adapt(q=q)
 
-   if (present(is_grid_changed)) is_grid_changed = (size(tree%node_to_refine,   dim=1)>0_I4P).or.&
-                                                   (size(tree%node_to_derefine, dim=1)>0_I4P)
+   if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
+                                                   (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
    if (do_mpi_redistribute_) call self%mpi_redistribute(q=q)
 
@@ -111,13 +118,13 @@ contains
    !< Reorder blocks (for asyncrhonous MPI)
    class(adam_object), intent(inout) :: self !< ADAM.
    real(R8P),          intent(inout) :: q(1:,              &
-                                          1-grid%ngc:,&
-                                          1-grid%ngc:,&
-                                          1-grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
                                           1:)!< Field cell centered variables.
 
-   call maps%blocks_reorder
-   call field%blocks_reorder(q=q)
+   call self%maps%blocks_reorder
+   call self%field%blocks_reorder(q=q)
    endsubroutine blocks_reorder
 
    subroutine check_blocks_number(self)
@@ -128,15 +135,15 @@ contains
    character(len=1), parameter       :: NL=new_line('a') !< New line character.
 
    max_nb = 0
-   do while(tree%loop(node_ptr=node_ptr))
+   do while(self%tree%loop(node_ptr=node_ptr))
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
-   if (max_nb > field%nb) then
+   if (max_nb > self%field%nb) then
       call mpih%abort(error_code=-101, msg='ERROR: the number of new blocks after AMR is greater than Nb'//NL//&
-                                                'max blocks numer available [Nb]: '//trim(str(field%nb))//NL//&
+                                                'max blocks numer available [Nb]: '//trim(str(self%field%nb))//NL//&
                                                 'blocks numer required after AMR: '//trim(str(max_nb)))
    endif
-   call mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(field%nb))
+   call mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb))
    endsubroutine check_blocks_number
 
    subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
@@ -149,7 +156,7 @@ contains
    real(R8P)                                :: size_of_block !< Size (bytes) of (one) block.
    real(R8P)                                :: save_factor   !< Factor to avoid memory completely full.
 
-   size_of_block = (storage_size(1._R8P)/8._R8P) * grid%block_weight
+   size_of_block = (storage_size(1._R8P)/8._R8P) * self%grid%block_weight
    save_factor = 0.4_R8P
    nb = nint(save_factor * memory_avail*1e9 / (fields_number * size_of_block))
    nodes_number  = nb * mpih%procs_number
@@ -161,7 +168,7 @@ contains
    character(len=:), allocatable  :: desc             !< Description.
    character(len=1), parameter    :: NL=new_line('a') !< New line character.
 
-   desc = grid%description()//NL//tree%description()//NL//field%description()
+   desc = self%grid%description()//NL//self%tree%description()//NL//self%field%description()
    endfunction description
 
    subroutine load_restart_files(self, basename, t, time, q)
@@ -171,17 +178,17 @@ contains
    integer(I4P),       intent(out)   :: t         !< Time iteration.
    real(R8P),          intent(out)   :: time      !< Time.
    real(R8P),          intent(inout) :: q(1:,              &
-                                          1-grid%ngc:,&
-                                          1-grid%ngc:,&
-                                          1-grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
                                           1:)              !< Field cell centered variables.
    integer(I4P)                      :: file_unit !< Output file unit.
 
    open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
    read(unit=file_unit) t, time
    close(file_unit)
-   call tree%load_nodes(file_name=trim(adjustl(basename))//'.tnd')
-   call field%load_blocks(basename=basename, q=q)
+   call self%tree%load_nodes(file_name=trim(adjustl(basename))//'.tnd')
+   call self%field%load_blocks(basename=basename, q=q)
    endsubroutine load_restart_files
 
    subroutine initialize(self, file_parameters, memory_avail, add_adam, nv, verbose)
@@ -198,23 +205,23 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('adam_object%initialize start')
-   call grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%adam%grid%set_bc_type
+   call self%grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%grid%set_bc_type
    call self%compute_blocks_number(memory_avail=memory_avail,&
                                    fields_number=80,         & ! remember to change
                                    nb=nb,                    &
                                    nodes_number=nodes_number)
-   call tree%initialize(file_parameters=file_parameters,&
-                        nodes_number=nodes_number,      &
-                        add_adam=add_adam,              &
-                        verbose=verbose_)
-   call maps%initialize(verbose=verbose_)
-   call field%initialize(file_parameters=file_parameters,&
-                         nb=nb,                          &
-                         nv=nv,                          &
-                         verbose=verbose_)
+   call self%tree%initialize(file_parameters=file_parameters,&
+                             nodes_number=nodes_number,      &
+                             add_adam=add_adam,              &
+                             verbose=verbose_)
+   call self%maps%initialize(verbose=verbose_)
+   call self%field%initialize(file_parameters=file_parameters,&
+                              nb=nb,                          &
+                              nv=nv,                          &
+                              verbose=verbose_)
    if (verbose_) call mpih%print_message('adam_object%initialize finish')
-   if (verbose_) call mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(field%nb)))
-   if (verbose_) call mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(tree%nodes_number)))
+   if (verbose_) call mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))
+   if (verbose_) call mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
    endsubroutine initialize
 
    subroutine interpolate_at_point(self, itype, point, q, qp, is_mine, p, qc, ijk, xyz, code, v)
@@ -223,9 +230,9 @@ contains
    character(*),       intent(in)            :: itype     !< Type of interpolation.
    real(R8P),          intent(in)            :: point(3)  !< Interpolation point xyz coordinates.
    real(R8P),          intent(in)            :: q(1:,              &
-                                                  1-grid%ngc:,&
-                                                  1-grid%ngc:,&
-                                                  1-grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
                                                   1:)     !< Q variables to be interpolated.
    real(R8P),          intent(out)           :: qp(1:)    !< Q variables interpolated at given point.
    logical,            intent(out)           :: is_mine   !< Flag to check if point interpolation belongs to myrank.
@@ -241,11 +248,11 @@ contains
    real(R8P)                                 :: xyz_(3,8) !< Closest cells center-coordinates, local var.
    integer(I4P)                              :: i, j, k   !< Counter.
 
-   code_ = tree%get_closest_block(point=point)
-   node => tree%node(code=code_)
+   code_ = self%tree%get_closest_block(point=point)
+   node => self%tree%node(code=code_)
    if (node%myrank == mpih%myrank) then
       is_mine = .true.
-      call tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_)
+      call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_)
       select case(trim(itype))
       case('inverse_distance')
          call inverse_distance_interpolation
@@ -321,8 +328,8 @@ contains
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc start')
-   call maps%make_comm_local_maps_ghost(nv=field%nv)
-   call maps%make_local_maps_bc
+   call self%maps%make_comm_local_maps_ghost(nv=self%field%nv)
+   call self%maps%make_local_maps_bc
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc finish')
    endsubroutine make_comm_local_maps_ghost_bc
 
@@ -341,13 +348,13 @@ contains
    is_marked_by_tree_  = .false. ; if (present(is_marked_by_tree )) is_marked_by_tree_  = is_marked_by_tree
 
    if (is_marked_by_field_) then
-      call field%mpi_gather_refinements_needed
-      call field%get_refinements_needed(flags=flags, disp=disp)
-      call tree%import_refinements_needed(refinements_needed_all=flags, disp_count=disp)
+      call self%field%mpi_gather_refinements_needed
+      call self%field%get_refinements_needed(flags=flags, disp=disp)
+      call self%tree%import_refinements_needed(refinements_needed_all=flags, disp_count=disp)
    endif
 
    if (is_marked_by_tree_) then
-      call maps%mpi_gather_nodes_data(node_member='refinement_needed')
+      call self%maps%mpi_gather_nodes_data(node_member='refinement_needed')
    endif
    endsubroutine mpi_gather_refinement_needed
 
@@ -355,14 +362,14 @@ contains
    !< Redistribute nodes/blocks to processes, load balancing.
    class(adam_object), intent(inout) :: self !< ADAM.
    real(R8P),          intent(inout) :: q(1:,              &
-                                          1-grid%ngc:,&
-                                          1-grid%ngc:,&
-                                          1-grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
                                           1:)!< Field cell centered variables.
 
-   call tree%mpi_redistribute
-   call maps%make_comm_local_maps
-   call field%mpi_redistribute(q=q)
+   call self%tree%mpi_redistribute
+   call self%maps%make_comm_local_maps
+   call self%field%mpi_redistribute(q=q)
 
    endsubroutine mpi_redistribute
 
@@ -370,16 +377,16 @@ contains
    !< Prune nodes/blocks.
    class(adam_object), intent(inout)        :: self               !< Adam.
    real(R8P),          intent(inout)        :: q(1:,              &
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
                                                  1:)              !< Field cell centered variables.
    integer(I4P),       intent(inout)        :: ijkl_prune(4)      !< Maximum coordinates after which the prune operates.
    logical,            intent(in), optional :: do_blocks_reorder  !< Flag to activate blocks reorder.
    logical                                  :: do_blocks_reorder_ !< Flag to activate blocks reorder, local var.
 
    do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
-   call tree%prune(ijkl_prune=ijkl_prune)
+   call self%tree%prune(ijkl_prune=ijkl_prune)
    call self%mpi_redistribute(q=q)
    if (do_blocks_reorder_) call self%blocks_reorder(q=q)
    call self%make_comm_local_maps_ghost_bc
@@ -390,9 +397,9 @@ contains
    class(adam_object), intent(inout)        :: self                 !< Adam.
    integer(I4P),       intent(in)           :: refinement_levels    !< Number of refinement to be performed.
    real(R8P),          intent(inout)        :: q(1:,              &
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
                                                  1:)                !< Field cell centered variables.
    logical,            intent(in), optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
    logical,            intent(in), optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
@@ -400,7 +407,7 @@ contains
 
    call mpih%print_message('uniformly refine mesh with '//trim(str(refinement_levels))//' levels')
    do l=1, refinement_levels
-      call tree%mark_all_nodes(mark=TO_BE_REFINED)
+      call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
       call self%amr_update(q=q, do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
    enddo
    endsubroutine refine_uniform
@@ -412,9 +419,9 @@ contains
    integer(I4P),       intent(in) :: t         !< Time iteration.
    real(R8P),          intent(in) :: time      !< Time.
    real(R8P),          intent(in) :: q(1:,              &
-                                       1-grid%ngc:,&
-                                       1-grid%ngc:,&
-                                       1-grid%ngc:,&
+                                       1-self%grid%ngc:,&
+                                       1-self%grid%ngc:,&
+                                       1-self%grid%ngc:,&
                                        1:)     !< Field cell centered variables.
    integer(I4P)                   :: file_unit !< Output file unit.
 
@@ -422,9 +429,9 @@ contains
       open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
       write(unit=file_unit) t, time
       close(file_unit)
-      call tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
+      call self%tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
    endif
-   call field%save_blocks(basename=basename, q=q)
+   call self%field%save_blocks(basename=basename, q=q)
    endsubroutine save_restart_files
 
    subroutine save_slice(self, itype, points, basename, q, q_name, phi, t, time)
@@ -434,15 +441,15 @@ contains
    real(R8P),          intent(in)           :: points(1:,1:,1:,1:)   !< Interpolation points coordinates [1:3,1:ni,1:nj,1:nk].
    character(*),       intent(in)           :: basename              !< Base name of output files.
    real(R8P),          intent(in)           :: q(1:,              &
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
                                                  1:)                 !< Q variables to be saved.
    character(*),       intent(in), optional :: q_name(:)             !< Variables names.
    real(R8P),          intent(in), optional :: phi(1:,              &
-                                                   1-grid%ngc:,&
-                                                   1-grid%ngc:,&
-                                                   1-grid%ngc:) !< Distance function.
+                                                   1-self%grid%ngc:,&
+                                                   1-self%grid%ngc:,&
+                                                   1-self%grid%ngc:) !< Distance function.
    integer(I4P),       intent(in), optional :: t                     !< Time iteration.
    real(R8P),          intent(in), optional :: time                  !< Time.
    character(:), allocatable                :: q_name_(:)            !< Variables names, local var.
@@ -494,7 +501,7 @@ contains
                ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, error)
                call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
                if (present(phi)) then
-                  node => tree%node(code=code)
+                  node => self%tree%node(code=code)
                   offset = offset + 8 * size(q, dim=1)
                   ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1)), 1, &
                   !                            MPI_REAL8, MPI_STATUS_IGNORE, error)
@@ -514,14 +521,14 @@ contains
    class(adam_object), intent(inout)        :: self                                          !< ADAM.
    character(*),       intent(in)           :: basename                                      !< Base name of output files.
    real(R8P),          intent(in)           :: q(1:,              &
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
                                                  1:)                                         !< Q variables to be saved.
    real(R8P),          intent(in), optional :: q_aux(1:,              &
-                                                     1-grid%ngc:,&
-                                                     1-grid%ngc:,&
-                                                     1-grid%ngc:,&
+                                                     1-self%grid%ngc:,&
+                                                     1-self%grid%ngc:,&
+                                                     1-self%grid%ngc:,&
                                                      1:)                                     !< Q auxiliary variables to be saved.
    character(*),       intent(in), optional :: directory                                     !< Output directory name.
    character(*),       intent(in), optional :: q_name(:)                                     !< Variables names.
@@ -543,9 +550,9 @@ contains
    integer(I4P)                             :: max_level                                     !< Maximum level.
    integer(I4P)                             :: ngc                                           !< Ghost cells saved.
    integer(I4P)                             :: error                                         !< Error traping flag.
-   real(R8P)                                :: x(0-grid%ngc:grid%ni+grid%ngc) !< X coordinates.
-   real(R8P)                                :: y(0-grid%ngc:grid%nj+grid%ngc) !< Y coordinates.
-   real(R8P)                                :: z(0-grid%ngc:grid%nk+grid%ngc) !< Z coordinates.
+   real(R8P)                                :: x(0-self%grid%ngc:self%grid%ni+self%grid%ngc) !< X coordinates.
+   real(R8P)                                :: y(0-self%grid%ngc:self%grid%nj+self%grid%ngc) !< Y coordinates.
+   real(R8P)                                :: z(0-self%grid%ngc:self%grid%nk+self%grid%ngc) !< Z coordinates.
 
    if (present(q_name)) then
       allocate(character(len(q_name(1))):: q_name_(size(q, dim=1)))
@@ -564,23 +571,23 @@ contains
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
    with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
    if (with_ghost_) then
-      ngc = grid%ngc
+      ngc = self%grid%ngc
    else
       ngc = 0_I4P
    endif
-   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
       max_level = 0_I4P
-      vtr_loop : do b=1, field%blocks_number
-         call grid%compute_metrics(coordinates=field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
-         max_level = max(max_level, field%coordinates(4,b))
+      vtr_loop : do b=1, self%field%blocks_number
+         call self%grid%compute_metrics(coordinates=self%field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
+         max_level = max(max_level, self%field%coordinates(4,b))
          error = vtk%initialize(format='raw', filename=directory_//trim(basename)//                          &
-                                                       '-morton-'//trim(str(field%code(b),.true.))//    &
+                                                       '-morton-'//trim(str(self%field%code(b),.true.))//    &
                                                        '-block-'//trim(str(b,.true.))//                      &
                                                        '-proc-'//trim(str(mpih%myrank,.true.))//'.vtr', &
                                 mesh_topology='RectilinearGrid',                                             &
                                 nx1=0-ngc, nx2=ni+ngc, ny1=0-ngc, ny2=nj+ngc, nz1=0-ngc, nz2=nk+ngc)
                             error = vtk%xml_writer%write_fielddata(action='open')
-                            error = vtk%xml_writer%write_fielddata(data_name='Morton', x=field%code(b))
+                            error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
                             error = vtk%xml_writer%write_fielddata(data_name='myrank', x=mpih%myrank)
          if (present(t))    error = vtk%xml_writer%write_fielddata(data_name='t', x=t)
          if (present(time)) error = vtk%xml_writer%write_fielddata(data_name='time', x=time)
@@ -600,7 +607,7 @@ contains
          endif
          if (with_cell_morton_) then
             error = vtk%xml_writer%write_dataarray(data_name='morton', &
-                                                   x=reshape([(field%code(b),i=1,(ni+2*ngc)*(nj+2*ngc)*(nk+2*ngc))], &
+                                                   x=reshape([(self%field%code(b),i=1,(ni+2*ngc)*(nj+2*ngc)*(nk+2*ngc))], &
                                                              [ni+2*ngc,nj+2*ngc,nk+2*ngc]))
          endif
          error = vtk%xml_writer%write_dataarray(location='cell', action='close')
@@ -614,11 +621,11 @@ contains
          vtm_group_loop : do l=1, max_level
             error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
          enddo vtm_group_loop
-         vtm_filenames_loop : do while(tree%loop(node_ptr=node))
+         vtm_filenames_loop : do while(self%tree%loop(node_ptr=node))
             b = node%block_index
-            l = tree%level(code=node%code)
+            l = self%tree%level(code=node%code)
             error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//                                   &
-                                                                        '-morton-'//trim(str(field%code(b),.true.))// &
+                                                                        '-morton-'//trim(str(self%field%code(b),.true.))// &
                                                                         '-block-'//trim(str(b,.true.))//                   &
                                                                         '-proc-'//trim(str(mpih%myrank,.true.))//'.vtr')
          enddo vtm_filenames_loop

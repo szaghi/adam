@@ -10,6 +10,7 @@ module adam_globals
 
 ! ADAM global singletons
 use :: adam_mpih_global,  only : mpih
+use :: adam_adam_global,  only : adam
 use :: adam_grid_global,  only : grid
 use :: adam_field_global, only : field
 use :: adam_maps_global,  only : maps
@@ -21,6 +22,7 @@ use :: adam_rk_global,    only : rk
 implicit none
 private
 public :: mpih
+public :: adam
 public :: grid
 public :: field
 public :: maps

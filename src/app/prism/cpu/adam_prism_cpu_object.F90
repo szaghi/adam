@@ -101,7 +101,7 @@ contains
                call self%mark_by_j_vec_total_variation(tv_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
                                                        delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
          endselect
-         call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
+         call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
       if (.not.is_grid_changed_all) then
@@ -1142,7 +1142,7 @@ contains
          call self%amr_update
       enddo
       call self%set_initial_conditions(is_restart=self%io%restart)
-      call self%adam%make_comm_local_maps_ghost_bc
+      call adam%make_comm_local_maps_ghost_bc
       time%time = 0._R8P
       time%it = 0
       call mpih%print_message('impose initial conditions finish')

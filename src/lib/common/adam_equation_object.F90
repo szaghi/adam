@@ -24,7 +24,8 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
-use :: adam_globals, only : field, grid, ib, mpih, rk, weno
+use :: adam_globals,    only : adam, field, grid, ib, mpih, rk, weno
+use :: adam_adam_bind,  only : bind_globals_to_adam
 ! third party modules
 use :: finer
 use :: motion
@@ -39,7 +40,6 @@ type :: equation_object
    !< Equation system class definition, common data to all backends and applications.
    ! ADAM library objects
    type(io_object)         :: io         !< IO handler.
-   type(adam_object)       :: adam       !< ADAM.
    type(amr_object)        :: amr        !< AMR marker handler.
    type(slices_object)     :: slices     !< Slices handler.
    type(blanesmoan_object) :: blanesmoan !< Blanes-Moan integrator.
@@ -205,7 +205,15 @@ contains
    if (verbose_) call mpih%print_message('equation_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-      call self%adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_)
+      ! Bind the four legacy shim singletons (grid, field, tree, maps) into
+      ! `adam`'s value components BEFORE adam%initialize. The shim aliases
+      ! the empty `adam%grid` shell; adam%initialize then populates that
+      ! shell, and the shim transparently sees the populated value. Binding
+      ! must happen here, not after: tree/field/maps sub-initializations
+      ! called inside adam%initialize read `grid%...` through the shim, so
+      ! the shim must be associated before they run. See issue #10 step 1.
+      call bind_globals_to_adam
+      call adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_)
       call self%amr%initialize(file_parameters=file_parameters)
       call ib%initialize(file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)

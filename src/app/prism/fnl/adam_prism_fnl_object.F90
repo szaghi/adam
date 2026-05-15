@@ -1557,7 +1557,7 @@ contains
          !if (ib%solids_number > 0) call self%compute_phi()
          !call self%amr_update
       enddo
-      call self%adam%make_comm_local_maps_ghost_bc
+      call adam%make_comm_local_maps_ghost_bc
       call self%set_initial_conditions(is_restart=self%io%restart)
       time%time = 0._R8P
       time%it = 0
