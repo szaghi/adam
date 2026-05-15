@@ -1999,14 +1999,12 @@ contains
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
    !< Note that self%divergence memory is used as buffer, be carefull.
-   class(prism_fnl_object), intent(inout) :: self      !< The equation.
-   integer(I4P),            intent(in)    :: ivar      !< Variable (start) index in q.
-   real(R8P)                              :: dq_max    !< Maximum residual.
-   integer(I4P)                           :: iter      !< Counter.
-   integer(I4P)                           :: i,j,k,b,v !< Counter.
+   class(prism_fnl_object), intent(inout) :: self   !< The equation.
+   integer(I4P),            intent(in)    :: ivar   !< Variable (start) index in q.
+   real(R8P)                              :: dq_max !< Maximum residual.
+   integer(I4P)                           :: iter   !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence_gpu,&
-             q_gpu=>self%q_gpu)
+   associate(blocks_number=>self%blocks_number)
    if (blocks_number>0) then
       ! call self%compute_divergence(ivar=ivar,ovar=4,q_gpu=q_gpu,divergence_gpu=buffer)
       do iter=1, self%flail%iterations
@@ -2023,20 +2021,39 @@ contains
       enddo
       call mpih_fnl%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
       ! call self%compute_gradient(ivar=1,q_gpu=buffer(:,:,:,:,7:7),gradient_gpu=buffer(:,:,:,:,4:6))
-      !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q_gpu,buffer)
+      call impose_ct_correction_kernel(ni            = self%ni,            &
+                                       nj            = self%nj,            &
+                                       nk            = self%nk,            &
+                                       ngc           = self%ngc,           &
+                                       blocks_number = blocks_number,      &
+                                       ivar          = ivar,               &
+                                       q_gpu         = self%q_gpu,         &
+                                       buffer_gpu    = self%divergence_gpu)
+   endif
+   endassociate
+   contains
+      subroutine impose_ct_correction_kernel(ni, nj, nk, ngc, blocks_number, ivar, q_gpu, buffer_gpu)
+      !< Apply the CT correction increment, device kernel.
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number          !< Grid dimensions.
+      integer(I4P), intent(in)    :: ivar                                    !< Variable (start) index in q.
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Conservative variables.
+      real(R8P),    intent(in)    :: buffer_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Correction buffer (self%divergence_gpu shape).
+      integer(I4P)                :: i, j, k, b, v                           !< Counter.
+
+      !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q_gpu,buffer_gpu) &
+      !$acc& firstprivate(ni,nj,nk,blocks_number,ivar)
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   do v=1, 3
-                     q_gpu(b,i,j,k,ivar+v-1) = q_gpu(b,i,j,k,ivar+v-1) + buffer(b,i,j,k,3+v)
+                     q_gpu(b,i,j,k,ivar+v-1) = q_gpu(b,i,j,k,ivar+v-1) + buffer_gpu(b,i,j,k,3+v)
                   enddo
                enddo
             enddo
          enddo
       enddo
-   endif
-   endassociate
+      endsubroutine impose_ct_correction_kernel
    endsubroutine impose_ct_correction
 
    subroutine impose_div_free(self)
