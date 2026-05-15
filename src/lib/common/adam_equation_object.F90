@@ -46,6 +46,15 @@ type :: equation_object
    type(cfm_object)        :: cfm        !< Commutator-Free Magnus integrator.
    type(leapfrog_object)   :: leapfrog   !< Leapfrog integrator.
    type(flail_object)      :: flail      !< Linear algebra methods handler.
+   ! Owned sub-objects — Step 2 of forest-of-trees migration (issue #10).
+   ! Value components: weno/ib/rk are now first-class state of the equation
+   ! and live in the running solver instance (prism, etc.) rather than in
+   ! parallel module-scope singletons. The adam_*_global modules become
+   ! pointer shims aliased into these components by inline pointer
+   ! assignments in initialize (no separate binder module — see note there).
+   type(weno_object) :: weno !< WENO reconstructor.
+   type(ib_object)   :: ib   !< Immersed boundary.
+   type(rk_object)   :: rk   !< Runge-Kutta integrator.
    ! FDV data
    character(:), allocatable :: fdv_scheme                   !< FDV scheme, fd/fv.
    integer(I4P)              :: fdv_order=2_I4P              !< Order of finite difference/volume schemes, general order.
@@ -214,13 +223,31 @@ contains
       ! the shim must be associated before they run. See issue #10 step 1.
       call bind_globals_to_adam
       call adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_)
+      ! Step 2 of forest-of-trees migration (issue #10): bind the three legacy
+      ! shim singletons (weno, ib, rk) into `self`'s value components BEFORE
+      ! their sub-initializations. Same shell-then-populate trick as the adam
+      ! shim binding above: the shim aliases the empty `self%weno` shell;
+      ! self%weno%initialize then populates that shell; the shim transparently
+      ! sees the populated value. Required because consumers (fdv operators,
+      ! prism kernels, etc.) read `weno%...` / `ib%...` / `rk%...` through the
+      ! shim across the codebase.
+      !
+      ! The binding is inlined here rather than delegated to a separate
+      ! `adam_equation_bind` module: that module would need to `use ::
+      ! adam_equation_object`, and this module would need to `use ::
+      ! adam_equation_bind` to call it — a direct circular dependency. The
+      ! adam binder works because adam_adam_object does not need the binder
+      ! itself; the same is not true for equation_object.
+      weno => self%weno
+      ib   => self%ib
+      rk   => self%rk
       call self%amr%initialize(file_parameters=file_parameters)
-      call ib%initialize(file_parameters=file_parameters)
+      call self%ib%initialize(file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
       ! call self%cfm%initialize(file_parameters=file_parameters)
       ! call self%leapfrog%initialize(file_parameters=file_parameters)
-      call rk%initialize(file_parameters=file_parameters)
+      call self%rk%initialize(file_parameters=file_parameters)
       self%ngc           => grid%ngc
       self%ni            => grid%ni
       self%nj            => grid%nj
@@ -228,7 +255,7 @@ contains
       self%nb            => field%nb
       self%blocks_number => field%blocks_number
       self%nv            => field%nv
-      call weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+      call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
       call self%flail%initialize(file_parameters=file_parameters)
       call self%load_fdv_from_file(file_parameters=file_parameters)
    endassociate
