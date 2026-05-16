@@ -1,6 +1,37 @@
-!< ADAM, equation system class definition, common data to all backends and applications.
-module adam_equation_object
-!< ADAM, equation system class definition, common data to all backends and applications.
+!< ADAM, realm class definition — common per-realm state and orchestrator contract.
+module adam_realm_object
+!< ADAM, realm class definition — common per-realm state and orchestrator contract.
+!<
+!< A **realm** is the unit the [[forest_object]] orchestrator tends. The name is
+!< the crasi of two aspects this type entails simultaneously:
+!<
+!<   1. A **physical-numerical model**: the PDE system, numerics configuration,
+!<      time integrator, boundary conditions, etc. (math layer).
+!<   2. A **spatial region modelization**: the grid, the AMR Morton tree, the
+!<      field data, the communication maps (where layer).
+!<
+!< A realm has both **laws** (1) and **borders** (2). Neither name `equation_object`
+!< (math-only) nor `subdomain_object` (region-only) captured both aspects — hence
+!< `realm_object`, evoking a bounded territory governed by its own rules.
+!<
+!< Consumer apps (PRISM, NASTO, CHASE, ...) **extend** `realm_object` to define
+!< their specific PDE family (`prism_common_object extends realm_object`, etc.).
+!< Each extended type adds app-private data and overrides the orchestrator
+!< contract TBPs.
+!<
+!< The orchestrator contract is the set of TBPs carrying the **`_forest`** suffix.
+!< These are the methods [[forest_object]] may call on a realm; `grep "_forest"`
+!< across the codebase reveals the entire orchestrator contract surface. Three
+!< architectural rules govern these TBPs (see issue #10, Step 6 Phase A.2):
+!<
+!<   * O1 — signature uses only ADAM-lib-visible types (intrinsic kinds plus
+!<     `class(realm_object)`, `grid_object`, etc.). Apps override the
+!<     implementation; signatures are sacred.
+!<   * O2 — app-specific dispatch (which integrator, which physics) lives in
+!<     `self%`'s components, not in orchestrator-supplied arguments.
+!<   * O3 — `q` is never public on `realm_object`. Halo exchange between realms
+!<     (Phase D work) goes through realm-side TBPs that operate on q internally;
+!<     the orchestrator schedules but never touches q.
 
 ! ADAM classes, libraries, parameters
 use :: adam_adam_object
@@ -34,9 +65,9 @@ use :: stringifor
 
 implicit none
 private
-public :: equation_object
+public :: realm_object
 
-type :: equation_object
+type :: realm_object
    !< Equation system class definition, common data to all backends and applications.
    ! ADAM library objects
    type(io_object)         :: io         !< IO handler.
@@ -107,13 +138,13 @@ type :: equation_object
       procedure, pass(self), private :: compute_gradient_fv              !< Compute gradient of scalar field, finite volume.
       procedure, pass(self), private :: compute_laplacian_fd             !< Compute laplacian of scalar field, finite difference.
       procedure, pass(self), private :: compute_laplacian_fv             !< Compute laplacian of scalar field, finite volume.
-endtype equation_object
+endtype realm_object
 
 interface
    subroutine compute_block_total_variation_interface(self, hs, dxyz, ivar, q, tot_var_field, total_variation)
    !< Return the max of block total variation for a given var.
-   import :: equation_object, I4P, R8P
-   class(equation_object), intent(in)     :: self                                                 !< Coils.
+   import :: realm_object, I4P, R8P
+   class(realm_object), intent(in)     :: self                                                 !< Coils.
    integer(I4P),           intent(in)     :: hs                                                   !< FDV half stencil length.
    real(R8P),              intent(in)     :: dxyz(3)                                              !< Space steps.
    integer(I4P),           intent(in)     :: ivar                                                 !< Index of first component of vec field.
@@ -124,8 +155,8 @@ interface
 
    subroutine compute_curl_interface(self, hs, ivar, q, curl)
    !< Compute curl of vector field, curl(q(ivar:ivar+2)).
-   import :: equation_object, I4P, R8P
-   class(equation_object), intent(in)    :: self                                            !< The equation.
+   import :: realm_object, I4P, R8P
+   class(realm_object), intent(in)    :: self                                            !< The equation.
    integer(I4P),           intent(in)    :: hs                                              !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                            !< Start index of variable of q.
    real(R8P),              intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -134,8 +165,8 @@ interface
 
    subroutine compute_derivative1_interface(self, hs, dir, ivar, q, dq_ds)
    !< Compute first derivative of scalar field, dq(ivar)/ds.
-   import :: equation_object, I4P, R8P
-   class(equation_object), intent(in)    :: self                                             !< The equation.
+   import :: realm_object, I4P, R8P
+   class(realm_object), intent(in)    :: self                                             !< The equation.
    integer(I4P),           intent(in)    :: hs                                               !< FDV half stencil length.
    integer(I4P),           intent(in)    :: dir                                              !< Direction: 1=X, 2=Y, 3=Z.
    integer(I4P),           intent(in)    :: ivar                                             !< Index of variable of q.
@@ -145,8 +176,8 @@ interface
 
    subroutine compute_derivative2_interface(self, hs, dir, ivar, q, d2q_ds2)
    !< Compute second derivative of scalar field, d2q(ivar)/ds2.
-   import :: equation_object, I4P, R8P
-   class(equation_object), intent(in)    :: self                                               !< The equation.
+   import :: realm_object, I4P, R8P
+   class(realm_object), intent(in)    :: self                                               !< The equation.
    integer(I4P),           intent(in)    :: hs                                                 !< FDV half stencil length.
    integer(I4P),           intent(in)    :: dir                                                !< Direction: 1=X, 2=Y, 3=Z.
    integer(I4P),           intent(in)    :: ivar                                               !< Index of variable of q.
@@ -156,8 +187,8 @@ interface
 
    subroutine compute_derivative4_interface(self, hs, dir, ivar, q, d4q_ds4)
    !< Compute fourth derivative of scalar field, d4q(ivar)/ds4.
-   import :: equation_object, I4P, R8P
-   class(equation_object), intent(in)    :: self                                               !< The equation.
+   import :: realm_object, I4P, R8P
+   class(realm_object), intent(in)    :: self                                               !< The equation.
    integer(I4P),           intent(in)    :: hs                                                 !< FDV half stencil length.
    integer(I4P),           intent(in)    :: dir                                                !< Direction: 1=X, 2=Y, 3=Z.
    integer(I4P),           intent(in)    :: ivar                                               !< Index of variable of q.
@@ -167,8 +198,8 @@ interface
 
    subroutine compute_divergence_interface(self, hs, ivar, q, divergence)
    !< Compute divergence of vector field, div(q(ivar:ivar+2)).
-   import :: equation_object, I4P, R8P
-   class(equation_object), intent(in)    :: self                                                  !< The equation.
+   import :: realm_object, I4P, R8P
+   class(realm_object), intent(in)    :: self                                                  !< The equation.
    integer(I4P),           intent(in)    :: hs                                                    !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                                  !< Start index of field of q.
    real(R8P),              intent(in)    :: q(         1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -177,8 +208,8 @@ interface
 
    subroutine compute_gradient_interface(self, hs, ivar, q, gradient)
    !< Compute gradient of scalar variable q(ivar).
-   import :: equation_object, I4P, R8P
-   class(equation_object), intent(in)    :: self                                                  !< The equation.
+   import :: realm_object, I4P, R8P
+   class(realm_object), intent(in)    :: self                                                  !< The equation.
    integer(I4P),           intent(in)    :: hs                                                    !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                                  !< Index of scalar variable of q.
    real(R8P),              intent(in)    :: q(        1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)  !< Field variables.
@@ -187,8 +218,8 @@ interface
 
    subroutine compute_laplacian_interface(self, hs, ivar, q, laplacian)
    !< Compute laplacian of scalar variable q(ivar).
-   import :: equation_object, I4P, R8P
-   class(equation_object), intent(in)    :: self                                                  !< The equation.
+   import :: realm_object, I4P, R8P
+   class(realm_object), intent(in)    :: self                                                  !< The equation.
    integer(I4P),           intent(in)    :: hs                                                    !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                                  !< Index of scalar variable of q.
    real(R8P),              intent(in)    :: q(        1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)  !< Field variables.
@@ -200,7 +231,7 @@ contains
    ! public methods
    subroutine initialize(self, filename, memory_avail, nv, verbose)
    !< Initialize common data: MPI, ADAM, grid, field and data replica pointers.
-   class(equation_object), intent(inout), target :: self         !< The equation.
+   class(realm_object), intent(inout), target :: self         !< The equation.
    character(*),           intent(in)            :: filename     !< Input parameters file name.
    real(R8P),              intent(in), value     :: memory_avail !< Memory available for single MPI process.
    integer(I4P),           intent(in), optional  :: nv           !< Number of field variables.
@@ -211,7 +242,7 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call mpih%initialize(verbose=verbose_)
-   if (verbose_) call mpih%print_message('equation_object%initialize start')
+   if (verbose_) call mpih%print_message('realm_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
       ! Bind the four legacy shim singletons (grid, field, tree, maps) into
@@ -234,10 +265,10 @@ contains
       !
       ! The binding is inlined here rather than delegated to a separate
       ! `adam_equation_bind` module: that module would need to `use ::
-      ! adam_equation_object`, and this module would need to `use ::
+      ! adam_realm_object`, and this module would need to `use ::
       ! adam_equation_bind` to call it — a direct circular dependency. The
       ! adam binder works because adam_adam_object does not need the binder
-      ! itself; the same is not true for equation_object.
+      ! itself; the same is not true for realm_object.
       weno => self%weno
       ib   => self%ib
       rk   => self%rk
@@ -263,7 +294,7 @@ contains
 
    subroutine load_fdv_from_file(self, file_parameters, go_on_fail)
    !< Load FDV config from file.
-   class(equation_object), intent(inout)        :: self                   !< The equation.
+   class(realm_object), intent(inout)        :: self                   !< The equation.
    type(file_ini),         intent(in)           :: file_parameters        !< Simulation parameters ini file handler.
    logical,                intent(in), optional :: go_on_fail             !< Go on if load fails.
    logical                                      :: go_on_fail_            !< Go on if load fails.
@@ -329,7 +360,7 @@ contains
 
    subroutine open_block_xh5f(self, xh5f, b, nijk, t, time)
    !< Open XH5F file block.
-   class(equation_object), intent(inout)        :: self    !< The equation.
+   class(realm_object), intent(inout)        :: self    !< The equation.
    type(xh5f_file_object), intent(inout)        :: xh5f    !< XH5F file handler.
    integer(I4P),           intent(in)           :: b       !< Block index.
    integer(I8P),           intent(in)           :: nijk(3) !< Blocks dimensions.
@@ -361,7 +392,7 @@ contains
 
    subroutine open_file_xh5f(self, basename, xh5f, directory)
    !< Open XH5F file.
-   class(equation_object), intent(inout)        :: self          !< The equation.
+   class(realm_object), intent(inout)        :: self          !< The equation.
    character(*),           intent(in)           :: basename      !< Base name of output files.
    type(xh5f_file_object), intent(out)          :: xh5f          !< XH5F file handler.
    character(*),           intent(in), optional :: directory     !< Directory name of output files.
@@ -379,7 +410,7 @@ contains
 
    subroutine save_q_xh5f(self, basename, q, q_name, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in XH5F format.
-   class(equation_object), intent(inout)        :: self                   !< The equation.
+   class(realm_object), intent(inout)        :: self                   !< The equation.
    character(*),           intent(in)           :: basename                !< Base name of output files.
    real(R8P),              intent(in)           :: q(1:,              &
                                                      1-grid%ngc:,&
@@ -468,7 +499,7 @@ contains
    ! FDV operators numerical methods
    subroutine compute_block_total_variation_fd(self, hs, dxyz, ivar, q, tot_var_field, total_variation)
    !< Return the max of block total variation for a given var.
-   class(equation_object), intent(in)     :: self                                                 !< Coils.
+   class(realm_object), intent(in)     :: self                                                 !< Coils.
    integer(I4P),           intent(in)     :: hs                                                   !< FDV half stencil length.
    real(R8P),              intent(in)     :: dxyz(3)                                              !< Space steps.
    integer(I4P),           intent(in)     :: ivar                                                 !< Index of first component of vec field.
@@ -501,7 +532,7 @@ contains
 
    subroutine compute_curl_fd(self, hs, ivar, q, curl)
    !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
-   class(equation_object), intent(in)    :: self                                            !< The equation.
+   class(realm_object), intent(in)    :: self                                            !< The equation.
    integer(I4P),           intent(in)    :: hs                                              !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                            !< Start index of variable of q.
    real(R8P),              intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -523,7 +554,7 @@ contains
 
    subroutine compute_curl_fv(self, hs, ivar, q, curl)
    !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
-   class(equation_object), intent(in)    :: self                                            !< The equation.
+   class(realm_object), intent(in)    :: self                                            !< The equation.
    integer(I4P),           intent(in)    :: hs                                              !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                            !< Start index of variable of q.
    real(R8P),              intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -545,7 +576,7 @@ contains
 
    subroutine compute_derivative1_fd(self, hs, dir, ivar, q, dq_ds)
    !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite difference schemes.
-   class(equation_object), intent(in)    :: self                                         !< The equation.
+   class(realm_object), intent(in)    :: self                                         !< The equation.
    integer(I4P),           intent(in)    :: hs                                           !< FDV half stencil length.
    integer(I4P),           intent(in)    :: dir                                          !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P),           intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
@@ -592,7 +623,7 @@ contains
 
    subroutine compute_derivative1_fv(self, hs, dir, ivar, q, dq_ds)
    !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite volume schemes.
-   class(equation_object), intent(in)    :: self                                         !< The equation.
+   class(realm_object), intent(in)    :: self                                         !< The equation.
    integer(I4P),           intent(in)    :: hs                                           !< FDV half stencil length.
    integer(I4P),           intent(in)    :: dir                                          !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P),           intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
@@ -638,7 +669,7 @@ contains
 
    subroutine compute_derivative2_fd(self, hs, dir, ivar, q, d2q_ds2)
    !< Compute derivative2 of scalar fields, d2q(ivar)/ds2, using finite difference schemes.
-   class(equation_object), intent(in)    :: self                                           !< The equation.
+   class(realm_object), intent(in)    :: self                                           !< The equation.
    integer(I4P),           intent(in)    :: hs                                             !< FDV half stencil length.
    integer(I4P),           intent(in)    :: dir                                            !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P),           intent(in)    :: ivar                                           !< Start index of vec variable of q.
@@ -685,7 +716,7 @@ contains
 
    subroutine compute_derivative2_fv(self, hs, dir, ivar, q, d2q_ds2)
    !< Compute derivative2 of scalar fields, d2q(ivar)/ds2, using finite volume schemes.
-   class(equation_object), intent(in)    :: self                                            !< The equation.
+   class(realm_object), intent(in)    :: self                                            !< The equation.
    integer(I4P),           intent(in)    :: hs                                              !< FDV half stencil length.
    integer(I4P),           intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P),           intent(in)    :: ivar                                            !< Start index of variable of q.
@@ -732,7 +763,7 @@ contains
 
    subroutine compute_derivative4_fd(self, hs, dir, ivar, q, d4q_ds4)
    !< Compute derivative2 of scalar fields, d4q(ivar)/ds4, using finite difference schemes.
-   class(equation_object), intent(in)    :: self                                            !< The equation.
+   class(realm_object), intent(in)    :: self                                            !< The equation.
    integer(I4P),           intent(in)    :: hs                                              !< FDV half stencil length.
    integer(I4P),           intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P),           intent(in)    :: ivar                                            !< Start index of variable of q.
@@ -779,7 +810,7 @@ contains
 
    subroutine compute_divergence_fd(self, hs, ivar, q, divergence)
    !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
-   class(equation_object), intent(in)    :: self                                               !< The equation.
+   class(realm_object), intent(in)    :: self                                               !< The equation.
    integer(I4P),           intent(in)    :: hs                                                 !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                               !< Start index of field of q.
    real(R8P),              intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -802,7 +833,7 @@ contains
 
    subroutine compute_divergence_fv(self, hs, ivar, q, divergence)
    !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
-   class(equation_object), intent(in)    :: self                                               !< The equation.
+   class(realm_object), intent(in)    :: self                                               !< The equation.
    integer(I4P),           intent(in)    :: hs                                                 !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                               !< Start index of field of q.
    real(R8P),              intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -825,7 +856,7 @@ contains
 
    subroutine compute_gradient_fd(self, hs, ivar, q, gradient)
    !< Compute gradient of scalar variable q(ivar), finite difference schemes.
-   class(equation_object), intent(in)    :: self                                               !< The equation.
+   class(realm_object), intent(in)    :: self                                               !< The equation.
    integer(I4P),           intent(in)    :: hs                                                 !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                               !< Index of scalar variable of q.
    real(R8P),              intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
@@ -848,7 +879,7 @@ contains
 
    subroutine compute_gradient_fv(self, hs, ivar, q, gradient)
    !< Compute gradient of scalar variable q(ivar), finite volume schemes.
-   class(equation_object), intent(in)    :: self                                               !< The equation.
+   class(realm_object), intent(in)    :: self                                               !< The equation.
    integer(I4P),           intent(in)    :: hs                                                 !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                               !< Index of scalar variable of q.
    real(R8P),              intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
@@ -871,7 +902,7 @@ contains
 
    subroutine compute_laplacian_fd(self, hs, ivar, q, laplacian)
    !< Compute laplacian of scalar variable q(ivar), finite difference schemes.
-   class(equation_object), intent(in)    :: self                                              !< The equation.
+   class(realm_object), intent(in)    :: self                                              !< The equation.
    integer(I4P),           intent(in)    :: hs                                                !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                              !< Index of scalar variable of q.
    real(R8P),              intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -893,7 +924,7 @@ contains
 
    subroutine compute_laplacian_fv(self, hs, ivar, q, laplacian)
    !< Compute laplacian of scalar variable q(ivar), finite volume schemes.
-   class(equation_object), intent(in)    :: self                                              !< The equation.
+   class(realm_object), intent(in)    :: self                                              !< The equation.
    integer(I4P),           intent(in)    :: hs                                                !< FDV half stencil length.
    integer(I4P),           intent(in)    :: ivar                                              !< Index of scalar variable of q.
    real(R8P),              intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -912,4 +943,4 @@ contains
    enddo
    endassociate
    endsubroutine compute_laplacian_fv
-endmodule adam_equation_object
+endmodule adam_realm_object

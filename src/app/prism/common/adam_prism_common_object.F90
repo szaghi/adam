@@ -28,7 +28,7 @@ implicit none
 private
 public :: prism_common_object
 
-type, extends(equation_object) :: prism_common_object
+type, extends(realm_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
    ! physics data replica for easy handling
    integer(I4P), pointer :: nv_c=>null()  !< Number of conservative variables in q vector.
@@ -185,7 +185,7 @@ contains
    self%nv_s   => physics%nv_s
    self%nv_cl  => physics%nv_cl
    !self%nv_pic => physics%nv_pic
-   call self%equation_object%initialize(filename=filename, memory_avail=memory_avail, nv=physics%nv, verbose=verbose_)
+   call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=physics%nv, verbose=verbose_)
    call bc%initialize(file_parameters=file_parameters)
    call grid%set_bc_type(bc_type=bc%bc_type)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &
