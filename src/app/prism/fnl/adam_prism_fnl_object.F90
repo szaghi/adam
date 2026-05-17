@@ -91,6 +91,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! numerical methods, miscellanea
       procedure, pass(self) :: compute_dt           	!< Compute time step.
       procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
@@ -1613,9 +1614,8 @@ contains
       if ((time%it_max <= 0).and.(time%time+time%dt > time%time_max)) &
          time%dt=time%time_max-time%time
 
-      call self%integrate_dev
+      call self%advance_one_step_forest(dt=time%dt)
 
-      time%time = time%time + time%dt
       call time%print_progress(nodes_number=tree%nodes_number)
 
       call self%save_simulation_data
@@ -1691,6 +1691,30 @@ contains
       enddo
       endsubroutine compute_dxyz_min_kernel
    endsubroutine compute_local_dt_forest
+
+   subroutine advance_one_step_forest(self, dt)
+   !< Advance this realm by one full timestep of size `dt`.
+   !<
+   !< Invoked by forest%evolve_one_step once per realm per timestep. Owns
+   !< the integration itself — RK substages, BC application, intra-realm
+   !< ghost exchange, divergence cleaning — i.e. everything that turns
+   !< `q` at time `t` into `q` at time `t + dt`.
+   !<
+   !< PRISM-FNL override: thin wrapper around the legacy `integrate_dev`
+   !< procedure pointer dispatched by `numerics%scheme_time` at init.
+   !< `integrate_dev`'s body still reads `time%dt`, so the wrapper
+   !< propagates `dt` into the module-scope singleton before dispatching,
+   !< then advances `time%time`. Once `simulate` is fully retired in
+   !< favor of the forest's evolve loop, `time%dt` and `time%time` updates
+   !< move to the forest and this wrapper becomes a single
+   !< `call self%integrate_dev`.
+   class(prism_fnl_object), intent(inout) :: self !< The realm.
+   real(R8P),               intent(in)    :: dt   !< Timestep size.
+
+   time%dt = dt
+   call self%integrate_dev
+   time%time = time%time + dt
+   endsubroutine advance_one_step_forest
 
    subroutine compute_energy(self)
    !< Compute energy.

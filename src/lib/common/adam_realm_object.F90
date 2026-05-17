@@ -122,6 +122,7 @@ type :: realm_object
       ! Phase A.4. Default implementations here error-stop with a
       ! "not overridden" message; each consumer app must override.
       procedure, pass(self) :: compute_local_dt_forest !< Invoked by forest%compute_global_dt during the min reduction.
+      procedure, pass(self) :: advance_one_step_forest !< Invoked by forest%evolve_one_step per realm per timestep.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
       procedure, nopass     :: close_file_xh5f  !< Close XH5F file.
@@ -250,6 +251,29 @@ contains
    dt_local = 0._R8P ! quiet "may be uninitialised" warnings before the stop
    error stop 'realm_object%compute_local_dt_forest: not overridden by app extension'
    endsubroutine compute_local_dt_forest
+
+   subroutine advance_one_step_forest(self, dt)
+   !< Advance this realm by one full timestep of size `dt`.
+   !<
+   !< Invoked by forest%evolve_one_step once per realm per timestep. The
+   !< orchestrator owns global dt selection (compute_global_dt) and the
+   !< termination check; this method owns the integration itself — RK
+   !< substages, BC application, intra-realm ghost exchange, divergence
+   !< cleaning — i.e. everything that turns `q` at time `t` into `q` at
+   !< time `t + dt`.
+   !<
+   !< Default implementation error-stops: every consumer app MUST override
+   !< this method (the integrator catalog and the substage layout are
+   !< app-specific). PRISM's override lives on prism_cpu_object and
+   !< prism_fnl_object as a thin wrapper around the legacy `integrate`
+   !< / `integrate_dev` dispatch.
+   class(realm_object), intent(inout) :: self !< The realm.
+   real(R8P),           intent(in)    :: dt   !< Timestep size.
+
+   associate(dt_unused => dt) ! quiet "unused dummy" warnings before the stop
+   end associate
+   error stop 'realm_object%advance_one_step_forest: not overridden by app extension'
+   endsubroutine advance_one_step_forest
 
    ! public methods
    subroutine initialize(self, filename, memory_avail, nv, verbose)

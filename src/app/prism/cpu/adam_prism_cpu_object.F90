@@ -49,6 +49,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       ! numerical methods
       procedure, pass(self) :: compute_dt           !< Compute time step.
       procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       !< Compute energy.
       procedure, pass(self) :: compute_energy_error !< Compute energy error.
       procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
@@ -895,6 +896,29 @@ contains
    endassociate
    endsubroutine compute_local_dt_forest
 
+   subroutine advance_one_step_forest(self, dt)
+   !< Advance this realm by one full timestep of size `dt`.
+   !<
+   !< Invoked by forest%evolve_one_step once per realm per timestep. Owns
+   !< the integration itself — RK substages, BC application, intra-realm
+   !< ghost exchange, divergence cleaning — i.e. everything that turns
+   !< `q` at time `t` into `q` at time `t + dt`.
+   !<
+   !< PRISM-CPU override: thin wrapper around the legacy `integrate`
+   !< procedure pointer dispatched by `numerics%scheme_time` at init.
+   !< `integrate`'s body still reads `time%dt`, so the wrapper propagates
+   !< `dt` into the module-scope singleton before dispatching, then
+   !< advances `time%time`. Once `simulate` is fully retired in favor of
+   !< the forest's evolve loop, `time%dt` and `time%time` updates move
+   !< to the forest and this wrapper becomes a single `call self%integrate`.
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+   real(R8P),               intent(in)    :: dt   !< Timestep size.
+
+   time%dt = dt
+   call self%integrate
+   time%time = time%time + dt
+   endsubroutine advance_one_step_forest
+
    subroutine compute_energy(self)
    !< Compute energy.
    class(prism_cpu_object), intent(inout) :: self          !< The equation.
@@ -1249,9 +1273,8 @@ contains
       if ((time%it_max <= 0).and.(time%time+time%dt > time%time_max)) &
          time%dt=time%time_max-time%time
 
-      call self%integrate
+      call self%advance_one_step_forest(dt=time%dt)
 
-      time%time = time%time + time%dt
       call time%print_progress(nodes_number=tree%nodes_number)
 
       call self%save_simulation_data
