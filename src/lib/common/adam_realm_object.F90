@@ -123,6 +123,7 @@ type :: realm_object
       ! "not overridden" message; each consumer app must override.
       procedure, pass(self) :: compute_local_dt_forest !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest !< Invoked by forest%evolve_one_step per realm per timestep.
+      procedure, pass(self) :: post_step_forest        !< Invoked by forest%post_step per realm per timestep.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
       procedure, nopass     :: close_file_xh5f  !< Close XH5F file.
@@ -274,6 +275,38 @@ contains
    end associate
    error stop 'realm_object%advance_one_step_forest: not overridden by app extension'
    endsubroutine advance_one_step_forest
+
+   subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
+   !< Run this realm's per-timestep post-step work: diagnostics, IO, AMR.
+   !<
+   !< Invoked by forest%post_step once per realm per timestep, after the
+   !< advance. The orchestrator owns cadence decisions (when to save state,
+   !< when to refine the mesh, etc.) and conveys them via the optional
+   !< `do_*` flags; this method executes the work that those flags enable.
+   !< Cadence flags absent ⇒ caller wants the default cadence (today: do
+   !< everything every step, since save_*_data routines internally respect
+   !< the realm's own `it_save` settings).
+   !<
+   !< Default implementation error-stops: every consumer app MUST override
+   !< this method (the diagnostic catalog and IO layout are app-specific).
+   !< PRISM's override lives on prism_cpu_object and prism_fnl_object.
+   class(realm_object), intent(inout)        :: self              !< The realm.
+   real(R8P),           intent(in)           :: dt                !< Timestep size just advanced.
+   real(R8P),           intent(in)           :: t                 !< Simulation time after the advance.
+   integer(I4P),        intent(in)           :: it                !< Iteration index after the advance.
+   logical,             intent(in), optional :: do_save_state     !< Save state output this step.
+   logical,             intent(in), optional :: do_save_residuals !< Save residuals output this step.
+   logical,             intent(in), optional :: do_save_restart   !< Save restart dump this step.
+   logical,             intent(in), optional :: do_amr            !< Run AMR update this step.
+
+   associate(dt_unused => dt, t_unused => t, it_unused => it) ! quiet "unused dummy" warnings
+   end associate
+   if (present(do_save_state)) continue
+   if (present(do_save_residuals)) continue
+   if (present(do_save_restart)) continue
+   if (present(do_amr)) continue
+   error stop 'realm_object%post_step_forest: not overridden by app extension'
+   endsubroutine post_step_forest
 
    ! public methods
    subroutine initialize(self, filename, memory_avail, nv, verbose)

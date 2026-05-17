@@ -50,6 +50,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_dt           !< Compute time step.
       procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: post_step_forest        !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       !< Compute energy.
       procedure, pass(self) :: compute_energy_error !< Compute energy error.
       procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
@@ -919,6 +920,51 @@ contains
    time%time = time%time + dt
    endsubroutine advance_one_step_forest
 
+   subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
+   !< Run PRISM-CPU's per-timestep post-step work: state IO, energy
+   !< diagnostics, divergence diagnostics.
+   !<
+   !< Invoked by forest%post_step. v1 implementation is the verbatim post-
+   !< step block formerly inline in `simulate` — every action runs every
+   !< step, since today's cadence is enforced inside the save_* routines
+   !< themselves (e.g. save_simulation_data honours `io%it_save`). The
+   !< `do_*` flags are signature-only for now: when the forest takes over
+   !< cadence (Phase A.6 commit 8 / Phase C), the flags will gate the
+   !< individual calls. For now they are accepted but unused, preserving
+   !< present-day behavior bit-for-bit.
+   !<
+   !< `dt`, `t`, `it` are not consumed by the current body; they are on
+   !< the contract so the forest can supply them once it owns time-state
+   !< (today they are still read from the `time` module singleton).
+   class(prism_cpu_object), intent(inout)        :: self              !< The realm.
+   real(R8P),               intent(in)           :: dt                !< Timestep size just advanced.
+   real(R8P),               intent(in)           :: t                 !< Simulation time after the advance.
+   integer(I4P),            intent(in)           :: it                !< Iteration index after the advance.
+   logical,                 intent(in), optional :: do_save_state     !< Save state output this step.
+   logical,                 intent(in), optional :: do_save_residuals !< Save residuals output this step.
+   logical,                 intent(in), optional :: do_save_restart   !< Save restart dump this step.
+   logical,                 intent(in), optional :: do_amr            !< Run AMR update this step.
+
+   associate(dt_unused => dt, t_unused => t, it_unused => it) ! v1: dt/t/it not consumed yet
+   end associate
+   if (present(do_save_state)) continue
+   if (present(do_save_residuals)) continue
+   if (present(do_save_restart)) continue
+   if (present(do_amr)) continue
+
+   associate(hs => self%fdv_half_stencil)
+   call self%save_simulation_data
+   call self%update_ghost(q=self%q) ! Aggiunto da FN
+   call self%compute_energy
+   !call self%save_energy_error
+   call self%save_energy_history
+   call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   call self%save_divergence_history
+   endassociate
+   endsubroutine post_step_forest
+
    subroutine compute_energy(self)
    !< Compute energy.
    class(prism_cpu_object), intent(inout) :: self          !< The equation.
@@ -1277,15 +1323,7 @@ contains
 
       call time%print_progress(nodes_number=tree%nodes_number)
 
-      call self%save_simulation_data
-      call self%update_ghost(q=self%q) ! Aggiunto da FN
-      call self%compute_energy
-      !call self%save_energy_error
-      call self%save_energy_history
-      call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
-      call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-      call self%compute_divergence(hs=hs,ivar=physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
-      call self%save_divergence_history
+      call self%post_step_forest(dt=time%dt, t=time%time, it=time%it)
 
       if (((time%it_max <= 0).and.(time%time >= time%time_max)).or.&
          ((time%it>=time%it_max).and.(time%it_max > 0))) exit integration
