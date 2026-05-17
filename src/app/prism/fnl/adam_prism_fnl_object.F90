@@ -94,6 +94,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: post_step_forest        !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: finalize_forest         !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
@@ -1610,6 +1611,21 @@ contains
    endif
    endsubroutine initialize_forest
 
+   subroutine finalize_forest(self)
+   !< Shut this realm down: final state dump, close residuals file, finalize
+   !< MPI handler.
+   !<
+   !< Invoked by forest%finalize. v1 implementation is the verbatim post-
+   !< loop block formerly inline in `simulate`. Behavior unchanged.
+   class(prism_fnl_object), intent(inout) :: self !< The realm.
+
+   !call self%compute_energy_error !Cazzo
+   call self%save_simulation_data
+   call self%io%close_file_residuals
+
+   call mpih_fnl%finalize
+   endsubroutine finalize_forest
+
    subroutine simulate(self, filename)
    !< Perform the simulation.
    class(prism_fnl_object), intent(inout) :: self             !< The equation.
@@ -1653,11 +1669,7 @@ contains
       call mpih_fnl%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
    call mpih_fnl%barrier(tictoc=.true., timing=timing(2), single=.true.)
-   !call self%compute_energy_error !Cazzo
-   call self%save_simulation_data
-   call self%io%close_file_residuals
-
-   call mpih_fnl%finalize
+   call self%finalize_forest
    endsubroutine simulate
 
    ! numerical methods, miscellanea

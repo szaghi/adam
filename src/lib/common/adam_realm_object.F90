@@ -125,6 +125,7 @@ type :: realm_object
       procedure, pass(self) :: compute_local_dt_forest !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest !< Invoked by forest%evolve_one_step per realm per timestep.
       procedure, pass(self) :: post_step_forest        !< Invoked by forest%post_step per realm per timestep.
+      procedure, pass(self) :: finalize_forest         !< Invoked by forest%finalize per realm at shutdown.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
       procedure, nopass     :: close_file_xh5f  !< Close XH5F file.
@@ -343,6 +344,25 @@ contains
    if (present(do_amr)) continue
    error stop 'realm_object%post_step_forest: not overridden by app extension'
    endsubroutine post_step_forest
+
+   subroutine finalize_forest(self)
+   !< Shut this realm down: final state dump, final diagnostics, close
+   !< output files, finalize the realm's MPI handler.
+   !<
+   !< Invoked by forest%finalize once per realm at shutdown, after the
+   !< time loop exits. Mirror of initialize_forest: every IO file opened
+   !< in initialize_forest is closed here; every per-realm resource the
+   !< orchestrator did not acquire is released here.
+   !<
+   !< Default implementation error-stops: every consumer app MUST override
+   !< this method (the close-order and final-dump catalog are app-specific).
+   !< PRISM's override lives on prism_cpu_object/prism_fnl_object.
+   class(realm_object), intent(inout) :: self !< The realm.
+
+   associate(self_unused => self) ! quiet "unused dummy" warnings before the stop
+   end associate
+   error stop 'realm_object%finalize_forest: not overridden by app extension'
+   endsubroutine finalize_forest
 
    ! public methods
    subroutine initialize(self, filename, memory_avail, nv, verbose)

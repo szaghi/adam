@@ -52,6 +52,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: post_step_forest        !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: finalize_forest         !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       !< Compute energy.
       procedure, pass(self) :: compute_energy_error !< Compute energy error.
       procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
@@ -1317,6 +1318,36 @@ contains
    endassociate
    endsubroutine impose_ct_correction
 
+   subroutine finalize_forest(self)
+   !< Shut this realm down: final state dump, close residuals/energy/
+   !< divergence history files, post-loop divergence diagnostics, finalize
+   !< MPI handler.
+   !<
+   !< Invoked by forest%finalize. v1 implementation is the verbatim post-
+   !< loop block formerly inline in `simulate`. Behavior unchanged.
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+
+   !call self%compute_energy_error
+   call self%save_simulation_data
+   call self%io%close_file_residuals
+   !call self%save_energy_error(is_to_close=.true.)
+   !call mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
+   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_D))))))
+   !call mpih%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
+   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_B))))))
+   !call mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
+   !call mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
+   call self%save_energy_history(is_to_close=.true.)
+   call self%update_ghost(q=self%q) ! Aggiunto da FN
+   associate(hs => self%fdv_half_stencil)
+   call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   endassociate
+   call self%save_divergence_history(is_to_close=.true.)
+   call mpih%finalize
+   endsubroutine finalize_forest
+
    subroutine simulate(self, filename)
    !< Perform the simulation.
    class(prism_cpu_object), intent(inout) :: self             !< The equation.
@@ -1359,25 +1390,7 @@ contains
       call mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
    call mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
-   !call self%compute_energy_error
-   call self%save_simulation_data
-   call self%io%close_file_residuals
-   !call self%save_energy_error(is_to_close=.true.)
-   !call mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
-   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_D))))))
-   !call mpih%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
-   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_B))))))
-   !call mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
-   !call mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
-   call self%save_energy_history(is_to_close=.true.)
-   call self%update_ghost(q=self%q) ! Aggiunto da FN
-   associate(hs => self%fdv_half_stencil)
-   call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
-   endassociate
-   call self%save_divergence_history(is_to_close=.true.)
-   call mpih%finalize
+   call self%finalize_forest
    endsubroutine simulate
 
    ! pointer TBP concrete implementations
