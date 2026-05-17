@@ -121,6 +121,7 @@ type :: realm_object
       ! the surface forest_object may call on a realm. See issue #10 Step 6
       ! Phase A.4. Default implementations here error-stop with a
       ! "not overridden" message; each consumer app must override.
+      procedure, pass(self) :: initialize_forest       !< Invoked by forest%initialize per realm at startup.
       procedure, pass(self) :: compute_local_dt_forest !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest !< Invoked by forest%evolve_one_step per realm per timestep.
       procedure, pass(self) :: post_step_forest        !< Invoked by forest%post_step per realm per timestep.
@@ -236,6 +237,41 @@ endinterface
 
 contains
    ! orchestrator contract — see issue #10 Step 6 Phase A.4
+   subroutine initialize_forest(self, filename, realm_index, memory_avail, nv, verbose)
+   !< Initialize this realm from scratch: app-level initialize, IC injection
+   !< (or restart load), initial AMR, IO file open, initial diagnostics dump.
+   !<
+   !< Invoked by forest%initialize once per realm at startup, before the
+   !< time loop begins. This is the single per-realm setup entry point the
+   !< orchestrator uses: it both runs the basic per-realm initialize
+   !< (which the legacy simulate did via `realm%initialize_prism(filename)`
+   !< or equivalent) and performs the post-init / pre-loop setup that has
+   !< to happen before `forest%evolve_one_step` can be called.
+   !<
+   !< Default implementation error-stops: every consumer app MUST override
+   !< this method (the initial-condition catalog, AMR strategy, and which
+   !< IO files to open are app-specific). PRISM's override lives on
+   !< prism_cpu_object/prism_fnl_object.
+   !<
+   !< Optional `realm_index`, `memory_avail`, `nv`, `verbose` are door-
+   !< kept-open for Phase D: for N=1 they are unused, but the signature is
+   !< locked in so adding them later does not break callers.
+   class(realm_object), intent(inout)        :: self         !< The realm.
+   character(*),        intent(in)           :: filename     !< Input parameters file name.
+   integer(I4P),        intent(in), optional :: realm_index  !< Index of this realm in the forest (Phase D).
+   real(R8P),           intent(in), optional :: memory_avail !< Per-process memory budget override.
+   integer(I4P),        intent(in), optional :: nv           !< Number of field variables override.
+   logical,             intent(in), optional :: verbose      !< Trigger verbose output.
+
+   associate(filename_unused => filename) ! quiet "unused dummy" warnings before the stop
+   end associate
+   if (present(realm_index)) continue
+   if (present(memory_avail)) continue
+   if (present(nv)) continue
+   if (present(verbose)) continue
+   error stop 'realm_object%initialize_forest: not overridden by app extension'
+   endsubroutine initialize_forest
+
    subroutine compute_local_dt_forest(self, dt_local)
    !< Compute this realm's local stability-limited dt (no MPI reduction).
    !<

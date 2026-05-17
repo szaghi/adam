@@ -48,6 +48,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_field_mean_value   !< Compute field mean value.
       ! numerical methods
       procedure, pass(self) :: compute_dt           !< Compute time step.
+      procedure, pass(self) :: initialize_forest       !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: post_step_forest        !< Orchestrator contract; overrides realm_object default.
@@ -857,6 +858,110 @@ contains
    endif
    endsubroutine update_ghost
 
+   subroutine initialize_forest(self, filename, realm_index, memory_avail, nv, verbose)
+   !< Initialize this realm from scratch: PRISM init, IC injection (or
+   !< restart load), initial ghost update, initial diagnostics dump, IO
+   !< files open, plus PIC/leapfrog priming if those schemes are active.
+   !<
+   !< Invoked by forest%initialize. v1 implementation wraps the legacy
+   !< `initialize_prism(filename)` plus the verbatim post-init / pre-loop
+   !< block formerly inline in `simulate`. Behavior unchanged.
+   !<
+   !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are
+   !< accepted but unused for now (door kept open per A.7).
+   class(prism_cpu_object), intent(inout)        :: self         !< The realm.
+   character(*),            intent(in)           :: filename     !< Input parameters file name.
+   integer(I4P),            intent(in), optional :: realm_index  !< Index of this realm in the forest (Phase D).
+   real(R8P),               intent(in), optional :: memory_avail !< Per-process memory budget override.
+   integer(I4P),            intent(in), optional :: nv           !< Number of field variables override.
+   logical,                 intent(in), optional :: verbose      !< Trigger verbose output.
+   real(R8P)                                     :: F_l(3)       !< Lorentz force for leapfrog preliminary integration.
+   integer(I4P)                                  :: i, n, b      !< Counters.
+
+   if (present(realm_index)) continue
+   if (present(memory_avail)) continue
+   if (present(nv)) continue
+   if (present(verbose)) continue
+
+   call self%initialize_prism(filename=filename)
+   if (self%io%restart) then
+      call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
+      call self%load_restart_files(t=time%it, time=time%time)
+      call mpih%print_message('restart [t, time]: '//trim(str(time%it))//', '//trim(str(time%time)))
+      call self%set_initial_conditions(is_restart=self%io%restart)
+   else
+      call mpih%print_message('impose initial conditions start')
+      do i=1, ic%amr_iterations
+         call mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
+         call self%set_initial_conditions(is_restart=self%io%restart)
+         call self%amr_update
+      enddo
+      call self%set_initial_conditions(is_restart=self%io%restart)
+      call adam%make_comm_local_maps_ghost_bc
+      time%time = 0._R8P
+      time%it = 0
+      call mpih%print_message('impose initial conditions finish')
+   endif
+   call self%update_ghost(q=self%q) ! Aggiunto da FN
+
+   do n=1, coil%total_coils_number
+      call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=coil%J_vec(1:3,:,:,:,:,n), &
+                                   divergence=self%divergence(3,:,:,:,:))
+      print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
+                  //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
+   enddo
+
+   print '(A)', mpih%myrankstr//'assign block number: '//trim(str(field%blocks_number))
+   do b = 1, field%blocks_number
+      print '(A)', mpih%myrankstr//'b = '//trim(str(b))//' field%code(b) = '//trim(str(field%code(b)))
+   enddo
+
+   associate(hs => self%fdv_half_stencil)
+   call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   endassociate
+   call self%save_simulation_data
+   call self%compute_energy
+   !call self%save_energy_error(is_to_open=.true.)
+   call self%save_energy_history(is_to_open=.true.)
+   call self%save_divergence_history(is_to_open=.true.)
+   call self%io%open_file_residuals(nv=self%nv)
+
+   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if(pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
+         ! first time integration done apart with explicit euler scheme to iniziale leapfrog
+         call leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
+         call self%compute_dt
+         !< Pic residual computation
+         !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
+         !ma devi metterlo nell'inizializzazione per coerenza
+         !< Integration of equations
+         self%q_pic(1,:) = self%q_pic(1,:) + time%dt * self%q_pic(4,:)
+         self%q_pic(2,:) = self%q_pic(2,:) + time%dt * self%q_pic(5,:)
+         self%q_pic(3,:) = self%q_pic(3,:) + time%dt * self%q_pic(6,:)
+         do i = 1, pic%particle_number
+            F_l = crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i))
+            self%q_pic(4,i) = self%q_pic(4,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(1,i)+F_l(1))
+            self%q_pic(5,i) = self%q_pic(5,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(2,i)+F_l(2))
+            self%q_pic(6,i) = self%q_pic(6,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(3,i)+F_l(3))
+            !self%q_pic(4:6,i) = self%q_pic(4:6,i) + time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
+            !                  (pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), pic_fields(4:6,i)))
+         enddo
+      endif
+   endif
+
+   if (numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
+      ! first time integration done apart with explicit euler scheme to iniziale leapfrog
+      call self%leapfrog%assign_step(s=1, q=self%q)
+      call self%compute_dt
+      !Qua c'era il calcolo delle correnti delle particelle se PIC
+      !Ora è nelle condizioni iniziali per coerenza con if legato a se ho pic o meno
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      self%q = self%q + time%dt * self%dq
+   endif
+   endsubroutine initialize_forest
+
    ! numerical methods
    subroutine compute_dt(self)
    !< Compute the global stability-limited dt and store it on `time%dt`.
@@ -1218,86 +1323,9 @@ contains
    character(*),            intent(in)    :: filename         !< Input file name.
    real(R8P)                              :: timing(1:2)      !< Tic toc timing.
    real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
-   real(R8P)                              :: F_l(3)           !< Lorentz force for leapfrog preliminary integration
-   integer(I4P)                           :: i,n,b            !< Counter.
 
    ! initialization
-   call self%initialize_prism(filename=filename)
-   if (self%io%restart) then
-      call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
-      call self%load_restart_files(t=time%it, time=time%time)
-      call mpih%print_message('restart [t, time]: '//trim(str(time%it))//', '//trim(str(time%time)))
-      call self%set_initial_conditions(is_restart=self%io%restart)
-   else
-      call mpih%print_message('impose initial conditions start')
-      do i=1, ic%amr_iterations
-         call mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
-         call self%set_initial_conditions(is_restart=self%io%restart)
-         call self%amr_update
-      enddo
-      call self%set_initial_conditions(is_restart=self%io%restart)
-      call adam%make_comm_local_maps_ghost_bc
-      time%time = 0._R8P
-      time%it = 0
-      call mpih%print_message('impose initial conditions finish')
-   endif
-   call self%update_ghost(q=self%q) ! Aggiunto da FN
-
-   do n=1, coil%total_coils_number
-      call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=coil%J_vec(1:3,:,:,:,:,n),&
-                                   divergence=self%divergence(3,:,:,:,:))
-      print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
-                  //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
-   enddo
-
-   print '(A)', mpih%myrankstr//'assign block number: '//trim(str(field%blocks_number))
-   do b = 1, field%blocks_number
-      print '(A)', mpih%myrankstr//'b = '//trim(str(b))//' field%code(b) = '//trim(str(field%code(b)))
-   enddo
-
-   associate(hs=>self%fdv_half_stencil)
-   call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
-   call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs,ivar=physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
-   call self%save_simulation_data
-   call self%compute_energy
-   !call self%save_energy_error(is_to_open=.true.)
-   call self%save_energy_history(is_to_open=.true.)
-   call self%save_divergence_history(is_to_open=.true.)
-   call self%io%open_file_residuals(nv=self%nv)
-
-   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      if(pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
-         ! first time integration done apart with explicit euler scheme to iniziale leapfrog
-         call leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
-         call self%compute_dt
-         !< Pic residual computation
-         !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
-         !ma devi metterlo nell'inizializzazione per coerenza
-         !< Integration of equations
-         self%q_pic(1,:) = self%q_pic(1,:) + time%dt * self%q_pic(4,:)
-         self%q_pic(2,:) = self%q_pic(2,:) + time%dt * self%q_pic(5,:)
-         self%q_pic(3,:) = self%q_pic(3,:) + time%dt * self%q_pic(6,:)
-         do i = 1, pic%particle_number
-            F_l = crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i))
-            self%q_pic(4,i) = self%q_pic(4,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(1,i)+F_l(1))
-            self%q_pic(5,i) = self%q_pic(5,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(2,i)+F_l(2))
-            self%q_pic(6,i) = self%q_pic(6,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(3,i)+F_l(3))
-            !self%q_pic(4:6,i) = self%q_pic(4:6,i) + time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
-            !                  (pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), pic_fields(4:6,i)))
-         enddo
-      endif
-   endif
-
-   if (numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
-      ! first time integration done apart with explicit euler scheme to iniziale leapfrog
-      call self%leapfrog%assign_step(s=1, q=self%q)
-      call self%compute_dt
-      !Qua c'era il calcolo delle correnti delle particelle se PIC
-      !Ora è nelle condizioni iniziali per coerenza con if legato a se ho pic o meno
-      call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q = self%q + time%dt * self%dq
-   endif
+   call self%initialize_forest(filename=filename)
 
    ! integration
    call mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
@@ -1343,9 +1371,10 @@ contains
    !call mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call self%save_energy_history(is_to_close=.true.)
    call self%update_ghost(q=self%q) ! Aggiunto da FN
-   call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
-   call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs,ivar=physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   associate(hs => self%fdv_half_stencil)
+   call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
    call self%save_divergence_history(is_to_close=.true.)
    call mpih%finalize

@@ -90,6 +90,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: integrate_rk_yoshida_dev !< Yoshida schemes.
       ! numerical methods, miscellanea
       procedure, pass(self) :: compute_dt           	!< Compute time step.
+      procedure, pass(self) :: initialize_forest       !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: post_step_forest        !< Orchestrator contract; overrides realm_object default.
@@ -1536,16 +1537,31 @@ contains
    ! call self%impose_div_free
    endsubroutine integrate_rk_yoshida_dev
 
-   subroutine simulate(self, filename)
-   !< Perform the simulation.
-   class(prism_fnl_object), intent(inout) :: self             !< The equation.
-   character(*),            intent(in)    :: filename         !< Input file name.
-   real(R8P)                              :: timing(1:2)      !< Tic toc timing.
-   real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
-   integer(I4P)                           :: i                !< Counter.
-   integer(I4P)                           :: v
+   subroutine initialize_forest(self, filename, realm_index, memory_avail, nv, verbose)
+   !< Initialize this realm from scratch: PRISM init, IC injection (or
+   !< restart load), initial ghost update on device, initial diagnostics
+   !< dump, IO files open, plus PIC/leapfrog priming if those schemes are
+   !< active.
+   !<
+   !< Invoked by forest%initialize. v1 implementation wraps the legacy
+   !< `initialize_prism(filename)` plus the verbatim post-init / pre-loop
+   !< block formerly inline in `simulate`. Behavior unchanged.
+   !<
+   !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are
+   !< accepted but unused for now (door kept open per A.7).
+   class(prism_fnl_object), intent(inout)        :: self         !< The realm.
+   character(*),            intent(in)           :: filename     !< Input parameters file name.
+   integer(I4P),            intent(in), optional :: realm_index  !< Index of this realm in the forest (Phase D).
+   real(R8P),               intent(in), optional :: memory_avail !< Per-process memory budget override.
+   integer(I4P),            intent(in), optional :: nv           !< Number of field variables override.
+   logical,                 intent(in), optional :: verbose      !< Trigger verbose output.
+   integer(I4P)                                  :: i            !< Counter.
 
-   ! initialization
+   if (present(realm_index)) continue
+   if (present(memory_avail)) continue
+   if (present(nv)) continue
+   if (present(verbose)) continue
+
    call self%initialize_prism(filename=filename)
    if (self%io%restart) then
       call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
@@ -1571,12 +1587,11 @@ contains
    ! call self%update_ghost(q=self%q) ! Aggiunto da FN
    call self%update_ghost(q_gpu=self%q_gpu)
 
-   associate(hs=>self%fdv_half_stencil)
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.) !Cazzo
-	call self%compute_max_divergence
+   call self%compute_max_divergence
    call self%save_divergence_history(is_to_open=.true.) !Cazzo
    call self%io%open_file_residuals(nv=self%nv)
 
@@ -1593,6 +1608,17 @@ contains
          ! to be implemented
       endif
    endif
+   endsubroutine initialize_forest
+
+   subroutine simulate(self, filename)
+   !< Perform the simulation.
+   class(prism_fnl_object), intent(inout) :: self             !< The equation.
+   character(*),            intent(in)    :: filename         !< Input file name.
+   real(R8P)                              :: timing(1:2)      !< Tic toc timing.
+   real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
+
+   ! initialization
+   call self%initialize_forest(filename=filename)
 
    ! integration
    call mpih_fnl%barrier(tictoc=.true., timing=timing(1), single=.true.)
@@ -1632,7 +1658,6 @@ contains
    call self%io%close_file_residuals
 
    call mpih_fnl%finalize
-   endassociate
    endsubroutine simulate
 
    ! numerical methods, miscellanea
