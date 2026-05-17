@@ -48,6 +48,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_field_mean_value   !< Compute field mean value.
       ! numerical methods
       procedure, pass(self) :: compute_dt           !< Compute time step.
+      procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       !< Compute energy.
       procedure, pass(self) :: compute_energy_error !< Compute energy error.
       procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
@@ -856,20 +857,43 @@ contains
 
    ! numerical methods
    subroutine compute_dt(self)
-   class(prism_cpu_object), intent(inout) :: self                            !< The equation.
-   real(R8P)                              :: umax                            !< Maximum speed of waves propagation (light speed).
-   real(R8P)                              :: dxyz_min                        !< Minimal space step.
-   real(R8P)                              :: dx_locale, dy_locale, dz_locale !< Local space steps.
-   integer(I4P)                           :: b                               !< Counter.
+   !< Compute the global stability-limited dt and store it on `time%dt`.
+   !<
+   !< Body delegates the local computation to compute_local_dt_forest
+   !< (orchestrator contract method), then performs the legacy
+   !< MPI_ALLREDUCE on MPI_COMM_WORLD for backward compatibility with
+   !< simulate. The forest's `compute_global_dt` (Phase A.6 commit 8)
+   !< will perform its own reduction, possibly on a per-realm sub-comm;
+   !< the redundancy disappears once the legacy compute_dt is retired.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   dxyz_min = huge(1._R8P)
-   associate(blocks_number=>self%blocks_number, dxyz=>field%dxyz,chi=>physics%chi, evmax=>physics%evmax)
-   call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
-   umax = evmax
-   time%dt = time%CFL*dxyz_min / umax
-   endassociate
+   call self%compute_local_dt_forest(dt_local=time%dt)
    call MPI_ALLREDUCE(MPI_IN_PLACE, time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
    endsubroutine compute_dt
+
+   subroutine compute_local_dt_forest(self, dt_local)
+   !< Compute this realm's local stability-limited dt (no MPI reduction).
+   !<
+   !< Invoked by forest%compute_global_dt during the min reduction across
+   !< all realms in the forest. The reduction itself is the orchestrator's
+   !< job; this method computes only the value local to `self`.
+   !<
+   !< PRISM-CPU override: CFL on the minimum cell size divided by the
+   !< maximum wave speed (light speed for Maxwell), local to this MPI
+   !< rank's blocks. Mirror of the previous body of compute_dt minus the
+   !< MPI_ALLREDUCE.
+   class(prism_cpu_object), intent(in)  :: self     !< The realm.
+   real(R8P),               intent(out) :: dt_local !< Local stability-limited dt.
+   real(R8P)                            :: umax     !< Maximum speed of waves propagation (light speed).
+   real(R8P)                            :: dxyz_min !< Minimal space step.
+
+   dxyz_min = huge(1._R8P)
+   associate(blocks_number=>self%blocks_number, dxyz=>field%dxyz, chi=>physics%chi, evmax=>physics%evmax)
+   call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
+   umax = evmax
+   dt_local = time%CFL*dxyz_min / umax
+   endassociate
+   endsubroutine compute_local_dt_forest
 
    subroutine compute_energy(self)
    !< Compute energy.

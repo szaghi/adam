@@ -117,6 +117,11 @@ type :: realm_object
       ! public methods
       procedure, pass(self) :: initialize         !< Initialize common data.
       procedure, pass(self) :: load_fdv_from_file !< Load FDV config from file.
+      ! Orchestrator contract — methods carrying the `_forest` suffix are
+      ! the surface forest_object may call on a realm. See issue #10 Step 6
+      ! Phase A.4. Default implementations here error-stop with a
+      ! "not overridden" message; each consumer app must override.
+      procedure, pass(self) :: compute_local_dt_forest !< Invoked by forest%compute_global_dt during the min reduction.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
       procedure, nopass     :: close_file_xh5f  !< Close XH5F file.
@@ -228,6 +233,24 @@ interface
 endinterface
 
 contains
+   ! orchestrator contract — see issue #10 Step 6 Phase A.4
+   subroutine compute_local_dt_forest(self, dt_local)
+   !< Compute this realm's local stability-limited dt (no MPI reduction).
+   !<
+   !< Invoked by forest%compute_global_dt during the min reduction across
+   !< all realms in the forest. The reduction itself is the orchestrator's
+   !< job; this method computes only the value local to `self`.
+   !<
+   !< Default implementation error-stops: every consumer app MUST override
+   !< this method (the CFL criterion and umax are app-specific). PRISM's
+   !< override lives on prism_cpu_object/prism_fnl_object.
+   class(realm_object), intent(in)  :: self     !< The realm.
+   real(R8P),           intent(out) :: dt_local !< Local stability-limited dt.
+
+   dt_local = 0._R8P ! quiet "may be uninitialised" warnings before the stop
+   error stop 'realm_object%compute_local_dt_forest: not overridden by app extension'
+   endsubroutine compute_local_dt_forest
+
    ! public methods
    subroutine initialize(self, filename, memory_avail, nv, verbose)
    !< Initialize common data: MPI, ADAM, grid, field and data replica pointers.

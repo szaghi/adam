@@ -90,6 +90,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: integrate_rk_yoshida_dev !< Yoshida schemes.
       ! numerical methods, miscellanea
       procedure, pass(self) :: compute_dt           	!< Compute time step.
+      procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
@@ -1643,14 +1644,38 @@ contains
 
    ! numerical methods, miscellanea
    subroutine compute_dt(self)
-   !< Compute maximum time step accordingly to CFL stabilty criterion.
-   class(prism_fnl_object), intent(inout) :: self     !< The equation.
-   real(R8P)                              :: dxyz_min !< Minimum space step.
+   !< Compute the global stability-limited dt and store it on `time%dt`.
+   !<
+   !< Body delegates the local computation to compute_local_dt_forest
+   !< (orchestrator contract method), then performs the legacy
+   !< MPI_ALLREDUCE on MPI_COMM_WORLD for backward compatibility with
+   !< simulate. The forest's `compute_global_dt` (Phase A.6 commit 8)
+   !< will perform its own reduction, possibly on a per-realm sub-comm;
+   !< the redundancy disappears once the legacy compute_dt is retired.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%compute_local_dt_forest(dt_local=time%dt)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
+   endsubroutine compute_dt
+
+   subroutine compute_local_dt_forest(self, dt_local)
+   !< Compute this realm's local stability-limited dt (no MPI reduction).
+   !<
+   !< Invoked by forest%compute_global_dt during the min reduction across
+   !< all realms in the forest. The reduction itself is the orchestrator's
+   !< job; this method computes only the value local to `self`.
+   !<
+   !< PRISM-FNL override: CFL on the minimum cell size divided by the
+   !< maximum wave speed (light speed for Maxwell), local to this MPI
+   !< rank's blocks. Mirrors the previous body of compute_dt minus the
+   !< MPI_ALLREDUCE.
+   class(prism_fnl_object), intent(in)  :: self     !< The realm.
+   real(R8P),               intent(out) :: dt_local !< Local stability-limited dt.
+   real(R8P)                            :: dxyz_min !< Minimum space step.
 
    call compute_dxyz_min_kernel(blocks_number=self%blocks_number, dxyz_gpu=field_fnl%dxyz_gpu, dxyz_min=dxyz_min)
    dxyz_min = dxyz_min * 0.5_R8P
-   time%dt = time%CFL*dxyz_min / physics%evmax
-   call MPI_ALLREDUCE(MPI_IN_PLACE, time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
+   dt_local = time%CFL*dxyz_min / physics%evmax
    contains
       subroutine compute_dxyz_min_kernel(blocks_number, dxyz_gpu, dxyz_min)
       !< Compute minimum space step accordingly, kernel device.
@@ -1665,7 +1690,7 @@ contains
          dxyz_min = min(dxyz_min, dxyz_gpu(b,1), dxyz_gpu(b,2), dxyz_gpu(b,3))
       enddo
       endsubroutine compute_dxyz_min_kernel
-   endsubroutine compute_dt
+   endsubroutine compute_local_dt_forest
 
    subroutine compute_energy(self)
    !< Compute energy.
