@@ -125,6 +125,7 @@ type :: realm_object
       procedure, pass(self) :: compute_local_dt_forest !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest !< Invoked by forest%evolve_one_step per realm per timestep.
       procedure, pass(self) :: post_step_forest        !< Invoked by forest%post_step per realm per timestep.
+      procedure, pass(self) :: is_done_forest          !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest         !< Invoked by forest%finalize per realm at shutdown.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
@@ -344,6 +345,27 @@ contains
    if (present(do_amr)) continue
    error stop 'realm_object%post_step_forest: not overridden by app extension'
    endsubroutine post_step_forest
+
+   subroutine is_done_forest(self, done)
+   !< Decide whether this realm's local termination criterion is met.
+   !<
+   !< Invoked by forest%is_done during the termination reduction across
+   !< all realms in the forest. The reduction itself (typically a logical
+   !< AND or OR depending on coupling semantics) is the orchestrator's
+   !< job; this method computes only the predicate local to `self`.
+   !<
+   !< Default implementation error-stops: every consumer app MUST override
+   !< this method (the termination criterion mixes iteration count,
+   !< simulated time, and app-specific physics signals). PRISM's override
+   !< lives on prism_cpu_object/prism_fnl_object.
+   class(realm_object), intent(in)  :: self !< The realm.
+   logical,             intent(out) :: done !< True if this realm is done evolving.
+
+   done = .false. ! quiet "may be uninitialised" warnings before the stop
+   associate(self_unused => self)
+   end associate
+   error stop 'realm_object%is_done_forest: not overridden by app extension'
+   endsubroutine is_done_forest
 
    subroutine finalize_forest(self)
    !< Shut this realm down: final state dump, final diagnostics, close

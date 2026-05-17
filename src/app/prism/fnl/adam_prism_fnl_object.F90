@@ -94,6 +94,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: post_step_forest        !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: is_done_forest          !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: finalize_forest         !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
@@ -1611,6 +1612,25 @@ contains
    endif
    endsubroutine initialize_forest
 
+   subroutine is_done_forest(self, done)
+   !< Decide whether this realm has reached its local termination criterion.
+   !<
+   !< Invoked by forest%is_done. PRISM-FNL override: matches the legacy
+   !< condition inline in simulate — terminate when either the simulated
+   !< time has reached time%time_max (time-driven mode, it_max <= 0) or
+   !< the iteration count has reached time%it_max (iteration-driven mode).
+   !< Today the test reads time-state from the `time` module singleton,
+   !< so `self` is unused; once the forest takes over time bookkeeping
+   !< the body will consume self%time%* instead.
+   class(prism_fnl_object), intent(in)  :: self !< The realm.
+   logical,                 intent(out) :: done !< True if this realm is done evolving.
+
+   associate(self_unused => self)
+   end associate
+   done = ((time%it_max <= 0).and.(time%time >= time%time_max)).or.&
+          ((time%it >= time%it_max).and.(time%it_max > 0))
+   endsubroutine is_done_forest
+
    subroutine finalize_forest(self)
    !< Shut this realm down: final state dump, close residuals file, finalize
    !< MPI handler.
@@ -1632,6 +1652,7 @@ contains
    character(*),            intent(in)    :: filename         !< Input file name.
    real(R8P)                              :: timing(1:2)      !< Tic toc timing.
    real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
+   logical                                :: loop_done        !< Termination predicate.
 
    ! initialization
    call self%initialize_forest(filename=filename)
@@ -1663,8 +1684,8 @@ contains
 
       call self%post_step_forest(dt=time%dt, t=time%time, it=time%it)
 
-      if (((time%it_max <= 0).and.(time%time >= time%time_max)).or.&
-         ((time%it>=time%it_max).and.(time%it_max > 0))) exit integration
+      call self%is_done_forest(done=loop_done)
+      if (loop_done) exit integration
 
       call mpih_fnl%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
