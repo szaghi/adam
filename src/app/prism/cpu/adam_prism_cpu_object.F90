@@ -1010,21 +1010,30 @@ contains
    !< Invoked by forest%evolve_one_step once per realm per timestep. Owns
    !< the integration itself — RK substages, BC application, intra-realm
    !< ghost exchange, divergence cleaning — i.e. everything that turns
-   !< `q` at time `t` into `q` at time `t + dt`.
+   !< `q` at time `t` into `q` at time `t + dt`. Also owns the per-step
+   !< bookkeeping the legacy `simulate` loop did inline: time%it
+   !< increment, time_max cap on `dt`, time%time advance, progress
+   !< printing. These move here so the forest's evolve_one_step path is
+   !< bit-identical to the legacy per-realm simulate loop.
    !<
    !< PRISM-CPU override: thin wrapper around the legacy `integrate`
    !< procedure pointer dispatched by `numerics%scheme_time` at init.
    !< `integrate`'s body still reads `time%dt`, so the wrapper propagates
-   !< `dt` into the module-scope singleton before dispatching, then
-   !< advances `time%time`. Once `simulate` is fully retired in favor of
-   !< the forest's evolve loop, `time%dt` and `time%time` updates move
-   !< to the forest and this wrapper becomes a single `call self%integrate`.
-   class(prism_cpu_object), intent(inout) :: self !< The realm.
-   real(R8P),               intent(in)    :: dt   !< Timestep size.
+   !< the (possibly capped) `dt` into the module-scope singleton before
+   !< dispatching, then advances `time%time`. Once the forest takes over
+   !< time bookkeeping (Phase D), the time%* updates move to the forest
+   !< and this wrapper reduces to `call self%integrate`.
+   class(prism_cpu_object), intent(inout) :: self    !< The realm.
+   real(R8P),               intent(in)    :: dt      !< Timestep size from the forest's global reduction.
+   real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
 
-   time%dt = dt
+   time%it = time%it + 1
+   dt_step = dt
+   if ((time%it_max <= 0).and.(time%time+dt_step > time%time_max)) dt_step = time%time_max - time%time
+   time%dt = dt_step
    call self%integrate
-   time%time = time%time + dt
+   time%time = time%time + dt_step
+   call time%print_progress(nodes_number=tree%nodes_number)
    endsubroutine advance_one_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
@@ -1059,6 +1068,14 @@ contains
    if (present(do_save_restart)) continue
    if (present(do_amr)) continue
 
+   if (self%io%save_memory_status) then
+      call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(time%it,.true.))
+   endif
+   if (mod(time%it,self%amr%frequency)==0) then
+      call mpih%barrier(tictoc=.true.)
+      !call self%amr_update
+      call mpih%barrier(tictoc=.true.)
+   endif
    associate(hs => self%fdv_half_stencil)
    call self%save_simulation_data
    call self%update_ghost(q=self%q) ! Aggiunto da FN
@@ -1369,48 +1386,28 @@ contains
    endsubroutine finalize_forest
 
    subroutine simulate(self, filename)
-   !< Perform the simulation.
-   class(prism_cpu_object), intent(inout) :: self             !< The equation.
-   character(*),            intent(in)    :: filename         !< Input file name.
-   real(R8P)                              :: timing(1:2)      !< Tic toc timing.
-   real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
-   logical                                :: loop_done        !< Termination predicate.
+   !< Perform the simulation: legacy single-realm entry point.
+   !<
+   !< Preserved (R5 of issue #10) so app developers can still drive a single
+   !< realm without setting up a forest. Mirrors the forest's `simulate`
+   !< orchestration: initialize → loop {compute_dt → advance → post → done}
+   !< → finalize. Per-step bookkeeping (time%it increment, time_max dt cap,
+   !< time advance, progress print, save_memory_status, AMR-update hook)
+   !< now lives inside `advance_one_step_forest` and `post_step_forest`, so
+   !< this body becomes a thin orchestration that matches the forest path
+   !< bit-for-bit.
+   class(prism_cpu_object), intent(inout) :: self      !< The equation.
+   character(*),            intent(in)    :: filename  !< Input file name.
+   logical                                :: loop_done !< Termination predicate.
 
-   ! initialization
    call self%initialize_forest(filename=filename)
-
-   ! integration
-   call mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
    integration: do
-      call mpih%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
-      time%it = time%it + 1
-
-      if (self%io%save_memory_status) then
-         call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(time%it,.true.))
-      endif
-
-      if (mod(time%it,self%amr%frequency)==0) then
-         call mpih%barrier(tictoc=.true.)
-         !call self%amr_update
-         call mpih%barrier(tictoc=.true.)
-      endif
-
       call self%compute_dt
-      if ((time%it_max <= 0).and.(time%time+time%dt > time%time_max)) &
-         time%dt=time%time_max-time%time
-
       call self%advance_one_step_forest(dt=time%dt)
-
-      call time%print_progress(nodes_number=tree%nodes_number)
-
       call self%post_step_forest(dt=time%dt, t=time%time, it=time%it)
-
       call self%is_done_forest(done=loop_done)
       if (loop_done) exit integration
-
-      call mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
-   call mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
    call self%finalize_forest
    endsubroutine simulate
 
