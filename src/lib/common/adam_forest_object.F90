@@ -56,6 +56,7 @@ type :: forest_object
       procedure, pass(self) :: simulate          !< Main entry point: drive the full simulation.
       procedure, pass(self) :: compute_global_dt !< Min-reduce each realm's compute_local_dt_forest across the forest.
       procedure, pass(self) :: evolve_one_step   !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
+      procedure, pass(self) :: exchange_halos    !< Iterate realm(:)%exchange_inter_realm_halos_forest to refresh inter-realm ghosts.
       procedure, pass(self) :: post_step         !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
       procedure, pass(self) :: is_done           !< AND-reduce each realm's is_done_forest across the forest.
       procedure, pass(self) :: finalize          !< Sequence each realm's finalize_forest at shutdown.
@@ -135,8 +136,11 @@ contains
    !< Advance every realm by one global timestep.
    !<
    !< Computes the global dt via `compute_global_dt`, then iterates
-   !< `realm(is)%advance_one_step_forest(dt)` in increasing index order.
-   !< For v1 (N=1) this is exactly one realm-side timestep.
+   !< `realm(is)%advance_one_step_forest(dt)` in increasing index order,
+   !< then refreshes inter-realm ghost cells via `exchange_halos`. For v1
+   !< (N=1) the inter-realm exchange is a no-op (each realm's base-class
+   !< `exchange_inter_realm_halos_forest` does nothing when no neighbours
+   !< are populated), so the call is structurally present but invisible.
    class(forest_object), intent(in)    :: self     !< The forest.
    class(realm_object),  intent(inout) :: realm(:) !< The realms to advance.
    real(R8P)                           :: dt       !< Global timestep size.
@@ -146,7 +150,35 @@ contains
    do is = 1, int(size(realm), I4P)
       call realm(is)%advance_one_step_forest(dt=dt)
    enddo
+   call self%exchange_halos(realm)
    endsubroutine evolve_one_step
+
+   subroutine exchange_halos(self, realm)
+   !< Refresh inter-realm ghost cells across all realms.
+   !<
+   !< Iterates `realm(is)%exchange_inter_realm_halos_forest(realm)` in
+   !< increasing index order. For single-realm forests (N=1, current rmf)
+   !< the inter-realm neighbour list is empty and each iteration is a
+   !< no-op; the call exists so the forest's evolve loop has a uniform
+   !< shape regardless of N.
+   !<
+   !< Granularity: this method is invoked once per global timestep, AFTER
+   !< all realms have completed `advance_one_step_forest`. For
+   !< bit-comparability with a single-realm reference, additional refresh
+   !< points are typically required between RK substages (inside each
+   !< realm's `advance_one_step_forest` body) — see issue #13 for the
+   !< per-substage design that the first concrete N>1 use case will need.
+   !< This method's once-per-step invocation is the floor, not the ceiling.
+   class(forest_object), intent(in)    :: self     !< The forest.
+   class(realm_object),  intent(inout) :: realm(:) !< The realms whose ghosts to refresh.
+   integer(I4P)                        :: is       !< Realm index.
+
+   associate(self_unused => self) ! method takes self for TBP-dispatch symmetry
+   end associate
+   do is = 1, int(size(realm), I4P)
+      call realm(is)%exchange_inter_realm_halos_forest(realm=realm)
+   enddo
+   endsubroutine exchange_halos
 
    subroutine post_step(self, realm)
    !< Run every realm's post-step diagnostics / IO / AMR block.

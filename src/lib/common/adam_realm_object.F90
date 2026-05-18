@@ -121,12 +121,13 @@ type :: realm_object
       ! the surface forest_object may call on a realm. See issue #10 Step 6
       ! Phase A.4. Default implementations here error-stop with a
       ! "not overridden" message; each consumer app must override.
-      procedure, pass(self) :: initialize_forest       !< Invoked by forest%initialize per realm at startup.
-      procedure, pass(self) :: compute_local_dt_forest !< Invoked by forest%compute_global_dt during the min reduction.
-      procedure, pass(self) :: advance_one_step_forest !< Invoked by forest%evolve_one_step per realm per timestep.
-      procedure, pass(self) :: post_step_forest        !< Invoked by forest%post_step per realm per timestep.
-      procedure, pass(self) :: is_done_forest          !< Invoked by forest%is_done during the termination reduction.
-      procedure, pass(self) :: finalize_forest         !< Invoked by forest%finalize per realm at shutdown.
+      procedure, pass(self) :: initialize_forest                !< Invoked by forest%initialize per realm at startup.
+      procedure, pass(self) :: compute_local_dt_forest          !< Invoked by forest%compute_global_dt during the min reduction.
+      procedure, pass(self) :: advance_one_step_forest          !< Invoked by forest%evolve_one_step per realm per timestep.
+      procedure, pass(self) :: post_step_forest                 !< Invoked by forest%post_step per realm per timestep.
+      procedure, pass(self) :: is_done_forest                   !< Invoked by forest%is_done during the termination reduction.
+      procedure, pass(self) :: finalize_forest                  !< Invoked by forest%finalize per realm at shutdown.
+      procedure, pass(self) :: exchange_inter_realm_halos_forest !< Invoked by forest%exchange_halos to refresh inter-realm ghosts.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
       procedure, nopass     :: close_file_xh5f  !< Close XH5F file.
@@ -385,6 +386,36 @@ contains
    end associate
    error stop 'realm_object%finalize_forest: not overridden by app extension'
    endsubroutine finalize_forest
+
+   subroutine exchange_inter_realm_halos_forest(self, realm)
+   !< Refresh THIS realm's ghost cells that depend on neighbour realms.
+   !<
+   !< Invoked by forest%exchange_halos once per realm per call. The peer
+   !< realms are passed through as the `realm(:)` assumed-shape dummy so the
+   !< override can index into `realm(n%peer_realm)%field%q` (host-side chain
+   !< walk, in line with R2 of issue #10 — kernels never walk this chain).
+   !<
+   !< Default implementation is a **no-op**: the base class cannot read
+   !< `q` (which is app-private per O3 of issue #10) and therefore cannot
+   !< copy peer cells into self's ghosts. Apps that participate in a
+   !< multi-realm forest MUST override this TBP; apps that only ever run as
+   !< N=1 may leave it. The no-op default keeps single-realm rmf
+   !< (`self%maps%inter_realm_neighbors` unallocated) bit-identical to its
+   !< pre-Phase-D behaviour.
+   !<
+   !< Granularity note: this TBP is invoked by the forest *between* whole
+   !< timesteps (after `advance_one_step_forest`). Bit-comparability with a
+   !< single-realm reference also requires inter-realm refresh between RK
+   !< substages — that finer integration point is a separate decision
+   !< documented in issue #13 and is NOT addressed by this TBP. The host
+   !< app's `advance_one_step_forest` override may also call into the same
+   !< exchange machinery between substages if needed.
+   class(realm_object), intent(inout) :: self     !< This realm.
+   class(realm_object), intent(in)    :: realm(:) !< All realms in the forest (so peers are reachable as realm(n%peer_realm)).
+
+   associate(self_unused => self, realm_unused => realm) ! no-op default; signature locked in for app overrides
+   end associate
+   endsubroutine exchange_inter_realm_halos_forest
 
    ! public methods
    subroutine initialize(self, filename, memory_avail, nv, verbose)

@@ -398,3 +398,25 @@ Applications use INI files (parsed by FiNeR library) for simulation parameters:
 - **Arm Forge (DDT/MAP)**: Parallel debugger and profiler
 
 **Citation Practice**: Always cite specific sections/versions when referencing standards. Example: "According to MPI-3.1 section 3.2.5, non-blocking collectives..."
+
+## PRISM-Specific Gotchas
+
+### `physics%nv` vs `numerics%constrained_transport_*` disagree on `phi`/`psi` slots
+
+PRISM's state-vector width `nv` and the `phi`/`psi` slot inclusion are decided in **two different places** with **two different ground-truth sources**:
+
+- `adam_prism_physics_object%initialize` (`src/app/prism/common/adam_prism_physics_object.F90:296-389`) derives `nv_cl` (and thus `nv`) ONLY for the `divergence_correction = hyperbolic` case. Under `poisson` or `no`, `nv_cl = 0` regardless of whether `constrained_transport = D|B|DB`.
+- `adam_prism_common_object%io_initialize` (`src/app/prism/common/adam_prism_common_object.F90:232-280`) appends `phi`/`psi` to the variable-names array (`q_name`, `dq_name`, `div_name`, `curl_name`) based ONLY on `numerics%constrained_transport_D/B` flags, independent of `physics%nv`.
+
+When CT is enabled WITHOUT hyperbolic correction (i.e. `constrained_transport = D|B|DB` AND `divergence_correction != hyperbolic`), the names array gets 10–11 entries written into a 9-slot allocation. **Silent heap corruption** in init; release-mode SIGSEGV in `__GI___libc_realloc` later when the trampled memory is touched. Debug-mode build catches the WENO `description` separately (see Finding 3 in the global Fortran rules / issue #11 secondary finding) and obscures this primary bug.
+
+Tracked as [issue #11](https://github.com/szaghi/adam/issues/11). Until that issue ships, the **safe input combinations** are:
+
+| `constrained_transport` | `divergence_correction` | Safe? |
+|---|---|---|
+| `no` | any (`no`, `hyperbolic`, `poisson`) | ✅ |
+| `D` / `B` / `DB` | `hyperbolic` | ✅ |
+| `D` / `B` / `DB` | `no` | ⚠️ silently corrupt (works by luck) |
+| `D` / `B` / `DB` | `poisson` | ❌ release-mode SIGSEGV |
+
+When touching `prism_physics_object%initialize`, `prism_common_object%allocate_common`, `prism_common_object%io_initialize`, or any code that allocates state-vector-sized arrays, treat `physics%nv` and `numerics%constrained_transport_*` as **two independent invariants that must be reconciled before either is read**. The structural fix is to make `nv_cl` track `constrained_transport_*` under all correction kinds (option 2 in #11's fix plan), or to gate the `q_name` append on `physics%nv_cl` instead of `numerics%constrained_transport_*` (option 1).

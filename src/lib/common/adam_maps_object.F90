@@ -18,6 +18,52 @@ use :: mpi
 implicit none
 private
 public :: maps_object
+public :: inter_realm_neighbor_t
+public :: FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
+public :: COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE
+
+!< Face direction codes (see [[inter_realm_neighbor_t]]).
+!<
+!< Encoded as small integers rather than a Fortran enum because the values
+!< travel through the manifest INI parser (D.3 task of [issue #13]) and need
+!< stable, INI-friendly representations.
+integer(I4P), parameter :: FACE_X_MAX = 1_I4P  !< +x face (max-x boundary of a block).
+integer(I4P), parameter :: FACE_X_MIN = 2_I4P  !< -x face (min-x boundary of a block).
+integer(I4P), parameter :: FACE_Y_MAX = 3_I4P  !< +y face.
+integer(I4P), parameter :: FACE_Y_MIN = 4_I4P  !< -y face.
+integer(I4P), parameter :: FACE_Z_MAX = 5_I4P  !< +z face.
+integer(I4P), parameter :: FACE_Z_MIN = 6_I4P  !< -z face.
+
+!< Inter-realm coupling kinds.
+!<
+!< COUPLING_MIRROR is the only kind exercised by the first Phase D use case
+!< (two-realm x-split rmf, [issue #13]). PERIODIC and INTERPOLATE are
+!< schema-reserved for follow-up use cases and are not implemented yet.
+integer(I4P), parameter :: COUPLING_MIRROR      = 1_I4P  !< Peer cells copied as-is (the trivial pass-through coupling).
+integer(I4P), parameter :: COUPLING_PERIODIC    = 2_I4P  !< Periodic identification across the inter-realm face (reserved, not implemented).
+integer(I4P), parameter :: COUPLING_INTERPOLATE = 3_I4P  !< Interpolate across mismatched grids (reserved, not implemented).
+
+type :: inter_realm_neighbor_t
+   !< Description of a single inter-realm face coupling.
+   !<
+   !< One entry per (my realm, my block, my face) that touches a face on
+   !< another realm. Populated by the forest during initialization from the
+   !< `[forest.topology]` section of the manifest (D.3 task of [issue #13]).
+   !< Consumed by the realm-side `exchange_inter_realm_halos_forest` TBP.
+   !<
+   !< Architectural note: this type carries only intrinsic-typed components
+   !< (R1 of [issue #10] — no derived-type pointer components reachable from
+   !< kernels). The `peer_realm` index is used by the consumer to look up the
+   !< peer realm in the `realm(:)` array the forest passes through; the
+   !< lookup happens on the host side outside any device region (R2).
+   integer(I4P) :: my_realm   = 0_I4P !< Realm index that owns this entry (1-based; redundant with the enclosing maps' realm, kept for self-describing dumps).
+   integer(I4P) :: my_block   = 0_I4P !< Block index in MY realm whose face touches the peer.
+   integer(I4P) :: my_face    = 0_I4P !< Face code on MY block (FACE_X_MAX..FACE_Z_MIN).
+   integer(I4P) :: peer_realm = 0_I4P !< Realm index of the peer.
+   integer(I4P) :: peer_block = 0_I4P !< Block index in the peer realm whose face touches mine.
+   integer(I4P) :: peer_face  = 0_I4P !< Face code on the peer block (typically opposite to my_face).
+   integer(I4P) :: coupling   = COUPLING_MIRROR !< Coupling kind (COUPLING_MIRROR | COUPLING_PERIODIC | COUPLING_INTERPOLATE).
+endtype inter_realm_neighbor_t
 
 type :: maps_object
    !< Maps class definition
@@ -55,6 +101,11 @@ type :: maps_object
    ! MPI send/recv ghost buffers
    real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
    real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
+   ! Inter-realm coupling (Phase D of issue #10, design in issue #13).
+   ! Unallocated for single-realm runs (the no-op case). Populated by the
+   ! forest during initialization from the manifest's [forest.topology]
+   ! section. Consumed by realm_object%exchange_inter_realm_halos_forest.
+   type(inter_realm_neighbor_t), allocatable :: inter_realm_neighbors(:) !< Face couplings to other realms; unallocated when this realm has no inter-realm neighbors.
    contains
       ! public methods
       procedure, pass(self) :: blocks_reorder             !< Reorder blocks indexes in field.

@@ -18,8 +18,9 @@ src/lib/common/  (CPU base layer)
 ├── ib_object    ←─ analytical_sphere_object, analytical_rectangle_object
 ├── io_object
 ├── amr_object
-├── adam_object  (method-only — tree/field/maps accessed via singletons)
-└── equation_object  (has: io, adam, amr, ib, rk, weno, blanesmoan, cfm, leapfrog, flail, slices)
+├── adam_object  (owns: grid, tree, field, maps as VALUE components — issue #10 Step 1; b40dc451)
+├── realm_object (formerly equation_object — issue #10 Step 6 rename, 356cac46; owns: adam, io, amr, ib, rk, weno, blanesmoan, cfm, leapfrog, flail, slices)
+└── forest_object (behavior-only orchestrator over realm(:) — issue #10 Step 6 Phase C, 2d74fb6d + a294681a)
 
 src/lib/fnl/  (OpenACC GPU backend)
 ├── mpih_fnl_object   extends mpih_object
@@ -29,14 +30,14 @@ src/lib/fnl/  (OpenACC GPU backend)
 └── rk_fnl_object     (composite, GPU RK stages)
 
 src/app/nasto/  (Navier-Stokes solver)
-├── nasto_common_object   (standalone, does NOT extend equation_object)
+├── nasto_common_object   (standalone, does NOT extend realm_object)
 │   ├── nasto_cpu_object  extends nasto_common_object
 │   ├── nasto_nvf_object  extends nasto_common_object  [CUDA Fortran]
 │   ├── nasto_gmp_object  extends nasto_common_object  [OpenMP offload]
 │   └── nasto_fnl_object  extends nasto_common_object  [OpenACC]
 
 src/app/prism/  (Maxwell equations solver)
-├── prism_common_object   extends equation_object
+├── prism_common_object   extends realm_object
 │   ├── prism_cpu_object  extends prism_common_object
 │   └── prism_fnl_object  extends prism_common_object  [OpenACC]
 
@@ -124,23 +125,29 @@ call weno_fnl%initialize()
 
 ### `adam_object` (`src/lib/common/adam_adam_object.F90`)
 
-`adam_object` is now a thin method-only type. The previous `tree`, `field`, and `maps` members have all been replaced by the program-scope singletons (`tree`, `field`, `maps`). Methods access them via `use :: adam_*_global, only : ...`, never via `self%`.
+After issue #10 Step 1 (commit `b40dc451`), `adam_object` owns `grid`, `tree`, `field`, `maps` as **value** components (no longer method-only). The program-scope singletons still exist but are now **pointer shims** aliasing into `adam_singleton%grid`, etc. (see "Program-Scope Singletons" below).
 
 ```fortran
 type :: adam_object
-   ! no data members — all state lives in singletons
+   type(grid_object)  :: grid
+   type(tree_object)  :: tree
+   type(field_object) :: field
+   type(maps_object)  :: maps
 end type
 ```
 
-### `equation_object` (`src/lib/common/adam_equation_object.F90`)
+### `realm_object` (`src/lib/common/adam_realm_object.F90`)
 
-Aggregator base class for equation solvers. Owns several auxiliary handlers as VALUE members (no singletons for these yet), plus FDV operator procedure pointers wired at init by the backend:
+Renamed from `equation_object` in issue #10 Step 6 (commit `356cac46`). A **realm** has both *laws* (PDE, numerics, integrator, BCs) and *borders* (grid, tree, field, maps) — the name reflects the synthesis. Aggregator base class for per-realm solver state:
 
 ```fortran
-type :: equation_object
+type :: realm_object
    type(io_object)         :: io
-   type(adam_object)       :: adam
+   type(adam_object)       :: adam     ! owns grid/tree/field/maps as value components (Step 1)
    type(amr_object)        :: amr
+   type(weno_object)       :: weno     ! issue #10 Step 2: moved here from singleton
+   type(ib_object)         :: ib       ! issue #10 Step 2
+   type(rk_object)         :: rk       ! issue #10 Step 2
    type(slices_object)     :: slices
    type(blanesmoan_object) :: blanesmoan
    type(cfm_object)        :: cfm
@@ -149,7 +156,7 @@ type :: equation_object
    ! FDV scheme metadata (used by backend dispatch):
    character(:), allocatable :: fdv_scheme
    integer(I4P)              :: fdv_order, fdv_half_stencil, fdv_half_stencils(6)
-   ! Scalar replica pointers (point into grid/field singletons):
+   ! Scalar replica pointers (point into grid/field components):
    integer(I4P), pointer :: ngc, ni, nj, nk, nb, blocks_number, nv
    ! FDV operator procedure pointers (set at init by backend):
    procedure(compute_curl_interface),        pointer :: compute_curl
@@ -159,10 +166,48 @@ type :: equation_object
    procedure(compute_derivative1_interface), pointer :: compute_derivative1
    procedure(compute_derivative2_interface), pointer :: compute_derivative2
    procedure(compute_derivative4_interface), pointer :: compute_derivative4
+contains
+   ! Orchestrator contract — TBPs the forest may invoke on a realm (the `_forest` suffix is the contract marker).
+   ! All have default no-op or error-stop bodies; app extensions override.
+   procedure, pass(self) :: initialize_forest                 ! sequenced by forest%initialize
+   procedure, pass(self) :: compute_local_dt_forest           ! min-reduced by forest%compute_global_dt
+   procedure, pass(self) :: advance_one_step_forest           ! iterated by forest%evolve_one_step
+   procedure, pass(self) :: post_step_forest                  ! iterated by forest%post_step
+   procedure, pass(self) :: is_done_forest                    ! AND-reduced by forest%is_done
+   procedure, pass(self) :: finalize_forest                   ! sequenced by forest%finalize
+   procedure, pass(self) :: exchange_inter_realm_halos_forest ! iterated by forest%exchange_halos (D.2 scaffolding, no-op for N=1)
 end type
 ```
 
-Note: `ib`, `rk`, `weno`, `field`, `maps`, `tree` are NOT members of `equation_object` — they are accessed exclusively through their singletons.
+### `forest_object` (`src/lib/common/adam_forest_object.F90`)
+
+Added in issue #10 Step 6 Phase C (commits `2d74fb6d` + `a294681a`). **Behavior-only orchestrator**: owns no derived-type state, receives the realm array as `class(realm_object), intent(inout) :: realm(:)` and orchestrates inter-realm operations via the `_forest`-suffixed TBPs above.
+
+```fortran
+type :: forest_object
+   integer(I4P) :: n = 0_I4P   ! number of realms; set by initialize from size(realm)
+   ! NO derived-type-pointer components, ever (R1 of issue #10).
+contains
+   procedure, pass(self) :: initialize        ! sequence realm(:)%initialize_forest
+   procedure, pass(self) :: simulate          ! main entry point
+   procedure, pass(self) :: compute_global_dt ! min-reduce realm(:)%compute_local_dt_forest + MPI_ALLREDUCE
+   procedure, pass(self) :: evolve_one_step   ! iterate realm(:)%advance_one_step_forest then exchange_halos
+   procedure, pass(self) :: exchange_halos    ! iterate realm(:)%exchange_inter_realm_halos_forest (D.2)
+   procedure, pass(self) :: post_step         ! iterate realm(:)%post_step_forest
+   procedure, pass(self) :: is_done           ! AND-reduce realm(:)%is_done_forest + MPI_ALLREDUCE
+   procedure, pass(self) :: finalize          ! sequence realm(:)%finalize_forest
+end type
+```
+
+Driver pattern (e.g. `src/app/prism/cpu/adam_prism_cpu.F90`):
+
+```fortran
+type(prism_cpu_object) :: realm(1)   ! concrete monomorphic; N=1 today, N>1 in Phase D
+type(forest_object)    :: forest
+call forest%simulate(realm=realm, filename='input.ini')
+```
+
+Phase D (issue #13, design only as of 2026-05-18) will extend the driver to `realm(realms_number)` driven by a `forest.ini` manifest pointing at one PRISM INI per realm.
 
 ### `grid_object` (`src/lib/common/adam_grid_object.F90`)
 
@@ -274,7 +319,7 @@ real(R8P), pointer :: phi_gpu(:,:,:,:,:)    ! [solids+1, ni+2ngc, nj+2ngc, nk+2n
 
 ### `nasto_common_object` (`src/app/nasto/common/adam_nasto_common_object.F90`)
 
-Key members (composite, not extending `equation_object`):
+Key members (composite, not extending `realm_object`):
 
 ```fortran
 type(mpih_object)               :: mpih
@@ -314,7 +359,7 @@ Key procedures: `initialize(self, filename)`, `simulate`, `integrate`, `compute_
 
 ### `prism_common_object` (`src/app/prism/common/adam_prism_common_object.F90`)
 
-Extends `equation_object`. Additional PRISM-specific members:
+Extends `realm_object`. Additional PRISM-specific members:
 
 ```fortran
 type(prism_numerics_object)            :: numerics
@@ -368,7 +413,7 @@ Key procedures: `initialize_prism(self, filename)`, `simulate`, `compute_dt`, `c
 adam_common_library
  ├── adam_adam_object, adam_field_object, adam_grid_object, adam_tree_object
  ├── adam_maps_object, adam_weno_object, adam_rk_object, adam_ib_object, adam_mpih_object
- ├── adam_equation_object, adam_io_object, adam_amr_object, adam_refinement_plan_object
+ ├── adam_realm_object, adam_forest_object, adam_io_object, adam_amr_object, adam_refinement_plan_object
  ├── adam_eos_ic_object, adam_cfm_object, adam_blanes_moan_object
  ├── adam_leapfrog_object, adam_flail_object, adam_slices_object
  ├── adam_tree_node_object, adam_tree_bucket_object
@@ -403,7 +448,7 @@ adam_prism_common_library
  ├── adam_prism_external_fields_object, adam_prism_leapfrog_pic_object
  ├── adam_prism_rk_bc_object, adam_prism_rk_pic_object, adam_prism_io_object
  ├── adam_prism_time_object, adam_prism_riemann_library, adam_prism_parameters
- └── (uses adam_common_library via equation_object chain)
+ └── (uses adam_common_library via realm_object chain)
 
 adam_prism_fnl_library
  ├── adam_prism_common_library
