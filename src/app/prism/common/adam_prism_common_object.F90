@@ -56,10 +56,31 @@ type, extends(realm_object) :: prism_common_object
    real(R8P)              :: max_divergence_D=0.0_R8P   !< Maximum of divergence of D field.
    real(R8P)              :: max_divergence_B=0.0_R8P   !< Maximum of divergence of B field.
    real(R8P)              :: max_divergence_J=0.0_R8P   !< Maximum of divergence of J field.
+   ! PRISM C.3 closure (issue #13 D.4b follow-up): the 13 PRISM-app objects
+   ! that previously lived as module-scope singletons are now per-realm value
+   ! components. The 13 adam_prism_*_global modules became pointer shims that
+   ! alias these components via adam_prism_common_bind. Without this, N>1
+   ! runs (rmf-2realm) crashed on realm 2's prism_bc_object%initialize
+   ! ("allocate already allocated") because realm 1 had already initialized
+   ! the shared singleton.
+   type(prism_bc_object)                 :: bc                 !< Boundary conditions.
+   type(prism_coil_object)               :: coil               !< Coil source term.
+   type(prism_external_fields_object)    :: external_fields    !< External fields.
+   type(prism_fWLayer_object)            :: fWLayer            !< Far-field weighted layer.
+   type(prism_ic_object)                 :: ic                 !< Initial conditions.
+   type(prism_leapfrog_pic_object)       :: leapfrog_pic       !< Leapfrog PIC integrator.
+   type(prism_numerics_object)           :: numerics           !< Numerics configuration.
+   type(prism_particle_injection_object) :: particle_injection !< Particle injection.
+   type(prism_physics_object)            :: physics            !< Physics configuration.
+   type(prism_pic_object)                :: pic                !< PIC state.
+   type(prism_rk_bc_object)              :: rk_bc              !< Runge-Kutta BC handler.
+   type(prism_rk_pic_object)             :: rk_pic             !< Runge-Kutta PIC handler.
+   type(prism_time_object)               :: time               !< Time integration state.
    contains
-      procedure, pass(self) :: allocate_common          !< Allocate common data.
-      procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
-      procedure, pass(self) :: initialize               !< Initialize the equation common data.
+      procedure, pass(self) :: allocate_common                              !< Allocate common data.
+      procedure, pass(self) :: compute_auxiliary_fields                     !< Compute auxiliary fields.
+      procedure, pass(self) :: initialize                                   !< Initialize the equation common data.
+      procedure, pass(self) :: bind_my_globals_forest => bind_globals_prism !< Override realm_object's binder to also retarget the 13 PRISM shims.
       ! IO methods
       procedure, pass(self) :: load_restart_files      !< Load restart files.
       procedure, pass(self) :: save_energy_error       !< Save energy error history.
@@ -173,10 +194,30 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call mpih%initialize(verbose=verbose_)
    if (verbose_) call mpih%print_message('prism_common_object%initialize start')
+   ! PRISM C.3 closure: rebind the 13 PRISM shim singletons (bc/coil/physics/...)
+   ! to this realm's value components BEFORE any sub-initialize runs. Without this,
+   ! the sub-initializes would still write into the old singleton owners' state —
+   ! only this binding redirects all ~557 read sites and the 13 init sites at the
+   ! same per-realm data. The same 13 reassignments live in bind_globals_prism for
+   ! the multi-realm forest re-binding path. Kept inline to avoid the module-graph
+   ! cycle that a "binder helper module" would close with prism_common_object.
+   bc                 => self%bc
+   coil               => self%coil
+   external_fields    => self%external_fields
+   fWLayer            => self%fWLayer
+   ic                 => self%ic
+   leapfrog_pic       => self%leapfrog_pic
+   numerics           => self%numerics
+   particle_injection => self%particle_injection
+   physics            => self%physics
+   pic                => self%pic
+   rk_bc              => self%rk_bc
+   rk_pic             => self%rk_pic
+   time               => self%time
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-   call numerics%initialize(file_parameters=file_parameters)
-   call physics%initialize(file_parameters=file_parameters,                              &
+   call self%numerics%initialize(file_parameters=file_parameters)
+   call self%physics%initialize(file_parameters=file_parameters,                              &
                                 reconstruction_vars=numerics%reconstruction_vars,        &
                                 div_corr_var=numerics%div_corr_var,                      &
                                 constrained_transport_D=numerics%constrained_transport_D,&
@@ -186,24 +227,24 @@ contains
    self%nv_cl  => physics%nv_cl
    !self%nv_pic => physics%nv_pic
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=physics%nv, verbose=verbose_)
-   call bc%initialize(file_parameters=file_parameters)
+   call self%bc%initialize(file_parameters=file_parameters)
    call grid%set_bc_type(bc_type=bc%bc_type)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &
-      call pic%initialize(file_parameters=file_parameters)
+      call self%pic%initialize(file_parameters=file_parameters)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) &
-      call particle_injection%initialize(file_parameters=file_parameters, pic=pic)
-   call time%initialize(file_parameters=file_parameters)
-   call ic%initialize(file_parameters=file_parameters)
-   call fWLayer%initialize(file_parameters=file_parameters, physics=physics)
-   call coil%initialize(file_parameters=file_parameters)
-   call external_fields%initialize(file_parameters=file_parameters)
+      call self%particle_injection%initialize(file_parameters=file_parameters, pic=pic)
+   call self%time%initialize(file_parameters=file_parameters)
+   call self%ic%initialize(file_parameters=file_parameters)
+   call self%fWLayer%initialize(file_parameters=file_parameters, physics=physics)
+   call self%coil%initialize(file_parameters=file_parameters)
+   call self%external_fields%initialize(file_parameters=file_parameters)
    if (numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-      call rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=physics)
+      call self%rk_bc%initialize(file_parameters=file_parameters, rk=rk, physics=physics)
    if (physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
-         call leapfrog_pic%initialize(file_parameters=file_parameters, pic=pic)
+         call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=pic)
       if (pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-         call rk_pic%initialize(file_parameters=file_parameters, rk=rk, pic=pic)
+         call self%rk_pic%initialize(file_parameters=file_parameters, rk=rk, pic=pic)
    endif
    call check_ngc_number
    call self%allocate_common
@@ -279,6 +320,36 @@ contains
       endassociate
       endsubroutine io_initialize
    endsubroutine initialize
+
+   subroutine bind_globals_prism(self)
+   !< PRISM-specific override of realm_object%bind_my_globals_forest.
+   !<
+   !< Invoked by the forest BEFORE each per-realm TBP on the multi-realm path
+   !< (issue #13 D.4). Chains to the parent's binder (which re-aliases the 5
+   !< ADAM-common shims: adam/grid/field/tree/maps + the 3 sub-shims weno/ib/rk)
+   !< then re-aliases the 13 PRISM-app shims to THIS realm's value components.
+   !<
+   !< Without the override, the 13 PRISM shims would continue pointing at
+   !< realm(N)'s components — the last-initialized binding — and reads through
+   !< `bc%bc_type`, `time%it`, `coil%j_vec`, etc. would resolve to the wrong
+   !< realm during per-substage work, silently corrupting bit-comparability.
+   class(prism_common_object), intent(inout), target :: self !< The realm whose components the shims should alias.
+
+   call self%realm_object%bind_my_globals_forest
+   bc                 => self%bc
+   coil               => self%coil
+   external_fields    => self%external_fields
+   fWLayer            => self%fWLayer
+   ic                 => self%ic
+   leapfrog_pic       => self%leapfrog_pic
+   numerics           => self%numerics
+   particle_injection => self%particle_injection
+   physics            => self%physics
+   pic                => self%pic
+   rk_bc              => self%rk_bc
+   rk_pic             => self%rk_pic
+   time               => self%time
+   endsubroutine bind_globals_prism
 
    ! IO methods
    subroutine load_restart_files(self, t, time)
