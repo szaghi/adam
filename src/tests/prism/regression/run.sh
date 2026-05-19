@@ -146,13 +146,22 @@ for case_dir in "$REGRESSION_DIR"/*/; do
       echo "   (rerun with goldens missing is only valid during initial setup)"
    fi
 
-   # The checkpoint file prefix. PRISM also writes a restart dump
+   # The checkpoint file prefix(es). PRISM also writes a restart dump
    # (restart_basename) which is NOT a regression checkpoint and must be
    # excluded from the digest — filter strictly on output_basename.
-   output_basename="$(sed -n -E 's/^[[:space:]]*output_basename[[:space:]]*=[[:space:]]*([^[:space:];]+).*/\1/p' \
-                      "$case_dir/input.ini" | head -1)"
-   if [[ -z "$output_basename" ]]; then
-      echo "FAIL [$case_name/$BACKEND] could not parse output_basename from input.ini"
+   #
+   # Multi-realm (Phase D) regression cases use a forest manifest at
+   # input.ini that points at per-realm INIs (e.g. realm_1.ini, realm_2.ini),
+   # each with its own output_basename. Collect every output_basename from
+   # the case directory's .ini files so the produced-h5 glob covers all
+   # realms.
+   output_basenames=()
+   while IFS= read -r ob; do
+      [[ -n "$ob" ]] && output_basenames+=("$ob")
+   done < <(sed -n -E 's/^[[:space:]]*output_basename[[:space:]]*=[[:space:]]*([^[:space:];]+).*/\1/p' \
+                      "$case_dir"/*.ini)
+   if [[ ${#output_basenames[@]} -eq 0 ]]; then
+      echo "FAIL [$case_name/$BACKEND] could not parse output_basename from any .ini in $case_dir"
       fail_count=$((fail_count + 1))
       failed_cases+=("$case_name")
       continue
@@ -161,7 +170,10 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    workdir="$case_dir/work-$BACKEND"
    rm -rf "$workdir"
    mkdir -p "$workdir"
-   cp "$case_dir/input.ini" "$workdir/input.ini"
+   # Copy every .ini from the case directory (input.ini plus any per-realm
+   # INIs the manifest references). The PRISM driver auto-detects whether
+   # input.ini is a manifest or a single-realm config.
+   cp "$case_dir"/*.ini "$workdir/"
 
    echo
    echo "============================================================"
@@ -183,14 +195,20 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    # Always (re)compute the produced digest, even with no golden — during
    # initial setup this is what gets copied into golden/. Only the
    # output_basename checkpoints are digested; the restart dump is excluded.
+   # For multi-realm cases we glob across every realm's output_basename.
    shopt -s nullglob
-   produced_h5=("$workdir/$output_basename"-*.h5)
+   produced_h5=()
+   for ob in "${output_basenames[@]}"; do
+      for h5 in "$workdir/$ob"-*.h5; do
+         produced_h5+=("$h5")
+      done
+   done
    shopt -u nullglob
    if [[ ${#produced_h5[@]} -eq 0 ]]; then
-      echo "FAIL [$case_name/$BACKEND] no '$output_basename-*.h5' checkpoints produced"
+      echo "FAIL [$case_name/$BACKEND] no '*-*.h5' checkpoints produced for any of: ${output_basenames[*]}"
       case_failed=1
    else
-      if ! "$VENV_PY" "$DIGEST_PY" write "$workdir/digest.txt" "${produced_h5[@]}"; then
+      if ! "$VENV_PY" "$DIGEST_PY" write "$workdir/digest.txt" "${produced_h5[@]}" --case-dir "$case_dir"; then
          echo "FAIL [$case_name/$BACKEND] digest computation failed"
          case_failed=1
       fi

@@ -40,6 +40,7 @@ module adam_forest_object
 use :: adam_realm_object,    only : realm_object
 use :: adam_maps_object,     only : inter_realm_neighbor_t
 use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
+use :: adam_forest_global,   only : forest_realm, forest_active_substage
 use :: mpi
 use :: penf
 
@@ -171,15 +172,18 @@ contains
    !<
    !< Phase D may replace `MPI_COMM_WORLD` with a forest-specific
    !< sub-communicator once rank carve-outs land.
-   class(forest_object), intent(in)  :: self     !< The forest.
-   class(realm_object),  intent(in)  :: realm(:) !< The realms to query.
-   real(R8P),            intent(out) :: dt       !< Global stability-limited dt.
-   real(R8P)                         :: dt_local !< Per-realm local dt.
-   integer(I4P)                      :: is       !< Realm index.
-   integer(I4P)                      :: ierr     !< MPI error code.
+   class(forest_object), intent(in)    :: self     !< The forest.
+   class(realm_object),  intent(inout) :: realm(:) !< The realms to query (inout for the multi-realm path's shim re-bind side effect).
+   real(R8P),            intent(out)   :: dt       !< Global stability-limited dt.
+   real(R8P)                           :: dt_local !< Per-realm local dt.
+   integer(I4P)                        :: is       !< Realm index.
+   integer(I4P)                        :: ierr     !< MPI error code.
 
    dt = huge(0._R8P)
    do is = 1, int(size(realm), I4P)
+      ! For N>1 each realm needs its singleton shims pointing at its own
+      ! components before compute_local_dt_forest reads through them.
+      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%compute_local_dt_forest(dt_local=dt_local)
       dt = min(dt, dt_local)
    enddo
@@ -189,22 +193,82 @@ contains
    subroutine evolve_one_step(self, realm)
    !< Advance every realm by one global timestep.
    !<
-   !< Computes the global dt via `compute_global_dt`, then iterates
-   !< `realm(is)%advance_one_step_forest(dt)` in increasing index order,
-   !< then refreshes inter-realm ghost cells via `exchange_halos`. For v1
-   !< (N=1) the inter-realm exchange is a no-op (each realm's base-class
-   !< `exchange_inter_realm_halos_forest` does nothing when no neighbours
-   !< are populated), so the call is structurally present but invisible.
-   class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to advance.
-   real(R8P)                           :: dt       !< Global timestep size.
-   integer(I4P)                        :: is       !< Realm index.
+   !< Two paths, selected by `size(realm)`:
+   !<
+   !<   * **N=1 fast path**: invokes the realm's `advance_one_step_forest`
+   !<     (the legacy entry point). The substage loop is internal to that
+   !<     method; the once-per-step inter-realm exchange runs afterwards.
+   !<     For single-realm forests `exchange_halos` iterates an empty
+   !<     neighbour list and the path is bit-identical to pre-Phase-D.
+   !<
+   !<   * **N>1 multi-realm path**: drives the substage loop itself. Each
+   !<     realm contributes a prologue (`prepare_step_forest`), `nrk`
+   !<     substages (`compute_substage_forest`), and an epilogue
+   !<     (`finalize_step_forest`); the forest invokes inter-realm halo
+   !<     exchange via `exchange_halos` BETWEEN substages so realm A's
+   !<     substage-s ghosts see realm B's substage-s interior values —
+   !<     this is what bit-comparability with single-realm rmf requires.
+   !<     All realms are assumed to use the same integrator (same `nrk`);
+   !<     a mismatch is flagged with `error stop`.
+   !<
+   !< Per-substage inter-realm exchange: the `forest_realm` module pointer
+   !< is bound to `realm(:)` for the duration of this method so the realm
+   !< code at substage depth (inside `compute_residuals → update_ghost`)
+   !< can refresh inter-realm ghosts without threading the realm array
+   !< through the legacy signature chain. See [[adam_forest_global]] for
+   !< the rationale.
+   class(forest_object), intent(in)            :: self     !< The forest.
+   class(realm_object),  intent(inout), target :: realm(:) !< The realms to advance.
+   real(R8P)                                   :: dt       !< Global timestep size.
+   integer(I4P)                                :: is, s    !< Realm and substage indices.
+   integer(I4P)                                :: nrk      !< Number of substages (multi-realm path).
+   integer(I4P)                                :: nrk_chk  !< Per-realm consistency check.
 
+   forest_realm => realm
    call self%compute_global_dt(realm, dt=dt)
-   do is = 1, int(size(realm), I4P)
-      call realm(is)%advance_one_step_forest(dt=dt)
-   enddo
-   call self%exchange_halos(realm)
+   if (int(size(realm), I4P) == 1_I4P) then
+      ! N=1 fast path — bit-identical to pre-Phase-D.
+      call realm(1)%advance_one_step_forest(dt=dt)
+      call self%exchange_halos(realm)
+   else
+      ! N>1 multi-realm path — forest drives the substage loop. Before each
+      ! per-realm TBP we re-bind the legacy singleton shims to that realm's
+      ! value components; the shims would otherwise alias the last-initialized
+      ! realm and feed wrong geometry / RK state to every other realm's
+      ! per-step code. See [[realm_object]]%`bind_my_globals_forest`.
+      do is = 1_I4P, int(size(realm), I4P)
+         call realm(is)%bind_my_globals_forest
+         call realm(is)%prepare_step_forest(dt=dt)
+      enddo
+      call realm(1)%bind_my_globals_forest
+      nrk = realm(1)%nrk_forest()
+      do is = 2_I4P, int(size(realm), I4P)
+         call realm(is)%bind_my_globals_forest
+         nrk_chk = realm(is)%nrk_forest()
+         if (nrk_chk /= nrk) error stop 'forest_object%evolve_one_step: realms disagree on nrk_forest'
+      enddo
+      do s = 1_I4P, nrk
+         forest_active_substage = s
+         ! Phase 1: every realm assembles its q_rk(:,...,s) (no ghost reads).
+         do is = 1_I4P, int(size(realm), I4P)
+            call realm(is)%bind_my_globals_forest
+            call realm(is)%assemble_substage_forest(s=s, nrk=nrk, dt=dt)
+         enddo
+         ! Phase 2: every realm evaluates residuals; update_ghost inside
+         ! compute_residuals refreshes inter-realm ghosts via the
+         ! forest_realm pointer, which now sees peer substage-s buffers.
+         do is = 1_I4P, int(size(realm), I4P)
+            call realm(is)%bind_my_globals_forest
+            call realm(is)%evaluate_substage_forest(s=s, nrk=nrk, dt=dt)
+         enddo
+      enddo
+      forest_active_substage = 0_I4P
+      do is = 1_I4P, int(size(realm), I4P)
+         call realm(is)%bind_my_globals_forest
+         call realm(is)%finalize_step_forest(dt=dt)
+      enddo
+   endif
+   forest_realm => null()
    endsubroutine evolve_one_step
 
    subroutine exchange_halos(self, realm)
@@ -230,6 +294,7 @@ contains
    associate(self_unused => self) ! method takes self for TBP-dispatch symmetry
    end associate
    do is = 1, int(size(realm), I4P)
+      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%exchange_inter_realm_halos_forest(realm=realm)
    enddo
    endsubroutine exchange_halos
@@ -249,6 +314,7 @@ contains
    integer(I4P)                        :: is       !< Realm index.
 
    do is = 1, int(size(realm), I4P)
+      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%post_step_forest(dt=0._R8P, t=0._R8P, it=0_I4P)
    enddo
    endsubroutine post_step
@@ -262,15 +328,16 @@ contains
    !< means the forest keeps evolving as long as ANY realm wants to —
    !< matching the legacy single-realm semantics for v1 (with one realm
    !< the global predicate equals that realm's local one).
-   class(forest_object), intent(in)  :: self     !< The forest.
-   class(realm_object),  intent(in)  :: realm(:) !< The realms to query.
-   logical,              intent(out) :: done     !< Forest-global termination predicate.
-   logical                           :: done_local !< Per-realm local predicate.
-   integer(I4P)                      :: is         !< Realm index.
-   integer(I4P)                      :: ierr       !< MPI error code.
+   class(forest_object), intent(in)    :: self     !< The forest.
+   class(realm_object),  intent(inout) :: realm(:) !< The realms to query (inout for the multi-realm path's shim re-bind side effect).
+   logical,              intent(out)   :: done     !< Forest-global termination predicate.
+   logical                             :: done_local !< Per-realm local predicate.
+   integer(I4P)                        :: is         !< Realm index.
+   integer(I4P)                        :: ierr       !< MPI error code.
 
    done = .true.
    do is = 1, int(size(realm), I4P)
+      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%is_done_forest(done=done_local)
       done = done .and. done_local
    enddo
@@ -288,6 +355,7 @@ contains
    integer(I4P)                        :: is       !< Realm index.
 
    do is = 1, int(size(realm), I4P)
+      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%finalize_forest
    enddo
    endsubroutine finalize

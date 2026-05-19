@@ -12,14 +12,34 @@ records point-wise reductions (count, min, max, sum, sum of squares) per field
 variable, which shift if any single cell changes, yet stay in the kilobyte
 range.
 
-Granularity is per-variable-per-file: the 32 blocks of each variable (e.g. all
-``block_*-proc*-Bx`` datasets) are reduced together. This is intentionally
-invariant to block-to-rank ownership — redistributing blocks across ranks is
-not a physics regression — while remaining sensitive to any change in the
-field values themselves.
+Granularity is per-variable-per-output-step: ALL block datasets at iteration
+N (across all blocks, all MPI ranks, and — for Phase D multi-realm cases —
+all realm output basenames) are reduced together. This is intentionally
+invariant to:
+
+  * block-to-rank ownership (redistributing blocks across ranks is not a
+    physics regression);
+  * realm-to-file partitioning (the two-realm x-split rmf case writes its
+    cells across `rmf_2realm_r1-*.h5` + `rmf_2realm_r2-*.h5`, but the
+    UNION of cells is bit-equivalent to the single-realm `rmf_regression-*.h5`
+    at the same iteration index — see issue #13 D.4).
+
+Ghost cells are EXCLUDED from the reduction. PRISM saves checkpoints with
+`with_ghost=.true.`, which appends 2·ngc cells per direction. The ghost cells
+diverge between single-realm and multi-realm configs (the multi-realm case
+has inter-realm-mirror ghosts at the realm boundary, which the single-realm
+config never sees), so including them defeats bit-comparability. The
+ghost-cell stripping is parametric on the case directory's ngc (read from
+any case .ini's `[grid] ngc = ...`); falls back to ngc=0 (no stripping)
+when no INI is supplied.
+
+Output rows are keyed on a STEP-INDEX derived from each checkpoint's
+filename (`<basename>-<step>-proc<rank>.h5` ⇒ step=<step>) rather than the
+basename, so multi-realm checkpoints at the same iteration index aggregate
+into a single row.
 
 Usage:
-    digest.py write  <out.txt> <checkpoint.h5> [<checkpoint.h5> ...]
+    digest.py write   <out.txt> <checkpoint.h5> [<checkpoint.h5> ...] [--ngc N | --case-dir DIR]
     digest.py compare <produced.txt> <golden.txt> [--rtol R] [--atol A]
 
 ``write`` emits a deterministic, sorted digest. ``compare`` exits 0 when every
@@ -28,6 +48,7 @@ row matches within tolerance, non-zero otherwise, printing the offending rows.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -38,6 +59,11 @@ import numpy as np
 # everything after the second '-'. Reductions are aggregated over all blocks
 # and ranks sharing a variable suffix.
 _NAME_SEP = "-"
+
+# Filename layout: <basename>-<step>-proc<rank>.h5, where <step> is a
+# zero-padded iteration index emitted by PRISM IO. The step index is the
+# digest's aggregation key across multi-realm output files.
+_FILENAME_RE = re.compile(r"^(?P<basename>.+)-(?P<step>\d+)-proc(?P<rank>\d+)\.h5$")
 
 # Variable-name prefixes excluded from the digest entirely.
 #
@@ -88,10 +114,28 @@ def _variable_of(dataset_name: str) -> str | None:
     return var
 
 
-def _reduce_file(path: Path) -> dict[str, np.ndarray]:
+def _interior(data: np.ndarray, ngc: int) -> np.ndarray:
+    """Strip ngc ghost-cell layers off every dimension of a 3D field array.
+
+    PRISM checkpoints with `with_ghost=.true.` store block data as a 3D array
+    of shape (ni+2ngc, nj+2ngc, nk+2ngc). Returns the central
+    [ngc:-ngc, ngc:-ngc, ngc:-ngc] slice (interior cells only) when ngc>0,
+    or the unmodified array when ngc==0 (legacy single-realm digest, kept
+    for backward compatibility with already-captured goldens).
+    """
+    if ngc <= 0 or data.ndim != 3:
+        return data
+    return data[ngc:-ngc, ngc:-ngc, ngc:-ngc]
+
+
+def _reduce_file(path: Path, ngc: int) -> dict[str, np.ndarray]:
     """Accumulate per-variable reductions over every block dataset in one file.
 
     Each variable maps to a float64 array [count, min, max, sum, sum_sq].
+    Ghost cells are stripped when `ngc > 0` so the reduction covers only
+    interior cells; without stripping the inter-realm-mirror ghost cells of
+    a multi-realm case would shift sums and break bit-comparability against
+    a single-realm reference.
     """
     acc: dict[str, np.ndarray] = {}
     with h5py.File(path, "r") as h5:
@@ -101,7 +145,9 @@ def _reduce_file(path: Path) -> dict[str, np.ndarray]:
             var = _variable_of(name)
             if var is None:
                 continue
-            data = np.asarray(obj[()], dtype=np.float64).ravel()
+            raw = np.asarray(obj[()], dtype=np.float64)
+            interior = _interior(raw, ngc)
+            data = interior.ravel()
             if data.size == 0:
                 continue
             stats = np.array(
@@ -131,38 +177,90 @@ def _reduce_file(path: Path) -> dict[str, np.ndarray]:
     return acc
 
 
-def _format_row(checkpoint: str, var: str, stats: np.ndarray) -> str:
+def _step_index_of(filename: str) -> str | None:
+    """Extract the zero-padded step index from `<basename>-<step>-proc<rank>.h5`."""
+    m = _FILENAME_RE.match(filename)
+    if m is None:
+        return None
+    return m.group("step")
+
+
+def _ngc_from_case_dir(case_dir: Path) -> int:
+    """Read `[grid] ngc = ...` from any of the case directory's `.ini` files.
+
+    Multi-realm cases have several INIs (forest manifest + one per realm);
+    every realm INI declares `ngc`, and Phase D's design requires them to
+    agree. We accept the first value found.
+    """
+    pattern = re.compile(r"^\s*ngc\s*=\s*(\d+)", re.MULTILINE)
+    for ini_path in sorted(case_dir.glob("*.ini")):
+        match = pattern.search(ini_path.read_text())
+        if match:
+            return int(match.group(1))
+    return 0
+
+
+def _format_row(step: str, var: str, stats: np.ndarray) -> str:
+    """Tab-separated row keyed on (iteration step, variable).
+
+    Step is the zero-padded iteration index parsed from the checkpoint
+    filename; it aggregates across all blocks, ranks, AND multi-realm
+    output basenames at that iteration.
+    """
     count = int(stats[0])
     return (
-        f"{checkpoint}\t{var}\t{count}\t"
+        f"{step}\t{var}\t{count}\t"
         f"{stats[1]:.16e}\t{stats[2]:.16e}\t{stats[3]:.16e}\t{stats[4]:.16e}"
     )
 
 
-def cmd_write(out_path: str, h5_paths: list[str]) -> int:
+def cmd_write(out_path: str, h5_paths: list[str], ngc: int) -> int:
     if not h5_paths:
         print("ERROR: write needs at least one HDF5 file", file=sys.stderr)
         return 2
-    rows: list[str] = []
+    # step_acc[(step, variable)] -> [count, min, max, sum, sum_sq]
+    step_acc: dict[tuple[str, str], np.ndarray] = {}
     for h5_path in sorted(h5_paths):
         p = Path(h5_path)
         if not p.is_file():
             print(f"ERROR: not a file: {h5_path}", file=sys.stderr)
             return 2
-        # Key the digest on the basename only: the work directory path is
-        # volatile, the checkpoint file name is the stable identity.
-        checkpoint = p.name
-        acc = _reduce_file(p)
-        for var in sorted(acc):
-            rows.append(_format_row(checkpoint, var, acc[var]))
-    header = "# checkpoint\tvariable\tcount\tmin\tmax\tsum\tsum_sq"
+        step = _step_index_of(p.name)
+        if step is None:
+            print(f"ERROR: cannot parse step index from filename: {p.name}", file=sys.stderr)
+            return 2
+        file_acc = _reduce_file(p, ngc=ngc)
+        for var, stats in file_acc.items():
+            key = (step, var)
+            if key in step_acc:
+                prev = step_acc[key]
+                step_acc[key] = np.array(
+                    [
+                        prev[0] + stats[0],
+                        min(prev[1], stats[1]),
+                        max(prev[2], stats[2]),
+                        prev[3] + stats[3],
+                        prev[4] + stats[4],
+                    ],
+                    dtype=np.float64,
+                )
+            else:
+                step_acc[key] = stats
+    rows = [_format_row(step, var, step_acc[(step, var)]) for (step, var) in sorted(step_acc)]
+    header = "# step\tvariable\tcount\tmin\tmax\tsum\tsum_sq"
     Path(out_path).write_text(header + "\n" + "\n".join(rows) + "\n")
-    print(f">> wrote digest: {out_path} ({len(rows)} rows)")
+    print(f">> wrote digest: {out_path} ({len(rows)} rows, ngc={ngc})")
     return 0
 
 
 def _parse_digest(path: Path) -> dict[tuple[str, str], list[str]]:
-    """Parse a digest file into {(checkpoint, variable): [count,min,max,sum,sumsq]}."""
+    """Parse a digest file into {(step, variable): [count,min,max,sum,sumsq]}.
+
+    Compatible with both the legacy `<basename>-<step>-proc<rank>.h5`-keyed
+    format and the step-keyed format introduced for multi-realm aggregation
+    (Phase D.4): the two share the same row layout — the first column is
+    just opaque text used as part of the lookup key.
+    """
     table: dict[tuple[str, str], list[str]] = {}
     for line in path.read_text().splitlines():
         if not line or line.startswith("#"):
@@ -170,8 +268,8 @@ def _parse_digest(path: Path) -> dict[tuple[str, str], list[str]]:
         fields = line.split("\t")
         if len(fields) != 7:
             raise ValueError(f"malformed digest row in {path}: {line!r}")
-        checkpoint, var = fields[0], fields[1]
-        table[(checkpoint, var)] = fields[2:]
+        step, var = fields[0], fields[1]
+        table[(step, var)] = fields[2:]
     return table
 
 
@@ -233,7 +331,32 @@ def main(argv: list[str]) -> int:
         return 2
     mode = argv[1]
     if mode == "write":
-        return cmd_write(argv[2], argv[3:]) if len(argv) >= 4 else cmd_write("", [])
+        if len(argv) < 4:
+            print("ERROR: write needs <out.txt> <checkpoint.h5> [...]", file=sys.stderr)
+            return 2
+        out_path = argv[2]
+        # Split positional HDF5 paths from flag pairs (--ngc / --case-dir).
+        h5_paths: list[str] = []
+        ngc = 0
+        case_dir: Path | None = None
+        rest = argv[3:]
+        i = 0
+        while i < len(rest):
+            if rest[i] == "--ngc" and i + 1 < len(rest):
+                ngc = int(rest[i + 1])
+                i += 2
+            elif rest[i] == "--case-dir" and i + 1 < len(rest):
+                case_dir = Path(rest[i + 1])
+                i += 2
+            elif rest[i].startswith("--"):
+                print(f"ERROR: unknown write flag {rest[i]!r}", file=sys.stderr)
+                return 2
+            else:
+                h5_paths.append(rest[i])
+                i += 1
+        if case_dir is not None and ngc == 0:
+            ngc = _ngc_from_case_dir(case_dir)
+        return cmd_write(out_path, h5_paths, ngc=ngc)
     if mode == "compare":
         if len(argv) < 4:
             print("ERROR: compare needs <produced.txt> <golden.txt>", file=sys.stderr)

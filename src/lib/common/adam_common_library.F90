@@ -39,6 +39,7 @@ use :: adam_tree_global
 use :: adam_weno_global
 use :: adam_ib_global
 use :: adam_rk_global
+use :: adam_forest_global
 use :: adam_adam_bind
 
 implicit none

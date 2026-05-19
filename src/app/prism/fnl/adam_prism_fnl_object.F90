@@ -89,13 +89,19 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: integrate_rk_ssp_dev     !< SSP RK schemes.
       procedure, pass(self) :: integrate_rk_yoshida_dev !< Yoshida schemes.
       ! numerical methods, miscellanea
-      procedure, pass(self) :: compute_dt           	!< Compute time step.
-      procedure, pass(self) :: initialize_forest       !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: post_step_forest        !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: is_done_forest          !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: finalize_forest         !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: compute_dt                        !< Compute time step.
+      procedure, pass(self) :: initialize_forest                 !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: compute_local_dt_forest           !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: advance_one_step_forest           !< Orchestrator contract; overrides realm_object default (N=1 fast path).
+      procedure, pass(self) :: nrk_forest                        !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: prepare_step_forest               !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: assemble_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: evaluate_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: finalize_step_forest              !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: post_step_forest                  !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: is_done_forest                    !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: finalize_forest                   !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: exchange_inter_realm_halos_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
@@ -710,6 +716,9 @@ contains
 
    if (do_local_update) call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
                         call field_fnl%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
+   if (associated(forest_realm) .and. allocated(self%adam%maps%inter_realm_neighbors)) then
+      call self%exchange_inter_realm_halos_forest(realm=forest_realm)
+   endif
    if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
    endsubroutine update_ghost
 
@@ -1753,6 +1762,340 @@ contains
    time%time = time%time + dt_step
    call time%print_progress(nodes_number=tree%nodes_number)
    endsubroutine advance_one_step_forest
+
+   function nrk_forest(self) result(nrk)
+   !< Number of RK substages used by this realm's integrator (FNL).
+   !<
+   !< See PRISM-CPU's `nrk_forest` for the multi-realm-path rationale.
+   !<
+   !< **Known limitation (Phase D.4)**: the FNL backend's `rk_fnl` is a
+   !< program-scope singleton, not a per-realm value component. The
+   !< multi-realm substage path overwrites `rk_fnl%q_rk_gpu(:,...,s)` from
+   !< realm to realm, so bit-comparability with single-realm rmf is NOT
+   !< achievable on FNL until `rk_fnl` is promoted to a per-realm component
+   !< (same C.3-style closure that converted `adam`, `weno`, `ib`, `rk` from
+   !< singletons to value components on `realm_object`). The TBPs below
+   !< exist so the orchestrator contract is type-checked, but the FNL
+   !< multi-realm path will produce non-bit-comparable results until that
+   !< follow-up lands. The CPU path is unaffected.
+   class(prism_fnl_object), intent(in) :: self !< The realm.
+   integer(I4P)                        :: nrk  !< Number of substages.
+
+   associate(self_unused => self)
+   end associate
+   nrk = rk%nrk
+   endfunction nrk_forest
+
+   subroutine prepare_step_forest(self, dt)
+   !< Per-step prologue on the multi-realm path: external-field prelude,
+   !< RK GPU stage-array init, time bookkeeping. Mirror of `integrate_rk_ssp_dev`'s head.
+   !<
+   !< **Phase D.4 guard**: error_stop on first entry when inter-realm
+   !< neighbours are present. The FNL multi-realm path is structurally
+   !< broken because `rk_fnl`, `field_fnl`, `ib_fnl`, `weno_fnl`,
+   !< `coil_fnl`, `fwlayer_fnl` are program-scope singletons (not
+   !< per-realm value components). The substage state in `rk_fnl%q_rk_gpu`
+   !< is overwritten on each realm's call here, so even before the
+   !< inter-realm exchange would run, the substage state has already
+   !< diverged from what single-realm rmf computes. Promoting the FNL
+   !< singletons to per-realm components is a follow-up beyond D.4's
+   !< scope; for now this guard surfaces the limitation diagnosably.
+   class(prism_fnl_object), intent(inout) :: self    !< The realm.
+   real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
+
+   ! prepare_step_forest is only invoked on the multi-realm path; reaching
+   ! it on the FNL backend triggers the singleton-corruption issue described
+   ! above. Fail fast with a diagnosable message.
+   associate(self_unused => self, dt_unused => dt)
+   end associate
+   error stop 'prism_fnl_object%prepare_step_forest: multi-realm FNL not supported yet '//&
+              '(rk_fnl/field_fnl/ib_fnl/weno_fnl/coil_fnl/fwlayer_fnl singletons must become per-realm)'
+   endsubroutine prepare_step_forest
+
+   subroutine assemble_substage_forest(self, s, nrk, dt)
+   !< Assemble RK substage `s` on the multi-realm path (FNL/GPU).
+   !<
+   !< Mirrors the FIRST two lines of `integrate_rk_ssp_dev`'s substage body:
+   !< `rk_fnl%compute_stage(s, dt [, phi_gpu])` then `compute_coils_current(q_gpu=rk_fnl%q_rk_gpu(:,...,s), gamm=rk%gamm(s))`.
+   !< The coil-current refresh happens here (substage prep) because it's a
+   !< source-term update on `q_rk_gpu(:,...,s)` and is needed BEFORE the
+   !< inter-realm exchange in the evaluate pass.
+   class(prism_fnl_object), intent(inout) :: self !< The realm.
+   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; time%dt is canonical).
+
+   associate(dt_unused => dt, nrk_unused => nrk)
+   end associate
+   if (ib%solids_number>0) then
+      call rk_fnl%compute_stage(s=s, dt=time%dt, phi_gpu=ib_fnl%phi_gpu)
+   else
+      call rk_fnl%compute_stage(s=s, dt=time%dt)
+   endif
+   call self%compute_coils_current(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=rk%gamm(s))
+   endsubroutine assemble_substage_forest
+
+   subroutine evaluate_substage_forest(self, s, nrk, dt)
+   !< Evaluate residuals + stage assignment for RK substage `s` (FNL multi-realm path).
+   !<
+   !< Mirrors `compute_residuals_dev + rk_fnl%assign_stage` from `integrate_rk_ssp_dev`.
+   class(prism_fnl_object), intent(inout) :: self !< The realm.
+   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; time%dt is canonical).
+
+   associate(dt_unused => dt, nrk_unused => nrk)
+   end associate
+   call self%compute_residuals_dev(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+   if (ib%solids_number>0) then
+      call rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=ib_fnl%phi_gpu)
+   else
+      call rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
+   endif
+   endsubroutine evaluate_substage_forest
+
+   subroutine finalize_step_forest(self, dt)
+   !< Per-step epilogue on the multi-realm path: q assembly, BC, div-clean,
+   !< residual save, coil source refresh, time advance, progress print (FNL).
+   class(prism_fnl_object), intent(inout) :: self !< The realm.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest.
+
+   associate(dt_unused => dt)
+   end associate
+   if (ib%solids_number>0) then
+      call rk_fnl%update_q(dt=time%dt, phi_gpu=ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+   else
+      call rk_fnl%update_q(dt=time%dt, q_gpu=self%q_gpu)
+      call self%save_residuals
+   endif
+   call self%compute_coils_current(q_gpu=self%q_gpu)
+   call self%impose_div_free
+   if (external_fields%ef_type/=EF_TYPE_NONE) &
+      call add_external_fields_dev(external_fields=external_fields, field_gpu=field_fnl, &
+                                   dt=time%dt, time=time%time, q_gpu=self%q_gpu)
+   time%time = time%time + time%dt
+   call time%print_progress(nodes_number=tree%nodes_number)
+   endsubroutine finalize_step_forest
+
+   subroutine exchange_inter_realm_halos_forest(self, realm)
+   !< Refresh `self`'s ghost cells from peer realms on GPU buffers (FNL).
+   !<
+   !< FNL twin of [[prism_cpu_object]]%`exchange_inter_realm_halos_forest`.
+   !< Algorithm structure is identical (geometric block matching, mirror
+   !< copy at the face slab); the only difference is the buffer location —
+   !< host arrays on CPU vs device pointers on FNL.
+   !<
+   !< **Known limitation (Phase D.4)**: this override is a structural
+   !< placeholder. It performs the once-per-step (`forest_active_substage == 0`)
+   !< exchange on `self%q_gpu` correctly, but the per-substage path is
+   !< NOT bit-comparable to single-realm rmf because FNL's `rk_fnl` is a
+   !< singleton — the substage state is shared across realms and overwritten
+   !< on each realm's `assemble_substage_forest`. Bit-comparability on FNL
+   !< requires promoting `rk_fnl` to a per-realm component (and the same for
+   !< `field_fnl`, `ib_fnl`, `weno_fnl`, `coil_fnl`, `fwlayer_fnl`); that is
+   !< a follow-up beyond D.4's scope. Today this method error-stops on the
+   !< per-substage entry to make the limitation diagnosable rather than
+   !< silently producing wrong results.
+   class(prism_fnl_object), intent(inout) :: self     !< This realm.
+   class(realm_object),     intent(in)    :: realm(:) !< All realms in the forest.
+   integer(I4P)                           :: n        !< Neighbour entry counter.
+   integer(I4P)                           :: peer     !< Peer realm index.
+   integer(I4P)                           :: my_face  !< Self face code.
+   integer(I4P)                           :: peer_face !< Peer face code.
+   integer(I4P)                           :: my_axis    !< Coupling axis (1=x, 2=y, 3=z).
+   integer(I4P)                           :: my_sign    !< +1 (MAX face) or -1 (MIN face).
+   integer(I4P)                           :: b          !< Self block index.
+   integer(I4P)                           :: b_peer     !< Peer block index.
+   logical                                :: found      !< Peer block resolution flag.
+
+   if (.not. allocated(self%adam%maps%inter_realm_neighbors)) return
+   if (forest_active_substage > 0_I4P) &
+      error stop 'prism_fnl_object%exchange_inter_realm_halos_forest: per-substage exchange not yet bit-comparable on FNL '//&
+                 '(requires per-realm rk_fnl / field_fnl / ib_fnl / weno_fnl singletons — Phase D follow-up)'
+   do n = 1_I4P, int(size(self%adam%maps%inter_realm_neighbors), I4P)
+      associate(entry => self%adam%maps%inter_realm_neighbors(n))
+         if (entry%coupling /= COUPLING_MIRROR) &
+            error stop 'prism_fnl_object%exchange_inter_realm_halos_forest: only COUPLING_MIRROR is implemented'
+         peer      = entry%peer_realm
+         my_face   = entry%my_face
+         peer_face = entry%peer_face
+         call face_axis_sign(my_face, my_axis, my_sign)
+         do b = 1_I4P, int(self%adam%field%blocks_number, I4P)
+            if (.not. block_face_on_realm_boundary(b=b, axis=my_axis, sgn=my_sign)) cycle
+            call find_peer_block(peer=peer, peer_face=peer_face, my_block=b, &
+                                  my_axis=my_axis, my_sign=my_sign,           &
+                                  b_peer=b_peer, found=found, realm=realm)
+            if (.not. found) cycle
+            call copy_peer_face_gpu(b=b, my_axis=my_axis, my_sign=my_sign, &
+                                    b_peer=b_peer, peer=peer, realm=realm)
+         enddo
+      end associate
+   enddo
+   contains
+      pure subroutine face_axis_sign(face_code, axis, sgn)
+      integer(I4P), intent(in)  :: face_code
+      integer(I4P), intent(out) :: axis
+      integer(I4P), intent(out) :: sgn
+
+      select case (face_code)
+      case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
+      case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
+      case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
+      case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
+      case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
+      case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
+      case default;      axis = 0_I4P; sgn = 0_I4P
+      end select
+      endsubroutine face_axis_sign
+
+      function block_face_on_realm_boundary(b, axis, sgn) result(yes)
+      integer(I4P), intent(in) :: b
+      integer(I4P), intent(in) :: axis
+      integer(I4P), intent(in) :: sgn
+      logical                  :: yes
+      real(R8P)                :: face_coord, target_coord, tol
+
+      if (sgn > 0_I4P) then
+         face_coord   = self%adam%field%emax(axis, b)
+         target_coord = self%adam%grid%domain_emax(axis)
+      else
+         face_coord   = self%adam%field%emin(axis, b)
+         target_coord = self%adam%grid%domain_emin(axis)
+      endif
+      tol = max(abs(target_coord), 1._R8P) * 1.0e-10_R8P
+      yes = abs(face_coord - target_coord) <= tol
+      endfunction block_face_on_realm_boundary
+
+      subroutine find_peer_block(peer, peer_face, my_block, my_axis, my_sign, b_peer, found, realm)
+      integer(I4P),        intent(in)  :: peer
+      integer(I4P),        intent(in)  :: peer_face
+      integer(I4P),        intent(in)  :: my_block
+      integer(I4P),        intent(in)  :: my_axis
+      integer(I4P),        intent(in)  :: my_sign
+      integer(I4P),        intent(out) :: b_peer
+      logical,             intent(out) :: found
+      class(realm_object), intent(in)  :: realm(:)
+      integer(I4P)                     :: bp, peer_axis, peer_sign
+      integer(I4P)                     :: tax1, tax2
+      real(R8P)                        :: my_face_coord
+      real(R8P)                        :: my_tmin(2), my_tmax(2)
+      real(R8P)                        :: peer_face_coord
+      real(R8P)                        :: tol
+
+      found  = .false.
+      b_peer = 0_I4P
+      call face_axis_sign(peer_face, peer_axis, peer_sign)
+      if (peer_axis /= my_axis) return
+      if (peer_sign == my_sign) return
+      tax1 = mod(my_axis,        3_I4P) + 1_I4P
+      tax2 = mod(my_axis + 1_I4P, 3_I4P) + 1_I4P
+      if (my_sign > 0_I4P) then
+         my_face_coord = self%adam%field%emax(my_axis, my_block)
+      else
+         my_face_coord = self%adam%field%emin(my_axis, my_block)
+      endif
+      my_tmin(1) = self%adam%field%emin(tax1, my_block)
+      my_tmax(1) = self%adam%field%emax(tax1, my_block)
+      my_tmin(2) = self%adam%field%emin(tax2, my_block)
+      my_tmax(2) = self%adam%field%emax(tax2, my_block)
+      tol = max(abs(my_face_coord), 1._R8P) * 1.0e-10_R8P
+      select type (peer_realm => realm(peer))
+      class is (prism_fnl_object)
+         do bp = 1_I4P, int(peer_realm%adam%field%blocks_number, I4P)
+            if (peer_sign > 0_I4P) then
+               peer_face_coord = peer_realm%adam%field%emax(peer_axis, bp)
+            else
+               peer_face_coord = peer_realm%adam%field%emin(peer_axis, bp)
+            endif
+            if (abs(peer_face_coord - my_face_coord) > tol) cycle
+            if (abs(peer_realm%adam%field%emin(tax1, bp) - my_tmin(1)) > tol) cycle
+            if (abs(peer_realm%adam%field%emax(tax1, bp) - my_tmax(1)) > tol) cycle
+            if (abs(peer_realm%adam%field%emin(tax2, bp) - my_tmin(2)) > tol) cycle
+            if (abs(peer_realm%adam%field%emax(tax2, bp) - my_tmax(2)) > tol) cycle
+            b_peer = bp
+            found  = .true.
+            return
+         enddo
+      class default
+         error stop 'prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object'
+      end select
+      endsubroutine find_peer_block
+
+      subroutine copy_peer_face_gpu(b, my_axis, my_sign, b_peer, peer, realm)
+      !< Host-staged peer→self ghost-slab copy for FNL (post-step path only).
+      !<
+      !< Pulls the peer's `q_gpu` interior slab from device → host, writes
+      !< into self's `q_gpu` ghost slab on host, pushes back to device. Only
+      !< the once-per-step path is exercised here (the outer method
+      !< error-stops on `forest_active_substage > 0`); see that method's
+      !< limitation note for the per-substage rk_fnl singleton gap.
+      integer(I4P),        intent(in) :: b
+      integer(I4P),        intent(in) :: my_axis
+      integer(I4P),        intent(in) :: my_sign
+      integer(I4P),        intent(in) :: b_peer
+      integer(I4P),        intent(in) :: peer
+      class(realm_object), intent(in) :: realm(:)
+      integer(I4P)                    :: d, i, j, k, ng, ni_, nj_, nk_
+      integer(I4P)                    :: peer_ni, peer_nj, peer_nk
+
+      ng = self%ngc
+      ni_ = self%ni
+      nj_ = self%nj
+      nk_ = self%nk
+      select type (peer_realm => realm(peer))
+      class is (prism_fnl_object)
+         peer_ni = peer_realm%ni
+         peer_nj = peer_realm%nj
+         peer_nk = peer_realm%nk
+         select case (my_axis)
+         case (1_I4P)
+            if (my_sign > 0_I4P) then
+               do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do j = 1_I4P, nj_
+                  !$acc update host(peer_realm%q_gpu(:, d, j, k, b_peer))
+                  self%q_gpu(:, ni_ + d, j, k, b) = peer_realm%q_gpu(:, d, j, k, b_peer)
+                  !$acc update device(self%q_gpu(:, ni_ + d, j, k, b))
+               enddo ; enddo ; enddo
+            else
+               do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do j = 1_I4P, nj_
+                  !$acc update host(peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer))
+                  self%q_gpu(:, 1_I4P - d, j, k, b) = peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer)
+                  !$acc update device(self%q_gpu(:, 1_I4P - d, j, k, b))
+               enddo ; enddo ; enddo
+            endif
+         case (2_I4P)
+            if (my_sign > 0_I4P) then
+               do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do i = 1_I4P, ni_
+                  !$acc update host(peer_realm%q_gpu(:, i, d, k, b_peer))
+                  self%q_gpu(:, i, nj_ + d, k, b) = peer_realm%q_gpu(:, i, d, k, b_peer)
+                  !$acc update device(self%q_gpu(:, i, nj_ + d, k, b))
+               enddo ; enddo ; enddo
+            else
+               do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do i = 1_I4P, ni_
+                  !$acc update host(peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer))
+                  self%q_gpu(:, i, 1_I4P - d, k, b) = peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer)
+                  !$acc update device(self%q_gpu(:, i, 1_I4P - d, k, b))
+               enddo ; enddo ; enddo
+            endif
+         case (3_I4P)
+            if (my_sign > 0_I4P) then
+               do d = 1_I4P, ng ; do j = 1_I4P, nj_ ; do i = 1_I4P, ni_
+                  !$acc update host(peer_realm%q_gpu(:, i, j, d, b_peer))
+                  self%q_gpu(:, i, j, nk_ + d, b) = peer_realm%q_gpu(:, i, j, d, b_peer)
+                  !$acc update device(self%q_gpu(:, i, j, nk_ + d, b))
+               enddo ; enddo ; enddo
+            else
+               do d = 1_I4P, ng ; do j = 1_I4P, nj_ ; do i = 1_I4P, ni_
+                  !$acc update host(peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer))
+                  self%q_gpu(:, i, j, 1_I4P - d, b) = peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer)
+                  !$acc update device(self%q_gpu(:, i, j, 1_I4P - d, b))
+               enddo ; enddo ; enddo
+            endif
+         end select
+      class default
+         error stop 'prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object'
+      end select
+      endsubroutine copy_peer_face_gpu
+   endsubroutine exchange_inter_realm_halos_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
    !< Run PRISM-FNL's per-timestep post-step work: state IO, energy

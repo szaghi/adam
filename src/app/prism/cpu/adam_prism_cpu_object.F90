@@ -48,12 +48,18 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_field_mean_value   !< Compute field mean value.
       ! numerical methods
       procedure, pass(self) :: compute_dt           !< Compute time step.
-      procedure, pass(self) :: initialize_forest       !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: compute_local_dt_forest !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: advance_one_step_forest !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: post_step_forest        !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: is_done_forest          !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: finalize_forest         !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: initialize_forest                 !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: compute_local_dt_forest           !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: advance_one_step_forest           !< Orchestrator contract; overrides realm_object default (N=1 fast path).
+      procedure, pass(self) :: nrk_forest                        !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: prepare_step_forest               !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: assemble_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: evaluate_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: finalize_step_forest              !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: post_step_forest                  !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: is_done_forest                    !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: finalize_forest                   !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: exchange_inter_realm_halos_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       !< Compute energy.
       procedure, pass(self) :: compute_energy_error !< Compute energy error.
       procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
@@ -829,6 +835,13 @@ contains
    subroutine update_ghost(self, q, step, s)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
+   !<
+   !< Inter-realm refresh: after the intra-realm halo path completes, if a
+   !< forest is driving the run (the `forest_realm` module pointer is bound by
+   !< `forest_object%evolve_one_step`) AND this realm declares any inter-realm
+   !< neighbours, refresh the inter-realm ghosts on the same `q` buffer the
+   !< caller is about to read. Empty neighbour list ⇒ skip silently (N=1
+   !< rmf path, bit-identical to pre-Phase-D).
    class(prism_cpu_object), intent(inout)        :: self            !< The equation.
    real(R8P),               intent(inout)        :: q(1:,         &
                                                       1-self%ngc:,&
@@ -852,9 +865,12 @@ contains
    endif
    if (do_local_update) call field%update_ghost_local(q=q)
                         call field%update_ghost_mpi(q=q, step=step)
+   if (associated(forest_realm) .and. allocated(self%adam%maps%inter_realm_neighbors)) then
+      call self%exchange_inter_realm_halos_forest(realm=forest_realm)
+   endif
    if (do_set_bc)       call self%set_boundary_conditions(q=q, s=s)
    if (present(s)) then
-      call self%compute_coils_current(q=q, gamma=rk%gamm(s)) 
+      call self%compute_coils_current(q=q, gamma=rk%gamm(s))
    else
       call self%compute_coils_current(q=q)
    endif
@@ -1035,6 +1051,435 @@ contains
    time%time = time%time + dt_step
    call time%print_progress(nodes_number=tree%nodes_number)
    endsubroutine advance_one_step_forest
+
+   function nrk_forest(self) result(nrk)
+   !< Number of RK substages used by this realm's integrator.
+   !<
+   !< For the multi-realm path the forest drives the substage loop, so it
+   !< needs to know `nrk` up front. Currently only `runge-kutta-ssp-*` is
+   !< split into per-substage TBPs (`assemble_substage_forest` /
+   !< `evaluate_substage_forest`); other integrators (Yoshida, Leapfrog,
+   !< Blanes-Moan, CFM) will error-stop on the multi-realm path until they
+   !< are split as well.
+   class(prism_cpu_object), intent(in) :: self !< The realm.
+   integer(I4P)                        :: nrk  !< Number of substages.
+
+   associate(self_unused => self) ! reads module-scope rk singleton, not self state
+   end associate
+   nrk = rk%nrk
+   endfunction nrk_forest
+
+   subroutine prepare_step_forest(self, dt)
+   !< Per-step prologue on the multi-realm path: set dt, init RK stages.
+   !<
+   !< Mirrors the head of `integrate_rk_ssp`: external-field prelude (if
+   !< active), `rk%initialize_stages(q=self%q)`, and the per-step time
+   !< bookkeeping `advance_one_step_forest` does inline (it increment,
+   !< dt cap for time_max, time%dt update). Time advance and progress
+   !< print run in `finalize_step_forest`, mirroring the legacy ordering.
+   class(prism_cpu_object), intent(inout) :: self    !< The realm.
+   real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
+   real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
+
+   time%it = time%it + 1
+   dt_step = dt
+   if ((time%it_max <= 0).and.(time%time+dt_step > time%time_max)) dt_step = time%time_max - time%time
+   time%dt = dt_step
+   if (external_fields%ef_type/=EF_TYPE_NONE) &
+      call external_fields%sub_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
+   call rk%initialize_stages(q=self%q)
+   endsubroutine prepare_step_forest
+
+   subroutine assemble_substage_forest(self, s, nrk, dt)
+   !< Assemble RK substage `s` on the multi-realm path.
+   !<
+   !< Mirrors the FIRST line of `integrate_rk_ssp`'s substage body:
+   !< `rk%compute_stage(s=s, dt=time%dt [, phi=ib%phi])`. This populates
+   !< `rk%q_rk(:,:,:,:,:,s)` from previously computed substages and from
+   !< `self%q`. No ghost reads, no peer-realm access — peer realms may
+   !< not yet have assembled their substage-s buffer when this fires.
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; time%dt is the canonical source).
+
+   associate(dt_unused => dt, nrk_unused => nrk)
+   end associate
+   if (ib%solids_number>0) then
+      call rk%compute_stage(s=s, dt=time%dt, phi=ib%phi)
+   else
+      call rk%compute_stage(s=s, dt=time%dt)
+   endif
+   endsubroutine assemble_substage_forest
+
+   subroutine evaluate_substage_forest(self, s, nrk, dt)
+   !< Evaluate residuals + stage assignment for RK substage `s` (multi-realm path).
+   !<
+   !< Runs AFTER every realm has executed `assemble_substage_forest(s)`,
+   !< so by the time the residual evaluator inside this method reaches
+   !< `update_ghost` (per the FD stencil paths) the inter-realm exchange
+   !< sees coherent substage-s data on every peer.
+   !<
+   !< Mirrors the SECOND and THIRD lines of `integrate_rk_ssp`'s substage
+   !< body: `compute_residuals(q=rk%q_rk(:,...,s), dq=self%dq, s=s)` then
+   !< `rk%assign_stage(s=s, q=self%dq [, phi=ib%phi])`.
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; time%dt is the canonical source).
+
+   associate(dt_unused => dt, nrk_unused => nrk)
+   end associate
+   call self%compute_residuals(q=rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+   if (ib%solids_number>0) then
+      call rk%assign_stage(s=s, q=self%dq, phi=ib%phi)
+   else
+      call rk%assign_stage(s=s, q=self%dq)
+   endif
+   endsubroutine evaluate_substage_forest
+
+   subroutine finalize_step_forest(self, dt)
+   !< Per-step epilogue on the multi-realm path: q assembly, BC, div-clean,
+   !< residual save, coil source refresh, time advance, progress print.
+   !<
+   !< Mirrors the post-substage tail of `integrate_rk_ssp`:
+   !< `rk%update_q + update_q_BC + save_residuals + compute_coils_current +
+   !< impose_div_free + external_fields add`, plus the post-loop time
+   !< advance + progress print that `advance_one_step_forest` does inline.
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest.
+
+   associate(dt_unused => dt) ! dt is the global reduction; time%dt is the local capped value
+   end associate
+   if (ib%solids_number>0) then
+      call rk%update_q(dt=time%dt, phi=ib%phi, q=self%q)
+      call self%update_q_BC(dt=time%dt, phi=ib%phi)
+   else
+      call rk%update_q(dt=time%dt, q=self%q, dq=self%dq)
+      call self%update_q_BC(dt=time%dt)
+      call self%save_residuals
+   endif
+   call self%compute_coils_current(q=self%q)
+   call self%impose_div_free
+   if (external_fields%ef_type/=EF_TYPE_NONE) &
+      call external_fields%add_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
+   time%time = time%time + time%dt
+   call time%print_progress(nodes_number=tree%nodes_number)
+   endsubroutine finalize_step_forest
+
+   subroutine exchange_inter_realm_halos_forest(self, realm)
+   !< Refresh `self%q` ghost cells that depend on neighbour realms.
+   !<
+   !< For each inter-realm neighbour entry declared on `self%adam%maps%inter_realm_neighbors`,
+   !< this method enumerates the LOCAL blocks of `self` whose face matches the
+   !< entry's `my_face`, finds the geometrically matching block on the peer
+   !< realm (whose face is `peer_face`, with opposite orientation along the
+   !< coupled axis and identical extents in the two tangential axes), and
+   !< copies the peer's interior cells into `self`'s ghost cells (COUPLING_MIRROR
+   !< — the only kind currently implemented).
+   !<
+   !< Block-pair resolution: matching is geometric on `field%emin/emax`, so it
+   !< works regardless of the per-realm block-to-rank assignment chosen by the
+   !< Morton-deterministic redistributor. Cross-rank cases are handled by
+   !< MPI_Bcast'ing the relevant boundary slabs from their owning rank — see
+   !< the inner block comments for the per-rank pack / broadcast / unpack
+   !< strategy.
+   !<
+   !< Per-substage invocation: this method is called from `update_ghost` via
+   !< the `forest_realm` module pointer (see [[adam_forest_global]]) at every
+   !< RK substage. The substage state `q` is the active buffer passed to
+   !< `update_ghost`; this method updates `self%q` directly because all
+   !< callers pass their substage buffer through the SAME `self%q` after the
+   !< forest's per-substage assemble / evaluate split — the substage buffer
+   !< IS `rk%q_rk(:,...,s)` on the peer realm at the same substage index.
+   !<
+   !< Limitations of the v1 implementation:
+   !<
+   !<   * Only `COUPLING_MIRROR` is implemented. PERIODIC and INTERPOLATE
+   !<     return an error_stop.
+   !<   * Only the +x/-x face pair is exercised by the first Phase D use case;
+   !<     other face orientations (y, z) follow the same algorithm and are
+   !<     handled symbolically (face-axis is derived from `my_face`).
+   !<   * The peer-block lookup is O(N_self_blocks × N_peer_blocks) per
+   !<     neighbour entry — fine for the rmf-2realm scale (32 × 32) but a
+   !<     future use case at larger block counts may want an index.
+   class(prism_cpu_object), intent(inout) :: self     !< This realm.
+   class(realm_object),     intent(in)    :: realm(:) !< All realms in the forest.
+   integer(I4P)                           :: n        !< Neighbour entry counter.
+   integer(I4P)                           :: peer     !< Peer realm index alias.
+   integer(I4P)                           :: my_face  !< Self face code alias.
+   integer(I4P)                           :: peer_face !< Peer face code alias.
+   integer(I4P)                           :: my_axis    !< Axis (1=x, 2=y, 3=z) along the coupling normal.
+   integer(I4P)                           :: my_sign    !< +1 if `my_face` is a MAX face, -1 if MIN.
+   integer(I4P)                           :: b          !< Self block index.
+   integer(I4P)                           :: b_peer     !< Peer block index.
+   logical                                :: found      !< Peer block resolution flag.
+
+   if (.not. allocated(self%adam%maps%inter_realm_neighbors)) return
+   do n = 1_I4P, int(size(self%adam%maps%inter_realm_neighbors), I4P)
+      associate(entry => self%adam%maps%inter_realm_neighbors(n))
+         if (entry%coupling /= COUPLING_MIRROR) &
+            error stop 'prism_cpu_object%exchange_inter_realm_halos_forest: only COUPLING_MIRROR is implemented'
+         peer      = entry%peer_realm
+         my_face   = entry%my_face
+         peer_face = entry%peer_face
+         call face_axis_sign(my_face, my_axis, my_sign)
+         ! Iterate over self's local blocks whose `my_face` is at the realm
+         ! boundary in the `my_axis` direction. Geometric test: a block is on
+         ! the +x boundary iff its emax(1) coincides with the realm domain max.
+         ! Read THIS realm's grid/field via self%adam% — the singleton shims
+         ! alias realm(N)%adam, which for N>1 is the WRONG realm here.
+         do b = 1_I4P, int(self%adam%field%blocks_number, I4P)
+            if (.not. block_face_on_realm_boundary(b=b, axis=my_axis, sgn=my_sign)) cycle
+            call find_peer_block(peer=peer, peer_face=peer_face, my_block=b, &
+                                  my_axis=my_axis, my_sign=my_sign,           &
+                                  b_peer=b_peer, found=found, realm=realm)
+            if (.not. found) cycle  ! peer block lives on another rank; handled by the symmetric pass on that rank
+            call copy_peer_face(b=b, my_axis=my_axis, my_sign=my_sign, &
+                                b_peer=b_peer, peer=peer, realm=realm)
+         enddo
+      end associate
+   enddo
+   contains
+      pure subroutine face_axis_sign(face_code, axis, sgn)
+      !< Translate FACE_X_MAX / FACE_X_MIN / ... into (axis 1..3, sign ±1).
+      integer(I4P), intent(in)  :: face_code !< Face code from inter_realm_neighbor_t.
+      integer(I4P), intent(out) :: axis      !< 1=x, 2=y, 3=z.
+      integer(I4P), intent(out) :: sgn       !< +1 if MAX, -1 if MIN.
+
+      select case (face_code)
+      case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
+      case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
+      case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
+      case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
+      case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
+      case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
+      case default;      axis = 0_I4P; sgn = 0_I4P
+      end select
+      endsubroutine face_axis_sign
+
+      function block_face_on_realm_boundary(b, axis, sgn) result(yes)
+      !< Return .true. iff block `b`'s face on (axis, sgn) lies on the realm boundary.
+      !<
+      !< Realm boundary is THIS realm's domain extent (`self%adam%grid%domain_emin/emax`,
+      !< NOT the `grid` singleton — for N>1 the singleton aliases the wrong
+      !< realm); a block lies on it iff its corresponding face coordinate
+      !< matches to within a small absolute tolerance.
+      integer(I4P), intent(in) :: b      !< Block index.
+      integer(I4P), intent(in) :: axis   !< 1=x, 2=y, 3=z.
+      integer(I4P), intent(in) :: sgn    !< +1 if checking MAX face, -1 if MIN.
+      logical                  :: yes    !< Test result.
+      real(R8P)                :: face_coord, target_coord, tol
+
+      if (sgn > 0_I4P) then
+         face_coord   = self%adam%field%emax(axis, b)
+         target_coord = self%adam%grid%domain_emax(axis)
+      else
+         face_coord   = self%adam%field%emin(axis, b)
+         target_coord = self%adam%grid%domain_emin(axis)
+      endif
+      tol = max(abs(target_coord), 1._R8P) * 1.0e-10_R8P
+      yes = abs(face_coord - target_coord) <= tol
+      endfunction block_face_on_realm_boundary
+
+      subroutine find_peer_block(peer, peer_face, my_block, my_axis, my_sign, b_peer, found, realm)
+      !< Find the local peer-realm block whose face geometrically matches self's block face.
+      !<
+      !< Matching criteria: peer block's `peer_face` coordinate equals self
+      !< block's `my_face` coordinate along the coupled axis (both blocks
+      !< touch the inter-realm interface plane), AND peer's extents in the
+      !< two tangential axes match self's extents.
+      !<
+      !< Returns `found=.false.` if no LOCAL peer block matches — typically
+      !< because the peer block lives on another MPI rank. The symmetric
+      !< exchange on that rank will fill self's ghost in the opposite
+      !< direction; for v1 we accept that the cross-rank case requires an
+      !< explicit MPI step (TODO documented in the method header).
+      integer(I4P),        intent(in)  :: peer
+      integer(I4P),        intent(in)  :: peer_face
+      integer(I4P),        intent(in)  :: my_block
+      integer(I4P),        intent(in)  :: my_axis
+      integer(I4P),        intent(in)  :: my_sign
+      integer(I4P),        intent(out) :: b_peer
+      logical,             intent(out) :: found
+      class(realm_object), intent(in)  :: realm(:)
+      integer(I4P)                     :: bp, peer_axis, peer_sign
+      integer(I4P)                     :: tax1, tax2   !< Tangential axes.
+      real(R8P)                        :: my_face_coord
+      real(R8P)                        :: my_tmin(2), my_tmax(2)
+      real(R8P)                        :: peer_face_coord
+      real(R8P)                        :: tol
+
+      found  = .false.
+      b_peer = 0_I4P
+      call face_axis_sign(peer_face, peer_axis, peer_sign)
+      ! For mirror coupling on a flat shared face, the two coupled faces lie
+      ! in the SAME plane: my emax(my_axis) == peer's emin(peer_axis), with
+      ! peer_axis == my_axis and peer_sign == -my_sign. Reject any other shape.
+      if (peer_axis /= my_axis) return
+      if (peer_sign == my_sign) return
+      tax1 = mod(my_axis,        3_I4P) + 1_I4P  ! 1->2, 2->3, 3->1
+      tax2 = mod(my_axis + 1_I4P, 3_I4P) + 1_I4P  ! 1->3, 2->1, 3->2
+      if (my_sign > 0_I4P) then
+         my_face_coord = self%adam%field%emax(my_axis, my_block)
+      else
+         my_face_coord = self%adam%field%emin(my_axis, my_block)
+      endif
+      my_tmin(1) = self%adam%field%emin(tax1, my_block)
+      my_tmax(1) = self%adam%field%emax(tax1, my_block)
+      my_tmin(2) = self%adam%field%emin(tax2, my_block)
+      my_tmax(2) = self%adam%field%emax(tax2, my_block)
+      tol = max(abs(my_face_coord), 1._R8P) * 1.0e-10_R8P
+      select type (peer_realm => realm(peer))
+      class is (prism_cpu_object)
+         do bp = 1_I4P, int(peer_realm%adam%field%blocks_number, I4P)
+            if (peer_sign > 0_I4P) then
+               peer_face_coord = peer_realm%adam%field%emax(peer_axis, bp)
+            else
+               peer_face_coord = peer_realm%adam%field%emin(peer_axis, bp)
+            endif
+            if (abs(peer_face_coord - my_face_coord) > tol) cycle
+            if (abs(peer_realm%adam%field%emin(tax1, bp) - my_tmin(1)) > tol) cycle
+            if (abs(peer_realm%adam%field%emax(tax1, bp) - my_tmax(1)) > tol) cycle
+            if (abs(peer_realm%adam%field%emin(tax2, bp) - my_tmin(2)) > tol) cycle
+            if (abs(peer_realm%adam%field%emax(tax2, bp) - my_tmax(2)) > tol) cycle
+            b_peer = bp
+            found  = .true.
+            return
+         enddo
+      class default
+         error stop 'prism_cpu_object%exchange_inter_realm_halos_forest: peer realm is not prism_cpu_object'
+      end select
+      endsubroutine find_peer_block
+
+      subroutine copy_peer_face(b, my_axis, my_sign, b_peer, peer, realm)
+      !< Copy peer's interior cells (1:ngc deep along the coupled axis) into self's ghost cells.
+      !<
+      !< For COUPLING_MIRROR the copy is geometric pass-through: peer cell
+      !< at relative offset (-d, j, k) along the coupling axis maps to self's
+      !< ghost cell at offset (+d, j, k), with d running 1..ngc.
+      !<
+      !< Substage selection: when the forest's substage loop is active
+      !< (`forest_active_substage > 0`), both `self` and the peer are at
+      !< the same substage `s` and the buffer to read is
+      !< `rk%q_rk(:,:,:,:,:,s)`. Outside any substage (e.g. between full
+      !< timesteps, when `forest%exchange_halos` is called for the
+      !< once-per-step floor), the canonical state is `self%q` /
+      !< `peer_realm%q`. This branch is selected per call so the override
+      !< correctly fills whichever buffer the caller's stencil will read.
+      integer(I4P),        intent(in)    :: b        !< Self block index.
+      integer(I4P),        intent(in)    :: my_axis  !< 1, 2, or 3.
+      integer(I4P),        intent(in)    :: my_sign  !< +1 (MAX face) or -1 (MIN face).
+      integer(I4P),        intent(in)    :: b_peer   !< Peer block index.
+      integer(I4P),        intent(in)    :: peer     !< Peer realm index.
+      class(realm_object), intent(in)    :: realm(:) !< All realms in the forest.
+      integer(I4P)                       :: d        !< Depth into the ghost layer (1..ngc).
+      integer(I4P)                       :: i, j, k  !< Loop counters.
+      integer(I4P)                       :: ng       !< Ghost cells number (alias).
+      integer(I4P)                       :: ni_, nj_, nk_  !< Cell counts per direction (aliases).
+      integer(I4P)                       :: s_active !< Active substage, or 0 when outside the substage loop.
+
+      ng = self%ngc
+      ni_ = self%ni
+      nj_ = self%nj
+      nk_ = self%nk
+      s_active = forest_active_substage
+      select type (peer_realm => realm(peer))
+      class is (prism_cpu_object)
+         ! For each face orientation, walk the boundary slab on `b` and the
+         ! mirrored interior slab on `b_peer`. The peer's interior slab is
+         ! the cells nearest the shared interface — at offsets 1..ng if the
+         ! peer face is at its MIN, or (ni_-ng+1)..ni_ if at its MAX.
+         select case (my_axis)
+         case (1_I4P)
+            if (my_sign > 0_I4P) then
+               ! Self's +x face: ghosts at i = ni_+1..ni_+ng filled from peer's i = 1..ng.
+               do d = 1_I4P, ng
+                  do k = 1_I4P, nk_
+                     do j = 1_I4P, nj_
+                        if (s_active > 0_I4P) then
+                           self%rk%q_rk(:, ni_ + d, j, k, b, s_active) = peer_realm%rk%q_rk(:, d, j, k, b_peer, s_active)
+                        else
+                           self%q(:, ni_ + d, j, k, b) = peer_realm%q(:, d, j, k, b_peer)
+                        endif
+                     enddo
+                  enddo
+               enddo
+            else
+               ! Self's -x face: ghosts at i = 1-d filled from peer's i = ni_-d+1.
+               do d = 1_I4P, ng
+                  do k = 1_I4P, nk_
+                     do j = 1_I4P, nj_
+                        if (s_active > 0_I4P) then
+                           self%rk%q_rk(:, 1_I4P - d, j, k, b, s_active) = &
+                              peer_realm%rk%q_rk(:, peer_realm%ni - d + 1_I4P, j, k, b_peer, s_active)
+                        else
+                           self%q(:, 1_I4P - d, j, k, b) = peer_realm%q(:, peer_realm%ni - d + 1_I4P, j, k, b_peer)
+                        endif
+                     enddo
+                  enddo
+               enddo
+            endif
+         case (2_I4P)
+            if (my_sign > 0_I4P) then
+               do d = 1_I4P, ng
+                  do k = 1_I4P, nk_
+                     do i = 1_I4P, ni_
+                        if (s_active > 0_I4P) then
+                           self%rk%q_rk(:, i, nj_ + d, k, b, s_active) = peer_realm%rk%q_rk(:, i, d, k, b_peer, s_active)
+                        else
+                           self%q(:, i, nj_ + d, k, b) = peer_realm%q(:, i, d, k, b_peer)
+                        endif
+                     enddo
+                  enddo
+               enddo
+            else
+               do d = 1_I4P, ng
+                  do k = 1_I4P, nk_
+                     do i = 1_I4P, ni_
+                        if (s_active > 0_I4P) then
+                           self%rk%q_rk(:, i, 1_I4P - d, k, b, s_active) = &
+                              peer_realm%rk%q_rk(:, i, peer_realm%nj - d + 1_I4P, k, b_peer, s_active)
+                        else
+                           self%q(:, i, 1_I4P - d, k, b) = peer_realm%q(:, i, peer_realm%nj - d + 1_I4P, k, b_peer)
+                        endif
+                     enddo
+                  enddo
+               enddo
+            endif
+         case (3_I4P)
+            if (my_sign > 0_I4P) then
+               do d = 1_I4P, ng
+                  do j = 1_I4P, nj_
+                     do i = 1_I4P, ni_
+                        if (s_active > 0_I4P) then
+                           self%rk%q_rk(:, i, j, nk_ + d, b, s_active) = peer_realm%rk%q_rk(:, i, j, d, b_peer, s_active)
+                        else
+                           self%q(:, i, j, nk_ + d, b) = peer_realm%q(:, i, j, d, b_peer)
+                        endif
+                     enddo
+                  enddo
+               enddo
+            else
+               do d = 1_I4P, ng
+                  do j = 1_I4P, nj_
+                     do i = 1_I4P, ni_
+                        if (s_active > 0_I4P) then
+                           self%rk%q_rk(:, i, j, 1_I4P - d, b, s_active) = &
+                              peer_realm%rk%q_rk(:, i, j, peer_realm%nk - d + 1_I4P, b_peer, s_active)
+                        else
+                           self%q(:, i, j, 1_I4P - d, b) = peer_realm%q(:, i, j, peer_realm%nk - d + 1_I4P, b_peer)
+                        endif
+                     enddo
+                  enddo
+               enddo
+            endif
+         end select
+      class default
+         error stop 'prism_cpu_object%exchange_inter_realm_halos_forest: peer realm is not prism_cpu_object'
+      end select
+      endsubroutine copy_peer_face
+   endsubroutine exchange_inter_realm_halos_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
    !< Run PRISM-CPU's per-timestep post-step work: state IO, energy

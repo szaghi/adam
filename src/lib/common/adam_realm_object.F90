@@ -132,8 +132,14 @@ type :: realm_object
       ! Phase A.4. Default implementations here error-stop with a
       ! "not overridden" message; each consumer app must override.
       procedure, pass(self) :: initialize_forest                !< Invoked by forest%initialize per realm at startup.
+      procedure, pass(self) :: bind_my_globals_forest           !< Re-alias singleton shims into self's value components (multi-realm path).
       procedure, pass(self) :: compute_local_dt_forest          !< Invoked by forest%compute_global_dt during the min reduction.
-      procedure, pass(self) :: advance_one_step_forest          !< Invoked by forest%evolve_one_step per realm per timestep.
+      procedure, pass(self) :: advance_one_step_forest          !< Invoked by forest%evolve_one_step per realm per timestep (N=1 fast path).
+      procedure, pass(self) :: nrk_forest                       !< Number of substages this realm's integrator uses (multi-realm path).
+      procedure, pass(self) :: prepare_step_forest              !< Per-step prologue (multi-realm path): initialize_stages, external-field prelude.
+      procedure, pass(self) :: assemble_substage_forest         !< One RK substage assembly (multi-realm path): rk%compute_stage(s).
+      procedure, pass(self) :: evaluate_substage_forest         !< One RK substage residual eval + assignment (multi-realm path).
+      procedure, pass(self) :: finalize_step_forest             !< Per-step epilogue (multi-realm path): update_q, BC, impose_div_free, time bookkeeping.
       procedure, pass(self) :: post_step_forest                 !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest                   !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                  !< Invoked by forest%finalize per realm at shutdown.
@@ -285,6 +291,36 @@ contains
    error stop 'realm_object%initialize_forest: not overridden by app extension'
    endsubroutine initialize_forest
 
+   subroutine bind_my_globals_forest(self)
+   !< Re-alias the legacy singleton shims into `self`'s value components.
+   !<
+   !< Invoked by the forest BEFORE each per-realm TBP call on the multi-realm
+   !< path (issue #13 D.4). The seven `adam_*_global` shims (`adam`, `grid`,
+   !< `field`, `tree`, `maps`, `weno`, `ib`, `rk`) alias `realm(N)%...`
+   !< after `forest%initialize` finishes — that's the last-realm-initialized
+   !< binding, which is correct ONLY for the last realm. The other realms
+   !< need the shims re-bound to THEIR components before any of their per-step
+   !< code reads through the shims.
+   !<
+   !< Cost: 8 pointer assignments per call. The shims themselves are
+   !< host-side metadata; nothing on the GPU re-binds.
+   !<
+   !< This TBP is type-bound (and thus dispatchable) so apps that need
+   !< app-specific extra rebindings (e.g. FNL's `field_fnl`, `rk_fnl`,
+   !< `ib_fnl`, `weno_fnl`, `coil_fnl`, `fwlayer_fnl` singletons) can
+   !< override and chain `call self%realm_object%bind_my_globals_forest`.
+   !<
+   !< For N=1 (single-realm fast path) the forest skips this method
+   !< entirely — the startup binding is already correct.
+   class(realm_object), intent(inout), target :: self !< The realm whose components the shims should alias.
+
+   adam => self%adam
+   call bind_globals_to_adam
+   weno => self%weno
+   ib   => self%ib
+   rk   => self%rk
+   endsubroutine bind_my_globals_forest
+
    subroutine compute_local_dt_forest(self, dt_local)
    !< Compute this realm's local stability-limited dt (no MPI reduction).
    !<
@@ -305,8 +341,14 @@ contains
    subroutine advance_one_step_forest(self, dt)
    !< Advance this realm by one full timestep of size `dt`.
    !<
-   !< Invoked by forest%evolve_one_step once per realm per timestep. The
-   !< orchestrator owns global dt selection (compute_global_dt) and the
+   !< Invoked by forest%evolve_one_step once per realm per timestep when the
+   !< forest contains a single realm (N=1 fast path). For N>1 the forest
+   !< drives the substage loop itself via `prepare_step_forest`,
+   !< `compute_substage_forest`, `finalize_step_forest`, and this TBP is
+   !< NOT invoked — see [[forest_object]]%`evolve_one_step` for the
+   !< multi-realm path.
+   !<
+   !< The orchestrator owns global dt selection (compute_global_dt) and the
    !< termination check; this method owns the integration itself — RK
    !< substages, BC application, intra-realm ghost exchange, divergence
    !< cleaning — i.e. everything that turns `q` at time `t` into `q` at
@@ -324,6 +366,115 @@ contains
    end associate
    error stop 'realm_object%advance_one_step_forest: not overridden by app extension'
    endsubroutine advance_one_step_forest
+
+   function nrk_forest(self) result(nrk)
+   !< Return the number of RK substages this realm's integrator uses.
+   !<
+   !< Invoked by forest%evolve_one_step on the multi-realm path to size the
+   !< substage loop. The forest assumes every realm reports the same `nrk`
+   !< (Phase D v1 — all realms run the same integrator scheme); a mismatch
+   !< is flagged by the forest with `error stop`.
+   !<
+   !< Default implementation error-stops: every realm that participates in a
+   !< multi-realm forest MUST override this. Apps that only ever run as N=1
+   !< may leave it (the N=1 fast path doesn't call this).
+   class(realm_object), intent(in) :: self !< The realm.
+   integer(I4P)                    :: nrk  !< Number of substages.
+
+   nrk = 0_I4P ! quiet "may be uninitialised" before the stop
+   associate(self_unused => self)
+   end associate
+   error stop 'realm_object%nrk_forest: not overridden by app extension'
+   endfunction nrk_forest
+
+   subroutine prepare_step_forest(self, dt)
+   !< Per-step prologue on the multi-realm path: pre-substage setup.
+   !<
+   !< Invoked once per realm per timestep, BEFORE the forest's substage loop
+   !< starts. Body owns whatever the integrator does between substages once
+   !< per step: external-field prelude, RK stage-array initialization, time
+   !< bookkeeping (it increment, dt capping for time_max), progress prints.
+   !<
+   !< Default implementation error-stops: every multi-realm participant MUST
+   !< override this. N=1 apps can leave it.
+   class(realm_object), intent(inout) :: self !< The realm.
+   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+
+   associate(dt_unused => dt, self_unused => self)
+   end associate
+   error stop 'realm_object%prepare_step_forest: not overridden by app extension'
+   endsubroutine prepare_step_forest
+
+   subroutine assemble_substage_forest(self, s, nrk, dt)
+   !< Assemble substage q-buffer on the multi-realm path.
+   !<
+   !< Invoked once per (realm, substage) by the forest, with `s` iterating
+   !< from 1 to `nrk`. Body assembles `rk%q_rk(:,...,s)` from the previously
+   !< computed substages and from `self%q` — i.e. it runs whatever
+   !< `rk%compute_stage(s)` does in the legacy integrator body — and stops
+   !< there. Crucially it does NOT invoke `compute_residuals` or anything
+   !< that touches ghost cells from peer realms; the peer realms may not
+   !< yet have assembled their own substage-s buffer when this fires.
+   !<
+   !< The forest invokes `assemble_substage_forest` on EVERY realm before
+   !< proceeding to `evaluate_substage_forest`, so by the time residuals
+   !< evaluate, every peer realm has its substage-s buffer populated and
+   !< the inter-realm ghost exchange returns coherent values.
+   !<
+   !< Default implementation error-stops: every multi-realm participant MUST
+   !< override this.
+   class(realm_object), intent(inout) :: self !< The realm.
+   integer(I4P),        intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),        intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+
+   associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
+   end associate
+   error stop 'realm_object%assemble_substage_forest: not overridden by app extension'
+   endsubroutine assemble_substage_forest
+
+   subroutine evaluate_substage_forest(self, s, nrk, dt)
+   !< Evaluate residuals + stage assignment on the multi-realm path.
+   !<
+   !< Invoked once per (realm, substage) AFTER every realm has run
+   !< `assemble_substage_forest(s)`. Body computes the residual of
+   !< `rk%q_rk(:,...,s)` (which internally calls `update_ghost`, which
+   !< via the `forest_realm` module pointer triggers the inter-realm
+   !< exchange so peer ghosts are coherent at substage `s`), then assigns
+   !< the result back into the RK stage state.
+   !<
+   !< Splitting from `assemble_substage_forest` is what synchronizes the
+   !< substage state across realms — see that TBP's docstring.
+   !<
+   !< Default implementation error-stops: every multi-realm participant MUST
+   !< override this.
+   class(realm_object), intent(inout) :: self !< The realm.
+   integer(I4P),        intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),        intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+
+   associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
+   end associate
+   error stop 'realm_object%evaluate_substage_forest: not overridden by app extension'
+   endsubroutine evaluate_substage_forest
+
+   subroutine finalize_step_forest(self, dt)
+   !< Per-step epilogue on the multi-realm path: post-substage finalization.
+   !<
+   !< Invoked once per realm per timestep, AFTER the forest's substage loop
+   !< completes. Body owns whatever the integrator does once per step at the
+   !< end: q assembly from substage state (rk%update_q), BC update,
+   !< divergence cleaning, coil current refresh, residual save, time advance.
+   !<
+   !< Default implementation error-stops: every multi-realm participant MUST
+   !< override this.
+   class(realm_object), intent(inout) :: self !< The realm.
+   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+
+   associate(dt_unused => dt, self_unused => self)
+   end associate
+   error stop 'realm_object%finalize_step_forest: not overridden by app extension'
+   endsubroutine finalize_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
    !< Run this realm's per-timestep post-step work: diagnostics, IO, AMR.
