@@ -1808,8 +1808,8 @@ contains
    ! above. Fail fast with a diagnosable message.
    associate(self_unused => self, dt_unused => dt)
    end associate
-   error stop 'prism_fnl_object%prepare_step_forest: multi-realm FNL not supported yet '//&
-              '(rk_fnl/field_fnl/ib_fnl/weno_fnl/coil_fnl/fwlayer_fnl singletons must become per-realm)'
+   call mpih%error_stop(msg='prism_fnl_object%prepare_step_forest: multi-realm FNL not supported yet '//&
+                            '(rk_fnl/field_fnl/ib_fnl/weno_fnl/coil_fnl/fwlayer_fnl singletons must become per-realm)')
    endsubroutine prepare_step_forest
 
    subroutine assemble_substage_forest(self, s, nrk, dt)
@@ -1910,12 +1910,12 @@ contains
 
    if (.not. allocated(self%adam%maps%inter_realm_neighbors)) return
    if (forest_active_substage > 0_I4P) &
-      error stop 'prism_fnl_object%exchange_inter_realm_halos_forest: per-substage exchange not yet bit-comparable on FNL '//&
-                 '(requires per-realm rk_fnl / field_fnl / ib_fnl / weno_fnl singletons — Phase D follow-up)'
+      call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: per-substage exchange not yet bit-comparable on FNL '//&
+                               '(requires per-realm rk_fnl / field_fnl / ib_fnl / weno_fnl singletons — Phase D follow-up)')
    do n = 1_I4P, int(size(self%adam%maps%inter_realm_neighbors), I4P)
       associate(entry => self%adam%maps%inter_realm_neighbors(n))
          if (entry%coupling /= COUPLING_MIRROR) &
-            error stop 'prism_fnl_object%exchange_inter_realm_halos_forest: only COUPLING_MIRROR is implemented'
+            call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: only COUPLING_MIRROR is implemented')
          peer      = entry%peer_realm
          my_face   = entry%my_face
          peer_face = entry%peer_face
@@ -2017,7 +2017,7 @@ contains
             return
          enddo
       class default
-         error stop 'prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object'
+         call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object')
       end select
       endsubroutine find_peer_block
 
@@ -2092,7 +2092,7 @@ contains
             endif
          end select
       class default
-         error stop 'prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object'
+         call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object')
       end select
       endsubroutine copy_peer_face_gpu
    endsubroutine exchange_inter_realm_halos_forest

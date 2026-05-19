@@ -41,6 +41,7 @@ use :: adam_realm_object,    only : realm_object
 use :: adam_maps_object,     only : inter_realm_neighbor_t
 use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
 use :: adam_forest_global,   only : forest_realm, forest_active_substage
+use :: adam_globals,         only : mpih
 use :: mpi
 use :: penf
 
@@ -105,7 +106,7 @@ contains
    integer(I4P)                            :: is       !< Realm index.
 
    if (size(realm) /= manifest%realms_number) &
-      error stop 'forest_object%initialize_from_manifest: size(realm) /= manifest%realms_number'
+      call mpih%error_stop(msg='forest_object%initialize_from_manifest: size(realm) /= manifest%realms_number')
    self%n = int(size(realm), I4P)
    do is = 1, self%n
       call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realm_index=is)
@@ -209,7 +210,7 @@ contains
    !<     substage-s ghosts see realm B's substage-s interior values —
    !<     this is what bit-comparability with single-realm rmf requires.
    !<     All realms are assumed to use the same integrator (same `nrk`);
-   !<     a mismatch is flagged with `error stop`.
+   !<     a mismatch is flagged with `mpih%error_stop`.
    !<
    !< Per-substage inter-realm exchange: the `forest_realm` module pointer
    !< is bound to `realm(:)` for the duration of this method so the realm
@@ -245,7 +246,7 @@ contains
       do is = 2_I4P, int(size(realm), I4P)
          call realm(is)%bind_my_globals_forest
          nrk_chk = realm(is)%nrk_forest()
-         if (nrk_chk /= nrk) error stop 'forest_object%evolve_one_step: realms disagree on nrk_forest'
+         if (nrk_chk /= nrk) call mpih%error_stop(msg='forest_object%evolve_one_step: realms disagree on nrk_forest')
       enddo
       do s = 1_I4P, nrk
          forest_active_substage = s
@@ -398,9 +399,9 @@ contains
    do f = 1_I4P, int(size(manifest%face_pairs), I4P)
       pair = manifest%face_pairs(f)
       if (pair%realm_a < 1_I4P .or. pair%realm_a > self%n) &
-         error stop 'forest_object%populate_inter_realm_topology: face pair realm_a out of range'
+         call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: face pair realm_a out of range')
       if (pair%realm_b < 1_I4P .or. pair%realm_b > self%n) &
-         error stop 'forest_object%populate_inter_realm_topology: face pair realm_b out of range'
+         call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: face pair realm_b out of range')
       per_realm_count(pair%realm_a) = per_realm_count(pair%realm_a) + 1_I4P
       per_realm_count(pair%realm_b) = per_realm_count(pair%realm_b) + 1_I4P
    enddo

@@ -288,7 +288,7 @@ contains
    if (present(memory_avail)) continue
    if (present(nv)) continue
    if (present(verbose)) continue
-   error stop 'realm_object%initialize_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%initialize_forest: not overridden by app extension')
    endsubroutine initialize_forest
 
    subroutine bind_my_globals_forest(self)
@@ -335,7 +335,7 @@ contains
    real(R8P),           intent(out) :: dt_local !< Local stability-limited dt.
 
    dt_local = 0._R8P ! quiet "may be uninitialised" warnings before the stop
-   error stop 'realm_object%compute_local_dt_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%compute_local_dt_forest: not overridden by app extension')
    endsubroutine compute_local_dt_forest
 
    subroutine advance_one_step_forest(self, dt)
@@ -364,7 +364,7 @@ contains
 
    associate(dt_unused => dt) ! quiet "unused dummy" warnings before the stop
    end associate
-   error stop 'realm_object%advance_one_step_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%advance_one_step_forest: not overridden by app extension')
    endsubroutine advance_one_step_forest
 
    function nrk_forest(self) result(nrk)
@@ -373,7 +373,7 @@ contains
    !< Invoked by forest%evolve_one_step on the multi-realm path to size the
    !< substage loop. The forest assumes every realm reports the same `nrk`
    !< (Phase D v1 — all realms run the same integrator scheme); a mismatch
-   !< is flagged by the forest with `error stop`.
+   !< is flagged by the forest with `mpih%error_stop`.
    !<
    !< Default implementation error-stops: every realm that participates in a
    !< multi-realm forest MUST override this. Apps that only ever run as N=1
@@ -384,7 +384,7 @@ contains
    nrk = 0_I4P ! quiet "may be uninitialised" before the stop
    associate(self_unused => self)
    end associate
-   error stop 'realm_object%nrk_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%nrk_forest: not overridden by app extension')
    endfunction nrk_forest
 
    subroutine prepare_step_forest(self, dt)
@@ -402,7 +402,7 @@ contains
 
    associate(dt_unused => dt, self_unused => self)
    end associate
-   error stop 'realm_object%prepare_step_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%prepare_step_forest: not overridden by app extension')
    endsubroutine prepare_step_forest
 
    subroutine assemble_substage_forest(self, s, nrk, dt)
@@ -430,7 +430,7 @@ contains
 
    associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
    end associate
-   error stop 'realm_object%assemble_substage_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%assemble_substage_forest: not overridden by app extension')
    endsubroutine assemble_substage_forest
 
    subroutine evaluate_substage_forest(self, s, nrk, dt)
@@ -455,7 +455,7 @@ contains
 
    associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
    end associate
-   error stop 'realm_object%evaluate_substage_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%evaluate_substage_forest: not overridden by app extension')
    endsubroutine evaluate_substage_forest
 
    subroutine finalize_step_forest(self, dt)
@@ -473,7 +473,7 @@ contains
 
    associate(dt_unused => dt, self_unused => self)
    end associate
-   error stop 'realm_object%finalize_step_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%finalize_step_forest: not overridden by app extension')
    endsubroutine finalize_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
@@ -505,7 +505,7 @@ contains
    if (present(do_save_residuals)) continue
    if (present(do_save_restart)) continue
    if (present(do_amr)) continue
-   error stop 'realm_object%post_step_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%post_step_forest: not overridden by app extension')
    endsubroutine post_step_forest
 
    subroutine is_done_forest(self, done)
@@ -526,7 +526,7 @@ contains
    done = .false. ! quiet "may be uninitialised" warnings before the stop
    associate(self_unused => self)
    end associate
-   error stop 'realm_object%is_done_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%is_done_forest: not overridden by app extension')
    endsubroutine is_done_forest
 
    subroutine finalize_forest(self)
@@ -545,7 +545,7 @@ contains
 
    associate(self_unused => self) ! quiet "unused dummy" warnings before the stop
    end associate
-   error stop 'realm_object%finalize_forest: not overridden by app extension'
+   call mpih%error_stop(msg='realm_object%finalize_forest: not overridden by app extension')
    endsubroutine finalize_forest
 
    subroutine exchange_inter_realm_halos_forest(self, realm)

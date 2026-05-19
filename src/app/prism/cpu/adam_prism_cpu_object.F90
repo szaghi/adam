@@ -1219,7 +1219,7 @@ contains
    do n = 1_I4P, int(size(self%adam%maps%inter_realm_neighbors), I4P)
       associate(entry => self%adam%maps%inter_realm_neighbors(n))
          if (entry%coupling /= COUPLING_MIRROR) &
-            error stop 'prism_cpu_object%exchange_inter_realm_halos_forest: only COUPLING_MIRROR is implemented'
+            call mpih%error_stop(msg='prism_cpu_object%exchange_inter_realm_halos_forest: only COUPLING_MIRROR is implemented')
          peer      = entry%peer_realm
          my_face   = entry%my_face
          peer_face = entry%peer_face
@@ -1348,7 +1348,7 @@ contains
             return
          enddo
       class default
-         error stop 'prism_cpu_object%exchange_inter_realm_halos_forest: peer realm is not prism_cpu_object'
+         call mpih%error_stop(msg='prism_cpu_object%exchange_inter_realm_halos_forest: peer realm is not prism_cpu_object')
       end select
       endsubroutine find_peer_block
 
@@ -1476,7 +1476,7 @@ contains
             endif
          end select
       class default
-         error stop 'prism_cpu_object%exchange_inter_realm_halos_forest: peer realm is not prism_cpu_object'
+         call mpih%error_stop(msg='prism_cpu_object%exchange_inter_realm_halos_forest: peer realm is not prism_cpu_object')
       end select
       endsubroutine copy_peer_face
    endsubroutine exchange_inter_realm_halos_forest
