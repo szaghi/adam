@@ -86,6 +86,16 @@ type :: realm_object
    type(weno_object) :: weno !< WENO reconstructor.
    type(ib_object)   :: ib   !< Immersed boundary.
    type(rk_object)   :: rk   !< Runge-Kutta integrator.
+   ! C.3 closure of issue #10 / D.3 follow-up of issue #13: adam was the last
+   ! sub-object whose state lived in a module-scope singleton owner (formerly
+   ! `adam_singleton`) rather than per realm. Promoted here to a value
+   ! component so that for N>1 each realm has its own grid/field/tree/maps
+   ! (carried inside its own adam) and inter-realm topology can be stored
+   ! per-realm in `realm(is)%adam%maps%inter_realm_neighbors`. The legacy
+   ! adam_adam_global module becomes a pointer shim aliasing realm(1)%adam,
+   ! matching the seven other shims; the 28 consumer files that read `adam%...`
+   ! through the shim continue to work unchanged for the N=1 case.
+   type(adam_object) :: adam !< ADAM (grid + tree + field + maps) container.
    ! FDV data
    character(:), allocatable :: fdv_scheme                   !< FDV scheme, fd/fv.
    integer(I4P)              :: fdv_order=2_I4P              !< Order of finite difference/volume schemes, general order.
@@ -434,15 +444,18 @@ contains
    if (verbose_) call mpih%print_message('realm_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-      ! Bind the four legacy shim singletons (grid, field, tree, maps) into
-      ! `adam`'s value components BEFORE adam%initialize. The shim aliases
-      ! the empty `adam%grid` shell; adam%initialize then populates that
-      ! shell, and the shim transparently sees the populated value. Binding
-      ! must happen here, not after: tree/field/maps sub-initializations
-      ! called inside adam%initialize read `grid%...` through the shim, so
-      ! the shim must be associated before they run. See issue #10 step 1.
+      ! Bind the five legacy shim singletons (adam, grid, field, tree, maps) into
+      ! `self`'s value components BEFORE adam%initialize. The outer `adam`
+      ! pointer aliases `self%adam`; the four inner shims (grid/field/tree/maps)
+      ! then alias `self%adam%grid` etc. via bind_globals_to_adam (which reads
+      ! `adam%...` and is therefore correct once the outer alias is set).
+      ! Binding must happen here, not after: tree/field/maps sub-initializations
+      ! called inside self%adam%initialize read `grid%...` through the shim, so
+      ! the shim must be associated before they run. See issue #10 step 1 and
+      ! the C.3 closure note on the `adam` value-component declaration above.
+      adam => self%adam
       call bind_globals_to_adam
-      call adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_)
+      call self%adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_)
       ! Step 2 of forest-of-trees migration (issue #10): bind the three legacy
       ! shim singletons (weno, ib, rk) into `self`'s value components BEFORE
       ! their sub-initializations. Same shell-then-populate trick as the adam

@@ -39,7 +39,6 @@ module adam_forest_object
 
 use :: adam_realm_object,    only : realm_object
 use :: adam_maps_object,     only : inter_realm_neighbor_t
-use :: adam_maps_global,     only : maps
 use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
 use :: mpi
 use :: penf
@@ -296,8 +295,9 @@ contains
    subroutine populate_inter_realm_topology(self, realm, manifest)
    !< Translate manifest face-pairs into per-realm maps%inter_realm_neighbors.
    !<
-   !< Each manifest face-pair becomes TWO entries — one looking outward
-   !< from realm_a to realm_b and one looking back. Both carry the SAME
+   !< Each manifest face-pair becomes TWO entries — one in realm_a's
+   !< `adam%maps%inter_realm_neighbors` (looking outward toward realm_b)
+   !< and one in realm_b's (looking back). Both entries carry the SAME
    !< coupling kind. Block indices are NOT resolved at this stage; the
    !< manifest declares realm-level coupling (which realm-face touches
    !< which realm-face), and the realm-side override of
@@ -306,51 +306,54 @@ contains
    !< and avoids encoding block layouts that depend on AMR / decomposition
    !< state not known at INI parse time.
    !<
-   !< **C.3 deferred gap, made concrete by Phase D**: today `maps` is the
-   !< module-scope singleton from `adam_maps_global`, shared by all realms
-   !< — there is no per-realm `realm(is)%adam%maps`. For N=1 this is the
-   !< correct address (the singleton aliases realm(1)'s maps via the
-   !< `bind_globals_to_adam` shim) and this routine writes into the right
-   !< place. For N>1 (the rmf-2realm use case), the realm architecture
-   !< must first grow a per-realm `adam` value component on `realm_object`
-   !< (the "explicit `bind_globals_to_realm_1`" follow-up that #10 Phase C
-   !< deferred). Until that lands, this routine writes ALL face-pair
-   !< entries into the SAME singleton `maps%inter_realm_neighbors`,
-   !< which is wrong for N>1 — but populates correctly under N=1 (the only
-   !< invocation this far in Phase D). The route through the singleton is
-   !< retained so the call site is in the right place and the rewrite to
-   !< per-realm `maps` is a localized swap when that follow-up lands.
+   !< Writes per-realm into `realm(is)%adam%maps%inter_realm_neighbors`.
+   !< This is the post-C.3-closure shape (each realm owns its own adam value
+   !< component). For N=1 the array on `realm(1)%adam%maps` is the same data
+   !< the singleton `maps%inter_realm_neighbors` aliases through the shim;
+   !< for N>1 each realm has its own array with only the face-pair entries
+   !< whose `my_realm` matches that realm's index.
    class(forest_object),     intent(in)    :: self     !< The forest.
-   class(realm_object),      intent(inout) :: realm(:) !< Initialized realms (currently unused — see C.3 gap above).
+   class(realm_object),      intent(inout) :: realm(:) !< Initialized realms whose adam%maps gets populated.
    type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest.
-   integer(I4P)                            :: total_count !< Total inter-realm neighbour entries.
-   integer(I4P)                            :: cursor   !< Write cursor.
-   integer(I4P)                            :: f        !< Face-pair index.
+   integer(I4P), allocatable               :: per_realm_count(:)  !< How many neighbour entries each realm gets.
+   integer(I4P), allocatable               :: per_realm_cursor(:) !< Write cursor per realm.
+   integer(I4P)                            :: f, is    !< Face-pair and realm index counters.
    type(forest_face_pair_t)                :: pair     !< Loop alias.
 
-   associate(self_unused => self, realm_unused => realm) ! see C.3 gap docstring above
+   associate(self_unused => self) ! method takes self for TBP-dispatch symmetry; uses no forest state
    end associate
    if (.not. allocated(manifest%face_pairs)) return  ! no inter-realm topology declared
 
-   total_count = 2_I4P * int(size(manifest%face_pairs), I4P)  ! two entries per pair
-   if (allocated(maps%inter_realm_neighbors)) deallocate(maps%inter_realm_neighbors)
-   allocate(maps%inter_realm_neighbors(total_count))
-   cursor = 0_I4P
+   ! Pass 1: count entries per realm.
+   allocate(per_realm_count(self%n))
+   per_realm_count = 0_I4P
    do f = 1_I4P, int(size(manifest%face_pairs), I4P)
       pair = manifest%face_pairs(f)
       if (pair%realm_a < 1_I4P .or. pair%realm_a > self%n) &
          error stop 'forest_object%populate_inter_realm_topology: face pair realm_a out of range'
       if (pair%realm_b < 1_I4P .or. pair%realm_b > self%n) &
          error stop 'forest_object%populate_inter_realm_topology: face pair realm_b out of range'
-      ! entry from realm_a's perspective: my=a, peer=b
-      cursor = cursor + 1_I4P
-      call set_neighbor(maps%inter_realm_neighbors(cursor), &
+      per_realm_count(pair%realm_a) = per_realm_count(pair%realm_a) + 1_I4P
+      per_realm_count(pair%realm_b) = per_realm_count(pair%realm_b) + 1_I4P
+   enddo
+   do is = 1_I4P, self%n
+      if (allocated(realm(is)%adam%maps%inter_realm_neighbors)) deallocate(realm(is)%adam%maps%inter_realm_neighbors)
+      if (per_realm_count(is) > 0_I4P) allocate(realm(is)%adam%maps%inter_realm_neighbors(per_realm_count(is)))
+   enddo
+   ! Pass 2: write entries into each realm's array.
+   allocate(per_realm_cursor(self%n))
+   per_realm_cursor = 0_I4P
+   do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+      pair = manifest%face_pairs(f)
+      ! entry on realm_a's array: my=a, peer=b
+      per_realm_cursor(pair%realm_a) = per_realm_cursor(pair%realm_a) + 1_I4P
+      call set_neighbor(realm(pair%realm_a)%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_a)), &
                         my_realm=pair%realm_a, my_face=pair%face_a, &
                         peer_realm=pair%realm_b, peer_face=pair%face_b, &
                         coupling=pair%coupling)
-      ! entry from realm_b's perspective: my=b, peer=a
-      cursor = cursor + 1_I4P
-      call set_neighbor(maps%inter_realm_neighbors(cursor), &
+      ! entry on realm_b's array: my=b, peer=a
+      per_realm_cursor(pair%realm_b) = per_realm_cursor(pair%realm_b) + 1_I4P
+      call set_neighbor(realm(pair%realm_b)%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_b)), &
                         my_realm=pair%realm_b, my_face=pair%face_b, &
                         peer_realm=pair%realm_a, peer_face=pair%face_a, &
                         coupling=pair%coupling)
