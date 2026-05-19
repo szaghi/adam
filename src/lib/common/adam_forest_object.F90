@@ -37,7 +37,10 @@ module adam_forest_object
 !<   * **`q` is never touched here.** All cell-centered variable access is
 !<     realm-side, via the realm's own `*_forest` TBPs (O3).
 
-use :: adam_realm_object, only : realm_object
+use :: adam_realm_object,    only : realm_object
+use :: adam_maps_object,     only : inter_realm_neighbor_t
+use :: adam_maps_global,     only : maps
+use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
 use :: mpi
 use :: penf
 
@@ -52,14 +55,17 @@ type :: forest_object
    ! Phase D will likely add: MPI sub-communicator handle, inter-realm
    ! connectivity descriptor (both intrinsic-typed).
    contains
-      procedure, pass(self) :: initialize        !< Sequence each realm's initialize_forest at startup.
-      procedure, pass(self) :: simulate          !< Main entry point: drive the full simulation.
-      procedure, pass(self) :: compute_global_dt !< Min-reduce each realm's compute_local_dt_forest across the forest.
-      procedure, pass(self) :: evolve_one_step   !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
-      procedure, pass(self) :: exchange_halos    !< Iterate realm(:)%exchange_inter_realm_halos_forest to refresh inter-realm ghosts.
-      procedure, pass(self) :: post_step         !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
-      procedure, pass(self) :: is_done           !< AND-reduce each realm's is_done_forest across the forest.
-      procedure, pass(self) :: finalize          !< Sequence each realm's finalize_forest at shutdown.
+      procedure, pass(self) :: initialize               !< Sequence each realm's initialize_forest at startup (single shared INI).
+      procedure, pass(self) :: initialize_from_manifest !< Like initialize, but each realm reads its own INI from a forest manifest.
+      procedure, pass(self) :: simulate                 !< Main entry point (single shared INI): drive the full simulation.
+      procedure, pass(self) :: simulate_from_manifest   !< Main entry point (per-realm INIs via forest manifest).
+      procedure, pass(self) :: compute_global_dt        !< Min-reduce each realm's compute_local_dt_forest across the forest.
+      procedure, pass(self) :: evolve_one_step          !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
+      procedure, pass(self) :: exchange_halos           !< Iterate realm(:)%exchange_inter_realm_halos_forest to refresh inter-realm ghosts.
+      procedure, pass(self) :: post_step                !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
+      procedure, pass(self) :: is_done                  !< AND-reduce each realm's is_done_forest across the forest.
+      procedure, pass(self) :: finalize                 !< Sequence each realm's finalize_forest at shutdown.
+      procedure, pass(self), private :: populate_inter_realm_topology !< Translate manifest face-pairs into per-realm maps%inter_realm_neighbors.
 endtype forest_object
 
 contains
@@ -80,6 +86,32 @@ contains
       call realm(is)%initialize_forest(filename=filename, realm_index=is)
    enddo
    endsubroutine initialize
+
+   subroutine initialize_from_manifest(self, realm, manifest)
+   !< Initialize the forest and every realm using per-realm INIs from a manifest.
+   !<
+   !< Like `initialize` but each realm receives its OWN INI path
+   !< (`manifest%realm_ini(is)`) instead of a shared filename. After all
+   !< realms are initialized, translates the manifest's face-pair list into
+   !< per-realm `maps%inter_realm_neighbors` entries.
+   !<
+   !< The driver MUST allocate `realm(size = manifest%realms_number)` with
+   !< the concrete app type before calling this — the forest does not
+   !< allocate the realm array (it cannot, since realm_object is abstract
+   !< and each app has its own extension).
+   class(forest_object),     intent(inout) :: self     !< The forest.
+   class(realm_object),      intent(inout) :: realm(:) !< The realms to initialize.
+   type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest (per-realm INI paths + topology).
+   integer(I4P)                            :: is       !< Realm index.
+
+   if (size(realm) /= manifest%realms_number) &
+      error stop 'forest_object%initialize_from_manifest: size(realm) /= manifest%realms_number'
+   self%n = int(size(realm), I4P)
+   do is = 1, self%n
+      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realm_index=is)
+   enddo
+   call self%populate_inter_realm_topology(realm, manifest)
+   endsubroutine initialize_from_manifest
 
    subroutine simulate(self, realm, filename)
    !< Drive the full simulation: initialize, time-loop, finalize.
@@ -106,6 +138,29 @@ contains
    enddo
    call self%finalize(realm)
    endsubroutine simulate
+
+   subroutine simulate_from_manifest(self, realm, manifest)
+   !< Drive the full simulation using per-realm INIs from a manifest.
+   !<
+   !< Like `simulate` but uses `initialize_from_manifest` to populate each
+   !< realm from its own INI file, and (via that initialize) wires the
+   !< inter-realm topology from the manifest. The time-loop body is
+   !< identical to `simulate`.
+   class(forest_object),     intent(inout) :: self     !< The forest.
+   class(realm_object),      intent(inout) :: realm(:) !< The realms to evolve.
+   type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest.
+   logical                                 :: done     !< Forest-global termination predicate.
+
+   call self%initialize_from_manifest(realm, manifest=manifest)
+   done = .false.
+   do
+      call self%evolve_one_step(realm)
+      call self%post_step(realm)
+      call self%is_done(realm, done=done)
+      if (done) exit
+   enddo
+   call self%finalize(realm)
+   endsubroutine simulate_from_manifest
 
    subroutine compute_global_dt(self, realm, dt)
    !< Compute the forest-global stability-limited dt.
@@ -237,4 +292,80 @@ contains
       call realm(is)%finalize_forest
    enddo
    endsubroutine finalize
+
+   subroutine populate_inter_realm_topology(self, realm, manifest)
+   !< Translate manifest face-pairs into per-realm maps%inter_realm_neighbors.
+   !<
+   !< Each manifest face-pair becomes TWO entries — one looking outward
+   !< from realm_a to realm_b and one looking back. Both carry the SAME
+   !< coupling kind. Block indices are NOT resolved at this stage; the
+   !< manifest declares realm-level coupling (which realm-face touches
+   !< which realm-face), and the realm-side override of
+   !< `exchange_inter_realm_halos_forest` is responsible for enumerating
+   !< per-block face cells at exchange time. This keeps the manifest small
+   !< and avoids encoding block layouts that depend on AMR / decomposition
+   !< state not known at INI parse time.
+   !<
+   !< **C.3 deferred gap, made concrete by Phase D**: today `maps` is the
+   !< module-scope singleton from `adam_maps_global`, shared by all realms
+   !< — there is no per-realm `realm(is)%adam%maps`. For N=1 this is the
+   !< correct address (the singleton aliases realm(1)'s maps via the
+   !< `bind_globals_to_adam` shim) and this routine writes into the right
+   !< place. For N>1 (the rmf-2realm use case), the realm architecture
+   !< must first grow a per-realm `adam` value component on `realm_object`
+   !< (the "explicit `bind_globals_to_realm_1`" follow-up that #10 Phase C
+   !< deferred). Until that lands, this routine writes ALL face-pair
+   !< entries into the SAME singleton `maps%inter_realm_neighbors`,
+   !< which is wrong for N>1 — but populates correctly under N=1 (the only
+   !< invocation this far in Phase D). The route through the singleton is
+   !< retained so the call site is in the right place and the rewrite to
+   !< per-realm `maps` is a localized swap when that follow-up lands.
+   class(forest_object),     intent(in)    :: self     !< The forest.
+   class(realm_object),      intent(inout) :: realm(:) !< Initialized realms (currently unused — see C.3 gap above).
+   type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest.
+   integer(I4P)                            :: total_count !< Total inter-realm neighbour entries.
+   integer(I4P)                            :: cursor   !< Write cursor.
+   integer(I4P)                            :: f        !< Face-pair index.
+   type(forest_face_pair_t)                :: pair     !< Loop alias.
+
+   associate(self_unused => self, realm_unused => realm) ! see C.3 gap docstring above
+   end associate
+   if (.not. allocated(manifest%face_pairs)) return  ! no inter-realm topology declared
+
+   total_count = 2_I4P * int(size(manifest%face_pairs), I4P)  ! two entries per pair
+   if (allocated(maps%inter_realm_neighbors)) deallocate(maps%inter_realm_neighbors)
+   allocate(maps%inter_realm_neighbors(total_count))
+   cursor = 0_I4P
+   do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+      pair = manifest%face_pairs(f)
+      if (pair%realm_a < 1_I4P .or. pair%realm_a > self%n) &
+         error stop 'forest_object%populate_inter_realm_topology: face pair realm_a out of range'
+      if (pair%realm_b < 1_I4P .or. pair%realm_b > self%n) &
+         error stop 'forest_object%populate_inter_realm_topology: face pair realm_b out of range'
+      ! entry from realm_a's perspective: my=a, peer=b
+      cursor = cursor + 1_I4P
+      call set_neighbor(maps%inter_realm_neighbors(cursor), &
+                        my_realm=pair%realm_a, my_face=pair%face_a, &
+                        peer_realm=pair%realm_b, peer_face=pair%face_b, &
+                        coupling=pair%coupling)
+      ! entry from realm_b's perspective: my=b, peer=a
+      cursor = cursor + 1_I4P
+      call set_neighbor(maps%inter_realm_neighbors(cursor), &
+                        my_realm=pair%realm_b, my_face=pair%face_b, &
+                        peer_realm=pair%realm_a, peer_face=pair%face_a, &
+                        coupling=pair%coupling)
+   enddo
+   contains
+      subroutine set_neighbor(slot, my_realm, my_face, peer_realm, peer_face, coupling)
+      type(inter_realm_neighbor_t), intent(out) :: slot
+      integer(I4P),                 intent(in)  :: my_realm, my_face, peer_realm, peer_face, coupling
+      slot%my_realm   = my_realm
+      slot%my_block   = 0_I4P              ! resolved at exchange time by the realm-side override
+      slot%my_face    = my_face
+      slot%peer_realm = peer_realm
+      slot%peer_block = 0_I4P
+      slot%peer_face  = peer_face
+      slot%coupling   = coupling
+      endsubroutine set_neighbor
+   endsubroutine populate_inter_realm_topology
 endmodule adam_forest_object
