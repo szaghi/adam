@@ -59,28 +59,36 @@ if ! command -v nvfortran >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# MPI tuning
+# MPI / UCX tuning — WSL2-ONLY workarounds. Do NOT propagate to clusters.
 # ---------------------------------------------------------------------------
-# `module load nvhpc` aliases `mpirun` with these flags, but bash aliases do
-# NOT expand in non-interactive scripts — run.sh would call the bare binary
-# and lose the tuning. Express the alias as MCA / UCX environment variables
-# instead, which the bare mpirun picks up automatically:
-#   --mca pml ucx               -> OMPI_MCA_pml=ucx
-#   -x UCX_TLS=^cma             -> UCX_TLS=^cma
-#   --mca coll_hcoll_enable 0   -> OMPI_MCA_coll_hcoll_enable=0
+# The nvhpc modulefile already exports all of these (and aliases mpirun), but
+# bash aliases do NOT expand in non-interactive scripts and the module may not
+# be loaded by whoever invokes run.sh — so re-export them here as a defensive
+# fallback. Each is correct on this WSL2 dev box and a performance regression
+# (or meaningless) on real InfiniBand + GPUDirect RDMA:
+#
+#   OMPI_MCA_pml=ucx               select the UCX point-to-point layer.
+#   UCX_TLS=^cma                   exclude CMA: WSL's cross-memory-attach
+#                                  same-node shmem transport is broken/restricted
+#                                  (ptrace_scope), so do not let UCX pick it.
+#   OMPI_MCA_coll_hcoll_enable=0   disable hcoll: Mellanox hardware-offloaded
+#                                  collectives need IB HW this box lacks.
+#   UCX_RNDV_THRESH=inf            issue #12: the FNL halo exchange posts MPI on
+#                                  device-resident ghost buffers (GPU-direct).
+#                                  With >=2 ranks UCX moves those via RENDEZVOUS,
+#                                  whose device-memory transports (cuda_copy/gdr)
+#                                  cannot get the GPU primary context through
+#                                  WSL's /dev/dxg shim -> SIGABRT in
+#                                  ucp_proto_rndv_send_start at the first
+#                                  exchange. Forcing every message EAGER never
+#                                  enters rendezvous, so no device pointer reaches
+#                                  the broken path. On real IB+GPUDirect this is
+#                                  a pure perf regression: rendezvous IS the fast
+#                                  path there. There is no host-staging fallback
+#                                  in the code; this env var is the only knob.
 export OMPI_MCA_pml="ucx"
 export UCX_TLS="^cma"
 export OMPI_MCA_coll_hcoll_enable="0"
-
-# WSL2-ONLY workaround for issue #12 — do NOT propagate to clusters.
-# The FNL halo exchange posts MPI on device-resident ghost buffers (GPU-direct).
-# With >=2 ranks UCX moves those via the rendezvous protocol, whose device-memory
-# path (cuda_copy / gdr) cannot get the GPU primary context through WSL's /dev/dxg
-# shim — it aborts in ucp_proto_rndv_send_start (SIGABRT). Forcing every message
-# eager (RNDV_THRESH=inf) never enters rendezvous, so no device pointer reaches
-# the broken path. This is a blunt, host-staging-equivalent crutch: correct here
-# but a pure performance regression on real InfiniBand + GPUDirect RDMA, where
-# rendezvous IS the fast path. Keep it confined to this WSL wrapper.
 export UCX_RNDV_THRESH="inf"
 
 # ---------------------------------------------------------------------------

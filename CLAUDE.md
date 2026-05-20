@@ -428,3 +428,14 @@ Tracked as [issue #11](https://github.com/szaghi/adam/issues/11). Until that iss
 | `D` / `B` / `DB` | `poisson` | ❌ release-mode SIGSEGV |
 
 When touching `prism_physics_object%initialize`, `prism_common_object%allocate_common`, `prism_common_object%io_initialize`, or any code that allocates state-vector-sized arrays, treat `physics%nv` and `numerics%constrained_transport_*` as **two independent invariants that must be reconciled before either is read**. The structural fix is to make `nv_cl` track `constrained_transport_*` under all correction kinds (option 2 in #11's fix plan), or to gate the `q_name` append on `physics%nv_cl` instead of `numerics%constrained_transport_*` (option 1).
+
+## Development Environment: WSL2 GPU+MPI Caveats
+
+The primary GPU development box is **WSL2**. Its GPU+MPI stack is broken in several places a real cluster is not, so the FNL (OpenACC/nvfortran) backend runs there for **correctness checks only — never performance**. Do not quote WSL timings as benchmarks, and **never copy WSL MPI/UCX settings into a Slurm/cluster job script** (they are perf regressions or no-ops on real InfiniBand + GPUDirect RDMA). The workarounds live in the `nvhpc` modulefile and `src/tests/prism/regression/run-fnl-local.sh`:
+
+- `UCX_RNDV_THRESH=inf` — **issue #12**: the FNL halo exchange (`update_ghost_mpi_gpu`) posts MPI directly on device-resident ghost buffers (GPU-direct, by design — there is **no host-staging fallback in the code**). With ≥2 ranks UCX moves them via the **rendezvous** protocol, whose device-memory transports (`cuda_copy`/`gdr`) cannot retrieve the GPU primary context through WSL's `/dev/dxg` shim → SIGABRT in `ucp_proto_rndv_send_start` at the first exchange. Forcing every message **eager** sidesteps rendezvous. On real GPUDirect RDMA this is the *opposite* of what you want (rendezvous is the fast path).
+- `UCX_TLS=^cma` — CMA same-node shared-memory transport is broken/restricted under WSL (`ptrace_scope`).
+- `OMPI_MCA_coll_hcoll_enable=0` — hcoll HW-offloaded collectives need Mellanox IB this box lacks.
+- `UCX_MEMTYPE_CACHE=n` — WSL memtype detection is unreliable.
+
+Full rationale and the WSL-vs-cluster contrast table: [HPC Optimization Guide](.claude/docs/hpc-optimization.md) → "Development Environment: WSL2 GPU+MPI Caveats". Cluster GPU-aware tuning is the inverse shape (see "Cluster-Specific Considerations" above, e.g. `UCX_TLS=rc_x,sm,cuda_copy,cuda_ipc`).

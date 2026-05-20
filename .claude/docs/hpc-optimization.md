@@ -31,6 +31,27 @@ Performance-driven development workflow for GPU, MPI, and memory optimization.
 - **Collective optimization**: Use MPI-3 neighborhood collectives for AMR stencil operations
 - **One-sided communication**: Consider RMA (Put/Get) for ghost cell exchange
 
+### Development Environment: WSL2 GPU+MPI Caveats
+
+The primary GPU dev box is **WSL2**, whose GPU+MPI stack is broken in places a real
+cluster is not. The FNL (OpenACC/nvfortran) backend runs there for correctness checks,
+**not** performance — never quote WSL timings as benchmarks, and never copy WSL MPI/UCX
+settings into a Slurm/cluster job script. The workarounds live in the `nvhpc` modulefile
+and `src/tests/prism/regression/run-fnl-local.sh`; each is correct on WSL and a perf
+regression (or meaningless) on real InfiniBand + GPUDirect RDMA:
+
+| Setting | WSL reason | On a real cluster |
+|---|---|---|
+| `UCX_RNDV_THRESH=inf` | issue #12: device-memory **rendezvous** aborts in `ucp_proto_rndv_send_start` — UCX's `cuda_copy`/`gdr` transports cannot get the GPU primary context through the `/dev/dxg` shim. Forcing **eager** never enters rendezvous. | **Harmful** — rendezvous IS the fast zero-copy GPUDirect path; do not set. |
+| `UCX_TLS=^cma` | CMA (cross-memory-attach) same-node shmem is broken/restricted under WSL (`ptrace_scope`). | Usually fine to keep CMA. |
+| `OMPI_MCA_coll_hcoll_enable=0` | hcoll is HW-offloaded collectives needing Mellanox IB this box lacks. | **Enable** hcoll on Mellanox fabric. |
+| `UCX_MEMTYPE_CACHE=n` | WSL memtype detection unreliable. | Leave default (cache on). |
+
+Cluster GPU-aware UCX tuning is the *opposite* shape — e.g. `UCX_TLS=rc_x,sm,cuda_copy,cuda_ipc`
+(see CLAUDE.md "Cluster-Specific Considerations"). The FNL halo exchange (`update_ghost_mpi_gpu`)
+posts MPI directly on device-resident ghost buffers (GPU-direct) by design; there is **no
+host-staging fallback in the code** — `UCX_RNDV_THRESH=inf` is the only WSL knob.
+
 ### Memory Layout (Fortran-specific)
 - **Column-major awareness**: Inner loops on first index for cache efficiency
 - **Array contiguity**: Use `contiguous` attribute, avoid unnecessary copies
