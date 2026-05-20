@@ -2,8 +2,8 @@
 module adam_fnl_maps_object
 !< ADAM, maps class definition, FNL backend.
 
-! ADAM singleton objects
-use :: adam_maps_global,     only : maps
+! ADAM objects
+use :: adam_maps_object,     only : maps_object
 ! ADAM FNL singleton objects
 use :: adam_fnl_mpih_global, only : mpih_fnl
 ! third party modules
@@ -36,16 +36,17 @@ type :: maps_fnl_object
 endtype maps_fnl_object
 
 contains
-   subroutine copy_cpu_gpu(self, verbose)
-   !< Copy data from (maps global singleton) CPU to (maps_fnl_object) GPU.
+   subroutine copy_cpu_gpu(self, maps, verbose)
+   !< Copy data from the (realm-local) CPU `maps` to (maps_fnl_object) GPU.
    class(maps_fnl_object), intent(inout)        :: self     !< The maps.
+   type(maps_object),      intent(in)           :: maps     !< Realm-local CPU maps; was the `maps` singleton.
    logical,                intent(in), optional :: verbose  !< Flag to activate verbose mode.
    logical                                      :: verbose_ !< Flag to activate verbose mode, local var.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('maps_fnl_object%copy_cpu_gpu start')
-   ! Each source map is an `allocatable` component of the CPU `maps`
-   ! singleton, populated conditionally by maps_object's make_* routines.
+   ! Each source map is an `allocatable` component of the (realm-local) CPU
+   ! `maps`, populated conditionally by maps_object's make_* routines.
    ! On a single MPI rank the inter-rank communication maps and buffers
    ! have nothing to build and are legitimately left unallocated. Passing
    ! an unallocated allocatable as the non-optional assumed-shape
@@ -91,14 +92,14 @@ contains
    if (verbose_) call mpih_fnl%print_message('maps_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
-   subroutine initialize(self)
-   !< Initialize maps from the program-scope `maps` singleton (adam_maps_global).
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global) and `maps` (adam_maps_global) to be
-   !< initialized before calling.
+   subroutine initialize(self, maps)
+   !< Initialize maps from the (realm-local) CPU `maps`.
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) initialized and `maps` populated before calling.
    class(maps_fnl_object), intent(inout) :: self !< The maps, FNL backend.
+   type(maps_object),      intent(in)    :: maps !< Realm-local CPU maps; was the `maps` singleton.
 
    call mpih_fnl%print_message('maps_fnl_object%initialize start')
-   call self%copy_cpu_gpu(verbose=.true.)
+   call self%copy_cpu_gpu(maps=maps, verbose=.true.)
    call mpih_fnl%print_message('maps_fnl_object%initialize finish')
    endsubroutine initialize
 endmodule adam_fnl_maps_object

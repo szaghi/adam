@@ -72,6 +72,17 @@ export OMPI_MCA_pml="ucx"
 export UCX_TLS="^cma"
 export OMPI_MCA_coll_hcoll_enable="0"
 
+# WSL2-ONLY workaround for issue #12 — do NOT propagate to clusters.
+# The FNL halo exchange posts MPI on device-resident ghost buffers (GPU-direct).
+# With >=2 ranks UCX moves those via the rendezvous protocol, whose device-memory
+# path (cuda_copy / gdr) cannot get the GPU primary context through WSL's /dev/dxg
+# shim — it aborts in ucp_proto_rndv_send_start (SIGABRT). Forcing every message
+# eager (RNDV_THRESH=inf) never enters rendezvous, so no device pointer reaches
+# the broken path. This is a blunt, host-staging-equivalent crutch: correct here
+# but a pure performance regression on real InfiniBand + GPUDirect RDMA, where
+# rendezvous IS the fast path. Keep it confined to this WSL wrapper.
+export UCX_RNDV_THRESH="inf"
+
 # ---------------------------------------------------------------------------
 # Hand off to the backend-agnostic harness.
 # ---------------------------------------------------------------------------

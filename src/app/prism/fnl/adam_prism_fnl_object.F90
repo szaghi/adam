@@ -261,7 +261,7 @@ contains
    ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
    call self%coil_fnl%copy_cpu_gpu
    call self%fwlayer_fnl%copy_cpu_gpu(buffer=self%buf_5D_R8P, verbose=verbose)
-   call self%field_fnl%copy_cpu_gpu(verbose=verbose)
+   call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, compute_copy_q_aux, copy_phi, verbose)
@@ -302,7 +302,7 @@ contains
    endif
    call mpih_fnl%print_message('prism_fnl_object%initialize start')
    call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail/1e9,R8P), verbose=.true.)
-   call self%field_fnl%initialize(verbose=.true.)
+   call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize
    call self%rk_fnl%initialize
    call self%weno_fnl%initialize
@@ -735,7 +735,9 @@ contains
    endif
 
    if (do_local_update) call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
-                        call self%field_fnl%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
+                        call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                                                 comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                                                 q_gpu=q_gpu, step=step)
    if (associated(forest_realm) .and. allocated(self%adam%maps%inter_realm_neighbors)) then
       call self%exchange_inter_realm_halos_forest(realm=forest_realm)
    endif

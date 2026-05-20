@@ -6,7 +6,10 @@ module adam_fnl_field_object
 !< ADAM, field class definition, FNL backend.
 
 ! ADAM modules
-use :: adam_common_library
+use :: adam_field_object, only : field_object
+use :: adam_grid_object,  only : grid_object
+use :: adam_maps_object,  only : maps_object
+use :: adam_parameters,   only : FEC_1_6_ARRAY
 use :: adam_fnl_field_kernels
 use :: adam_fnl_maps_object
 use :: adam_fnl_mpih_global, only : mpih_fnl
@@ -42,36 +45,41 @@ type :: field_fnl_object
    contains
       ! public methods
       procedure, pass(self) :: compute_q_gradient     !< Compute maximum gradient module of q element of a block.
-      procedure, pass(self) :: copy_cpu_gpu           !< Copy data from field global singleton CPU to (field_fnl_object) GPU.
+      procedure, pass(self) :: copy_cpu_gpu           !< Copy data from realm-local CPU field/maps to (field_fnl_object) GPU.
       ! procedure, pass(self) :: copy_transpose_cpu_gpu !< Transpose data from GPU to CPU.
       ! procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
-      procedure, pass(self) :: initialize             !< Initialize field from global singletons.
+      procedure, pass(self) :: initialize             !< Initialize field from realm-local CPU grid/field/maps.
       procedure, pass(self) :: update_ghost_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu   !< Update ghosts MPI.
 endtype field_fnl_object
 
 contains
    ! public methods
-   subroutine compute_q_gradient(self, b, ivar, q_gpu, gradient)
+   subroutine compute_q_gradient(self, b, ivar, dx, dy, dz, q_gpu, gradient)
    !< Compute gradient (module) over q elements.
    class(field_fnl_object), intent(in)  :: self      !< The field.
    integer(I4P),            intent(in)  :: b         !< Block index.
    integer(I4P),            intent(in)  :: ivar      !< Index of q variable.
+   real(R8P),               intent(in)  :: dx        !< X space step of block `b` (caller supplies realm field dxyz(1,b)).
+   real(R8P),               intent(in)  :: dy        !< Y space step of block `b` (caller supplies realm field dxyz(2,b)).
+   real(R8P),               intent(in)  :: dz        !< Z space step of block `b` (caller supplies realm field dxyz(3,b)).
    real(R8P),               intent(in)  :: q_gpu(1:,                    &
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
-                                                 1-grid%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
                                                  1:) !< Field component to which apply gradient.
    real(R8P),               intent(out) :: gradient  !< Maximum gradient of q(ivar).
 
-   call compute_q_gradient_dev(b=b, ni=grid%ni, nj=grid%nj, nk=grid%nk, ngc=grid%ngc, &
-                               dx=field%dxyz(1,b), dy=field%dxyz(2,b), dz=field%dxyz(3,b),     &
+   call compute_q_gradient_dev(b=b, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                               dx=dx, dy=dy, dz=dz,                                    &
                                q_gpu=q_gpu, ivar=ivar, gradient=gradient)
    endsubroutine compute_q_gradient
 
-   subroutine copy_cpu_gpu(self, verbose)
-   !< Copy data from field global singleton CPU to (field_fnl_object) GPU.
+   subroutine copy_cpu_gpu(self, field, maps, verbose)
+   !< Copy data from the (realm-local) CPU `field`/`maps` to this (field_fnl_object) GPU.
    class(field_fnl_object), intent(inout)        :: self     !< The field.
+   type(field_object),      intent(in)           :: field    !< Realm-local CPU field (cell coords, dxyz); was the `field` singleton.
+   type(maps_object),       intent(in)           :: maps     !< Realm-local CPU maps (ghost buffers); was the `maps` singleton.
    logical,                 intent(in), optional :: verbose  !< Flag to activate verbose mode.
    logical                                       :: verbose_ !< Flag to activate verbose mode, local var.
    character(:), allocatable                     :: r        !< My rank stringified.
@@ -79,7 +87,7 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('field_fnl_object%copy_cpu_gpu start')
    r = mpih_fnl%myrankstr
-   call self%maps%copy_cpu_gpu
+   call self%maps%copy_cpu_gpu(maps=maps, verbose=verbose_)
    call dev_assign_to_device(src=field%x_cell, dst=self%x_cell_gpu, ij=[1,2])
    call dev_assign_to_device(src=field%y_cell, dst=self%y_cell_gpu, ij=[1,2])
    call dev_assign_to_device(src=field%z_cell, dst=self%z_cell_gpu, ij=[1,2])
@@ -165,11 +173,13 @@ contains
    endassociate
    endsubroutine copy_transpose_gpu_cpu
 
-   subroutine initialize(self, nv_aux, q_gpu, verbose)
-   !< Initialize field from program-scope `field` and `grid` singletons.
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global), `field` (adam_field_global) and
-   !< `grid` (adam_grid_global) to be initialized before calling.
+   subroutine initialize(self, grid, field, maps, nv_aux, q_gpu, verbose)
+   !< Initialize field from the (realm-local) CPU `grid`, `field` and `maps`.
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) initialized and the passed CPU objects populated before calling.
    class(field_fnl_object), intent(inout)           :: self             !< The field.
+   type(grid_object),       intent(in),    target   :: grid             !< Realm-local CPU grid (ngc, ni/nj/nk); was the `grid` singleton.
+   type(field_object),      intent(in),    target   :: field            !< Realm-local CPU field (nb, nv, coords); was the `field` singleton.
+   type(maps_object),       intent(in)              :: maps             !< Realm-local CPU maps (ghost buffers/maps); was the `maps` singleton.
    integer(I4P),            intent(in),    optional :: nv_aux           !< Number of auxiliary variables.
    real(R8P), pointer,      intent(inout), optional :: q_gpu(:,:,:,:,:) !< Field cell centered variables.
    logical,                 intent(in),    optional :: verbose          !< Flag to activate verbose mode.
@@ -184,14 +194,14 @@ contains
    self%nb            => field%nb
    self%blocks_number => field%blocks_number
    self%nv            => field%nv
-   call self%maps%initialize()
+   call self%maps%initialize(maps=maps)
    associate(nb=>field%nb, ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nv=>field%nv)
       if (present(q_gpu)) &
          call dev_alloc(fptr_dev=q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
       call dev_assign_to_device(dst=self%fec_1_6_array_gpu, src=FEC_1_6_ARRAY)
       nv_aux_ = field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    endassociate
-   call self%copy_cpu_gpu
+   call self%copy_cpu_gpu(field=field, maps=maps, verbose=verbose)
    call mpih_fnl%print_message('field_fnl_object%initialize finish')
    endsubroutine initialize
 
@@ -199,20 +209,29 @@ contains
    !< Update (local) ghost cells.
    class(field_fnl_object), intent(in)    :: self      !< The field.
    real(R8P),               intent(inout) :: q_gpu(1:,                    &
-                                                   1-grid%ngc:,&
-                                                   1-grid%ngc:,&
-                                                   1-grid%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
                                                    1:) !< Field component to be updated.
-   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=grid%ngc,q_gpu=q_gpu)
+   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%ngc,q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
 
-   subroutine update_ghost_mpi_gpu(self, q_gpu, step)
+   subroutine update_ghost_mpi_gpu(self, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu, step)
    !< Update ghost cells within other processes.
-   class(field_fnl_object), intent(inout)        :: self               !< The field.
+   !<
+   !< GPU-direct path: the device-resident send/recv buffers are handed straight to `MPI_Isend`/`MPI_Irecv`. On a
+   !< healthy CUDA-aware MPI stack (real InfiniBand + GPUDirect RDMA) this is the fast path.
+   !<
+   !< The per-rank pointer/offset maps (`comm_map_send_ptr_ghost`/`comm_map_recv_ptr_ghost`) are the caller's
+   !< realm-local CPU maps (e.g. `self%adam%maps%comm_map_*_ptr_ghost`), passed in rather than read off a global
+   !< singleton — so a multi-realm caller exchanges with its own decomposition, never the last-bound realm's.
+   class(field_fnl_object), intent(inout)        :: self                          !< The field.
+   integer(I4P),            intent(in)           :: comm_map_send_ptr_ghost(0:)   !< Per-rank send offsets (realm-local CPU map).
+   integer(I4P),            intent(in)           :: comm_map_recv_ptr_ghost(0:)   !< Per-rank recv offsets (realm-local CPU map).
    real(R8P),               intent(inout)        :: q_gpu(1:,                    &
-                                                          1-grid%ngc:,&
-                                                          1-grid%ngc:,&
-                                                          1-grid%ngc:,&
+                                                          1-self%ngc:,&
+                                                          1-self%ngc:,&
+                                                          1-self%ngc:,&
                                                           1:)          !< Field component to be updated.
    integer(I4P),            intent(in), optional :: step               !< Step to be perfordmed in asyncronous comp.
    logical                                       :: do_step(3)         !< Steps performed in async comp.
@@ -223,19 +242,21 @@ contains
    associate(procs_number=>mpih_fnl%procs_number,                                 &
              error=>mpih_fnl%error,                                               &
              req_send_recv=>mpih_fnl%req_send_recv,                               &
-             comm_map_send_ptr_ghost=>maps%comm_map_send_ptr_ghost,               &
-             comm_map_recv_ptr_ghost=>maps%comm_map_recv_ptr_ghost,               &
              recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu,               &
              send_buffer_ghost_gpu=>self%maps%send_buffer_ghost_gpu,               &
-             ngc=>grid%ngc, q_gpu=>q_gpu)
+             ngc=>self%ngc, q_gpu=>q_gpu)
    do_step = .true.
    if (present(step)) then
       do_step = .false.
       do_step(step) = .true.
    endif
 
+   ! Reset the request handles unconditionally (issue #12, H1): MPI_Waitall on `step=3` walks all
+   ! `procs_number*2` slots, so any slot not (re)posted this cycle must hold MPI_REQUEST_NULL rather than a
+   ! stale handle. The reset is cheap and keeps the async `step` split honest for future callers.
+   if (do_step(1)) req_send_recv = MPI_REQUEST_NULL
+
    if (do_step(1)) then
-      req_send_recv = MPI_REQUEST_NULL
       call populate_send_buffer_ghost_gpu_dev(ngc=ngc,                                                             &
                                               comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
                                               send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu,               &
@@ -268,7 +289,6 @@ contains
    if (do_step(3)) then
       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
       call MPI_Barrier(MPI_COMM_WORLD, error)
-      !RIMETTERE SENZA
       call receive_recv_buffer_ghost_gpu_dev(ngc=ngc,                                                             &
                                              comm_map_recv_ghost_cell_gpu=self%maps%comm_map_recv_ghost_cell_gpu, &
                                              recv_buffer_ghost_gpu=self%maps%recv_buffer_ghost_gpu,               &

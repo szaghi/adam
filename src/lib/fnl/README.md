@@ -117,7 +117,31 @@ Extends `field_object` (common). Holds all device-side arrays needed for field o
 | `copy_transpose_gpu_cpu(nv, q_gpu, q_cpu)` | Inverse transpose: `q_gpu(nb,…,nv)` → `q_cpu(nv,…,nb)` |
 | `update_ghost_local_gpu` | Apply intra-rank ghost-cell updates entirely on device |
 | `update_ghost_mpi_gpu` | Pack send buffer on device, perform MPI exchange, unpack on device |
-| `compute_q_gradient(b, ivar, q_gpu, gradient)` | AMR refinement criterion: `max|∇q|/|q|` over block `b` |
+| `compute_q_gradient(b, ivar, dx, dy, dz, q_gpu, gradient)` | AMR refinement criterion: `max|∇q|/|q|` over block `b` |
+
+`update_ghost_mpi_gpu`, `compute_q_gradient`, `copy_cpu_gpu` and `initialize` take the realm-local CPU
+`grid`/`field`/`maps` (and the per-rank `comm_map_*_ptr_ghost`) as **dummy arguments**, not from program-scope
+singletons — so a multi-realm caller always exchanges with its own decomposition. Only `mpih_fnl` remains a
+singleton (MPI is genuinely program-global).
+
+#### GPU-direct ghost exchange and the WSL2 rendezvous abort (issue #12)
+
+`update_ghost_mpi_gpu` posts `MPI_Isend`/`MPI_Irecv` directly on the device-resident ghost buffers
+(`send_buffer_ghost_gpu` / `recv_buffer_ghost_gpu`) — the GPU-direct path that lets CUDA-aware MPI use
+GPUDirect RDMA. On a healthy InfiniBand stack this is the fast default and the **only path**: there is no
+host-staging fallback in the code.
+
+On **WSL2** with `>=2` ranks this path aborts: UCX moves the (large) device ghost buffers via its rendezvous
+protocol, whose device-memory transports (`cuda_copy` / `gdr`) cannot get the GPU primary context through the
+`/dev/dxg` shim — SIGABRT in `ucp_proto_rndv_send_start` at the first exchange. The fault is in the UCX
+rendezvous path on a broken WSL stack, *not* in ADAM or the request handles.
+
+The WSL workaround is **`export UCX_RNDV_THRESH=inf`**, set by `src/tests/prism/regression/run-fnl-local.sh`.
+It forces every message eager, so rendezvous is never entered and no device pointer reaches the broken
+transport. It is a blunt, WSL-only crutch — a pure performance regression on real IB + GPUDirect RDMA, where
+rendezvous *is* the fast path — so it is confined to the local run wrapper and must never reach a cluster job
+script or the application. Verified: `rmf` regression passes `-np 1` and `-np 2` (single realm) with the field
+digest rank-count-invariant within tolerance.
 
 ### `adam_fnl_field_kernels` — field device kernels
 
