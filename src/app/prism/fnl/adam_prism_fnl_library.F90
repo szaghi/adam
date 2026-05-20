@@ -10,8 +10,6 @@ use :: adam_prism_common_library
 use :: adam_prism_fnl_coil_object
 use :: adam_prism_fnl_external_fields_kernels
 use :: adam_prism_fnl_fwlayer_object
-! PRISM FNL singleton objects
-use :: adam_prism_fnl_globals
 
 implicit none
 public

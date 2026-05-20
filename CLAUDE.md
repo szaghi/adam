@@ -221,31 +221,39 @@ call obj%destroy()
 
 The build system uses [FoBiS](https://github.com/szaghi/FoBiS) — CLI binary `fobis` (3.8+). All flags are double-dash long form; the legacy `FoBiS.py build -mode X` short-form is no longer accepted.
 
+**NVF/OpenACC modes require a varset.** `$NVF_CC` (the `-gpu=ccXX` compute
+capability) is defined only in the NVF varsets, not the `local_gnu` default.
+Build any `*-fnl-nvf` / `*-nvf*` mode with `--varset local_nvf` (sets
+`$NVF_CC=cc89` for this workstation's Ada GPU); omitting it leaves `-gpu=$NVF_CC`
+unexpanded and the build dies on the first nvfortran invocation. Other varsets:
+`leonardo`, `iac` (both `cc80`). nvfortran must be on PATH first: `module load nvhpc`.
+
 ```bash
 # List all available build modes
 fobis build --lmodes
 
 # Build NASTO (Navier-Stokes solver)
-fobis build --mode nasto-cpu-gnu          # CPU with GNU compiler
-fobis build --mode nasto-nvf-cuda         # NVIDIA CUDA Fortran
-fobis build --mode nasto-fnl-nvf-oac      # OpenACC with NVF
+fobis build --mode nasto-cpu-gnu                          # CPU with GNU compiler
+fobis build --mode nasto-fnl-nvf --varset local_nvf       # OpenACC with NVF
 
 # Build PRISM (Maxwell equations solver)
-fobis build --mode prism-gnu              # CPU with GNU compiler
-fobis build --mode prism-fnl-nvf-oac      # OpenACC with NVF
+fobis build --mode prism-cpu-gnu                          # CPU with GNU compiler
+fobis build --mode prism-fnl-nvf --varset local_nvf       # OpenACC with NVF
 
 # Build other applications
-fobis build --mode chase-gnu              # CHASE app
-fobis build --mode patch-gnu              # PATCH app
-fobis build --mode ascot-nvf-cuda         # ASCOT converter utility
+fobis build --mode chase-cpu-gnu                          # CHASE app (CPU/GNU)
+fobis build --mode chase-fnl-nvf --varset local_nvf       # CHASE app (OpenACC/NVF)
+fobis build --mode patch-cpu-gnu                          # PATCH app (CPU/GNU)
+fobis build --mode patch-fnl-nvf --varset local_nvf       # PATCH app (OpenACC/NVF)
+fobis build --mode ascot-nvf-cuda --varset local_nvf      # ASCOT converter (CUDA Fortran)
 
 # Build ADAM core libraries
-fobis build --mode adam-com-gnu           # Common library (GNU)
-fobis build --mode adam-com-nvf           # Common library (NVF)
-fobis build --mode adam-nvf-cuda          # NVF CUDA library
+fobis build --mode adam-com-gnu                           # Common library (GNU)
+fobis build --mode adam-com-nvf --varset local_nvf        # Common library (NVF)
 
 # Debug builds (append -debug to mode name)
 fobis build --mode nasto-cpu-gnu-debug
+fobis build --mode prism-fnl-nvf-debug --varset local_nvf
 ```
 
 ## Running Tests

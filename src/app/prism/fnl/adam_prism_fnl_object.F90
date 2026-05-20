@@ -23,6 +23,19 @@ public :: prism_fnl_object
 
 type, extends(prism_common_object) :: prism_fnl_object
    !< PRISM equations system class definition, GPU (FNL) backend.
+   ! PRISM FNL C.3 closure (issue #13 D.4a follow-up): the 7 FNL objects that
+   ! previously lived as module-scope singletons are now per-realm value
+   ! components. The 7 adam_fnl_*_global / adam_prism_fnl_*_global modules
+   ! became pointer shims bound by bind_globals_fnl below. Without this, the
+   ! multi-realm path triggered the prepare_step_forest error_stop because
+   ! rk_fnl%q_rk_gpu state was overwritten between realm calls.
+   type(mpih_fnl_object)          :: mpih_fnl    !< GPU MPI handler (FUNDAL).
+   type(field_fnl_object)         :: field_fnl   !< GPU field handler.
+   type(ib_fnl_object)            :: ib_fnl      !< GPU immersed boundary.
+   type(rk_fnl_object)            :: rk_fnl      !< GPU Runge-Kutta integrator.
+   type(weno_fnl_object)          :: weno_fnl    !< GPU WENO reconstructor.
+   type(prism_fnl_coil_object)    :: coil_fnl    !< GPU coil source.
+   type(prism_fnl_fwlayer_object) :: fwlayer_fnl !< GPU fWLayer.
    ! device data
    real(R8P), pointer :: q_gpu(:,:,:,:,:)=>null()           !< Field cell centered variables.
    real(R8P), pointer :: dq_gpu(:,:,:,:,:)=>null()          !< Residuals right hand side.
@@ -52,6 +65,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: copy_cpu_gpu     !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_gpu_cpu     !< Copy data from GPU to CPU.
       procedure, pass(self) :: initialize_prism !< Initialize PRISM equation.
+      procedure, pass(self) :: bind_my_globals_forest => bind_globals_fnl !< Override realm_object's binder to also retarget the 7 FNL shims.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
       procedure, pass(self) :: save_residuals       !< Save residuals history.
@@ -247,9 +261,9 @@ contains
    ! call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
    ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
    ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
-   call coil_fnl%copy_cpu_gpu
-   call fwlayer_fnl%copy_cpu_gpu(buffer=self%buf_5D_R8P, verbose=verbose)
-   call field_fnl%copy_cpu_gpu(verbose=verbose)
+   call self%coil_fnl%copy_cpu_gpu
+   call self%fwlayer_fnl%copy_cpu_gpu(buffer=self%buf_5D_R8P, verbose=verbose)
+   call self%field_fnl%copy_cpu_gpu(verbose=verbose)
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, compute_copy_q_aux, copy_phi, verbose)
@@ -266,29 +280,36 @@ contains
    ! call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,ij=[1,5])
    ! call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
    ! call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
-   call coil_fnl%copy_gpu_cpu
-   call fwlayer_fnl%copy_gpu_cpu(buffer=self%buf_5D_R8P, verbose=verbose)
+   call self%coil_fnl%copy_gpu_cpu
+   call self%fwlayer_fnl%copy_gpu_cpu(buffer=self%buf_5D_R8P, verbose=verbose)
    endsubroutine copy_gpu_cpu
 
    subroutine initialize_prism(self, filename)
    !< Initialize PRISM equation.
-   class(prism_fnl_object), intent(inout) :: self                !< The equation.
-   character(*),            intent(in)    :: filename            !< Input file name.
-   logical                                :: is_mpih_initialized !< Flag to check if MPI has been inizialied.
+   class(prism_fnl_object), intent(inout), target :: self                !< The equation.
+   character(*),            intent(in)            :: filename            !< Input file name.
+   logical                                        :: is_mpih_initialized !< Flag to check if MPI has been inizialied.
 
+   ! Bind the mpih_fnl shim to this realm's value component BEFORE any sub-initialize
+   ! runs: the base lib/fnl objects (field/maps/ib/weno/rk) read the program-scope
+   ! mpih_fnl handler directly (no prism self in scope there). The other six FNL
+   ! objects (field/ib/rk/weno/coil/fwlayer) are reached through self% — their shims
+   ! were dropped in the consolidation pass. mpih_fnl stays a shim until the
+   ! per-realm communicator work (option C) gives the base objects their own handle.
+   mpih_fnl => self%mpih_fnl
    ! @NOTE: this is necessary because fundal currently is not auto-checking if MPI is alreay
    ! initialized; fundal must be corrected with this auto-check as done for adam CPU mpi handler
-   call MPI_INITIALIZED(is_mpih_initialized, mpih_fnl%error)
-   call mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
-   call mpih_fnl%print_message('prism_fnl_object%initialize start')
-   call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail/1e9,R8P), verbose=.true.)
-   call field_fnl%initialize(verbose=.true.)
-   call ib_fnl%initialize
-   call rk_fnl%initialize
-   call weno_fnl%initialize
+   call MPI_INITIALIZED(is_mpih_initialized, self%mpih_fnl%error)
+   call self%mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
+   call self%mpih_fnl%print_message('prism_fnl_object%initialize start')
+   call self%prism_common_object%initialize(filename=filename, memory_avail=real(self%mpih_fnl%dev_memory_avail/1e9,R8P), verbose=.true.)
+   call self%field_fnl%initialize(verbose=.true.)
+   call self%ib_fnl%initialize
+   call self%rk_fnl%initialize
+   call self%weno_fnl%initialize
    call self%allocate_gpu
-   call coil_fnl%initialize(coil=coil)
-   call fwlayer_fnl%initialize(fwlayer=fWLayer)
+   call self%coil_fnl%initialize(coil=coil)
+   call self%fwlayer_fnl%initialize(fwlayer=fWLayer)
 
    ! set pointer (abstract) TBP
    if (physics%physical_model == EM_PHYSICAL_MODEL) then
@@ -357,8 +378,27 @@ contains
 
    call external_fields_initialize_dev(external_fields=external_fields)
 
-   call mpih_fnl%print_message('prism_fnl_object%initialize finish')
+   call self%mpih_fnl%print_message('prism_fnl_object%initialize finish')
    endsubroutine initialize_prism
+
+   subroutine bind_globals_fnl(self)
+   !< PRISM FNL-specific override of realm_object%bind_my_globals_forest.
+   !<
+   !< Invoked by the forest BEFORE each per-realm TBP on the multi-realm path
+   !< (issue #13 D.4). Chains to prism_common_object's binder (which re-aliases
+   !< the ADAM-common + PRISM-app shims) then re-aliases the one remaining FNL
+   !< shim — mpih_fnl — to THIS realm's value component. The other six FNL
+   !< objects (field/ib/rk/weno/coil/fwlayer) are no longer shims: they are
+   !< reached through self% directly, so there is nothing to rebind for them.
+   !<
+   !< mpih_fnl stays a shim because the base lib/fnl objects read it directly
+   !< (no prism self in scope). It will be dropped when the per-realm
+   !< communicator work (option C) gives the base objects their own handle.
+   class(prism_fnl_object), intent(inout), target :: self !< The realm whose mpih_fnl the shim should alias.
+
+   call self%prism_common_object%bind_my_globals_forest
+   mpih_fnl => self%mpih_fnl
+   endsubroutine bind_globals_fnl
 
    ! IO methods
    subroutine load_restart_files(self, t, time)
@@ -459,7 +499,7 @@ contains
                                                                beta_D=beta_D(face),                          &
                                                                alfa_B=alfa_B(face),                          &
                                                                beta_B=beta_B(face),                          &
-                                                               f_gpu=fwlayer_fnl%f_gpu,q_gpu=q_gpu)
+                                                               f_gpu=self%fwlayer_fnl%f_gpu,q_gpu=q_gpu)
       enddo
    endif
    endassociate
@@ -535,7 +575,7 @@ contains
                                  var_jx          = var_jx                 ,&
                                  var_jy          = var_jy                 ,&
                                  var_jz          = var_jz                 ,&
-                                 j_vec_gpu       = coil_fnl%j_vec_gpu,&
+                                 j_vec_gpu       = self%coil_fnl%j_vec_gpu,&
                                  q_gpu           = q_gpu)
       enddo
    endif
@@ -599,7 +639,7 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,1:) !< Conservative variables.
    integer(I4P)                           :: crown                 !< Crown counter.
-   if (associated(field_fnl%maps%local_map_bc_crown_gpu)) then
+   if (associated(self%field_fnl%maps%local_map_bc_crown_gpu)) then
       do crown=1, self%ngc
          call set_boundary_conditions_kernel(ni                     = self%ni                                   ,&
                                              nj                     = self%nj                                   ,&
@@ -607,7 +647,7 @@ contains
                                              ngc                    = self%ngc                                  ,&
                                              nv                     = self%nv                                   ,&
                                              crown                  = crown                                     ,&
-                                             local_map_bc_crown_gpu = field_fnl%maps%local_map_bc_crown_gpu,&
+                                             local_map_bc_crown_gpu = self%field_fnl%maps%local_map_bc_crown_gpu,&
                                              q_gpu                  = q_gpu)
       enddo
    endif
@@ -714,8 +754,8 @@ contains
       if (step==3) do_set_bc       = .true.
    endif
 
-   if (do_local_update) call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
-                        call field_fnl%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
+   if (do_local_update) call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+                        call self%field_fnl%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
    if (associated(forest_realm) .and. allocated(self%adam%maps%inter_realm_neighbors)) then
       call self%exchange_inter_realm_halos_forest(realm=forest_realm)
    endif
@@ -749,7 +789,7 @@ contains
                                     blocks_number = self%blocks_number       ,&
                                     ivar          = ivar                     ,&
                                     s1            = self%fdv_half_stencils(1),&
-                                    dxyz_gpu      = field_fnl%dxyz_gpu  ,&
+                                    dxyz_gpu      = self%field_fnl%dxyz_gpu  ,&
                                     q_gpu         = q_gpu                    ,&
                                     curl_gpu      = curl_gpu)
    contains
@@ -806,7 +846,7 @@ contains
    real(R8P),               intent(inout) :: curl_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
    integer(I4P)                           :: i,j,k,b                                             !< Counter.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
 
    endassociate
@@ -822,7 +862,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                           !< Counter.
    integer(I4P)                           :: is,js,ks                                          !< Stencils.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
 
    endassociate
@@ -838,7 +878,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                           !< Counter.
    integer(I4P)                           :: is,js,ks                                          !< Stencils.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
 
    endassociate
@@ -854,7 +894,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                             !< Counter.
    integer(I4P)                           :: is,js,ks                                            !< Stencils.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
 
    endassociate
@@ -870,7 +910,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                             !< Counter.
    integer(I4P)                           :: is,js,ks                                            !< Stencils.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
 
    endassociate
@@ -886,7 +926,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                             !< Counter.
    integer(I4P)                           :: is,js,ks                                            !< Stencils.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
 
    endassociate
@@ -910,7 +950,7 @@ contains
                                           ivar           = ivar                     ,&
                                           ovar           = ovar                     ,&
                                           s1             = self%fdv_half_stencils(1),&
-                                          dxyz_gpu       = field_fnl%dxyz_gpu       ,&
+                                          dxyz_gpu       = self%field_fnl%dxyz_gpu       ,&
                                           q_gpu          = q_gpu                    ,&
                                           divergence_gpu = divergence_gpu           ,&
                                           maxdiv         = maxdiv)
@@ -973,7 +1013,7 @@ contains
    real(R8P)                                      :: q_line(1-4:1+4)                                           !< 1D stencil for reconstruction.
    real(R8P)                                      :: ql, qr                                                    !< Left/right reconstructions.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
 
    endassociate
@@ -987,7 +1027,7 @@ contains
    real(R8P),               intent(inout) :: gradient_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
    integer(I4P)                           :: i, j, k, b                                              !< Counter.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
 
    endassociate
@@ -1001,7 +1041,7 @@ contains
    real(R8P),               intent(inout) :: gradient_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
    integer(I4P)                           :: i, j, k, b                                              !< Counter.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
 
    endassociate
@@ -1015,7 +1055,7 @@ contains
    real(R8P),               intent(inout) :: laplacian_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
    integer(I4P)                           :: i, j, k, b                                            !< Counter.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(2))
 
    endassociate
@@ -1029,7 +1069,7 @@ contains
    real(R8P),               intent(inout) :: laplacian_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
    integer(I4P)                           :: i, j, k, b                                            !< Counter.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>field_fnl%dxyz_gpu,&
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(2))
 
    endassociate
@@ -1065,7 +1105,7 @@ contains
                                                     nv_c          = physics%nv_c             ,&
                                                     chi           = physics%chi              ,&
                                                     s1            = self%fdv_half_stencils(1),&
-                                                    dxyz_gpu      = field_fnl%dxyz_gpu       ,&
+                                                    dxyz_gpu      = self%field_fnl%dxyz_gpu       ,&
                                                     q_gpu         = q_gpu                    ,&
                                                     dq_gpu        = dq_gpu)
    endif
@@ -1468,15 +1508,15 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    call self%compute_coils_current(q_gpu=self%q_gpu)
-   call rk_fnl%initialize_stages(q_gpu=self%q_gpu)
+   call self%rk_fnl%initialize_stages(q_gpu=self%q_gpu)
    do s=1, rk%nrk
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
       if (ib%solids_number>0) then
-         call rk_fnl%compute_stage_ls(s=s, dt=time%dt, phi_gpu=ib_fnl%phi_gpu, &
+         call self%rk_fnl%compute_stage_ls(s=s, dt=time%dt, phi_gpu=self%ib_fnl%phi_gpu, &
                                            dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       else
-         call rk_fnl%compute_stage_ls(s=s, dt=time%dt, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
+         call self%rk_fnl%compute_stage_ls(s=s, dt=time%dt, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       endif
    enddo
    call self%impose_div_free
@@ -1490,29 +1530,29 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    if (external_fields%ef_type/=EF_TYPE_NONE) &
-      call sub_external_fields_dev(external_fields=external_fields, field_gpu=field_fnl, &
+      call sub_external_fields_dev(external_fields=external_fields, field_gpu=self%field_fnl, &
                                    dt=time%dt, time=time%time, q_gpu=self%q_gpu)
-   call rk_fnl%initialize_stages(q_gpu=self%q_gpu)
+   call self%rk_fnl%initialize_stages(q_gpu=self%q_gpu)
    do s=1, rk%nrk
       if (ib%solids_number>0) then
-         call rk_fnl%compute_stage(s=s, dt=time%dt, phi_gpu=ib_fnl%phi_gpu)
+         call self%rk_fnl%compute_stage(s=s, dt=time%dt, phi_gpu=self%ib_fnl%phi_gpu)
       else
-         call rk_fnl%compute_stage(s=s, dt=time%dt)
+         call self%rk_fnl%compute_stage(s=s, dt=time%dt)
       endif
-      call self%compute_coils_current(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=rk%gamm(s))
-      call self%compute_residuals_dev(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+      call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=rk%gamm(s))
+      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       ! if (s==1) call self%save_residuals
       if (ib%solids_number>0) then
-         call rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=ib_fnl%phi_gpu)
+         call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
       else
-         call rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
+         call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
       endif
    enddo
    if (ib%solids_number>0) then
-      call rk_fnl%update_q(dt=time%dt, phi_gpu=ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(dt=time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
       ! call self%update_rk_ghost(dt=time%dt, phi_gpu=ib_fnl%phi_gpu)
    else
-      call rk_fnl%update_q(dt=time%dt, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(dt=time%dt, q_gpu=self%q_gpu)
       ! call self%update_rk_ghost(dt=time%dt)
       call self%save_residuals
    endif
@@ -1520,7 +1560,7 @@ contains
    call self%impose_div_free
    ! call self%apply_fwl_correction  ! to be removed, probably
    if (external_fields%ef_type/=EF_TYPE_NONE) &
-      call add_external_fields_dev(external_fields=external_fields, field_gpu=field_fnl, &
+      call add_external_fields_dev(external_fields=external_fields, field_gpu=self%field_fnl, &
                                    dt=time%dt, time=time%time, q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ssp_dev
 
@@ -1712,7 +1752,7 @@ contains
    real(R8P),               intent(out) :: dt_local !< Local stability-limited dt.
    real(R8P)                            :: dxyz_min !< Minimum space step.
 
-   call compute_dxyz_min_kernel(blocks_number=self%blocks_number, dxyz_gpu=field_fnl%dxyz_gpu, dxyz_min=dxyz_min)
+   call compute_dxyz_min_kernel(blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, dxyz_min=dxyz_min)
    dxyz_min = dxyz_min * 0.5_R8P
    dt_local = time%CFL*dxyz_min / physics%evmax
    contains
@@ -1766,18 +1806,13 @@ contains
    function nrk_forest(self) result(nrk)
    !< Number of RK substages used by this realm's integrator (FNL).
    !<
-   !< See PRISM-CPU's `nrk_forest` for the multi-realm-path rationale.
-   !<
-   !< **Known limitation (Phase D.4)**: the FNL backend's `rk_fnl` is a
-   !< program-scope singleton, not a per-realm value component. The
-   !< multi-realm substage path overwrites `rk_fnl%q_rk_gpu(:,...,s)` from
-   !< realm to realm, so bit-comparability with single-realm rmf is NOT
-   !< achievable on FNL until `rk_fnl` is promoted to a per-realm component
-   !< (same C.3-style closure that converted `adam`, `weno`, `ib`, `rk` from
-   !< singletons to value components on `realm_object`). The TBPs below
-   !< exist so the orchestrator contract is type-checked, but the FNL
-   !< multi-realm path will produce non-bit-comparable results until that
-   !< follow-up lands. The CPU path is unaffected.
+   !< See PRISM-CPU's `nrk_forest` for the multi-realm-path rationale. The
+   !< PRISM FNL C.3 closure (issue #13 D.4a follow-up) promoted the 7 FNL
+   !< singletons (mpih_fnl/field_fnl/ib_fnl/rk_fnl/weno_fnl/coil_fnl/fwlayer_fnl)
+   !< to per-realm value components, so the substage state in `rk_fnl%q_rk_gpu`
+   !< is no longer shared across realms and the multi-realm path is structurally
+   !< viable. Bit-comparability with single-realm `rmf` is the D.4b acceptance
+   !< criterion, gated on a workstation with MPI.
    class(prism_fnl_object), intent(in) :: self !< The realm.
    integer(I4P)                        :: nrk  !< Number of substages.
 
@@ -1787,29 +1822,25 @@ contains
    endfunction nrk_forest
 
    subroutine prepare_step_forest(self, dt)
-   !< Per-step prologue on the multi-realm path: external-field prelude,
-   !< RK GPU stage-array init, time bookkeeping. Mirror of `integrate_rk_ssp_dev`'s head.
+   !< Per-step prologue on the multi-realm path: set dt, external-field prelude,
+   !< RK GPU stage-array init. Mirror of `integrate_rk_ssp_dev`'s head.
    !<
-   !< **Phase D.4 guard**: error_stop on first entry when inter-realm
-   !< neighbours are present. The FNL multi-realm path is structurally
-   !< broken because `rk_fnl`, `field_fnl`, `ib_fnl`, `weno_fnl`,
-   !< `coil_fnl`, `fwlayer_fnl` are program-scope singletons (not
-   !< per-realm value components). The substage state in `rk_fnl%q_rk_gpu`
-   !< is overwritten on each realm's call here, so even before the
-   !< inter-realm exchange would run, the substage state has already
-   !< diverged from what single-realm rmf computes. Promoting the FNL
-   !< singletons to per-realm components is a follow-up beyond D.4's
-   !< scope; for now this guard surfaces the limitation diagnosably.
+   !< The per-step time bookkeeping (`time%it`, `time%dt`, time_max cap) that
+   !< `advance_one_step_forest` does inline on the N=1 fast path moves here on
+   !< the multi-realm path. `time%time` advance and progress print run in
+   !< `finalize_step_forest`, mirroring the legacy SSP ordering.
    class(prism_fnl_object), intent(inout) :: self    !< The realm.
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
+   real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
 
-   ! prepare_step_forest is only invoked on the multi-realm path; reaching
-   ! it on the FNL backend triggers the singleton-corruption issue described
-   ! above. Fail fast with a diagnosable message.
-   associate(self_unused => self, dt_unused => dt)
-   end associate
-   call mpih%error_stop(msg='prism_fnl_object%prepare_step_forest: multi-realm FNL not supported yet '//&
-                            '(rk_fnl/field_fnl/ib_fnl/weno_fnl/coil_fnl/fwlayer_fnl singletons must become per-realm)')
+   time%it = time%it + 1
+   dt_step = dt
+   if ((time%it_max <= 0).and.(time%time+dt_step > time%time_max)) dt_step = time%time_max - time%time
+   time%dt = dt_step
+   if (external_fields%ef_type/=EF_TYPE_NONE) &
+      call sub_external_fields_dev(external_fields=external_fields, field_gpu=self%field_fnl, &
+                                   dt=time%dt, time=time%time, q_gpu=self%q_gpu)
+   call self%rk_fnl%initialize_stages(q_gpu=self%q_gpu)
    endsubroutine prepare_step_forest
 
    subroutine assemble_substage_forest(self, s, nrk, dt)
@@ -1828,11 +1859,11 @@ contains
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
    if (ib%solids_number>0) then
-      call rk_fnl%compute_stage(s=s, dt=time%dt, phi_gpu=ib_fnl%phi_gpu)
+      call self%rk_fnl%compute_stage(s=s, dt=time%dt, phi_gpu=self%ib_fnl%phi_gpu)
    else
-      call rk_fnl%compute_stage(s=s, dt=time%dt)
+      call self%rk_fnl%compute_stage(s=s, dt=time%dt)
    endif
-   call self%compute_coils_current(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=rk%gamm(s))
+   call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=rk%gamm(s))
    endsubroutine assemble_substage_forest
 
    subroutine evaluate_substage_forest(self, s, nrk, dt)
@@ -1846,11 +1877,11 @@ contains
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
-   call self%compute_residuals_dev(q_gpu=rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+   call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
    if (ib%solids_number>0) then
-      call rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=ib_fnl%phi_gpu)
+      call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
    else
-      call rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
+      call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
    endif
    endsubroutine evaluate_substage_forest
 
@@ -1863,15 +1894,15 @@ contains
    associate(dt_unused => dt)
    end associate
    if (ib%solids_number>0) then
-      call rk_fnl%update_q(dt=time%dt, phi_gpu=ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(dt=time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
    else
-      call rk_fnl%update_q(dt=time%dt, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(dt=time%dt, q_gpu=self%q_gpu)
       call self%save_residuals
    endif
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
    if (external_fields%ef_type/=EF_TYPE_NONE) &
-      call add_external_fields_dev(external_fields=external_fields, field_gpu=field_fnl, &
+      call add_external_fields_dev(external_fields=external_fields, field_gpu=self%field_fnl, &
                                    dt=time%dt, time=time%time, q_gpu=self%q_gpu)
    time%time = time%time + time%dt
    call time%print_progress(nodes_number=tree%nodes_number)
@@ -1885,17 +1916,13 @@ contains
    !< copy at the face slab); the only difference is the buffer location —
    !< host arrays on CPU vs device pointers on FNL.
    !<
-   !< **Known limitation (Phase D.4)**: this override is a structural
-   !< placeholder. It performs the once-per-step (`forest_active_substage == 0`)
-   !< exchange on `self%q_gpu` correctly, but the per-substage path is
-   !< NOT bit-comparable to single-realm rmf because FNL's `rk_fnl` is a
-   !< singleton — the substage state is shared across realms and overwritten
-   !< on each realm's `assemble_substage_forest`. Bit-comparability on FNL
-   !< requires promoting `rk_fnl` to a per-realm component (and the same for
-   !< `field_fnl`, `ib_fnl`, `weno_fnl`, `coil_fnl`, `fwlayer_fnl`); that is
-   !< a follow-up beyond D.4's scope. Today this method error-stops on the
-   !< per-substage entry to make the limitation diagnosable rather than
-   !< silently producing wrong results.
+   !< Substage selection: when `forest_active_substage > 0` the buffer copied
+   !< is `rk_fnl%q_rk_gpu(:,:,:,:,:,s)`; outside any substage (once-per-step
+   !< floor) it is `self%q_gpu`. This branch is taken inside `copy_peer_face_gpu`
+   !< per face. The PRISM FNL C.3 closure (issue #13 D.4a follow-up) made
+   !< `rk_fnl` a per-realm value component so the per-substage path is now
+   !< well-defined; bit-comparability with single-realm `rmf` is the D.4b
+   !< acceptance criterion (blocked on workstation MPI today).
    class(prism_fnl_object), intent(inout) :: self     !< This realm.
    class(realm_object),     intent(in)    :: realm(:) !< All realms in the forest.
    integer(I4P)                           :: n        !< Neighbour entry counter.
@@ -1909,9 +1936,6 @@ contains
    logical                                :: found      !< Peer block resolution flag.
 
    if (.not. allocated(self%adam%maps%inter_realm_neighbors)) return
-   if (forest_active_substage > 0_I4P) &
-      call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: per-substage exchange not yet bit-comparable on FNL '//&
-                               '(requires per-realm rk_fnl / field_fnl / ib_fnl / weno_fnl singletons — Phase D follow-up)')
    do n = 1_I4P, int(size(self%adam%maps%inter_realm_neighbors), I4P)
       associate(entry => self%adam%maps%inter_realm_neighbors(n))
          if (entry%coupling /= COUPLING_MIRROR) &
@@ -2022,13 +2046,15 @@ contains
       endsubroutine find_peer_block
 
       subroutine copy_peer_face_gpu(b, my_axis, my_sign, b_peer, peer, realm)
-      !< Host-staged peer→self ghost-slab copy for FNL (post-step path only).
+      !< Host-staged peer→self ghost-slab copy for FNL.
       !<
-      !< Pulls the peer's `q_gpu` interior slab from device → host, writes
-      !< into self's `q_gpu` ghost slab on host, pushes back to device. Only
-      !< the once-per-step path is exercised here (the outer method
-      !< error-stops on `forest_active_substage > 0`); see that method's
-      !< limitation note for the per-substage rk_fnl singleton gap.
+      !< Pulls the peer's interior slab from device → host, writes into
+      !< self's ghost slab on host, pushes back to device. The buffer copied
+      !< depends on the active substage: when `forest_active_substage > 0`,
+      !< both sides are at substage `s_active` and the buffer is
+      !< `rk_fnl%q_rk_gpu(:,:,:,:,:,s_active)`; outside the substage loop
+      !< the canonical state is `self%q_gpu` / `peer_realm%q_gpu`. This is
+      !< the GPU twin of CPU's per-substage selection in `copy_peer_face`.
       integer(I4P),        intent(in) :: b
       integer(I4P),        intent(in) :: my_axis
       integer(I4P),        intent(in) :: my_sign
@@ -2037,11 +2063,13 @@ contains
       class(realm_object), intent(in) :: realm(:)
       integer(I4P)                    :: d, i, j, k, ng, ni_, nj_, nk_
       integer(I4P)                    :: peer_ni, peer_nj, peer_nk
+      integer(I4P)                    :: s_active
 
       ng = self%ngc
       ni_ = self%ni
       nj_ = self%nj
       nk_ = self%nk
+      s_active = forest_active_substage
       select type (peer_realm => realm(peer))
       class is (prism_fnl_object)
          peer_ni = peer_realm%ni
@@ -2051,43 +2079,82 @@ contains
          case (1_I4P)
             if (my_sign > 0_I4P) then
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do j = 1_I4P, nj_
-                  !$acc update host(peer_realm%q_gpu(:, d, j, k, b_peer))
-                  self%q_gpu(:, ni_ + d, j, k, b) = peer_realm%q_gpu(:, d, j, k, b_peer)
-                  !$acc update device(self%q_gpu(:, ni_ + d, j, k, b))
+                  if (s_active > 0_I4P) then
+                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, d, j, k, b_peer, s_active))
+                     self%rk_fnl%q_rk_gpu(:, ni_ + d, j, k, b, s_active) = peer_realm%rk_fnl%q_rk_gpu(:, d, j, k, b_peer, s_active)
+                     !$acc update device(self%rk_fnl%q_rk_gpu(:, ni_ + d, j, k, b, s_active))
+                  else
+                     !$acc update host(peer_realm%q_gpu(:, d, j, k, b_peer))
+                     self%q_gpu(:, ni_ + d, j, k, b) = peer_realm%q_gpu(:, d, j, k, b_peer)
+                     !$acc update device(self%q_gpu(:, ni_ + d, j, k, b))
+                  endif
                enddo ; enddo ; enddo
             else
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do j = 1_I4P, nj_
-                  !$acc update host(peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer))
-                  self%q_gpu(:, 1_I4P - d, j, k, b) = peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer)
-                  !$acc update device(self%q_gpu(:, 1_I4P - d, j, k, b))
+                  if (s_active > 0_I4P) then
+                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer, s_active))
+                     self%rk_fnl%q_rk_gpu(:, 1_I4P - d, j, k, b, s_active) = &
+                        peer_realm%rk_fnl%q_rk_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer, s_active)
+                     !$acc update device(self%rk_fnl%q_rk_gpu(:, 1_I4P - d, j, k, b, s_active))
+                  else
+                     !$acc update host(peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer))
+                     self%q_gpu(:, 1_I4P - d, j, k, b) = peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer)
+                     !$acc update device(self%q_gpu(:, 1_I4P - d, j, k, b))
+                  endif
                enddo ; enddo ; enddo
             endif
          case (2_I4P)
             if (my_sign > 0_I4P) then
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do i = 1_I4P, ni_
-                  !$acc update host(peer_realm%q_gpu(:, i, d, k, b_peer))
-                  self%q_gpu(:, i, nj_ + d, k, b) = peer_realm%q_gpu(:, i, d, k, b_peer)
-                  !$acc update device(self%q_gpu(:, i, nj_ + d, k, b))
+                  if (s_active > 0_I4P) then
+                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, i, d, k, b_peer, s_active))
+                     self%rk_fnl%q_rk_gpu(:, i, nj_ + d, k, b, s_active) = peer_realm%rk_fnl%q_rk_gpu(:, i, d, k, b_peer, s_active)
+                     !$acc update device(self%rk_fnl%q_rk_gpu(:, i, nj_ + d, k, b, s_active))
+                  else
+                     !$acc update host(peer_realm%q_gpu(:, i, d, k, b_peer))
+                     self%q_gpu(:, i, nj_ + d, k, b) = peer_realm%q_gpu(:, i, d, k, b_peer)
+                     !$acc update device(self%q_gpu(:, i, nj_ + d, k, b))
+                  endif
                enddo ; enddo ; enddo
             else
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do i = 1_I4P, ni_
-                  !$acc update host(peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer))
-                  self%q_gpu(:, i, 1_I4P - d, k, b) = peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer)
-                  !$acc update device(self%q_gpu(:, i, 1_I4P - d, k, b))
+                  if (s_active > 0_I4P) then
+                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer, s_active))
+                     self%rk_fnl%q_rk_gpu(:, i, 1_I4P - d, k, b, s_active) = &
+                        peer_realm%rk_fnl%q_rk_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer, s_active)
+                     !$acc update device(self%rk_fnl%q_rk_gpu(:, i, 1_I4P - d, k, b, s_active))
+                  else
+                     !$acc update host(peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer))
+                     self%q_gpu(:, i, 1_I4P - d, k, b) = peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer)
+                     !$acc update device(self%q_gpu(:, i, 1_I4P - d, k, b))
+                  endif
                enddo ; enddo ; enddo
             endif
          case (3_I4P)
             if (my_sign > 0_I4P) then
                do d = 1_I4P, ng ; do j = 1_I4P, nj_ ; do i = 1_I4P, ni_
-                  !$acc update host(peer_realm%q_gpu(:, i, j, d, b_peer))
-                  self%q_gpu(:, i, j, nk_ + d, b) = peer_realm%q_gpu(:, i, j, d, b_peer)
-                  !$acc update device(self%q_gpu(:, i, j, nk_ + d, b))
+                  if (s_active > 0_I4P) then
+                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, i, j, d, b_peer, s_active))
+                     self%rk_fnl%q_rk_gpu(:, i, j, nk_ + d, b, s_active) = peer_realm%rk_fnl%q_rk_gpu(:, i, j, d, b_peer, s_active)
+                     !$acc update device(self%rk_fnl%q_rk_gpu(:, i, j, nk_ + d, b, s_active))
+                  else
+                     !$acc update host(peer_realm%q_gpu(:, i, j, d, b_peer))
+                     self%q_gpu(:, i, j, nk_ + d, b) = peer_realm%q_gpu(:, i, j, d, b_peer)
+                     !$acc update device(self%q_gpu(:, i, j, nk_ + d, b))
+                  endif
                enddo ; enddo ; enddo
             else
                do d = 1_I4P, ng ; do j = 1_I4P, nj_ ; do i = 1_I4P, ni_
-                  !$acc update host(peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer))
-                  self%q_gpu(:, i, j, 1_I4P - d, b) = peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer)
-                  !$acc update device(self%q_gpu(:, i, j, 1_I4P - d, b))
+                  if (s_active > 0_I4P) then
+                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer, s_active))
+                     self%rk_fnl%q_rk_gpu(:, i, j, 1_I4P - d, b, s_active) = &
+                        peer_realm%rk_fnl%q_rk_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer, s_active)
+                     !$acc update device(self%rk_fnl%q_rk_gpu(:, i, j, 1_I4P - d, b, s_active))
+                  else
+                     !$acc update host(peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer))
+                     self%q_gpu(:, i, j, 1_I4P - d, b) = peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer)
+                     !$acc update device(self%q_gpu(:, i, j, 1_I4P - d, b))
+                  endif
                enddo ; enddo ; enddo
             endif
          end select
@@ -2156,19 +2223,19 @@ contains
    real(R8P)                              :: poynting_flux !< Total Poynting flux from boundary.
 
    call compute_e_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
-                             ivar=VAR_DX,dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_D)
+                             ivar=VAR_DX,dxyz_gpu=self%field_fnl%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_D)
    call compute_e_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
-                             ivar=VAR_BX,dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_B)
+                             ivar=VAR_BX,dxyz_gpu=self%field_fnl%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_B)
    if (coil%total_coils_number > 0_I4P) then
       call compute_coil_power_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
                                          ivar=physics%var_Jx,            &
-                                         dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,coil_power=coil_power)
+                                         dxyz_gpu=self%field_fnl%dxyz_gpu,q_gpu=self%q_gpu,coil_power=coil_power)
    else
       coil_power = 0._R8P
    endif
    call compute_poynting_flux_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
                                          s=self%fdv_half_stencils(1),                                                   &
-                                         dxyz_gpu=field_fnl%dxyz_gpu,q_gpu=self%q_gpu,poynting_flux=poynting_flux)
+                                         dxyz_gpu=self%field_fnl%dxyz_gpu,q_gpu=self%q_gpu,poynting_flux=poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
@@ -2399,7 +2466,7 @@ contains
                                            var_jy        = physics%var_jy           ,&
                                            var_jz        = physics%var_jz           ,&
                                            s1            = self%fdv_half_stencils(1),&
-                                           dxyz_gpu      = field_fnl%dxyz_gpu       ,&
+                                           dxyz_gpu      = self%field_fnl%dxyz_gpu       ,&
                                            q_gpu         = self%q_gpu               ,&
                                            max_div       = max_div)
 
