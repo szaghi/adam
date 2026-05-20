@@ -12,9 +12,10 @@ module adam_fnl_globals
 !< components reached through self%.
 
 ! ADAM FNL global singletons
-use :: adam_fnl_mpih_global, only : mpih_fnl
+use :: adam_fnl_mpih_global, only : mpih_fnl, mpih_fnl_is_initialized
 
 implicit none
 private
 public :: mpih_fnl
+public :: mpih_fnl_is_initialized
 endmodule adam_fnl_globals

@@ -23,13 +23,12 @@ public :: prism_fnl_object
 
 type, extends(prism_common_object) :: prism_fnl_object
    !< PRISM equations system class definition, GPU (FNL) backend.
-   ! PRISM FNL C.3 closure (issue #13 D.4a follow-up): the 7 FNL objects that
-   ! previously lived as module-scope singletons are now per-realm value
-   ! components. The 7 adam_fnl_*_global / adam_prism_fnl_*_global modules
-   ! became pointer shims bound by bind_globals_fnl below. Without this, the
-   ! multi-realm path triggered the prepare_step_forest error_stop because
-   ! rk_fnl%q_rk_gpu state was overwritten between realm calls.
-   type(mpih_fnl_object)          :: mpih_fnl    !< GPU MPI handler (FUNDAL).
+   ! PRISM FNL C.3 closure (issue #13 D.4a follow-up): the 6 genuinely per-realm
+   ! FNL objects (field/ib/rk/weno/coil/fwlayer) are value components reached
+   ! through self%, replacing the former module-scope singletons + pointer shims.
+   ! The MPI handler (mpih_fnl) is NOT per-realm — it is one-per-process (rank,
+   ! device, communicator) and stays a true program-scope singleton in
+   ! adam_fnl_mpih_global, mirroring the CPU adam_mpih_global.
    type(field_fnl_object)         :: field_fnl   !< GPU field handler.
    type(ib_fnl_object)            :: ib_fnl      !< GPU immersed boundary.
    type(rk_fnl_object)            :: rk_fnl      !< GPU Runge-Kutta integrator.
@@ -65,7 +64,6 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: copy_cpu_gpu     !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_gpu_cpu     !< Copy data from GPU to CPU.
       procedure, pass(self) :: initialize_prism !< Initialize PRISM equation.
-      procedure, pass(self) :: bind_my_globals_forest => bind_globals_fnl !< Override realm_object's binder to also retarget the 7 FNL shims.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
       procedure, pass(self) :: save_residuals       !< Save residuals history.
@@ -290,19 +288,20 @@ contains
    character(*),            intent(in)            :: filename            !< Input file name.
    logical                                        :: is_mpih_initialized !< Flag to check if MPI has been inizialied.
 
-   ! Bind the mpih_fnl shim to this realm's value component BEFORE any sub-initialize
-   ! runs: the base lib/fnl objects (field/maps/ib/weno/rk) read the program-scope
-   ! mpih_fnl handler directly (no prism self in scope there). The other six FNL
-   ! objects (field/ib/rk/weno/coil/fwlayer) are reached through self% — their shims
-   ! were dropped in the consolidation pass. mpih_fnl stays a shim until the
-   ! per-realm communicator work (option C) gives the base objects their own handle.
-   mpih_fnl => self%mpih_fnl
-   ! @NOTE: this is necessary because fundal currently is not auto-checking if MPI is alreay
-   ! initialized; fundal must be corrected with this auto-check as done for adam CPU mpi handler
-   call MPI_INITIALIZED(is_mpih_initialized, self%mpih_fnl%error)
-   call self%mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
-   call self%mpih_fnl%print_message('prism_fnl_object%initialize start')
-   call self%prism_common_object%initialize(filename=filename, memory_avail=real(self%mpih_fnl%dev_memory_avail/1e9,R8P), verbose=.true.)
+   ! mpih_fnl is a program-scope singleton (one rank/device/communicator per process),
+   ! not a per-realm component. Initialize it exactly once: FUNDAL's initialize is
+   ! intent(out) and runs device init + communicator split, so a second call would
+   ! wipe the handler and re-bind the GPU. The first realm initializes it; later
+   ! realms skip via mpih_fnl_is_initialized.
+   ! @NOTE: the MPI_INITIALIZED probe works around fundal not auto-checking MPI init;
+   ! fundal should grow that auto-check as the adam CPU mpi handler already has.
+   if (.not. mpih_fnl_is_initialized) then
+      call MPI_INITIALIZED(is_mpih_initialized, mpih_fnl%error)
+      call mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
+      mpih_fnl_is_initialized = .true.
+   endif
+   call mpih_fnl%print_message('prism_fnl_object%initialize start')
+   call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail/1e9,R8P), verbose=.true.)
    call self%field_fnl%initialize(verbose=.true.)
    call self%ib_fnl%initialize
    call self%rk_fnl%initialize
@@ -378,27 +377,8 @@ contains
 
    call external_fields_initialize_dev(external_fields=external_fields)
 
-   call self%mpih_fnl%print_message('prism_fnl_object%initialize finish')
+   call mpih_fnl%print_message('prism_fnl_object%initialize finish')
    endsubroutine initialize_prism
-
-   subroutine bind_globals_fnl(self)
-   !< PRISM FNL-specific override of realm_object%bind_my_globals_forest.
-   !<
-   !< Invoked by the forest BEFORE each per-realm TBP on the multi-realm path
-   !< (issue #13 D.4). Chains to prism_common_object's binder (which re-aliases
-   !< the ADAM-common + PRISM-app shims) then re-aliases the one remaining FNL
-   !< shim — mpih_fnl — to THIS realm's value component. The other six FNL
-   !< objects (field/ib/rk/weno/coil/fwlayer) are no longer shims: they are
-   !< reached through self% directly, so there is nothing to rebind for them.
-   !<
-   !< mpih_fnl stays a shim because the base lib/fnl objects read it directly
-   !< (no prism self in scope). It will be dropped when the per-realm
-   !< communicator work (option C) gives the base objects their own handle.
-   class(prism_fnl_object), intent(inout), target :: self !< The realm whose mpih_fnl the shim should alias.
-
-   call self%prism_common_object%bind_my_globals_forest
-   mpih_fnl => self%mpih_fnl
-   endsubroutine bind_globals_fnl
 
    ! IO methods
    subroutine load_restart_files(self, t, time)
