@@ -5,7 +5,7 @@ module adam_rk_object
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
 use :: adam_mpih_global,  only : mpih
-use :: adam_grid_global,  only : grid
+use :: adam_grid_object,  only : grid_object
 ! third party modules
 use :: finer
 use :: penf
@@ -300,10 +300,11 @@ contains
    desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
-   subroutine initialize(self, field, file_parameters, scheme)
+   subroutine initialize(self, field, grid, file_parameters, scheme)
    !< Initialize class.
    class(rk_object),   intent(inout)        :: self            !< RK object.
    type(field_object), intent(in)           :: field           !< Field (sibling realm component, threaded in).
+   type(grid_object),  intent(in), target   :: grid            !< Grid (sibling realm component, threaded in).
    type(file_ini),     intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),       intent(in), optional :: scheme          !< Runge-Kutta scheme.
    real(R8P)                                :: w0, w1          !< Sympletic RK coefficients.

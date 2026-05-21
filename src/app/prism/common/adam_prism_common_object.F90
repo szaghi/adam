@@ -205,7 +205,7 @@ contains
    !self%nv_pic => self%physics%nv_pic
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, verbose=verbose_)
    call self%bc%initialize(file_parameters=file_parameters)
-   call grid%set_bc_type(bc_type=self%bc%bc_type)
+   call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%pic%initialize(field=self%adam%field, file_parameters=file_parameters)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
@@ -238,13 +238,13 @@ contains
       !< the simulation is stop.
 
       if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) then
-         if (self%weno%S > grid%ngc) &
+         if (self%weno%S > self%adam%grid%ngc) &
             call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of weno stencil number (weno%S):'//&
-                                      ' ngc='//trim(str(grid%ngc))//' weno%S='//trim(str(self%weno%S)))
+                                      ' ngc='//trim(str(self%adam%grid%ngc))//' weno%S='//trim(str(self%weno%S)))
       endif
-      if (self%fdv_half_stencil > grid%ngc) &
+      if (self%fdv_half_stencil > self%adam%grid%ngc) &
          call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (fdv_hs):'//&
-                                   ' ngc='//trim(str(grid%ngc))//' fdv_hs='//trim(str(self%fdv_half_stencil)))
+                                   ' ngc='//trim(str(self%adam%grid%ngc))//' fdv_hs='//trim(str(self%fdv_half_stencil)))
       endsubroutine check_ngc_number
 
       subroutine io_initialize
@@ -398,8 +398,8 @@ contains
 
    if (present(output_basename)) output_basename_ = trim(output_basename)
 
-   ngc = 0_I4P ; if (with_ghost_) ngc = grid%ngc
-   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk)
+   ngc = 0_I4P ; if (with_ghost_) ngc = self%adam%grid%ngc
+   associate(ni=>self%adam%grid%ni, nj=>self%adam%grid%nj, nk=>self%adam%grid%nk)
    ijk(:,1) = [1-ngc,ni+ngc]
    ijk(:,2) = [1-ngc,nj+ngc]
    ijk(:,3) = [1-ngc,nk+ngc]
@@ -554,8 +554,8 @@ contains
    !   4: y = y_1, tangente lungo -z
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
             lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                        &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),  &
             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
@@ -916,8 +916,8 @@ contains
    !   4: z = z_1, tangente lungo -x
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
             lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                        &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),  &
             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
@@ -1291,8 +1291,8 @@ contains
    !   4: x = x_1, tangente lungo -y
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
             lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                        &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),  &
             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
@@ -1623,8 +1623,8 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),      &
             normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,             &
             y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),       &
@@ -1797,8 +1797,8 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),      &
             normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,             &
             y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),       &
@@ -1971,8 +1971,8 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,          &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,          &
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                      &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),      &
             normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,             &
             y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),       &
@@ -2145,8 +2145,8 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),  &
             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
@@ -2312,8 +2312,8 @@ subroutine set_solenoid_y(self, n, verse)
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),  &
             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
@@ -2479,8 +2479,8 @@ subroutine set_solenoid_y(self, n, verse)
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
-            nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),  &
             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &

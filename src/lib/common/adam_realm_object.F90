@@ -625,11 +625,11 @@ contains
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
       ! call self%cfm%initialize(file_parameters=file_parameters)
       ! call self%leapfrog%initialize(file_parameters=file_parameters)
-      call self%rk%initialize(field=self%adam%field, file_parameters=file_parameters)
-      self%ngc           => grid%ngc
-      self%ni            => grid%ni
-      self%nj            => grid%nj
-      self%nk            => grid%nk
+      call self%rk%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
+      self%ngc           => self%adam%grid%ngc
+      self%ni            => self%adam%grid%ni
+      self%nj            => self%adam%grid%nj
+      self%nk            => self%adam%grid%nk
       self%nb            => self%adam%field%nb
       self%blocks_number => self%adam%field%blocks_number
       self%nv            => self%adam%field%nv
@@ -760,9 +760,9 @@ contains
    class(realm_object), intent(inout)        :: self                   !< The equation.
    character(*),           intent(in)           :: basename                !< Base name of output files.
    real(R8P),              intent(in)           :: q(1:,              &
-                                                     1-grid%ngc:,&
-                                                     1-grid%ngc:,&
-                                                     1-grid%ngc:,&
+                                                     1-self%adam%grid%ngc:,&
+                                                     1-self%adam%grid%ngc:,&
+                                                     1-self%adam%grid%ngc:,&
                                                      1:)                   !< Q-vector variables [nv,ni,nj,nk,nb].
    character(*),           intent(in), optional :: q_name(:)               !< Q-vector variables names [nv].
    character(*),           intent(in), optional :: directory               !< Directory name of output files.
@@ -802,11 +802,11 @@ contains
    t_                = 0_I4P   ; if (present(t               )) t_                = t
    time_             = 0._R8P  ; if (present(time            )) time_             = time
    if (with_ghost_) then
-      ngc = grid%ngc
+      ngc = self%adam%grid%ngc
    else
       ngc = 0_I4P
    endif
-   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk)
+   associate(ni=>self%adam%grid%ni, nj=>self%adam%grid%nj, nk=>self%adam%grid%nk)
    ijk(:,1) = [1-ngc,ni+ngc]
    ijk(:,2) = [1-ngc,nj+ngc]
    ijk(:,3) = [1-ngc,nk+ngc]
