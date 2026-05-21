@@ -15,7 +15,6 @@ use :: adam_grid_global,  only : grid
 use :: adam_field_global, only : field
 use :: adam_maps_global,  only : maps
 use :: adam_tree_global,  only : tree
-use :: adam_weno_global,  only : weno
 use :: adam_ib_global,    only : ib
 use :: adam_rk_global,    only : rk
 
@@ -27,7 +26,6 @@ public :: grid
 public :: field
 public :: maps
 public :: tree
-public :: weno
 public :: ib
 public :: rk
 endmodule adam_globals

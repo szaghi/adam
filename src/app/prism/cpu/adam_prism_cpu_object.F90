@@ -1049,7 +1049,7 @@ contains
    self%time%dt = dt_step
    call self%integrate
    self%time%time = self%time%time + dt_step
-   call self%time%print_progress(nodes_number=tree%nodes_number)
+   call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    endsubroutine advance_one_step_forest
 
    function nrk_forest(self) result(nrk)
@@ -1164,7 +1164,7 @@ contains
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call self%external_fields%add_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
    self%time%time = self%time%time + self%time%dt
-   call self%time%print_progress(nodes_number=tree%nodes_number)
+   call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    endsubroutine finalize_step_forest
 
    subroutine exchange_inter_realm_halos_forest(self, realm)
@@ -2160,8 +2160,8 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&
              dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                                                       &
              flx=>self%flxyz_c(:,1,1,:,:,:,:), fly=>self%flxyz_c(:,1,2,:,:,:,:), flz=>self%flxyz_c(:,1,3,:,:,:,:),                &
-             weno_s=>weno%S, weno_zeps=>weno%zeps,                                                                                &
-             weno_a=>weno%a, weno_p=>weno%p, weno_d=>weno%d, weno_c=>weno%c,                                                      &
+             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                                      &
+             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                  &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,        &
              evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
 

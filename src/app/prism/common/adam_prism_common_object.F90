@@ -225,8 +225,8 @@ contains
    endif
    call check_ngc_number
    call self%allocate_common
-   if (tree%iu_ref_levels>0) then
-      call adam%refine_uniform(refinement_levels=tree%iu_ref_levels, do_mpi_redistribute=.true., &
+   if (self%adam%tree%iu_ref_levels>0) then
+      call adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
                                do_blocks_reorder=.false., q=self%q)
    endif
    call io_initialize
@@ -238,9 +238,9 @@ contains
       !< the simulation is stop.
 
       if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) then
-         if (weno%S > grid%ngc) &
+         if (self%weno%S > grid%ngc) &
             call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of weno stencil number (weno%S):'//&
-                                      ' ngc='//trim(str(grid%ngc))//' weno%S='//trim(str(weno%S)))
+                                      ' ngc='//trim(str(grid%ngc))//' weno%S='//trim(str(self%weno%S)))
       endif
       if (self%fdv_half_stencil > grid%ngc) &
          call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (fdv_hs):'//&

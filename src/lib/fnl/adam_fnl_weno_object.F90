@@ -3,7 +3,7 @@ module adam_fnl_weno_object
 !< ADAM, WENO class FNL (FNL backend of [[weno_object]]).
 
 ! ADAM singleton objects
-use :: adam_weno_global,     only : weno
+use :: adam_weno_object,     only : weno_object
 use :: adam_fnl_mpih_global, only : mpih_fnl
 ! ADAM modules
 use :: adam_weno_object
@@ -36,11 +36,11 @@ type :: weno_fnl_object
 endtype weno_fnl_object
 contains
    ! public methods
-   subroutine initialize(self)
-   !< Initialize class from program-scope `weno` singleton (adam_weno_global).
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global) and `weno` (adam_weno_global) to be
-   !< initialized before calling.
+   subroutine initialize(self, weno)
+   !< Initialize class from the host `weno` reconstructor (threaded in by the realm).
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) to be initialized before calling.
    class(weno_fnl_object), intent(inout) :: self !< WENO FNL object.
+   type(weno_object),      intent(in)    :: weno !< WENO reconstructor (host, sibling realm component).
 
    call mpih_fnl%print_message('weno_fnl_object%initialize start')
    call dev_assign_to_device(dst=self%a_gpu,           src=weno%a          )

@@ -305,7 +305,7 @@ contains
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize
    call self%rk_fnl%initialize
-   call self%weno_fnl%initialize
+   call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
    call self%coil_fnl%initialize(coil=self%coil)
    call self%fwlayer_fnl%initialize(fwlayer=self%fWLayer)
@@ -1782,7 +1782,7 @@ contains
    self%time%dt = dt_step
    call self%integrate_dev
    self%time%time = self%time%time + dt_step
-   call self%time%print_progress(nodes_number=tree%nodes_number)
+   call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    endsubroutine advance_one_step_forest
 
    function nrk_forest(self) result(nrk)
@@ -1887,7 +1887,7 @@ contains
       call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    self%time%time = self%time%time + self%time%dt
-   call self%time%print_progress(nodes_number=tree%nodes_number)
+   call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    endsubroutine finalize_step_forest
 
    subroutine exchange_inter_realm_halos_forest(self, realm)
