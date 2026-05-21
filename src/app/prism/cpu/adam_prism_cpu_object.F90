@@ -144,9 +144,9 @@ contains
 
    do_init_   = .true.  ; if (present(do_init  )) do_init_   = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   if (do_init_) field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
+   if (do_init_) self%adam%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-              blocks_number=>self%blocks_number, hs=>self%fdv_half_stencils(1), dxyz=>field%dxyz)
+              blocks_number=>self%blocks_number, hs=>self%fdv_half_stencils(1), dxyz=>self%adam%field%dxyz)
       select case(delta_type)
       case(AMR_DELTA_T_X)
          dc(1:blocks_number) = dxyz(1,1:blocks_number)
@@ -173,11 +173,11 @@ contains
          call mpih%print_message('Block '//trim(str(b))//': max_total_variation = '//trim(str(max_total_variation))) !Cazzo
          max_cell_delta = max_cell_delta_grad(tv=max_total_variation)
          if ((dc(b)) > max_cell_delta) then
-            field%refinements_needed(b) = TO_BE_REFINED
+            self%adam%field%refinements_needed(b) = TO_BE_REFINED
          elseif ((dc(b)) * threshold_ < max_cell_delta) then
-            field%refinements_needed(b) = max(field%refinements_needed(b), TO_BE_DEREFINED)
+            self%adam%field%refinements_needed(b) = max(self%adam%field%refinements_needed(b), TO_BE_DEREFINED)
          else
-            field%refinements_needed(b) = max(field%refinements_needed(b), TO_NOT_TOUCH)
+            self%adam%field%refinements_needed(b) = max(self%adam%field%refinements_needed(b), TO_NOT_TOUCH)
          endif
       enddo
    endassociate
@@ -244,7 +244,7 @@ contains
       case(NUM_SCHEME_TIME_LEAPFROG)
          self%integrate => integrate_leapfrog
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-         select case(rk%scheme)
+         select case(self%rk%scheme)
          case(RK_1, RK_2, RK_3)
             self%integrate => integrate_rk_ls
          case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -314,13 +314,13 @@ contains
    integer(I4P)                           :: v    !< Counter.
 
    if (self%time%is_to_save(it_save=self%io%residuals_save)) then
-      call field%compute_normL2_residuals(dq=self%dq, norm=field%residuals)
+      call self%adam%field%compute_normL2_residuals(dq=self%dq, norm=self%adam%field%residuals)
       do v=1, self%nv
-         call MPI_ALLREDUCE(MPI_IN_PLACE, field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
-         field%residuals(v) = sqrt(field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
+         call MPI_ALLREDUCE(MPI_IN_PLACE, self%adam%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+         self%adam%field%residuals(v) = sqrt(self%adam%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
       if (mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
-                                                           blocks_number=self%blocks_number, residuals=field%residuals)
+                                                           blocks_number=self%blocks_number, residuals=self%adam%field%residuals)
    endif
    endsubroutine save_residuals
 
@@ -503,8 +503,8 @@ contains
    real(R8P)                              :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
 
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                         &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),               &
-             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,           &
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),               &
+             dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,           &
              nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, constrained_transport_B=>self%numerics%constrained_transport_B, &
              constrained_transport_D=>self%numerics%constrained_transport_D)
 
@@ -680,8 +680,8 @@ contains
        .or. self%bc%bc_type(5) == BC_radiative .or. self%bc%bc_type(6) == BC_radiative) then !Al momento scritta per funzionare solo con un secondo ordine
       if (present(s)) then
          if (s==1_I4P) call self%rk_bc%initialize_stages(q=q)
-         if (ib%solids_number>0) then !calcolo stadio per le BC
-            call self%rk_bc%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
+         if (self%ib%solids_number>0) then !calcolo stadio per le BC
+            call self%rk_bc%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
          else
             call self%rk_bc%compute_stage(s=s, dt=self%time%dt)
          endif
@@ -714,8 +714,8 @@ contains
             enddo
          endif
          !Concludi assegnando lo stadio
-         if (ib%solids_number>0) then
-            call self%rk_bc%assign_stage(s=s, phi=ib%phi)
+         if (self%ib%solids_number>0) then
+            call self%rk_bc%assign_stage(s=s, phi=self%ib%phi)
          else
             call self%rk_bc%assign_stage(s=s)
          endif
@@ -740,11 +740,11 @@ contains
    integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
    integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                        &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
-             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),         &
+             dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
              nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,       &
              constrained_transport_B=>self%numerics%constrained_transport_B,                                     &
-             constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>rk%q_rk,                      &
+             constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>self%rk%q_rk,                      &
              q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
    if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
@@ -863,14 +863,14 @@ contains
       if (step==1) do_local_update = .true.
       if (step==3) do_set_bc       = .true.
    endif
-   if (do_local_update) call field%update_ghost_local(q=q)
-                        call field%update_ghost_mpi(q=q, step=step)
+   if (do_local_update) call self%adam%field%update_ghost_local(q=q)
+                        call self%adam%field%update_ghost_mpi(q=q, step=step)
    if (associated(forest_realm) .and. allocated(self%adam%maps%inter_realm_neighbors)) then
       call self%exchange_inter_realm_halos_forest(realm=forest_realm)
    endif
    if (do_set_bc)       call self%set_boundary_conditions(q=q, s=s)
    if (present(s)) then
-      call self%compute_coils_current(q=q, gamma=rk%gamm(s))
+      call self%compute_coils_current(q=q, gamma=self%rk%gamm(s))
    else
       call self%compute_coils_current(q=q)
    endif
@@ -929,9 +929,9 @@ contains
                   //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
    enddo
 
-   print '(A)', mpih%myrankstr//'assign block number: '//trim(str(field%blocks_number))
-   do b = 1, field%blocks_number
-      print '(A)', mpih%myrankstr//'b = '//trim(str(b))//' field%code(b) = '//trim(str(field%code(b)))
+   print '(A)', mpih%myrankstr//'assign block number: '//trim(str(self%adam%field%blocks_number))
+   do b = 1, self%adam%field%blocks_number
+      print '(A)', mpih%myrankstr//'b = '//trim(str(b))//' self%adam%field%code(b) = '//trim(str(self%adam%field%code(b)))
    enddo
 
    associate(hs => self%fdv_half_stencil)
@@ -1013,7 +1013,7 @@ contains
    real(R8P)                            :: dxyz_min !< Minimal space step.
 
    dxyz_min = huge(1._R8P)
-   associate(blocks_number=>self%blocks_number, dxyz=>field%dxyz, chi=>self%physics%chi, evmax=>self%physics%evmax)
+   associate(blocks_number=>self%blocks_number, dxyz=>self%adam%field%dxyz, chi=>self%physics%chi, evmax=>self%physics%evmax)
    call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
    umax = evmax
    dt_local = self%time%CFL*dxyz_min / umax
@@ -1066,7 +1066,7 @@ contains
 
    associate(self_unused => self) ! reads module-scope rk singleton, not self state
    end associate
-   nrk = rk%nrk
+   nrk = self%rk%nrk
    endfunction nrk_forest
 
    subroutine prepare_step_forest(self, dt)
@@ -1087,7 +1087,7 @@ contains
    self%time%dt = dt_step
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call self%external_fields%sub_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
-   call rk%initialize_stages(q=self%q)
+   call self%rk%initialize_stages(q=self%q)
    endsubroutine prepare_step_forest
 
    subroutine assemble_substage_forest(self, s, nrk, dt)
@@ -1105,10 +1105,10 @@ contains
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
-   if (ib%solids_number>0) then
-      call rk%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
+   if (self%ib%solids_number>0) then
+      call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
    else
-      call rk%compute_stage(s=s, dt=self%time%dt)
+      call self%rk%compute_stage(s=s, dt=self%time%dt)
    endif
    endsubroutine assemble_substage_forest
 
@@ -1130,11 +1130,11 @@ contains
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
-   call self%compute_residuals(q=rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
-   if (ib%solids_number>0) then
-      call rk%assign_stage(s=s, q=self%dq, phi=ib%phi)
+   call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+   if (self%ib%solids_number>0) then
+      call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
    else
-      call rk%assign_stage(s=s, q=self%dq)
+      call self%rk%assign_stage(s=s, q=self%dq)
    endif
    endsubroutine evaluate_substage_forest
 
@@ -1151,11 +1151,11 @@ contains
 
    associate(dt_unused => dt) ! dt is the global reduction; self%time%dt is the local capped value
    end associate
-   if (ib%solids_number>0) then
-      call rk%update_q(dt=self%time%dt, phi=ib%phi, q=self%q)
-      call self%update_q_BC(dt=self%time%dt, phi=ib%phi)
+   if (self%ib%solids_number>0) then
+      call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+      call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
-      call rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
+      call self%rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
       call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
@@ -1754,7 +1754,7 @@ contains
    if (blocks_number>0) then
       do iter=1, self%flail%iterations
          call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-                                          dxyz=field%dxyz,                                                &
+                                          dxyz=self%adam%field%dxyz,                                                &
                                           f=-buffer(4:4,:,:,:,:),                                         &
                                           q=buffer(7:7,:,:,:,:),                                          &
                                           dq_max=dq_max,                                                  &
@@ -1890,7 +1890,7 @@ contains
    call self%apply_fWL_correction(q=q)
    call self%update_ghost(q=q, s=s)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dxyz=>field%dxyz,                                                                                        &
+             dxyz=>self%adam%field%dxyz,                                                                                        &
              s1=>self%fdv_half_stencils(1),                                                                           &
              s4=>self%fdv_half_stencils(4),                                                                           &
              chi =>self%physics%chi, constrained_transport_D=>self%numerics%constrained_transport_D,                            &
@@ -2064,7 +2064,7 @@ contains
    call self%apply_fWL_correction(q=q)
    call self%update_ghost(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dxyz=>field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,        &
+             dxyz=>self%adam%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,        &
              s=>self%fdv_half_stencils(1),                                                                            &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi)
    if (blocks_number > 0) then
@@ -2158,7 +2158,7 @@ contains
    call self%update_ghost(q=q)
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&
-             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                                                       &
+             dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:),                                                       &
              flx=>self%flxyz_c(:,1,1,:,:,:,:), fly=>self%flxyz_c(:,1,2,:,:,:,:), flz=>self%flxyz_c(:,1,3,:,:,:,:),                &
              weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                                      &
              weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                  &
@@ -2271,14 +2271,14 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti
-   call rk%initialize_stages(q=self%q)
-   do s=1, rk%nrk
+   call self%rk%initialize_stages(q=self%q)
+   do s=1, self%rk%nrk
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
-      if (ib%solids_number>0) then
-         call rk%compute_stage_ls(s=s,dt=self%time%dt,phi=ib%phi,dq=self%dq,q=self%q)
+      if (self%ib%solids_number>0) then
+         call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
       else
-         call rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
+         call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
       endif
    enddo
    call self%impose_div_free
@@ -2292,27 +2292,27 @@ contains
 
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call self%external_fields%sub_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
-   call rk%initialize_stages(q=self%q)
-   do s=1, rk%nrk
-      if (ib%solids_number>0) then
-         call rk%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
+   call self%rk%initialize_stages(q=self%q)
+   do s=1, self%rk%nrk
+      if (self%ib%solids_number>0) then
+         call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
       else
-         call rk%compute_stage(s=s, dt=self%time%dt)
+         call self%rk%compute_stage(s=s, dt=self%time%dt)
       endif
       !call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s)) !Cazzo
-      call self%compute_residuals(q=rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       !if (s==1) call self%save_residuals
-      if (ib%solids_number>0) then
-         call rk%assign_stage(s=s, q=self%dq, phi=ib%phi)
+      if (self%ib%solids_number>0) then
+         call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
       else
-         call rk%assign_stage(s=s, q=self%dq)
+         call self%rk%assign_stage(s=s, q=self%dq)
       endif
    enddo
-   if (ib%solids_number>0) then
-      call rk%update_q(dt=self%time%dt, phi=ib%phi, q=self%q)
-      call self%update_q_BC(dt=self%time%dt, phi=ib%phi)
+   if (self%ib%solids_number>0) then
+      call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+      call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
-      call rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
+      call self%rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
       call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
@@ -2332,43 +2332,43 @@ contains
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
 
    !Inizializzo stadi RK per campi e PIC
-   call rk%initialize_stages(q=self%q)
+   call self%rk%initialize_stages(q=self%q)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
 
-   do s=1, rk%nrk
+   do s=1, self%rk%nrk
       !Calcolo stadio RK per campi e PIC
-      if (ib%solids_number>0) then
-         call rk%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
+      if (self%ib%solids_number>0) then
+         call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
       else
-         call rk%compute_stage(s=s, dt=self%time%dt)
+         call self%rk%compute_stage(s=s, dt=self%time%dt)
       endif
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
-      call self%pic%current_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
+      call self%pic%current_weighting(field=field, q=self%rk%q_rk(:,:,:,:,:,s), &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
-      call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s))
+      call self%compute_coils_current(q=self%rk%q_rk(:,:,:,:,:,s), gamma=self%rk%gamm(s))
       !Calcolo residui Maxwell
-      call self%compute_residuals(q=rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
-      call self%pic%field_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
+      call self%pic%field_weighting(field=field, q=self%rk%q_rk(:,:,:,:,:,s), &
                                     q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
-      if (ib%solids_number>0) then
-         call rk%assign_stage(s=s, q=self%dq, phi=ib%phi)
+      if (self%ib%solids_number>0) then
+         call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
       else
-         call rk%assign_stage(s=s, q=self%dq)
+         call self%rk%assign_stage(s=s, q=self%dq)
       endif
       call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
    enddo
    ! Completo l'integrazione temporale
-   if (ib%solids_number>0) then
-      call rk%update_q(dt=self%time%dt, phi=ib%phi, q=self%q)
-      call self%update_q_BC(dt=self%time%dt, phi=ib%phi)
+   if (self%ib%solids_number>0) then
+      call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+      call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
-      call rk%update_q(dt=self%time%dt, q=self%q)
+      call self%rk%update_q(dt=self%time%dt, q=self%q)
       call self%update_q_BC(dt=self%time%dt)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
@@ -2398,8 +2398,8 @@ contains
    integer(I4P)                           :: bc_type                 !< Boundary condition type.
    integer(I4P)                           :: crown                   !< Crown counter.
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                           &
-                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
-                dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
+                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),         &
+                dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
                 nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                 &
                 constrained_transport_B=>self%numerics%constrained_transport_B,                                     &
                 constrained_transport_D=>self%numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                &
@@ -2474,21 +2474,21 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    call self%compute_coils_current(q=self%q)
-   do s=1, rk%nrk - 1
+   do s=1, self%rk%nrk - 1
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
-      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
       call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
+      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
+      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
    enddo
    call self%compute_residuals(q=self%q, dq=self%dq)
-   self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+   self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+   self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    call self%impose_div_free
    endsubroutine integrate_rk_yoshida
 
@@ -2742,7 +2742,7 @@ contains
    if (blocks_number>0) then
       do iter=1, self%flail%iterations
          call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-                                          dxyz=field%dxyz,                                                &
+                                          dxyz=self%adam%field%dxyz,                                                &
                                           f=-div_buff,                                                    &
                                           q=phi_buff,                                                     &
                                           dq_max=dq_max,                                                  &

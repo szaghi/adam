@@ -408,7 +408,7 @@ contains
            ijk(2,3)-ijk(1,3)+1]
    endassociate
    call self%open_file_xh5f(basename=trim(output_basename_), xh5f=xh5f)
-   do b=1, field%blocks_number
+   do b=1, self%adam%field%blocks_number
       bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
       call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
 
@@ -554,13 +554,13 @@ contains
    !   4: y = y_1, tangente lungo -z
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
             lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                        &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),  &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
-            dxyz=>field%dxyz, hs=>self%fdv_half_stencil)
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+            dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
 
    ! Set rectangular coil boundaries with normal direction parallel to x
    ! and center located at (x_c, y_c, z_c).
@@ -916,13 +916,13 @@ contains
    !   4: z = z_1, tangente lungo -x
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
             lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                        &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),  &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
-            dxyz=>field%dxyz, hs=>self%fdv_half_stencil)
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+            dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
 
    ! Set rectangular coil boundaries with normal direction parallel to y
    ! and center located at (x_c, y_c, z_c).
@@ -1291,13 +1291,13 @@ contains
    !   4: x = x_1, tangente lungo -y
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
             lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                        &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),  &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
-            dxyz=>field%dxyz, hs=>self%fdv_half_stencil)
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+            dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
 
    ! Set rectangular coil boundaries with normal direction parallel to z
    ! and center located at (x_c, y_c, z_c).
@@ -1623,11 +1623,11 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),      &
-            normal=>self%coil%normal(n), nb=>field%nb, x_cell=>field%x_cell,             &
-            y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%coil%sigma(n),       &
+            normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,             &
+            y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),       &
             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1797,11 +1797,11 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),      &
-            normal=>self%coil%normal(n), nb=>field%nb, x_cell=>field%x_cell,             &
-            y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%coil%sigma(n),       &
+            normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,             &
+            y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),       &
             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1971,11 +1971,11 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,          &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,          &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                      &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),      &
-            normal=>self%coil%normal(n), nb=>field%nb, x_cell=>field%x_cell,             &
-            y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%coil%sigma(n),       &
+            normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,             &
+            y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),       &
             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -2145,12 +2145,12 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),  &
             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -2312,12 +2312,12 @@ subroutine set_solenoid_y(self, n, verse)
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),  &
             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -2479,12 +2479,12 @@ subroutine set_solenoid_y(self, n, verse)
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>grid%ni, nj=>grid%nj,         &
             nk=>grid%nk, ngc=>grid%ngc, x_c=>self%coil%x_center(n),                     &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),  &
             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
-            nb=>field%nb, x_cell=>field%x_cell, y_cell=>field%y_cell,              &
-            z_cell=>field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))

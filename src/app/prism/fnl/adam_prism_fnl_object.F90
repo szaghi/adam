@@ -320,7 +320,7 @@ contains
       case(NUM_SCHEME_TIME_LEAPFROG)
          self%integrate_dev => integrate_leapfrog_dev
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-         select case(rk%scheme)
+         select case(self%rk%scheme)
          case(RK_1, RK_2, RK_3)
             self%integrate_dev => integrate_rk_ls_dev
          case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -398,13 +398,13 @@ contains
 
    if (self%time%is_to_save(it_save=self%io%residuals_save)) then
       call compute_normL2_residuals_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
-                                        blocks_number=self%blocks_number, dq_gpu=self%dq_gpu, norm=field%residuals)
+                                        blocks_number=self%blocks_number, dq_gpu=self%dq_gpu, norm=self%adam%field%residuals)
       do v=1, self%nv
-         call MPI_ALLREDUCE(MPI_IN_PLACE, field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-         field%residuals(v) = sqrt(field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
+         call MPI_ALLREDUCE(MPI_IN_PLACE, self%adam%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+         self%adam%field%residuals(v) = sqrt(self%adam%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
       if (mpih_fnl%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
-                                                               blocks_number=self%blocks_number, residuals=field%residuals)
+                                                               blocks_number=self%blocks_number, residuals=self%adam%field%residuals)
    endif
    endsubroutine save_residuals
 
@@ -1491,10 +1491,10 @@ contains
 
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%rk_fnl%initialize_stages(q_gpu=self%q_gpu)
-   do s=1, rk%nrk
+   do s=1, self%rk%nrk
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
-      if (ib%solids_number>0) then
+      if (self%ib%solids_number>0) then
          call self%rk_fnl%compute_stage_ls(s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, &
                                            dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       else
@@ -1515,22 +1515,22 @@ contains
       call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%rk_fnl%initialize_stages(q_gpu=self%q_gpu)
-   do s=1, rk%nrk
-      if (ib%solids_number>0) then
+   do s=1, self%rk%nrk
+      if (self%ib%solids_number>0) then
          call self%rk_fnl%compute_stage(s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
       else
          call self%rk_fnl%compute_stage(s=s, dt=self%time%dt)
       endif
-      call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=rk%gamm(s))
+      call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       ! if (s==1) call self%save_residuals
-      if (ib%solids_number>0) then
+      if (self%ib%solids_number>0) then
          call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
       else
          call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
       endif
    enddo
-   if (ib%solids_number>0) then
+   if (self%ib%solids_number>0) then
       call self%rk_fnl%update_q(dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
       ! call self%update_rk_ghost(dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu)
    else
@@ -1800,7 +1800,7 @@ contains
 
    associate(self_unused => self)
    end associate
-   nrk = rk%nrk
+   nrk = self%rk%nrk
    endfunction nrk_forest
 
    subroutine prepare_step_forest(self, dt)
@@ -1840,12 +1840,12 @@ contains
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
-   if (ib%solids_number>0) then
+   if (self%ib%solids_number>0) then
       call self%rk_fnl%compute_stage(s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
    else
       call self%rk_fnl%compute_stage(s=s, dt=self%time%dt)
    endif
-   call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=rk%gamm(s))
+   call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
    endsubroutine assemble_substage_forest
 
    subroutine evaluate_substage_forest(self, s, nrk, dt)
@@ -1860,7 +1860,7 @@ contains
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
    call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
-   if (ib%solids_number>0) then
+   if (self%ib%solids_number>0) then
       call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
    else
       call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
@@ -1875,7 +1875,7 @@ contains
 
    associate(dt_unused => dt)
    end associate
-   if (ib%solids_number>0) then
+   if (self%ib%solids_number>0) then
       call self%rk_fnl%update_q(dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
    else
       call self%rk_fnl%update_q(dt=self%time%dt, q_gpu=self%q_gpu)
