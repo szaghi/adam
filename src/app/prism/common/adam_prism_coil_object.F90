@@ -3,7 +3,7 @@ module adam_prism_coil_object
 !< ADAM, PRISM coil source definition, CPU backend.
 
 ! ADAM singleton objects
-use :: adam_field_global, only : field
+use :: adam_field_object, only : field_object
 use :: adam_grid_global,  only : grid
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
@@ -87,9 +87,10 @@ endtype prism_coil_object
 
 contains
    ! public methods
-   subroutine allocate_coil(self)
+   subroutine allocate_coil(self, field)
    !< Allocate coil data.
    class(prism_coil_object), intent(inout) :: self !< Coils.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    integer(I4P)                            :: c    !< Counter.
 
    associate(ngc=>self%ngc,ni=>self%ni,nj=>self%nj,nk=>self%nk,nb=>field%nb,total_coils_number=>self%total_coils_number)
@@ -181,20 +182,22 @@ contains
    endif
    endfunction description
 
-   subroutine initialize(self, file_parameters) !Cfr ic%initialize, ma commentata parte descrizione perchè da implementare
+   subroutine initialize(self, field, file_parameters) !Cfr ic%initialize, ma commentata parte descrizione perchè da implementare
    !< Initialize the equation.
    class(prism_coil_object), intent(inout) :: self            !< Coils.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    type(file_ini),           intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
    print '(A)', mpih%myrankstr//'prism_coil_object%initialize start'
-   call self%load_from_file(file_parameters=file_parameters)
+   call self%load_from_file(field=field, file_parameters=file_parameters)
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'prism_coil_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, field, file_parameters, go_on_fail)
    !< Load config from file.
    class(prism_coil_object), intent(inout)        :: self            !< coils.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
    logical,                  intent(in), optional :: go_on_fail      !< Go on if load fails.
    logical                                        :: go_on_fail_     !< Go on if load fails.
@@ -221,7 +224,7 @@ contains
 
    call associate_adam_data
 
-   call self%allocate_coil
+   call self%allocate_coil(field=field)
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_delay', val=self%td, error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')

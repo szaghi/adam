@@ -13,7 +13,7 @@ module adam_prism_fWLayer_object
 ! ADAM singleton objects
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_global,  only : grid
-use :: adam_field_global, only : field
+use :: adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_physics_object, only : prism_physics_object
@@ -69,9 +69,10 @@ contains
     endif
    endfunction description
 
-   subroutine initialize(self, file_parameters, physics)
+   subroutine initialize(self, field, file_parameters, physics)
    !< Initialize the fWLayer.
    class(prism_fWLayer_object), intent(inout) :: self            !< fWLayer.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(prism_physics_object),  intent(in)    :: physics         !< Physics.
    integer(I4P)                               :: i,j,k,b         !< Counters.

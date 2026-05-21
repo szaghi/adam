@@ -3,7 +3,6 @@ module adam_blanes_moan_object
 !< ADAM, Blanes-Moan solver class definition.
 
 ! ADAM singleton objects
-use :: adam_field_global, only : field
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_global,  only : grid
 ! third party modules

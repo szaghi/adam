@@ -55,7 +55,7 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
-use :: adam_globals,    only : adam, field, grid, mpih
+use :: adam_globals,    only : adam, grid, mpih
 use :: adam_adam_bind,  only : bind_globals_to_adam
 ! third party modules
 use :: finer

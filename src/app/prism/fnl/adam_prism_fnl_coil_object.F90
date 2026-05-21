@@ -97,11 +97,12 @@ contains
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
-   subroutine initialize(self, coil)
+   subroutine initialize(self, coil, field)
    !< Initialize class from program-scope `field` (adam_field_global) and `grid` (adam_grid_global) singletons.
    !< Requires `mpih_fnl` (adam_fnl_mpih_global), `field` and `grid` singletons to be ready.
    class(prism_fnl_coil_object), intent(inout)      :: self !< Coils.
    class(prism_coil_object),     intent(in), target :: coil !< Coils on host.
+   type(field_object),           intent(in)       :: field !< Field (sibling realm component, threaded in).
    integer(I4P)                                     :: nv   !< Counter.
    integer(I4P)                                     :: ierr !< Error status.
 

@@ -82,11 +82,12 @@ contains
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
-   subroutine initialize(self, fwlayer)
+   subroutine initialize(self, fwlayer, field)
    !< Initialize the fWLayer from program-scope `field` (adam_field_global) and `grid` (adam_grid_global) singletons.
    !< Requires `mpih_fnl` (adam_fnl_mpih_global), `field` and `grid` singletons to be ready.
    class(prism_fnl_fwlayer_object), intent(inout)      :: self    !< fWLayer.
    type(prism_fwlayer_object),      intent(in), target :: fwlayer !< Fwlayer common handler.
+   type(field_object),         intent(in)         :: field !< Field (sibling realm component, threaded in).
    integer(I4P)                                        :: ierr    !< Error status.
 
    if (fwlayer%C ==0) return

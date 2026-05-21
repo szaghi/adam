@@ -12,7 +12,6 @@ module adam_globals
 use :: adam_mpih_global,  only : mpih
 use :: adam_adam_global,  only : adam
 use :: adam_grid_global,  only : grid
-use :: adam_field_global, only : field
 use :: adam_maps_global,  only : maps
 use :: adam_tree_global,  only : tree
 
@@ -21,7 +20,6 @@ private
 public :: mpih
 public :: adam
 public :: grid
-public :: field
 public :: maps
 public :: tree
 endmodule adam_globals

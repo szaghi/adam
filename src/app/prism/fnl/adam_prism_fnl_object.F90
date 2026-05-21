@@ -307,8 +307,8 @@ contains
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
-   call self%coil_fnl%initialize(coil=self%coil)
-   call self%fwlayer_fnl%initialize(fwlayer=self%fWLayer)
+   call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field)
+   call self%fwlayer_fnl%initialize(fwlayer=self%fWLayer, field=self%adam%field)
 
    ! set pointer (abstract) TBP
    if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
@@ -689,21 +689,21 @@ contains
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
 
-   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=field, q=self%q)
+   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, q=self%q)
    ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%particle_injection%set_particle_initial_injection(field=field, pic=pic, q_pic=self%q_pic)
+   !    call self%particle_injection%set_particle_initial_injection(field=self%adam%field, pic=pic, q_pic=self%q_pic)
    !    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
    !    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
    !                                     np=self%pic%particle_number)
    ! endif
-   ! call self%coil%set_coils(physics=physics, field=field)
+   ! call self%coil%set_coils(physics=physics, field=self%adam%field)
 
    call self%initialize_coils
 
    ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=pic_fields, nv=self%nv)
+   !    call self%pic%current_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   !    call self%pic%particle_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   !    call self%pic%field_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, pic_fields=pic_fields, nv=self%nv)
    ! endif
 
    call self%copy_cpu_gpu

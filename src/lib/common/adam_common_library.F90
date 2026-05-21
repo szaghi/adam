@@ -33,7 +33,6 @@ use :: adam_weno_object
 use :: adam_mpih_global
 use :: adam_adam_global
 use :: adam_grid_global
-use :: adam_field_global
 use :: adam_maps_global
 use :: adam_tree_global
 use :: adam_forest_global
