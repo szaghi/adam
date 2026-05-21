@@ -282,12 +282,16 @@ contains
    call self%fwlayer_fnl%copy_gpu_cpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
    endsubroutine copy_gpu_cpu
 
-   subroutine initialize_prism(self, filename)
+   subroutine initialize_prism(self, filename, realms_number)
    !< Initialize PRISM equation.
    class(prism_fnl_object), intent(inout), target :: self                !< The equation.
    character(*),            intent(in)            :: filename            !< Input file name.
+   integer(I4P),            intent(in), optional  :: realms_number       !< Forest realm count; divides the per-device budget (default 1).
    logical                                        :: is_mpih_initialized !< Flag to check if MPI has been inizialied.
+   real(R8P)                                      :: memory_avail_       !< Per-realm device budget (GB) after the forest split.
+   integer(I4P)                                   :: realms_number_      !< Local realm count (>=1).
 
+   realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(realms_number, 1_I4P)
    ! mpih_fnl is a program-scope singleton (one rank/device/communicator per process),
    ! not a per-realm component. Initialize it exactly once: FUNDAL's initialize is
    ! intent(out) and runs device init + communicator split, so a second call would
@@ -301,7 +305,8 @@ contains
       mpih_fnl_is_initialized = .true.
    endif
    call mpih_fnl%print_message('prism_fnl_object%initialize start')
-   call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail/1e9,R8P), verbose=.true.)
+   memory_avail_ = real(mpih_fnl%dev_memory_avail/1e9, R8P) / real(realms_number_, R8P)
+   call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
@@ -1570,7 +1575,7 @@ contains
    ! call self%impose_div_free
    endsubroutine integrate_rk_yoshida_dev
 
-   subroutine initialize_forest(self, filename, realm_index, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
    !< Initialize this realm from scratch: PRISM init, IC injection (or
    !< restart load), initial ghost update on device, initial diagnostics
    !< dump, IO files open, plus PIC/leapfrog priming if those schemes are
@@ -1580,22 +1585,28 @@ contains
    !< `initialize_prism(filename)` plus the verbatim post-init / pre-loop
    !< block formerly inline in `simulate`. Behavior unchanged.
    !<
-   !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are
-   !< accepted but unused for now (door kept open per A.7).
-   class(prism_fnl_object), intent(inout)        :: self         !< The realm.
-   character(*),            intent(in)           :: filename     !< Input parameters file name.
-   integer(I4P),            intent(in), optional :: realm_index  !< Index of this realm in the forest (Phase D).
-   real(R8P),               intent(in), optional :: memory_avail !< Per-process memory budget override.
-   integer(I4P),            intent(in), optional :: nv           !< Number of field variables override.
-   logical,                 intent(in), optional :: verbose      !< Trigger verbose output.
-   integer(I4P)                                  :: i            !< Counter.
+   !< `realms_number` (passed by the forest as the realm count) divides the
+   !< per-device memory budget so each realm sizes its block storage to its
+   !< share, not the full device budget — without it, N realms each grab the
+   !< whole VRAM and over-subscribe the GPU by Nx (issue #13 rmf-2realm OOM).
+   !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are accepted;
+   !< `memory_avail` stays a door-open placeholder (the budget source is
+   !< mpih_fnl, only valid after device init inside initialize_prism).
+   class(prism_fnl_object), intent(inout)        :: self          !< The realm.
+   character(*),            intent(in)           :: filename      !< Input parameters file name.
+   integer(I4P),            intent(in), optional :: realm_index   !< Index of this realm in the forest (Phase D).
+   integer(I4P),            intent(in), optional :: realms_number !< Realm count; divides the per-device budget (Phase D).
+   real(R8P),               intent(in), optional :: memory_avail  !< Per-process memory budget override (door-open placeholder).
+   integer(I4P),            intent(in), optional :: nv            !< Number of field variables override.
+   logical,                 intent(in), optional :: verbose       !< Trigger verbose output.
+   integer(I4P)                                  :: i             !< Counter.
 
    if (present(realm_index)) continue
    if (present(memory_avail)) continue
    if (present(nv)) continue
    if (present(verbose)) continue
 
-   call self%initialize_prism(filename=filename)
+   call self%initialize_prism(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
       call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
       call self%load_restart_files(t=self%time%it, time=self%time%time)

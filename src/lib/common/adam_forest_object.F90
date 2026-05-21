@@ -84,7 +84,7 @@ contains
 
    self%n = int(size(realm), I4P)
    do is = 1, self%n
-      call realm(is)%initialize_forest(filename=filename, realm_index=is)
+      call realm(is)%initialize_forest(filename=filename, realm_index=is, realms_number=self%n)
    enddo
    endsubroutine initialize
 
@@ -109,7 +109,7 @@ contains
       call mpih%error_stop(msg='forest_object%initialize_from_manifest: size(realm) /= manifest%realms_number')
    self%n = int(size(realm), I4P)
    do is = 1, self%n
-      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realm_index=is)
+      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realm_index=is, realms_number=self%n)
    enddo
    call self%populate_inter_realm_topology(realm, manifest)
    endsubroutine initialize_from_manifest

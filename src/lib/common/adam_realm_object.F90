@@ -255,7 +255,7 @@ endinterface
 
 contains
    ! orchestrator contract — see issue #10 Step 6 Phase A.4
-   subroutine initialize_forest(self, filename, realm_index, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
    !< Initialize this realm from scratch: app-level initialize, IC injection
    !< (or restart load), initial AMR, IO file open, initial diagnostics dump.
    !<
@@ -276,14 +276,16 @@ contains
    !< locked in so adding them later does not break callers.
    class(realm_object), intent(inout)        :: self         !< The realm.
    character(*),        intent(in)           :: filename     !< Input parameters file name.
-   integer(I4P),        intent(in), optional :: realm_index  !< Index of this realm in the forest (Phase D).
-   real(R8P),           intent(in), optional :: memory_avail !< Per-process memory budget override.
-   integer(I4P),        intent(in), optional :: nv           !< Number of field variables override.
-   logical,             intent(in), optional :: verbose      !< Trigger verbose output.
+   integer(I4P),        intent(in), optional :: realm_index   !< Index of this realm in the forest (Phase D).
+   integer(I4P),        intent(in), optional :: realms_number !< Realm count in the forest; realm divides its budget by it (Phase D).
+   real(R8P),           intent(in), optional :: memory_avail  !< Per-process memory budget override.
+   integer(I4P),        intent(in), optional :: nv            !< Number of field variables override.
+   logical,             intent(in), optional :: verbose       !< Trigger verbose output.
 
    associate(filename_unused => filename) ! quiet "unused dummy" warnings before the stop
    end associate
    if (present(realm_index)) continue
+   if (present(realms_number)) continue
    if (present(memory_avail)) continue
    if (present(nv)) continue
    if (present(verbose)) continue

@@ -224,14 +224,19 @@ contains
    call mpih%print_message('prism_cpu_object%allocate_cpu finish')
    endsubroutine allocate_cpu
 
-   subroutine initialize_prism(self, filename)
+   subroutine initialize_prism(self, filename, realms_number)
    !< Initialize PRSIM equation.
-   class(prism_cpu_object), intent(inout) :: self     !< The equation.
-   character(*),            intent(in)    :: filename !< Input file name.
+   class(prism_cpu_object), intent(inout)        :: self          !< The equation.
+   character(*),            intent(in)           :: filename      !< Input file name.
+   integer(I4P),            intent(in), optional :: realms_number !< Forest realm count; divides the per-process budget (default 1).
+   real(R8P)                                     :: memory_avail_ !< Per-realm memory budget after the forest split.
+   integer(I4P)                                  :: realms_number_!< Local realm count (>=1).
 
+   realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(realms_number, 1_I4P)
    call mpih%initialize(verbose=.true.)
    call mpih%print_message('prism_cpu_object%initialize start')
-   call self%prism_common_object%initialize(filename=filename,memory_avail=mpih%memory_avail,verbose=.true.)
+   memory_avail_ = mpih%memory_avail / real(realms_number_, R8P)
+   call self%prism_common_object%initialize(filename=filename,memory_avail=memory_avail_,verbose=.true.)
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
@@ -876,7 +881,7 @@ contains
    endif
    endsubroutine update_ghost
 
-   subroutine initialize_forest(self, filename, realm_index, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
    !< Initialize this realm from scratch: PRISM init, IC injection (or
    !< restart load), initial ghost update, initial diagnostics dump, IO
    !< files open, plus PIC/leapfrog priming if those schemes are active.
@@ -885,23 +890,29 @@ contains
    !< `initialize_prism(filename)` plus the verbatim post-init / pre-loop
    !< block formerly inline in `simulate`. Behavior unchanged.
    !<
-   !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are
-   !< accepted but unused for now (door kept open per A.7).
-   class(prism_cpu_object), intent(inout)        :: self         !< The realm.
-   character(*),            intent(in)           :: filename     !< Input parameters file name.
-   integer(I4P),            intent(in), optional :: realm_index  !< Index of this realm in the forest (Phase D).
-   real(R8P),               intent(in), optional :: memory_avail !< Per-process memory budget override.
-   integer(I4P),            intent(in), optional :: nv           !< Number of field variables override.
-   logical,                 intent(in), optional :: verbose      !< Trigger verbose output.
-   real(R8P)                                     :: F_l(3)       !< Lorentz force for leapfrog preliminary integration.
-   integer(I4P)                                  :: i, n, b      !< Counters.
+   !< `realms_number` (passed by the forest as the realm count) divides the
+   !< per-process memory budget so each realm sizes its block storage to its
+   !< share, not the full process budget — without it, N realms each grab the
+   !< whole budget and over-subscribe RAM/VRAM by Nx (issue #13 rmf-2realm OOM).
+   !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are accepted;
+   !< `memory_avail` stays a door-open placeholder (the budget source is mpih,
+   !< only valid after mpih%initialize inside initialize_prism).
+   class(prism_cpu_object), intent(inout)        :: self          !< The realm.
+   character(*),            intent(in)           :: filename      !< Input parameters file name.
+   integer(I4P),            intent(in), optional :: realm_index   !< Index of this realm in the forest (Phase D).
+   integer(I4P),            intent(in), optional :: realms_number !< Realm count; divides the per-process budget (Phase D).
+   real(R8P),               intent(in), optional :: memory_avail  !< Per-process memory budget override (door-open placeholder).
+   integer(I4P),            intent(in), optional :: nv            !< Number of field variables override.
+   logical,                 intent(in), optional :: verbose       !< Trigger verbose output.
+   real(R8P)                                     :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
+   integer(I4P)                                  :: i, n, b       !< Counters.
 
    if (present(realm_index)) continue
    if (present(memory_avail)) continue
    if (present(nv)) continue
    if (present(verbose)) continue
 
-   call self%initialize_prism(filename=filename)
+   call self%initialize_prism(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
       call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
       call self%load_restart_files(t=self%time%it, time=self%time%time)
