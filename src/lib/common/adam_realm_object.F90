@@ -55,8 +55,7 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
-use :: adam_globals,    only : adam, mpih
-use :: adam_adam_bind,  only : bind_globals_to_adam
+use :: adam_globals,    only : mpih
 ! third party modules
 use :: finer
 use :: motion
@@ -292,30 +291,18 @@ contains
    endsubroutine initialize_forest
 
    subroutine bind_my_globals_forest(self)
-   !< Re-alias the legacy singleton shims into `self`'s value components.
+   !< No-op retained for the forest's multi-realm contract (issue #13 D.4).
    !<
-   !< Invoked by the forest BEFORE each per-realm TBP call on the multi-realm
-   !< path (issue #13 D.4). The seven `adam_*_global` shims (`adam`, `grid`,
-   !< `field`, `tree`, `maps`, `weno`, `ib`, `rk`) alias `realm(N)%...`
-   !< after `forest%initialize` finishes — that's the last-realm-initialized
-   !< binding, which is correct ONLY for the last realm. The other realms
-   !< need the shims re-bound to THEIR components before any of their per-step
-   !< code reads through the shims.
-   !<
-   !< Cost: 8 pointer assignments per call. The shims themselves are
-   !< host-side metadata; nothing on the GPU re-binds.
-   !<
-   !< This TBP is type-bound (and thus dispatchable) so apps that need
-   !< app-specific extra rebindings (e.g. FNL's `field_fnl`, `rk_fnl`,
-   !< `ib_fnl`, `weno_fnl`, `coil_fnl`, `fwlayer_fnl` singletons) can
-   !< override and chain `call self%realm_object%bind_my_globals_forest`.
-   !<
-   !< For N=1 (single-realm fast path) the forest skips this method
-   !< entirely — the startup binding is already correct.
-   class(realm_object), intent(inout), target :: self !< The realm whose components the shims should alias.
+   !< Historically this re-aliased the program-scope `adam_*_global` shims
+   !< (`adam`, `grid`, `field`, `tree`, `maps`, `weno`, `ib`, `rk`) to
+   !< `self`'s value components before each per-realm TBP. All those shims
+   !< have been retired — every consumer now reads its realm-local objects
+   !< via `self%...` or threaded dummy arguments — so there is nothing left
+   !< to rebind. The forest still calls this per realm; kept as a no-op so
+   !< the call sites and the dispatchable contract need not change.
+   class(realm_object), intent(inout), target :: self !< The realm (unused; contract placeholder).
 
-   adam => self%adam
-   call bind_globals_to_adam
+   associate(unused => self); end associate
    endsubroutine bind_my_globals_forest
 
    subroutine compute_local_dt_forest(self, dt_local)
@@ -592,17 +579,10 @@ contains
    if (verbose_) call mpih%print_message('realm_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-      ! Bind the five legacy shim singletons (adam, grid, field, tree, maps) into
-      ! `self`'s value components BEFORE adam%initialize. The outer `adam`
-      ! pointer aliases `self%adam`; the four inner shims (grid/field/tree/maps)
-      ! then alias `self%adam%grid` etc. via bind_globals_to_adam (which reads
-      ! `adam%...` and is therefore correct once the outer alias is set).
-      ! Binding must happen here, not after: tree/field/maps sub-initializations
-      ! called inside self%adam%initialize read `grid%...` through the shim, so
-      ! the shim must be associated before they run. See issue #10 step 1 and
-      ! the C.3 closure note on the `adam` value-component declaration above.
-      adam => self%adam
-      call bind_globals_to_adam
+      ! The legacy adam/grid/field/tree/maps shim singletons have been retired;
+      ! adam%initialize and its sub-initializations now read their realm-local
+      ! objects via self%... or threaded dummy arguments, so no pre-binding is
+      ! needed here (see issue #15).
       call self%adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_)
       ! Step 2 of forest-of-trees migration (issue #10): bind the three legacy
       ! shim singletons (weno, ib, rk) into `self`'s value components BEFORE

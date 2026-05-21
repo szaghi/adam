@@ -226,7 +226,7 @@ contains
    call check_ngc_number
    call self%allocate_common
    if (self%adam%tree%iu_ref_levels>0) then
-      call adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
+      call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
                                do_blocks_reorder=.false., q=self%q)
    endif
    call io_initialize
@@ -305,8 +305,8 @@ contains
    integer(I4P),               intent(out)   :: t    !< Time iteration.
    real(R8P),                  intent(out)   :: time !< Time.
 
-   call adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
-   call adam%make_comm_local_maps_ghost_bc
+   call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
+   call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
 
    subroutine save_divergence_history(self, is_to_open, is_to_close)
@@ -370,7 +370,7 @@ contains
    call mpih%barrier(tictoc=.true.)
    call mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                     trim(str(self%time%time,.true.)))
-   call adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
+   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
    call self%save_xh5f(output_basename=self%io%restart_basename)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files

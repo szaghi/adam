@@ -123,8 +123,8 @@ contains
                                           1-self%grid%ngc:,&
                                           1:)!< Field cell centered variables.
 
-   call self%maps%blocks_reorder
-   call self%field%blocks_reorder(grid=self%grid, q=q)
+   call self%maps%blocks_reorder(tree=self%tree)
+   call self%field%blocks_reorder(grid=self%grid, maps=self%maps, q=q)
    endsubroutine blocks_reorder
 
    subroutine check_blocks_number(self)
@@ -215,8 +215,8 @@ contains
                              nodes_number=nodes_number,      &
                              add_adam=add_adam,              &
                              verbose=verbose_)
-   call self%maps%initialize(verbose=verbose_)
-   call self%field%initialize(grid=self%grid,                 &
+   call self%maps%initialize(tree=self%tree, verbose=verbose_)
+   call self%field%initialize(grid=self%grid, maps=self%maps, tree=self%tree, &
                               file_parameters=file_parameters,&
                               nb=nb,                          &
                               nv=nv,                          &
@@ -330,8 +330,8 @@ contains
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc start')
-   call self%maps%make_comm_local_maps_ghost(grid=self%grid, nv=self%field%nv)
-   call self%maps%make_local_maps_bc(grid=self%grid)
+   call self%maps%make_comm_local_maps_ghost(tree=self%tree, grid=self%grid, nv=self%field%nv)
+   call self%maps%make_local_maps_bc(tree=self%tree, grid=self%grid)
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc finish')
    endsubroutine make_comm_local_maps_ghost_bc
 
@@ -356,7 +356,7 @@ contains
    endif
 
    if (is_marked_by_tree_) then
-      call self%maps%mpi_gather_nodes_data(node_member='refinement_needed')
+      call self%maps%mpi_gather_nodes_data(tree=self%tree, node_member='refinement_needed')
    endif
    endsubroutine mpi_gather_refinement_needed
 
@@ -370,8 +370,8 @@ contains
                                           1:)!< Field cell centered variables.
 
    call self%tree%mpi_redistribute
-   call self%maps%make_comm_local_maps
-   call self%field%mpi_redistribute(grid=self%grid, q=q)
+   call self%maps%make_comm_local_maps(tree=self%tree)
+   call self%field%mpi_redistribute(grid=self%grid, maps=self%maps, tree=self%tree, q=q)
 
    endsubroutine mpi_redistribute
 

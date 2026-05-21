@@ -68,7 +68,8 @@ use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_grid_object, only : grid_object
-use :: adam_maps_global, only : maps
+use :: adam_tree_object, only : tree_object
+use :: adam_maps_object, only : maps_object
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer, only : file_ini
@@ -179,10 +180,11 @@ contains
    endselect
    endsubroutine adapt
 
-   subroutine blocks_reorder(self, grid, q)
+   subroutine blocks_reorder(self, grid, maps, q)
    !< Reorder blocks indexes in field.
    class(field_object), intent(inout) :: self                 !< The field.
    type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
+   type(maps_object),             intent(in)              :: maps !< Maps (sibling realm component, threaded in).
    real(R8P),           intent(inout) :: q(1:,              &
                                            1-grid%ngc:,&
                                            1-grid%ngc:,&
@@ -393,10 +395,12 @@ contains
       endsubroutine check_slab
    endfunction do_ray_intersect
 
-   subroutine initialize(self, grid, nb, file_parameters, nv, verbose)
+   subroutine initialize(self, grid, maps, tree, nb, file_parameters, nv, verbose)
    !< Initialize field.
    class(field_object),    intent(inout)        :: self            !< The field.
    type(grid_object),            intent(in), target   :: grid !< Grid (sibling realm component, threaded in).
+   type(maps_object),             intent(in)              :: maps !< Maps (sibling realm component, threaded in).
+   type(tree_object),             intent(in)              :: tree !< Tree (sibling realm component, threaded in).
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
    integer(I4P),           intent(in)           :: nb              !< Number of all blocks that can be stored.
    integer(I4P),           intent(in), optional :: nv              !< Number of field variables.
@@ -488,7 +492,7 @@ contains
    self%ni  => grid%ni
    self%nj  => grid%nj
    self%nk  => grid%nk
-   call self%update_coordinates
+   call self%update_coordinates(maps=maps, tree=tree)
    call self%compute_metrics(grid=grid)
    if (verbose_) print '(A)', self%description()
    if (verbose_) call mpih%print_message('field_object%initialize finish')
@@ -695,11 +699,13 @@ contains
    disp  = self%disp_count
    endsubroutine get_refinements_needed
 
-   subroutine mpi_redistribute(self, grid, q)
+   subroutine mpi_redistribute(self, grid, maps, tree, q)
    !< Redistribute blocks to processes.
    !< @TODO: Morton codes are not yet redistributed, must be fixed.
    class(field_object), intent(inout) :: self                   !< The field.
    type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
+   type(maps_object),             intent(in)              :: maps !< Maps (sibling realm component, threaded in).
+   type(tree_object),             intent(in)              :: tree !< Tree (sibling realm component, threaded in).
    real(R8P),           intent(inout) :: q(1:,              &
                                            1-grid%ngc:,&
                                            1-grid%ngc:,&
@@ -772,8 +778,8 @@ contains
    enddo
    self%blocks_number = n_keep  + recv_size / bwt
    q(:,:,:,:,1:self%blocks_number) = self%q_work(:,:,:,:,1:self%blocks_number)
-   call self%update_coordinates
-   call maps%get_block_layout(code=self%code(1:self%blocks_number))
+   call self%update_coordinates(maps=maps, tree=tree)
+   call maps%get_block_layout(tree=tree, code=self%code(1:self%blocks_number))
    call self%compute_metrics(grid=grid)
    endassociate
    call MPI_ALLGATHER(self%blocks_number, 1, MPI_INTEGER,  &
@@ -813,10 +819,11 @@ contains
    endif
    endsubroutine save_blocks
 
-   subroutine update_ghost_local(self, grid, q)
+   subroutine update_ghost_local(self, grid, maps, q)
    !< Update (local) ghost cells.
    class(field_object), intent(in)    :: self              !< The base backend.
    type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
+   type(maps_object),             intent(in)              :: maps !< Maps (sibling realm component, threaded in).
    real(R8P),           intent(inout) :: q(1:,              &
                                            1-grid%ngc:,&
                                            1-grid%ngc:,&
@@ -861,10 +868,11 @@ contains
    endassociate
    endsubroutine update_ghost_local
 
-   subroutine update_ghost_mpi(self, grid, q, step)
+   subroutine update_ghost_mpi(self, grid, maps, q, step)
    !< Update ghost cells within other processes.
    class(field_object), intent(inout)        :: self                               !< The base backend.
    type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
+   type(maps_object),             intent(inout)              :: maps !< Maps (sibling realm component, threaded in).
    real(R8P),           intent(inout)        :: q(1:,              &
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,&
@@ -1374,10 +1382,12 @@ contains
    endassociate
    endsubroutine refine3D
 
-   subroutine update_coordinates(self)
+   subroutine update_coordinates(self, maps, tree)
    !< Update coordinates using the updated data in maps (that in turn is updated by tree).
    class(field_object), intent(inout) :: self !< The field.
+   type(maps_object),             intent(in)              :: maps !< Maps (sibling realm component, threaded in).
+   type(tree_object),             intent(in)              :: tree !< Tree (sibling realm component, threaded in).
 
-   if (self%blocks_number>0) call maps%get_block_layout(coordinates=self%coordinates(:, 1:self%blocks_number))
+   if (self%blocks_number>0) call maps%get_block_layout(tree=tree, coordinates=self%coordinates(:, 1:self%blocks_number))
    endsubroutine update_coordinates
 endmodule adam_field_object

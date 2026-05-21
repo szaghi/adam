@@ -3,13 +3,12 @@ module adam_maps_object
 !< ADAM, maps class definition
 
 ! ADAM classes, libraries, parameters
-use :: adam_tree_object, only : NODE_BOUNDARY_CONDITION, NODE_LESS_REFINED, NODE_MORE_REFINED, NODE_STANDARD
+use :: adam_tree_object, only : tree_object, NODE_BOUNDARY_CONDITION, NODE_LESS_REFINED, NODE_MORE_REFINED, NODE_STANDARD
 use :: adam_tree_node_object
 use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
-use :: adam_tree_global, only : tree
 ! third party modules
 use :: penf
 ! sdk modules
@@ -129,9 +128,10 @@ endtype maps_object
 
 contains
    ! public methods
-   subroutine blocks_reorder(self)
+   subroutine blocks_reorder(self, tree)
    !< Reorder blocks indexes in field.
    class(maps_object), intent(inout) :: self                !< The maps.
+   type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr            !< Pointer to current node.
    integer(I4P)                      :: outer_blocks_number !< Number of outer blocks where I need fecs.
    integer(I4P)                      :: inner_blocks_number !< Number of inner blocks where I need fecs.
@@ -185,13 +185,14 @@ contains
          endif
       endif
    enddo
-   call self%mpi_gather_nodes_data(node_member='block_index')
+   call self%mpi_gather_nodes_data(tree=tree, node_member='block_index')
    endsubroutine blocks_reorder
 
-   subroutine get_block_layout(self, code, coordinates)
+   subroutine get_block_layout(self, tree, code, coordinates)
    !< Return block Morton codes and/or coordinates from the underlying tree.
    !< Provides a single-level accessor so callers do not traverse tree directly.
    class(maps_object), intent(in)            :: self           !< The maps.
+   type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    integer(I8P),       intent(out), optional :: code(:)        !< Block Morton codes [blocks_number].
    integer(I4P),       intent(out), optional :: coordinates(:,:) !< Block coordinates IJKL [4,blocks_number].
 
@@ -199,9 +200,10 @@ contains
    if (present(coordinates)) coordinates = tree%block_coordinates
    endsubroutine get_block_layout
 
-   subroutine initialize(self, verbose)
+   subroutine initialize(self, tree, verbose)
    !< Initialize maps.
    class(maps_object), intent(inout)        :: self     !< The maps.
+   type(tree_object),  intent(inout) :: tree !< Tree (sibling realm component, threaded in).
    logical,            intent(in), optional :: verbose  !< Trigger verbose output.
    logical                                  :: verbose_ !< Trigger verbose output, local variable.
 
@@ -221,12 +223,12 @@ contains
    allocate(self%comm_map_n_recv_ghost(0:mpih%procs_number-1))
    allocate(self%comm_map_send_ptr_ghost(0:mpih%procs_number))
    allocate(self%comm_map_recv_ptr_ghost(0:mpih%procs_number))
-   call self%make_comm_local_maps
+   call self%make_comm_local_maps(tree=tree)
    self%is_initialized_ = .true.
    if (verbose_) call mpih%print_message('maps_object%initialize finish')
    endsubroutine initialize
 
-   subroutine make_comm_local_maps(self)
+   subroutine make_comm_local_maps(self, tree)
    !< Make communication/local maps.
    !<```
    !<   comm_map_send     = [ 17, 511, 92, 3, 54, 56, 11, 12...] (block index).
@@ -237,6 +239,7 @@ contains
    !<   comm_map_recv_prt = [ 0,  2,  3,  3,  6, 8, (9)]         (pointer to comm_map_recv)
    !<```
    class(maps_object), intent(inout) :: self                 !< The maps.
+   type(tree_object),  intent(inout) :: tree !< Tree (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr             !< Pointer to current node.
    integer(I8P), allocatable         :: codes_sorted(:)      !< List of (sorted) codes.
    integer(I4P), allocatable         :: comm_map_send_ctr(:) !< Communication map, counters in list to send [procs_number+1].
@@ -360,24 +363,26 @@ contains
       endfunction is_node_to_receive
    endsubroutine make_comm_local_maps
 
-   subroutine make_comm_local_maps_ghost(self, grid, nv)
+   subroutine make_comm_local_maps_ghost(self, tree, grid, nv)
    !< Make communication/local maps of ghost cells.
    class(maps_object), intent(inout) :: self !< The maps.
+   type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),       intent(in)    :: nv   !< Number of field variables.
 
    call mpih%print_message('maps_object%make_comm_local_maps_ghost start')
-   call self%alloc_comm_local_maps_ghost(grid=grid, nv=nv)
-   call self%populate_comm_local_maps_ghost(grid=grid)
+   call self%alloc_comm_local_maps_ghost(tree=tree, grid=grid, nv=nv)
+   call self%populate_comm_local_maps_ghost(tree=tree, grid=grid)
    call self%make_local_map_ghost_cell
    call self%make_comm_map_recv_ghost_cell(nv=nv)
    call self%make_comm_map_send_ghost_cell(nv=nv)
    call mpih%print_message('maps_object%make_comm_local_maps_ghost finish')
    endsubroutine make_comm_local_maps_ghost
 
-   subroutine mpi_gather_nodes_data(self, node_member)
+   subroutine mpi_gather_nodes_data(self, tree, node_member)
    !< Gather nodes data status between MPI processes.
    class(maps_object), intent(inout) :: self           !< The maps.
+   type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    character(*),       intent(in)    :: node_member    !< Node member to be shared.
    type(tree_node_object), pointer   :: node_ptr       !< Pointer to current node.
    integer(I8P), allocatable         :: send_buffer(:) !< Send buffer nodes data.
@@ -444,9 +449,10 @@ contains
    endif
    endsubroutine save_local_map
 
-   subroutine make_local_maps_bc(self, grid, verbose)
+   subroutine make_local_maps_bc(self, tree, grid, verbose)
    !< Make local maps of boundary conditions.
    class(maps_object), intent(inout)        :: self                   !< The maps.
+   type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    logical,            intent(in), optional :: verbose                !< Flag to activate verbose mode.
    logical                                  :: verbose_               !< Flag to activate verbose mode, local var.
@@ -468,7 +474,7 @@ contains
    if (allocated(self%local_map_bc_face))   deallocate(self%local_map_bc_face)
    if (allocated(self%local_map_bc_edge))   deallocate(self%local_map_bc_edge)
    if (allocated(self%local_map_bc_corner)) deallocate(self%local_map_bc_corner)
-   call self%count_bc_numbers(fec_bc_faces_number=fec_bc_faces_number, &
+   call self%count_bc_numbers(tree=tree, fec_bc_faces_number=fec_bc_faces_number, &
                               fec_bc_edges_number=fec_bc_edges_number, &
                               fec_bc_corners_number=fec_bc_corners_number)
    ! allocate BC arrays
@@ -545,9 +551,10 @@ contains
    endsubroutine make_local_maps_bc
 
    ! private methods
-   subroutine alloc_comm_local_maps_ghost(self, grid, nv)
+   subroutine alloc_comm_local_maps_ghost(self, tree, grid, nv)
    !< Allocate communication/local maps of ghost cells, `local_map_ghost, comm_map_send_ghost, comm_map_recv_ghost`.
    class(maps_object), intent(inout) :: self             !< The maps.
+   type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),       intent(in)    :: nv               !< Number of field variables.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
@@ -636,9 +643,10 @@ contains
       allocate(self%recv_buffer_ghost(1:sum(self%comm_map_n_recv_ghost, dim=1)*nv))
    endsubroutine alloc_comm_local_maps_ghost
 
-   subroutine count_bc_numbers(self, fec_bc_faces_number, fec_bc_edges_number, fec_bc_corners_number)
+   subroutine count_bc_numbers(self, tree, fec_bc_faces_number, fec_bc_edges_number, fec_bc_corners_number)
    !< Count faces/edges/corners BC numbers.
    class(maps_object), intent(inout) :: self                   !< The maps.
+   type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    integer(I4P),       intent(out)   :: fec_bc_faces_number    !< BC faces number.
    integer(I4P),       intent(out)   :: fec_bc_edges_number    !< BC edges number.
    integer(I4P),       intent(out)   :: fec_bc_corners_number  !< BC corners number.
@@ -1140,9 +1148,10 @@ contains
    endassociate
    endfunction ijk_mmd_ghost
 
-   subroutine populate_comm_local_maps_ghost(self, grid)
+   subroutine populate_comm_local_maps_ghost(self, tree, grid)
    !< Populate communication/local maps of ghost cells, `local_map_ghost, comm_map_send_ghost, comm_map_recv_ghost`.
    class(maps_object), intent(inout) :: self                       !< The maps.
+   type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr                   !< Pointer to current node.
    integer(I8P), allocatable         :: neighbor(:)                !< List of code neighbors.

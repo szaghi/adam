@@ -31,11 +31,7 @@ use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
 use :: adam_mpih_global
-use :: adam_adam_global
-use :: adam_maps_global
-use :: adam_tree_global
 use :: adam_forest_global
-use :: adam_adam_bind
 
 implicit none
 public

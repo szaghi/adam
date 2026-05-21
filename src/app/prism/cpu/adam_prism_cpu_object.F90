@@ -113,7 +113,7 @@ contains
                call self%mark_by_j_vec_total_variation(tv_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
                                                        delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
          endselect
-         call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
+         call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
       if (.not.is_grid_changed_all) then
@@ -502,13 +502,13 @@ contains
    real(R8P)                              :: ngc_r, crown_r          !< Numero di gc totale, reale
    real(R8P)                              :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
 
-   associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                         &
+   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                         &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),               &
              dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,           &
              nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, constrained_transport_B=>self%numerics%constrained_transport_B, &
              constrained_transport_D=>self%numerics%constrained_transport_D)
 
-   if (allocated(maps%local_map_bc_crown)) then
+   if (allocated(self%adam%maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
             b = local_map_bc_crown(c, 1 ,crown)
@@ -690,7 +690,7 @@ contains
          !Imponi effettivamente la BC su q: unico punto del ciclo in cui si "uniscono"
          !Quindi basta cambiare gli indici di quel do per imporlo su una sola variabile, eventualmente
          !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
-         if (allocated(maps%local_map_bc_crown)) then
+         if (allocated(self%adam%maps%local_map_bc_crown)) then
             do crown=1, ngc
                do c=1, size(local_map_bc_crown, dim=1)
                   b = local_map_bc_crown(c, 1 ,crown)
@@ -739,14 +739,14 @@ contains
    integer(I4P)                           :: crown                   !< Crown counter.
    integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
    integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
-   associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                        &
+   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                        &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),         &
              dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
              nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,       &
              constrained_transport_B=>self%numerics%constrained_transport_B,                                     &
              constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>self%rk%q_rk,                      &
              q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
-   if (allocated(maps%local_map_bc_crown)) then
+   if (allocated(self%adam%maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
             b = local_map_bc_crown(c, 1 ,crown)
@@ -863,8 +863,8 @@ contains
       if (step==1) do_local_update = .true.
       if (step==3) do_set_bc       = .true.
    endif
-   if (do_local_update) call self%adam%field%update_ghost_local(grid=self%adam%grid, q=q)
-                        call self%adam%field%update_ghost_mpi(grid=self%adam%grid, q=q, step=step)
+   if (do_local_update) call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+                        call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, step=step)
    if (associated(forest_realm) .and. allocated(self%adam%maps%inter_realm_neighbors)) then
       call self%exchange_inter_realm_halos_forest(realm=forest_realm)
    endif
@@ -915,7 +915,7 @@ contains
          call self%amr_update
       enddo
       call self%set_initial_conditions(is_restart=self%io%restart)
-      call adam%make_comm_local_maps_ghost_bc
+      call self%adam%make_comm_local_maps_ghost_bc
       self%time%time = 0._R8P
       self%time%it = 0
       call mpih%print_message('impose initial conditions finish')
@@ -2397,7 +2397,7 @@ contains
    integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
    integer(I4P)                           :: bc_type                 !< Boundary condition type.
    integer(I4P)                           :: crown                   !< Crown counter.
-   associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                           &
+   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                           &
                 nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),         &
                 dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
                 nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                 &
@@ -2442,7 +2442,7 @@ contains
       enddo
       !$omp end parallel do
    endif
-   if (allocated(maps%local_map_bc_crown)) then
+   if (allocated(self%adam%maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
             b = local_map_bc_crown(c, 1 ,crown)
