@@ -5,7 +5,7 @@ module adam_prism_rk_bc_object
 ! ADAM classes, libraries, parameters
 use :: adam_rk_object
 ! ADAM singleton objects
-use :: adam_field_global, only : field
+use :: adam_field_object, only : field_object
 use :: adam_grid_global,  only : grid
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
@@ -78,9 +78,10 @@ contains
    desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, rk, physics)
+   subroutine initialize(self, field, file_parameters, rk, physics)
    !< Initialize class.
    class(prism_rk_bc_object),   intent(inout)        :: self            !< RK object.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    type(file_ini),              intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    type(rk_object),             intent(in), target   :: rk              !< RK scheme
    type(prism_physics_object),  intent(in), target   :: physics         !< Physics object
@@ -207,9 +208,10 @@ contains
       endsubroutine associate_adam_data
    endsubroutine initialize
 
-   subroutine initialize_stages(self, q)
+   subroutine initialize_stages(self, field, q)
    !< Initialize RK_bc stages.
    class(prism_rk_bc_object), intent(inout) :: self             !< RK object.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    real(R8P),                 intent(in)    :: q(1:,      &
                                              1-self%ngc:, &
                                              1-self%ngc:, &
@@ -250,9 +252,10 @@ contains
    endassociate
    endsubroutine initialize_stages
 
-   subroutine compute_stage(self, s, dt, phi)
+   subroutine compute_stage(self, field, s, dt, phi)
    !< Compute RK stage.
    class(prism_rk_bc_object), intent(inout) :: self               !< RK object.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    integer(I4P),      intent(in)            :: s                  !< Current stage number.
    real(R8P),         intent(in)            :: dt                 !< Current time step.
    real(R8P),         intent(in), optional  :: phi(1:,          &
@@ -306,9 +309,10 @@ contains
    endassociate
    endsubroutine compute_stage
 
-   subroutine assign_stage(self, s, phi)
+   subroutine assign_stage(self, field, s, phi)
    !< Assign q to RK stage.
    class(prism_rk_bc_object), intent(inout)        :: self          !< RK object.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    integer(I4P),     intent(in)           :: s             !< Current stage number.
    real(R8P),        intent(in), optional :: phi(1:,          &
                                                  1-self%ngc:, &

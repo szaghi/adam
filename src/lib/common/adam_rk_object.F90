@@ -3,7 +3,7 @@ module adam_rk_object
 !< ADAM, RK class definition.
 
 ! ADAM singleton objects
-use :: adam_field_global, only : field
+use :: adam_field_object, only : field_object
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_global,  only : grid
 ! third party modules
@@ -65,9 +65,10 @@ type :: rk_object
 endtype rk_object
 contains
    ! public methods
-   subroutine assign_stage(self, s, q, phi)
+   subroutine assign_stage(self, field, s, q, phi)
    !< Assign q to RK stage.
    class(rk_object), intent(inout)        :: self          !< RK object.
+   type(field_object), intent(in)         :: field         !< Field (sibling realm component, threaded in).
    integer(I4P),     intent(in)           :: s             !< Current stage number.
    real(R8P),        intent(in)           :: q(1:     ,     &
                                                1-self%ngc:, &
@@ -118,9 +119,10 @@ contains
    endassociate
    endsubroutine assign_stage
 
-   subroutine compute_stage(self, s, dt, phi)
+   subroutine compute_stage(self, field, s, dt, phi)
    !< Compute RK stage.
    class(rk_object), intent(inout)        :: self    !< RK object.
+   type(field_object), intent(in)         :: field   !< Field (sibling realm component, threaded in).
    integer(I4P),     intent(in)           :: s       !< Current stage number.
    real(R8P),        intent(in)           :: dt      !< Current time step.
    real(R8P),        intent(in), optional :: phi(1:,          &
@@ -171,10 +173,11 @@ contains
    endassociate
    endsubroutine compute_stage
 
-   subroutine compute_stage_ls(self, s, dt, phi, dq, q)
+   subroutine compute_stage_ls(self, field, s, dt, phi, dq, q)
    !< Compute RK stage, low storage scheme.
    !< The first (only) stage is assumed to be the previous time step q solution.
    class(rk_object), intent(in)           :: self          !< RK object.
+   type(field_object), intent(in)         :: field         !< Field (sibling realm component, threaded in).
    integer(I4P),     intent(in)           :: s             !< Current RK stage.
    real(R8P),        intent(in)           :: dt            !< Current time step.
    real(R8P),        intent(in), optional :: phi(1:,          &
@@ -297,9 +300,10 @@ contains
    desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, scheme)
+   subroutine initialize(self, field, file_parameters, scheme)
    !< Initialize class.
    class(rk_object),   intent(inout)        :: self            !< RK object.
+   type(field_object), intent(in)           :: field           !< Field (sibling realm component, threaded in).
    type(file_ini),     intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),       intent(in), optional :: scheme          !< Runge-Kutta scheme.
    real(R8P)                                :: w0, w1          !< Sympletic RK coefficients.
@@ -427,9 +431,10 @@ contains
       endsubroutine associate_adam_data
    endsubroutine initialize
 
-   subroutine initialize_stages(self, q)
+   subroutine initialize_stages(self, field, q)
    !< Initialize RK stages.
    class(rk_object), intent(inout) :: self             !< RK object.
+   type(field_object), intent(in)  :: field            !< Field (sibling realm component, threaded in).
    real(R8P),        intent(in)    :: q(1:,          &
                                         1-self%ngc:, &
                                         1-self%ngc:, &
@@ -472,9 +477,10 @@ contains
    self%scheme = trim(adjustl(buff_c))
    endsubroutine load_from_file
 
-   subroutine update_q(self, dt, phi, q, dq)
+   subroutine update_q(self, field, dt, phi, q, dq)
    !< Update RK q.
    class(rk_object), intent(in)              :: self                 !< RK object.
+   type(field_object), intent(in)            :: field                !< Field (sibling realm component, threaded in).
    real(R8P),        intent(in)              :: dt                   !< Current time step.
    real(R8P),        intent(in), optional    :: phi(1:,          &
                                                     1-self%ngc:, &

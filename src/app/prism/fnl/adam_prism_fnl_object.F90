@@ -303,8 +303,8 @@ contains
    call mpih_fnl%print_message('prism_fnl_object%initialize start')
    call self%prism_common_object%initialize(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail/1e9,R8P), verbose=.true.)
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
-   call self%ib_fnl%initialize
-   call self%rk_fnl%initialize
+   call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
+   call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
    call self%coil_fnl%initialize(coil=self%coil)
@@ -1490,15 +1490,15 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    call self%compute_coils_current(q_gpu=self%q_gpu)
-   call self%rk_fnl%initialize_stages(q_gpu=self%q_gpu)
+   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
-         call self%rk_fnl%compute_stage_ls(s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, &
+         call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, &
                                            dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       else
-         call self%rk_fnl%compute_stage_ls(s=s, dt=self%time%dt, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
+         call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       endif
    enddo
    call self%impose_div_free
@@ -1514,27 +1514,27 @@ contains
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
-   call self%rk_fnl%initialize_stages(q_gpu=self%q_gpu)
+   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
       if (self%ib%solids_number>0) then
-         call self%rk_fnl%compute_stage(s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
+         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
       else
-         call self%rk_fnl%compute_stage(s=s, dt=self%time%dt)
+         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
       endif
       call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       ! if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
-         call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
+         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
       else
-         call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
+         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
       endif
    enddo
    if (self%ib%solids_number>0) then
-      call self%rk_fnl%update_q(dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
       ! call self%update_rk_ghost(dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu)
    else
-      call self%rk_fnl%update_q(dt=self%time%dt, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
       ! call self%update_rk_ghost(dt=self%time%dt)
       call self%save_residuals
    endif
@@ -1822,7 +1822,7 @@ contains
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
-   call self%rk_fnl%initialize_stages(q_gpu=self%q_gpu)
+   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    endsubroutine prepare_step_forest
 
    subroutine assemble_substage_forest(self, s, nrk, dt)
@@ -1841,9 +1841,9 @@ contains
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
    if (self%ib%solids_number>0) then
-      call self%rk_fnl%compute_stage(s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
+      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
    else
-      call self%rk_fnl%compute_stage(s=s, dt=self%time%dt)
+      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
    endif
    call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
    endsubroutine assemble_substage_forest
@@ -1861,9 +1861,9 @@ contains
    end associate
    call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
    if (self%ib%solids_number>0) then
-      call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
+      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
    else
-      call self%rk_fnl%assign_stage(s=s, q_gpu=self%dq_gpu)
+      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
    endif
    endsubroutine evaluate_substage_forest
 
@@ -1876,9 +1876,9 @@ contains
    associate(dt_unused => dt)
    end associate
    if (self%ib%solids_number>0) then
-      call self%rk_fnl%update_q(dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
    else
-      call self%rk_fnl%update_q(dt=self%time%dt, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
       call self%save_residuals
    endif
    call self%compute_coils_current(q_gpu=self%q_gpu)

@@ -4,10 +4,8 @@ module adam_fnl_ib_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_ib_object
-! ADAM singleton objects
-use :: adam_ib_global,    only : ib
-use :: adam_field_global, only : field
-use :: adam_grid_global,  only : grid
+use :: adam_field_object, only : field_object
+use :: adam_grid_object,  only : grid_object
 ! ADAM FNL classes, libraries, parameters
 use :: adam_fnl_ib_kernels
 ! ADAM FNL singleton objects
@@ -37,9 +35,12 @@ type :: ib_fnl_object
 endtype ib_fnl_object
 contains
    ! public methods
-   subroutine evolve_eikonal(self, dq_gpu, q_gpu, dxyz_gpu)
+   subroutine evolve_eikonal(self, grid, field, ib, dq_gpu, q_gpu, dxyz_gpu)
    !< Evolve eikonal equation.
-   class(ib_fnl_object), intent(in)    :: self       !< IB.
+   class(ib_fnl_object), intent(in)         :: self  !< IB.
+   type(grid_object),    intent(in), target :: grid  !< Grid (sibling realm component, threaded in).
+   type(field_object),   intent(in)         :: field !< Field (sibling realm component, threaded in).
+   type(ib_object),      intent(in)         :: ib    !< Host IB (sibling realm component, threaded in).
    real(R8P),            intent(inout) :: dq_gpu(1:,         &
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,&
@@ -66,12 +67,14 @@ contains
    endassociate
    endsubroutine evolve_eikonal
 
-   subroutine initialize(self)
-   !< Initialize class from program-scope `ib` (adam_ib_global), `field` (adam_field_global)
-   !< and `grid` (adam_grid_global) singletons.
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global) and the field/grid/ib singletons to be ready.
-   class(ib_fnl_object), intent(inout) :: self !< IB FNL object.
-   integer(I4P)                        :: ierr !< Error status.
+   subroutine initialize(self, grid, field, ib)
+   !< Initialize class from the host `grid`/`field`/`ib` sibling realm components (threaded in).
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) to be ready.
+   class(ib_fnl_object), intent(inout) :: self  !< IB FNL object.
+   type(grid_object),    intent(in)    :: grid  !< Grid (sibling realm component, threaded in).
+   type(field_object),   intent(in)    :: field !< Field (sibling realm component, threaded in).
+   type(ib_object),      intent(in)    :: ib    !< Host IB (sibling realm component, threaded in).
+   integer(I4P)                        :: ierr  !< Error status.
 
    call mpih_fnl%print_message('ib_fnl_object%initialize start')
    associate(ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nb=>field%nb, solids_number=>ib%solids_number)
@@ -90,9 +93,12 @@ contains
    endassociate
    endsubroutine initialize
 
-   subroutine invert_eikonal(self, q_gpu)
+   subroutine invert_eikonal(self, grid, field, ib, q_gpu)
    !< Invert momentum eikonal equation.
-   class(ib_fnl_object), intent(in)    :: self       !< IB.
+   class(ib_fnl_object), intent(in)         :: self  !< IB.
+   type(grid_object),    intent(in), target :: grid  !< Grid (sibling realm component, threaded in).
+   type(field_object),   intent(in)         :: field !< Field (sibling realm component, threaded in).
+   type(ib_object),      intent(in)         :: ib    !< Host IB (sibling realm component, threaded in).
    real(R8P),            intent(inout) :: q_gpu(1:,         &
                                                  1-grid%ngc:,&
                                                  1-grid%ngc:,&

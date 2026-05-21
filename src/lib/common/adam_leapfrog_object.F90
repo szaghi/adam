@@ -36,7 +36,7 @@ module adam_leapfrog_object
 !< Weather Review, vol. 139(6), pages 1996--2007, June 2011.
 
 ! ADAM singleton objects
-use adam_field_global, only : field
+use adam_field_object, only : field_object
 use adam_mpih_global,  only : mpih
 use adam_grid_global,  only : grid
 ! third party modules
@@ -71,9 +71,10 @@ type :: leapfrog_object
 endtype leapfrog_object
 contains
    ! public methods
-   subroutine assign_step(self, s, q, phi)
+   subroutine assign_step(self, field, s, q, phi)
    !< Assign q to leapfrog old step.
    class(leapfrog_object), intent(inout)        :: self          !< Leapfrog object.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    integer(I4P),           intent(in)           :: s             !< Current step number.
    real(R8P),              intent(in)           :: q(1:     ,     &
                                                      1-self%ngc:, &
@@ -133,9 +134,10 @@ contains
    desc = desc//mpih%myrankstr//'  alpha:           '//trim(str(self%alpha      ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, scheme)
+   subroutine initialize(self, field, file_parameters, scheme)
    !< Initialize class.
    class(leapfrog_object),   intent(inout)        :: self            !< Leapfrog object.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    type(file_ini),           intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),             intent(in), optional :: scheme          !< Runge-Kutta scheme.
 
@@ -167,9 +169,10 @@ contains
       endsubroutine associate_adam_data
    endsubroutine initialize
 
-   subroutine integrate(self, dt, q, dq)
+   subroutine integrate(self, field, dt, q, dq)
    !< Integrate.
    class(leapfrog_object), intent(inout) :: self          !< Leapfrog object.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    real(R8P),              intent(in)    :: dt            !< Time step.
    real(R8P),              intent(inout) :: q(1:     ,     &
                                               1-self%ngc:, &

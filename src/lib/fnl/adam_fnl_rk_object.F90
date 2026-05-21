@@ -4,10 +4,8 @@ module adam_fnl_rk_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_rk_object
-! ADAM singleton objects
-use :: adam_rk_global,    only : rk
-use :: adam_field_global, only : field
-use :: adam_grid_global,  only : grid
+use :: adam_field_object, only : field_object
+use :: adam_grid_object,  only : grid_object
 ! ADAM FNL classes, libraries, parameters
 use :: adam_fnl_rk_kernels
 ! ADAM FNL singleton objects
@@ -39,9 +37,11 @@ type :: rk_fnl_object
 endtype rk_fnl_object
 contains
    ! public methods
-   subroutine assign_stage(self, s, q_gpu, phi_gpu)
+   subroutine assign_stage(self, grid, field, s, q_gpu, phi_gpu)
    !< Assign q to RK stage.
    class(rk_fnl_object), intent(inout)        :: self        !< RK object.
+   type(grid_object),    intent(in), target   :: grid        !< Grid (sibling realm component, threaded in).
+   type(field_object),   intent(in)           :: field       !< Field (sibling realm component, threaded in).
    integer(I4P),         intent(in)           :: s           !< Current stage number.
    real(R8P),            intent(in)           :: q_gpu(1:     ,        &
                                                        1-grid%ngc:, &
@@ -60,9 +60,11 @@ contains
    endassociate
    endsubroutine assign_stage
 
-   subroutine compute_stage(self, s, dt, phi_gpu)
+   subroutine compute_stage(self, grid, field, s, dt, phi_gpu)
    !< Compute RK stage.
    class(rk_fnl_object), intent(inout)        :: self        !< RK object.
+   type(grid_object),    intent(in), target   :: grid        !< Grid (sibling realm component, threaded in).
+   type(field_object),   intent(in)           :: field       !< Field (sibling realm component, threaded in).
    integer(I4P),         intent(in)           :: s           !< Current stage number.
    real(R8P),            intent(in)           :: dt          !< Current time step.
    real(R8P),            intent(in), optional :: phi_gpu(1:,             &
@@ -77,10 +79,13 @@ contains
    endassociate
    endsubroutine compute_stage
 
-   subroutine compute_stage_ls(self, s, dt, phi_gpu, dq_gpu, q_gpu)
+   subroutine compute_stage_ls(self, grid, field, rk, s, dt, phi_gpu, dq_gpu, q_gpu)
    !< Compute RK stage, low storage scheme.
    !< The first (only) stage is assumed to be the previous time step q solution.
    class(rk_fnl_object), intent(in)           :: self        !< RK object.
+   type(grid_object),    intent(in), target   :: grid        !< Grid (sibling realm component, threaded in).
+   type(field_object),   intent(in)           :: field       !< Field (sibling realm component, threaded in).
+   type(rk_object),      intent(in)           :: rk          !< Host RK (sibling realm component, threaded in).
    integer(I4P),         intent(in)           :: s           !< Current RK stage.
    real(R8P),            intent(in)           :: dt          !< Current time step.
    real(R8P),            intent(in), optional :: phi_gpu(1:,             &
@@ -106,13 +111,15 @@ contains
    endassociate
    endsubroutine compute_stage_ls
 
-   subroutine initialize(self)
-   !< Initialize class from program-scope `rk` (adam_rk_global), `field` (adam_field_global)
-   !< and `grid` (adam_grid_global) singletons.
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global) and all CPU singletons to be ready.
-   class(rk_fnl_object), intent(inout) :: self !< RK FNL object.
-   integer(I4P)                        :: ierr !< Error status.
-   integer(I4P)                        :: nrk  !< RK stages.
+   subroutine initialize(self, grid, field, rk)
+   !< Initialize class from the host `grid`/`field`/`rk` sibling realm components (threaded in).
+   !< Requires `mpih_fnl` (adam_fnl_mpih_global) to be ready.
+   class(rk_fnl_object), intent(inout) :: self  !< RK FNL object.
+   type(grid_object),    intent(in)    :: grid  !< Grid (sibling realm component, threaded in).
+   type(field_object),   intent(in)    :: field !< Field (sibling realm component, threaded in).
+   type(rk_object),      intent(in)    :: rk    !< Host RK (sibling realm component, threaded in).
+   integer(I4P)                        :: ierr  !< Error status.
+   integer(I4P)                        :: nrk   !< RK stages.
 
    call mpih_fnl%print_message('rk_fnl_object%initialize start')
    call dev_assign_to_device(src=rk%alph, dst=self%alph_gpu)
@@ -134,9 +141,11 @@ contains
    call mpih_fnl%print_message('rk_fnl_object%initialize finish')
    endsubroutine initialize
 
-   subroutine initialize_stages(self, q_gpu)
+   subroutine initialize_stages(self, grid, field, q_gpu)
    !< Initialize RK stages.
-   class(rk_fnl_object), intent(inout) :: self      !< RK object.
+   class(rk_fnl_object), intent(inout)      :: self  !< RK object.
+   type(grid_object),    intent(in), target :: grid  !< Grid (sibling realm component, threaded in).
+   type(field_object),   intent(in)         :: field !< Field (sibling realm component, threaded in).
    real(R8P),            intent(in)    :: q_gpu(1:,             &
                                                  1-grid%ngc:, &
                                                  1-grid%ngc:, &
@@ -148,9 +157,12 @@ contains
    endassociate
    endsubroutine initialize_stages
 
-   subroutine update_q(self, dt, phi_gpu, q_gpu)
+   subroutine update_q(self, grid, field, rk, dt, phi_gpu, q_gpu)
    !< Update RK q.
    class(rk_fnl_object), intent(in)           :: self      !< RK object.
+   type(grid_object),    intent(in), target   :: grid      !< Grid (sibling realm component, threaded in).
+   type(field_object),   intent(in)           :: field     !< Field (sibling realm component, threaded in).
+   type(rk_object),      intent(in)           :: rk        !< Host RK (sibling realm component, threaded in).
    real(R8P),            intent(in)           :: dt        !< Current time step.
    real(R8P),            intent(in), optional :: phi_gpu(1:,             &
                                                          1-grid%ngc:, &

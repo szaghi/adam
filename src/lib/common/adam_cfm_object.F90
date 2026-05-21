@@ -3,7 +3,7 @@ module adam_cfm_object
 !< ADAM, Commutator-Free Magnus integrators class definition.
 
 ! ADAM singleton objects
-use :: adam_field_global, only : field
+use :: adam_field_object, only : field_object
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_global,  only : grid
 ! third party modules
@@ -82,9 +82,10 @@ contains
    desc = desc//mpih%myrankstr//'  number of exponentials: '//trim(str(self%n_exponentials))
    endfunction description
 
-   subroutine initialize(self, file_parameters, scheme)
+   subroutine initialize(self, field, file_parameters, scheme)
    !< Initialize class.
    class(cfm_object),   intent(inout)        :: self            !< CFM object.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    type(file_ini),      intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),        intent(in), optional :: scheme          !< CFM scheme.
 
@@ -99,7 +100,7 @@ contains
    endif
    select case(self%scheme)
    case(CFM_4)
-      call self%initialize_CFM_4
+      call self%initialize_CFM_4(field=field)
    case(CFM_6)
       call mpih%error_stop(msg=': 6th order CFM scheme "'//self%scheme //'" not yet implemented')
       call self%initialize_CFM_6
@@ -122,9 +123,10 @@ contains
       endsubroutine associate_adam_data
    endsubroutine initialize
 
-   subroutine initialize_CFM_4(self)
+   subroutine initialize_CFM_4(self, field)
    !< Initialize CFM 4th order.
    class(cfm_object), intent(inout) :: self                !< CFM object.
+   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    real(R8P), parameter             :: sqrt3=sqrt(3.0_R8P) !< Square root of 3.
 
    self%order          = 4_I4P

@@ -679,11 +679,11 @@ contains
        .or. self%bc%bc_type(3) == BC_radiative .or. self%bc%bc_type(4) == BC_radiative &
        .or. self%bc%bc_type(5) == BC_radiative .or. self%bc%bc_type(6) == BC_radiative) then !Al momento scritta per funzionare solo con un secondo ordine
       if (present(s)) then
-         if (s==1_I4P) call self%rk_bc%initialize_stages(q=q)
+         if (s==1_I4P) call self%rk_bc%initialize_stages(field=self%adam%field, q=q)
          if (self%ib%solids_number>0) then !calcolo stadio per le BC
-            call self%rk_bc%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
+            call self%rk_bc%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
          else
-            call self%rk_bc%compute_stage(s=s, dt=self%time%dt)
+            call self%rk_bc%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
          endif
          !Calcolo i residui per l'integrazione temporale delle BC (in un futuro da allineare con operatore spaziale qualsiasi)
          call self%compute_residuals_BC(s=s)
@@ -715,9 +715,9 @@ contains
          endif
          !Concludi assegnando lo stadio
          if (self%ib%solids_number>0) then
-            call self%rk_bc%assign_stage(s=s, phi=self%ib%phi)
+            call self%rk_bc%assign_stage(field=self%adam%field, s=s, phi=self%ib%phi)
          else
-            call self%rk_bc%assign_stage(s=s)
+            call self%rk_bc%assign_stage(field=self%adam%field, s=s)
          endif
       else !Mi serve solo per il t0, tanto ic è il vuoto praticamente sempre
          q(v,i,j,k,b) = 0.0_R8P
@@ -971,7 +971,7 @@ contains
 
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
       ! first time integration done apart with explicit euler scheme to iniziale leapfrog
-      call self%leapfrog%assign_step(s=1, q=self%q)
+      call self%leapfrog%assign_step(field=self%adam%field, s=1, q=self%q)
       call self%compute_dt
       !Qua c'era il calcolo delle correnti delle particelle se PIC
       !Ora è nelle condizioni iniziali per coerenza con if legato a se ho pic o meno
@@ -1087,7 +1087,7 @@ contains
    self%time%dt = dt_step
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call self%external_fields%sub_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
-   call self%rk%initialize_stages(q=self%q)
+   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    endsubroutine prepare_step_forest
 
    subroutine assemble_substage_forest(self, s, nrk, dt)
@@ -1106,9 +1106,9 @@ contains
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
    if (self%ib%solids_number>0) then
-      call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
+      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
    else
-      call self%rk%compute_stage(s=s, dt=self%time%dt)
+      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
    endif
    endsubroutine assemble_substage_forest
 
@@ -1132,9 +1132,9 @@ contains
    end associate
    call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
    if (self%ib%solids_number>0) then
-      call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
+      call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
    else
-      call self%rk%assign_stage(s=s, q=self%dq)
+      call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
    endif
    endsubroutine evaluate_substage_forest
 
@@ -1152,10 +1152,10 @@ contains
    associate(dt_unused => dt) ! dt is the global reduction; self%time%dt is the local capped value
    end associate
    if (self%ib%solids_number>0) then
-      call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
       call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
-      call self%rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
+      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
       call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
@@ -2241,7 +2241,7 @@ contains
    call self%compute_coils_current(q=self%q)
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
-   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    call self%impose_div_free
    endsubroutine integrate_leapfrog
 
@@ -2259,7 +2259,7 @@ contains
    !< Pic residual computation
    call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    !< Integration of equations
-   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
    call self%impose_div_free
    endsubroutine integrate_leapfrog_pic
@@ -2271,14 +2271,14 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti
-   call self%rk%initialize_stages(q=self%q)
+   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    do s=1, self%rk%nrk
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
-         call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
+         call self%rk%compute_stage_ls(field=self%adam%field, s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
       else
-         call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
+         call self%rk%compute_stage_ls(field=self%adam%field, s=s,dt=self%time%dt,dq=self%dq,q=self%q)
       endif
    enddo
    call self%impose_div_free
@@ -2292,27 +2292,27 @@ contains
 
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call self%external_fields%sub_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
-   call self%rk%initialize_stages(q=self%q)
+   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    do s=1, self%rk%nrk
       if (self%ib%solids_number>0) then
-         call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
+         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
       else
-         call self%rk%compute_stage(s=s, dt=self%time%dt)
+         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       endif
       !call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s)) !Cazzo
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       !if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
-         call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
+         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
       else
-         call self%rk%assign_stage(s=s, q=self%dq)
+         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
       endif
    enddo
    if (self%ib%solids_number>0) then
-      call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
       call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
-      call self%rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
+      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
       call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
@@ -2332,15 +2332,15 @@ contains
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
 
    !Inizializzo stadi RK per campi e PIC
-   call self%rk%initialize_stages(q=self%q)
+   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
 
    do s=1, self%rk%nrk
       !Calcolo stadio RK per campi e PIC
       if (self%ib%solids_number>0) then
-         call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
+         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
       else
-         call self%rk%compute_stage(s=s, dt=self%time%dt)
+         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       endif
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
       !Calcolo termini sorgente Maxwell da particelle e bobine
@@ -2357,18 +2357,18 @@ contains
                                     q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (self%ib%solids_number>0) then
-         call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
+         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
       else
-         call self%rk%assign_stage(s=s, q=self%dq)
+         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
       endif
       call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
    enddo
    ! Completo l'integrazione temporale
    if (self%ib%solids_number>0) then
-      call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
       call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
-      call self%rk%update_q(dt=self%time%dt, q=self%q)
+      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q)
       call self%update_q_BC(dt=self%time%dt)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)

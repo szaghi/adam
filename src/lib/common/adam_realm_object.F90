@@ -55,7 +55,7 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
-use :: adam_globals,    only : adam, field, grid, ib, mpih, rk
+use :: adam_globals,    only : adam, field, grid, mpih
 use :: adam_adam_bind,  only : bind_globals_to_adam
 ! third party modules
 use :: finer
@@ -316,8 +316,6 @@ contains
 
    adam => self%adam
    call bind_globals_to_adam
-   ib   => self%ib
-   rk   => self%rk
    endsubroutine bind_my_globals_forest
 
    subroutine compute_local_dt_forest(self, dt_local)
@@ -621,15 +619,13 @@ contains
       ! adam_equation_bind` to call it — a direct circular dependency. The
       ! adam binder works because adam_adam_object does not need the binder
       ! itself; the same is not true for realm_object.
-      ib   => self%ib
-      rk   => self%rk
       call self%amr%initialize(file_parameters=file_parameters)
-      call self%ib%initialize(file_parameters=file_parameters)
+      call self%ib%initialize(field=self%adam%field, file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
       ! call self%cfm%initialize(file_parameters=file_parameters)
       ! call self%leapfrog%initialize(file_parameters=file_parameters)
-      call self%rk%initialize(file_parameters=file_parameters)
+      call self%rk%initialize(field=self%adam%field, file_parameters=file_parameters)
       self%ngc           => grid%ngc
       self%ni            => grid%ni
       self%nj            => grid%nj
