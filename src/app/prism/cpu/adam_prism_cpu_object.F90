@@ -163,9 +163,9 @@ contains
       call self%initialize_coils
       do b=1, blocks_number
          max_total_variation = -huge(1._R8P)
-         do c=1, 1!coil%total_coils_number
+         do c=1, 1!self%coil%total_coils_number
             call self%compute_block_total_variation(hs=hs, dxyz=dxyz(:,b), ivar=1,            &
-                                                    q=coil%j_vec(:,:,:,:,b,c),                &
+                                                    q=self%coil%j_vec(:,:,:,:,b,c),                &
                                                     tot_var_field=self%divergence(4,:,:,:,b), & !Cazzo
                                                     total_variation=total_variation)
             max_total_variation = max(max_total_variation,total_variation)
@@ -235,8 +235,8 @@ contains
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
-   if (physics%physical_model == EM_PHYSICAL_MODEL) then
-      select case(numerics%scheme_time)
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
+      select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
          self%integrate => integrate_blanesmoan
       case(NUM_SCHEME_TIME_CFM)
@@ -253,21 +253,21 @@ contains
             self%integrate => integrate_rk_yoshida
          endselect
       endselect
-   elseif (physics%physical_model == PIC_PHYSICAL_MODEL) then !Metterei qualche error stop sulle combinazioni non valide
-      select case(numerics%scheme_time)
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then !Metterei qualche error stop sulle combinazioni non valide
+      select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
-         select case(pic%scheme_time)
+         select case(self%pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
             self%integrate => integrate_leapfrog_pic
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
             !self%integrate =>
          endselect
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-         select case(pic%scheme_time)
+         select case(self%pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
             self%integrate => integrate_leapfrog_pic
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-         select case(rk_pic%scheme)
+         select case(self%rk_pic%scheme)
          case(RK_1, RK_2, RK_3)
             !self%integrate => integrate_rk_ls_pic
          case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -279,7 +279,7 @@ contains
       endselect
    endif
 
-   select case(numerics%scheme_space)
+   select case(self%numerics%scheme_space)
    case(NUM_SCHEME_SPACE_WENO)
       self%compute_residuals   => compute_residuals_weno
    case(NUM_SCHEME_SPACE_FD_CENTERED)
@@ -288,15 +288,15 @@ contains
       self%compute_residuals   => compute_residuals_fv_centered
    endselect
 
-   select case(numerics%div_corr_var)
+   select case(self%numerics%div_corr_var)
    case(DIV_CORR_VAR_POISS)
       compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
    case(DIV_CORR_VAR_HYPER)
-      if (numerics%constrained_transport_D .and. .not.numerics%constrained_transport_B) then
+      if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
          compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_d
-      elseif (.not.numerics%constrained_transport_D .and. numerics%constrained_transport_B) then
+      elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
          compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_b
-      elseif (numerics%constrained_transport_D .and. numerics%constrained_transport_B) then
+      elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
          compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_d_b
       endif
    case default
@@ -313,13 +313,13 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: v    !< Counter.
 
-   if (time%is_to_save(it_save=self%io%residuals_save)) then
+   if (self%time%is_to_save(it_save=self%io%residuals_save)) then
       call field%compute_normL2_residuals(dq=self%dq, norm=field%residuals)
       do v=1, self%nv
          call MPI_ALLREDUCE(MPI_IN_PLACE, field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
          field%residuals(v) = sqrt(field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
-      if (mpih%myrank==0) call self%io%save_residuals(it=time%it, time=time%time, &
+      if (mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
                                                            blocks_number=self%blocks_number, residuals=field%residuals)
    endif
    endsubroutine save_residuals
@@ -328,28 +328,28 @@ contains
    !< Save all simulation data.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   if ((time%is_to_save(it_save=self%io%it_save)).or.      &
-       (time%is_to_save(it_save=self%io%restart_save)).or. &
-       (self%slices%is_to_save(it=time%it,it_max=time%it_max,time=time%time,time_max=time%time_max))) then
+   if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
+       (self%time%is_to_save(it_save=self%io%restart_save)).or. &
+       (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
       call self%update_ghost(q=self%q)
       call self%compute_auxiliary_fields
 
-      if (time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
-      if (mod(time%it,self%io%restart_save)==0) call self%save_restart_files
-      ! if (self%slices%is_to_save(it=time%it,it_max=time%it_max,time=time%time,time_max=time%time_max)) then
+      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
+      if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
+      ! if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
       !    call self%slices%save_mat(basename=self%io%output_basename, &
-      !                              it=time%it,                  &
-      !                              it_max=time%it_max,          &
-      !                              time=time%time,              &
-      !                              time_max=time%time_max,      &
+      !                              it=self%time%it,                  &
+      !                              it_max=self%time%it_max,          &
+      !                              time=self%time%time,              &
+      !                              time_max=self%time%time_max,      &
       !                              adam=self%adam,                   &
       !                              q=self%q,                         &
       !                              q_name=self%q_name)
 
       ! endif
    endif
-   if (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
-      call write_single_particle_output(filename='single_particle_output.dat', time=time%time, q_pic=self%q_pic)
+   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic)
    endif
    endsubroutine save_simulation_data
 
@@ -376,16 +376,16 @@ contains
    real(R8P),                          parameter :: f_tol = 1.0e-30_R8P
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, &
-             time=>time%time, dt=>time%dt, td=>coil%td,                                &
-             A=>coil%coil_amplitude, f=>coil%f, phase=>coil%phase, J_vec=>coil%J_vec,  &
-             var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
+             time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                                &
+             A=>self%coil%coil_amplitude, f=>self%coil%f, phase=>self%coil%phase, J_vec=>self%coil%J_vec,  &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
 
       if (present(gamma)) then
          time_s = time + dt*gamma
       else
          time_s = time
       end if
-      if (coil%total_coils_number >= 1_I4P) then
+      if (self%coil%total_coils_number >= 1_I4P) then
 
          ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
          q(var_Jx,:,:,:,:) = 0._R8P
@@ -401,7 +401,7 @@ contains
          s = max(0._R8P, min(1._R8P, s))
          g = 10._R8P*s**3 - 15._R8P*s**4 + 6._R8P*s**5
 
-         do n=1, coil%total_coils_number
+         do n=1, self%coil%total_coils_number
             coil_id = n
 
             phi_rad = phase(coil_id) * PI / 180._R8P
@@ -430,7 +430,7 @@ contains
             enddo
          enddo
          ! Diagnostiche
-         do n = 1, coil%total_coils_number
+         do n = 1, self%coil%total_coils_number
             theta = nint( (sign(1._R8P, abs(f(n)) - f_tol) + 1._R8P) * 0.5_R8P ) * (2._R8P*PI*f(n)) * (time_s - td) + &
                     phase(n)*PI/180._R8P
             current_density_o = A(n) * g * cos(theta)
@@ -453,10 +453,10 @@ contains
                                                1:)           !< Conservative variables.
    integer(I4P)                           :: face            !< Counter
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,         &
-            f=>fWLayer%f, layer=>fWLayer%layer, C=>fWLayer%C, ni_fWL=>fWLayer%ni_fWL,     &
-            nj_fWL=>fWLayer%nj_fWL, nk_fWL=>fWLayer%nk_fWL, n=>fWLayer%n, s2=>fWLayer%s2, &
-            alfa_D=>fWLayer%alfa_D, alfa_B=>fWLayer%alfa_B, beta_D=>fWLayer%beta_D,            &
-            beta_B=>fWLayer%beta_B)
+            f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL,     &
+            nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, s2=>self%fWLayer%s2, &
+            alfa_D=>self%fWLayer%alfa_D, alfa_B=>self%fWLayer%alfa_B, beta_D=>self%fWLayer%beta_D,            &
+            beta_B=>self%fWLayer%beta_B)
    if (C>0) then
       do face=1, 6
          if (layer(face)) call apply_fWL_correction_fun(blocks_number = blocks_number,      &
@@ -473,7 +473,7 @@ contains
                                                         beta_D        = beta_D(face),       &
                                                         alfa_B        = alfa_B(face),       &
                                                         beta_B        = beta_B(face),       &
-                                                        f             = fWLayer%f,     &
+                                                        f             = self%fWLayer%f,     &
                                                         q             = q)
       enddo
    endif
@@ -503,10 +503,10 @@ contains
    real(R8P)                              :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
 
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                         &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),               &
-             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>time%dt, chi=>physics%chi,           &
-             nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, constrained_transport_B=>numerics%constrained_transport_B, &
-             constrained_transport_D=>numerics%constrained_transport_D)
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),               &
+             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,           &
+             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, constrained_transport_B=>self%numerics%constrained_transport_B, &
+             constrained_transport_D=>self%numerics%constrained_transport_D)
 
    if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
@@ -675,15 +675,15 @@ contains
       enddo
    endif
 
-   if (bc%bc_type(1) == BC_radiative .or. bc%bc_type(2) == BC_radiative &
-       .or. bc%bc_type(3) == BC_radiative .or. bc%bc_type(4) == BC_radiative &
-       .or. bc%bc_type(5) == BC_radiative .or. bc%bc_type(6) == BC_radiative) then !Al momento scritta per funzionare solo con un secondo ordine
+   if (self%bc%bc_type(1) == BC_radiative .or. self%bc%bc_type(2) == BC_radiative &
+       .or. self%bc%bc_type(3) == BC_radiative .or. self%bc%bc_type(4) == BC_radiative &
+       .or. self%bc%bc_type(5) == BC_radiative .or. self%bc%bc_type(6) == BC_radiative) then !Al momento scritta per funzionare solo con un secondo ordine
       if (present(s)) then
-         if (s==1_I4P) call rk_bc%initialize_stages(q=q)
+         if (s==1_I4P) call self%rk_bc%initialize_stages(q=q)
          if (ib%solids_number>0) then !calcolo stadio per le BC
-            call rk_bc%compute_stage(s=s, dt=time%dt, phi=ib%phi)
+            call self%rk_bc%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
          else
-            call rk_bc%compute_stage(s=s, dt=time%dt)
+            call self%rk_bc%compute_stage(s=s, dt=self%time%dt)
          endif
          !Calcolo i residui per l'integrazione temporale delle BC (in un futuro da allineare con operatore spaziale qualsiasi)
          call self%compute_residuals_BC(s=s)
@@ -706,7 +706,7 @@ contains
                      fec_1_6 = fec_1_6_array(fec)
                      if (bc_type == BC_radiative) then
                         do v=1, nv_c
-                           q(v,i,j,k,b) = 2*rk_bc%q_bc_rk(v,i,j,k,b,s)-q(v,i-idelta,j-jdelta,k-kdelta,b)
+                           q(v,i,j,k,b) = 2*self%rk_bc%q_bc_rk(v,i,j,k,b,s)-q(v,i-idelta,j-jdelta,k-kdelta,b)
                         enddo
                      endif
                   endif
@@ -715,9 +715,9 @@ contains
          endif
          !Concludi assegnando lo stadio
          if (ib%solids_number>0) then
-            call rk_bc%assign_stage(s=s, phi=ib%phi)
+            call self%rk_bc%assign_stage(s=s, phi=ib%phi)
          else
-            call rk_bc%assign_stage(s=s)
+            call self%rk_bc%assign_stage(s=s)
          endif
       else !Mi serve solo per il t0, tanto ic è il vuoto praticamente sempre
          q(v,i,j,k,b) = 0.0_R8P
@@ -740,12 +740,12 @@ contains
    integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
    integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                        &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
-             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>time%dt, chi=>physics%chi,&
-             nv_c=>physics%nv_c, nv_cl=>physics%nv_cl, div_corr_var=>numerics%div_corr_var,       &
-             constrained_transport_B=>numerics%constrained_transport_B,                                     &
-             constrained_transport_D=>numerics%constrained_transport_D, q_rk=>rk%q_rk,                      &
-             q_bc_rk=>rk_bc%q_bc_rk,dq_bc_rk=>rk_bc%dq_bc_rk)
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
+             dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
+             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,       &
+             constrained_transport_B=>self%numerics%constrained_transport_B,                                     &
+             constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>rk%q_rk,                      &
+             q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
    if (allocated(maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
@@ -814,21 +814,21 @@ contains
    class(prism_cpu_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
 
-   if (.not.is_restart) call ic%set_initial_conditions(physics=physics, field=field, q=self%q)
-   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call particle_injection%set_particle_initial_injection(field=field, pic=pic, q_pic=self%q_pic)
-      call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=pic%particle_number)
-      call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(pic%neighbour_list,R8P), &
-                                       np=pic%particle_number)
+   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=field, q=self%q)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      call self%particle_injection%set_particle_initial_injection(field=field, pic=self%pic, q_pic=self%q_pic)
+      call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
+      call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
+                                       np=self%pic%particle_number)
    endif
 
    !call field%compute_metrics !cazzo
    call self%initialize_coils
 
-   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-      call pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-      call pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+      call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+      call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    endif
    endsubroutine set_initial_conditions
 
@@ -904,26 +904,26 @@ contains
    call self%initialize_prism(filename=filename)
    if (self%io%restart) then
       call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
-      call self%load_restart_files(t=time%it, time=time%time)
-      call mpih%print_message('restart [t, time]: '//trim(str(time%it))//', '//trim(str(time%time)))
+      call self%load_restart_files(t=self%time%it, time=self%time%time)
+      call mpih%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
       call self%set_initial_conditions(is_restart=self%io%restart)
    else
       call mpih%print_message('impose initial conditions start')
-      do i=1, ic%amr_iterations
+      do i=1, self%ic%amr_iterations
          call mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions(is_restart=self%io%restart)
          call self%amr_update
       enddo
       call self%set_initial_conditions(is_restart=self%io%restart)
       call adam%make_comm_local_maps_ghost_bc
-      time%time = 0._R8P
-      time%it = 0
+      self%time%time = 0._R8P
+      self%time%it = 0
       call mpih%print_message('impose initial conditions finish')
    endif
    call self%update_ghost(q=self%q) ! Aggiunto da FN
 
-   do n=1, coil%total_coils_number
-      call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=coil%J_vec(1:3,:,:,:,:,n), &
+   do n=1, self%coil%total_coils_number
+      call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
                                    divergence=self%divergence(3,:,:,:,:))
       print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
                   //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
@@ -937,7 +937,7 @@ contains
    associate(hs => self%fdv_half_stencil)
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
    call self%save_simulation_data
    call self%compute_energy
@@ -946,43 +946,43 @@ contains
    call self%save_divergence_history(is_to_open=.true.)
    call self%io%open_file_residuals(nv=self%nv)
 
-   if (physics%physical_model == PIC_PHYSICAL_MODEL) then
-      if(pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! first time integration done apart with explicit euler scheme to iniziale leapfrog
-         call leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
+         call self%leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
          call self%compute_dt
          !< Pic residual computation
          !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
          !ma devi metterlo nell'inizializzazione per coerenza
          !< Integration of equations
-         self%q_pic(1,:) = self%q_pic(1,:) + time%dt * self%q_pic(4,:)
-         self%q_pic(2,:) = self%q_pic(2,:) + time%dt * self%q_pic(5,:)
-         self%q_pic(3,:) = self%q_pic(3,:) + time%dt * self%q_pic(6,:)
-         do i = 1, pic%particle_number
+         self%q_pic(1,:) = self%q_pic(1,:) + self%time%dt * self%q_pic(4,:)
+         self%q_pic(2,:) = self%q_pic(2,:) + self%time%dt * self%q_pic(5,:)
+         self%q_pic(3,:) = self%q_pic(3,:) + self%time%dt * self%q_pic(6,:)
+         do i = 1, self%pic%particle_number
             F_l = crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i))
-            self%q_pic(4,i) = self%q_pic(4,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(1,i)+F_l(1))
-            self%q_pic(5,i) = self%q_pic(5,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(2,i)+F_l(2))
-            self%q_pic(6,i) = self%q_pic(6,i)+time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(3,i)+F_l(3))
-            !self%q_pic(4:6,i) = self%q_pic(4:6,i) + time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
+            self%q_pic(4,i) = self%q_pic(4,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(1,i)+F_l(1))
+            self%q_pic(5,i) = self%q_pic(5,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(2,i)+F_l(2))
+            self%q_pic(6,i) = self%q_pic(6,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(3,i)+F_l(3))
+            !self%q_pic(4:6,i) = self%q_pic(4:6,i) + self%time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
             !                  (pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), pic_fields(4:6,i)))
          enddo
       endif
    endif
 
-   if (numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
       ! first time integration done apart with explicit euler scheme to iniziale leapfrog
       call self%leapfrog%assign_step(s=1, q=self%q)
       call self%compute_dt
       !Qua c'era il calcolo delle correnti delle particelle se PIC
       !Ora è nelle condizioni iniziali per coerenza con if legato a se ho pic o meno
       call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q = self%q + time%dt * self%dq
+      self%q = self%q + self%time%dt * self%dq
    endif
    endsubroutine initialize_forest
 
    ! numerical methods
    subroutine compute_dt(self)
-   !< Compute the global stability-limited dt and store it on `time%dt`.
+   !< Compute the global stability-limited dt and store it on `self%time%dt`.
    !<
    !< Body delegates the local computation to compute_local_dt_forest
    !< (orchestrator contract method), then performs the legacy
@@ -992,8 +992,8 @@ contains
    !< the redundancy disappears once the legacy compute_dt is retired.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   call self%compute_local_dt_forest(dt_local=time%dt)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+   call self%compute_local_dt_forest(dt_local=self%time%dt)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
    endsubroutine compute_dt
 
    subroutine compute_local_dt_forest(self, dt_local)
@@ -1013,10 +1013,10 @@ contains
    real(R8P)                            :: dxyz_min !< Minimal space step.
 
    dxyz_min = huge(1._R8P)
-   associate(blocks_number=>self%blocks_number, dxyz=>field%dxyz, chi=>physics%chi, evmax=>physics%evmax)
+   associate(blocks_number=>self%blocks_number, dxyz=>field%dxyz, chi=>self%physics%chi, evmax=>self%physics%evmax)
    call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
    umax = evmax
-   dt_local = time%CFL*dxyz_min / umax
+   dt_local = self%time%CFL*dxyz_min / umax
    endassociate
    endsubroutine compute_local_dt_forest
 
@@ -1027,29 +1027,29 @@ contains
    !< the integration itself — RK substages, BC application, intra-realm
    !< ghost exchange, divergence cleaning — i.e. everything that turns
    !< `q` at time `t` into `q` at time `t + dt`. Also owns the per-step
-   !< bookkeeping the legacy `simulate` loop did inline: time%it
-   !< increment, time_max cap on `dt`, time%time advance, progress
+   !< bookkeeping the legacy `simulate` loop did inline: self%time%it
+   !< increment, time_max cap on `dt`, self%time%time advance, progress
    !< printing. These move here so the forest's evolve_one_step path is
    !< bit-identical to the legacy per-realm simulate loop.
    !<
    !< PRISM-CPU override: thin wrapper around the legacy `integrate`
-   !< procedure pointer dispatched by `numerics%scheme_time` at init.
-   !< `integrate`'s body still reads `time%dt`, so the wrapper propagates
+   !< procedure pointer dispatched by `self%numerics%scheme_time` at init.
+   !< `integrate`'s body still reads `self%time%dt`, so the wrapper propagates
    !< the (possibly capped) `dt` into the module-scope singleton before
-   !< dispatching, then advances `time%time`. Once the forest takes over
-   !< time bookkeeping (Phase D), the time%* updates move to the forest
+   !< dispatching, then advances `self%time%time`. Once the forest takes over
+   !< time bookkeeping (Phase D), the self%time%* updates move to the forest
    !< and this wrapper reduces to `call self%integrate`.
    class(prism_cpu_object), intent(inout) :: self    !< The realm.
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest's global reduction.
    real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
 
-   time%it = time%it + 1
+   self%time%it = self%time%it + 1
    dt_step = dt
-   if ((time%it_max <= 0).and.(time%time+dt_step > time%time_max)) dt_step = time%time_max - time%time
-   time%dt = dt_step
+   if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
+   self%time%dt = dt_step
    call self%integrate
-   time%time = time%time + dt_step
-   call time%print_progress(nodes_number=tree%nodes_number)
+   self%time%time = self%time%time + dt_step
+   call self%time%print_progress(nodes_number=tree%nodes_number)
    endsubroutine advance_one_step_forest
 
    function nrk_forest(self) result(nrk)
@@ -1075,18 +1075,18 @@ contains
    !< Mirrors the head of `integrate_rk_ssp`: external-field prelude (if
    !< active), `rk%initialize_stages(q=self%q)`, and the per-step time
    !< bookkeeping `advance_one_step_forest` does inline (it increment,
-   !< dt cap for time_max, time%dt update). Time advance and progress
+   !< dt cap for time_max, self%time%dt update). Time advance and progress
    !< print run in `finalize_step_forest`, mirroring the legacy ordering.
    class(prism_cpu_object), intent(inout) :: self    !< The realm.
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
    real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
 
-   time%it = time%it + 1
+   self%time%it = self%time%it + 1
    dt_step = dt
-   if ((time%it_max <= 0).and.(time%time+dt_step > time%time_max)) dt_step = time%time_max - time%time
-   time%dt = dt_step
-   if (external_fields%ef_type/=EF_TYPE_NONE) &
-      call external_fields%sub_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
+   if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
+   self%time%dt = dt_step
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%sub_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
    call rk%initialize_stages(q=self%q)
    endsubroutine prepare_step_forest
 
@@ -1094,21 +1094,21 @@ contains
    !< Assemble RK substage `s` on the multi-realm path.
    !<
    !< Mirrors the FIRST line of `integrate_rk_ssp`'s substage body:
-   !< `rk%compute_stage(s=s, dt=time%dt [, phi=ib%phi])`. This populates
+   !< `rk%compute_stage(s=s, dt=self%time%dt [, phi=ib%phi])`. This populates
    !< `rk%q_rk(:,:,:,:,:,s)` from previously computed substages and from
    !< `self%q`. No ghost reads, no peer-realm access — peer realms may
    !< not yet have assembled their substage-s buffer when this fires.
    class(prism_cpu_object), intent(inout) :: self !< The realm.
    integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; time%dt is the canonical source).
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
    if (ib%solids_number>0) then
-      call rk%compute_stage(s=s, dt=time%dt, phi=ib%phi)
+      call rk%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
    else
-      call rk%compute_stage(s=s, dt=time%dt)
+      call rk%compute_stage(s=s, dt=self%time%dt)
    endif
    endsubroutine assemble_substage_forest
 
@@ -1126,7 +1126,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The realm.
    integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; time%dt is the canonical source).
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
@@ -1149,22 +1149,22 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The realm.
    real(R8P),               intent(in)    :: dt   !< Timestep size from the forest.
 
-   associate(dt_unused => dt) ! dt is the global reduction; time%dt is the local capped value
+   associate(dt_unused => dt) ! dt is the global reduction; self%time%dt is the local capped value
    end associate
    if (ib%solids_number>0) then
-      call rk%update_q(dt=time%dt, phi=ib%phi, q=self%q)
-      call self%update_q_BC(dt=time%dt, phi=ib%phi)
+      call rk%update_q(dt=self%time%dt, phi=ib%phi, q=self%q)
+      call self%update_q_BC(dt=self%time%dt, phi=ib%phi)
    else
-      call rk%update_q(dt=time%dt, q=self%q, dq=self%dq)
-      call self%update_q_BC(dt=time%dt)
+      call rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
+      call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
-   if (external_fields%ef_type/=EF_TYPE_NONE) &
-      call external_fields%add_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
-   time%time = time%time + time%dt
-   call time%print_progress(nodes_number=tree%nodes_number)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%add_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
+   self%time%time = self%time%time + self%time%dt
+   call self%time%print_progress(nodes_number=tree%nodes_number)
    endsubroutine finalize_step_forest
 
    subroutine exchange_inter_realm_halos_forest(self, realm)
@@ -1514,9 +1514,9 @@ contains
    if (present(do_amr)) continue
 
    if (self%io%save_memory_status) then
-      call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(time%it,.true.))
+      call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
    endif
-   if (mod(time%it,self%amr%frequency)==0) then
+   if (mod(self%time%it,self%amr%frequency)==0) then
       call mpih%barrier(tictoc=.true.)
       !call self%amr_update
       call mpih%barrier(tictoc=.true.)
@@ -1529,7 +1529,7 @@ contains
    call self%save_energy_history
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    call self%save_divergence_history
    endassociate
    endsubroutine post_step_forest
@@ -1544,7 +1544,7 @@ contains
 
    call compute_e(ivar=VAR_DX, energy=energy_D)
    call compute_e(ivar=VAR_BX, energy=energy_B)
-   if (coil%total_coils_number > 0_I4P) call compute_coil_power(ivar=physics%var_Jx, coil_power=coil_power)
+   if (self%coil%total_coils_number > 0_I4P) call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
    call compute_Poynting_flux(Poynting_flux=Poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
@@ -1557,10 +1557,10 @@ contains
       self%coil_power    = [self%coil_power,    coil_power   ]
       self%poynting_flux = [self%poynting_flux, poynting_flux]
    else
-      allocate(self%energy_D(     1:time%it))
-      allocate(self%energy_B(     1:time%it))
-      allocate(self%coil_power(   1:time%it))
-      allocate(self%poynting_flux(1:time%it))
+      allocate(self%energy_D(     1:self%time%it))
+      allocate(self%energy_B(     1:self%time%it))
+      allocate(self%coil_power(   1:self%time%it))
+      allocate(self%poynting_flux(1:self%time%it))
       self%energy_D      = energy_D
       self%energy_B      = energy_B
       self%coil_power    = coil_power
@@ -1731,8 +1731,8 @@ contains
    !< Impose divergence-free property.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   associate(constrained_transport_D=>numerics%constrained_transport_D,&
-             constrained_transport_B=>numerics%constrained_transport_B,div_corr_var=>numerics%div_corr_var)
+   associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
+             constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
    if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
    if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
    ! here should go also other corrections...
@@ -1786,8 +1786,8 @@ contains
    !<
    !< Invoked by forest%is_done. PRISM-CPU override: matches the legacy
    !< condition inline in simulate — terminate when either the simulated
-   !< time has reached time%time_max (time-driven mode, it_max <= 0) or
-   !< the iteration count has reached time%it_max (iteration-driven mode).
+   !< time has reached self%time%time_max (time-driven mode, it_max <= 0) or
+   !< the iteration count has reached self%time%it_max (iteration-driven mode).
    !< Today the test reads time-state from the `time` module singleton,
    !< so `self` is unused; once the forest takes over time bookkeeping
    !< the body will consume self%time%* instead.
@@ -1796,8 +1796,8 @@ contains
 
    associate(self_unused => self)
    end associate
-   done = ((time%it_max <= 0).and.(time%time >= time%time_max)).or.&
-          ((time%it >= time%it_max).and.(time%it_max > 0))
+   done = ((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
+          ((self%time%it >= self%time%it_max).and.(self%time%it_max > 0))
    endsubroutine is_done_forest
 
    subroutine finalize_forest(self)
@@ -1824,7 +1824,7 @@ contains
    associate(hs => self%fdv_half_stencil)
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
    call self%save_divergence_history(is_to_close=.true.)
    call mpih%finalize
@@ -1836,7 +1836,7 @@ contains
    !< Preserved (R5 of issue #10) so app developers can still drive a single
    !< realm without setting up a forest. Mirrors the forest's `simulate`
    !< orchestration: initialize → loop {compute_dt → advance → post → done}
-   !< → finalize. Per-step bookkeeping (time%it increment, time_max dt cap,
+   !< → finalize. Per-step bookkeeping (self%time%it increment, time_max dt cap,
    !< time advance, progress print, save_memory_status, AMR-update hook)
    !< now lives inside `advance_one_step_forest` and `post_step_forest`, so
    !< this body becomes a thin orchestration that matches the forest path
@@ -1848,8 +1848,8 @@ contains
    call self%initialize_forest(filename=filename)
    integration: do
       call self%compute_dt
-      call self%advance_one_step_forest(dt=time%dt)
-      call self%post_step_forest(dt=time%dt, t=time%time, it=time%it)
+      call self%advance_one_step_forest(dt=self%time%dt)
+      call self%post_step_forest(dt=self%time%dt, t=self%time%time, it=self%time%it)
       call self%is_done_forest(done=loop_done)
       if (loop_done) exit integration
    enddo integration
@@ -1893,11 +1893,11 @@ contains
              dxyz=>field%dxyz,                                                                                        &
              s1=>self%fdv_half_stencils(1),                                                                           &
              s4=>self%fdv_half_stencils(4),                                                                           &
-             chi =>physics%chi, constrained_transport_D=>numerics%constrained_transport_D,                            &
-             constrained_transport_B=>numerics%constrained_transport_B,                                               &
-             var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz)
+             chi =>self%physics%chi, constrained_transport_D=>self%numerics%constrained_transport_D,                            &
+             constrained_transport_B=>self%numerics%constrained_transport_B,                                               &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
    if (blocks_number > 0) then
-      if (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+      if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
          .not.constrained_transport_B) then
       ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
          do b=1,blocks_number
@@ -1927,7 +1927,7 @@ contains
          enddo
          enddo
          enddo
-      elseif (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
+      elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
               constrained_transport_B) then
       ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
          do b=1,blocks_number
@@ -1957,7 +1957,7 @@ contains
          enddo
          enddo
          enddo
-      elseif (numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+      elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
                constrained_transport_B) then
       ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
       !             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
@@ -2066,7 +2066,7 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,        &
              s=>self%fdv_half_stencils(1),                                                                            &
-             var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz, chi=>physics%chi)
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi)
    if (blocks_number > 0) then
       ! compute fluxes at cell centers
       do b=1, blocks_number
@@ -2162,8 +2162,8 @@ contains
              flx=>self%flxyz_c(:,1,1,:,:,:,:), fly=>self%flxyz_c(:,1,2,:,:,:,:), flz=>self%flxyz_c(:,1,3,:,:,:,:),                &
              weno_s=>weno%S, weno_zeps=>weno%zeps,                                                                                &
              weno_a=>weno%a, weno_p=>weno%p, weno_d=>weno%d, weno_c=>weno%c,                                                      &
-             var_Jx=>physics%var_Jx, var_Jy=>physics%var_Jy, var_Jz=>physics%var_Jz, chi=>physics%chi,        &
-             evmax=>physics%evmax, erw=>physics%erw, elw=>physics%elw)
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,        &
+             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
 
    if (blocks_number > 0) then
       call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
@@ -2195,13 +2195,13 @@ contains
    do s=1, nc
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
-      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + b(s) * time%dt * self%dq(VAR_BX,:,:,:,:)
-      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + b(s) * time%dt * self%dq(VAR_BY,:,:,:,:)
-      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + b(s) * time%dt * self%dq(VAR_BZ,:,:,:,:)
+      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
       call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + a(s) * time%dt * self%dq(VAR_DX,:,:,:,:)
-      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * time%dt * self%dq(VAR_DY,:,:,:,:)
-      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * time%dt * self%dq(VAR_DZ,:,:,:,:)
+      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
+      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
+      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
    enddo
    call self%impose_div_free
    endassociate
@@ -2214,7 +2214,7 @@ contains
    integer(I4P)                           :: s,ss             !< Counter.
 
    call self%compute_coils_current(q=self%q)
-   associate(dt=>time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
+   associate(dt=>self%time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
    self%cfm%q = self%q
    call self%compute_residuals(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,1))
    do s=2, self%cfm%n_stages
@@ -2241,7 +2241,7 @@ contains
    call self%compute_coils_current(q=self%q)
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
-   call self%leapfrog%integrate(dt=time%dt, q=self%q, dq=self%dq)
+   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
    call self%impose_div_free
    endsubroutine integrate_leapfrog
 
@@ -2250,17 +2250,17 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
    !< Maxwell source terms computation: particles and coils
-   call pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)
-   call pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)
+   call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%compute_coils_current(q=self%q)
    !< Maxwell residuals computation
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
    !< Pic residual computation
-   call pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+   call self%pic%field_weighting(field=field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    !< Integration of equations
-   call self%leapfrog%integrate(dt=time%dt, q=self%q, dq=self%dq)
-   call leapfrog_pic%integrate(dt=time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
+   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
    call self%impose_div_free
    endsubroutine integrate_leapfrog_pic
 
@@ -2276,9 +2276,9 @@ contains
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
       if (ib%solids_number>0) then
-         call rk%compute_stage_ls(s=s,dt=time%dt,phi=ib%phi,dq=self%dq,q=self%q)
+         call rk%compute_stage_ls(s=s,dt=self%time%dt,phi=ib%phi,dq=self%dq,q=self%q)
       else
-         call rk%compute_stage_ls(s=s,dt=time%dt,dq=self%dq,q=self%q)
+         call rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
       endif
    enddo
    call self%impose_div_free
@@ -2290,14 +2290,14 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   if (external_fields%ef_type/=EF_TYPE_NONE) &
-      call external_fields%sub_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%sub_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
    call rk%initialize_stages(q=self%q)
    do s=1, rk%nrk
       if (ib%solids_number>0) then
-         call rk%compute_stage(s=s, dt=time%dt, phi=ib%phi)
+         call rk%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
       else
-         call rk%compute_stage(s=s, dt=time%dt)
+         call rk%compute_stage(s=s, dt=self%time%dt)
       endif
       !call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s)) !Cazzo
       call self%compute_residuals(q=rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
@@ -2309,17 +2309,17 @@ contains
       endif
    enddo
    if (ib%solids_number>0) then
-      call rk%update_q(dt=time%dt, phi=ib%phi, q=self%q)
-      call self%update_q_BC(dt=time%dt, phi=ib%phi)
+      call rk%update_q(dt=self%time%dt, phi=ib%phi, q=self%q)
+      call self%update_q_BC(dt=self%time%dt, phi=ib%phi)
    else
-      call rk%update_q(dt=time%dt, q=self%q, dq=self%dq)
-      call self%update_q_BC(dt=time%dt)
+      call rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
+      call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
-   if (external_fields%ef_type/=EF_TYPE_NONE) &
-      call external_fields%add_external_fields(field=field, time=time%time, dt=time%dt, q=self%q)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%add_external_fields(field=field, time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ssp
 
    subroutine integrate_rk_ssp_pic(self)
@@ -2329,57 +2329,57 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    !call sub_external_fields(self = self%external_fields, field = field, &
-   !                        time = time%time, dt = time%dt, q = self%q)
+   !                        time = self%time%time, dt = self%time%dt, q = self%q)
 
    !Inizializzo stadi RK per campi e PIC
    call rk%initialize_stages(q=self%q)
-   call rk_pic%initialize_stages(q_pic=self%q_pic)
+   call self%rk_pic%initialize_stages(q_pic=self%q_pic)
 
    do s=1, rk%nrk
       !Calcolo stadio RK per campi e PIC
       if (ib%solids_number>0) then
-         call rk%compute_stage(s=s, dt=time%dt, phi=ib%phi)
+         call rk%compute_stage(s=s, dt=self%time%dt, phi=ib%phi)
       else
-         call rk%compute_stage(s=s, dt=time%dt)
+         call rk%compute_stage(s=s, dt=self%time%dt)
       endif
-      call rk_pic%compute_stage(s=s, dt=time%dt)
+      call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
       !Calcolo termini sorgente Maxwell da particelle e bobine
-      call pic%particle_cartesian_grid_index(field=field, q_pic=rk_pic%q_pic_rk(:,:,s))
-      call pic%current_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
-                                       q_pic=rk_pic%q_pic_rk(:,:,s), nv=self%nv)
+      call self%pic%particle_cartesian_grid_index(field=field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
+      call self%pic%current_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
+                                       q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
       call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s))
       !Calcolo residui Maxwell
       call self%compute_residuals(q=rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
-      call pic%field_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
-                                    q_pic=rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+      call self%pic%field_weighting(field=field, q=rk%q_rk(:,:,:,:,:,s), &
+                                    q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (ib%solids_number>0) then
          call rk%assign_stage(s=s, q=self%dq, phi=ib%phi)
       else
          call rk%assign_stage(s=s, q=self%dq)
       endif
-      call rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
+      call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
    enddo
    ! Completo l'integrazione temporale
    if (ib%solids_number>0) then
-      call rk%update_q(dt=time%dt, phi=ib%phi, q=self%q)
-      call self%update_q_BC(dt=time%dt, phi=ib%phi)
+      call rk%update_q(dt=self%time%dt, phi=ib%phi, q=self%q)
+      call self%update_q_BC(dt=self%time%dt, phi=ib%phi)
    else
-      call rk%update_q(dt=time%dt, q=self%q)
-      call self%update_q_BC(dt=time%dt)
+      call rk%update_q(dt=self%time%dt, q=self%q)
+      call self%update_q_BC(dt=self%time%dt)
    endif
-   call rk_pic%update_q_pic(dt=time%dt, q_pic=self%q_pic)
+   call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%impose_div_free
-   call pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)
-   call pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   call pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%pic%particle_cartesian_grid_index(field=field, q_pic=self%q_pic)
+   call self%pic%current_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%pic%particle_weighting(field=field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%compute_coils_current(q=self%q)
    !call add_external_fields(self = self%external_fields, field = field, &
-   !                        time = time%time, dt = time%dt, q = self%q)
+   !                        time = self%time%time, dt = self%time%dt, q = self%q)
    endsubroutine integrate_rk_ssp_pic
 
    subroutine update_q_BC(self, dt, phi)
@@ -2398,12 +2398,12 @@ contains
    integer(I4P)                           :: bc_type                 !< Boundary condition type.
    integer(I4P)                           :: crown                   !< Crown counter.
    associate(local_map_bc_crown=>maps%local_map_bc_crown,                                                           &
-                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
-                dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>time%dt, chi=>physics%chi,&
-                nv_c=>physics%nv_c, nv_cl=>physics%nv_cl,                                                 &
-                constrained_transport_B=>numerics%constrained_transport_B,                                     &
-                constrained_transport_D=>numerics%constrained_transport_D, nrk=>rk_bc%nrk,                &
-                q_bc_rk=>rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>rk_bc%beta)
+                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:),         &
+                dz=>field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
+                nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                 &
+                constrained_transport_B=>self%numerics%constrained_transport_B,                                     &
+                constrained_transport_D=>self%numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                &
+                q_bc_rk=>self%rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>self%rk_bc%beta)
 
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
@@ -2477,18 +2477,18 @@ contains
    do s=1, rk%nrk - 1
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
-      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(s) * time%dt * self%dq(VAR_BX,:,:,:,:)
-      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(s) * time%dt * self%dq(VAR_BY,:,:,:,:)
-      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(s) * time%dt * self%dq(VAR_BZ,:,:,:,:)
+      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
       call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + rk%ssb(s) * time%dt * self%dq(VAR_DX,:,:,:,:)
-      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + rk%ssb(s) * time%dt * self%dq(VAR_DY,:,:,:,:)
-      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + rk%ssb(s) * time%dt * self%dq(VAR_DZ,:,:,:,:)
+      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
+      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
+      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
    enddo
    call self%compute_residuals(q=self%q, dq=self%dq)
-   self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * time%dt * self%dq(VAR_BX,:,:,:,:)
-   self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * time%dt * self%dq(VAR_BY,:,:,:,:)
-   self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * time%dt * self%dq(VAR_BZ,:,:,:,:)
+   self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+   self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+   self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    call self%impose_div_free
    endsubroutine integrate_rk_yoshida
 

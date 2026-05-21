@@ -33,9 +33,10 @@ endtype prism_fnl_coil_object
 
 contains
    ! public methods
-   subroutine copy_cpu_gpu(self, buf4D, buf6D, verbose)
+   subroutine copy_cpu_gpu(self, coil, buf4D, buf6D, verbose)
    !< Copy data from CPU to GPU.
    class(prism_fnl_coil_object), intent(inout)           :: self         !< The field.
+   class(prism_coil_object),     intent(in)              :: coil         !< Coils on host.
    integer(I4P),                 intent(inout), optional :: buf4D(1:,                                &
                                                                   1-grid%ngc:,1-grid%ngc:,1-grid%ngc:&
                                                                   )      !< Buffer (host memory, device shape), rank 4D.
@@ -64,9 +65,10 @@ contains
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
-   subroutine copy_gpu_cpu(self, buf4D, buf6D, verbose)
+   subroutine copy_gpu_cpu(self, coil, buf4D, buf6D, verbose)
    !< Copy data from GPU to CPU.
    class(prism_fnl_coil_object), intent(inout)           :: self         !< The field.
+   class(prism_coil_object),     intent(inout)           :: coil         !< Coils on host.
    integer(I4P),                 intent(inout), optional :: buf4D(1:,                                &
                                                                   1-grid%ngc:,1-grid%ngc:,1-grid%ngc:&
                                                                   )      !< Buffer (host memory, device shape), rank 4D.
@@ -110,7 +112,7 @@ contains
    call dev_alloc(fptr_dev=self%f_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
    call dev_alloc(fptr_dev=self%phase_gpu    ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
    call dev_alloc(fptr_dev=self%j_vec_gpu    ,ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv,nc],lbounds=[1,1-ngc,1-ngc,1-ngc,1,1],ierr=ierr)
-   call self%copy_cpu_gpu
+   call self%copy_cpu_gpu(coil=coil)
    print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize finish'
    endassociate
    endsubroutine initialize

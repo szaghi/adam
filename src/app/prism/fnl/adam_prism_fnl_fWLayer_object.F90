@@ -32,9 +32,10 @@ endtype prism_fnl_fwlayer_object
 
 contains
    ! public methods
-   subroutine copy_cpu_gpu(self, buffer, verbose)
+   subroutine copy_cpu_gpu(self, fwlayer, buffer, verbose)
    !< Copy data from CPU to GPU.
    class(prism_fnl_fwlayer_object), intent(inout)           :: self       !< The field.
+   class(prism_fwlayer_object),     intent(in)              :: fwlayer    !< Fwlayer common handler (host).
    real(R8P),                       intent(inout), optional :: buffer(1:,                                 &
                                                                       1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
                                                                       1:) !< Buffer (host memory, device shape).
@@ -56,9 +57,10 @@ contains
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
-   subroutine copy_gpu_cpu(self, buffer, verbose)
+   subroutine copy_gpu_cpu(self, fwlayer, buffer, verbose)
    !< Copy data from GPU to CPU.
    class(prism_fnl_fwlayer_object), intent(inout)           :: self       !< The field.
+   class(prism_fwlayer_object),     intent(inout)           :: fwlayer    !< Fwlayer common handler (host).
    real(R8P),                       intent(inout), optional :: buffer(1:,                                 &
                                                                       1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
                                                                       1:) !< Buffer (host memory, device shape).
@@ -113,7 +115,6 @@ contains
    real(R8P)                   :: fm1, fp1                          !< fWLayer function values in -+ cell.
    integer(I4P)                :: b,i,j,k                           !< Counter.
 
-   if (fwlayer%C ==0) return
    !$acc parallel loop independent gang vector collapse(4) &
    !$acc& DEVICEVAR(f_gpu,q_gpu) private(fm1,fp1)          &
    !$acc& firstprivate(ni1,ni2,nj1,nj2,nk1,nk2,blocks_number,n,s2,alfa_D,beta_D,alfa_B,beta_B)

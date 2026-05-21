@@ -20,8 +20,6 @@ use :: adam_prism_rk_bc_object
 use :: adam_prism_rk_pic_object
 use :: adam_prism_riemann_library
 use :: adam_prism_time_object
-! PRISM singleton objects
-use :: adam_prism_globals
 
 implicit none
 public
