@@ -4,7 +4,7 @@ module adam_prism_ic_object
 
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
-use :: adam_grid_global,  only : grid
+use :: adam_grid_object,  only : grid_object
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_physics_object, only : prism_physics_object
@@ -219,11 +219,12 @@ contains
    endif
    endsubroutine load_from_file
 
-   subroutine set_initial_conditions(self, physics, field, q)
+   subroutine set_initial_conditions(self, physics, field, grid, q)
       !< Set initial conditions on PRISM fields.
       class(prism_ic_object),     intent(in)    :: self                 !< IC.
       type(prism_physics_object), intent(in)    :: physics              !< Fluids physiscs.
       type(field_object),         intent(in)    :: field                !< Field object.
+      type(grid_object),          intent(in), target :: grid                 !< Grid (sibling realm component, threaded in).
       real(R8P),                  intent(inout) :: q(1:,        &
                                                    1-grid%ngc:,&
                                                    1-grid%ngc:,&

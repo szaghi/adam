@@ -212,11 +212,11 @@ contains
       call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
-   call self%fWLayer%initialize(field=self%adam%field, file_parameters=file_parameters, physics=self%physics)
-   call self%coil%initialize(field=self%adam%field, file_parameters=file_parameters)
+   call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, physics=self%physics)
+   call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-      call self%rk_bc%initialize(field=self%adam%field, file_parameters=file_parameters, rk=self%rk, physics=self%physics)
+      call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, rk=self%rk, physics=self%physics)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)

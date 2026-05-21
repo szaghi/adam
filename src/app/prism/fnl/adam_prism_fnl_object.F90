@@ -689,7 +689,7 @@ contains
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
 
-   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, q=self%q)
+   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, q=self%q)
    ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
    !    call self%particle_injection%set_particle_initial_injection(field=self%adam%field, pic=pic, q_pic=self%q_pic)
    !    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)

@@ -814,9 +814,9 @@ contains
    class(prism_cpu_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
 
-   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, q=self%q)
+   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, q=self%q)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call self%particle_injection%set_particle_initial_injection(field=self%adam%field, pic=self%pic, q_pic=self%q_pic)
+      call self%particle_injection%set_particle_initial_injection(field=self%adam%field, grid=self%adam%grid, pic=self%pic, q_pic=self%q_pic)
       call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
       call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
                                        np=self%pic%particle_number)
@@ -949,7 +949,7 @@ contains
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! first time integration done apart with explicit euler scheme to iniziale leapfrog
-         call self%leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
+         call self%leapfrog_pic%assign_step(grid=self%adam%grid, s=1, q_pic=self%q_pic)
          call self%compute_dt
          !< Pic residual computation
          !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
@@ -1086,7 +1086,7 @@ contains
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
    self%time%dt = dt_step
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=self%adam%field, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    endsubroutine prepare_step_forest
 
@@ -1162,7 +1162,7 @@ contains
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, time=self%time%time, dt=self%time%dt, q=self%q)
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    endsubroutine finalize_step_forest
@@ -2291,7 +2291,7 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=self%adam%field, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    do s=1, self%rk%nrk
       if (self%ib%solids_number>0) then
@@ -2319,7 +2319,7 @@ contains
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ssp
 
    subroutine integrate_rk_ssp_pic(self)

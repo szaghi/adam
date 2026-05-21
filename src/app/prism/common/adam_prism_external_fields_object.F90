@@ -4,7 +4,7 @@ module adam_prism_external_fields_object
 
 ! ADAM singleton objects
 use :: adam_mpih_global,  only : mpih
-use :: adam_grid_global,  only : grid
+use :: adam_grid_object,  only : grid_object
 use :: adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
@@ -61,10 +61,11 @@ type :: prism_external_fields_object
 endtype prism_external_fields_object
 
 interface
-   subroutine add_external_fields_interface(self, field, time, dt, gamm, q)
-   import :: prism_external_fields_object, grid, field_object, I4P, R8P
+   subroutine add_external_fields_interface(self, field, grid, time, dt, gamm, q)
+   import :: prism_external_fields_object, grid_object, field_object, I4P, R8P
    class(prism_external_fields_object), intent(inout)        :: self                 !< External fields.
    type(field_object),                  intent(inout)        :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),                           intent(in)           :: time                 !< Current simulation time.
    real(R8P),                           intent(in), optional :: dt                   !< Time step.
    real(R8P),                           intent(in), optional :: gamm                 !< Gamma values of RK SSP.
@@ -73,10 +74,11 @@ interface
                                                                      1-grid%ngc:,1:) !< Primitive variables.
    endsubroutine add_external_fields_interface
 
-   subroutine sub_external_fields_interface(self, field, time, dt, gamm, q)
-   import :: prism_external_fields_object, grid, field_object, I4P, R8P
+   subroutine sub_external_fields_interface(self, field, grid, time, dt, gamm, q)
+   import :: prism_external_fields_object, grid_object, field_object, I4P, R8P
    class(prism_external_fields_object), intent(inout)        :: self                 !< External fields.
    type(field_object),                  intent(inout)        :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),                           intent(in)           :: time                 !< Current simulation time.
    real(R8P),                           intent(in), optional :: dt                   !< Time step.
    real(R8P),                           intent(in), optional :: gamm                 !< Gamma values of RK SSP.
@@ -279,10 +281,11 @@ contains
 	!endassociate
    !endsubroutine add_external_fields_rmf
 
-   subroutine add_external_fields_rmf(self, field, time, dt, gamm, q)
+   subroutine add_external_fields_rmf(self, field, grid, time, dt, gamm, q)
    !< Add rotating magnetic field to the field.
    class(prism_external_fields_object), intent(inout)           :: self                 !< External fields.
    type(field_object),                  intent(inout)           :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),                           intent(in)              :: time                 !< Current simulation time.
    real(R8P),                           intent(in), optional    :: dt                   !< Time step.
    real(R8P),                           intent(in), optional    :: gamm                 !< Gamma values of RK SSP
@@ -328,10 +331,11 @@ contains
 	endassociate
    endsubroutine add_external_fields_rmf
 
-   subroutine sub_external_fields_rmf(self, field, time, dt, gamm, q)
+   subroutine sub_external_fields_rmf(self, field, grid, time, dt, gamm, q)
    !< Add rotating magnetic field to the field.
    class(prism_external_fields_object), intent(inout)           :: self                 !< External fields.
    type(field_object),                  intent(inout)           :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),                           intent(in)              :: time                 !< Current simulation time.
    real(R8P),                           intent(in), optional    :: dt                   !< Time step.
    real(R8P),                           intent(in), optional    :: gamm                 !< Gamma values of RK SSP

@@ -37,7 +37,7 @@ module adam_prism_leapfrog_pic_object
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
-use :: adam_grid_global,      only : grid
+use :: adam_grid_object,      only : grid_object
 use :: adam_prism_pic_object, only : prism_pic_object
 ! third party modules
 use :: finer
@@ -132,9 +132,10 @@ contains
    endsubroutine load_from_file
 
    ! public methods
-   subroutine assign_step(self, s, q_pic, phi)
+   subroutine assign_step(self, grid, s, q_pic, phi)
    !< Assign q to leapfrog old step.
    class(prism_leapfrog_pic_object), intent(inout)        :: self           !< Leapfrog object.
+   type(grid_object),  intent(in), target :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),           	       intent(in)           :: s              !< Current step number.
    real(R8P),              	       intent(in)           :: q_pic(1:,1:)   !< Pic variables.
    real(R8P),              	       intent(in), optional :: phi(1:,      &

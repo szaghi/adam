@@ -6,7 +6,7 @@ module adam_prism_particle_injection_object
 use :: adam_field_object, only : field_object
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
-use :: adam_grid_global, only : grid
+use :: adam_grid_object, only : grid_object
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_pic_object, only : prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM
@@ -81,10 +81,11 @@ contains
 endtype prism_particle_injection_object
 
 interface
-   subroutine particle_space_injection_interface(self, field, pic, q_pic)
-   import :: prism_particle_injection_object, field_object, prism_pic_object, I4P, R8P
+   subroutine particle_space_injection_interface(self, field, grid, pic, q_pic)
+   import :: prism_particle_injection_object, field_object, grid_object, prism_pic_object, I4P, R8P
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                   	 intent(in)	:: grid
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)                                                         !< Number of variables.
    endsubroutine particle_space_injection_interface
@@ -97,10 +98,11 @@ interface
 	real(R8P), intent(inout) 	 :: r_n(1:)
 	endsubroutine space_random_number_generator_interface
 
-	subroutine particle_velocity_injection_interface(self, field, pic, q_pic)
-   import :: prism_particle_injection_object, field_object, prism_pic_object, I4P, R8P
+	subroutine particle_velocity_injection_interface(self, field, grid, pic, q_pic)
+   import :: prism_particle_injection_object, field_object, grid_object, prism_pic_object, I4P, R8P
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                   	 intent(in)	:: grid
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)                                                         !< Number of variables.
    endsubroutine particle_velocity_injection_interface
@@ -447,17 +449,18 @@ contains
 
    endsubroutine load_from_file
 
-	subroutine set_particle_initial_injection(self, field, pic, q_pic)
+	subroutine set_particle_initial_injection(self, field, grid, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                   	 intent(in)	:: grid
 	type(prism_pic_object),					 	 intent(inout)	:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
 		!Setta posizione spaziale delle particelle e relativa tipologia
-		call self%particle_space_injection(field=field, pic=pic, q_pic=q_pic)
+		call self%particle_space_injection(field=field, grid=grid, pic=pic, q_pic=q_pic)
 		!Setta velocità iniziale delle particelle
-		call self%particle_velocity_injection(field=field, pic=pic, q_pic=q_pic)
+		call self%particle_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic)
 		!Definisci neighbour list
 		call pic%particle_cartesian_grid_index(field=field, q_pic=q_pic)
 
@@ -492,9 +495,10 @@ contains
 	endassociate
 	endsubroutine single_particle_injection
 
-   subroutine uniform_domain_space_injection(self, field, pic, q_pic)
+   subroutine uniform_domain_space_injection(self, field, grid, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                       intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 	real(R8P)															:: r_n(3)
@@ -575,9 +579,10 @@ contains
 
 	!endsubroutine uniform_box_space_injection
 
-	subroutine uniform_cell_space_injection(self, field, pic, q_pic)
+	subroutine uniform_cell_space_injection(self, field, grid, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                       intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 	real(R8P)															:: r_n(3)
@@ -729,9 +734,10 @@ contains
 	endassociate
 	endsubroutine uniform_cell_space_injection
 
-	subroutine uniform_maxwellian_velocity_injection(self, field, pic, q_pic)
+	subroutine uniform_maxwellian_velocity_injection(self, field, grid, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                       intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 	real(R8P)															:: r_n(4)
@@ -829,9 +835,10 @@ contains
 	endassociate
 	endsubroutine uniform_maxwellian_velocity_injection
 
-	subroutine non_uniform_maxwellian_velocity_injection(self, field, pic, q_pic)
+	subroutine non_uniform_maxwellian_velocity_injection(self, field, grid, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                       intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 	real(R8P)															:: r_n(4)
