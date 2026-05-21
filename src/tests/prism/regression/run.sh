@@ -140,10 +140,23 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    [[ "$case_name" == "golden" ]] && continue
    [[ -f "$case_dir/input.ini" ]] || { skip_count=$((skip_count + 1)); continue; }
 
+   # A case with no golden/<backend>/ is not a regression anchor yet: it has
+   # nothing to diff against, and running it can hang/OOM the whole sweep (e.g.
+   # an in-progress N>1 case), taking down committed cases that sort after it.
+   # So SKIP goldenless cases by default. To run one anyway — the initial
+   # golden-capture workflow — set REGRESSION_RUN_GOLDENLESS=1, which runs the
+   # case and produces work-<backend>/digest.txt for promotion into golden/.
    golden_dir="${case_dir%/}/golden/$BACKEND"
    if [[ ! -d "$golden_dir" ]]; then
-      echo "!! [$case_name/$BACKEND] no golden directory at $golden_dir — skipping diff"
-      echo "   (rerun with goldens missing is only valid during initial setup)"
+      if [[ "${REGRESSION_RUN_GOLDENLESS:-0}" == "1" ]]; then
+         echo "!! [$case_name/$BACKEND] no golden at $golden_dir — running anyway"
+         echo "   (REGRESSION_RUN_GOLDENLESS=1; initial golden-capture mode)"
+      else
+         echo ">> [$case_name/$BACKEND] no golden at $golden_dir — skipping case"
+         echo "   (set REGRESSION_RUN_GOLDENLESS=1 to run it for initial golden capture)"
+         skip_count=$((skip_count + 1))
+         continue
+      fi
    fi
 
    # The checkpoint file prefix(es). PRISM also writes a restart dump
