@@ -147,6 +147,7 @@ use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 implicit none
 private
 public :: tree_object
+public :: tree_iterator_object
 public :: NODE_LESS_REFINED
 public :: NODE_STANDARD
 public :: NODE_MORE_REFINED
@@ -161,6 +162,21 @@ integer(I4P), parameter :: NODE_BOUNDARY_CONDITION =  2_I4P !< Boundary conditio
 integer(I8P), parameter :: TREE_BUCKETS_NUMBER_DEF      = 9973_I8P !< Default number of buckets of hash table.
 real(R8P),    parameter :: TREE_MAX_LOAD                = 0.9_R8P  !< Maximum load of hash table buckets.
 integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P   !< Default number of tree sanitize iterations.
+
+type :: tree_iterator_object
+   !< Tree traversal cursor for [[tree_object:loop]].
+   !<
+   !< Holds the per-traversal state (current bucket + current node) that the
+   !< sentinel `loop` advances on each call. Each `do while(tree%loop(iter, ...))`
+   !< site declares its OWN `iter`; the default component initialisation
+   !< (`b=1`, `p=>null()`) makes a fresh iterator start at the tree head, so no
+   !< explicit reset is needed. Caller-owned state (rather than a procedure
+   !< `save`) makes traversals re-entrant and safe across coexisting tree
+   !< instances — required by the multi-realm forest, where two realms' trees
+   !< may be walked on the same rank (issue #13).
+   integer(I4P)                    :: b = 1_I4P    !< Bucket counter.
+   type(tree_node_object), pointer :: p => null()  !< Pointer to current node.
+endtype tree_iterator_object
 
 type :: tree_object
    !< Tree class definition.
@@ -319,6 +335,7 @@ contains
    logical                                  :: only_mine_     !< If true return only the nodes of myrank process.
    logical                                  :: sort_by_level_ !< If true sort codes be level instead of position.
    type(tree_node_object), pointer          :: node_ptr       !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I8P)                             :: c              !< Counter.
    integer(I8P), allocatable                :: work(:)        !< Working memory for sorting codes list.
 
@@ -326,7 +343,8 @@ contains
    sort_by_level_ = .false. ; if (present(sort_by_level)) sort_by_level_ = sort_by_level
    allocate(codes(self%nodes_number))
    c = 0
-   do while(self%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(self%loop(iter, node_ptr=node_ptr))
       if (only_mine_.and.mpih%myrank/=node_ptr%myrank) cycle
       c = c + 1
       codes(c) = node_ptr%code
@@ -628,44 +646,47 @@ contains
    call file_parameters%get(section_name='amr', option_name='l_prune'      , val=buff_I4P) ; self%ijkl_prune(4) = buff_I4P
    endsubroutine load_from_ini_file
 
-   function loop(self, code, node_ptr) result(again)
+   function loop(self, iter, code, node_ptr) result(again)
    !< Sentinel while-loop on nodes returning the code (for tree looping).
-   class(tree_object),     intent(in)                     :: self      !< The tree bucket.
-   integer(I8P),           intent(out), optional          :: code      !< The Morton code.
-   type(tree_node_object), intent(out), optional, pointer :: node_ptr  !< Pointer to current node.
-   logical                                                :: again     !< Sentinel flag to contine the loop.
-   integer(I4P), save                                     :: b=1_I4P   !< Bucket counter.
-   type(tree_node_object), pointer, save                  :: p=>null() !< Pointer to current node.
+   !<
+   !< The traversal cursor lives in the caller-owned `iter` (see
+   !< [[tree_iterator_object]]), not in a procedure `save`, so nested and
+   !< multi-instance traversals are re-entrant (issue #13).
+   class(tree_object),         intent(in)                     :: self      !< The tree bucket.
+   type(tree_iterator_object), intent(inout)                  :: iter      !< Traversal cursor (caller-owned).
+   integer(I8P),               intent(out), optional          :: code      !< The Morton code.
+   type(tree_node_object),     intent(out), optional, pointer :: node_ptr  !< Pointer to current node.
+   logical                                                    :: again     !< Sentinel flag to contine the loop.
 
    again = .false.
    if (self%nodes_number>0) then
       do
-         if (b>self%buckets_number) then
-            b = 1
-            p => null()
+         if (iter%b>self%buckets_number) then
+            iter%b = 1
+            iter%p => null()
             again = .false.
             return
          else
-            if (self%bucket(b)%nodes_number>0) then
-               if (.not.associated(p)) then
-                  p => self%bucket(b)%head
-                  if (present(code)) code = p%code
-                  if (present(node_ptr)) node_ptr => p
+            if (self%bucket(iter%b)%nodes_number>0) then
+               if (.not.associated(iter%p)) then
+                  iter%p => self%bucket(iter%b)%head
+                  if (present(code)) code = iter%p%code
+                  if (present(node_ptr)) node_ptr => iter%p
                   again = .true.
                   return
-               elseif (associated(p%next)) then
-                  p => p%next
-                  if (present(code)) code = p%code
-                  if (present(node_ptr)) node_ptr => p
+               elseif (associated(iter%p%next)) then
+                  iter%p => iter%p%next
+                  if (present(code)) code = iter%p%code
+                  if (present(node_ptr)) node_ptr => iter%p
                   again = .true.
                   return
                else
-                  b = b + 1
-                  p => null()
+                  iter%b = iter%b + 1
+                  iter%p => null()
                endif
             else
-               b = b + 1
-               p => null()
+               iter%b = iter%b + 1
+               iter%p => null()
             endif
          endif
       enddo
@@ -677,9 +698,11 @@ contains
    class(tree_object), intent(inout) :: self     !< The tree.
    type(grid_object),  intent(in) :: grid !< Grid (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I4P)                      :: fec      !< Counter.
 
-   do while(self%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(self%loop(iter, node_ptr=node_ptr))
       if (node_ptr%i_am_new) then
          do fec=1, 26
             call self%get_neighbor_all(grid=grid, code             = node_ptr%code,                  &
@@ -725,8 +748,10 @@ contains
    class(tree_object), intent(inout) :: self     !< The tree.
    integer(I4P),       intent(in)    :: mark     !< Mark to be imposed [TO_BE_REFINED,...].
    type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
 
-   do while(self%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(self%loop(iter, node_ptr=node_ptr))
       node_ptr%refinement_needed = mark
    enddo
    endsubroutine mark_all_nodes
@@ -740,6 +765,7 @@ contains
    real(R8P),          intent(in), optional :: threshold        !< Threshold for sphere proximity.
    real(R8P)                                :: threshold_       !< Threshold for sphere proximity, local var.
    type(tree_node_object), pointer          :: node_ptr         !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    real(R8P)                                :: block_center(3)  !< block center coordinates.
    real(R8P)                                :: block_diagonal   !< block diagonal.
    real(R8P)                                :: distance(0:8)    !< Distances between block and sphere.
@@ -748,7 +774,8 @@ contains
    real(R8P)                                :: emin(3), emax(3) !< Node extents.
 
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   do while(self%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(self%loop(iter, node_ptr=node_ptr))
       call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
       call grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
       block_center = (emax + emin) / 2._R8P
@@ -835,6 +862,7 @@ contains
    class(tree_object), intent(inout) :: self          !< The tree.
    integer(I4P),       intent(inout) :: ijkl_prune(4) !< Maximum coordinates after which the prune operates.
    type(tree_node_object), pointer   :: node_ptr      !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I4P)                      :: ijkl(4)       !< Coordinates counter.
    integer(I4P)                      :: i             !< Counter.
 
@@ -844,7 +872,8 @@ contains
       enddo
       self%ijkl_prune = ijkl_prune
       call mpih%print_message('prune tree with IJKL max: '//trim(str(self%ijkl_prune)))
-      do while(self%loop(node_ptr=node_ptr))
+      iter%b = 1_I4P ; iter%p => null()
+      do while(self%loop(iter, node_ptr=node_ptr))
          call self%morton_to_coordinates(code=node_ptr%code, i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4))
          if (ijkl(4)/=self%ijkl_prune(4)) then
             call mpih%abort(error_code=-200, msg='ERROR: cannot prune nodes at different prune-level, node: '//&
@@ -865,12 +894,14 @@ contains
    real(R8P),          intent(in), optional :: max_load     !< Maximum load of tree buckets.
    type(tree_object)                        :: swap         !< Temporary (swap) tree.
    type(tree_node_object), pointer          :: node_ptr     !< Pointer to node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
 
    if (self%is_initialized_) then
       if (present(max_load)) self%max_load = max_load
       if (self%nodes_number > int((1._R8P/self%max_load)*nodes_number, I4P)) return ! new size too small, cannot previous nodes
       call swap%initialize(grid=grid, nodes_number=nodes_number, add_adam=.false., ratio=self%ratio, max_level=self%max_level)
-      do while(self%loop(node_ptr=node_ptr)) ! re-hash all codes
+      iter%b = 1_I4P ; iter%p => null()
+      do while(self%loop(iter, node_ptr=node_ptr)) ! re-hash all codes
          call swap%add_node(code=node_ptr%code,                           &
                             refinement_needed=node_ptr%refinement_needed, &
                             rank=node_ptr%myrank,                         &
@@ -932,13 +963,15 @@ contains
    class(tree_object), intent(inout) :: self            !< The tree.
    integer(I4P),       intent(in)    :: my_nodes_number !< Number of my nodes, keep_nodes_number + recv_nodes_number.
    type(tree_node_object), pointer   :: node_ptr        !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I4P)                      :: i, j, k, l      !< Counter.
 
    if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(self%block_coordinates(4, my_nodes_number))
    if (allocated(self%block_code)) deallocate(self%block_code) ; allocate(self%block_code(my_nodes_number))
    self%my_nodes_number  = my_nodes_number
    self%last_block_index = my_nodes_number
-   do while(self%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(self%loop(iter, node_ptr=node_ptr))
       node_ptr%myrank = node_ptr%myrank_new
       node_ptr%block_index = node_ptr%block_index_new
       if (node_ptr%myrank == mpih%myrank) then
@@ -969,10 +1002,12 @@ contains
    integer(I4P), allocatable, intent(in)    :: refinements_needed_all(:) !< Refinements needed of all blocks.
    integer(I4P), allocatable, intent(in)    :: disp_count(:)             !< Displacement of blocks that are received from process.
    type(tree_node_object), pointer          :: node_ptr                  !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I8P)                             :: b                         !< Counter.
    integer(I4P)                             :: myrank                    !< Counter.
 
-   do while(self%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(self%loop(iter, node_ptr=node_ptr))
       myrank = node_ptr%myrank
       b = node_ptr%block_index
       node_ptr%refinement_needed = refinements_needed_all(disp_count(myrank)+b)
@@ -1846,6 +1881,7 @@ contains
    integer(I4P),              intent(in), optional :: iterations_number    !< Sanitazie iterations number.
    integer(I4P)                                    :: iterations_number_   !< Sanitazie iterations number.
    type(tree_node_object), pointer                 :: node_ptr             !< Pointer to node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    type(tree_node_object), pointer                 :: sibling              !< Pointer to node sibling.
    integer(I8P)                                    :: code                 !< Code.
    integer(I8P), allocatable                       :: siblings(:)          !< List of code siblings, excluded the quering code.
@@ -1862,7 +1898,8 @@ contains
 
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
-   min_max_check_loop : do while(self%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   min_max_check_loop : do while(self%loop(iter, node_ptr=node_ptr))
       new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
       if ((new_level > self%max_level).or.(new_level < 0)) then
          node_ptr%refinement_needed = TO_NOT_TOUCH
@@ -1876,7 +1913,8 @@ contains
       self%n_my_derefine = 0
       if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
       if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
-      derefine_loop : do while(self%loop(node_ptr=node_ptr))
+      iter%b = 1_I4P ; iter%p => null()
+      derefine_loop : do while(self%loop(iter, node_ptr=node_ptr))
          ! check if I want to be derefined and I have not been analyzed yet
          if (node_ptr%refinement_needed == TO_BE_DEREFINED) then
             if (findloc(codes_analyzed, node_ptr%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
@@ -1920,7 +1958,8 @@ contains
       enddo derefine_loop
 
       ! check for the sanity of refinement (2:1 rule)
-      refine_loop : do while(self%loop(node_ptr=node_ptr))
+      iter%b = 1_I4P ; iter%p => null()
+      refine_loop : do while(self%loop(iter, node_ptr=node_ptr))
          new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
          face_loop : do f=1, 26
             if (allocated(node_ptr%neighbor(f)%codes)) then
@@ -1973,7 +2012,8 @@ contains
    ! update to_refine list
    self%n_my_refine = 0
    if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
-   do while(self%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(self%loop(iter, node_ptr=node_ptr))
       if (node_ptr%refinement_needed==TO_BE_REFINED) then
          self%node_to_refine = [self%node_to_refine, [node_ptr%code]]
          if (mpih%myrank==node_ptr%myrank) self%n_my_refine = self%n_my_refine + 1

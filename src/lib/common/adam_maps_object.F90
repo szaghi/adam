@@ -3,7 +3,7 @@ module adam_maps_object
 !< ADAM, maps class definition
 
 ! ADAM classes, libraries, parameters
-use :: adam_tree_object, only : tree_object, NODE_BOUNDARY_CONDITION, NODE_LESS_REFINED, NODE_MORE_REFINED, NODE_STANDARD
+use :: adam_tree_object, only : tree_object, tree_iterator_object, NODE_BOUNDARY_CONDITION, NODE_LESS_REFINED, NODE_MORE_REFINED, NODE_STANDARD
 use :: adam_tree_node_object
 use :: adam_parameters
 ! ADAM singleton objects
@@ -133,6 +133,7 @@ contains
    class(maps_object), intent(inout) :: self                !< The maps.
    type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr            !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I4P)                      :: outer_blocks_number !< Number of outer blocks where I need fecs.
    integer(I4P)                      :: inner_blocks_number !< Number of inner blocks where I need fecs.
    logical                           :: is_inner_block      !< Flag to check if a neighbor block is inner or not.
@@ -149,7 +150,8 @@ contains
    allocate(outer_block_map(self%my_nodes_number))
    if (allocated(self%inner_outer_block_map)) deallocate(self%inner_outer_block_map)
    allocate(self%inner_outer_block_map(self%my_nodes_number))
-   do while(tree%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(tree%loop(iter, node_ptr=node_ptr))
       if (mpih%myrank == node_ptr%myrank) then
          is_inner_block = .true.
          do fec=1, 26
@@ -176,7 +178,8 @@ contains
    self%inner_blocks_number = inner_blocks_number
    self%inner_outer_block_map(1:inner_blocks_number ) = inner_block_map(1:inner_blocks_number)
    self%inner_outer_block_map(inner_blocks_number+1:) = outer_block_map(1:outer_blocks_number)
-   do while(tree%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(tree%loop(iter, node_ptr=node_ptr))
       if (mpih%myrank == node_ptr%myrank) then
          if (node_ptr%block_index_new < 0) then
             node_ptr%block_index = -node_ptr%block_index_new + inner_blocks_number
@@ -241,6 +244,7 @@ contains
    class(maps_object), intent(inout) :: self                 !< The maps.
    type(tree_object),  intent(inout) :: tree !< Tree (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr             !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I8P), allocatable         :: codes_sorted(:)      !< List of (sorted) codes.
    integer(I4P), allocatable         :: comm_map_send_ctr(:) !< Communication map, counters in list to send [procs_number+1].
    integer(I4P), allocatable         :: comm_map_recv_ctr(:) !< Communication map, counters in list to recv [procs_number+1].
@@ -261,7 +265,8 @@ contains
 
    ! compute the number of blocks to send/receive
    my_nodes_number = 0_I8P
-   do while(tree%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(tree%loop(iter, node_ptr=node_ptr))
       if (node_ptr%myrank==mpih%myrank) my_nodes_number = my_nodes_number + 1_I8P
       if     (is_node_to_send(n=node_ptr)) then
          ! I have this node that must be sent to node_ptr%myrank_new
@@ -385,6 +390,7 @@ contains
    type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    character(*),       intent(in)    :: node_member    !< Node member to be shared.
    type(tree_node_object), pointer   :: node_ptr       !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I8P), allocatable         :: send_buffer(:) !< Send buffer nodes data.
    integer(I8P), allocatable         :: recv_buffer(:) !< Recv buffer nodes data.
    integer(I4P), allocatable         :: recv_count(:)  !< Number of nodes that are received from each process.
@@ -398,7 +404,8 @@ contains
    ! populating receive counters and send buffer
    recv_count = 0_I4P
    n = 0_I8P
-   do while(tree%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(tree%loop(iter, node_ptr=node_ptr))
       recv_count(node_ptr%myrank) = recv_count(node_ptr%myrank) + 2
       if (mpih%myrank == node_ptr%myrank) then
          n = n + 1
@@ -457,6 +464,7 @@ contains
    logical,            intent(in), optional :: verbose                !< Flag to activate verbose mode.
    logical                                  :: verbose_               !< Flag to activate verbose mode, local var.
    type(tree_node_object), pointer          :: node_ptr               !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I4P)                             :: neighbor_type          !< Neighbors type.
    integer(I4P)                             :: neighbor_bc_fec        !< Neighbors fec for BC.
    integer(I4P)                             :: fec                    !< Counter.
@@ -485,7 +493,8 @@ contains
       fec_bc_faces_number = 0_I4P
       fec_bc_edges_number = 0_I4P
       fec_bc_corners_number = 0_I4P
-      do while(tree%loop(node_ptr=node_ptr))
+      iter%b = 1_I4P ; iter%p => null()
+      do while(tree%loop(iter, node_ptr=node_ptr))
          if (node_ptr%myrank==mpih%myrank) then
             do fec=1, 26
                neighbor_type   = node_ptr%neighbor(fec)%ntype
@@ -558,6 +567,7 @@ contains
    type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),       intent(in)    :: nv               !< Number of field variables.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I8P), allocatable         :: neighbor(:)      !< List of code neighbors.
    type(tree_node_object), pointer   :: neigh            !< Pointer to node neighbor.
    integer(I4P)                      :: neighbor_type    !< Neighbors type.
@@ -575,7 +585,8 @@ contains
    send_fec_number = 0
    self%comm_map_n_recv_ghost = 0
    self%comm_map_n_send_ghost = 0
-   do while(tree%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(tree%loop(iter, node_ptr=node_ptr))
       do fec=1, 26
          weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
          if (allocated(node_ptr%neighbor(fec)%codes)) then
@@ -651,12 +662,14 @@ contains
    integer(I4P),       intent(out)   :: fec_bc_edges_number    !< BC edges number.
    integer(I4P),       intent(out)   :: fec_bc_corners_number  !< BC corners number.
    type(tree_node_object), pointer   :: node_ptr               !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I4P)                      :: fec                    !< Counter.
 
    fec_bc_faces_number = 0_I4P
    fec_bc_edges_number = 0_I4P
    fec_bc_corners_number = 0_I4P
-   do while(tree%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(tree%loop(iter, node_ptr=node_ptr))
       if (node_ptr%myrank==mpih%myrank) then
          do fec=1, 26
             if (node_ptr%neighbor(fec)%ntype == NODE_BOUNDARY_CONDITION) then
@@ -1154,6 +1167,7 @@ contains
    type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr                   !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I8P), allocatable         :: neighbor(:)                !< List of code neighbors.
    type(tree_node_object), pointer   :: neigh                      !< Pointer to node neighbor.
    integer(I4P)                      :: neighbor_type              !< Neighbors type.
@@ -1168,7 +1182,8 @@ contains
    sf = 0
    rf = 0
    mf = 0
-   do while(tree%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(tree%loop(iter, node_ptr=node_ptr))
       do fec=1, 26
          weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
          if (allocated(node_ptr%neighbor(fec)%codes)) then

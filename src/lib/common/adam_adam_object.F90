@@ -9,7 +9,7 @@ use :: adam_maps_object,            only : maps_object
 use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
-use :: adam_tree_object,            only : tree_object
+use :: adam_tree_object,            only : tree_object, tree_iterator_object
 use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_mpih_global,  only : mpih
@@ -131,11 +131,13 @@ contains
    !< Check if blocks number is groving too much.
    class(adam_object), intent(inout) :: self             !< ADAM.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I8P)                      :: max_nb           !< Maximum number of blocks desidered.
    character(len=1), parameter       :: NL=new_line('a') !< New line character.
 
    max_nb = 0
-   do while(self%tree%loop(node_ptr=node_ptr))
+   iter%b = 1_I4P ; iter%p => null()
+   do while(self%tree%loop(iter, node_ptr=node_ptr))
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
    if (max_nb > self%field%nb) then
@@ -547,6 +549,7 @@ contains
    type(vtk_file)                           :: vtk                                           !< VTK file handler.
    type(vtm_file)                           :: vtm                                           !< VTM file handler.
    type(tree_node_object), pointer          :: node                                          !< Pointer to node.
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
    integer(I4P)                             :: b, l, v                                       !< Counter.
    integer(I4P)                             :: i                                             !< Counter.
    integer(I4P)                             :: max_level                                     !< Maximum level.
@@ -623,7 +626,8 @@ contains
          vtm_group_loop : do l=1, max_level
             error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
          enddo vtm_group_loop
-         vtm_filenames_loop : do while(self%tree%loop(node_ptr=node))
+         iter%b = 1_I4P ; iter%p => null()
+         vtm_filenames_loop : do while(self%tree%loop(iter, node_ptr=node))
             b = node%block_index
             l = self%tree%level(code=node%code)
             error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//                                   &
