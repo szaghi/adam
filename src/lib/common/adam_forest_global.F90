@@ -56,5 +56,23 @@ public :: forest_realm
 public :: forest_active_substage
 
 class(realm_object), pointer :: forest_realm(:) => null() !< Set by forest%evolve_one_step for the duration of the step.
-integer(I4P)                 :: forest_active_substage = 0_I4P !< Set by the forest's substage loop on the multi-realm path; 0 elsewhere (N=1 fast path uses self%q directly).
+
+!< INVARIANT — all realms advance their RK substages in LOCKSTEP.
+!<
+!< `forest_active_substage` is a SINGLE program-scope index shared by every
+!< realm. It is correct only because `forest_object%evolve_one_step` drives one
+!< substage loop over ALL realms together: it sets `forest_active_substage = s`
+!< ONCE per outer substage and processes every realm at that `s` (assemble then
+!< evaluate) before advancing — see adam_forest_object.F90 (the `do s = 1, nrk`
+!< loop). The forest also asserts up front that every realm agrees on `nrk`
+!< (`error_stop` otherwise, same routine), which forbids the most likely way to
+!< break lockstep. Reader semantics: `> 0` selects the peer's substage-s buffer
+!< in the inter-realm halo copy; `0` is the N=1 fast path (use `self%q`).
+!<
+!< This single global would become SILENTLY WRONG under realm-local subcycling
+!< (different realms at different substages or different `nrk`) or any overlap
+!< of two realms' substage phases in time. Neither is the current model. If
+!< subcycling is ever scoped, this MUST become per-realm state (e.g. carried on
+!< the realm via `bind_my_globals_forest`) — do not keep it as a shared scalar.
+integer(I4P)                 :: forest_active_substage = 0_I4P !< Active RK substage shared by all realms; see the lockstep invariant above.
 endmodule adam_forest_global
