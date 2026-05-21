@@ -359,6 +359,10 @@ contains
       if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%finalize_forest
    enddo
+   ! MPI_FINALIZE is process-global: run it ONCE here, after every realm has done its
+   ! MPI-using teardown above — not per realm inside finalize_forest, which would tear
+   ! MPI down while later realms still need it (issue #13 rmf-2realm MPI_Type_f2c abort).
+   if (size(realm) >= 1) call realm(1)%finalize_mpi_forest
    endsubroutine finalize
 
    subroutine populate_inter_realm_topology(self, realm, manifest)

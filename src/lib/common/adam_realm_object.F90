@@ -142,6 +142,7 @@ type :: realm_object
       procedure, pass(self) :: post_step_forest                 !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest                   !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                  !< Invoked by forest%finalize per realm at shutdown.
+      procedure, pass(self) :: finalize_mpi_forest              !< Process-global MPI finalize; forest calls it ONCE after all realms.
       procedure, pass(self) :: exchange_inter_realm_halos_forest !< Invoked by forest%exchange_halos to refresh inter-realm ghosts.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
@@ -533,6 +534,23 @@ contains
    end associate
    call mpih%error_stop(msg='realm_object%finalize_forest: not overridden by app extension')
    endsubroutine finalize_forest
+
+   subroutine finalize_mpi_forest(self)
+   !< Finalize the process-global MPI handler.
+   !<
+   !< MPI_FINALIZE is process-global and must run EXACTLY ONCE, after every
+   !< realm has completed all MPI-using teardown. The forest therefore calls
+   !< this on a SINGLE realm after the per-realm `finalize_forest` loop — not
+   !< inside `finalize_forest` (which runs per realm; doing the finalize there
+   !< tore MPI down while later realms still had IO/ghost work pending, e.g.
+   !< issue #13 rmf-2realm: realm 2's update_ghost hit MPI_Type_f2c after
+   !< realm 1 had already finalized). The default targets the CPU `mpih`
+   !< singleton; the FNL backend overrides to finalize `mpih_fnl`.
+   class(realm_object), intent(inout) :: self !< The realm (carries no MPI state; dispatch picks the backend handler).
+
+   associate(self_unused => self); end associate
+   call mpih%finalize
+   endsubroutine finalize_mpi_forest
 
    subroutine exchange_inter_realm_halos_forest(self, realm)
    !< Refresh THIS realm's ghost cells that depend on neighbour realms.

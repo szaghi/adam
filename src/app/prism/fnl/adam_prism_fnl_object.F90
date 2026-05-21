@@ -113,6 +113,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: post_step_forest                  !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: is_done_forest                    !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: finalize_forest                   !< Orchestrator contract; overrides realm_object default.
+      procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize (mpih_fnl); overrides realm_object default.
       procedure, pass(self) :: exchange_inter_realm_halos_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
@@ -1684,9 +1685,21 @@ contains
    !call self%compute_energy_error !Cazzo
    call self%save_simulation_data
    call self%io%close_file_residuals
-
-   call mpih_fnl%finalize
+   ! NB: MPI_FINALIZE is NOT called here — it is process-global and runs once via
+   ! forest%finalize -> finalize_mpi_forest after ALL realms finish (issue #13).
    endsubroutine finalize_forest
+
+   subroutine finalize_mpi_forest(self)
+   !< Finalize the process-global FNL MPI handler (mpih_fnl).
+   !<
+   !< Overrides realm_object%finalize_mpi_forest to target the FNL `mpih_fnl`
+   !< singleton instead of the CPU `mpih`. Called ONCE by forest%finalize
+   !< after every realm's finalize_forest (see the base for the rationale).
+   class(prism_fnl_object), intent(inout) :: self !< The realm (carries no MPI state).
+
+   associate(self_unused => self); end associate
+   call mpih_fnl%finalize
+   endsubroutine finalize_mpi_forest
 
    subroutine simulate(self, filename)
    !< Perform the simulation: legacy single-realm entry point.
@@ -1712,6 +1725,7 @@ contains
       if (loop_done) exit integration
    enddo integration
    call self%finalize_forest
+   call self%finalize_mpi_forest ! finalize_forest no longer finalizes MPI (issue #13); single-realm legacy path
    endsubroutine simulate
 
    ! numerical methods, miscellanea

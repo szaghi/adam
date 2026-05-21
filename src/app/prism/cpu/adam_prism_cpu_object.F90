@@ -1838,7 +1838,8 @@ contains
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
    call self%save_divergence_history(is_to_close=.true.)
-   call mpih%finalize
+   ! NB: MPI_FINALIZE is NOT called here — it is process-global and runs once via
+   ! forest%finalize -> finalize_mpi_forest after ALL realms finish (issue #13).
    endsubroutine finalize_forest
 
    subroutine simulate(self, filename)
@@ -1865,6 +1866,7 @@ contains
       if (loop_done) exit integration
    enddo integration
    call self%finalize_forest
+   call self%finalize_mpi_forest ! finalize_forest no longer finalizes MPI (issue #13); single-realm legacy path
    endsubroutine simulate
 
    ! pointer TBP concrete implementations
