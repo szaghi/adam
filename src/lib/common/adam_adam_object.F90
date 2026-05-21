@@ -72,7 +72,7 @@ contains
 
    call self%check_blocks_number
 
-   call self%field%adapt(plan=plan, q=q)
+   call self%field%adapt(grid=self%grid, plan=plan, q=q)
    endsubroutine adapt
 
    subroutine amr_update(self, q, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed)
@@ -124,7 +124,7 @@ contains
                                           1:)!< Field cell centered variables.
 
    call self%maps%blocks_reorder
-   call self%field%blocks_reorder(q=q)
+   call self%field%blocks_reorder(grid=self%grid, q=q)
    endsubroutine blocks_reorder
 
    subroutine check_blocks_number(self)
@@ -188,7 +188,7 @@ contains
    read(unit=file_unit) t, time
    close(file_unit)
    call self%tree%load_nodes(file_name=trim(adjustl(basename))//'.tnd')
-   call self%field%load_blocks(basename=basename, q=q)
+   call self%field%load_blocks(grid=self%grid, basename=basename, q=q)
    endsubroutine load_restart_files
 
    subroutine initialize(self, file_parameters, memory_avail, add_adam, nv, verbose)
@@ -215,7 +215,8 @@ contains
                              add_adam=add_adam,              &
                              verbose=verbose_)
    call self%maps%initialize(verbose=verbose_)
-   call self%field%initialize(file_parameters=file_parameters,&
+   call self%field%initialize(grid=self%grid,                 &
+                              file_parameters=file_parameters,&
                               nb=nb,                          &
                               nv=nv,                          &
                               verbose=verbose_)
@@ -369,7 +370,7 @@ contains
 
    call self%tree%mpi_redistribute
    call self%maps%make_comm_local_maps
-   call self%field%mpi_redistribute(q=q)
+   call self%field%mpi_redistribute(grid=self%grid, q=q)
 
    endsubroutine mpi_redistribute
 
@@ -431,7 +432,7 @@ contains
       close(file_unit)
       call self%tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
    endif
-   call self%field%save_blocks(basename=basename, q=q)
+   call self%field%save_blocks(grid=self%grid, basename=basename, q=q)
    endsubroutine save_restart_files
 
    subroutine save_slice(self, itype, points, basename, q, q_name, phi, t, time)

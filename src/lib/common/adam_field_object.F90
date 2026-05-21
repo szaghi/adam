@@ -67,7 +67,7 @@ module adam_field_object
 use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_grid_global, only : grid
+use :: adam_grid_object, only : grid_object
 use :: adam_maps_global, only : maps
 use :: adam_mpih_global, only : mpih
 ! third party modules
@@ -155,9 +155,10 @@ endtype field_object
 
 contains
    ! public methods
-   subroutine adapt(self, plan, q)
+   subroutine adapt(self, grid, plan, q)
    !< Adapt field accordingly to refine/derefine necessity.
    class(field_object),           intent(inout) :: self !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    type(refinement_plan_object),  intent(in)    :: plan !< Refinement plan produced by tree%adapt.
    real(R8P),                     intent(inout) :: q(1:,          &
                                                      1-grid%ngc:, &
@@ -167,20 +168,21 @@ contains
 
    select case(plan%ratio)
    case(2_I4P)
-      call self%refine1D(  ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
-      call self%derefine1D(ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
+      call self%refine1D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
+      call self%derefine1D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
    case(4_I4P)
-      call self%refine2D(  ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
-      call self%derefine2D(ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
+      call self%refine2D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
+      call self%derefine2D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
    case(8_I4P)
-      call self%refine3D(  ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
-      call self%derefine3D(ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
+      call self%refine3D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
+      call self%derefine3D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
    endselect
    endsubroutine adapt
 
-   subroutine blocks_reorder(self, q)
+   subroutine blocks_reorder(self, grid, q)
    !< Reorder blocks indexes in field.
    class(field_object), intent(inout) :: self                 !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),           intent(inout) :: q(1:,              &
                                            1-grid%ngc:,&
                                            1-grid%ngc:,&
@@ -203,14 +205,15 @@ contains
       self%code(b) = code_new(b)
    enddo
    self%inner_blocks_number = maps%inner_blocks_number
-   call self%compute_metrics
+   call self%compute_metrics(grid=grid)
    if (allocated(coordinates_new)) deallocate(coordinates_new)
    if (allocated(code_new)) deallocate(code_new)
    endsubroutine blocks_reorder
 
-   subroutine compute_metrics(self)
+   subroutine compute_metrics(self, grid)
    !< Compute metrics of each block.
    class(field_object), intent(inout) :: self  !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P)                       :: b     !< Counter.
 
    do b=1, self%blocks_number
@@ -222,9 +225,10 @@ contains
    enddo
    endsubroutine compute_metrics
 
-   subroutine compute_normL2_residuals(self, dq, norm)
+   subroutine compute_normL2_residuals(self, grid, dq, norm)
    !< Compute L2 norm of residuals.
    class(field_object), intent(in)    :: self       !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),           intent(in)    :: dq(1:,               &
                                             1-grid%ngc:, &
                                             1-grid%ngc:, &
@@ -305,9 +309,10 @@ contains
    endif
    endfunction do_caxis_intersect
 
-   function do_cplane_intersect(self, b, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
+   function do_cplane_intersect(self, grid, b, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
    !< Return true if a block is intersected by coordinate-plane.
    class(field_object), intent(inout)         :: self                    !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),        intent(in)            :: b                       !< Block index.
    real(R8P),           intent(in)            :: cplane_origin(3)        !< Coordinate-plane origin.
    real(R8P),           intent(in)            :: cplane_normal(3)        !< Coordinate-plane normal.
@@ -388,9 +393,10 @@ contains
       endsubroutine check_slab
    endfunction do_ray_intersect
 
-   subroutine initialize(self, nb, file_parameters, nv, verbose)
+   subroutine initialize(self, grid, nb, file_parameters, nv, verbose)
    !< Initialize field.
    class(field_object),    intent(inout)        :: self            !< The field.
+   type(grid_object),            intent(in), target   :: grid !< Grid (sibling realm component, threaded in).
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
    integer(I4P),           intent(in)           :: nb              !< Number of all blocks that can be stored.
    integer(I4P),           intent(in), optional :: nv              !< Number of field variables.
@@ -483,16 +489,17 @@ contains
    self%nj  => grid%nj
    self%nk  => grid%nk
    call self%update_coordinates
-   call self%compute_metrics
+   call self%compute_metrics(grid=grid)
    if (verbose_) print '(A)', self%description()
    if (verbose_) call mpih%print_message('field_object%initialize finish')
    endsubroutine initialize
 
-   subroutine load_blocks(self, basename, q)
+   subroutine load_blocks(self, grid, basename, q)
    !< Load blocks data, used for restarting.
    !<
    !< Note: blocks memory must be already initialized with enough memory (proper nv,ni,nj,nk,ngc and nb>=blocks number).
    class(field_object), intent(inout) :: self                            !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    character(*),        intent(in)    :: basename                        !< Output base name.
    real(R8P),           intent(inout) :: q(1:,              &
                                            1-grid%ngc:,&
@@ -525,7 +532,7 @@ contains
                                       1-grid%ngc:grid%nj+grid%ngc, &
                                       1-grid%ngc:grid%nk+grid%ngc,b)
             enddo
-            call self%compute_metrics
+            call self%compute_metrics(grid=grid)
          else
             call mpih%abort(error_code=-102, msg='ERROR: blocks number to read "'//trim(str(blocks_number))//&
                                                       '" is greater than blocks allocated "'//trim(str(self%nb))//'"!')
@@ -567,9 +574,10 @@ contains
    endif
    endsubroutine load_from_ini_file
 
-   subroutine mark_sphere(self, center, radius, threshold)
+   subroutine mark_sphere(self, grid, center, radius, threshold)
    !< Mark blocks to be refined/derefined by sphere distance.
    class(field_object),       intent(inout)        :: self            !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),                 intent(in)           :: center(3)       !< Sphere center coordinates [x,y,z].
    real(R8P),                 intent(in)           :: radius          !< Sphere radius.
    real(R8P),                 intent(in), optional :: threshold       !< Threshold for sphere proximity.
@@ -687,10 +695,11 @@ contains
    disp  = self%disp_count
    endsubroutine get_refinements_needed
 
-   subroutine mpi_redistribute(self, q)
+   subroutine mpi_redistribute(self, grid, q)
    !< Redistribute blocks to processes.
    !< @TODO: Morton codes are not yet redistributed, must be fixed.
    class(field_object), intent(inout) :: self                   !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),           intent(inout) :: q(1:,              &
                                            1-grid%ngc:,&
                                            1-grid%ngc:,&
@@ -765,16 +774,17 @@ contains
    q(:,:,:,:,1:self%blocks_number) = self%q_work(:,:,:,:,1:self%blocks_number)
    call self%update_coordinates
    call maps%get_block_layout(code=self%code(1:self%blocks_number))
-   call self%compute_metrics
+   call self%compute_metrics(grid=grid)
    endassociate
    call MPI_ALLGATHER(self%blocks_number, 1, MPI_INTEGER,  &
                       self%blocks_numbers, 1, MPI_INTEGER, &
                       MPI_COMM_WORLD, mpih%error)
    endsubroutine mpi_redistribute
 
-   subroutine save_blocks(self, basename, q)
+   subroutine save_blocks(self, grid, basename, q)
    !< Save blocks data, used for restarting.
    class(field_object), intent(in) :: self      !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    character(*),        intent(in) :: basename  !< Output base name.
    real(R8P),           intent(in) :: q(1:,              &
                                         1-grid%ngc:,&
@@ -803,9 +813,10 @@ contains
    endif
    endsubroutine save_blocks
 
-   subroutine update_ghost_local(self, q)
+   subroutine update_ghost_local(self, grid, q)
    !< Update (local) ghost cells.
    class(field_object), intent(in)    :: self              !< The base backend.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),           intent(inout) :: q(1:,              &
                                            1-grid%ngc:,&
                                            1-grid%ngc:,&
@@ -850,9 +861,10 @@ contains
    endassociate
    endsubroutine update_ghost_local
 
-   subroutine update_ghost_mpi(self, q, step)
+   subroutine update_ghost_mpi(self, grid, q, step)
    !< Update ghost cells within other processes.
    class(field_object), intent(inout)        :: self                               !< The base backend.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),           intent(inout)        :: q(1:,              &
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,&
@@ -952,11 +964,12 @@ contains
    endsubroutine update_ghost_mpi
 
    ! private methods
-   subroutine derefine1D(self, ratio, block_to_derefine, block_derefined, q)
+   subroutine derefine1D(self, grid, ratio, block_to_derefine, block_derefined, q)
    !< Derefine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
    class(field_object),       intent(inout) :: self                 !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
@@ -993,11 +1006,12 @@ contains
    endassociate
    endsubroutine derefine1D
 
-   subroutine derefine2D(self, ratio, block_to_derefine, block_derefined, q)
+   subroutine derefine2D(self, grid, ratio, block_to_derefine, block_derefined, q)
    !< Derefine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
    class(field_object),       intent(inout) :: self                 !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
@@ -1041,11 +1055,12 @@ contains
    endassociate
    endsubroutine derefine2D
 
-   subroutine derefine3D(self, ratio, block_to_derefine, block_derefined, q)
+   subroutine derefine3D(self, grid, ratio, block_to_derefine, block_derefined, q)
    !< Derefine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
    class(field_object),       intent(inout) :: self                 !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
@@ -1114,11 +1129,12 @@ contains
    endassociate
    endsubroutine derefine3D
 
-   subroutine refine1D(self, ratio, block_to_refine, block_refined, q)
+   subroutine refine1D(self, grid, ratio, block_to_refine, block_refined, q)
    !< Refine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
    class(field_object),       intent(inout) :: self                 !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
    integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of blocks to be refined.
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
@@ -1169,11 +1185,12 @@ contains
    endassociate
    endsubroutine refine1D
 
-   subroutine refine2D(self, ratio, block_to_refine, block_refined, q)
+   subroutine refine2D(self, grid, ratio, block_to_refine, block_refined, q)
    !< Refine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
    class(field_object),       intent(inout) :: self                 !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
    integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of blocks to be refined.
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
@@ -1244,11 +1261,12 @@ contains
    endassociate
    endsubroutine refine2D
 
-   subroutine refine3D(self, ratio, block_to_refine, block_refined, q)
+   subroutine refine3D(self, grid, ratio, block_to_refine, block_refined, q)
    !< Refine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
    class(field_object),       intent(inout) :: self                      !< The field.
+   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),              intent(in)    :: ratio                     !< Refinement ratio.
    integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:)      !< List of blocks to be refined.
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)        !< List of refined blocks with Morton code.

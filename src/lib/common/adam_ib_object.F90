@@ -4,7 +4,7 @@ module adam_ib_object
 
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
-use :: adam_grid_global,  only : grid
+use :: adam_grid_object,  only : grid_object
 use :: adam_mpih_global,  only : mpih
 ! third party modules
 use :: finer
@@ -75,10 +75,11 @@ type :: ib_object
 endtype ib_object
 contains
    ! public methods
-   subroutine compute_phi(self, field, verbose)
+   subroutine compute_phi(self, field, grid, verbose)
    !< Compute phi, distance from IB solid.
    class(ib_object), intent(inout)        :: self     !< IB.
    type(field_object), intent(in)         :: field    !< Field (sibling realm component, threaded in).
+   type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
    logical,          intent(in), optional :: verbose  !< Flag to trigger verbose prints.
    logical                                :: verbose_ !< Flag to trigger verbose prints, local variable.
    integer(I4P)                           :: ib       !< Counter.
@@ -89,22 +90,23 @@ contains
       do ib=1, self%solids_number
          select case(trim(adjustl(self%definition(ib))))
          case(trim(IB_ANALYTICAL_SPHERE))
-            call self%compute_phi_analytical_sphere(field=field, solid=ib, sphere=self%sphere(ib))
+            call self%compute_phi_analytical_sphere(field=field, grid=grid, solid=ib, sphere=self%sphere(ib))
          case(trim(IB_ANALYTICAL_CIRCLE))
-            call self%compute_phi_analytical_circle(field=field, solid=ib, sphere=self%sphere(ib))
+            call self%compute_phi_analytical_circle(field=field, grid=grid, solid=ib, sphere=self%sphere(ib))
          case(trim(IB_ANALYTICAL_RECTANGLE))
-            call self%compute_phi_analytical_rectangle(field=field, solid=ib, rectangle=self%rectangle(ib))
+            call self%compute_phi_analytical_rectangle(field=field, grid=grid, solid=ib, rectangle=self%rectangle(ib))
          endselect
       enddo
-      call self%compute_phi_all_solids(field=field, verbose=verbose)
+      call self%compute_phi_all_solids(field=field, grid=grid, verbose=verbose)
       if (verbose_) call mpih%print_message('ib_object%compute_phi finish')
    endif
    endsubroutine compute_phi
 
-   subroutine compute_phi_all_solids(self, field, verbose)
+   subroutine compute_phi_all_solids(self, field, grid, verbose)
    !< Compute phi, distance from IB solid.
    class(ib_object), intent(inout)        :: self          !< IB.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
    logical,          intent(in), optional :: verbose       !< Flag to trigger verbose prints.
    logical                                :: verbose_      !< Flag to trigger verbose prints, local variable.
    integer(I4P)                           :: b, i, j, k    !< Counter.
@@ -153,10 +155,11 @@ contains
    enddo
    endfunction description
 
-   subroutine initialize(self, field, file_parameters)
+   subroutine initialize(self, field, grid, file_parameters)
    !< Initialize the equation.
    class(ib_object), intent(inout)  :: self            !< IB.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
    type(file_ini),   intent(inout)  :: file_parameters !< INI file handler.
 
    call mpih%print_message('ib_object%initialize start')
@@ -266,10 +269,11 @@ contains
    array = [self%sphere(ib)%center(1), self%sphere(ib)%center(2), self%sphere(ib)%center(3), self%sphere(ib)%radius]
    endfunction sphere_to_array
 
-   subroutine evolve_eikonal(self, field, q)
+   subroutine evolve_eikonal(self, field, grid, q)
    !< Evolve eikonal equation.
    class(ib_object), intent(in)    :: self                             !< IB.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),        intent(inout) ::  q(1:,               &
                                          1-grid%ngc:, &
                                          1-grid%ngc:, &
@@ -326,10 +330,11 @@ contains
    endassociate
    endsubroutine evolve_eikonal
 
-   subroutine invert_eikonal(self, field, q)
+   subroutine invert_eikonal(self, field, grid, q)
    !< Invert eikonal equation over q inside IB.
    class(ib_object), intent(in)    :: self                  !< IB.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),        intent(inout) ::  q(1:,               &
                                          1-grid%ngc:, &
                                          1-grid%ngc:, &
@@ -379,10 +384,11 @@ contains
    endsubroutine invert_eikonal
 
    ! private methods
-   subroutine compute_phi_analytical_sphere(self, field, solid, sphere)
+   subroutine compute_phi_analytical_sphere(self, field, grid, solid, sphere)
    !< Compute distance for analytical sphere solid.
    class(ib_object),               intent(inout) :: self       !< IB.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),                   intent(in)    :: solid      !< Solid index.
    type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical sphere solid.
    integer(I4P)                                  :: b, i, j, k !< Counter.
@@ -404,10 +410,11 @@ contains
    endassociate
    endsubroutine compute_phi_analytical_sphere
 
-   subroutine compute_phi_analytical_circle(self, field, solid, sphere)
+   subroutine compute_phi_analytical_circle(self, field, grid, solid, sphere)
    !< Compute distance function for analytical circle (2D) solid.
    class(ib_object),               intent(inout) :: self       !< IB.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),                   intent(in)    :: solid      !< Solid index.
    type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical circle solid.
    integer(I4P)                                  :: b, i, j, k !< Counter.
@@ -457,10 +464,11 @@ contains
    endassociate
    endsubroutine compute_phi_analytical_circle
 
-   subroutine compute_phi_analytical_rectangle(self, field, solid, rectangle)
+   subroutine compute_phi_analytical_rectangle(self, field, grid, solid, rectangle)
    !< Compute distance function for analytical rectangle (2D) solid.
    class(ib_object),                  intent(inout) :: self         !< IB.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),                      intent(in)    :: solid        !< Solid index.
    type(analytical_rectangle_object), intent(in)    :: rectangle    !< Analytical rectangle solid.
    integer(I4P)                                     :: b, i, j, k   !< Counter.

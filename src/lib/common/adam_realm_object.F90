@@ -620,7 +620,7 @@ contains
       ! adam binder works because adam_adam_object does not need the binder
       ! itself; the same is not true for realm_object.
       call self%amr%initialize(file_parameters=file_parameters)
-      call self%ib%initialize(field=self%adam%field, file_parameters=file_parameters)
+      call self%ib%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
       ! call self%cfm%initialize(file_parameters=file_parameters)

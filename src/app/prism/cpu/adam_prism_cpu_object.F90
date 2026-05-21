@@ -314,7 +314,7 @@ contains
    integer(I4P)                           :: v    !< Counter.
 
    if (self%time%is_to_save(it_save=self%io%residuals_save)) then
-      call self%adam%field%compute_normL2_residuals(dq=self%dq, norm=self%adam%field%residuals)
+      call self%adam%field%compute_normL2_residuals(grid=self%adam%grid, dq=self%dq, norm=self%adam%field%residuals)
       do v=1, self%nv
          call MPI_ALLREDUCE(MPI_IN_PLACE, self%adam%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
          self%adam%field%residuals(v) = sqrt(self%adam%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
@@ -863,8 +863,8 @@ contains
       if (step==1) do_local_update = .true.
       if (step==3) do_set_bc       = .true.
    endif
-   if (do_local_update) call self%adam%field%update_ghost_local(q=q)
-                        call self%adam%field%update_ghost_mpi(q=q, step=step)
+   if (do_local_update) call self%adam%field%update_ghost_local(grid=self%adam%grid, q=q)
+                        call self%adam%field%update_ghost_mpi(grid=self%adam%grid, q=q, step=step)
    if (associated(forest_realm) .and. allocated(self%adam%maps%inter_realm_neighbors)) then
       call self%exchange_inter_realm_halos_forest(realm=forest_realm)
    endif
