@@ -22,7 +22,6 @@ module adam_adam_bind
 use :: adam_adam_object,  only : adam_object
 ! ADAM singleton objects
 use :: adam_adam_global,  only : adam
-use :: adam_grid_global,  only : grid
 use :: adam_maps_global,  only : maps
 use :: adam_tree_global,  only : tree
 
@@ -35,7 +34,6 @@ contains
    !< Alias the four legacy shim singletons into `adam`'s value components.
    !< Idempotent: safe to call more than once.
 
-   grid  => adam%grid
    tree  => adam%tree
    maps  => adam%maps
    endsubroutine bind_globals_to_adam

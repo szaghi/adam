@@ -134,7 +134,7 @@ use :: adam_refinement_plan_object,   only : refinement_plan_object
 use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
-use :: adam_grid_global, only : grid
+use :: adam_grid_object, only : grid_object
 ! third party modules
 use :: finer, only : file_ini
 use :: mortif
@@ -286,11 +286,12 @@ endinterface
 
 contains
    ! public methods
-   subroutine adapt(self, plan)
+   subroutine adapt(self, grid, plan)
    !< Adapt tree accordingly to refine/derefine necessity.
    !< Ownership of the block lists produced by refine/derefine is transferred
    !< to plan via move_alloc, leaving tree_object without field-domain state.
    class(tree_object),           intent(inout) :: self !< The tree.
+   type(grid_object),  intent(in) :: grid !< Grid (sibling realm component, threaded in).
    type(refinement_plan_object), intent(inout) :: plan !< Refinement plan for field.
 
    call self%sanitize
@@ -299,7 +300,7 @@ contains
 
    call self%derefine
 
-   call self%make_neighborhood
+   call self%make_neighborhood(grid=grid)
 
    call plan%destroy
    plan%ratio = self%ratio
@@ -429,9 +430,10 @@ contains
    desc = desc//mpih%myrankstr//'  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
    endfunction description
 
-   function get_closest_block(self, point) result(code)
+   function get_closest_block(self, grid, point) result(code)
    !< Get the closest block to a given point.
    class(tree_object), intent(inout) :: self        !< The tree.
+   type(grid_object),  intent(inout) :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),          intent(in)    :: point(3)    !< Point xyz coordinates.
    integer(I8P)                      :: code        !< The Morton code.
    integer(I4P)                      :: ijkl(4)     !< Indexes.
@@ -459,9 +461,10 @@ contains
    endif
    endfunction get_closest_block
 
-   subroutine get_closest_cells(self, point, code, ijk, v, xyz)
+   subroutine get_closest_cells(self, grid, point, code, ijk, v, xyz)
    !< Get the closest cells to a given point.
    class(tree_object), intent(in)            :: self       !< The tree.
+   type(grid_object),  intent(inout) :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),          intent(in)            :: point(3)   !< Point xyz coordinates.
    integer(I8P),       intent(in)            :: code       !< The Morton code of the closest block.
    integer(I4P),       intent(out)           :: ijk(3,8)   !< Closest cells indexes.
@@ -542,9 +545,10 @@ contains
    bucket = modulo(code, int(self%buckets_number, I8P)) + 1
    endfunction hash
 
-   subroutine initialize(self, file_parameters, nodes_number, buckets_number, add_adam, verbose, ratio, max_level)
+   subroutine initialize(self, grid, file_parameters, nodes_number, buckets_number, add_adam, verbose, ratio, max_level)
    !< Initialize the tree.
    class(tree_object), intent(inout)           :: self            !< The tree.
+   type(grid_object),  intent(in) :: grid !< Grid (sibling realm component, threaded in).
    type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
    integer(I8P),       intent(in),    optional :: nodes_number    !< Nodes number to be stored in the tree.
    integer(I8P),       intent(in),    optional :: buckets_number  !< Buckets number.
@@ -568,16 +572,17 @@ contains
    self%is_initialized_ = .true.
    if (add_adam_) call self%add_node(code=-1_I8P) ! add ADAM node, the ancestor of all nodes
    call self%mpi_redistribute
-   call self%make_neighborhood
+   call self%make_neighborhood(grid=grid)
    if (verbose_) print '(A)', self%description()
    if (verbose_) call mpih%print_message('tree_object%initialize finish')
    endsubroutine initialize
 
-   subroutine load_nodes(self, file_name)
+   subroutine load_nodes(self, grid, file_name)
    !< Load nodes data, used for restart.
    !<
    !< Note: the tree is made empty before lading nodes data.
    class(tree_object), intent(inout) :: self             !< The tree.
+   type(grid_object),  intent(in) :: grid !< Grid (sibling realm component, threaded in).
    character(*),       intent(in)    :: file_name        !< Output file name.
    integer(I8P)                      :: codes_number     !< Number of codes actually stored.
    integer(I4P)                      :: file_unit        !< Output file unit.
@@ -601,7 +606,7 @@ contains
          enddo
       endif
       close(file_unit)
-      call self%make_neighborhood
+      call self%make_neighborhood(grid=grid)
       call mpih%print_message('tree_object%load_nodes from file '//trim(adjustl(file_name))//' completed')
    else
       write(stderr, '(A)') mpih%myrankstr//'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
@@ -667,16 +672,17 @@ contains
    endif
    endfunction loop
 
-   subroutine make_neighborhood(self)
+   subroutine make_neighborhood(self, grid)
    !< Make neighborhood all whole tree and store it in nodes.
    class(tree_object), intent(inout) :: self     !< The tree.
+   type(grid_object),  intent(in) :: grid !< Grid (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
    integer(I4P)                      :: fec      !< Counter.
 
    do while(self%loop(node_ptr=node_ptr))
       if (node_ptr%i_am_new) then
          do fec=1, 26
-            call self%get_neighbor_all(code             = node_ptr%code,                  &
+            call self%get_neighbor_all(grid=grid, code             = node_ptr%code,                  &
                                        face             = fec,                            &
                                        neighbor         = node_ptr%neighbor(fec)%codes,   &
                                        neighbor_type    = node_ptr%neighbor(fec)%ntype,   &
@@ -688,7 +694,7 @@ contains
          do fec=1, 26
             if (allocated(node_ptr%neighbor(fec)%codes)) then
                if (.not.self%has_code(code=node_ptr%neighbor(fec)%codes(1))) then
-                  call self%get_neighbor_all(code             = node_ptr%code,                  &
+                  call self%get_neighbor_all(grid=grid, code             = node_ptr%code,                  &
                                              face             = fec,                            &
                                              neighbor         = node_ptr%neighbor(fec)%codes,   &
                                              neighbor_type    = node_ptr%neighbor(fec)%ntype,   &
@@ -725,9 +731,10 @@ contains
    enddo
    endsubroutine mark_all_nodes
 
-   subroutine mark_sphere(self, center, radius, threshold)
+   subroutine mark_sphere(self, grid, center, radius, threshold)
    !< Mark all nodes inside a sphere to be refined.
    class(tree_object), intent(inout)        :: self             !< The tree.
+   type(grid_object),  intent(inout), target :: grid !< Grid (sibling realm component, threaded in).
    real(R8P),          intent(in)           :: center(3)        !< Sphere center coordinates [x,y,z].
    real(R8P),          intent(in)           :: radius           !< Sphere radius.
    real(R8P),          intent(in), optional :: threshold        !< Threshold for sphere proximity.
@@ -850,9 +857,10 @@ contains
    endif
    endsubroutine prune
 
-   subroutine resize(self, nodes_number, max_load)
+   subroutine resize(self, grid, nodes_number, max_load)
    !< Resize the tree.
    class(tree_object), intent(inout)        :: self         !< The tree.
+   type(grid_object),  intent(in) :: grid !< Grid (sibling realm component, threaded in).
    integer(I8P),       intent(in)           :: nodes_number !< Nodes number to be stored in the tree.
    real(R8P),          intent(in), optional :: max_load     !< Maximum load of tree buckets.
    type(tree_object)                        :: swap         !< Temporary (swap) tree.
@@ -861,7 +869,7 @@ contains
    if (self%is_initialized_) then
       if (present(max_load)) self%max_load = max_load
       if (self%nodes_number > int((1._R8P/self%max_load)*nodes_number, I4P)) return ! new size too small, cannot previous nodes
-      call swap%initialize(nodes_number=nodes_number, add_adam=.false., ratio=self%ratio, max_level=self%max_level)
+      call swap%initialize(grid=grid, nodes_number=nodes_number, add_adam=.false., ratio=self%ratio, max_level=self%max_level)
       do while(self%loop(node_ptr=node_ptr)) ! re-hash all codes
          call swap%add_node(code=node_ptr%code,                           &
                             refinement_needed=node_ptr%refinement_needed, &
@@ -1247,7 +1255,7 @@ contains
    fc_parent = parent(1)
    endfunction first_common_parent
 
-   subroutine get_neighbor_all(self, code, face, neighbor, neighbor_type, neighbor_portion, neighbor_bc_fec)
+   subroutine get_neighbor_all(self, grid, code, face, neighbor, neighbor_type, neighbor_portion, neighbor_bc_fec)
    !< Return the neighbor in a given face/edge/corner of given Morton code.
    !<
    !< The direction `fec` is organized as: faces=[1,6], edges=[7,18], corners=[19,26].
@@ -1255,6 +1263,7 @@ contains
    !< We define *direct neighbor* the neighbor of given code in the given face at the same level of the given code
    !< either if it exists or not.
    class(tree_object), intent(in)               :: self                   !< The tree.
+   type(grid_object),  intent(in) :: grid !< Grid (sibling realm component, threaded in).
    integer(I8P),       intent(in)               :: code                   !< Morton code.
    integer(I4P),       intent(in)               :: face                   !< Face queried.
    integer(I8P),       intent(out), allocatable :: neighbor(:)            !< Neighbors codes list, [1] or [ratio/2].

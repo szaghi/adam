@@ -412,27 +412,27 @@ contains
       bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
       call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
 
-      call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=self%q_name)
+      call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=self%q_name)
 
       if (self%coil%total_coils_number>0) then
          do c=1, self%coil%total_coils_number
-            call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
+            call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
                                     q=self%coil%j_vec(:,:,:,:,b,c), q_name=self%coil%j_vec_name(:,c))
          enddo
       endif
 
       if (self%fWLayer%C>0) &
-         call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, &
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
                                  q=self%fWLayer%f(:,:,:,:,b), q_name=self%fWLayer%f_name)
 
       if (self%io%save_residual_fields) &
-         call self%io%save_field(xh5f=xh5f,block_name=bn,ijk=ijk,nijk=nijk,q=self%dq(:,:,:,:,b), q_name=self%dq_name)
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%dq(:,:,:,:,b), q_name=self%dq_name)
 
       if (self%io%save_curl_fields) &
-         call self%io%save_field(xh5f=xh5f,block_name=bn,ijk=ijk,nijk=nijk,q=self%curl(:,:,:,:,b), q_name=self%curl_name)
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%curl(:,:,:,:,b), q_name=self%curl_name)
 
       if (self%io%save_divergence_fields) &
-         call self%io%save_field(xh5f=xh5f,block_name=bn,ijk=ijk,nijk=nijk,q=self%divergence(:,:,:,:,b), q_name=self%div_name)
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%divergence(:,:,:,:,b), q_name=self%div_name)
 
       call self%close_block_xh5f(xh5f=xh5f)
    enddo

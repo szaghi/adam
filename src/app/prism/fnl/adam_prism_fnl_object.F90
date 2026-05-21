@@ -259,8 +259,8 @@ contains
    ! call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
    ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
    ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
-   call self%coil_fnl%copy_cpu_gpu(coil=self%coil)
-   call self%fwlayer_fnl%copy_cpu_gpu(fwlayer=self%fWLayer, buffer=self%buf_5D_R8P, verbose=verbose)
+   call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid)
+   call self%fwlayer_fnl%copy_cpu_gpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
 
@@ -278,8 +278,8 @@ contains
    ! call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,ij=[1,5])
    ! call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
    ! call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
-   call self%coil_fnl%copy_gpu_cpu(coil=self%coil)
-   call self%fwlayer_fnl%copy_gpu_cpu(fwlayer=self%fWLayer, buffer=self%buf_5D_R8P, verbose=verbose)
+   call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid)
+   call self%fwlayer_fnl%copy_gpu_cpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
    endsubroutine copy_gpu_cpu
 
    subroutine initialize_prism(self, filename)
@@ -307,8 +307,8 @@ contains
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
-   call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field)
-   call self%fwlayer_fnl%initialize(fwlayer=self%fWLayer, field=self%adam%field)
+   call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid)
+   call self%fwlayer_fnl%initialize(fwlayer=self%fWLayer, field=self%adam%field, grid=self%adam%grid)
 
    ! set pointer (abstract) TBP
    if (self%physics%physical_model == EM_PHYSICAL_MODEL) then

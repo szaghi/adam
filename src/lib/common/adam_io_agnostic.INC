@@ -1,6 +1,7 @@
-   subroutine SAVE_XH5F_FIELD_4D_KKP(self, xh5f, block_name, ijk, nijk, q, q_name)
+   subroutine SAVE_XH5F_FIELD_4D_KKP(self, grid, xh5f, block_name, ijk, nijk, q, q_name)
    !< Save q-vector/s-scalar fields by XH5F file handler, rank 4, kind KKP.
    class(io_object),       intent(inout) :: self                !< IO handler.
+   type(grid_object),      intent(in)    :: grid                !< Grid (sibling realm component, threaded in).
    type(xh5f_file_object), intent(inout) :: xh5f                !< XH5F file handler.
    character(*),           intent(in)    :: block_name          !< Block name.
    integer(I4P),           intent(in)    :: ijk(2,3)            !< Blocks extents.
@@ -18,9 +19,10 @@
                               hdf5_field_name = block_name//'-'//q_name%chars())
    endsubroutine SAVE_XH5F_FIELD_4D_KKP 
 
-   subroutine SAVE_XH5F_FIELD_5D_KKP(self, xh5f, block_name, ijk, nijk, q, q_name)
+   subroutine SAVE_XH5F_FIELD_5D_KKP(self, grid, xh5f, block_name, ijk, nijk, q, q_name)
    !< Save q-vector/s-scalar fields by XH5F file handler, rank 5, kind KKP.
    class(io_object),       intent(inout) :: self                !< IO handler.
+   type(grid_object),      intent(in)    :: grid                !< Grid (sibling realm component, threaded in).
    type(xh5f_file_object), intent(inout) :: xh5f                !< XH5F file handler.
    character(*),           intent(in)    :: block_name          !< Block name.
    integer(I4P),           intent(in)    :: ijk(2,3)            !< Blocks extents.

@@ -4,7 +4,7 @@ module adam_io_object
 
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
-use :: adam_grid_global, only : grid
+use :: adam_grid_object, only : grid_object
 use :: finer
 ! third party modules
 use :: finer

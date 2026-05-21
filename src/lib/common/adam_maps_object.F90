@@ -8,7 +8,7 @@ use :: adam_tree_node_object
 use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
-use :: adam_grid_global, only : grid
+use :: adam_grid_object, only : grid_object
 use :: adam_tree_global, only : tree
 ! third party modules
 use :: penf
@@ -360,14 +360,15 @@ contains
       endfunction is_node_to_receive
    endsubroutine make_comm_local_maps
 
-   subroutine make_comm_local_maps_ghost(self, nv)
+   subroutine make_comm_local_maps_ghost(self, grid, nv)
    !< Make communication/local maps of ghost cells.
    class(maps_object), intent(inout) :: self !< The maps.
+   type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),       intent(in)    :: nv   !< Number of field variables.
 
    call mpih%print_message('maps_object%make_comm_local_maps_ghost start')
-   call self%alloc_comm_local_maps_ghost(nv=nv)
-   call self%populate_comm_local_maps_ghost
+   call self%alloc_comm_local_maps_ghost(grid=grid, nv=nv)
+   call self%populate_comm_local_maps_ghost(grid=grid)
    call self%make_local_map_ghost_cell
    call self%make_comm_map_recv_ghost_cell(nv=nv)
    call self%make_comm_map_send_ghost_cell(nv=nv)
@@ -443,9 +444,10 @@ contains
    endif
    endsubroutine save_local_map
 
-   subroutine make_local_maps_bc(self, verbose)
+   subroutine make_local_maps_bc(self, grid, verbose)
    !< Make local maps of boundary conditions.
    class(maps_object), intent(inout)        :: self                   !< The maps.
+   type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    logical,            intent(in), optional :: verbose                !< Flag to activate verbose mode.
    logical                                  :: verbose_               !< Flag to activate verbose mode, local var.
    type(tree_node_object), pointer          :: node_ptr               !< Pointer to current node.
@@ -484,7 +486,7 @@ contains
                neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
                if (neighbor_type == NODE_BOUNDARY_CONDITION) then
                   fec_bc_type = grid%fec_bc_type(fec=neighbor_bc_fec)
-                  ijk_min_max_delta = self%ijk_mmd(fec=fec, neighbor_bc_fec=neighbor_bc_fec)
+                  ijk_min_max_delta = self%ijk_mmd(grid=grid, fec=fec, neighbor_bc_fec=neighbor_bc_fec)
                   if (fec<=6) then
                      fec_bc_faces_number = fec_bc_faces_number + 1_I4P
                      call set_local_map_bc(fec=fec_bc_faces_number,                  &
@@ -543,9 +545,10 @@ contains
    endsubroutine make_local_maps_bc
 
    ! private methods
-   subroutine alloc_comm_local_maps_ghost(self, nv)
+   subroutine alloc_comm_local_maps_ghost(self, grid, nv)
    !< Allocate communication/local maps of ghost cells, `local_map_ghost, comm_map_send_ghost, comm_map_recv_ghost`.
    class(maps_object), intent(inout) :: self             !< The maps.
+   type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),       intent(in)    :: nv               !< Number of field variables.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
    integer(I8P), allocatable         :: neighbor(:)      !< List of code neighbors.
@@ -1020,9 +1023,10 @@ contains
    endif
    endsubroutine make_local_map_ghost_cell
 
-   function ijk_mmd(self, fec, neighbor_bc_fec) result(ijk_min_max_delta)
+   function ijk_mmd(self, grid, fec, neighbor_bc_fec) result(ijk_min_max_delta)
    !< Return IJK min/max/delta.
    class(maps_object), intent(in) :: self                   !< The maps.
+   type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),       intent(in) :: fec                    !< Current fec number.
    integer(I4P),       intent(in) :: neighbor_bc_fec        !< Neighbors fec for BC.
    integer(I8P)                   :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
@@ -1055,9 +1059,10 @@ contains
    endassociate
    endfunction ijk_mmd
 
-   function ijk_mmd_ghost(self, fec, portion) result(ijk_min_max_delta)
+   function ijk_mmd_ghost(self, grid, fec, portion) result(ijk_min_max_delta)
    !< Return IJK min/max/delta, ghost maps.
    class(maps_object), intent(in) :: self                   !< The maps.
+   type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),       intent(in) :: fec                    !< Current fec number.
    integer(I8P),       intent(in) :: portion                !< Current portion.
    integer(I8P)                   :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
@@ -1135,9 +1140,10 @@ contains
    endassociate
    endfunction ijk_mmd_ghost
 
-   subroutine populate_comm_local_maps_ghost(self)
+   subroutine populate_comm_local_maps_ghost(self, grid)
    !< Populate communication/local maps of ghost cells, `local_map_ghost, comm_map_send_ghost, comm_map_recv_ghost`.
    class(maps_object), intent(inout) :: self                       !< The maps.
+   type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr                   !< Pointer to current node.
    integer(I8P), allocatable         :: neighbor(:)                !< List of code neighbors.
    type(tree_node_object), pointer   :: neigh                      !< Pointer to node neighbor.
@@ -1175,7 +1181,7 @@ contains
                      elseif (neighbor_type==NODE_LESS_REFINED) then
                         self%local_map_ghost(mf, 4) = -neighbor_portion
                      endif
-                     self%local_map_ghost(mf, 5:13)=self%ijk_mmd_ghost(fec=fec, portion=self%local_map_ghost(mf, 4))
+                     self%local_map_ghost(mf, 5:13)=self%ijk_mmd_ghost(grid=grid, fec=fec, portion=self%local_map_ghost(mf, 4))
                   elseif ((mpih%myrank /= neigh%myrank).and.(mpih%myrank == node_ptr%myrank)) then
                      rf = rf + 1
                      self%comm_map_recv_ghost(rf, 15) = comm_map_recv_ctr_ghost(neigh%myrank)
@@ -1196,7 +1202,7 @@ contains
                         comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
                                                                 grid%weight_neighbor(fec)
                      endif
-                     self%comm_map_recv_ghost(rf, 6:14)=self%ijk_mmd_ghost(fec=fec, portion=self%comm_map_recv_ghost(rf, 5))
+                     self%comm_map_recv_ghost(rf, 6:14)=self%ijk_mmd_ghost(grid=grid, fec=fec, portion=self%comm_map_recv_ghost(rf, 5))
                   elseif ((mpih%myrank == neigh%myrank).and.(mpih%myrank /= node_ptr%myrank)) then
                      sf = sf + 1
                      self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node_ptr%myrank)
@@ -1217,7 +1223,7 @@ contains
                         comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
                                                                    grid%weight_neighbor(fec)
                      endif
-                     self%comm_map_send_ghost(sf, 6:14)=self%ijk_mmd_ghost(fec=fec, portion=self%comm_map_send_ghost(sf, 5))
+                     self%comm_map_send_ghost(sf, 6:14)=self%ijk_mmd_ghost(grid=grid, fec=fec, portion=self%comm_map_send_ghost(sf, 5))
                   endif
                enddo
             endif

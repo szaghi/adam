@@ -55,7 +55,7 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
-use :: adam_globals,    only : adam, grid, mpih
+use :: adam_globals,    only : adam, mpih
 use :: adam_adam_bind,  only : bind_globals_to_adam
 ! third party modules
 use :: finer
@@ -835,7 +835,7 @@ contains
                                  field_center    = XDMF_PARAMETERS%XDMF_ATTR_CENTER_GRID,           &
                                  field_format    = XDMF_PARAMETERS%XDMF_DATAITEM_NUMBER_FORMAT_HDF, &
                                  hdf5_field_name = bn//'-time_iteration')
-      call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=q(:,:,:,:,b), q_name=q_name_)
+      call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, q=q(:,:,:,:,b), q_name=q_name_)
       call xh5f%close_block
    enddo
    call xh5f%close_grid

@@ -32,10 +32,11 @@ endtype prism_fnl_fwlayer_object
 
 contains
    ! public methods
-   subroutine copy_cpu_gpu(self, fwlayer, buffer, verbose)
+   subroutine copy_cpu_gpu(self, fwlayer, grid, buffer, verbose)
    !< Copy data from CPU to GPU.
    class(prism_fnl_fwlayer_object), intent(inout)           :: self       !< The field.
    class(prism_fwlayer_object),     intent(in)              :: fwlayer    !< Fwlayer common handler (host).
+   type(grid_object),               intent(in)              :: grid       !< Grid (sibling realm component, threaded in).
    real(R8P),                       intent(inout), optional :: buffer(1:,                                 &
                                                                       1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
                                                                       1:) !< Buffer (host memory, device shape).
@@ -57,10 +58,11 @@ contains
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
-   subroutine copy_gpu_cpu(self, fwlayer, buffer, verbose)
+   subroutine copy_gpu_cpu(self, fwlayer, grid, buffer, verbose)
    !< Copy data from GPU to CPU.
    class(prism_fnl_fwlayer_object), intent(inout)           :: self       !< The field.
    class(prism_fwlayer_object),     intent(inout)           :: fwlayer    !< Fwlayer common handler (host).
+   type(grid_object),               intent(in)              :: grid       !< Grid (sibling realm component, threaded in).
    real(R8P),                       intent(inout), optional :: buffer(1:,                                 &
                                                                       1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
                                                                       1:) !< Buffer (host memory, device shape).
@@ -82,12 +84,13 @@ contains
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
-   subroutine initialize(self, fwlayer, field)
+   subroutine initialize(self, fwlayer, field, grid)
    !< Initialize the fWLayer from program-scope `field` (adam_field_global) and `grid` (adam_grid_global) singletons.
    !< Requires `mpih_fnl` (adam_fnl_mpih_global), `field` and `grid` singletons to be ready.
    class(prism_fnl_fwlayer_object), intent(inout)      :: self    !< fWLayer.
    type(prism_fwlayer_object),      intent(in), target :: fwlayer !< Fwlayer common handler.
    type(field_object),         intent(in)         :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),          intent(in)         :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P)                                        :: ierr    !< Error status.
 
    if (fwlayer%C ==0) return

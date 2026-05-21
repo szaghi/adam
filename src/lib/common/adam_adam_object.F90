@@ -68,7 +68,7 @@ contains
                                           1:) !< Field cell centered variables.
    type(refinement_plan_object) :: plan !< Refinement plan produced by tree, consumed by field.
 
-   call self%tree%adapt(plan=plan)
+   call self%tree%adapt(grid=self%grid, plan=plan)
 
    call self%check_blocks_number
 
@@ -187,7 +187,7 @@ contains
    open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
    read(unit=file_unit) t, time
    close(file_unit)
-   call self%tree%load_nodes(file_name=trim(adjustl(basename))//'.tnd')
+   call self%tree%load_nodes(grid=self%grid, file_name=trim(adjustl(basename))//'.tnd')
    call self%field%load_blocks(grid=self%grid, basename=basename, q=q)
    endsubroutine load_restart_files
 
@@ -210,7 +210,8 @@ contains
                                    fields_number=80,         & ! remember to change
                                    nb=nb,                    &
                                    nodes_number=nodes_number)
-   call self%tree%initialize(file_parameters=file_parameters,&
+   call self%tree%initialize(grid=self%grid,                 &
+                             file_parameters=file_parameters,&
                              nodes_number=nodes_number,      &
                              add_adam=add_adam,              &
                              verbose=verbose_)
@@ -249,11 +250,11 @@ contains
    real(R8P)                                 :: xyz_(3,8) !< Closest cells center-coordinates, local var.
    integer(I4P)                              :: i, j, k   !< Counter.
 
-   code_ = self%tree%get_closest_block(point=point)
+   code_ = self%tree%get_closest_block(grid=self%grid, point=point)
    node => self%tree%node(code=code_)
    if (node%myrank == mpih%myrank) then
       is_mine = .true.
-      call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_)
+      call self%tree%get_closest_cells(grid=self%grid, point=point, code=code_, ijk=ijk_, xyz=xyz_)
       select case(trim(itype))
       case('inverse_distance')
          call inverse_distance_interpolation
@@ -329,8 +330,8 @@ contains
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc start')
-   call self%maps%make_comm_local_maps_ghost(nv=self%field%nv)
-   call self%maps%make_local_maps_bc
+   call self%maps%make_comm_local_maps_ghost(grid=self%grid, nv=self%field%nv)
+   call self%maps%make_local_maps_bc(grid=self%grid)
    call mpih%print_message('adam_object%make_comm_local_maps_ghost_bc finish')
    endsubroutine make_comm_local_maps_ghost_bc
 

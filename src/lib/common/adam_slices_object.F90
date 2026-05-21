@@ -5,7 +5,6 @@ module adam_slices_object
 ! ADAM classes, libraries, parameters
 use :: adam_adam_object, only : adam_object
 ! ADAM singleton objects
-use :: adam_grid_global, only : grid
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
@@ -131,9 +130,9 @@ contains
    real(R8P),            intent(in)           :: time_max  !< Time iteration max.
    type(adam_object),    intent(inout)        :: adam      !< Adam object.
    real(R8P),            intent(in)           :: q(1:,               &
-                                                   1-grid%ngc:, &
-                                                   1-grid%ngc:, &
-                                                   1-grid%ngc:, &
+                                                   1-adam%grid%ngc:, &
+                                                   1-adam%grid%ngc:, &
+                                                   1-adam%grid%ngc:, &
                                                    1:)     !< Field variables.
    character(*),         intent(in), optional :: q_name(:) !< Variables names.
    integer(I4P)                               :: s         !< Slices counter.
