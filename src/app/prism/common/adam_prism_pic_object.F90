@@ -4,9 +4,9 @@ module adam_prism_pic_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_field_object, only : field_object
+use :: adam_grid_object,  only : grid_object
 ! ADAM singleton objects
 use :: adam_mpih_global,  only : mpih
-use :: adam_grid_global,  only : grid
 ! PRISM modules
 use :: adam_prism_parameters
 ! third party modules
@@ -95,10 +95,11 @@ contains
 endtype prism_pic_object
 
 interface
-   subroutine particle_weighting_interface(self, field, q, q_pic, nv)
-   import :: prism_pic_object, grid, field_object, I4P, R8P
+   subroutine particle_weighting_interface(self, field, grid, q, q_pic, nv)
+   import :: prism_pic_object, grid_object, field_object, I4P, R8P
    class(prism_pic_object), intent(inout) :: self                             !< External fields.
    type(field_object),                  intent(inout) :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),                           intent(inout) :: q(1:,1-grid%ngc:,&
                                                               1-grid%ngc:,&
                                                               1-grid%ngc:,1:) !< Field variables.
@@ -106,10 +107,11 @@ interface
    integer(I4P),                        intent(in)    :: nv                   !< Number of variables.
    endsubroutine particle_weighting_interface
 
-   subroutine current_weighting_interface(self, field, q, q_pic, nv)
-   import :: prism_pic_object, grid, field_object, I4P, R8P
+   subroutine current_weighting_interface(self, field, grid, q, q_pic, nv)
+   import :: prism_pic_object, grid_object, field_object, I4P, R8P
    class(prism_pic_object), intent(inout) :: self                             !< External fields.
    type(field_object),                  intent(inout) :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),                           intent(inout) :: q(1:,1-grid%ngc:,&
                                                               1-grid%ngc:,&
                                                               1-grid%ngc:,1:) !< Field variables.
@@ -117,10 +119,11 @@ interface
    integer(I4P),                        intent(in)    :: nv                   !< Number of variables.
    endsubroutine current_weighting_interface
 
-   subroutine field_weighting_interface(self, field, pic_fields, q, q_pic, nv)
-   import :: prism_pic_object, grid, field_object, I4P, R8P
+   subroutine field_weighting_interface(self, field, grid, pic_fields, q, q_pic, nv)
+   import :: prism_pic_object, grid_object, field_object, I4P, R8P
    class(prism_pic_object), intent(inout) :: self                             !< External fields.
    type(field_object),                  intent(inout) :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),                           intent(inout) :: pic_fields(1:,1:)    !< Fields value at particle locations.
    real(R8P),                           intent(in)    :: q(1:,1-grid%ngc:,&
                                                               1-grid%ngc:,&
@@ -149,10 +152,11 @@ contains
    desc = desc//NL//mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
    endfunction description
 
-   subroutine initialize(self, field, file_parameters)
+   subroutine initialize(self, field, grid, file_parameters)
    !< Initialize PIC.
    class(prism_pic_object), intent(inout) :: self            !< Pic object.
    type(field_object),      intent(in)    :: field           !< Field (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
                                                              !< present at t0
@@ -302,10 +306,11 @@ contains
    endif
    endsubroutine load_from_file
 
-   subroutine particle_cartesian_grid_index(self, field, q_pic)
+   subroutine particle_cartesian_grid_index(self, field, grid, q_pic)
    !< Compute the grid index corresponding to a particle position. Good for cartesian grids only.
    class(prism_pic_object), intent(inout) :: self               !< External fields.
    type(field_object),      intent(in)    :: field              !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(in)    :: q_pic(1:,1:)       !< PIC variables.
    real(R8P)                              :: n                  !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p !< Particle grid indices
@@ -330,10 +335,11 @@ contains
    endassociate
    endsubroutine particle_cartesian_grid_index
 
-   subroutine NGP_charge_weighting(self, field, q, q_pic, nv)
+   subroutine NGP_charge_weighting(self, field, grid, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -366,10 +372,11 @@ contains
    enddo
    endsubroutine NGP_charge_weighting
 
-   subroutine CIC_charge_weighting(self, field, q, q_PIC, nv)
+   subroutine CIC_charge_weighting(self, field, grid, q, q_PIC, nv)
    !< Cloud-in-Cell weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -430,10 +437,11 @@ contains
    endassociate
    endsubroutine CIC_charge_weighting
 
-   subroutine TSC_charge_weighting(self, field, q, q_pic, nv)
+   subroutine TSC_charge_weighting(self, field, grid, q, q_pic, nv)
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -493,10 +501,11 @@ contains
    endassociate
    endsubroutine TSC_charge_weighting
 
-   subroutine NGP_current_weighting(self, field, q, q_pic, nv)
+   subroutine NGP_current_weighting(self, field, grid, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -532,10 +541,11 @@ contains
    enddo
    endsubroutine NGP_current_weighting
 
-   subroutine CIC_current_weighting(self, field, q, q_pic, nv)
+   subroutine CIC_current_weighting(self, field, grid, q, q_pic, nv)
    !< Cloud-in-Cell weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -598,10 +608,11 @@ contains
    endassociate
    endsubroutine CIC_current_weighting
 
-   subroutine TSC_current_weighting(self, field, q, q_pic, nv)
+   subroutine TSC_current_weighting(self, field, grid, q, q_pic, nv)
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -663,9 +674,10 @@ contains
    endassociate
    endsubroutine TSC_current_weighting
 
-   subroutine zeroD_field_weighting(self, field, pic_fields, q, q_pic, nv)
+   subroutine zeroD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    class(prism_pic_object), intent(inout) :: self                                             !< External fields.
    type(field_object),      intent(inout) :: field                                            !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: pic_fields(1:,1:)                                !< Fields value at particle locations
    real(R8P),               intent(in)    :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
@@ -709,9 +721,10 @@ contains
    enddo
    endsubroutine zeroD_field_weighting
 
-   subroutine oneD_field_weighting(self, field, pic_fields, q, q_pic, nv)
+   subroutine oneD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    class(prism_pic_object), intent(inout) :: self                                             !< External fields.
    type(field_object),      intent(inout) :: field                                            !< The field.
+   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: pic_fields(1:,1:)                                !< Fields value at particle locations
    real(R8P),               intent(in)    :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&

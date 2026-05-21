@@ -207,7 +207,7 @@ contains
    call self%bc%initialize(file_parameters=file_parameters)
    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
-      call self%pic%initialize(field=self%adam%field, file_parameters=file_parameters)
+      call self%pic%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic)
    call self%time%initialize(file_parameters=file_parameters)

@@ -462,7 +462,7 @@ contains
 		!Setta velocità iniziale delle particelle
 		call self%particle_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic)
 		!Definisci neighbour list
-		call pic%particle_cartesian_grid_index(field=field, q_pic=q_pic)
+		call pic%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic)
 
 		!Aggiungo qui successivamente interpolazione iniziale dei campi e spalmatura particelle (cariche e correnti) su griglia
 
@@ -470,7 +470,7 @@ contains
 	!Setta posizione velocità e caratteristiche della particella
 	call self%single_particle_injection(q_pic=q_pic)
 	!Definisci neighbour list
-	call pic%particle_cartesian_grid_index(field=field, q_pic=q_pic)
+	call pic%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic)
 
 	!Aggiungo qui successivamente interpolazione iniziale dei campi e spalmatura particelle (cariche e correnti) su griglia
 
