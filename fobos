@@ -47,6 +47,9 @@ $NVF_CC      = cc89
 $HDF5_PREFIX = /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/nvhpc-24.5/hdf5-1.14.3-2soj72l4cjp6mx7chrqu3h2qxzmrugnc
 $NVF_CC      = cc80
 
-[varset:iac]
-$HDF5_PREFIX = lib/hdf5/develop/nvf/25.5-iac
+[varset:iac_gnu]
+$HDF5_PREFIX = lib/hdf5/develop/iac/gnu/12.2.1/openmpi-4.1.6
+
+[varset:iac_nvf]
+$HDF5_PREFIX = lib/hdf5/develop/iac/nvf/25.5
 $NVF_CC      = cc80
