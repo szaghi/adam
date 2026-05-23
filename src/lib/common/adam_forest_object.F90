@@ -40,7 +40,8 @@ module adam_forest_object
 use :: adam_realm_object,    only : realm_object
 use :: adam_maps_object,     only : inter_realm_neighbor_t
 use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
-use :: adam_forest_global,   only : forest_realm, forest_active_substage
+use :: adam_forest_global,   only : forest_realm, forest_active_substage, forest_flux_register
+use :: adam_flux_register_object, only : SEAM_KIND_INTER_REALM
 use :: adam_globals,         only : mpih
 use :: mpi
 use :: penf
@@ -226,6 +227,10 @@ contains
    integer(I4P)                                :: nrk_chk  !< Per-realm consistency check.
 
    forest_realm => realm
+   ! Zero flux register accumulators at top of step (Phase A of [issue #13]).
+   ! Skeleton commit: safe no-op when face(:) is unallocated, which is the
+   ! case until the topology-registration follow-up commit populates it.
+   call forest_flux_register%reset
    call self%compute_global_dt(realm, dt=dt)
    if (int(size(realm), I4P) == 1_I4P) then
       ! N=1 fast path — bit-identical to pre-Phase-D.
@@ -262,6 +267,13 @@ contains
             call realm(is)%bind_my_globals_forest
             call realm(is)%evaluate_substage_forest(s=s, nrk=nrk, dt=dt)
          enddo
+         ! Phase 3: Berger-Colella reflux at coarse-fine interfaces
+         ! (Phase A of [issue #13]). Skeleton commit: apply_reflux is a
+         ! no-op pending the accumulation + correction follow-up commit.
+         ! The dt/dx/weight arguments are placeholders; the real signature
+         ! will read dx per-face from the topology, weight from
+         ! adam_rk_object%ark(s).
+         call forest_flux_register%apply_reflux(substage=s, dt=dt, dx_coarse=0._R8P, weight=0._R8P)
       enddo
       forest_active_substage = 0_I4P
       do is = 1_I4P, int(size(realm), I4P)
@@ -431,6 +443,11 @@ contains
                         peer_realm=pair%realm_a, peer_face=pair%face_a, &
                         coupling=pair%coupling)
    enddo
+   ! Register inter-realm seams with the program-scope flux register
+   ! (Phase A of [issue #13]). Skeleton commit: `initialize` is a no-op
+   ! beyond setting the count; per-face `register_face` and per-block
+   ! expansion land in the topology-registration follow-up commit.
+   call forest_flux_register%initialize(nfaces=int(size(manifest%face_pairs), I4P))
    contains
       subroutine set_neighbor(slot, my_realm, my_face, peer_realm, peer_face, coupling)
       type(inter_realm_neighbor_t), intent(out) :: slot
