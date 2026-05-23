@@ -116,15 +116,22 @@ contains
    !< exist. `register_face` is then called `nfaces` times to populate the
    !< entries.
    !<
-   !< **Skeleton commit:** no-op beyond storing `nfaces` and flipping the
-   !< initialized flag — actual allocation lives in the follow-up commit
-   !< that introduces topology registration (#13 Phase A step 2).
+   !< Idempotent: a re-initialization with the same forest topology yields
+   !< the same allocation; under a regrid that changes block layouts, the
+   !< caller is expected to call `destroy` first, then `initialize` with
+   !< the new face count. (Phase A v1 has no regrid hook; this is the
+   !< schema-reserved path for AMR-active follow-ups.)
+   !<
+   !< Calling with `nfaces == 0` is valid: it flips `is_initialized_` so
+   !< the lifecycle hooks (`reset`, `apply_reflux`) become safe no-ops on
+   !< the empty register. This is the N=1 single-realm path.
    class(flux_register_object), intent(inout) :: self    !< The register.
    integer(I4P),                intent(in)    :: nfaces  !< Number of seam faces to register.
 
+   if (self%is_initialized_) call self%destroy
    self%nfaces = nfaces
+   if (nfaces > 0_I4P) allocate(self%face(1:nfaces))
    self%is_initialized_ = .true.
-   ! Allocation of self%face(1:nfaces) is deferred to the topology-registration commit.
    endsubroutine initialize
 
    subroutine register_face(self, face_index, seam_kind, coarse_realm, coarse_block, coarse_face, &
@@ -136,10 +143,15 @@ contains
    !< and in the analogous AMR-jump walk for intra-realm seams), the topology
    !< pass calls this routine to fill in the corresponding `face(face_index)`
    !< entry. The accumulator arrays `F_coarse` and `F_fine_sum` are allocated
-   !< here with shape (nv, nface_cells, nrk).
+   !< here with shape (nv, nface_cells, nrk) and zeroed.
    !<
-   !< **Skeleton commit:** body is a no-op pending the topology-registration
-   !< follow-up. Signature is final.
+   !< Same-resolution case (current rmf-2realm with COUPLING_MIRROR and no
+   !< intra-realm AMR jumps): `coarse_realm` and `fine_realm` are the two
+   !< sides of the seam; the labels are conventional — both sides carry the
+   !< same resolution, both fluxes are nominally equal, and the resulting
+   !< correction is expected to be round-off zero in expectation. The
+   !< accumulator structure is identical to the true coarse-fine AMR case;
+   !< the same-resolution case just exercises the value-zero branch.
    class(flux_register_object), intent(inout) :: self         !< The register.
    integer(I4P),                intent(in)    :: face_index   !< Index into `face(:)` to populate (1-based, 1..nfaces).
    integer(I4P),                intent(in)    :: seam_kind    !< SEAM_KIND_*.
@@ -152,15 +164,34 @@ contains
    integer(I4P),                intent(in)    :: nv           !< Number of variables (state-vector width).
    integer(I4P),                intent(in)    :: nrk          !< Number of RK substages.
 
-   ! Skeleton: no-op. Real population lives in the topology-registration commit.
-   ! Signature kept stable so callers can be wired now.
-   associate(unused_face_index   => face_index,   unused_seam_kind  => seam_kind,    &
-             unused_coarse_realm => coarse_realm, unused_coarse_b   => coarse_block, &
-             unused_coarse_face  => coarse_face,  unused_fine_realm => fine_realm,   &
-             unused_fine_block   => fine_block,   unused_nface      => nface_cells,  &
-             unused_nv           => nv,           unused_nrk        => nrk,          &
-             unused_self         => self                                             )
-   endassociate
+   if (.not. self%is_initialized_) &
+      call mpih%error_stop(msg='flux_register_object%register_face: called before initialize')
+   if (face_index < 1_I4P .or. face_index > self%nfaces) &
+      call mpih%error_stop(msg='flux_register_object%register_face: face_index out of range')
+   if (nface_cells < 1_I4P) &
+      call mpih%error_stop(msg='flux_register_object%register_face: nface_cells must be >= 1')
+   if (nv < 1_I4P) &
+      call mpih%error_stop(msg='flux_register_object%register_face: nv must be >= 1')
+   if (nrk < 1_I4P) &
+      call mpih%error_stop(msg='flux_register_object%register_face: nrk must be >= 1')
+
+   associate(slot => self%face(face_index))
+   slot%seam_kind    = seam_kind
+   slot%coarse_realm = coarse_realm
+   slot%coarse_block = coarse_block
+   slot%coarse_face  = coarse_face
+   slot%fine_realm   = fine_realm
+   slot%nface_cells  = nface_cells
+   if (allocated(slot%fine_block)) deallocate(slot%fine_block)
+   allocate(slot%fine_block(1:size(fine_block, dim=1)))
+   slot%fine_block = fine_block
+   if (allocated(slot%F_coarse  )) deallocate(slot%F_coarse  )
+   if (allocated(slot%F_fine_sum)) deallocate(slot%F_fine_sum)
+   allocate(slot%F_coarse  (1:nv, 1:nface_cells, 1:nrk))
+   allocate(slot%F_fine_sum(1:nv, 1:nface_cells, 1:nrk))
+   slot%F_coarse   = 0._R8P
+   slot%F_fine_sum = 0._R8P
+   end associate
    endsubroutine register_face
 
    subroutine accumulate_coarse_flux(self, face_index, substage, flux_face)

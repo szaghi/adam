@@ -38,7 +38,8 @@ module adam_forest_object
 !<     realm-side, via the realm's own `*_forest` TBPs (O3).
 
 use :: adam_realm_object,    only : realm_object
-use :: adam_maps_object,     only : inter_realm_neighbor_t
+use :: adam_maps_object,     only : inter_realm_neighbor_t, &
+                                    FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
 use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
 use :: adam_forest_global,   only : forest_realm, forest_active_substage, forest_flux_register
 use :: adam_flux_register_object, only : SEAM_KIND_INTER_REALM
@@ -444,10 +445,17 @@ contains
                         coupling=pair%coupling)
    enddo
    ! Register inter-realm seams with the program-scope flux register
-   ! (Phase A of [issue #13]). Skeleton commit: `initialize` is a no-op
-   ! beyond setting the count; per-face `register_face` and per-block
-   ! expansion land in the topology-registration follow-up commit.
-   call forest_flux_register%initialize(nfaces=int(size(manifest%face_pairs), I4P))
+   ! (Phase A of [issue #13], step 2: topology registration).
+   !
+   ! For each (face-pair, block-on-coarse-side) tuple, one entry is added to
+   ! the register. The "coarse" / "fine" labels follow the manifest's a/b
+   ! ordering; for the current same-resolution (COUPLING_MIRROR) case the
+   ! labels are conventional and the accumulator values are nominally equal
+   ! on both sides — the reflux correction will be round-off zero in
+   ! expectation. The structural cost (allocated registers, populated
+   ! topology) is the same as for the true coarse-fine AMR case that will
+   ! exercise these accumulators non-trivially in follow-up commits.
+   call register_inter_realm_seams(realm, manifest)
    contains
       subroutine set_neighbor(slot, my_realm, my_face, peer_realm, peer_face, coupling)
       type(inter_realm_neighbor_t), intent(out) :: slot
@@ -460,5 +468,167 @@ contains
       slot%peer_face  = peer_face
       slot%coupling   = coupling
       endsubroutine set_neighbor
+
+      subroutine register_inter_realm_seams(realm, manifest)
+      !< Populate `forest_flux_register` from the manifest face-pairs.
+      !<
+      !< Two-pass algorithm:
+      !<
+      !<   * Pass 1 — count the total number of register entries:
+      !<     one entry per (face-pair, block-on-realm_a-side-of-the-seam).
+      !<     The seam-block enumeration uses a geometric test against the
+      !<     realm's domain extent (`grid%domain_emin/emax`) and the block's
+      !<     face position (`field%emin/emax(axis, block)`); a block lies on
+      !<     the realm's `face_a` iff its face coordinate matches the realm
+      !<     boundary to within a small absolute tolerance.
+      !<
+      !<   * Pass 2 — call `register_face` once per (face-pair, seam-block),
+      !<     supplying `coarse_realm = pair%realm_a`, `fine_realm =
+      !<     pair%realm_b`, `nface_cells` from the realm-a side's grid (the
+      !<     two tangential axes' cell counts), `nv` from the realm-a side's
+      !<     `field%nv`, and `nrk` from realm-a's `rk%nrk`.
+      !<
+      !< For the current same-resolution (COUPLING_MIRROR) case, realm_a and
+      !< realm_b carry identical `nv`/`nrk`/`nface_cells` by construction
+      !< (validated upstream by the manifest's structural checks). A
+      !< coarse-fine AMR case would resolve `fine_block(:)` by enumerating
+      !< the realm_b-side blocks that geometrically cover the realm_a-side
+      !< block face; for same-resolution that resolves to a single fine
+      !< block, populated by `find_peer_block` at exchange time.
+      class(realm_object),     intent(in) :: realm(:) !< Initialized realms.
+      type(forest_manifest_t), intent(in) :: manifest !< Parsed manifest.
+      integer(I4P)                        :: f, b    !< Face-pair, block counters.
+      integer(I4P)                        :: a_realm !< Coarse-side realm index alias.
+      integer(I4P)                        :: a_axis, a_sign !< Coarse-face axis and sign.
+      integer(I4P)                        :: nfaces_total   !< Total register entries.
+      integer(I4P)                        :: cursor         !< Write cursor into the register.
+      integer(I4P)                        :: nface_cells    !< Cell count on the coarse-face skin.
+      type(forest_face_pair_t)            :: pair    !< Manifest face-pair alias.
+
+      if (.not. allocated(manifest%face_pairs)) then
+         ! No inter-realm topology — initialize with zero faces so the
+         ! register's `is_initialized_` flag flips and the per-step `reset`
+         ! call becomes a safe no-op on the empty register.
+         call forest_flux_register%initialize(nfaces=0_I4P)
+         return
+      endif
+
+      ! Pass 1: count register entries.
+      nfaces_total = 0_I4P
+      do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+         pair    = manifest%face_pairs(f)
+         a_realm = pair%realm_a
+         call face_axis_sign(pair%face_a, a_axis, a_sign)
+         do b = 1_I4P, int(realm(a_realm)%adam%field%blocks_number, I4P)
+            if (block_face_on_realm_boundary(realm(a_realm), b, a_axis, a_sign)) &
+               nfaces_total = nfaces_total + 1_I4P
+         enddo
+      enddo
+
+      call forest_flux_register%initialize(nfaces=nfaces_total)
+      if (nfaces_total == 0_I4P) return
+
+      ! Pass 2: register one entry per (face-pair, seam-block-on-coarse-side).
+      cursor = 0_I4P
+      do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+         pair    = manifest%face_pairs(f)
+         a_realm = pair%realm_a
+         call face_axis_sign(pair%face_a, a_axis, a_sign)
+         ! Coarse-face skin cell count: product of the two tangential cell counts.
+         ! For axis=x (a_axis=1) the tangential axes are y and z; etc.
+         nface_cells = tangential_cell_count(realm(a_realm), a_axis)
+         do b = 1_I4P, int(realm(a_realm)%adam%field%blocks_number, I4P)
+            if (.not. block_face_on_realm_boundary(realm(a_realm), b, a_axis, a_sign)) cycle
+            cursor = cursor + 1_I4P
+            ! fine_block(:) is left empty (size 0) in this commit — the
+            ! per-block peer resolution lands in the accumulation-wiring
+            ! follow-up commit (option α, #13 §3.2). The accumulators are
+            ! allocated and ready to receive fluxes; only the
+            ! coarse↔fine block mapping is deferred.
+            call forest_flux_register%register_face(face_index=cursor,                &
+                                                    seam_kind=SEAM_KIND_INTER_REALM,  &
+                                                    coarse_realm=pair%realm_a,        &
+                                                    coarse_block=b,                   &
+                                                    coarse_face=pair%face_a,          &
+                                                    fine_realm=pair%realm_b,          &
+                                                    fine_block=[integer(I4P) ::],     &
+                                                    nface_cells=nface_cells,          &
+                                                    nv=int(realm(a_realm)%adam%field%nv, I4P), &
+                                                    nrk=realm(a_realm)%rk%nrk)
+         enddo
+      enddo
+      endsubroutine register_inter_realm_seams
+
+      pure subroutine face_axis_sign(face_code, axis, sgn)
+      !< Translate FACE_X_MAX / FACE_X_MIN / ... into (axis 1..3, sign ±1).
+      !<
+      !< Duplicate of the same helper inside
+      !< `prism_cpu_object%exchange_inter_realm_halos_forest`; a future
+      !< refactor should lift the canonical version into `adam_maps_object`
+      !< and have both call sites use it. Kept local here to keep this
+      !< Phase A topology-registration commit minimal in scope.
+      integer(I4P), intent(in)  :: face_code !< Face code from inter_realm_neighbor_t.
+      integer(I4P), intent(out) :: axis      !< 1=x, 2=y, 3=z.
+      integer(I4P), intent(out) :: sgn       !< +1 if MAX, -1 if MIN.
+
+      select case (face_code)
+      case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
+      case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
+      case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
+      case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
+      case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
+      case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
+      case default;      axis = 0_I4P; sgn = 0_I4P
+      end select
+      endsubroutine face_axis_sign
+
+      function block_face_on_realm_boundary(this_realm, b, axis, sgn) result(yes)
+      !< Return .true. iff block `b`'s face on (axis, sgn) lies on the realm boundary.
+      !<
+      !< Geometric test against `grid%domain_emin/emax` and
+      !< `field%emin/emax`, with a small absolute tolerance. This mirrors
+      !< the identically-named helper inside the PRISM-CPU realm; a future
+      !< refactor should lift the canonical version into `adam_maps_object`.
+      class(realm_object), intent(in) :: this_realm  !< Realm to query.
+      integer(I4P),        intent(in) :: b           !< Block index.
+      integer(I4P),        intent(in) :: axis        !< 1=x, 2=y, 3=z.
+      integer(I4P),        intent(in) :: sgn         !< +1 if checking MAX face, -1 if MIN.
+      logical                         :: yes         !< Test result.
+      real(R8P)                       :: face_coord, target_coord, tol
+
+      if (sgn > 0_I4P) then
+         face_coord   = this_realm%adam%field%emax(axis, b)
+         target_coord = this_realm%adam%grid%domain_emax(axis)
+      else
+         face_coord   = this_realm%adam%field%emin(axis, b)
+         target_coord = this_realm%adam%grid%domain_emin(axis)
+      endif
+      tol = max(abs(target_coord), 1._R8P) * 1.0e-10_R8P
+      yes = abs(face_coord - target_coord) <= tol
+      endfunction block_face_on_realm_boundary
+
+      pure function tangential_cell_count(this_realm, axis) result(n)
+      !< Return the product of the two cell counts tangential to `axis`.
+      !<
+      !< For axis=1 (x-normal face): n = nj * nk.
+      !< For axis=2 (y-normal face): n = ni * nk.
+      !< For axis=3 (z-normal face): n = ni * nj.
+      !<
+      !< This is the cell count for a single block's face skin (NOT the
+      !< whole-realm face skin); the realm-level face skin is the sum over
+      !< the seam blocks, each contributing this count.
+      class(realm_object), intent(in) :: this_realm
+      integer(I4P),        intent(in) :: axis
+      integer(I4P)                    :: n
+
+      associate(g => this_realm%adam%grid)
+      select case (axis)
+      case (1_I4P); n = g%nj * g%nk
+      case (2_I4P); n = g%ni * g%nk
+      case (3_I4P); n = g%ni * g%nj
+      case default; n = 0_I4P
+      end select
+      end associate
+      endfunction tangential_cell_count
    endsubroutine populate_inter_realm_topology
 endmodule adam_forest_object
