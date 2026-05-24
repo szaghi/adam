@@ -102,7 +102,7 @@ type :: flux_register_object
       procedure, pass(self) :: register_face          !< Populate one entry in `face(:)`; called by topology pass at init/regrid.
       procedure, pass(self) :: accumulate_coarse_flux !< Add a coarse-side per-substage flux to F_coarse on the matching face (called by compute_residuals_* on coarse-side seam faces).
       procedure, pass(self) :: accumulate_fine_flux   !< Add a fine-side per-substage flux to F_fine_sum on the matching face (called by compute_residuals_* on fine-side seam faces).
-      procedure, pass(self) :: apply_reflux           !< Reduce F_fine_sum across ranks if needed, then correct the coarse-side q with the (F_coarse − F_fine_sum) imbalance.
+      procedure, pass(self) :: reduce_fine_sums       !< MPI-reduce F_fine_sum across ranks so coarse owner has complete sum (Phase A v1: no-op for replicated forest).
       procedure, pass(self) :: reset                  !< Zero F_coarse and F_fine_sum on every face; called at top-of-step.
       procedure, pass(self) :: destroy                !< Deallocate `face(:)` and reset state to uninitialized.
 endtype flux_register_object
@@ -197,77 +197,73 @@ contains
    subroutine accumulate_coarse_flux(self, face_index, substage, flux_face)
    !< Add a coarse-side per-substage flux contribution to `F_coarse(:,:,substage)`.
    !<
-   !< Called by `compute_residuals_*` (option α, #13 §3.2) when a face being
-   !< processed has been identified as a coarse-side seam face. The `face_index`
-   !< is looked up via a precomputed `is_seam_face(b, face)` mask owned by the
-   !< residual routine; finding the index is O(1).
+   !< Called by PRISM's `compute_residuals_fv_centered` (option α, #13 §3.2)
+   !< when processing a face that has been identified as a coarse-side seam
+   !< face. The `face_index` is looked up via a precomputed
+   !< `seam_face_index(b, face_code)` table owned by the residual routine;
+   !< the lookup is O(1).
    !<
-   !< **Skeleton commit:** body is a no-op pending the accumulation-wiring
-   !< commit.
+   !< Accumulation is additive: a face may receive contributions from
+   !< multiple `accumulate_*_flux` calls within one substage (e.g. if the
+   !< FV scheme processes the same face from both the cell-i and cell-(i+1)
+   !< side); the register holds the running sum.
    class(flux_register_object), intent(inout) :: self          !< The register.
    integer(I4P),                intent(in)    :: face_index    !< Index into `face(:)` of the seam face being updated.
    integer(I4P),                intent(in)    :: substage      !< RK substage 1..nrk.
    real(R8P),                   intent(in)    :: flux_face(:,:)!< Per-face flux contribution shaped (nv, nface_cells).
 
-   associate(unused_self => self, unused_face_index => face_index, &
-             unused_substage => substage, unused_flux => flux_face )
-   endassociate
+   if (face_index < 1_I4P .or. face_index > self%nfaces) &
+      call mpih%error_stop(msg='flux_register_object%accumulate_coarse_flux: face_index out of range')
+   if (.not. allocated(self%face(face_index)%F_coarse)) &
+      call mpih%error_stop(msg='flux_register_object%accumulate_coarse_flux: F_coarse not allocated; was register_face called?')
+   if (substage < 1_I4P .or. substage > size(self%face(face_index)%F_coarse, dim=3)) &
+      call mpih%error_stop(msg='flux_register_object%accumulate_coarse_flux: substage out of range')
+   self%face(face_index)%F_coarse(:,:,substage) = self%face(face_index)%F_coarse(:,:,substage) + flux_face(:,:)
    endsubroutine accumulate_coarse_flux
 
    subroutine accumulate_fine_flux(self, face_index, substage, flux_face)
    !< Add a fine-side per-substage flux contribution to `F_fine_sum(:,:,substage)`.
    !<
-   !< Called by `compute_residuals_*` when a face being processed has been
-   !< identified as a fine-side seam face. The fine-side contribution is
-   !< already mapped to the coarse-face skin (i.e. the fine routine sums its 4
-   !< fine-face fluxes onto a single coarse-face slot via 2:1 averaging before
-   !< calling this routine, or the routine itself does the mapping — design
-   !< decision deferred to the accumulation-wiring commit).
-   !<
-   !< **Skeleton commit:** body is a no-op pending the accumulation-wiring
-   !< commit.
+   !< Called by PRISM's `compute_residuals_fv_centered` when processing a
+   !< face identified as a fine-side seam face. The contribution is assumed
+   !< to be already mapped to the coarse-face skin (same-resolution case:
+   !< identity mapping; AMR case: 2:1 averaging of 4 fine faces into one
+   !< coarse slot, performed by the caller before this call). Storing the
+   !< coarse-skin-shaped contribution directly keeps the register topology
+   !< simple at the cost of caller-side averaging discipline for AMR.
    class(flux_register_object), intent(inout) :: self          !< The register.
    integer(I4P),                intent(in)    :: face_index    !< Index into `face(:)` of the seam face being updated.
    integer(I4P),                intent(in)    :: substage      !< RK substage 1..nrk.
    real(R8P),                   intent(in)    :: flux_face(:,:)!< Per-face flux contribution shaped (nv, nface_cells); already mapped to the coarse-face skin.
 
-   associate(unused_self => self, unused_face_index => face_index, &
-             unused_substage => substage, unused_flux => flux_face )
-   endassociate
+   if (face_index < 1_I4P .or. face_index > self%nfaces) &
+      call mpih%error_stop(msg='flux_register_object%accumulate_fine_flux: face_index out of range')
+   if (.not. allocated(self%face(face_index)%F_fine_sum)) &
+      call mpih%error_stop(msg='flux_register_object%accumulate_fine_flux: F_fine_sum not allocated; was register_face called?')
+   if (substage < 1_I4P .or. substage > size(self%face(face_index)%F_fine_sum, dim=3)) &
+      call mpih%error_stop(msg='flux_register_object%accumulate_fine_flux: substage out of range')
+   self%face(face_index)%F_fine_sum(:,:,substage) = self%face(face_index)%F_fine_sum(:,:,substage) + flux_face(:,:)
    endsubroutine accumulate_fine_flux
 
-   subroutine apply_reflux(self, substage, dt, dx_coarse, weight)
-   !< Reduce `F_fine_sum` across ranks (if needed) and apply the Berger-Colella
-   !< correction to the coarse-side conserved variables.
+   subroutine reduce_fine_sums(self)
+   !< MPI-reduce `F_fine_sum` across ranks so the coarse-side rank has the
+   !< full sum for the correction. Phase A v1 of [issue #13] uses the
+   !< replicated-forest layout (both ranks own both realms) where every
+   !< accumulator is already complete on every rank — this routine is
+   !< a no-op in that case. Cross-rank reduce is left to a follow-up
+   !< commit that adds disjoint-rank carve-out.
    !<
-   !< Formula (Berger & Colella 1989 §4; Wang et al. 2018 Eq. 23 for the
-   !< RK-stage-weighted form):
-   !<
-   !<     q_coarse(:, coarse cell on seam face)
-   !<         +=  weight * (dt / dx_coarse) * ( F_coarse(:, cell, s) - F_fine_sum(:, cell, s) )
-   !<
-   !< where `weight` is the SSP-RK accumulation weight for substage `s`, read
-   !< from `adam_rk_object%ark(s)`. For SSP-RK 3 (`adam_rk_object%nrk = 3`)
-   !< the weights decompose to 1 per substage; for SSP-RK 5 they vary.
-   !<
-   !< Called by `forest_object%evolve_one_step` between substages, after
-   !< `compute_residuals_*` has produced the fluxes but before the next ghost
-   !< exchange. The cross-rank MPI reduce of `F_fine_sum` happens inside this
-   !< routine (separate communicator pattern from `comm_map_send_ghost`).
-   !<
-   !< **Skeleton commit:** body is a no-op. The reflux correction is wired in
-   !< the accumulation-wiring + correction-application follow-up commit.
-   class(flux_register_object), intent(inout) :: self      !< The register.
-   integer(I4P),                intent(in)    :: substage  !< RK substage 1..nrk.
-   real(R8P),                   intent(in)    :: dt        !< Time step.
-   real(R8P),                   intent(in)    :: dx_coarse !< Coarse cell width in the face-normal direction.
-   real(R8P),                   intent(in)    :: weight    !< RK substage accumulation weight (from adam_rk_object%ark).
+   !< The reduce happens here (not in `apply_reflux_corrections` on
+   !< `forest_object`) because it is purely register-internal: it
+   !< exchanges accumulator data between ranks owning copies of the
+   !< same face entry, without any realm-side q access.
+   class(flux_register_object), intent(inout) :: self !< The register.
 
-   associate(unused_self => self, unused_substage => substage, &
-             unused_dt   => dt,   unused_dx       => dx_coarse,&
-             unused_w    => weight                              )
-   endassociate
-   endsubroutine apply_reflux
+   if (.not. self%is_initialized_) return
+   if (self%nfaces == 0_I4P)        return
+   ! Replicated-forest layout: no cross-rank reduce needed. The skeleton
+   ! is in place for the disjoint-rank follow-up.
+   endsubroutine reduce_fine_sums
 
    subroutine reset(self)
    !< Zero `F_coarse` and `F_fine_sum` on every registered face.

@@ -143,6 +143,30 @@ type :: maps_object
    ! (currently `prism_cpu_object`), replacing the per-call geometric
    ! `find_peer_block` + `copy_peer_face` pair with an indexed read.
    integer(I4P), allocatable :: inter_realm_ghost_cell(:,:) !< Per-cell inter-realm ghost map; layout per the comment above.
+   !
+   ! Inter-realm seam → flux register lookup (Phase A step 4 of issue #13).
+   !
+   ! Maps a (block, face_1_6) pair on THIS realm to the index of the
+   ! corresponding entry in `forest_flux_register%face(:)`. The
+   ! face_1_6 axis is the BC-routine numbering (FEC_1_6_ARRAY space:
+   ! 1=-x, 2=+x, 3=-y, 4=+y, 5=-z, 6=+z) so PRISM's residual routines —
+   ! which already compute `fec_1_6` in their BC loops — can look up the
+   ! register index directly without a second translation.
+   !
+   ! Layout: `inter_realm_face_register_index(1:nb, 1:6)` — 0 means
+   ! "not a seam face for this (block, face) pair"; a positive value is
+   ! the 1-based index into `forest_flux_register%face(:)`.
+   !
+   ! Populated by `forest_object%populate_inter_realm_topology` (Phase A
+   ! step 4) at the same time as the per-cell ghost map and the BC_SEAM
+   ! override; ALL three derive from the same manifest face-pair walk.
+   !
+   ! Consumer: PRISM's `compute_residuals_fv_centered` consults the table
+   ! after computing each face's flux. If non-zero, the routine calls
+   ! `forest_flux_register%accumulate_{coarse,fine}_flux` on the indexed
+   ! entry (coarse vs fine determined by the register entry's
+   ! `coarse_realm`/`fine_realm` fields).
+   integer(I4P), allocatable :: inter_realm_face_register_index(:,:) !< (block, face_1_6) → flux register face index; 0 = not a seam face.
    contains
       ! public methods
       procedure, pass(self) :: blocks_reorder             !< Reorder blocks indexes in field.
