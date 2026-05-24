@@ -108,7 +108,9 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: nrk_forest                        !< Orchestrator contract; overrides realm_object default (multi-realm path).
       procedure, pass(self) :: prepare_step_forest               !< Orchestrator contract; overrides realm_object default (multi-realm path).
       procedure, pass(self) :: assemble_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
-      procedure, pass(self) :: evaluate_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: residuals_substage_forest         !< Orchestrator contract; overrides realm_object default (multi-realm 3-phase loop, issue #13).
+      procedure, pass(self) :: assign_substage_forest            !< Orchestrator contract; overrides realm_object default (multi-realm 3-phase loop, issue #13).
+      procedure, pass(self) :: evaluate_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path, legacy 2-phase).
       procedure, pass(self) :: finalize_step_forest              !< Orchestrator contract; overrides realm_object default (multi-realm path).
       procedure, pass(self) :: post_step_forest                  !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: is_done_forest                    !< Orchestrator contract; overrides realm_object default.
@@ -1873,10 +1875,11 @@ contains
    call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
    endsubroutine assemble_substage_forest
 
-   subroutine evaluate_substage_forest(self, s, nrk, dt)
-   !< Evaluate residuals + stage assignment for RK substage `s` (FNL multi-realm path).
-   !<
-   !< Mirrors `compute_residuals_dev + rk_fnl%assign_stage` from `integrate_rk_ssp_dev`.
+   subroutine residuals_substage_forest(self, s, nrk, dt)
+   !< Compute residuals for RK substage `s` (FNL multi-realm path,
+   !< 3-phase loop). Reads q_rk_gpu(s), writes dq_gpu. NO assign_stage.
+   !< See [[prism_cpu_object]]%`residuals_substage_forest` for the
+   !< BC_SEAM-coherence rationale of the residuals/assign split.
    class(prism_fnl_object), intent(inout) :: self !< The realm.
    integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
@@ -1885,11 +1888,37 @@ contains
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
    call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+   endsubroutine residuals_substage_forest
+
+   subroutine assign_substage_forest(self, s, nrk, dt)
+   !< Assign RK substage `s` state from dq_gpu (FNL multi-realm path,
+   !< 3-phase loop). Overwrites q_rk_gpu(:, interior, :, b, s) with
+   !< dq_gpu. Runs AFTER all peers have computed residuals.
+   class(prism_fnl_object), intent(inout) :: self !< The realm.
+   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+
+   associate(dt_unused => dt, nrk_unused => nrk)
+   end associate
    if (self%ib%solids_number>0) then
       call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
    else
       call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
    endif
+   endsubroutine assign_substage_forest
+
+   subroutine evaluate_substage_forest(self, s, nrk, dt)
+   !< [Deprecated] Combined residuals + stage assignment for RK substage `s`
+   !< (FNL multi-realm path, legacy 2-phase). The forest now uses the
+   !< residuals/assign split; this wrapper is kept for backward-compat.
+   class(prism_fnl_object), intent(inout) :: self !< The realm.
+   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+
+   call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
+   call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
    endsubroutine evaluate_substage_forest
 
    subroutine finalize_step_forest(self, dt)

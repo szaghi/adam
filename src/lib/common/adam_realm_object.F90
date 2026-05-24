@@ -137,7 +137,9 @@ type :: realm_object
       procedure, pass(self) :: nrk_forest                       !< Number of substages this realm's integrator uses (multi-realm path).
       procedure, pass(self) :: prepare_step_forest              !< Per-step prologue (multi-realm path): initialize_stages, external-field prelude.
       procedure, pass(self) :: assemble_substage_forest         !< One RK substage assembly (multi-realm path): rk%compute_stage(s).
-      procedure, pass(self) :: evaluate_substage_forest         !< One RK substage residual eval + assignment (multi-realm path).
+      procedure, pass(self) :: residuals_substage_forest        !< One RK substage residual computation (multi-realm path): compute_residuals(q_rk(s)) only — NO assign_stage.
+      procedure, pass(self) :: assign_substage_forest           !< One RK substage stage assignment (multi-realm path): rk%assign_stage(s, q=dq) only — runs AFTER all peers' residuals.
+      procedure, pass(self) :: evaluate_substage_forest         !< [Deprecated] residuals + assignment in one call. Kept as backward-compat wrapper; the forest now uses residuals/assign separately to preserve substage-state coherence at the seam (see [issue #13]).
       procedure, pass(self) :: finalize_step_forest             !< Per-step epilogue (multi-realm path): update_q, BC, impose_div_free, time bookkeeping.
       procedure, pass(self) :: post_step_forest                 !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest                   !< Invoked by forest%is_done during the termination reduction.
@@ -420,21 +422,25 @@ contains
    call mpih%error_stop(msg='realm_object%assemble_substage_forest: not overridden by app extension')
    endsubroutine assemble_substage_forest
 
-   subroutine evaluate_substage_forest(self, s, nrk, dt)
-   !< Evaluate residuals + stage assignment on the multi-realm path.
+   subroutine residuals_substage_forest(self, s, nrk, dt)
+   !< Compute residuals for RK substage `s` on the multi-realm path.
    !<
    !< Invoked once per (realm, substage) AFTER every realm has run
-   !< `assemble_substage_forest(s)`. Body computes the residual of
-   !< `rk%q_rk(:,...,s)` (which internally calls `update_ghost`, which
-   !< via the `forest_realm` module pointer triggers the inter-realm
-   !< exchange so peer ghosts are coherent at substage `s`), then assigns
-   !< the result back into the RK stage state.
+   !< `assemble_substage_forest(s)`. Body calls `compute_residuals(q=
+   !< rk%q_rk(:,...,s), dq=self%dq, s=s)` ONLY — it must NOT call
+   !< `rk%assign_stage`, because doing so would overwrite
+   !< `rk%q_rk(:, interior, :, b, s)` with `dq` IN-PLACE, corrupting the
+   !< substage-state read by peers' subsequent residual evaluations at
+   !< the seam (issue #13 BC_SEAM-debug finding, 2026-05-24).
    !<
-   !< Splitting from `assemble_substage_forest` is what synchronizes the
-   !< substage state across realms — see that TBP's docstring.
+   !< The forest invokes `residuals_substage_forest` on EVERY realm
+   !< before any realm runs `assign_substage_forest(s)` — that is the
+   !< three-phase substage loop that keeps `q_rk(:, interior, :, b, s)`
+   !< stable as the assembled substage state for the duration of all
+   !< realms' residual evaluations.
    !<
-   !< Default implementation error-stops: every multi-realm participant MUST
-   !< override this.
+   !< Default implementation error-stops: every multi-realm participant
+   !< MUST override this.
    class(realm_object), intent(inout) :: self !< The realm.
    integer(I4P),        intent(in)    :: s    !< Substage index (1..nrk).
    integer(I4P),        intent(in)    :: nrk  !< Total number of substages.
@@ -442,7 +448,51 @@ contains
 
    associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
    end associate
-   call mpih%error_stop(msg='realm_object%evaluate_substage_forest: not overridden by app extension')
+   call mpih%error_stop(msg='realm_object%residuals_substage_forest: not overridden by app extension')
+   endsubroutine residuals_substage_forest
+
+   subroutine assign_substage_forest(self, s, nrk, dt)
+   !< Assign RK substage `s` state from `self%dq` on the multi-realm path.
+   !<
+   !< Invoked once per (realm, substage) AFTER every realm has run
+   !< `residuals_substage_forest(s)`. Body calls `rk%assign_stage(s=s,
+   !< q=self%dq)`, which overwrites `rk%q_rk(:, interior, :, b, s)` with
+   !< the residual buffer (the SSP-RK trick — q_rk(s) holds the dq of
+   !< stage s for the next stage's linear combination).
+   !<
+   !< By the time this fires, every realm's residual evaluation has
+   !< completed, so the in-place overwrite of `q_rk(s)` does not race
+   !< with peer reads.
+   !<
+   !< Default implementation error-stops: every multi-realm participant
+   !< MUST override this.
+   class(realm_object), intent(inout) :: self !< The realm.
+   integer(I4P),        intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),        intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+
+   associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
+   end associate
+   call mpih%error_stop(msg='realm_object%assign_substage_forest: not overridden by app extension')
+   endsubroutine assign_substage_forest
+
+   subroutine evaluate_substage_forest(self, s, nrk, dt)
+   !< [Deprecated] Combined residuals + stage assignment.
+   !<
+   !< Was the single-phase substage entry point before the
+   !< residuals/assign split required by the BC_SEAM-coherence fix
+   !< (issue #13, 2026-05-24). Retained as a backward-compat wrapper:
+   !< default implementation calls residuals then assign in sequence.
+   !< The forest no longer invokes this — it drives the three-phase
+   !< loop directly via the split TBPs. App overrides may still
+   !< implement this for use outside the forest orchestrator.
+   class(realm_object), intent(inout) :: self !< The realm.
+   integer(I4P),        intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),        intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+
+   call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
+   call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
    endsubroutine evaluate_substage_forest
 
    subroutine finalize_step_forest(self, dt)
