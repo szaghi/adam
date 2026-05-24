@@ -105,6 +105,43 @@ type :: maps_object
    ! forest during initialization from the manifest's [forest.topology]
    ! section. Consumed by realm_object%exchange_inter_realm_halos_forest.
    type(inter_realm_neighbor_t), allocatable :: inter_realm_neighbors(:) !< Face couplings to other realms; unallocated when this realm has no inter-realm neighbors.
+   !
+   ! Inter-realm ghost-cell map (Phase A of issue #13 — seam comm-map).
+   !
+   ! One row per ghost cell that lives in THIS realm and pulls its value
+   ! from another realm. Mirrors `local_map_ghost_cell` (the intra-realm
+   ! ghost map) with `peer_realm` prepended as column 1.
+   !
+   ! Layout: `inter_realm_ghost_cell(c, 1:10)` =
+   !   [peer_realm, b_send, b_recv, i_send, j_send, k_send,
+   !    i_recv, j_recv, k_recv, one_or_eight]
+   !
+   ! where:
+   !   * `peer_realm`   — 1-based index of the realm to read from;
+   !   * `b_send`       — block index in the peer realm;
+   !   * `b_recv`       — block index in THIS realm;
+   !   * `i/j/k_send`   — INTERIOR cell coordinates in the peer block
+   !                      (1..ni_peer / 1..nj_peer / 1..nk_peer);
+   !   * `i/j/k_recv`   — GHOST cell coordinates in self's block
+   !                      (in [1-ngc..ni+ngc] etc.);
+   !   * `one_or_eight` — 1 for same-resolution mirror copy, reserved 8
+   !                      for the 2:1-coarser case (Phase A v1 only
+   !                      populates same-resolution = 1; AMR jumps are
+   !                      a follow-up).
+   !
+   ! Unallocated when there are no inter-realm seams. Populated by
+   ! `forest_object%populate_inter_realm_topology` (D.4a + Phase A) by
+   ! enumerating every ghost cell in every self-seam-block's ghost
+   ! region and resolving the matching peer (realm, block, interior
+   ! cell) — including the corner / edge ghosts that the previous
+   ! geometric `exchange_inter_realm_halos_forest` missed (defect B of
+   ! issue #13).
+   !
+   ! Consumer: a flat-loop exchange in
+   ! `realm_object%exchange_inter_realm_halos_forest` overrides
+   ! (currently `prism_cpu_object`), replacing the per-call geometric
+   ! `find_peer_block` + `copy_peer_face` pair with an indexed read.
+   integer(I4P), allocatable :: inter_realm_ghost_cell(:,:) !< Per-cell inter-realm ghost map; layout per the comment above.
    contains
       ! public methods
       procedure, pass(self) :: blocks_reorder             !< Reorder blocks indexes in field.

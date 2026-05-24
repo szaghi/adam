@@ -47,15 +47,43 @@ module adam_forest_global
 !<     the realm-side hook iterates an empty neighbour list and the
 !<     behaviour is bit-identical to pre-Phase-D.
 
-use :: adam_realm_object, only : realm_object
-use :: penf,              only : I4P
+use :: adam_flux_register_object, only : flux_register_object
+use :: adam_realm_object,         only : realm_object
+use :: penf,                      only : I4P
 
 implicit none
 private
 public :: forest_realm
 public :: forest_active_substage
+public :: forest_flux_register
 
 class(realm_object), pointer :: forest_realm(:) => null() !< Set by forest%evolve_one_step for the duration of the step.
+
+!< Berger-Colella flux register — coarse-fine interface machinery (Phase A of [issue #13]).
+!<
+!< Program-scope singleton (like `mpih`) rather than a `forest_object`
+!< component, because:
+!<
+!<   * `forest_object` is behavior-only by invariant R1 of [issue #10] —
+!<     "no derived-type-pointer components, ever" — and the register's
+!<     internal `face(:)` is exactly such a component;
+!<   * the register is indexed by (realm pair, block, face), not by
+!<     a single realm, so it has no natural single-realm owner;
+!<   * cross-rank reduce in `apply_reflux` wants a single rank-scope
+!<     owner, mirroring the way `mpih` carries per-rank MPI state.
+!<
+!< Lifecycle is driven by `forest_object`:
+!<
+!<   * populated by `populate_inter_realm_topology` at init / regrid time;
+!<   * `reset` at top of `evolve_one_step`;
+!<   * `accumulate_*_flux` from PRISM's `compute_residuals_*` during substage;
+!<   * `apply_reflux` between substages, before the next ghost exchange.
+!<
+!< In the skeleton commit of Phase A (this commit), every operation on the
+!< register is a no-op or near-no-op: the type compiles, the lifecycle hooks
+!< exist in `forest_object`, the wiring is in place. Real accumulation /
+!< correction follow in subsequent commits of Phase A.
+type(flux_register_object) :: forest_flux_register !< Coarse-fine interface reflux machinery.
 
 !< INVARIANT — all realms advance their RK substages in LOCKSTEP.
 !<
