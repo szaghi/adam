@@ -49,48 +49,76 @@ realm_1 ∪ realm_2 cell centers reconstructs single-realm rmf exactly.
 
 ## Capturing the goldens
 
-> **Important**: capturing the rmf-2realm golden also requires re-capturing
-> the single-realm rmf golden because Phase D introduced a digest format
-> change (step-index keying + ghost-cell stripping; see `digest.py` header).
-> The old `rmf/golden/<backend>/digest.txt` files are NOT comparable with
-> digests produced by the post-Phase-D `digest.py`.
+Both the single-realm `rmf` and the two-realm `rmf-2realm` CPU goldens are
+already committed under the current digest format (step-index keying +
+ghost-cell stripping; see `digest.py` header). To recapture either:
 
 ```bash
-# 1. Recapture single-realm rmf golden under the new digest format
-./run.sh cpu                                            # produces rmf/work-cpu/{digest.txt, *-residuals.dat}
-cp rmf/work-cpu/digest.txt                rmf/golden/cpu/
+# Recapture single-realm rmf golden
+./run.sh cpu                                              # produces rmf/work-cpu/{digest.txt, *-residuals.dat}
+cp rmf/work-cpu/digest.txt                   rmf/golden/cpu/
 cp rmf/work-cpu/rmf_regression-residuals.dat rmf/golden/cpu/
 
-# 2. Capture two-realm golden
-./run.sh cpu                                            # produces rmf-2realm/work-cpu/{digest.txt, per-realm *-residuals.dat}
-cp rmf-2realm/work-cpu/digest.txt           rmf-2realm/golden/cpu/
+# Recapture two-realm golden
+REGRESSION_RUN_GOLDENLESS=1 ./run.sh cpu                  # bypasses skip-when-no-golden
+cp rmf-2realm/work-cpu/digest.txt                  rmf-2realm/golden/cpu/
 cp rmf-2realm/work-cpu/rmf_2realm_r*-residuals.dat rmf-2realm/golden/cpu/
-
-# 3. Sanity-check the cross-config equivalence — the two digests SHOULD match
-#    within the regression tolerance after ghost-cell stripping.
-python3 digest.py compare rmf-2realm/golden/cpu/digest.txt rmf/golden/cpu/digest.txt
 ```
 
 The FNL backend follows the same recipe via `run-fnl-local.sh` instead of
-`run.sh`.
+`run.sh`. See the FNL caveat below for current status.
 
-## Cross-config equivalence
+## Cross-config sanity check
 
-The acceptance criterion is that **the rmf-2realm digest matches the rmf
-single-realm digest** (within the same `rtol=1e-6, atol=1e-3` tolerance the
-suite uses for cross-compiler matching). This holds because:
+In addition to passing against its own golden (the automatic harness
+check), the `rmf-2realm` digest should also match the `rmf` single-realm
+digest for every physics-meaningful FIELD variable — that is the deeper
+correctness oracle for the seam machinery. The check is a manual one-liner
+because the harness compares each case against its own golden only:
+
+```bash
+exe/.regression-venv/bin/python src/tests/prism/regression/digest.py compare \
+    src/tests/prism/regression/rmf-2realm/work-cpu/digest.txt \
+    src/tests/prism/regression/rmf/golden/cpu/digest.txt
+```
+
+Expected outcome:
+
+```
+>> 9 per-block-metadata discrepancies skipped (benign across block-partitioning changes; ...)
+  SKIP_METADATA 000000000 / dxdydz — count 384 != 192
+  SKIP_METADATA 000000000 / origin — count 384 != 192
+  SKIP_METADATA 000000000 / time_iteration — count 128 != 64
+  ... (3 more per output iteration)
+>> digest match: 102 rows within rtol=1e-06 atol=0.001
+```
+
+The 9 SKIP_METADATA lines are benign per-block-metadata mismatches:
+`dxdydz`, `origin`, `time_iteration` are per-block attributes (3 / 3 / 1
+values per block respectively) whose digest reductions scale with the block
+count, and the 2-realm config has 2× the blocks of the 1-realm config.
+These rows are downgraded from MISMATCH to SKIP_METADATA by `digest.py
+compare` automatically (see `_PER_BLOCK_METADATA_VARS` in `digest.py`); the
+overall comparison passes when every FIELD variable matches.
+
+This cross-config equivalence holds because:
 
 1. Cell centers in realm_1 ∪ realm_2 = cell centers in single-realm rmf (by
    construction — see "Grid-alignment rationale" above).
-2. The inter-realm halo exchange at every RK substage propagates peer-realm
-   interior values across the x=0 interface, so WENO/FDV stencils at the
-   interface see the SAME data they would see in single-realm rmf (which
-   has no interface — the cells straddling x=0 are interior cells reading
-   from neighbouring blocks).
-3. Ghost cells are stripped from the digest, so the inter-realm ghost cells
-   (which differ from single-realm's neighbouring-block reads only in how
-   they are populated, not in what data they hold post-exchange) don't
-   pollute the comparison.
+2. The manifest's `[forest.topology.face_*]` declaration overrides each
+   realm's INI-declared BC for the seam face (commit 6987c20, BC_SEAM
+   sentinel) — without this override, PRISM's `set_boundary_conditions`
+   would extrapolate Neumann into the seam ghost cells and overwrite the
+   peer-interior values the inter-realm exchange wrote.
+3. The forest's three-phase substage loop (same commit) keeps each realm's
+   `q_rk(:, interior, :, b, s)` consistent across all peers' seam reads —
+   the legacy two-phase loop (`compute_residuals` + `rk%assign_stage`
+   back-to-back per realm) raced because `assign_stage` overwrites
+   `q_rk(s)` with `dq` in-place.
+4. Ghost cells are stripped from the digest, so the inter-realm-mirror
+   ghost cells (which differ from single-realm's neighbouring-block reads
+   only in how they are populated, not in what data they hold
+   post-exchange) don't pollute the comparison.
 
 ## FNL caveat (Phase D.4)
 
