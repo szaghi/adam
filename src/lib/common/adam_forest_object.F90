@@ -654,13 +654,21 @@ contains
             ! immediately. Fine side requires a geometric peer lookup to
             ! find the matching realm_b block; same-resolution mirror →
             ! identical (tangential extents, opposite-axis face) match.
+            !
+            ! Sign convention (consumed by PRISM's FV reflux hook):
+            !   +cursor stored on the coarse-side realm (pair%realm_a)
+            !   -cursor stored on the fine-side   realm (pair%realm_b)
+            !       0   stored anywhere = "not a seam face".
+            ! The consumer recovers the register index via `abs()` and
+            ! the coarse/fine role via the sign — no realm-identity field
+            ! is needed on the realm object.
             block
                integer(I4P) :: bc_fec_a, bc_fec_b
                integer(I4P) :: b_peer, b_peer_axis, b_peer_sign
                bc_fec_a = face_code_to_bc_fec(pair%face_a)
                bc_fec_b = face_code_to_bc_fec(pair%face_b)
                if (bc_fec_a > 0_I4P .and. bc_fec_a <= 6_I4P) &
-                  realm(a_realm)%adam%maps%inter_realm_face_register_index(b, bc_fec_a) = cursor
+                  realm(a_realm)%adam%maps%inter_realm_face_register_index(b, bc_fec_a) = +cursor
                call face_axis_sign(pair%face_b, b_peer_axis, b_peer_sign)
                call find_seam_peer_block(realm, my_realm_idx=pair%realm_a, my_block=b, &
                                          my_axis=a_axis, my_sign=a_sign,               &
@@ -669,7 +677,7 @@ contains
                                          b_peer=b_peer)
                if (b_peer > 0_I4P .and. bc_fec_b > 0_I4P .and. bc_fec_b <= 6_I4P) then
                   if (allocated(realm(pair%realm_b)%adam%maps%inter_realm_face_register_index)) &
-                     realm(pair%realm_b)%adam%maps%inter_realm_face_register_index(b_peer, bc_fec_b) = cursor
+                     realm(pair%realm_b)%adam%maps%inter_realm_face_register_index(b_peer, bc_fec_b) = -cursor
                endif
             endblock
          enddo

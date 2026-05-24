@@ -2029,9 +2029,20 @@ contains
                                                 1:)                                           !< Residuals.
    integer(I4P),  optional, intent(in)    :: s !< Stage counter.
    integer(I4P)                           :: i,j,k,b,d,v                                      !< Counter
+   integer(I4P)                           :: substage_idx !< RK substage index (captured pre-associate to avoid shadow by the stencil-half-width rebinding).
    real(R8P),    parameter                :: sir(3,3) = reshape([1._R8P,0._R8P,0._R8P,&
                                                                  0._R8P,1._R8P,0._R8P,&
                                                                  0._R8P,0._R8P,1._R8P],[3,3]) !< Direction versor, real.
+
+   ! Capture substage BEFORE the associate block rebinds `s` to the
+   ! reconstruction stencil half-width. The inter-realm FV reflux hook
+   ! below needs the RK substage to index into `forest_flux_register`'s
+   ! per-substage accumulators.
+   if (present(s)) then
+      substage_idx = s
+   else
+      substage_idx = 0_I4P
+   endif
 
    call self%apply_fWL_correction(q=q)
    call self%update_ghost(q=q)
@@ -2089,6 +2100,22 @@ contains
       enddo
       enddo
       enddo
+      ! Inter-realm seam flux accumulation (Phase A step 4 of issue #13).
+      !
+      ! After face fluxes are reconstructed, before the conservative
+      ! update consumes them, walk every (block, fec) pair and check the
+      ! per-realm signed register lookup. Non-zero entries name a seam
+      ! face: pack the corresponding flux skin from `flx_f`/`fly_f`/
+      ! `flz_f` into the register's `(nv, nface_cells)` accumulator
+      ! shape, then dispatch by sign (+ = coarse side → F_coarse, − =
+      ! fine side → F_fine_sum). Symmetric mirror seams (rmf-2realm)
+      ! produce equal coarse/fine fluxes → end-of-substage reflux is
+      ! round-off zero by expectation and the FD-centered case is
+      ! unreachable here (the hook only fires for fv_centered).
+      if (substage_idx > 0_I4P .and. allocated(self%adam%maps%inter_realm_face_register_index) &
+                              .and. forest_flux_register%nfaces > 0_I4P) then
+         call accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, substage_idx)
+      endif
       ! compute fluxes difference for RHS, dF/ds = (F(i+1/2)-F(i-1/2))/Ds
       do b=1,blocks_number
       do k=1,nk
@@ -2110,6 +2137,135 @@ contains
    endif
    endassociate
    endsubroutine compute_residuals_fv_centered
+
+   subroutine accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, substage_idx)
+   !< Accumulate per-substage face fluxes on inter-realm seam faces of
+   !< the FV-centered scheme. Phase A step 4 of [issue #13] FV consumer
+   !< wiring.
+   !<
+   !< Walks every (block, fec) pair and, for non-zero entries in
+   !< `self%adam%maps%inter_realm_face_register_index(b, fec)`, packs
+   !< the appropriate `flx_f`/`fly_f`/`flz_f` face skin into a
+   !< `(nv, nface_cells)` slab and routes it to the right register
+   !< accumulator: positive index → coarse side → `accumulate_coarse_flux`,
+   !< negative index → fine side → `accumulate_fine_flux`.
+   !<
+   !< The register accumulators are sized `(nv, nface_cells, nrk)` with
+   !< the full state-vector width `nv` (set at `register_face` time
+   !< from `realm%adam%field%nv`). The FV scheme only fills the
+   !< conservative slice `1:nv_c` of the flux arrays; the remaining
+   !< rows are left at zero in `flux_slab` so the register's
+   !< `F_coarse - F_fine_sum` correction is identically zero outside
+   !< the conservative variables.
+   !<
+   !< For the current same-resolution mirror seam (rmf-2realm), each
+   !< coarse and fine side carries an identical flux at the seam face;
+   !< `F_coarse - F_fine_sum` is round-off zero in expectation and the
+   !< downstream q-correction in `forest_object%apply_reflux_corrections`
+   !< is a no-op against the bit-exact regression. The FD-centered case
+   !< does not reach this routine (different `compute_residuals` target).
+   class(prism_cpu_object), intent(inout) :: self          !< The realm.
+   integer(I4P),            intent(in)    :: ni, nj, nk    !< Interior cell counts.
+   integer(I4P),            intent(in)    :: nv_c          !< Number of conservative variables (FV scheme fills only these rows).
+   integer(I4P),            intent(in)    :: blocks_number !< Number of local blocks.
+   integer(I4P),            intent(in)    :: substage_idx  !< RK substage index (1..nrk).
+   integer(I4P)                           :: b, fec, sgn_idx, face_idx
+   integer(I4P)                           :: nv_reg, nface_cells
+   integer(I4P)                           :: i, j, k, v, c
+   real(R8P), allocatable                 :: flux_slab(:,:)
+
+   do b=1, blocks_number
+      do fec=1, 6
+         sgn_idx = self%adam%maps%inter_realm_face_register_index(b, fec)
+         if (sgn_idx == 0_I4P) cycle
+         face_idx = abs(sgn_idx)
+         if (face_idx > forest_flux_register%nfaces) cycle
+         if (.not. allocated(forest_flux_register%face(face_idx)%F_coarse)) cycle
+         nv_reg      = size(forest_flux_register%face(face_idx)%F_coarse, dim=1)
+         nface_cells = forest_flux_register%face(face_idx)%nface_cells
+         if (allocated(flux_slab)) deallocate(flux_slab)
+         allocate(flux_slab(1:nv_reg, 1:nface_cells))
+         flux_slab = 0._R8P
+         ! Pack the conservative slice of the appropriate face flux into
+         ! the slab. fec numbering: 1=-x, 2=+x, 3=-y, 4=+y, 5=-z, 6=+z.
+         ! Tangential traversal order matches `tangential_cell_count`'s
+         ! product convention: outer/inner loops chosen so the linear
+         ! index `c` is the same on both sides of the mirror seam.
+         select case (fec)
+         case (1_I4P) ! -x face: flx_f(:, 0, 1:nj, 1:nk, b)
+            c = 0_I4P
+            do k=1, nk
+               do j=1, nj
+                  c = c + 1_I4P
+                  do v=1, nv_c
+                     flux_slab(v, c) = self%flx_f(v, 0_I4P, j, k, b)
+                  enddo
+               enddo
+            enddo
+         case (2_I4P) ! +x face: flx_f(:, ni, 1:nj, 1:nk, b)
+            c = 0_I4P
+            do k=1, nk
+               do j=1, nj
+                  c = c + 1_I4P
+                  do v=1, nv_c
+                     flux_slab(v, c) = self%flx_f(v, ni, j, k, b)
+                  enddo
+               enddo
+            enddo
+         case (3_I4P) ! -y face: fly_f(:, 1:ni, 0, 1:nk, b)
+            c = 0_I4P
+            do k=1, nk
+               do i=1, ni
+                  c = c + 1_I4P
+                  do v=1, nv_c
+                     flux_slab(v, c) = self%fly_f(v, i, 0_I4P, k, b)
+                  enddo
+               enddo
+            enddo
+         case (4_I4P) ! +y face: fly_f(:, 1:ni, nj, 1:nk, b)
+            c = 0_I4P
+            do k=1, nk
+               do i=1, ni
+                  c = c + 1_I4P
+                  do v=1, nv_c
+                     flux_slab(v, c) = self%fly_f(v, i, nj, k, b)
+                  enddo
+               enddo
+            enddo
+         case (5_I4P) ! -z face: flz_f(:, 1:ni, 1:nj, 0, b)
+            c = 0_I4P
+            do j=1, nj
+               do i=1, ni
+                  c = c + 1_I4P
+                  do v=1, nv_c
+                     flux_slab(v, c) = self%flz_f(v, i, j, 0_I4P, b)
+                  enddo
+               enddo
+            enddo
+         case (6_I4P) ! +z face: flz_f(:, 1:ni, 1:nj, nk, b)
+            c = 0_I4P
+            do j=1, nj
+               do i=1, ni
+                  c = c + 1_I4P
+                  do v=1, nv_c
+                     flux_slab(v, c) = self%flz_f(v, i, j, nk, b)
+                  enddo
+               enddo
+            enddo
+         case default
+            cycle
+         end select
+         if (c /= nface_cells) &
+            call mpih%error_stop(msg='prism_cpu_object: FV seam-flux pack count != nface_cells')
+         if (sgn_idx > 0_I4P) then
+            call forest_flux_register%accumulate_coarse_flux(face_index=face_idx, substage=substage_idx, flux_face=flux_slab)
+         else
+            call forest_flux_register%accumulate_fine_flux  (face_index=face_idx, substage=substage_idx, flux_face=flux_slab)
+         endif
+      enddo
+   enddo
+   if (allocated(flux_slab)) deallocate(flux_slab)
+   endsubroutine accumulate_seam_fluxes_fv
 
    subroutine compute_residuals_weno(self, q, dq, s)
    !< Compute residuals of equation, space operator, WENO schemes.
