@@ -54,7 +54,9 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: nrk_forest                        !< Orchestrator contract; overrides realm_object default (multi-realm path).
       procedure, pass(self) :: prepare_step_forest               !< Orchestrator contract; overrides realm_object default (multi-realm path).
       procedure, pass(self) :: assemble_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
-      procedure, pass(self) :: evaluate_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: residuals_substage_forest         !< Orchestrator contract; overrides realm_object default (multi-realm 3-phase loop, issue #13).
+      procedure, pass(self) :: assign_substage_forest            !< Orchestrator contract; overrides realm_object default (multi-realm 3-phase loop, issue #13).
+      procedure, pass(self) :: evaluate_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path, legacy 2-phase).
       procedure, pass(self) :: finalize_step_forest              !< Orchestrator contract; overrides realm_object default (multi-realm path).
       procedure, pass(self) :: post_step_forest                  !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: is_done_forest                    !< Orchestrator contract; overrides realm_object default.
@@ -1123,17 +1125,24 @@ contains
    endif
    endsubroutine assemble_substage_forest
 
-   subroutine evaluate_substage_forest(self, s, nrk, dt)
-   !< Evaluate residuals + stage assignment for RK substage `s` (multi-realm path).
+   subroutine residuals_substage_forest(self, s, nrk, dt)
+   !< Compute residuals for RK substage `s` — first phase of the
+   !< three-phase substage loop (multi-realm path).
    !<
-   !< Runs AFTER every realm has executed `assemble_substage_forest(s)`,
-   !< so by the time the residual evaluator inside this method reaches
-   !< `update_ghost` (per the FD stencil paths) the inter-realm exchange
-   !< sees coherent substage-s data on every peer.
+   !< Runs AFTER every realm has executed `assemble_substage_forest(s)`.
+   !< Body calls `compute_residuals(q=rk%q_rk(:,...,s), dq=self%dq, s=s)`
+   !< — which reads `q_rk(:,...,s)` (the assembled substage state) and
+   !< writes `self%dq` (the residual). **Does NOT call
+   !< `rk%assign_stage`** — that runs in `assign_substage_forest` after
+   !< all peers have also computed their residuals.
    !<
-   !< Mirrors the SECOND and THIRD lines of `integrate_rk_ssp`'s substage
-   !< body: `compute_residuals(q=rk%q_rk(:,...,s), dq=self%dq, s=s)` then
-   !< `rk%assign_stage(s=s, q=self%dq [, phi=ib%phi])`.
+   !< Why the split (issue #13 BC_SEAM-coherence finding, 2026-05-24):
+   !< `rk%assign_stage(s, q=dq)` overwrites `q_rk(:, interior, :, b, s)`
+   !< with `dq` in-place. If realm A runs `assign_stage(s)` before realm
+   !< B's residual evaluates, realm B's seam exchange reads A's q_rk(s)
+   !< — which is now A's `dq`, not A's substage state. The result is
+   !< exponential growth of the seam-ghost-fed stencil. Splitting
+   !< residuals from assign breaks the race.
    class(prism_cpu_object), intent(inout) :: self !< The realm.
    integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
@@ -1142,11 +1151,47 @@ contains
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
    call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+   endsubroutine residuals_substage_forest
+
+   subroutine assign_substage_forest(self, s, nrk, dt)
+   !< Assign RK substage `s` state from `self%dq` — third phase of the
+   !< three-phase substage loop (multi-realm path).
+   !<
+   !< Runs AFTER every realm has executed `residuals_substage_forest(s)`.
+   !< Body calls `rk%assign_stage(s=s, q=self%dq [,phi=ib%phi])` which
+   !< overwrites `rk%q_rk(:, interior, :, b, s)` with `self%dq`. By the
+   !< time this fires, no other realm needs to read this realm's
+   !< q_rk(s) — they have all completed their residual evaluations.
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+
+   associate(dt_unused => dt, nrk_unused => nrk)
+   end associate
    if (self%ib%solids_number>0) then
       call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
    else
       call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
    endif
+   endsubroutine assign_substage_forest
+
+   subroutine evaluate_substage_forest(self, s, nrk, dt)
+   !< Combined residuals + stage assignment for RK substage `s` —
+   !< backward-compat wrapper for the legacy 2-phase substage loop.
+   !<
+   !< The forest no longer invokes this TBP; it drives the three-phase
+   !< loop via `residuals_substage_forest` + `assign_substage_forest`.
+   !< Retained so any consumer outside the forest orchestrator (e.g.
+   !< unit tests, standalone scripts) can still get the combined
+   !< behavior in one call.
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+
+   call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
+   call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
    endsubroutine evaluate_substage_forest
 
    subroutine finalize_step_forest(self, dt)

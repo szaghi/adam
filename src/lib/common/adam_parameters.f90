@@ -8,6 +8,7 @@ use :: penf
 implicit none
 private
 public :: BC_PERIODIC
+public :: BC_SEAM
 public :: TO_BE_REFINED,   &
           TO_BE_DEREFINED, &
           TO_NOT_TOUCH
@@ -16,6 +17,16 @@ public :: FEC_TO_DELTA
 public :: DELTA_TO_FEC
 
 integer(I4P), parameter :: BC_PERIODIC = -1_I4P !< Flag (reserved) for periodical boundary conditions.
+!< Inter-realm SEAM face (Phase A of [issue #13]). Used by
+!< `forest_object%populate_inter_realm_topology` to override the BC type
+!< written into `maps%local_map_bc_crown` for face/edge/corner entries
+!< whose block lies on an inter-realm seam. The PRISM (and any other app)
+!< `set_boundary_conditions` dispatch ladder has no branch for
+!< `BC_SEAM`, so those entries are silently no-oped at consumption time —
+!< the ghost values written by `exchange_inter_realm_halos_forest`
+!< survive intact. Distinct negative value from `BC_PERIODIC` so the two
+!< system-level sentinels never collide.
+integer(I4P), parameter :: BC_SEAM = -2_I4P !< Flag for cells on an inter-realm seam face (BC dispatch silently skips).
 
 integer(I4P), parameter :: TO_BE_REFINED=1_I4P    !< Flag for node/block to be refined.
 integer(I4P), parameter :: TO_BE_DEREFINED=-1_I4P !< Flag for node/block to be derefined.

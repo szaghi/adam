@@ -43,6 +43,7 @@ use :: adam_maps_object,     only : inter_realm_neighbor_t, &
 use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
 use :: adam_forest_global,   only : forest_realm, forest_active_substage, forest_flux_register
 use :: adam_flux_register_object, only : SEAM_KIND_INTER_REALM
+use :: adam_parameters,      only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_globals,         only : mpih
 use :: mpi
 use :: penf
@@ -204,15 +205,20 @@ contains
    !<     For single-realm forests `exchange_halos` iterates an empty
    !<     neighbour list and the path is bit-identical to pre-Phase-D.
    !<
-   !<   * **N>1 multi-realm path**: drives the substage loop itself. Each
-   !<     realm contributes a prologue (`prepare_step_forest`), `nrk`
-   !<     substages (`compute_substage_forest`), and an epilogue
-   !<     (`finalize_step_forest`); the forest invokes inter-realm halo
-   !<     exchange via `exchange_halos` BETWEEN substages so realm A's
-   !<     substage-s ghosts see realm B's substage-s interior values —
-   !<     this is what bit-comparability with single-realm rmf requires.
-   !<     All realms are assumed to use the same integrator (same `nrk`);
-   !<     a mismatch is flagged with `mpih%error_stop`.
+   !<   * **N>1 multi-realm path**: drives the substage loop itself in a
+   !<     **THREE-PHASE** schedule per substage `s`:
+   !<       * Phase 1 — all realms `assemble_substage_forest(s)`
+   !<         (interior-only, no peer reads).
+   !<       * Phase 2a — all realms `residuals_substage_forest(s)`
+   !<         (computes self%dq; reads peer q_rk(s) via the seam exchange,
+   !<         which is safe because no peer has overwritten q_rk(s) yet).
+   !<       * Phase 2b — all realms `assign_substage_forest(s)` (overwrites
+   !<         q_rk(:, interior, :, b, s) with self%dq for the next stage's
+   !<         linear combination — destructive but race-free at this point).
+   !<     The 2a/2b split is what closes the BC_SEAM-coherence finding of
+   !<     issue #13: combining them (the legacy `evaluate_substage_forest`)
+   !<     races with peer seam reads. All realms use the same integrator
+   !<     (same `nrk`); a mismatch is flagged with `mpih%error_stop`.
    !<
    !< Per-substage inter-realm exchange: the `forest_realm` module pointer
    !< is bound to `realm(:)` for the duration of this method so the realm
@@ -261,12 +267,25 @@ contains
             call realm(is)%bind_my_globals_forest
             call realm(is)%assemble_substage_forest(s=s, nrk=nrk, dt=dt)
          enddo
-         ! Phase 2: every realm evaluates residuals; update_ghost inside
+         ! Phase 2a: every realm evaluates residuals; update_ghost inside
          ! compute_residuals refreshes inter-realm ghosts via the
-         ! forest_realm pointer, which now sees peer substage-s buffers.
+         ! forest_realm pointer. Peers' q_rk(:,...,s) is still the
+         ! assembled substage state at this point — NO peer has run
+         ! `rk%assign_stage(s)` yet (which would overwrite q_rk(s) with
+         ! dq in-place and corrupt subsequent peers' seam reads).
+         ! See issue #13 BC_SEAM-coherence finding (2026-05-24).
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
-            call realm(is)%evaluate_substage_forest(s=s, nrk=nrk, dt=dt)
+            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
+         enddo
+         ! Phase 2b: every realm assigns its substage state from its dq.
+         ! Each `assign_stage(s, q=dq)` overwrites q_rk(:, interior, :, b, s)
+         ! with dq — destructive of the substage state — but by now every
+         ! peer's residual has already been computed and the overwrite is
+         ! race-free.
+         do is = 1_I4P, int(size(realm), I4P)
+            call realm(is)%bind_my_globals_forest
+            call realm(is)%assign_substage_forest(s=s, nrk=nrk, dt=dt)
          enddo
          ! Phase 3: Berger-Colella reflux at coarse-fine interfaces
          ! (Phase A of [issue #13]). Skeleton commit: apply_reflux is a
@@ -463,6 +482,33 @@ contains
    ! the per-substage geometric find_peer_block + face-slab copy that misses
    ! corner / edge ghosts (defect B of issue #13).
    call build_inter_realm_ghost_cell_map(realm, manifest)
+   ! Override the BC crown's bc_type column to BC_SEAM for entries that
+   ! lie on an inter-realm seam face (Phase A of [issue #13]).
+   !
+   ! Why this is needed: each realm parses its INI in isolation and
+   ! declares physical BCs on all 6 faces (bc_x_max, bc_x_min, ...). For
+   ! a realm whose +x face is glued to another realm's -x face by the
+   ! manifest, the INI's bc_x_max = "Neumann" declaration is wrong —
+   ! that face is a SEAM, not a physical boundary. PRISM's
+   ! `make_local_maps_bc` (which runs during each realm's
+   ! `initialize_forest`, well before this point) has already populated
+   ! `local_map_bc_crown` with BC_NEUMANN entries for the seam face's
+   ! cells. Without this override, `set_boundary_conditions` would then
+   ! extrapolate Neumann values into those cells at every substage,
+   ! overwriting the peer-interior values written by
+   ! `exchange_inter_realm_halos_forest`.
+   !
+   ! Mechanism: walk each realm's BC crown post-hoc, find entries whose
+   ! block-face matches a manifest-declared seam, and flip column 8
+   ! (`bc_type`) from BC_NEUMANN/EXTRAPOLATION/etc. to BC_SEAM.
+   ! `set_boundary_conditions` has no dispatch branch for BC_SEAM →
+   ! those entries are silently no-oped → the seam-exchange-written
+   ! ghosts survive.
+   !
+   ! The manifest is the authoritative source of truth about realm
+   ! topology; this override applies that authority over the realm's
+   ! own INI declarations at the right semantic layer.
+   call override_seam_bc_in_crown(realm, manifest)
    contains
       subroutine set_neighbor(slot, my_realm, my_face, peer_realm, peer_face, coupling)
       type(inter_realm_neighbor_t), intent(out) :: slot
@@ -746,6 +792,110 @@ contains
                                         my_face=pair%face_b)
       enddo
       endsubroutine build_inter_realm_ghost_cell_map
+
+      subroutine override_seam_bc_in_crown(realm, manifest)
+      !< Overwrite the bc_type column of `local_map_bc_crown` to BC_SEAM
+      !< for every entry whose (block, face) pair lies on a manifest-
+      !< declared inter-realm seam.
+      !<
+      !< The walk uses `face_code_to_bc_fec` (FACE_X_MAX/MIN/... → BC
+      !< face fec 1..6 in the FEC_TO_DELTA / FEC_1_6_ARRAY space) and
+      !< `block_face_on_realm_boundary` (geometric test against the
+      !< realm's `domain_emin/emax`) — the two helpers already defined
+      !< below as siblings.
+      !<
+      !< The crown layout: `local_map_bc_crown(c, 1..9, crown)` =
+      !<   [b, i, j, k, idelta, jdelta, kdelta, bc_type, fec]
+      !<
+      !< For each crown entry whose:
+      !<   * block `b` lies on the realm's geometric seam face
+      !<     (per `block_face_on_realm_boundary`), AND
+      !<   * `fec_1_6_array(fec)` matches the seam face's BC fec code
+      !<     (per `face_code_to_bc_fec`),
+      !< the entry's `bc_type` is rewritten to `BC_SEAM`. The
+      !< `set_boundary_conditions` dispatch ladder in each app's realm
+      !< extension (currently `prism_cpu_object`) has no branch for
+      !< `BC_SEAM`, so those entries become silent no-ops at consumption
+      !< time. The cells they target retain the ghost values written by
+      !< `exchange_inter_realm_halos_forest`.
+      !<
+      !< Edge and corner entries that share an axis with the seam face
+      !< are ALSO overridden (because `fec_1_6_array(fec)` maps them to
+      !< the seam-face code). Those entries don't fire any Neumann/etc.
+      !< write in the current PRISM ladder (the dispatch is `case(fec)
+      !< 1..6`, not 7..26), so the override is a no-op for them today —
+      !< but it future-proofs the contract: any future BC kind that
+      !< writes edge/corner cells will respect the seam override
+      !< automatically.
+      class(realm_object),     intent(inout) :: realm(:)
+      type(forest_manifest_t), intent(in)    :: manifest
+      integer(I4P)                           :: f
+      type(forest_face_pair_t)               :: pair
+
+      if (.not. allocated(manifest%face_pairs)) return
+      do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+         pair = manifest%face_pairs(f)
+         call mark_seam_in_crown(realm, my_realm_idx=pair%realm_a, my_face=pair%face_a)
+         call mark_seam_in_crown(realm, my_realm_idx=pair%realm_b, my_face=pair%face_b)
+      enddo
+      endsubroutine override_seam_bc_in_crown
+
+      subroutine mark_seam_in_crown(realm, my_realm_idx, my_face)
+      !< Helper for `override_seam_bc_in_crown`: walk one realm's BC
+      !< crown and rewrite bc_type → BC_SEAM for the entries lying on
+      !< the (my_face) seam.
+      class(realm_object), intent(inout) :: realm(:)
+      integer(I4P),        intent(in)    :: my_realm_idx, my_face
+      integer(I4P)                       :: axis, sgn, bc_fec_seam
+      integer(I4P)                       :: ngc, c, crown
+      integer(I8P)                       :: b_i8, fec_i8
+
+      call face_axis_sign(my_face, axis, sgn)
+      bc_fec_seam = face_code_to_bc_fec(my_face)
+      if (bc_fec_seam == 0_I4P) return  ! malformed face code; defensive.
+      if (.not. allocated(realm(my_realm_idx)%adam%maps%local_map_bc_crown)) return
+      ngc = realm(my_realm_idx)%adam%grid%ngc
+      associate(crown_map => realm(my_realm_idx)%adam%maps%local_map_bc_crown)
+      do crown = 1_I4P, ngc
+         do c = 1_I4P, int(size(crown_map, dim=1), I4P)
+            b_i8 = crown_map(c, 1, crown)
+            if (b_i8 <= 0_I8P) cycle  ! sentinel for unused slot
+            fec_i8 = crown_map(c, 9, crown)
+            if (FEC_1_6_ARRAY(int(fec_i8, I4P)) /= bc_fec_seam) cycle
+            ! Geometric test: is this block on the realm's seam-face boundary?
+            if (.not. block_face_on_realm_boundary(realm(my_realm_idx), int(b_i8, I4P), axis, sgn)) cycle
+            ! Override the bc_type column (8).
+            crown_map(c, 8, crown) = int(BC_SEAM, I8P)
+         enddo
+      enddo
+      end associate
+      endsubroutine mark_seam_in_crown
+
+      pure function face_code_to_bc_fec(face_code) result(bc_fec)
+      !< Translate adam_maps_object FACE_X_MAX..FACE_Z_MIN (1..6) into the
+      !< BC routine's fec_1_6 numbering (1..6 via FEC_1_6_ARRAY).
+      !<
+      !< Table:
+      !<   FACE_X_MAX (1, +x) → fec 2
+      !<   FACE_X_MIN (2, -x) → fec 1
+      !<   FACE_Y_MAX (3, +y) → fec 4
+      !<   FACE_Y_MIN (4, -y) → fec 3
+      !<   FACE_Z_MAX (5, +z) → fec 6
+      !<   FACE_Z_MIN (6, -z) → fec 5
+      !< (pairwise swap of MAX↔MIN within each axis).
+      integer(I4P), intent(in) :: face_code
+      integer(I4P)             :: bc_fec
+
+      select case (face_code)
+      case (1_I4P); bc_fec = 2_I4P
+      case (2_I4P); bc_fec = 1_I4P
+      case (3_I4P); bc_fec = 4_I4P
+      case (4_I4P); bc_fec = 3_I4P
+      case (5_I4P); bc_fec = 6_I4P
+      case (6_I4P); bc_fec = 5_I4P
+      case default; bc_fec = 0_I4P
+      end select
+      endfunction face_code_to_bc_fec
 
       subroutine count_seam_ghost_cells(realm, per_realm_count, my_realm_idx, peer_realm_idx, my_face)
       !< First-pass row counter for the inter-realm ghost-cell map.
