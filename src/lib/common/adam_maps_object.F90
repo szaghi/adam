@@ -153,20 +153,30 @@ type :: maps_object
    ! which already compute `fec_1_6` in their BC loops — can look up the
    ! register index directly without a second translation.
    !
-   ! Layout: `inter_realm_face_register_index(1:nb, 1:6)` — 0 means
-   ! "not a seam face for this (block, face) pair"; a positive value is
-   ! the 1-based index into `forest_flux_register%face(:)`.
+   ! Layout: `inter_realm_face_register_index(1:nb, 1:6)` — encodes both
+   ! the register index AND this realm's side (coarse vs fine) in one
+   ! signed integer:
+   !
+   !   0       : not a seam face for this (block, face) pair
+   !   +idx    : seam face; this realm is the COARSE side of register entry idx
+   !   -idx    : seam face; this realm is the FINE   side of register entry idx
+   !
+   ! The consumer recovers the register index via `abs()` and the
+   ! coarse/fine role via the sign — no realm-identity field is needed
+   ! on the realm object. The sign mirrors the manifest convention
+   ! `pair%realm_a = coarse, pair%realm_b = fine` (currently same
+   ! resolution; the labels become load-bearing when true AMR coarse-fine
+   ! adjacency lands).
    !
    ! Populated by `forest_object%populate_inter_realm_topology` (Phase A
    ! step 4) at the same time as the per-cell ghost map and the BC_SEAM
    ! override; ALL three derive from the same manifest face-pair walk.
    !
    ! Consumer: PRISM's `compute_residuals_fv_centered` consults the table
-   ! after computing each face's flux. If non-zero, the routine calls
-   ! `forest_flux_register%accumulate_{coarse,fine}_flux` on the indexed
-   ! entry (coarse vs fine determined by the register entry's
-   ! `coarse_realm`/`fine_realm` fields).
-   integer(I4P), allocatable :: inter_realm_face_register_index(:,:) !< (block, face_1_6) → flux register face index; 0 = not a seam face.
+   ! after reconstructing each face's flux. If non-zero, the routine
+   ! calls `forest_flux_register%accumulate_coarse_flux` (sign > 0) or
+   ! `accumulate_fine_flux` (sign < 0) on the indexed entry.
+   integer(I4P), allocatable :: inter_realm_face_register_index(:,:) !< (block, face_1_6) → signed flux register face index; 0 = not a seam face, +idx = coarse side, -idx = fine side.
    contains
       ! public methods
       procedure, pass(self) :: blocks_reorder             !< Reorder blocks indexes in field.
