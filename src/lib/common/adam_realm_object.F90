@@ -633,13 +633,14 @@ contains
    endsubroutine exchange_inter_realm_halos_forest
 
    ! public methods
-   subroutine initialize(self, filename, memory_avail, nv, verbose)
+   subroutine initialize(self, filename, memory_avail, nv, verbose, L0)
    !< Initialize common data: MPI, ADAM, grid, field and data replica pointers.
    class(realm_object), intent(inout), target :: self         !< The equation.
    character(*),           intent(in)            :: filename     !< Input parameters file name.
    real(R8P),              intent(in), value     :: memory_avail !< Memory available for single MPI process.
    integer(I4P),           intent(in), optional  :: nv           !< Number of field variables.
    logical,                intent(in), optional  :: verbose      !< Trigger verbose output.
+   real(R8P),              intent(in), optional  :: L0           !< Adimensionalization parameter.
    logical                                       :: verbose_     !< Trigger verbose output, local variable.
    integer(I8P)                                  :: nodes_number !< Allocated nodes on tree.
    integer(I4P)                                  :: nb           !< Number of allocated blocks.
@@ -653,7 +654,11 @@ contains
       ! adam%initialize and its sub-initializations now read their realm-local
       ! objects via self%... or threaded dummy arguments, so no pre-binding is
       ! needed here (see issue #15).
-      call self%adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_)
+      if (present(L0)) then
+         call self%adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_, L0=L0)
+      else 
+         call self%adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_)
+      endif
       ! Step 2 of forest-of-trees migration (issue #10): bind the three legacy
       ! shim singletons (weno, ib, rk) into `self`'s value components BEFORE
       ! their sub-initializations. Same shell-then-populate trick as the adam

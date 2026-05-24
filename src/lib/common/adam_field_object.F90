@@ -169,14 +169,20 @@ contains
 
    select case(plan%ratio)
    case(2_I4P)
-      call self%refine1D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
-      call self%derefine1D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
+      call self%refine1D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     & 
+                           block_refined=plan%block_refined,     q=q)
+      call self%derefine1D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, &
+                           block_derefined=plan%block_derefined, q=q)
    case(4_I4P)
-      call self%refine2D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
-      call self%derefine2D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
+      call self%refine2D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     &
+                           block_refined=plan%block_refined,     q=q)
+      call self%derefine2D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, &
+                           block_derefined=plan%block_derefined, q=q)
    case(8_I4P)
-      call self%refine3D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     block_refined=plan%block_refined,     q=q)
-      call self%derefine3D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, block_derefined=plan%block_derefined, q=q)
+      call self%refine3D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     &
+                           block_refined=plan%block_refined,     q=q)
+      call self%derefine3D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, &
+                           block_derefined=plan%block_derefined, q=q)
    endselect
    endsubroutine adapt
 
@@ -487,7 +493,6 @@ contains
                           msg=mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=verbose_)
    self%blocks_numbers = 0
    self%blocks_numbers(0) = 1 ! assign adam to proc 0
-
    self%ngc => grid%ngc
    self%ni  => grid%ni
    self%nj  => grid%nj

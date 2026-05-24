@@ -179,13 +179,14 @@ contains
    endassociate
    endsubroutine compute_auxiliary_fields
 
-   subroutine initialize(self, filename, memory_avail, nv, verbose)
+   subroutine initialize(self, filename, memory_avail, nv, verbose, L0)
    !< Initialize the equation common data.
    class(prism_common_object), intent(inout), target :: self         !< The equation.
    character(*),               intent(in)            :: filename     !< Input file name.
    real(R8P),                  intent(in), value     :: memory_avail !< Memory available for single MPI process.
    integer(I4P),               intent(in), optional  :: nv           !< Number of field variables.
    logical,                    intent(in), optional  :: verbose      !< Trigger verbose output.
+   real(R8P),                  intent(in), optional  :: L0           !< Adimensionalization parameter.
    logical                                           :: verbose_     !< Trigger verbose output, local variable.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
@@ -203,7 +204,12 @@ contains
    self%nv_s   => self%physics%nv_s
    self%nv_cl  => self%physics%nv_cl
    !self%nv_pic => self%physics%nv_pic
-   call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, verbose=verbose_)
+   if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, verbose=verbose_, &
+                                       L0=self%physics%L0)
+   else
+      call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, verbose=verbose_)
+   endif
    call self%bc%initialize(file_parameters=file_parameters)
    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
@@ -216,7 +222,8 @@ contains
    call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-      call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, rk=self%rk, physics=self%physics)
+      call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
+                                 rk=self%rk, physics=self%physics)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)
@@ -328,7 +335,7 @@ contains
       !                                       1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
       !max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
       !                                       1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                          &
+      call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                &
                                            div_D=self%max_divergence_D,div_B=self%max_divergence_B,div_J=self%max_divergence_J, &
                                            is_to_open=is_to_open,is_to_close=is_to_close)
    endif
@@ -412,7 +419,8 @@ contains
       bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
       call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
 
-      call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=self%q_name)
+      call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
+                              q=self%q(:,:,:,:,b), q_name=self%q_name)
 
       if (self%coil%total_coils_number>0) then
          do c=1, self%coil%total_coils_number
@@ -424,15 +432,15 @@ contains
       if (self%fWLayer%C>0) &
          call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
                                  q=self%fWLayer%f(:,:,:,:,b), q_name=self%fWLayer%f_name)
-
       if (self%io%save_residual_fields) &
-         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%dq(:,:,:,:,b), q_name=self%dq_name)
-
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%dq(:,:,:,:,b), &
+                                 q_name=self%dq_name)
       if (self%io%save_curl_fields) &
-         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%curl(:,:,:,:,b), q_name=self%curl_name)
-
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%curl(:,:,:,:,b), &
+                                 q_name=self%curl_name)
       if (self%io%save_divergence_fields) &
-         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%divergence(:,:,:,:,b), q_name=self%div_name)
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk, &
+                                 q=self%divergence(:,:,:,:,b), q_name=self%div_name)
 
       call self%close_block_xh5f(xh5f=xh5f)
    enddo
@@ -500,6 +508,7 @@ contains
       !print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
       !            //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
    enddo
+   self%coil%J_vec(:,:,:,:,:,:) = self%coil%J_vec(:,:,:,:,:,:)/self%physics%J0
    endsubroutine initialize_coils
 
    subroutine set_rectangular_coil_x(self, n, verse)
@@ -577,7 +586,6 @@ contains
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
-
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc

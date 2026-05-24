@@ -193,7 +193,7 @@ contains
    call self%field%load_blocks(grid=self%grid, basename=basename, q=q)
    endsubroutine load_restart_files
 
-   subroutine initialize(self, file_parameters, memory_avail, add_adam, nv, verbose)
+   subroutine initialize(self, file_parameters, memory_avail, add_adam, nv, verbose, L0)
    !< Initialize ADAM.
    class(adam_object),     intent(inout)        :: self            !< ADAM.
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
@@ -201,13 +201,18 @@ contains
    logical,                intent(in), optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
    integer(I4P),           intent(in), optional :: nv              !< Number of field variables.
    logical,                intent(in), optional :: verbose         !< Trigger verbose output.
+   real(R8P),              intent(in), optional :: L0              !< Adimensionalization parameter.
    logical                                      :: verbose_        !< Trigger verbose output, local variable.
    integer(I8P)                                 :: nodes_number    !< Nodes number to be stored in the tree.
    integer(I4P)                                 :: nb              !< Number of all blocks that can be stored in field.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('adam_object%initialize start')
-   call self%grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%grid%set_bc_type
+   if (present(L0)) then
+      call self%grid%initialize(file_parameters=file_parameters,verbose=verbose_, L0=L0) ! remember to call self%grid%set_bc_type
+   else
+      call self%grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%grid%set_bc_type
+   endif
    call self%compute_blocks_number(memory_avail=memory_avail,&
                                    fields_number=80,         & ! remember to change
                                    nb=nb,                    &

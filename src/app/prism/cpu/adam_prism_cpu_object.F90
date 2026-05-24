@@ -382,8 +382,8 @@ contains
    integer(I4P)                                  :: i,j,k,b,n
    real(R8P),                          parameter :: f_tol = 1.0e-30_R8P
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, &
-             time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                                &
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number,                     &
+             time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                                     &
              A=>self%coil%coil_amplitude, f=>self%coil%f, phase=>self%coil%phase, J_vec=>self%coil%J_vec,  &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
 
@@ -509,9 +509,9 @@ contains
    real(R8P)                              :: ngc_r, crown_r          !< Numero di gc totale, reale
    real(R8P)                              :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
 
-   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                         &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),               &
-             dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,           &
+   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                              &
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),     &
+             dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,      &
              nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, constrained_transport_B=>self%numerics%constrained_transport_B, &
              constrained_transport_D=>self%numerics%constrained_transport_D)
 
@@ -746,12 +746,12 @@ contains
    integer(I4P)                           :: crown                   !< Crown counter.
    integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
    integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
-   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                        &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),         &
-             dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
-             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,       &
-             constrained_transport_B=>self%numerics%constrained_transport_B,                                     &
-             constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>self%rk%q_rk,                      &
+   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                          &
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), &
+             dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
+             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,                   &
+             constrained_transport_B=>self%numerics%constrained_transport_B,                                                 &
+             constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>self%rk%q_rk,                             &
              q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
    if (allocated(self%adam%maps%local_map_bc_crown)) then
       do crown=1, ngc
@@ -821,9 +821,11 @@ contains
    class(prism_cpu_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
 
-   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, q=self%q)
+   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, & 
+                                                            grid=self%adam%grid, q=self%q)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call self%particle_injection%set_particle_initial_injection(field=self%adam%field, grid=self%adam%grid, pic=self%pic, q_pic=self%q_pic)
+      call self%particle_injection%set_particle_initial_injection(field=self%adam%field, grid=self%adam%grid, &
+                                                                  pic=self%pic, q_pic=self%q_pic)
       call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
       call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
                                        np=self%pic%particle_number)
@@ -835,7 +837,8 @@ contains
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
       call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
-      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
+                                    pic_fields=self%pic_fields, nv=self%nv)
    endif
    endsubroutine set_initial_conditions
 
@@ -938,6 +941,8 @@ contains
    do n=1, self%coil%total_coils_number
       call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
                                    divergence=self%divergence(3,:,:,:,:))
+      print '(A)', mpih%myrankstr//'Valore max J_vec: ' &
+                  //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%coil%J_vec(1:3,:,:,:,:,n)))))
       print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
                   //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
    enddo
@@ -1096,10 +1101,12 @@ contains
 
    self%time%it = self%time%it + 1
    dt_step = dt
-   if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
+   if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) &
+         dt_step = self%time%time_max - self%time%time
    self%time%dt = dt_step
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                      time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    endsubroutine prepare_step_forest
 
@@ -1218,7 +1225,8 @@ contains
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                      time=self%time%time, dt=self%time%dt, q=self%q)
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    endsubroutine finalize_step_forest
@@ -1445,8 +1453,9 @@ contains
       real(R8P)                 :: q_boundary(6)  !< Variables at boundary for the Poynting flux computation.
       real(R8P)                 :: n(3)           !< Boundary normal direction
 
-      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
-                s=>self%fdv_half_stencils(1), dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:))
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,        &
+                s=>self%fdv_half_stencils(1), dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), &
+                dz=>self%adam%field%dxyz(3,:))
       poynting_flux = 0.0_R8P
       !Faccia -x
       n = [-1.0_R8P, 0.0_R8P, 0.0_R8P]
@@ -1716,146 +1725,290 @@ contains
              constrained_transport_B=>self%numerics%constrained_transport_B,                                               &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
    if (blocks_number > 0) then
-      if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
-         .not.constrained_transport_B) then
-      ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
-         do b=1,blocks_number
-         do k=1,nk
-         do j=1,nj
-         do i=1,ni
-            call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
-                                        q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
-                                        curl=curlD)
-            call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
-                                        q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
-                                        curl=curlB)
-            call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                               &
-                                              q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),           &
-                                              gradient=gradphi)
-            call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
-                                                q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
-                                                divergence = divergenceD)
-            dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-            dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-            dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-            dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                                 !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-            dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                                 !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-            dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                                 !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-            dq(nv_c,i,j,k,b)   = -(chi*C0)**2*divergenceD
-         enddo
-         enddo
-         enddo
-         enddo
-      elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
-              constrained_transport_B) then
-      ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
-         do b=1,blocks_number
-         do k=1,nk
-         do j=1,nj
-         do i=1,ni
-            call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
-                                        q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
-                                        curl=curlD)
-            call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
-                                        q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
-                                        curl=curlB)
-            call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                &
-                                              q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),            &
-                                              gradient=gradpsi)
-            call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
-                                                q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
-                                                divergence = divergenceB)
-            dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-            dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-            dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-            dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)       !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-            dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)       !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-            dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)       !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-            dq(nv_c,i,j,k,b)   = -(chi*C0)**2*divergenceB
-         enddo
-         enddo
-         enddo
-         enddo
-      elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
-               constrained_transport_B) then
-      ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
-      !             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
-         do b=1,blocks_number
-         do k=1,nk
-         do j=1,nj
-         do i=1,ni
-            call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
-                                        q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
-                                        curl=curlD)
-            call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
-                                        q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
-                                        curl=curlB)
-            call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
-                                              q=q(nv_c-1_I4P,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),          &
-                                              gradient=gradphi)
-            call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
-                                              q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),                &
-                                              gradient=gradpsi)
-            call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
-                                                q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
-                                                divergence = divergenceD)
-            call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
-                                                q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
-                                                divergence = divergenceB)
-            dq(VAR_DX,i,j,k,b)      =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-            dq(VAR_DY,i,j,k,b)      =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-            dq(VAR_DZ,i,j,k,b)      =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-            dq(VAR_BX,i,j,k,b)      = -curlD(1)/EPS0 - gradpsi(1)                     !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-            dq(VAR_BY,i,j,k,b)      = -curlD(2)/EPS0 - gradpsi(2)                     !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-            dq(VAR_BZ,i,j,k,b)      = -curlD(3)/EPS0 - gradpsi(3)                     !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-            dq(nv_c-1_I4P,i,j,k,b)  = -(chi*C0)**2*divergenceD
-            dq(nv_c,i,j,k,b)        = -(chi*C0)**2*divergenceB
-         enddo
-         enddo
-         enddo
-         enddo
-      else
-      ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
-         do b=1,blocks_number
-         do k=1,nk
-         do j=1,nj
-         do i=1,ni
-            call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
-                                       q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
-                                       curl=curlD)
-         !min_curlD = min(min_curlD, curlD(1), curlD(2), curlD(3))
-         !max_curlD = max(max_curlD, curlD(1), curlD(2), curlD(3))
-            call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
-                                       q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
-                                       curl=curlB)
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
-            !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
-            dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)      !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-            dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)      !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-            dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)      !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-            dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                         !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-            dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                         !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-            dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                         !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-         enddo
-         enddo
-         enddo
-         enddo
+      if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then !Adimensional equations
+         if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+            .not.constrained_transport_B) then
+         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
+            !do b=1,blocks_number
+            !do k=1,nk
+            !do j=1,nj
+            !do i=1,ni
+            !   call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
+            !                               q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
+            !                               curl=curlD)
+            !   call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
+            !                               q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
+            !                               curl=curlB)
+            !   call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                               &
+            !                                     q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),           &
+            !                                     gradient=gradphi)
+            !   call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+            !                                       q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
+            !                                       divergence = divergenceD)
+            !   dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+            !   dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+            !   dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+            !   dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                                 !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+            !   dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                                 !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+            !   dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                                 !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+            !   dq(nv_c,i,j,k,b)   = -(chi*C0)**2*divergenceD
+            !enddo
+            !enddo
+            !enddo
+            !enddo
+         elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
+                 constrained_transport_B) then
+         ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
+            !do b=1,blocks_number
+            !do k=1,nk
+            !do j=1,nj
+            !do i=1,ni
+            !   call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+            !                               q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
+            !                               curl=curlD)
+            !   call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+            !                               q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
+            !                               curl=curlB)
+            !   call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                &
+            !                                     q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),            &
+            !                                     gradient=gradpsi)
+            !   call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
+            !                                       q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
+            !                                       divergence = divergenceB)
+            !   dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+            !   dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+            !   dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+            !   dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)       !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+            !   dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)       !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+            !   dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)       !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+            !   dq(nv_c,i,j,k,b)   = -(chi*C0)**2*divergenceB
+            !enddo
+            !enddo
+            !enddo
+            !enddo
+         elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+                  constrained_transport_B) then
+         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
+         !             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
+            !do b=1,blocks_number
+            !do k=1,nk
+            !do j=1,nj
+            !do i=1,ni
+            !   call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
+            !                               q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
+            !                               curl=curlD)
+            !   call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
+            !                               q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
+            !                               curl=curlB)
+            !   call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+            !                                     q=q(nv_c-1_I4P,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),          &
+            !                                     gradient=gradphi)
+            !   call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+            !                                     q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),                &
+            !                                     gradient=gradpsi)
+            !   call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
+            !                                       q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
+            !                                       divergence = divergenceD)
+            !   call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
+            !                                       q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
+            !                                       divergence = divergenceB)
+            !   dq(VAR_DX,i,j,k,b)      =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+            !   dq(VAR_DY,i,j,k,b)      =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+            !   dq(VAR_DZ,i,j,k,b)      =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+            !   dq(VAR_BX,i,j,k,b)      = -curlD(1)/EPS0 - gradpsi(1)                     !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+            !   dq(VAR_BY,i,j,k,b)      = -curlD(2)/EPS0 - gradpsi(2)                     !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+            !   dq(VAR_BZ,i,j,k,b)      = -curlD(3)/EPS0 - gradpsi(3)                     !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+            !   dq(nv_c-1_I4P,i,j,k,b)  = -(chi*C0)**2*divergenceD
+            !   dq(nv_c,i,j,k,b)        = -(chi*C0)**2*divergenceB
+            !enddo
+            !enddo
+            !enddo
+            !enddo
+         else
+         ! compute RHS dD/dt = curl(B) - J, dB/dt = -curl(D)
+            do b=1,blocks_number
+            do k=1,nk
+            do j=1,nj
+            do i=1,ni
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+                                          q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
+                                          curl=curlD)
+            !min_curlD = min(min_curlD, curlD(1), curlD(2), curlD(3))
+            !max_curlD = max(max_curlD, curlD(1), curlD(2), curlD(3))
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+                                          q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
+                                          curl=curlB)
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
+               dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b)      !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+               dq(VAR_DY,i,j,k,b) =  curlB(2) - q(var_Jy,i,j,k,b)      !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+               dq(VAR_DZ,i,j,k,b) =  curlB(3) - q(var_Jz,i,j,k,b)      !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+               dq(VAR_BX,i,j,k,b) = -curlD(1)                         !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+               dq(VAR_BY,i,j,k,b) = -curlD(2)                         !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+               dq(VAR_BZ,i,j,k,b) = -curlD(3)                         !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+            enddo
+            enddo
+            enddo
+            enddo
+         endif
+      else !Dimensional equations
+         if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+            .not.constrained_transport_B) then
+         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
+            do b=1,blocks_number
+            do k=1,nk
+            do j=1,nj
+            do i=1,ni
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
+                                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
+                                           curl=curlD)
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
+                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
+                                           curl=curlB)
+               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                               &
+                                                 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),           &
+                                                 gradient=gradphi)
+               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+                                                   q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
+                                                   divergence = divergenceD)
+               dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+               dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+               dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+               dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                                 !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+               dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                                 !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+               dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                                 !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(nv_c,i,j,k,b)   = -(chi*C0)**2*divergenceD
+            enddo
+            enddo
+            enddo
+            enddo
+         elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
+                 constrained_transport_B) then
+         ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
+            do b=1,blocks_number
+            do k=1,nk
+            do j=1,nj
+            do i=1,ni
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+                                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
+                                           curl=curlD)
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
+                                           curl=curlB)
+               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                &
+                                                 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),            &
+                                                 gradient=gradpsi)
+               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
+                                                   q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
+                                                   divergence = divergenceB)
+               dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+               dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+               dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+               dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)       !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+               dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)       !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+               dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)       !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(nv_c,i,j,k,b)   = -(chi*C0)**2*divergenceB
+            enddo
+            enddo
+            enddo
+            enddo
+         elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+                  constrained_transport_B) then
+         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
+         !             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
+            do b=1,blocks_number
+            do k=1,nk
+            do j=1,nj
+            do i=1,ni
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
+                                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
+                                           curl=curlD)
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
+                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
+                                           curl=curlB)
+               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+                                                 q=q(nv_c-1_I4P,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),          &
+                                                 gradient=gradphi)
+               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+                                                 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),                &
+                                                 gradient=gradpsi)
+               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
+                                                   q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
+                                                   divergence = divergenceD)
+               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
+                                                   q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
+                                                   divergence = divergenceB)
+               dq(VAR_DX,i,j,k,b)      =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+               dq(VAR_DY,i,j,k,b)      =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+               dq(VAR_DZ,i,j,k,b)      =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+               dq(VAR_BX,i,j,k,b)      = -curlD(1)/EPS0 - gradpsi(1)                     !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+               dq(VAR_BY,i,j,k,b)      = -curlD(2)/EPS0 - gradpsi(2)                     !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+               dq(VAR_BZ,i,j,k,b)      = -curlD(3)/EPS0 - gradpsi(3)                     !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(nv_c-1_I4P,i,j,k,b)  = -(chi*C0)**2*divergenceD
+               dq(nv_c,i,j,k,b)        = -(chi*C0)**2*divergenceB
+            enddo
+            enddo
+            enddo
+            enddo
+         else
+         ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
+            do b=1,blocks_number
+            do k=1,nk
+            do j=1,nj
+            do i=1,ni
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+                                          q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
+                                          curl=curlD)
+            !min_curlD = min(min_curlD, curlD(1), curlD(2), curlD(3))
+            !max_curlD = max(max_curlD, curlD(1), curlD(2), curlD(3))
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+                                          q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
+                                          curl=curlB)
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
+               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
+               dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)      !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+               dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)      !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+               dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)      !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+               dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                         !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+               dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                         !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+               dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                         !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+            enddo
+            enddo
+            enddo
+            enddo
+         endif
       endif
    endif
    endassociate
@@ -1977,7 +2130,7 @@ contains
    call self%update_ghost(q=q)
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&
-             dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:),                                                       &
+             dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:),                         &
              flx=>self%flxyz_c(:,1,1,:,:,:,:), fly=>self%flxyz_c(:,1,2,:,:,:,:), flz=>self%flxyz_c(:,1,3,:,:,:,:),                &
              weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                                      &
              weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                  &
@@ -2076,7 +2229,8 @@ contains
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
    !< Pic residual computation
-   call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+   call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
+                                 pic_fields=self%pic_fields, nv=self%nv)
    !< Integration of equations
    call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
@@ -2110,7 +2264,8 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                      time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    do s=1, self%rk%nrk
       if (self%ib%solids_number>0) then
@@ -2138,7 +2293,8 @@ contains
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, time=self%time%time, dt=self%time%dt, q=self%q)
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                      time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ssp
 
    subroutine integrate_rk_ssp_pic(self)
@@ -2216,12 +2372,12 @@ contains
    integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
    integer(I4P)                           :: bc_type                 !< Boundary condition type.
    integer(I4P)                           :: crown                   !< Crown counter.
-   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                           &
-                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),         &
-                dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,&
-                nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                 &
-                constrained_transport_B=>self%numerics%constrained_transport_B,                                     &
-                constrained_transport_D=>self%numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                &
+   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                             &
+                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), &
+                dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
+                nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                             &
+                constrained_transport_B=>self%numerics%constrained_transport_B,                                                 &
+                constrained_transport_D=>self%numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                            &
                 q_bc_rk=>self%rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>self%rk_bc%beta)
 
    if (present(phi)) then

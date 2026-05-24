@@ -248,12 +248,13 @@ contains
    endassociate
    endfunction get_closest_block
 
-   subroutine initialize(self, file_parameters, verbose)
+   subroutine initialize(self, file_parameters, verbose, L0)
    !< Initialize field.
    !< Note: bc_type is not initialized, must be set separately by equation app.
    class(grid_object), intent(inout)        :: self            !< The grid.
    type(file_ini),     intent(inout)        :: file_parameters !< INI file handler.
    logical,            intent(in), optional :: verbose         !< Flag to activate verbose output.
+   real(R8P),          intent(in), optional :: L0              !< Adimensionalization parameter.
    logical                                  :: verbose_        !< Trigger verbose output, local variable.
    integer(I4P)                             :: i, j, k, l      !< Counter.
    integer(I4P)                             :: nijk(3)         !< Cells number.
@@ -262,6 +263,10 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('grid_object%initialize start')
    call self%load_from_ini_file(file_parameters)
+   if (present(L0)) then
+      self%domain_emin(:) = self%domain_emin(:) / L0
+      self%domain_emax(:) = self%domain_emax(:) / L0
+   endif
    call file_parameters%get(section_name='amr', option_name='ratio', val=ratio)
 
    self%block_weight = (self%ngc+self%ni+self%ngc) * (self%ngc+self%nj+self%ngc) * (self%ngc+self%nk+self%ngc)

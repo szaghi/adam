@@ -3,7 +3,8 @@ module adam_maps_object
 !< ADAM, maps class definition
 
 ! ADAM classes, libraries, parameters
-use :: adam_tree_object, only : tree_object, tree_iterator_object, NODE_BOUNDARY_CONDITION, NODE_LESS_REFINED, NODE_MORE_REFINED, NODE_STANDARD
+use :: adam_tree_object, only : tree_object, tree_iterator_object, NODE_BOUNDARY_CONDITION, &
+                                 NODE_LESS_REFINED, NODE_MORE_REFINED, NODE_STANDARD
 use :: adam_tree_node_object
 use :: adam_parameters
 ! ADAM singleton objects
@@ -1263,7 +1264,8 @@ contains
                         comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
                                                                 grid%weight_neighbor(fec)
                      endif
-                     self%comm_map_recv_ghost(rf, 6:14)=self%ijk_mmd_ghost(grid=grid, fec=fec, portion=self%comm_map_recv_ghost(rf, 5))
+                     self%comm_map_recv_ghost(rf, 6:14)=self%ijk_mmd_ghost(grid=grid, fec=fec, &
+                                                         portion=self%comm_map_recv_ghost(rf, 5))
                   elseif ((mpih%myrank == neigh%myrank).and.(mpih%myrank /= node_ptr%myrank)) then
                      sf = sf + 1
                      self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node_ptr%myrank)
@@ -1284,7 +1286,8 @@ contains
                         comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
                                                                    grid%weight_neighbor(fec)
                      endif
-                     self%comm_map_send_ghost(sf, 6:14)=self%ijk_mmd_ghost(grid=grid, fec=fec, portion=self%comm_map_send_ghost(sf, 5))
+                     self%comm_map_send_ghost(sf, 6:14)=self%ijk_mmd_ghost(grid=grid, fec=fec, &
+                                                         portion=self%comm_map_send_ghost(sf, 5))
                   endif
                enddo
             endif

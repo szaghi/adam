@@ -42,10 +42,12 @@ private
 public :: prism_physics_object
 public :: EM_PHYSICAL_MODEL
 public :: PIC_PHYSICAL_MODEL
+public :: ADIM_EM_PHYSICAL_MODEL
 
-character(len=7),  parameter :: INI_SECTION_NAME=   'physics'         !< INI file section name containing fluid physics.
-character(len=15), parameter :: EM_PHYSICAL_MODEL=  'electromagnetic' !< Electromagnetic physical model.
-character(len=3),  parameter :: PIC_PHYSICAL_MODEL= 'PIC'             !< PIC physical model.
+character(len=7) , parameter :: INI_SECTION_NAME       = 'physics'              !< INI file section name containing fluid physics.
+character(len=15), parameter :: EM_PHYSICAL_MODEL      = 'electromagnetic'      !< Electromagnetic physical model.
+character(len=3) , parameter :: PIC_PHYSICAL_MODEL     = 'PIC'                  !< PIC physical model.
+character(len=20), parameter :: ADIM_EM_PHYSICAL_MODEL = 'adim_electromagnetic' !< Adimensional electromagnetic physical model.
 
 integer(I4P),  parameter, public :: VAR_DX = 1_I4P !< Conservative variable 1, Dx.
 integer(I4P),  parameter, public :: VAR_DY = 2_I4P !< Conservative variable 2, Dy.
@@ -69,6 +71,11 @@ type :: prism_physics_object
    real(R8P)                   :: chi                    !< Speed coefficient for D & B div-cleaning.
    !real(R8P)                   :: eta                   !< Coefficiente for B div-cleaning.
    real(R8P)                   :: evmax                  !< Maximum signal speed (eigenvalue).
+   real(R8P)                   :: L0                     !< Maximum signal speed (eigenvalue).
+   real(R8P)                   :: B0                     !< Maximum signal speed (eigenvalue).
+   real(R8P)                   :: D0                     !< Maximum signal speed (eigenvalue).
+   real(R8P)                   :: T0                     !< Maximum signal speed (eigenvalue).
+   real(R8P)                   :: J0                     !< Maximum signal speed (eigenvalue).
    real(R8P), pointer          :: erw(:,:,:)=>null()     !< Right eigenvectors for high order reconstruction.
    real(R8P), pointer          :: elw(:,:,:)=>null()     !< Left  eigenvectors for high order reconstruction.
    real(R8P)                   :: EV_D(7)                !< Eigenvalues with D divergence cleaning.
@@ -100,8 +107,15 @@ contains
    desc = desc//mpih%myrankstr//'  number of variables in q (nv):                '//trim(str(self%nv       ))//NL
    desc = desc//mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c     ))//NL
    desc = desc//mpih%myrankstr//'  number of PIC variables in q (nv_PIC):        '//trim(str(self%nv_PIC   ))//NL
-   desc = desc//mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi      ))!//NL
+   desc = desc//mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi      ))//NL
    !desc = desc//mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta ))
+   if (self%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      desc = desc//mpih%myrankstr//'  L0:                                           '//trim(str(self%L0       ))//NL
+      desc = desc//mpih%myrankstr//'  B0:                                           '//trim(str(self%B0       ))//NL
+      desc = desc//mpih%myrankstr//'  D0:                                           '//trim(str(self%D0       ))//NL
+      desc = desc//mpih%myrankstr//'  T0:                                           '//trim(str(self%T0       ))//NL
+      desc = desc//mpih%myrankstr//'  J0:                                           '//trim(str(self%J0       ))!//NL
+   endif
    endfunction description
 
    subroutine initialize(self, file_parameters, reconstruction_vars, div_corr_var, &
@@ -392,7 +406,7 @@ contains
    if (self%physical_model == PIC_PHYSICAL_MODEL) then
       self%nv_pic = 1_I4P
       self%nv = self%nv + self%nv_pic ! Per il PIC aggiungo nel vettore di stato la densita' di carica
-   elseif (self%physical_model == EM_PHYSICAL_MODEL) then
+   elseif (self%physical_model == EM_PHYSICAL_MODEL .or. self%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       self%nv_pic = 0_I4P
    end if
 
@@ -419,22 +433,52 @@ contains
 		self%physical_model = EM_PHYSICAL_MODEL
 	case('PIC', 'pic', 'ParticleInCell', 'particleincell')
       self%physical_model = PIC_PHYSICAL_MODEL
+   case('AdimEM', 'adimem', 'AdimensionalizedElectromagnetic', 'adimensionalelectromagnetic')
+      self%physical_model = ADIM_EM_PHYSICAL_MODEL
    case default
       call mpih%error_stop(msg=': unknown physical model "'//trim(buff)//'" in ['//INI_SECTION_NAME//'].(physical_model)')
 	endselect
 
-   if (div_corr_var == DIV_CORR_VAR_HYPER) then
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
-      !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
-      !if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
+   if (self%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='L0', val=self%L0, error=error)
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(L0)')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
+      self%T0 = self%L0/C0
+      self%D0 = self%B0*C0*EPS0
+      self%J0 = self%B0/(MU0*self%L0)
+      if (div_corr_var == DIV_CORR_VAR_HYPER) then
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+         !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
+         !if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
 
-      !In case of hyperbolic divergence cleaning, set evmax to physical max eigenvalue
-      self%evmax = self%chi*C0
+         !In case of hyperbolic divergence cleaning, set evmax to physical max eigenvalue
+         self%evmax = self%chi
+      else
+         !In case of no divergence cleaning or poisson cleaning, set evmax to light speed value
+         self%chi = 0.0_R8P
+         self%evmax = 1.0_R8P
+      end if
    else
-      !In case of no divergence cleaning or poisson cleaning, set evmax to light speed value
-      self%chi = 0.0_R8P
-      self%evmax = C0
-   end if
+      self%L0 = 1.0_R8P
+      self%B0 = 1.0_R8P
+      self%T0 = 1.0_R8P
+      self%D0 = 1.0_R8P
+      self%J0 = 1.0_R8P
+      if (div_corr_var == DIV_CORR_VAR_HYPER) then
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+         !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
+         !if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
+
+         !In case of hyperbolic divergence cleaning, set evmax to physical max eigenvalue
+         self%evmax = self%chi*C0
+      else
+         !In case of no divergence cleaning or poisson cleaning, set evmax to light speed value
+         self%chi = 0.0_R8P
+         self%evmax = C0
+      end if
+   endif
    endsubroutine load_from_file
 endmodule adam_prism_physics_object
