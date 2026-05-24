@@ -70,6 +70,7 @@ type :: forest_object
       procedure, pass(self) :: is_done                  !< AND-reduce each realm's is_done_forest across the forest.
       procedure, pass(self) :: finalize                 !< Sequence each realm's finalize_forest at shutdown.
       procedure, pass(self), private :: populate_inter_realm_topology !< Translate manifest face-pairs into per-realm maps%inter_realm_neighbors.
+      procedure, pass(self), private :: apply_reflux_corrections      !< Apply Berger-Colella reflux to coarse-side q_rk for every registered seam face (Phase A step 4 of issue #13).
 endtype forest_object
 
 contains
@@ -288,12 +289,27 @@ contains
             call realm(is)%assign_substage_forest(s=s, nrk=nrk, dt=dt)
          enddo
          ! Phase 3: Berger-Colella reflux at coarse-fine interfaces
-         ! (Phase A of [issue #13]). Skeleton commit: apply_reflux is a
-         ! no-op pending the accumulation + correction follow-up commit.
-         ! The dt/dx/weight arguments are placeholders; the real signature
-         ! will read dx per-face from the topology, weight from
-         ! adam_rk_object%ark(s).
-         call forest_flux_register%apply_reflux(substage=s, dt=dt, dx_coarse=0._R8P, weight=0._R8P)
+         ! (Phase A step 4 of [issue #13]).
+         !
+         ! Sequence:
+         !   1. reduce_fine_sums — MPI-reduce F_fine_sum across ranks so
+         !      the coarse-side rank has the full contribution. In the
+         !      replicated-forest layout (Phase A v1) this is a no-op
+         !      because every accumulator is already complete on every
+         !      rank; the call is the schema-reserved hook for the
+         !      disjoint-rank follow-up.
+         !   2. apply_reflux_corrections — for each registered seam face,
+         !      add weight·(dt/dx)·(F_coarse − F_fine_sum) to the coarse-
+         !      side realm's q_rk(:, interior, :, b, s) at the cells
+         !      adjacent to the seam face. The weight is the SSP-RK
+         !      accumulation weight read from adam_rk_object%ark(s).
+         !
+         ! For same-resolution mirror seams (current rmf-2realm with
+         ! COUPLING_MIRROR), F_coarse ≈ F_fine_sum within round-off so
+         ! the correction is round-off-zero in expectation. For AMR
+         ! coarse-fine the correction is real.
+         call forest_flux_register%reduce_fine_sums
+         call self%apply_reflux_corrections(realm=realm, substage=s, dt=dt)
       enddo
       forest_active_substage = 0_I4P
       do is = 1_I4P, int(size(realm), I4P)
@@ -548,8 +564,13 @@ contains
       !< the realm_b-side blocks that geometrically cover the realm_a-side
       !< block face; for same-resolution that resolves to a single fine
       !< block, populated by `find_peer_block` at exchange time.
-      class(realm_object),     intent(in) :: realm(:) !< Initialized realms.
-      type(forest_manifest_t), intent(in) :: manifest !< Parsed manifest.
+      !<
+      !< Now `intent(inout)` (Phase A step 4) because Pass 2 populates
+      !< the per-realm `inter_realm_face_register_index(b, fec_1_6)`
+      !< lookup on `adam%maps`, so PRISM's compute_residuals_fv_centered
+      !< can find the right register entry in O(1).
+      class(realm_object),     intent(inout) :: realm(:) !< Initialized realms; gains inter_realm_face_register_index per realm.
+      type(forest_manifest_t), intent(in)    :: manifest !< Parsed manifest.
       integer(I4P)                        :: f, b    !< Face-pair, block counters.
       integer(I4P)                        :: a_realm !< Coarse-side realm index alias.
       integer(I4P)                        :: a_axis, a_sign !< Coarse-face axis and sign.
@@ -581,7 +602,27 @@ contains
       call forest_flux_register%initialize(nfaces=nfaces_total)
       if (nfaces_total == 0_I4P) return
 
-      ! Pass 2: register one entry per (face-pair, seam-block-on-coarse-side).
+      ! Allocate the per-realm (block, face_1_6) → register_index lookup.
+      ! Sized (nb, 6); zero means "not a seam face", positive = 1-based
+      ! index into forest_flux_register%face(:). Consumed by PRISM's
+      ! compute_residuals_fv_centered to know where to accumulate fluxes.
+      do is = 1_I4P, int(size(realm), I4P)
+         block
+            integer(I4P) :: nb_realm
+            nb_realm = int(realm(is)%adam%field%blocks_number, I4P)
+            if (allocated(realm(is)%adam%maps%inter_realm_face_register_index)) &
+               deallocate(realm(is)%adam%maps%inter_realm_face_register_index)
+            if (nb_realm > 0_I4P) then
+               allocate(realm(is)%adam%maps%inter_realm_face_register_index(1:nb_realm, 1:6))
+               realm(is)%adam%maps%inter_realm_face_register_index = 0_I4P
+            endif
+         endblock
+      enddo
+
+      ! Pass 2: register one entry per (face-pair, seam-block-on-coarse-side),
+      ! AND populate both the coarse-side and fine-side
+      ! inter_realm_face_register_index lookups so each realm's residual
+      ! routine can find the right entry in O(1).
       cursor = 0_I4P
       do f = 1_I4P, int(size(manifest%face_pairs), I4P)
          pair    = manifest%face_pairs(f)
@@ -593,11 +634,11 @@ contains
          do b = 1_I4P, int(realm(a_realm)%adam%field%blocks_number, I4P)
             if (.not. block_face_on_realm_boundary(realm(a_realm), b, a_axis, a_sign)) cycle
             cursor = cursor + 1_I4P
-            ! fine_block(:) is left empty (size 0) in this commit — the
-            ! per-block peer resolution lands in the accumulation-wiring
-            ! follow-up commit (option α, #13 §3.2). The accumulators are
-            ! allocated and ready to receive fluxes; only the
-            ! coarse↔fine block mapping is deferred.
+            ! fine_block(:) is left empty (size 0) here — Phase A v1 uses
+            ! same-resolution mirror seams where the fine-side block is
+            ! resolved via the per-cell ghost map (inter_realm_ghost_cell).
+            ! True AMR coarse-fine adjacency would populate fine_block(:)
+            ! with the 4 (in 3D) finer blocks covering this coarse face.
             call forest_flux_register%register_face(face_index=cursor,                &
                                                     seam_kind=SEAM_KIND_INTER_REALM,  &
                                                     coarse_realm=pair%realm_a,        &
@@ -608,6 +649,29 @@ contains
                                                     nface_cells=nface_cells,          &
                                                     nv=int(realm(a_realm)%adam%field%nv, I4P), &
                                                     nrk=realm(a_realm)%rk%nrk)
+
+            ! Index lookups: coarse side knows its own (b, face_a → fec)
+            ! immediately. Fine side requires a geometric peer lookup to
+            ! find the matching realm_b block; same-resolution mirror →
+            ! identical (tangential extents, opposite-axis face) match.
+            block
+               integer(I4P) :: bc_fec_a, bc_fec_b
+               integer(I4P) :: b_peer, b_peer_axis, b_peer_sign
+               bc_fec_a = face_code_to_bc_fec(pair%face_a)
+               bc_fec_b = face_code_to_bc_fec(pair%face_b)
+               if (bc_fec_a > 0_I4P .and. bc_fec_a <= 6_I4P) &
+                  realm(a_realm)%adam%maps%inter_realm_face_register_index(b, bc_fec_a) = cursor
+               call face_axis_sign(pair%face_b, b_peer_axis, b_peer_sign)
+               call find_seam_peer_block(realm, my_realm_idx=pair%realm_a, my_block=b, &
+                                         my_axis=a_axis, my_sign=a_sign,               &
+                                         peer_realm_idx=pair%realm_b,                  &
+                                         peer_axis=b_peer_axis, peer_sign=b_peer_sign, &
+                                         b_peer=b_peer)
+               if (b_peer > 0_I4P .and. bc_fec_b > 0_I4P .and. bc_fec_b <= 6_I4P) then
+                  if (allocated(realm(pair%realm_b)%adam%maps%inter_realm_face_register_index)) &
+                     realm(pair%realm_b)%adam%maps%inter_realm_face_register_index(b_peer, bc_fec_b) = cursor
+               endif
+            endblock
          enddo
       enddo
       endsubroutine register_inter_realm_seams
@@ -683,6 +747,68 @@ contains
       end select
       end associate
       endfunction tangential_cell_count
+
+      subroutine find_seam_peer_block(realm, my_realm_idx, my_block, my_axis, my_sign, &
+                                      peer_realm_idx, peer_axis, peer_sign, b_peer)
+      !< Find the peer-realm block whose face geometrically matches the
+      !< given (my_realm, my_block, my_face) tuple — same-resolution mirror
+      !< version. Returns `b_peer = 0` if no match (e.g. peer lives on
+      !< another rank).
+      !<
+      !< Matching criteria (same-resolution mirror, COUPLING_MIRROR):
+      !<   * peer block's face-coordinate along `peer_axis` equals my
+      !<     face-coordinate along `my_axis` (the two coupled faces lie
+      !<     in the same plane);
+      !<   * peer block's extents in the two tangential axes equal mine.
+      !<
+      !< This mirrors the now-obsolete `find_peer_block` helper that lived
+      !< inside `prism_cpu_object%exchange_inter_realm_halos_forest` before
+      !< the seam comm-map commit; the canonical version lives here in
+      !< `forest_object`'s contains scope and is used by the register
+      !< topology pass to populate `inter_realm_face_register_index`.
+      class(realm_object), intent(in)  :: realm(:)
+      integer(I4P),        intent(in)  :: my_realm_idx, my_block
+      integer(I4P),        intent(in)  :: my_axis, my_sign
+      integer(I4P),        intent(in)  :: peer_realm_idx
+      integer(I4P),        intent(in)  :: peer_axis, peer_sign
+      integer(I4P),        intent(out) :: b_peer
+      integer(I4P) :: bp
+      integer(I4P) :: tax1, tax2
+      real(R8P)    :: my_face_coord, my_tmin(2), my_tmax(2)
+      real(R8P)    :: peer_face_coord
+      real(R8P)    :: tol
+
+      b_peer = 0_I4P
+      if (peer_axis /= my_axis) return
+      if (peer_sign == my_sign) return  ! must be opposite (MIN ↔ MAX)
+      tax1 = mod(my_axis,        3_I4P) + 1_I4P
+      tax2 = mod(my_axis + 1_I4P, 3_I4P) + 1_I4P
+      if (my_sign > 0_I4P) then
+         my_face_coord = realm(my_realm_idx)%adam%field%emax(my_axis, my_block)
+      else
+         my_face_coord = realm(my_realm_idx)%adam%field%emin(my_axis, my_block)
+      endif
+      my_tmin(1) = realm(my_realm_idx)%adam%field%emin(tax1, my_block)
+      my_tmax(1) = realm(my_realm_idx)%adam%field%emax(tax1, my_block)
+      my_tmin(2) = realm(my_realm_idx)%adam%field%emin(tax2, my_block)
+      my_tmax(2) = realm(my_realm_idx)%adam%field%emax(tax2, my_block)
+      tol = max(abs(my_face_coord), 1._R8P) * 1.0e-10_R8P
+
+      do bp = 1_I4P, int(realm(peer_realm_idx)%adam%field%blocks_number, I4P)
+         if (peer_sign > 0_I4P) then
+            peer_face_coord = realm(peer_realm_idx)%adam%field%emax(peer_axis, bp)
+         else
+            peer_face_coord = realm(peer_realm_idx)%adam%field%emin(peer_axis, bp)
+         endif
+         if (abs(peer_face_coord - my_face_coord) > tol) cycle
+         if (abs(realm(peer_realm_idx)%adam%field%emin(tax1, bp) - my_tmin(1)) > tol) cycle
+         if (abs(realm(peer_realm_idx)%adam%field%emax(tax1, bp) - my_tmax(1)) > tol) cycle
+         if (abs(realm(peer_realm_idx)%adam%field%emin(tax2, bp) - my_tmin(2)) > tol) cycle
+         if (abs(realm(peer_realm_idx)%adam%field%emax(tax2, bp) - my_tmax(2)) > tol) cycle
+         b_peer = bp
+         return
+      enddo
+      endsubroutine find_seam_peer_block
 
       ! ---------------------------------------------------------------------
       ! Phase A of issue #13 — inter-realm seam comm-map construction.
@@ -1048,4 +1174,117 @@ contains
       enddo
       endsubroutine find_peer_cell
    endsubroutine populate_inter_realm_topology
+
+   subroutine apply_reflux_corrections(self, realm, substage, dt)
+   !< Apply the Berger-Colella reflux correction to the coarse-side q_rk
+   !< for every registered seam face (Phase A step 4 of [issue #13]).
+   !<
+   !< Per face, the correction is
+   !<     q_coarse(:, seam_cell, b, s) +=
+   !<         weight * sign * (dt / dx_coarse_normal) *
+   !<         ( F_coarse(:, c, s) - F_fine_sum(:, c, s) )
+   !< where:
+   !<   * weight = adam_rk_object%ark(s) — the SSP-RK accumulation weight
+   !<     for this substage. For SSP-RK 1 (ark = [1]) and SSP-RK 5
+   !<     (ark = [0.39175, 0.36841, 0.25109, 0.54497, 0.22692]) ADAM's
+   !<     legacy substage loop already uses these in `rk%update_q`.
+   !<   * sign = +1 if coarse_face is MAX (+axis) — the flux exits the
+   !<     coarse cell in the +axis direction and the conservative update
+   !<     subtracts (F(i+1/2) - F(i-1/2))/dx; the reflux delta needs the
+   !<     same sign as the original face contribution.
+   !<     sign = -1 if MIN: the seam face is the -axis face and the flux
+   !<     enters the coarse cell, flipping the sign.
+   !<   * dx_coarse_normal = realm(coarse_realm)%adam%field%dxyz(axis,
+   !<     coarse_block) — the coarse block's cell width in the face-normal
+   !<     direction.
+   !<
+   !< The cell-slice corrected is one-cell-thick on the coarse side,
+   !< i.e. (i = ni or 1, j ∈ [1..nj], k ∈ [1..nk]) for an x-normal face,
+   !< analogously for y/z faces. q_rk(:, interior, :, b, s) currently
+   !< holds dq of stage s (the SSP-RK trick — q_rk(s) carries dq into
+   !< the next stage's linear combination), so modifying it here adds
+   !< the reflux delta to the right buffer.
+   !<
+   !< Empty register fast path: the for-loop body is skipped when
+   !< `nfaces == 0` (single-realm forest, no seams declared); the
+   !< routine is a true no-op for the N=1 path.
+   class(forest_object), intent(in)    :: self      !< The forest (read-only host).
+   class(realm_object),  intent(inout) :: realm(:)  !< Realms whose coarse-side q_rk gets corrected.
+   integer(I4P),         intent(in)    :: substage  !< RK substage 1..nrk.
+   real(R8P),            intent(in)    :: dt        !< Time step.
+   integer(I4P)                        :: f, axis, sgn, c
+   integer(I4P)                        :: i_coarse, j_coarse, k_coarse
+   integer(I4P)                        :: ni_, nj_, nk_, c0
+   real(R8P)                           :: dx_coarse, weight, scale
+
+   associate(self_unused => self) ! method takes self for TBP-dispatch symmetry; uses no forest state
+   end associate
+   if (.not. forest_flux_register%is_initialized_) return
+   if (forest_flux_register%nfaces == 0_I4P)        return
+   if (.not. allocated(forest_flux_register%face))  return
+
+   ! SSP-RK substage weight. realm(1) is the canonical source — the
+   ! invariant that all realms agree on the integrator (same nrk, same
+   ! ark) is asserted upstream in evolve_one_step.
+   if (substage < 1_I4P .or. substage > realm(1)%rk%nrk) return
+   if (.not. allocated(realm(1)%rk%ark)) return
+   weight = realm(1)%rk%ark(substage)
+
+   do f = 1_I4P, forest_flux_register%nfaces
+      associate(face_f => forest_flux_register%face(f))
+      if (.not. allocated(face_f%F_coarse))   cycle
+      if (.not. allocated(face_f%F_fine_sum)) cycle
+      if (substage > size(face_f%F_coarse, dim=3)) cycle
+
+      ! Inline FACE_*_MAX/MIN → (axis, sgn) translation (the
+      ! `face_axis_sign` helper lives in populate_inter_realm_topology's
+      ! contains scope and isn't visible here; duplicating 8 lines is
+      ! cheaper than another module-level helper).
+      select case (face_f%coarse_face)
+      case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
+      case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
+      case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
+      case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
+      case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
+      case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
+      case default;      cycle  ! malformed face_code; defensive.
+      end select
+
+      dx_coarse = realm(face_f%coarse_realm)%adam%field%dxyz(axis, face_f%coarse_block)
+      if (dx_coarse <= 0._R8P) cycle  ! defensive (uninitialised block geometry)
+      scale = real(sgn, R8P) * weight * dt / dx_coarse
+
+      ! Grid extents of the coarse-side realm (used to unwrap the linear
+      ! face-cell index `c` into (i, j, k) on the seam face).
+      ni_ = realm(face_f%coarse_realm)%adam%grid%ni
+      nj_ = realm(face_f%coarse_realm)%adam%grid%nj
+      nk_ = realm(face_f%coarse_realm)%adam%grid%nk
+
+      do c = 1_I4P, face_f%nface_cells
+         c0 = c - 1_I4P
+         select case (axis)
+         case (1_I4P)  ! x-normal face: i fixed to ni or 1; tangentials (j, k) walk (mod nj, div nj).
+            i_coarse = merge(ni_, 1_I4P, sgn > 0_I4P)
+            j_coarse = 1_I4P + mod(c0, nj_)
+            k_coarse = 1_I4P + c0 / nj_
+         case (2_I4P)  ! y-normal face: j fixed; tangentials (i, k) walk (mod ni, div ni).
+            i_coarse = 1_I4P + mod(c0, ni_)
+            j_coarse = merge(nj_, 1_I4P, sgn > 0_I4P)
+            k_coarse = 1_I4P + c0 / ni_
+         case (3_I4P)  ! z-normal face: k fixed; tangentials (i, j) walk (mod ni, div ni).
+            i_coarse = 1_I4P + mod(c0, ni_)
+            j_coarse = 1_I4P + c0 / ni_
+            k_coarse = merge(nk_, 1_I4P, sgn > 0_I4P)
+         case default
+            cycle
+         end select
+
+         realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, substage) = &
+            realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, substage) &
+            + scale * (face_f%F_coarse(:, c, substage) - face_f%F_fine_sum(:, c, substage))
+      enddo
+      end associate
+   enddo
+   endsubroutine apply_reflux_corrections
+
 endmodule adam_forest_object
