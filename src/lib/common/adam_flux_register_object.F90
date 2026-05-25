@@ -152,17 +152,25 @@ contains
    !< correction is expected to be round-off zero in expectation. The
    !< accumulator structure is identical to the true coarse-fine AMR case;
    !< the same-resolution case just exercises the value-zero branch.
-   class(flux_register_object), intent(inout) :: self         !< The register.
-   integer(I4P),                intent(in)    :: face_index   !< Index into `face(:)` to populate (1-based, 1..nfaces).
-   integer(I4P),                intent(in)    :: seam_kind    !< SEAM_KIND_*.
-   integer(I4P),                intent(in)    :: coarse_realm !< Realm owning the coarse side (1-based).
-   integer(I4P),                intent(in)    :: coarse_block !< Block index on the coarse side.
-   integer(I4P),                intent(in)    :: coarse_face  !< Face code (FACE_X_MAX..FACE_Z_MIN).
-   integer(I4P),                intent(in)    :: fine_realm   !< Realm owning the fine side (1-based).
-   integer(I4P),                intent(in)    :: fine_block(:)!< Fine blocks covering the coarse face.
-   integer(I4P),                intent(in)    :: nface_cells  !< Coarse cells covered by this face.
-   integer(I4P),                intent(in)    :: nv           !< Number of variables (state-vector width).
-   integer(I4P),                intent(in)    :: nrk          !< Number of RK substages.
+   class(flux_register_object), intent(inout)           :: self          !< The register.
+   integer(I4P),                intent(in)              :: face_index    !< Index into `face(:)` to populate (1-based, 1..nfaces).
+   integer(I4P),                intent(in)              :: seam_kind     !< SEAM_KIND_*.
+   integer(I4P),                intent(in)              :: coarse_realm  !< Realm owning the coarse side (1-based).
+   integer(I4P),                intent(in)              :: coarse_block  !< Block index on the coarse side.
+   integer(I4P),                intent(in)              :: coarse_face   !< Face code (FACE_X_MAX..FACE_Z_MIN).
+   integer(I4P),                intent(in)              :: fine_realm    !< Realm owning the fine side (1-based).
+   integer(I4P),                intent(in),    optional :: fine_block(:) !< Fine blocks covering the coarse face;
+                                                                         !< absent ↔ no fine-side blocks recorded
+                                                                         !< (same-resolution mirror seam, Phase A v1).
+                                                                         !< Caller must NOT pass an empty array literal
+                                                                         !< `[integer(I4P) ::]`: nvfortran 26.x propagates
+                                                                         !< the null data pointer through the descriptor
+                                                                         !< (debug: "Null pointer for zs$array"; release:
+                                                                         !< silent corruption surfacing N kernels later as
+                                                                         !< CUDA_ERROR_INVALID_VALUE).
+   integer(I4P),                intent(in)              :: nface_cells   !< Coarse cells covered by this face.
+   integer(I4P),                intent(in)              :: nv            !< Number of variables (state-vector width).
+   integer(I4P),                intent(in)              :: nrk           !< Number of RK substages.
 
    if (.not. self%is_initialized_) &
       call mpih%error_stop(msg='flux_register_object%register_face: called before initialize')
@@ -183,8 +191,13 @@ contains
    slot%fine_realm   = fine_realm
    slot%nface_cells  = nface_cells
    if (allocated(slot%fine_block)) deallocate(slot%fine_block)
-   allocate(slot%fine_block(1:size(fine_block, dim=1)))
-   slot%fine_block = fine_block
+   if (present(fine_block)) then
+      if (size(fine_block) > 0_I4P) then
+         allocate(slot%fine_block(1:size(fine_block)))
+         slot%fine_block = fine_block
+      endif
+   endif
+   ! No allocation ↔ no fine-side blocks recorded for this face.
    if (allocated(slot%F_coarse  )) deallocate(slot%F_coarse  )
    if (allocated(slot%F_fine_sum)) deallocate(slot%F_fine_sum)
    allocate(slot%F_coarse  (1:nv, 1:nface_cells, 1:nrk))

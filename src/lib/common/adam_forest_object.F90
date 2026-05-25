@@ -646,16 +646,20 @@ contains
             ! resolved via the per-cell ghost map (inter_realm_ghost_cell).
             ! True AMR coarse-fine adjacency would populate fine_block(:)
             ! with the 4 (in 3D) finer blocks covering this coarse face.
-            call flux_register%register_face(face_index=cursor,                &
-                                             seam_kind=SEAM_KIND_INTER_REALM,  &
-                                                    coarse_realm=pair%realm_a,        &
-                                                    coarse_block=b,                   &
-                                                    coarse_face=pair%face_a,          &
-                                                    fine_realm=pair%realm_b,          &
-                                                    fine_block=[integer(I4P) ::],     &
-                                                    nface_cells=nface_cells,          &
-                                                    nv=int(realm(a_realm)%adam%field%nv, I4P), &
-                                                    nrk=realm(a_realm)%rk%nrk)
+            ! `fine_block` deliberately omitted: same-resolution mirror seam
+            ! has no fine-side blocks to record. Passing an empty array literal
+            ! `[integer(I4P) ::]` here was the original Phase A shortcut; it
+            ! poisoned the descriptor copy on nvfortran 26.x. Absent ↔ unallocated
+            ! `slot%fine_block`, which every consumer must guard with allocated().
+            call flux_register%register_face(face_index=cursor,                            &
+                                             seam_kind=SEAM_KIND_INTER_REALM,              &
+                                             coarse_realm=pair%realm_a,                    &
+                                             coarse_block=b,                               &
+                                             coarse_face=pair%face_a,                      &
+                                             fine_realm=pair%realm_b,                      &
+                                             nface_cells=nface_cells,                      &
+                                             nv=int(realm(a_realm)%adam%field%nv, I4P),    &
+                                             nrk=realm(a_realm)%rk%nrk)
 
             ! Index lookups: coarse side knows its own (b, face_a → fec)
             ! immediately. Fine side requires a geometric peer lookup to
