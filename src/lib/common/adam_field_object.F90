@@ -401,8 +401,21 @@ contains
       endsubroutine check_slab
    endfunction do_ray_intersect
 
-   subroutine initialize(self, grid, maps, tree, nb, file_parameters, nv, verbose)
+   subroutine initialize(self, grid, maps, tree, nb, file_parameters, nv, verbose, add_adam)
    !< Initialize field.
+   !<
+   !< `add_adam` mirrors `tree_object%initialize`'s optional dummy of the
+   !< same name (same default `.true.`). When true, the tree gains an
+   !< ADAM ancestor node (Morton code -1) attributed to MPI rank 0.
+   !< The field reflects this by setting `blocks_number = 1` ON RANK 0
+   !< ONLY (the one that owns the ADAM block); other ranks keep
+   !< `blocks_number = 0`. This matches the `blocks_numbers(0) = 1`
+   !< below at line 511 and the `code(1) = -1` ADAM-block convention.
+   !< When `add_adam = .false.`, the tree starts empty and the field
+   !< follows suit (`blocks_number = 0` on every rank).
+   !< The two `add_adam` defaults must agree to keep tree/field state
+   !< consistent at end-of-initialize; callers that pass `add_adam` to
+   !< one MUST pass the same value to the other.
    class(field_object),    intent(inout)        :: self            !< The field.
    type(grid_object),            intent(in), target   :: grid !< Grid (sibling realm component, threaded in).
    type(maps_object),             intent(in)              :: maps !< Maps (sibling realm component, threaded in).
@@ -411,14 +424,21 @@ contains
    integer(I4P),           intent(in)           :: nb              !< Number of all blocks that can be stored.
    integer(I4P),           intent(in), optional :: nv              !< Number of field variables.
    logical,                intent(in), optional :: verbose         !< Trigger verbose output.
+   logical,                intent(in), optional :: add_adam        !< Add ADAM ancestor block (mirrors tree initialize's add_adam, same default .true.).
    logical                                      :: verbose_        !< Trigger verbose output, local variable.
+   logical                                      :: add_adam_       !< Add ADAM ancestor block, local var.
 
+   add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('field_object%initialize start')
    if (allocated(self%req_send_recv)) deallocate(self%req_send_recv)
    allocate(self%req_send_recv(0:mpih%procs_number*2-1))
    self%nb = nb
-   self%blocks_number = 0
+   if (add_adam_ .and. mpih%myrank == 0_I4P) then
+      self%blocks_number = 1   ! ADAM ancestor owned by rank 0 only (consistent with blocks_numbers(0) = 1 below)
+   else
+      self%blocks_number = 0
+   endif
    call self%load_from_ini_file(file_parameters, nv)
    self%block_weight = (grid%ngc+grid%ni+grid%ngc)* &
                        (grid%ngc+grid%nj+grid%ngc)* &

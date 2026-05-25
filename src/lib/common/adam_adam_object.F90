@@ -227,7 +227,11 @@ contains
                               file_parameters=file_parameters,&
                               nb=nb,                          &
                               nv=nv,                          &
-                              verbose=verbose_)
+                              verbose=verbose_,               &
+                              add_adam=add_adam)
+   ! `add_adam` is plumbed identically into tree and field so their
+   ! initial state stays consistent (tree gains an ADAM ancestor node
+   ! iff field's blocks_number is 1).
    if (verbose_) call mpih%print_message('adam_object%initialize finish')
    if (verbose_) call mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))
    if (verbose_) call mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
