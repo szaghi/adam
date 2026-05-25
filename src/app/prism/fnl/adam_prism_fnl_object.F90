@@ -2091,21 +2091,51 @@ contains
       !< `rk_fnl%q_rk_gpu(:,:,:,:,:,s_active)`; outside the substage loop
       !< the canonical state is `self%q_gpu` / `peer_realm%q_gpu`. This is
       !< the GPU twin of CPU's per-substage selection in `copy_peer_face`.
-      integer(I4P),        intent(in) :: b
-      integer(I4P),        intent(in) :: my_axis
-      integer(I4P),        intent(in) :: my_sign
-      integer(I4P),        intent(in) :: b_peer
-      integer(I4P),        intent(in) :: peer
-      class(realm_object), intent(in) :: realm(:)
-      integer(I4P)                    :: d, i, j, k, ng, ni_, nj_, nk_
-      integer(I4P)                    :: peer_ni, peer_nj, peer_nk
-      integer(I4P)                    :: s_active
+      !<
+      !< Memory-model fix (2026-05-24, issue #13 FNL multi-realm):
+      !<
+      !< Previously this routine used raw `!$acc update host(slice)` /
+      !< `!$acc update device(slice)` on `peer_realm%rk_fnl%q_rk_gpu` and
+      !< `self%rk_fnl%q_rk_gpu` slices. That fails at runtime with
+      !<   `FATAL ERROR: data in update host clause was not found on device`
+      !< because those arrays are FUNDAL `dev_alloc`-managed raw device
+      !< pointers, NOT entries in the OpenACC present-table — `acc update`
+      !< does a present-table lookup, raw-pointer arrays are invisible to
+      !< it. The two memory models cannot be mixed.
+      !<
+      !< The fix uses FUNDAL's structured-pointer memcpy
+      !< (`dev_memcpy_from_device` / `dev_memcpy_to_device`) which goes
+      !< through `acc_memcpy_from_device_f(c_loc(d), c_loc(s), bytes_size)`
+      !< — addressing the device array by its actual device pointer
+      !< instead of a present-table key. Strided sub-array slices on the
+      !< leftmost (stride-1) dimension `(:, d, j, k, ...)` are passed to
+      !< the rank-1 overloads; `bytes_size(slice) = nv*8` and `c_loc(slice)`
+      !< points at the first element of the `nv`-long contiguous strip
+      !< (column-major: dim 1 is stride 1), so the byte-level memcpy is
+      !< correct.
+      !<
+      !< A small `host_buf(1:nv)` scratch carries each strip between the
+      !< two halves of the copy. This is one strip-per-ghost-cell, the same
+      !< granularity the original `acc update` calls used.
+      integer(I4P),        intent(in)        :: b
+      integer(I4P),        intent(in)        :: my_axis
+      integer(I4P),        intent(in)        :: my_sign
+      integer(I4P),        intent(in)        :: b_peer
+      integer(I4P),        intent(in)        :: peer
+      class(realm_object), intent(in)        :: realm(:)
+      integer(I4P)                           :: d, i, j, k, ng, ni_, nj_, nk_
+      integer(I4P)                           :: peer_ni, peer_nj, peer_nk
+      integer(I4P)                           :: s_active
+      integer(I4P)                           :: nv_
+      real(R8P), allocatable                 :: host_buf(:)
 
-      ng = self%ngc
-      ni_ = self%ni
-      nj_ = self%nj
-      nk_ = self%nk
+      ng       = self%ngc
+      ni_      = self%ni
+      nj_      = self%nj
+      nk_      = self%nk
+      nv_      = self%nv
       s_active = forest_active_substage
+      allocate(host_buf(1:nv_))
       select type (peer_realm => realm(peer))
       class is (prism_fnl_object)
          peer_ni = peer_realm%ni
@@ -2116,26 +2146,21 @@ contains
             if (my_sign > 0_I4P) then
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do j = 1_I4P, nj_
                   if (s_active > 0_I4P) then
-                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, d, j, k, b_peer, s_active))
-                     self%rk_fnl%q_rk_gpu(:, ni_ + d, j, k, b, s_active) = peer_realm%rk_fnl%q_rk_gpu(:, d, j, k, b_peer, s_active)
-                     !$acc update device(self%rk_fnl%q_rk_gpu(:, ni_ + d, j, k, b, s_active))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, d, j, k, b_peer, s_active))
+                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, ni_ + d, j, k, b, s_active), src=host_buf)
                   else
-                     !$acc update host(peer_realm%q_gpu(:, d, j, k, b_peer))
-                     self%q_gpu(:, ni_ + d, j, k, b) = peer_realm%q_gpu(:, d, j, k, b_peer)
-                     !$acc update device(self%q_gpu(:, ni_ + d, j, k, b))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, d, j, k, b_peer))
+                     call dev_memcpy_to_device(dst=self%q_gpu(:, ni_ + d, j, k, b), src=host_buf)
                   endif
                enddo ; enddo ; enddo
             else
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do j = 1_I4P, nj_
                   if (s_active > 0_I4P) then
-                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer, s_active))
-                     self%rk_fnl%q_rk_gpu(:, 1_I4P - d, j, k, b, s_active) = &
-                        peer_realm%rk_fnl%q_rk_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer, s_active)
-                     !$acc update device(self%rk_fnl%q_rk_gpu(:, 1_I4P - d, j, k, b, s_active))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer, s_active))
+                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, 1_I4P - d, j, k, b, s_active), src=host_buf)
                   else
-                     !$acc update host(peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer))
-                     self%q_gpu(:, 1_I4P - d, j, k, b) = peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer)
-                     !$acc update device(self%q_gpu(:, 1_I4P - d, j, k, b))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer))
+                     call dev_memcpy_to_device(dst=self%q_gpu(:, 1_I4P - d, j, k, b), src=host_buf)
                   endif
                enddo ; enddo ; enddo
             endif
@@ -2143,26 +2168,21 @@ contains
             if (my_sign > 0_I4P) then
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do i = 1_I4P, ni_
                   if (s_active > 0_I4P) then
-                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, i, d, k, b_peer, s_active))
-                     self%rk_fnl%q_rk_gpu(:, i, nj_ + d, k, b, s_active) = peer_realm%rk_fnl%q_rk_gpu(:, i, d, k, b_peer, s_active)
-                     !$acc update device(self%rk_fnl%q_rk_gpu(:, i, nj_ + d, k, b, s_active))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, d, k, b_peer, s_active))
+                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, nj_ + d, k, b, s_active), src=host_buf)
                   else
-                     !$acc update host(peer_realm%q_gpu(:, i, d, k, b_peer))
-                     self%q_gpu(:, i, nj_ + d, k, b) = peer_realm%q_gpu(:, i, d, k, b_peer)
-                     !$acc update device(self%q_gpu(:, i, nj_ + d, k, b))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, d, k, b_peer))
+                     call dev_memcpy_to_device(dst=self%q_gpu(:, i, nj_ + d, k, b), src=host_buf)
                   endif
                enddo ; enddo ; enddo
             else
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do i = 1_I4P, ni_
                   if (s_active > 0_I4P) then
-                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer, s_active))
-                     self%rk_fnl%q_rk_gpu(:, i, 1_I4P - d, k, b, s_active) = &
-                        peer_realm%rk_fnl%q_rk_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer, s_active)
-                     !$acc update device(self%rk_fnl%q_rk_gpu(:, i, 1_I4P - d, k, b, s_active))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer, s_active))
+                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, 1_I4P - d, k, b, s_active), src=host_buf)
                   else
-                     !$acc update host(peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer))
-                     self%q_gpu(:, i, 1_I4P - d, k, b) = peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer)
-                     !$acc update device(self%q_gpu(:, i, 1_I4P - d, k, b))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer))
+                     call dev_memcpy_to_device(dst=self%q_gpu(:, i, 1_I4P - d, k, b), src=host_buf)
                   endif
                enddo ; enddo ; enddo
             endif
@@ -2170,26 +2190,21 @@ contains
             if (my_sign > 0_I4P) then
                do d = 1_I4P, ng ; do j = 1_I4P, nj_ ; do i = 1_I4P, ni_
                   if (s_active > 0_I4P) then
-                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, i, j, d, b_peer, s_active))
-                     self%rk_fnl%q_rk_gpu(:, i, j, nk_ + d, b, s_active) = peer_realm%rk_fnl%q_rk_gpu(:, i, j, d, b_peer, s_active)
-                     !$acc update device(self%rk_fnl%q_rk_gpu(:, i, j, nk_ + d, b, s_active))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, j, d, b_peer, s_active))
+                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, j, nk_ + d, b, s_active), src=host_buf)
                   else
-                     !$acc update host(peer_realm%q_gpu(:, i, j, d, b_peer))
-                     self%q_gpu(:, i, j, nk_ + d, b) = peer_realm%q_gpu(:, i, j, d, b_peer)
-                     !$acc update device(self%q_gpu(:, i, j, nk_ + d, b))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, j, d, b_peer))
+                     call dev_memcpy_to_device(dst=self%q_gpu(:, i, j, nk_ + d, b), src=host_buf)
                   endif
                enddo ; enddo ; enddo
             else
                do d = 1_I4P, ng ; do j = 1_I4P, nj_ ; do i = 1_I4P, ni_
                   if (s_active > 0_I4P) then
-                     !$acc update host(peer_realm%rk_fnl%q_rk_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer, s_active))
-                     self%rk_fnl%q_rk_gpu(:, i, j, 1_I4P - d, b, s_active) = &
-                        peer_realm%rk_fnl%q_rk_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer, s_active)
-                     !$acc update device(self%rk_fnl%q_rk_gpu(:, i, j, 1_I4P - d, b, s_active))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer, s_active))
+                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, j, 1_I4P - d, b, s_active), src=host_buf)
                   else
-                     !$acc update host(peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer))
-                     self%q_gpu(:, i, j, 1_I4P - d, b) = peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer)
-                     !$acc update device(self%q_gpu(:, i, j, 1_I4P - d, b))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer))
+                     call dev_memcpy_to_device(dst=self%q_gpu(:, i, j, 1_I4P - d, b), src=host_buf)
                   endif
                enddo ; enddo ; enddo
             endif
@@ -2197,6 +2212,7 @@ contains
       class default
          call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object')
       end select
+      deallocate(host_buf)
       endsubroutine copy_peer_face_gpu
    endsubroutine exchange_inter_realm_halos_forest
 
