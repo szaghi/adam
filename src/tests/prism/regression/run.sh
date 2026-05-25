@@ -249,11 +249,13 @@ for case_dir in "$REGRESSION_DIR"/*/; do
             case_failed=1
             continue
          fi
-         if ! diff -q "$produced" "$residuals_golden" >/dev/null; then
+         # Tolerance-based residuals comparison: bit-exact diff is too strict
+         # for cross-runner CI (different x86 microarchitectures, MPI rank
+         # allocations, libm versions produce last-digit roundoff). Uses the
+         # same (rtol, atol) as digest.py compare — calibrated for cross-
+         # compiler runs. See digest.py header for tolerance rationale.
+         if ! "$VENV_PY" "$DIGEST_PY" compare-residuals "$produced" "$residuals_golden"; then
             echo "FAIL [$case_name/$BACKEND] residuals differ: $fname"
-            # diff exits non-zero here by construction; under `set -e` +
-            # `pipefail` the pipeline must not abort the harness.
-            diff "$produced" "$residuals_golden" | head -10 || true
             case_failed=1
          fi
       done

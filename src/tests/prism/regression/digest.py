@@ -39,11 +39,14 @@ basename, so multi-realm checkpoints at the same iteration index aggregate
 into a single row.
 
 Usage:
-    digest.py write   <out.txt> <checkpoint.h5> [<checkpoint.h5> ...] [--ngc N | --case-dir DIR]
-    digest.py compare <produced.txt> <golden.txt> [--rtol R] [--atol A]
+    digest.py write             <out.txt>      <checkpoint.h5> [<checkpoint.h5> ...] [--ngc N | --case-dir DIR]
+    digest.py compare           <produced.txt> <golden.txt>    [--rtol R] [--atol A]
+    digest.py compare-residuals <produced.dat> <golden.dat>    [--rtol R] [--atol A]
 
 ``write`` emits a deterministic, sorted digest. ``compare`` exits 0 when every
 row matches within tolerance, non-zero otherwise, printing the offending rows.
+``compare-residuals`` is the same shape for *-residuals.dat files: header line
+verbatim, integer columns exact, float columns within (rtol, atol).
 """
 
 from __future__ import annotations
@@ -382,6 +385,94 @@ def cmd_compare(produced_path: str, golden_path: str, rtol: float, atol: float) 
     return 0
 
 
+def _parse_residuals(path: Path) -> tuple[str, list[list[str]]]:
+    """Parse a residuals.dat file.
+
+    Returns the header line verbatim and a list of data rows; each row is the
+    list of whitespace-separated tokens (preserves Fortran-formatted numerics
+    as strings; conversion to int/float happens at comparison time).
+    """
+    rows: list[list[str]] = []
+    header = ""
+    with path.open() as fh:
+        for lineno, raw in enumerate(fh, start=1):
+            line = raw.rstrip("\n")
+            if lineno == 1:
+                header = line
+                continue
+            stripped = line.strip()
+            if not stripped:
+                continue
+            rows.append(stripped.split())
+    return header, rows
+
+
+def _token_match(produced: str, golden: str, rtol: float, atol: float) -> bool:
+    """Match one column. Tries int-exact first, then float with tolerance."""
+    try:
+        return int(produced) == int(golden)
+    except ValueError:
+        pass
+    try:
+        p = float(produced)
+        g = float(golden)
+    except ValueError:
+        return produced == golden
+    return bool(np.isclose(p, g, rtol=rtol, atol=atol))
+
+
+def cmd_compare_residuals(produced_path: str, golden_path: str,
+                          rtol: float, atol: float) -> int:
+    """Tolerance-based comparator for residuals.dat files.
+
+    Header line must match verbatim (variable names are not numeric noise).
+    Data rows must have identical column counts; integer columns (iteration
+    index, blocks_number) must be exact; float columns use np.isclose with
+    the shared (rtol, atol). Returns 0 on full match, 1 on any mismatch.
+    """
+    pp = Path(produced_path)
+    gp = Path(golden_path)
+    if not pp.is_file():
+        print(f"ERROR: produced residuals not found: {pp}", file=sys.stderr)
+        return 2
+    if not gp.is_file():
+        print(f"ERROR: golden residuals not found: {gp}", file=sys.stderr)
+        return 2
+    p_hdr, p_rows = _parse_residuals(pp)
+    g_hdr, g_rows = _parse_residuals(gp)
+    if p_hdr != g_hdr:
+        print(f"FAIL residuals header mismatch:\n  produced: {p_hdr}\n  golden:   {g_hdr}",
+              file=sys.stderr)
+        return 1
+    if len(p_rows) != len(g_rows):
+        print(f"FAIL residuals row count: produced={len(p_rows)} golden={len(g_rows)}",
+              file=sys.stderr)
+        return 1
+    mismatches = 0
+    for idx, (p_row, g_row) in enumerate(zip(p_rows, g_rows), start=2):
+        if len(p_row) != len(g_row):
+            print(f"FAIL row {idx}: column count produced={len(p_row)} golden={len(g_row)}",
+                  file=sys.stderr)
+            mismatches += 1
+            continue
+        bad_cols = [
+            (col, p_tok, g_tok)
+            for col, (p_tok, g_tok) in enumerate(zip(p_row, g_row), start=1)
+            if not _token_match(p_tok, g_tok, rtol, atol)
+        ]
+        if bad_cols:
+            mismatches += 1
+            if mismatches <= 5:
+                cols_repr = ", ".join(f"col{c}: {p}!={g}" for c, p, g in bad_cols)
+                print(f"FAIL row {idx}: {cols_repr}", file=sys.stderr)
+    if mismatches:
+        print(f"FAIL residuals: {mismatches} row(s) outside rtol={rtol} atol={atol} "
+              f"(file: {pp.name})", file=sys.stderr)
+        return 1
+    print(f">> residuals match: {len(p_rows)} rows within rtol={rtol:g} atol={atol:g}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -433,7 +524,28 @@ def main(argv: list[str]) -> int:
                 print(f"ERROR: unknown compare argument {rest[i]!r}", file=sys.stderr)
                 return 2
         return cmd_compare(argv[2], argv[3], rtol, atol)
-    print(f"ERROR: unknown mode {mode!r} (expected 'write' or 'compare')", file=sys.stderr)
+    if mode == "compare-residuals":
+        if len(argv) < 4:
+            print("ERROR: compare-residuals needs <produced.dat> <golden.dat>",
+                  file=sys.stderr)
+            return 2
+        rtol = _DEFAULT_RTOL
+        atol = _DEFAULT_ATOL
+        rest = argv[4:]
+        i = 0
+        while i < len(rest):
+            if rest[i] == "--rtol" and i + 1 < len(rest):
+                rtol = float(rest[i + 1])
+                i += 2
+            elif rest[i] == "--atol" and i + 1 < len(rest):
+                atol = float(rest[i + 1])
+                i += 2
+            else:
+                print(f"ERROR: unknown compare-residuals argument {rest[i]!r}",
+                      file=sys.stderr)
+                return 2
+        return cmd_compare_residuals(argv[2], argv[3], rtol, atol)
+    print(f"ERROR: unknown mode {mode!r} (expected 'write', 'compare', or 'compare-residuals')", file=sys.stderr)
     return 2
 
 
