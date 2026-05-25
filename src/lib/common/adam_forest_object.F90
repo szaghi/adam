@@ -41,8 +41,7 @@ use :: adam_realm_object,    only : realm_object
 use :: adam_maps_object,     only : inter_realm_neighbor_t, &
                                     FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
 use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
-use :: adam_forest_global,   only : forest_active_substage, forest_flux_register
-use :: adam_flux_register_object, only : SEAM_KIND_INTER_REALM
+use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM
 use :: adam_parameters,      only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_globals,         only : mpih
 use :: mpi
@@ -54,8 +53,17 @@ public :: forest_object
 
 type :: forest_object
    !< Behavior-only orchestrator of an array of realms.
+   !<
+   !< 2026-05-25 (issue #13): `adam_forest_global` module retired. The
+   !< Berger-Colella flux register that used to live as a program-scope
+   !< singleton there is now a VALUE component on the forest (NOT a
+   !< pointer — pointer-to-derived-type is forbidden by R1 of issue #10
+   !< and the CLAUDE.md rule). The substage index that used to be a
+   !< module-scope shared integer (`forest_active_substage`) is now
+   !< threaded as an `s_active` dummy argument through the contract
+   !< chain to its only readers in PRISM CPU/FNL `copy_peer_face*`.
    integer(I4P) :: n = 0_I4P !< Number of realms in the forest (set by initialize from size(realm)).
-   ! NO derived-type-pointer components, ever (R1).
+   type(flux_register_object) :: flux_register !< Coarse-fine interface reflux machinery (Phase A of issue #13).
    ! Phase D will likely add: MPI sub-communicator handle, inter-realm
    ! connectivity descriptor (both intrinsic-typed).
    contains
@@ -228,7 +236,7 @@ contains
    !< by passing the dummy onward, NOT by dereferencing a class-pointer
    !< module variable — the polymorphic-class-pointer pattern is the
    !< nvfortran/OpenACC bug class the CLAUDE.md rule forbids.
-   class(forest_object), intent(in)            :: self     !< The forest.
+   class(forest_object), intent(inout)         :: self     !< The forest (inout because flux_register is a value component mutated each step).
    class(realm_object),  intent(inout), target :: realm(:) !< The realms to advance.
    real(R8P)                                   :: dt       !< Global timestep size.
    integer(I4P)                                :: is, s    !< Realm and substage indices.
@@ -238,7 +246,7 @@ contains
    ! Zero flux register accumulators at top of step (Phase A of [issue #13]).
    ! Skeleton commit: safe no-op when face(:) is unallocated, which is the
    ! case until the topology-registration follow-up commit populates it.
-   call forest_flux_register%reset
+   call self%flux_register%reset
    call self%compute_global_dt(realm, dt=dt)
    if (int(size(realm), I4P) == 1_I4P) then
       ! N=1 fast path — bit-identical to pre-Phase-D.
@@ -262,7 +270,6 @@ contains
          if (nrk_chk /= nrk) call mpih%error_stop(msg='forest_object%evolve_one_step: realms disagree on nrk_forest')
       enddo
       do s = 1_I4P, nrk
-         forest_active_substage = s
          ! Phase 1: every realm assembles its q_rk(:,...,s) (no ghost reads).
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
@@ -277,7 +284,8 @@ contains
          ! reads). See issue #13 BC_SEAM-coherence finding (2026-05-24).
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
-            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
+            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm, &
+                                                     flux_register=self%flux_register)
          enddo
          ! Phase 2b: every realm assigns its substage state from its dq.
          ! Each `assign_stage(s, q=dq)` overwrites q_rk(:, interior, :, b, s)
@@ -308,10 +316,9 @@ contains
          ! COUPLING_MIRROR), F_coarse ≈ F_fine_sum within round-off so
          ! the correction is round-off-zero in expectation. For AMR
          ! coarse-fine the correction is real.
-         call forest_flux_register%reduce_fine_sums
+         call self%flux_register%reduce_fine_sums
          call self%apply_reflux_corrections(realm=realm, substage=s, dt=dt)
       enddo
-      forest_active_substage = 0_I4P
       do is = 1_I4P, int(size(realm), I4P)
          call realm(is)%bind_my_globals_forest
          call realm(is)%finalize_step_forest(dt=dt)
@@ -432,7 +439,7 @@ contains
    !< the singleton `maps%inter_realm_neighbors` aliases through the shim;
    !< for N>1 each realm has its own array with only the face-pair entries
    !< whose `my_realm` matches that realm's index.
-   class(forest_object),     intent(in)    :: self     !< The forest.
+   class(forest_object),     intent(inout) :: self     !< The forest (inout: flux_register is initialized/populated here).
    class(realm_object),      intent(inout) :: realm(:) !< Initialized realms whose adam%maps gets populated.
    type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest.
    integer(I4P), allocatable               :: per_realm_count(:)  !< How many neighbour entries each realm gets.
@@ -489,7 +496,7 @@ contains
    ! expectation. The structural cost (allocated registers, populated
    ! topology) is the same as for the true coarse-fine AMR case that will
    ! exercise these accumulators non-trivially in follow-up commits.
-   call register_inter_realm_seams(realm, manifest)
+   call register_inter_realm_seams(realm, manifest, self%flux_register)
    ! Build the per-cell inter-realm ghost map (Phase A of issue #13 — seam
    ! comm-map). Per-realm: enumerate every ghost cell in self's seam-block
    ! ghost region and resolve the (peer_realm, peer_block, peer_interior_cell)
@@ -537,8 +544,8 @@ contains
       slot%coupling   = coupling
       endsubroutine set_neighbor
 
-      subroutine register_inter_realm_seams(realm, manifest)
-      !< Populate `forest_flux_register` from the manifest face-pairs.
+      subroutine register_inter_realm_seams(realm, manifest, flux_register)
+      !< Populate `flux_register` from the manifest face-pairs.
       !<
       !< Two-pass algorithm:
       !<
@@ -568,8 +575,9 @@ contains
       !< the per-realm `inter_realm_face_register_index(b, fec_1_6)`
       !< lookup on `adam%maps`, so PRISM's compute_residuals_fv_centered
       !< can find the right register entry in O(1).
-      class(realm_object),     intent(inout) :: realm(:) !< Initialized realms; gains inter_realm_face_register_index per realm.
-      type(forest_manifest_t), intent(in)    :: manifest !< Parsed manifest.
+      class(realm_object),        intent(inout) :: realm(:)      !< Initialized realms; gains inter_realm_face_register_index per realm.
+      type(forest_manifest_t),    intent(in)    :: manifest      !< Parsed manifest.
+      type(flux_register_object), intent(inout) :: flux_register !< Berger-Colella reflux accumulator owned by the forest.
       integer(I4P)                        :: f, b    !< Face-pair, block counters.
       integer(I4P)                        :: a_realm !< Coarse-side realm index alias.
       integer(I4P)                        :: a_axis, a_sign !< Coarse-face axis and sign.
@@ -582,7 +590,7 @@ contains
          ! No inter-realm topology — initialize with zero faces so the
          ! register's `is_initialized_` flag flips and the per-step `reset`
          ! call becomes a safe no-op on the empty register.
-         call forest_flux_register%initialize(nfaces=0_I4P)
+         call flux_register%initialize(nfaces=0_I4P)
          return
       endif
 
@@ -598,12 +606,12 @@ contains
          enddo
       enddo
 
-      call forest_flux_register%initialize(nfaces=nfaces_total)
+      call flux_register%initialize(nfaces=nfaces_total)
       if (nfaces_total == 0_I4P) return
 
       ! Allocate the per-realm (block, face_1_6) → register_index lookup.
       ! Sized (nb, 6); zero means "not a seam face", positive = 1-based
-      ! index into forest_flux_register%face(:). Consumed by PRISM's
+      ! index into flux_register%face(:). Consumed by PRISM's
       ! compute_residuals_fv_centered to know where to accumulate fluxes.
       do is = 1_I4P, int(size(realm), I4P)
          block
@@ -638,8 +646,8 @@ contains
             ! resolved via the per-cell ghost map (inter_realm_ghost_cell).
             ! True AMR coarse-fine adjacency would populate fine_block(:)
             ! with the 4 (in 3D) finer blocks covering this coarse face.
-            call forest_flux_register%register_face(face_index=cursor,                &
-                                                    seam_kind=SEAM_KIND_INTER_REALM,  &
+            call flux_register%register_face(face_index=cursor,                &
+                                             seam_kind=SEAM_KIND_INTER_REALM,  &
                                                     coarse_realm=pair%realm_a,        &
                                                     coarse_block=b,                   &
                                                     coarse_face=pair%face_a,          &
@@ -1215,7 +1223,7 @@ contains
    !< Empty register fast path: the for-loop body is skipped when
    !< `nfaces == 0` (single-realm forest, no seams declared); the
    !< routine is a true no-op for the N=1 path.
-   class(forest_object), intent(in)    :: self      !< The forest (read-only host).
+   class(forest_object), intent(in)    :: self      !< The forest (holds the flux register being read).
    class(realm_object),  intent(inout) :: realm(:)  !< Realms whose coarse-side q_rk gets corrected.
    integer(I4P),         intent(in)    :: substage  !< RK substage 1..nrk.
    real(R8P),            intent(in)    :: dt        !< Time step.
@@ -1224,11 +1232,9 @@ contains
    integer(I4P)                        :: ni_, nj_, nk_, c0
    real(R8P)                           :: dx_coarse, weight, scale
 
-   associate(self_unused => self) ! method takes self for TBP-dispatch symmetry; uses no forest state
-   end associate
-   if (.not. forest_flux_register%is_initialized_) return
-   if (forest_flux_register%nfaces == 0_I4P)        return
-   if (.not. allocated(forest_flux_register%face))  return
+   if (.not. self%flux_register%is_initialized_) return
+   if (self%flux_register%nfaces == 0_I4P)        return
+   if (.not. allocated(self%flux_register%face))  return
 
    ! SSP-RK substage weight. realm(1) is the canonical source — the
    ! invariant that all realms agree on the integrator (same nrk, same
@@ -1237,8 +1243,8 @@ contains
    if (.not. allocated(realm(1)%rk%ark)) return
    weight = realm(1)%rk%ark(substage)
 
-   do f = 1_I4P, forest_flux_register%nfaces
-      associate(face_f => forest_flux_register%face(f))
+   do f = 1_I4P, self%flux_register%nfaces
+      associate(face_f => self%flux_register%face(f))
       if (.not. allocated(face_f%F_coarse))   cycle
       if (.not. allocated(face_f%F_fine_sum)) cycle
       if (substage > size(face_f%F_coarse, dim=3)) cycle

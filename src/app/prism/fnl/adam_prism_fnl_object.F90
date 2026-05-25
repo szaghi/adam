@@ -775,8 +775,14 @@ contains
    !   1. `inter_realm_neighbors` is allocated (manifest declared a seam);
    !   2. the caller threaded `realm(:)` (forest path).
    ! Single-realm `simulate` has neither, so the branch is a no-op there.
+   ! `s` (the RK substage index, when present) is forwarded as `s_active`
+   ! to drive the substage-buffer selection inside `copy_peer_face_gpu`.
    if (allocated(self%adam%maps%inter_realm_neighbors) .and. present(realm)) then
-      call self%exchange_inter_realm_halos_forest(realm=realm)
+      if (present(s)) then
+         call self%exchange_inter_realm_halos_forest(realm=realm, s_active=s)
+      else
+         call self%exchange_inter_realm_halos_forest(realm=realm)
+      endif
    endif
    if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
    endsubroutine update_ghost
@@ -1928,7 +1934,7 @@ contains
    call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
    endsubroutine assemble_substage_forest
 
-   subroutine residuals_substage_forest(self, s, nrk, dt, realm)
+   subroutine residuals_substage_forest(self, s, nrk, dt, realm, flux_register)
    !< Compute residuals for RK substage `s` (FNL multi-realm path,
    !< 3-phase loop). Reads q_rk_gpu(s), writes dq_gpu. NO assign_stage.
    !< See [[prism_cpu_object]]%`residuals_substage_forest` for the
@@ -1938,14 +1944,20 @@ contains
    !< the inter-realm halo refresh uses the dummy-argument path
    !< (pointer-to-class module variables are forbidden by the CLAUDE.md
    !< rule; nvfortran/OpenACC mishandles them — issue #13, 2026-05-25).
-   class(prism_fnl_object), intent(inout)                :: self !< The realm.
-   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
+   !<
+   !< `flux_register` is accepted for contract parity; FNL FD-centered
+   !< residual has no FV reflux hook (the FV residual path is
+   !< commented out — `compute_residuals_fv_centered_dev` not yet ported).
+   class(prism_fnl_object),     intent(inout)                :: self !< The realm.
+   integer(I4P),                intent(in)                   :: s    !< Substage index (1..nrk).
+   integer(I4P),                intent(in)                   :: nrk  !< Total number of substages.
+   real(R8P),                   intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
+   class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register (unused on FNL — FV path not active).
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
+   if (present(flux_register)) continue
    if (present(realm)) then
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s, realm=realm)
    else
@@ -2015,7 +2027,7 @@ contains
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    endsubroutine finalize_step_forest
 
-   subroutine exchange_inter_realm_halos_forest(self, realm)
+   subroutine exchange_inter_realm_halos_forest(self, realm, s_active)
    !< Refresh `self`'s ghost cells from peer realms on GPU buffers (FNL).
    !<
    !< FNL twin of [[prism_cpu_object]]%`exchange_inter_realm_halos_forest`.
@@ -2023,15 +2035,17 @@ contains
    !< copy at the face slab); the only difference is the buffer location —
    !< host arrays on CPU vs device pointers on FNL.
    !<
-   !< Substage selection: when `forest_active_substage > 0` the buffer copied
-   !< is `rk_fnl%q_rk_gpu(:,:,:,:,:,s)`; outside any substage (once-per-step
-   !< floor) it is `self%q_gpu`. This branch is taken inside `copy_peer_face_gpu`
-   !< per face. The PRISM FNL C.3 closure (issue #13 D.4a follow-up) made
-   !< `rk_fnl` a per-realm value component so the per-substage path is now
-   !< well-defined; bit-comparability with single-realm `rmf` is the D.4b
-   !< acceptance criterion (blocked on workstation MPI today).
-   class(prism_fnl_object), intent(inout) :: self     !< This realm.
-   class(realm_object),     intent(in)    :: realm(:) !< All realms in the forest.
+   !< Substage selection: when `s_active > 0` (passed by the substage
+   !< caller chain), the buffer copied is `rk_fnl%q_rk_gpu(:,:,:,:,:,s)`;
+   !< outside any substage (initial seam refresh, once-per-step floor)
+   !< `s_active` is absent/zero and the buffer is `self%q_gpu`. The branch
+   !< is taken inside `copy_peer_face_gpu` per face. This `s_active` dummy
+   !< replaces the retired `forest_active_substage` module-scope integer
+   !< (issue #13, 2026-05-25).
+   class(prism_fnl_object), intent(inout)           :: self     !< This realm.
+   class(realm_object),     intent(in)              :: realm(:) !< All realms in the forest.
+   integer(I4P),            intent(in),    optional :: s_active !< Active RK substage (1..nrk) or 0/absent for non-substage refresh.
+   integer(I4P)                           :: s_active_         !< Local, defaulted from optional.
    integer(I4P)                           :: n        !< Neighbour entry counter.
    integer(I4P)                           :: peer     !< Peer realm index.
    integer(I4P)                           :: my_face  !< Self face code.
@@ -2042,6 +2056,7 @@ contains
    integer(I4P)                           :: b_peer     !< Peer block index.
    logical                                :: found      !< Peer block resolution flag.
 
+   s_active_ = 0_I4P ; if (present(s_active)) s_active_ = s_active
    if (.not. allocated(self%adam%maps%inter_realm_neighbors)) return
    do n = 1_I4P, int(size(self%adam%maps%inter_realm_neighbors), I4P)
       associate(entry => self%adam%maps%inter_realm_neighbors(n))
@@ -2058,7 +2073,8 @@ contains
                                   b_peer=b_peer, found=found, realm=realm)
             if (.not. found) cycle
             call copy_peer_face_gpu(b=b, my_axis=my_axis, my_sign=my_sign, &
-                                    b_peer=b_peer, peer=peer, realm=realm)
+                                    b_peer=b_peer, peer=peer, realm=realm, &
+                                    s_active=s_active_)
          enddo
       end associate
    enddo
@@ -2152,16 +2168,17 @@ contains
       end select
       endsubroutine find_peer_block
 
-      subroutine copy_peer_face_gpu(b, my_axis, my_sign, b_peer, peer, realm)
+      subroutine copy_peer_face_gpu(b, my_axis, my_sign, b_peer, peer, realm, s_active)
       !< Host-staged peer→self ghost-slab copy for FNL.
       !<
       !< Pulls the peer's interior slab from device → host, writes into
       !< self's ghost slab on host, pushes back to device. The buffer copied
-      !< depends on the active substage: when `forest_active_substage > 0`,
-      !< both sides are at substage `s_active` and the buffer is
-      !< `rk_fnl%q_rk_gpu(:,:,:,:,:,s_active)`; outside the substage loop
-      !< the canonical state is `self%q_gpu` / `peer_realm%q_gpu`. This is
-      !< the GPU twin of CPU's per-substage selection in `copy_peer_face`.
+      !< depends on `s_active` (passed through from the substage caller
+      !< chain): when `s_active > 0`, both sides are at substage `s_active`
+      !< and the buffer is `rk_fnl%q_rk_gpu(:,:,:,:,:,s_active)`; when
+      !< `s_active == 0` (no substage active, e.g. initial seam refresh
+      !< during `initialize_forest`), the canonical state is
+      !< `self%q_gpu` / `peer_realm%q_gpu`.
       !<
       !< Memory-model fix (2026-05-24, issue #13 FNL multi-realm):
       !<
@@ -2194,9 +2211,9 @@ contains
       integer(I4P),        intent(in)        :: b_peer
       integer(I4P),        intent(in)        :: peer
       class(realm_object), intent(in)        :: realm(:)
+      integer(I4P),        intent(in)        :: s_active   !< Threaded from the caller chain (0 = no substage active).
       integer(I4P)                           :: d, i, j, k, ng, ni_, nj_, nk_
       integer(I4P)                           :: peer_ni, peer_nj, peer_nk
-      integer(I4P)                           :: s_active
       integer(I4P)                           :: nv_
       ! host_buf was allocatable + allocate/deallocate per call. That pattern
       ! fires O(ngc * face_cells * nb * nrk) heap allocations per step which,
@@ -2211,7 +2228,6 @@ contains
       nj_      = self%nj
       nk_      = self%nk
       nv_      = self%nv
-      s_active = forest_active_substage
       select type (peer_realm => realm(peer))
       class is (prism_fnl_object)
          peer_ni = peer_realm%ni

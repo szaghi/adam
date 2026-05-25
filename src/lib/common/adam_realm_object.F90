@@ -42,6 +42,7 @@ use :: adam_eos_ic_object
 use :: adam_fdv_operators_library
 use :: adam_field_object
 use :: adam_flail_object
+use :: adam_flux_register_object
 use :: adam_ib_object
 use :: adam_io_object
 use :: adam_leapfrog_object
@@ -439,7 +440,7 @@ contains
    call mpih%error_stop(msg='realm_object%assemble_substage_forest: not overridden by app extension')
    endsubroutine assemble_substage_forest
 
-   subroutine residuals_substage_forest(self, s, nrk, dt, realm)
+   subroutine residuals_substage_forest(self, s, nrk, dt, realm, flux_register)
    !< Compute residuals for RK substage `s` on the multi-realm path.
    !<
    !< Invoked once per (realm, substage) AFTER every realm has run
@@ -472,10 +473,12 @@ contains
    integer(I4P),        intent(in)                   :: nrk      !< Total number of substages.
    real(R8P),           intent(in)                   :: dt       !< Timestep size from the forest.
    class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
+   class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register for FV reflux accumulator hooks.
 
    associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
    end associate
    if (present(realm)) continue
+   if (present(flux_register)) continue
    call mpih%error_stop(msg='realm_object%residuals_substage_forest: not overridden by app extension')
    endsubroutine residuals_substage_forest
 
@@ -649,7 +652,7 @@ contains
    call mpih%finalize
    endsubroutine finalize_mpi_forest
 
-   subroutine exchange_inter_realm_halos_forest(self, realm)
+   subroutine exchange_inter_realm_halos_forest(self, realm, s_active)
    !< Refresh THIS realm's ghost cells that depend on neighbour realms.
    !<
    !< Invoked by forest%exchange_halos once per realm per call. The peer
@@ -666,17 +669,22 @@ contains
    !< pre-Phase-D behaviour.
    !<
    !< Granularity note: this TBP is invoked by the forest *between* whole
-   !< timesteps (after `advance_one_step_forest`). Bit-comparability with a
-   !< single-realm reference also requires inter-realm refresh between RK
-   !< substages — that finer integration point is a separate decision
-   !< documented in issue #13 and is NOT addressed by this TBP. The host
-   !< app's `advance_one_step_forest` override may also call into the same
-   !< exchange machinery between substages if needed.
-   class(realm_object), intent(inout) :: self     !< This realm.
-   class(realm_object), intent(in)    :: realm(:) !< All realms in the forest (so peers are reachable as realm(n%peer_realm)).
+   !< timesteps (after `advance_one_step_forest`) AND between RK substages
+   !< from inside the realm's `update_ghost` path. The optional `s_active`
+   !< dummy carries the current substage index when called from substage
+   !< depth (1..nrk), or 0 when called outside a substage (e.g. initial
+   !< seam refresh during `initialize_forest`). The CPU/FNL overrides use
+   !< `s_active` to select the peer's substage-`s` buffer (`q_rk(s)` or
+   !< `q_rk_gpu(s)`) instead of the canonical `q`/`q_gpu`. This dummy
+   !< replaces the retired `forest_active_substage` module-scope shared
+   !< integer (issue #13, 2026-05-25).
+   class(realm_object), intent(inout)           :: self     !< This realm.
+   class(realm_object), intent(in)              :: realm(:) !< All realms in the forest (so peers are reachable as realm(n%peer_realm)).
+   integer(I4P),        intent(in),    optional :: s_active !< Active RK substage (1..nrk) or 0/absent for the non-substage seam refresh.
 
    associate(self_unused => self, realm_unused => realm) ! no-op default; signature locked in for app overrides
    end associate
+   if (present(s_active)) continue
    endsubroutine exchange_inter_realm_halos_forest
 
    ! public methods
