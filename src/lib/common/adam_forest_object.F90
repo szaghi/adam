@@ -88,7 +88,7 @@ contains
 
    self%n = int(size(realm), I4P)
    do is = 1, self%n
-      call realm(is)%initialize_forest(filename=filename, realm_index=is, realms_number=self%n)
+      call realm(is)%initialize_forest(filename=filename, realm_index=is, realms_number=self%n, realm=realm)
    enddo
    endsubroutine initialize
 
@@ -113,7 +113,7 @@ contains
       call mpih%error_stop(msg='forest_object%initialize_from_manifest: size(realm) /= manifest%realms_number')
    self%n = int(size(realm), I4P)
    do is = 1, self%n
-      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realm_index=is, realms_number=self%n)
+      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realm_index=is, realms_number=self%n, realm=realm)
    enddo
    call self%populate_inter_realm_topology(realm, manifest)
    endsubroutine initialize_from_manifest
@@ -266,18 +266,20 @@ contains
          ! Phase 1: every realm assembles its q_rk(:,...,s) (no ghost reads).
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
-            call realm(is)%assemble_substage_forest(s=s, nrk=nrk, dt=dt)
+            call realm(is)%assemble_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
          enddo
          ! Phase 2a: every realm evaluates residuals; update_ghost inside
-         ! compute_residuals refreshes inter-realm ghosts via the
-         ! forest_realm pointer. Peers' q_rk(:,...,s) is still the
+         ! compute_residuals refreshes inter-realm ghosts using the
+         ! threaded `realm(:)` dummy argument (the FNL backend) or, for
+         ! backends that still consult the `forest_realm` module pointer
+         ! (CPU), via that pointer. Peers' q_rk(:,...,s) is still the
          ! assembled substage state at this point — NO peer has run
          ! `rk%assign_stage(s)` yet (which would overwrite q_rk(s) with
          ! dq in-place and corrupt subsequent peers' seam reads).
          ! See issue #13 BC_SEAM-coherence finding (2026-05-24).
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
-            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
+            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
          enddo
          ! Phase 2b: every realm assigns its substage state from its dq.
          ! Each `assign_stage(s, q=dq)` overwrites q_rk(:, interior, :, b, s)
@@ -286,7 +288,7 @@ contains
          ! race-free.
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
-            call realm(is)%assign_substage_forest(s=s, nrk=nrk, dt=dt)
+            call realm(is)%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
          enddo
          ! Phase 3: Berger-Colella reflux at coarse-fine interfaces
          ! (Phase A step 4 of [issue #13]).
@@ -364,7 +366,7 @@ contains
 
    do is = 1, int(size(realm), I4P)
       if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
-      call realm(is)%post_step_forest(dt=0._R8P, t=0._R8P, it=0_I4P)
+      call realm(is)%post_step_forest(dt=0._R8P, t=0._R8P, it=0_I4P, realm=realm)
    enddo
    endsubroutine post_step
 

@@ -258,7 +258,7 @@ endinterface
 
 contains
    ! orchestrator contract — see issue #10 Step 6 Phase A.4
-   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose, realm)
    !< Initialize this realm from scratch: app-level initialize, IC injection
    !< (or restart load), initial AMR, IO file open, initial diagnostics dump.
    !<
@@ -277,13 +277,23 @@ contains
    !< Optional `realm_index`, `memory_avail`, `nv`, `verbose` are door-
    !< kept-open for Phase D: for N=1 they are unused, but the signature is
    !< locked in so adding them later does not break callers.
-   class(realm_object), intent(inout)        :: self         !< The realm.
-   character(*),        intent(in)           :: filename     !< Input parameters file name.
-   integer(I4P),        intent(in), optional :: realm_index   !< Index of this realm in the forest (Phase D).
-   integer(I4P),        intent(in), optional :: realms_number !< Realm count in the forest; realm divides its budget by it (Phase D).
-   real(R8P),           intent(in), optional :: memory_avail  !< Per-process memory budget override.
-   integer(I4P),        intent(in), optional :: nv            !< Number of field variables override.
-   logical,             intent(in), optional :: verbose       !< Trigger verbose output.
+   !<
+   !< Optional `realm(:)` (added 2026-05-25, issue #13 FNL multi-realm
+   !< investigation): the forest's array of realms, threaded as a dummy
+   !< argument so the per-realm initialization can refresh inter-realm
+   !< ghosts via a normal Fortran dummy rather than dereferencing the
+   !< polymorphic `forest_realm` module pointer. The pointer-to-class
+   !< dereference triggers an nvfortran-OpenACC runtime bug when followed
+   !< by FUNDAL cross-realm device memcpy; threading as a dummy avoids
+   !< that code path entirely (FNL backend), CPU backend ignores it.
+   class(realm_object), intent(inout)                :: self          !< The realm.
+   character(*),        intent(in)                   :: filename      !< Input parameters file name.
+   integer(I4P),        intent(in),    optional      :: realm_index   !< Index of this realm in the forest (Phase D).
+   integer(I4P),        intent(in),    optional      :: realms_number !< Realm count in the forest; realm divides its budget by it (Phase D).
+   real(R8P),           intent(in),    optional      :: memory_avail  !< Per-process memory budget override.
+   integer(I4P),        intent(in),    optional      :: nv            !< Number of field variables override.
+   logical,             intent(in),    optional      :: verbose       !< Trigger verbose output.
+   class(realm_object), intent(inout), optional, target :: realm(:)   !< Sibling realms (forest array) for inter-realm halo refresh during init.
 
    associate(filename_unused => filename) ! quiet "unused dummy" warnings before the stop
    end associate
@@ -292,6 +302,7 @@ contains
    if (present(memory_avail)) continue
    if (present(nv)) continue
    if (present(verbose)) continue
+   if (present(realm)) continue
    call mpih%error_stop(msg='realm_object%initialize_forest: not overridden by app extension')
    endsubroutine initialize_forest
 
@@ -394,7 +405,7 @@ contains
    call mpih%error_stop(msg='realm_object%prepare_step_forest: not overridden by app extension')
    endsubroutine prepare_step_forest
 
-   subroutine assemble_substage_forest(self, s, nrk, dt)
+   subroutine assemble_substage_forest(self, s, nrk, dt, realm)
    !< Assemble substage q-buffer on the multi-realm path.
    !<
    !< Invoked once per (realm, substage) by the forest, with `s` iterating
@@ -412,17 +423,23 @@ contains
    !<
    !< Default implementation error-stops: every multi-realm participant MUST
    !< override this.
-   class(realm_object), intent(inout) :: self !< The realm.
-   integer(I4P),        intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),        intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+   !<
+   !< Optional `realm(:)` is the forest's realm array threaded as a dummy
+   !< (issue #13, 2026-05-25). Accepted on the contract for signature
+   !< parity; this phase does no peer reads so realm is not consumed here.
+   class(realm_object), intent(inout)                :: self     !< The realm.
+   integer(I4P),        intent(in)                   :: s        !< Substage index (1..nrk).
+   integer(I4P),        intent(in)                   :: nrk      !< Total number of substages.
+   real(R8P),           intent(in)                   :: dt       !< Timestep size from the forest.
+   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
    end associate
+   if (present(realm)) continue
    call mpih%error_stop(msg='realm_object%assemble_substage_forest: not overridden by app extension')
    endsubroutine assemble_substage_forest
 
-   subroutine residuals_substage_forest(self, s, nrk, dt)
+   subroutine residuals_substage_forest(self, s, nrk, dt, realm)
    !< Compute residuals for RK substage `s` on the multi-realm path.
    !<
    !< Invoked once per (realm, substage) AFTER every realm has run
@@ -441,17 +458,28 @@ contains
    !<
    !< Default implementation error-stops: every multi-realm participant
    !< MUST override this.
-   class(realm_object), intent(inout) :: self !< The realm.
-   integer(I4P),        intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),        intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+   !<
+   !< Optional `realm(:)` (issue #13, 2026-05-25): forest realm array
+   !< for inter-realm halo refresh during update_ghost calls inside the
+   !< residual computation. When present, the FNL backend forwards it
+   !< through to `update_ghost(realm=realm)` so the seam exchange uses
+   !< the dummy-argument path instead of the polymorphic `forest_realm`
+   !< module pointer (works around an nvfortran-OpenACC runtime bug
+   !< triggered by polymorphic-class-pointer dereferences followed by
+   !< FUNDAL cross-realm device memcpy).
+   class(realm_object), intent(inout)                :: self     !< The realm.
+   integer(I4P),        intent(in)                   :: s        !< Substage index (1..nrk).
+   integer(I4P),        intent(in)                   :: nrk      !< Total number of substages.
+   real(R8P),           intent(in)                   :: dt       !< Timestep size from the forest.
+   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
 
    associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
    end associate
+   if (present(realm)) continue
    call mpih%error_stop(msg='realm_object%residuals_substage_forest: not overridden by app extension')
    endsubroutine residuals_substage_forest
 
-   subroutine assign_substage_forest(self, s, nrk, dt)
+   subroutine assign_substage_forest(self, s, nrk, dt, realm)
    !< Assign RK substage `s` state from `self%dq` on the multi-realm path.
    !<
    !< Invoked once per (realm, substage) AFTER every realm has run
@@ -466,17 +494,23 @@ contains
    !<
    !< Default implementation error-stops: every multi-realm participant
    !< MUST override this.
-   class(realm_object), intent(inout) :: self !< The realm.
-   integer(I4P),        intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),        intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+   !<
+   !< Optional `realm(:)` (issue #13, 2026-05-25): accepted on the
+   !< contract for signature parity; this phase does no peer reads so
+   !< realm is not consumed here.
+   class(realm_object), intent(inout)                :: self     !< The realm.
+   integer(I4P),        intent(in)                   :: s        !< Substage index (1..nrk).
+   integer(I4P),        intent(in)                   :: nrk      !< Total number of substages.
+   real(R8P),           intent(in)                   :: dt       !< Timestep size from the forest.
+   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(s_unused => s, nrk_unused => nrk, dt_unused => dt, self_unused => self)
    end associate
+   if (present(realm)) continue
    call mpih%error_stop(msg='realm_object%assign_substage_forest: not overridden by app extension')
    endsubroutine assign_substage_forest
 
-   subroutine evaluate_substage_forest(self, s, nrk, dt)
+   subroutine evaluate_substage_forest(self, s, nrk, dt, realm)
    !< [Deprecated] Combined residuals + stage assignment.
    !<
    !< Was the single-phase substage entry point before the
@@ -486,13 +520,19 @@ contains
    !< The forest no longer invokes this — it drives the three-phase
    !< loop directly via the split TBPs. App overrides may still
    !< implement this for use outside the forest orchestrator.
-   class(realm_object), intent(inout) :: self !< The realm.
-   integer(I4P),        intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),        intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
+   class(realm_object), intent(inout)                :: self     !< The realm.
+   integer(I4P),        intent(in)                   :: s        !< Substage index (1..nrk).
+   integer(I4P),        intent(in)                   :: nrk      !< Total number of substages.
+   real(R8P),           intent(in)                   :: dt       !< Timestep size from the forest.
+   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms (forwarded to residuals/assign).
 
-   call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
-   call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
+   if (present(realm)) then
+      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
+      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
+   else
+      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
+      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
+   endif
    endsubroutine evaluate_substage_forest
 
    subroutine finalize_step_forest(self, dt)
@@ -513,7 +553,7 @@ contains
    call mpih%error_stop(msg='realm_object%finalize_step_forest: not overridden by app extension')
    endsubroutine finalize_step_forest
 
-   subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
+   subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run this realm's per-timestep post-step work: diagnostics, IO, AMR.
    !<
    !< Invoked by forest%post_step once per realm per timestep, after the
@@ -527,14 +567,20 @@ contains
    !< Default implementation error-stops: every consumer app MUST override
    !< this method (the diagnostic catalog and IO layout are app-specific).
    !< PRISM's override lives on prism_cpu_object and prism_fnl_object.
-   class(realm_object), intent(inout)        :: self              !< The realm.
-   real(R8P),           intent(in)           :: dt                !< Timestep size just advanced.
-   real(R8P),           intent(in)           :: t                 !< Simulation time after the advance.
-   integer(I4P),        intent(in)           :: it                !< Iteration index after the advance.
-   logical,             intent(in), optional :: do_save_state     !< Save state output this step.
-   logical,             intent(in), optional :: do_save_residuals !< Save residuals output this step.
-   logical,             intent(in), optional :: do_save_restart   !< Save restart dump this step.
-   logical,             intent(in), optional :: do_amr            !< Run AMR update this step.
+   !<
+   !< Optional `realm(:)` (issue #13, 2026-05-25): forest realm array
+   !< threaded for inter-realm halo refresh inside `save_simulation_data`
+   !< (which calls update_ghost). FNL backend forwards it through;
+   !< CPU backend ignores it.
+   class(realm_object), intent(inout)                :: self              !< The realm.
+   real(R8P),           intent(in)                   :: dt                !< Timestep size just advanced.
+   real(R8P),           intent(in)                   :: t                 !< Simulation time after the advance.
+   integer(I4P),        intent(in)                   :: it                !< Iteration index after the advance.
+   logical,             intent(in),    optional      :: do_save_state     !< Save state output this step.
+   logical,             intent(in),    optional      :: do_save_residuals !< Save residuals output this step.
+   logical,             intent(in),    optional      :: do_save_restart   !< Save restart dump this step.
+   logical,             intent(in),    optional      :: do_amr            !< Run AMR update this step.
+   class(realm_object), intent(inout), optional, target :: realm(:)       !< Sibling realms for inter-realm halo refresh.
 
    associate(dt_unused => dt, t_unused => t, it_unused => it) ! quiet "unused dummy" warnings
    end associate
@@ -542,6 +588,7 @@ contains
    if (present(do_save_residuals)) continue
    if (present(do_save_restart)) continue
    if (present(do_amr)) continue
+   if (present(realm)) continue
    call mpih%error_stop(msg='realm_object%post_step_forest: not overridden by app extension')
    endsubroutine post_step_forest
 

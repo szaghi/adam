@@ -194,13 +194,14 @@ interface
    real(R8P),               intent(inout) :: laplacian_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Laplacian.
    endsubroutine compute_laplacian_interface_dev
 
-   subroutine compute_residuals_interface_dev(self, q_gpu, dq_gpu, s)
+   subroutine compute_residuals_interface_dev(self, q_gpu, dq_gpu, s, realm)
    !< Compute residuals of equation, space operator.
-   import :: prism_fnl_object, R8P, I4P
+   import :: prism_fnl_object, R8P, I4P, realm_object
    class(prism_fnl_object), intent(inout) :: self                                              !< The equation.
    real(R8P),               intent(inout) :: q_gpu( 1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Conservative variables.
    real(R8P),               intent(inout) :: dq_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Residuals.
    integer(I4P),  optional, intent(in)    :: s                                                 !< Stage counter.
+   class(realm_object),     intent(inout), optional, target :: realm(:)                       !< Sibling realms for inter-realm halo refresh.
    endsubroutine compute_residuals_interface_dev
 
    subroutine integrate_interface_dev(self)
@@ -416,14 +417,22 @@ contains
    endif
    endsubroutine save_residuals
 
-   subroutine save_simulation_data(self)
+   subroutine save_simulation_data(self, realm)
    !< Save all simulation data.
-   class(prism_fnl_object), intent(inout) :: self      !< The equation.
+   !<
+   !< Optional `realm(:)` (issue #13, 2026-05-25): forwarded to update_ghost
+   !< for inter-realm halo refresh under the dummy-argument path.
+   class(prism_fnl_object), intent(inout)                :: self    !< The equation.
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
 
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-      call self%update_ghost(q_gpu=self%q_gpu)
+      if (present(realm)) then
+         call self%update_ghost(q_gpu=self%q_gpu, realm=realm)
+      else
+         call self%update_ghost(q_gpu=self%q_gpu)
+      endif
       call self%copy_gpu_cpu
       call self%compute_auxiliary_fields
 
@@ -717,19 +726,31 @@ contains
    call self%copy_cpu_gpu
    endsubroutine set_initial_conditions
 
-   subroutine update_ghost(self, q_gpu, step, s)
+   subroutine update_ghost(self, q_gpu, step, s, realm)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
-   class(prism_fnl_object), intent(inout)        :: self            !< The equation.
-   real(R8P),               intent(inout)        :: q_gpu(1:,         &
-                                                          1-self%ngc:,&
-                                                          1-self%ngc:,&
-                                                          1-self%ngc:,&
-                                                          1:)       !< Conservative variables.
-   integer(I4P),            intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
-   integer(I4P),            intent(in), optional :: s               !< Stage counter.
-   logical                                       :: do_local_update !< Flag for triggering local update.
-   logical                                       :: do_set_bc       !< Flag for triggering setting bc.
+   !<
+   !< `realm(:)` is an optional dummy carrying the forest's realm array.
+   !< When present, the inter-realm halo exchange uses it directly
+   !< instead of dereferencing the polymorphic `forest_realm` module
+   !< pointer. The pointer-to-class dereference triggers an nvfortran-
+   !< OpenACC runtime bug when followed by FUNDAL cross-realm device
+   !< memcpy (issue #13, 2026-05-25 investigation). Threading the realm
+   !< array as a dummy avoids that code path entirely. Callers that
+   !< don't yet thread `realm` fall back to the module pointer path —
+   !< correct for single-realm calls (forest_realm is unassociated) but
+   !< unsafe for multi-realm under FNL. Multi-realm callers must thread.
+   class(prism_fnl_object), intent(inout)                :: self            !< The equation.
+   real(R8P),               intent(inout)                :: q_gpu(1:,         &
+                                                                  1-self%ngc:,&
+                                                                  1-self%ngc:,&
+                                                                  1-self%ngc:,&
+                                                                  1:)       !< Conservative variables.
+   integer(I4P),            intent(in),    optional      :: step            !< Step to be perfordmed in asyncronous comp.
+   integer(I4P),            intent(in),    optional      :: s               !< Stage counter.
+   class(realm_object),     intent(inout), optional, target :: realm(:)     !< Sibling realms for inter-realm halo refresh.
+   logical                                               :: do_local_update !< Flag for triggering local update.
+   logical                                               :: do_set_bc       !< Flag for triggering setting bc.
 
    ! perform local update if step is not speficied or if first step is selected
    do_local_update = .false.
@@ -746,8 +767,15 @@ contains
                         call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
                                                                  comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
                                                                  q_gpu=q_gpu, step=step)
-   if (associated(forest_realm) .and. allocated(self%adam%maps%inter_realm_neighbors)) then
-      call self%exchange_inter_realm_halos_forest(realm=forest_realm)
+   if (allocated(self%adam%maps%inter_realm_neighbors)) then
+      if (present(realm)) then
+         ! Dummy-argument path: avoids the polymorphic-class-pointer dereference.
+         call self%exchange_inter_realm_halos_forest(realm=realm)
+      else if (associated(forest_realm)) then
+         ! Legacy module-pointer path. Reach this only for callers that
+         ! cannot run under multi-realm FNL; otherwise thread `realm`.
+         call self%exchange_inter_realm_halos_forest(realm=forest_realm)
+      endif
    endif
    if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
    endsubroutine update_ghost
@@ -1066,24 +1094,29 @@ contains
    endsubroutine compute_laplacian_fv_dev
 
    ! numerical methods, space operators
-   subroutine compute_residuals_fd_centered_dev(self, q_gpu, dq_gpu, s)
+   subroutine compute_residuals_fd_centered_dev(self, q_gpu, dq_gpu, s, realm)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
-   class(prism_fnl_object), intent(inout) :: self       !< The equation.
-   real(R8P),               intent(inout) :: q_gpu(1:,         &
-                                                   1-self%ngc:,&
-                                                   1-self%ngc:,&
-                                                   1-self%ngc:,&
-                                                   1:)  !< Conservative variables.
-   real(R8P),               intent(inout) :: dq_gpu(1:,         &
-                                                    1-self%ngc:,&
-                                                    1-self%ngc:,&
-                                                    1-self%ngc:,&
-                                                    1:) !< Residuals.
-   integer(I4P),  optional, intent(in)    :: s          !< Stage counter.
+   class(prism_fnl_object), intent(inout)                :: self       !< The equation.
+   real(R8P),               intent(inout)                :: q_gpu(1:,         &
+                                                                  1-self%ngc:,&
+                                                                  1-self%ngc:,&
+                                                                  1-self%ngc:,&
+                                                                  1:)  !< Conservative variables.
+   real(R8P),               intent(inout)                :: dq_gpu(1:,         &
+                                                                   1-self%ngc:,&
+                                                                   1-self%ngc:,&
+                                                                   1-self%ngc:,&
+                                                                   1:) !< Residuals.
+   integer(I4P),            intent(in),    optional      :: s          !< Stage counter.
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
 
    if (self%blocks_number > 0) then
       call self%apply_fwl_correction(q_gpu=q_gpu)
-      call self%update_ghost(q_gpu=q_gpu, s=s)
+      if (present(realm)) then
+         call self%update_ghost(q_gpu=q_gpu, s=s, realm=realm)
+      else
+         call self%update_ghost(q_gpu=q_gpu, s=s)
+      endif
       call compute_residuals_fd_centered_dev_kernel(ni            = self%ni                  ,&
                                                     nj            = self%nj                  ,&
                                                     nk            = self%nk                  ,&
@@ -1578,7 +1611,7 @@ contains
    ! call self%impose_div_free
    endsubroutine integrate_rk_yoshida_dev
 
-   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose, realm)
    !< Initialize this realm from scratch: PRISM init, IC injection (or
    !< restart load), initial ghost update on device, initial diagnostics
    !< dump, IO files open, plus PIC/leapfrog priming if those schemes are
@@ -1595,14 +1628,23 @@ contains
    !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are accepted;
    !< `memory_avail` stays a door-open placeholder (the budget source is
    !< mpih_fnl, only valid after device init inside initialize_prism).
-   class(prism_fnl_object), intent(inout)        :: self          !< The realm.
-   character(*),            intent(in)           :: filename      !< Input parameters file name.
-   integer(I4P),            intent(in), optional :: realm_index   !< Index of this realm in the forest (Phase D).
-   integer(I4P),            intent(in), optional :: realms_number !< Realm count; divides the per-device budget (Phase D).
-   real(R8P),               intent(in), optional :: memory_avail  !< Per-process memory budget override (door-open placeholder).
-   integer(I4P),            intent(in), optional :: nv            !< Number of field variables override.
-   logical,                 intent(in), optional :: verbose       !< Trigger verbose output.
-   integer(I4P)                                  :: i             !< Counter.
+   !<
+   !< Optional `realm(:)` (issue #13, 2026-05-25): forest realm array
+   !< threaded as a dummy. Forwarded to `update_ghost` and
+   !< `save_simulation_data` so the initial inter-realm halo refresh
+   !< uses the dummy-argument path instead of dereferencing the
+   !< polymorphic `forest_realm` module pointer (works around an
+   !< nvfortran-OpenACC runtime bug — pointer-to-class + FUNDAL cross-
+   !< realm device memcpy is broken).
+   class(prism_fnl_object), intent(inout)                :: self          !< The realm.
+   character(*),            intent(in)                   :: filename      !< Input parameters file name.
+   integer(I4P),            intent(in),    optional      :: realm_index   !< Index of this realm in the forest (Phase D).
+   integer(I4P),            intent(in),    optional      :: realms_number !< Realm count; divides the per-device budget (Phase D).
+   real(R8P),               intent(in),    optional      :: memory_avail  !< Per-process memory budget override (door-open placeholder).
+   integer(I4P),            intent(in),    optional      :: nv            !< Number of field variables override.
+   logical,                 intent(in),    optional      :: verbose       !< Trigger verbose output.
+   class(realm_object),     intent(inout), optional, target :: realm(:)   !< Sibling realms for inter-realm halo refresh.
+   integer(I4P)                                          :: i             !< Counter.
 
    if (present(realm_index)) continue
    if (present(memory_avail)) continue
@@ -1632,9 +1674,17 @@ contains
    !if (ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
    ! call self%update_ghost(q=self%q) ! Aggiunto da FN
-   call self%update_ghost(q_gpu=self%q_gpu)
+   if (present(realm)) then
+      call self%update_ghost(q_gpu=self%q_gpu, realm=realm)
+   else
+      call self%update_ghost(q_gpu=self%q_gpu)
+   endif
 
-   call self%save_simulation_data
+   if (present(realm)) then
+      call self%save_simulation_data(realm=realm)
+   else
+      call self%save_simulation_data
+   endif
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.) !Cazzo
@@ -1852,7 +1902,7 @@ contains
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    endsubroutine prepare_step_forest
 
-   subroutine assemble_substage_forest(self, s, nrk, dt)
+   subroutine assemble_substage_forest(self, s, nrk, dt, realm)
    !< Assemble RK substage `s` on the multi-realm path (FNL/GPU).
    !<
    !< Mirrors the FIRST two lines of `integrate_rk_ssp_dev`'s substage body:
@@ -1860,13 +1910,15 @@ contains
    !< The coil-current refresh happens here (substage prep) because it's a
    !< source-term update on `q_rk_gpu(:,...,s)` and is needed BEFORE the
    !< inter-realm exchange in the evaluate pass.
-   class(prism_fnl_object), intent(inout) :: self !< The realm.
-   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   class(prism_fnl_object), intent(inout)                :: self !< The realm.
+   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
+   if (present(realm)) continue
    if (self%ib%solids_number>0) then
       call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
    else
@@ -1875,32 +1927,44 @@ contains
    call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
    endsubroutine assemble_substage_forest
 
-   subroutine residuals_substage_forest(self, s, nrk, dt)
+   subroutine residuals_substage_forest(self, s, nrk, dt, realm)
    !< Compute residuals for RK substage `s` (FNL multi-realm path,
    !< 3-phase loop). Reads q_rk_gpu(s), writes dq_gpu. NO assign_stage.
    !< See [[prism_cpu_object]]%`residuals_substage_forest` for the
    !< BC_SEAM-coherence rationale of the residuals/assign split.
-   class(prism_fnl_object), intent(inout) :: self !< The realm.
-   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   !<
+   !< Threads `realm(:)` into `compute_residuals_dev` → `update_ghost` so
+   !< the inter-realm halo refresh uses the dummy-argument path, dodging
+   !< the polymorphic `forest_realm` module-pointer dereference that
+   !< triggers the nvfortran-OpenACC bug (issue #13, 2026-05-25).
+   class(prism_fnl_object), intent(inout)                :: self !< The realm.
+   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
-   call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+   if (present(realm)) then
+      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s, realm=realm)
+   else
+      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+   endif
    endsubroutine residuals_substage_forest
 
-   subroutine assign_substage_forest(self, s, nrk, dt)
+   subroutine assign_substage_forest(self, s, nrk, dt, realm)
    !< Assign RK substage `s` state from dq_gpu (FNL multi-realm path,
    !< 3-phase loop). Overwrites q_rk_gpu(:, interior, :, b, s) with
    !< dq_gpu. Runs AFTER all peers have computed residuals.
-   class(prism_fnl_object), intent(inout) :: self !< The realm.
-   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   class(prism_fnl_object), intent(inout)                :: self !< The realm.
+   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
+   if (present(realm)) continue
    if (self%ib%solids_number>0) then
       call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
    else
@@ -1908,17 +1972,23 @@ contains
    endif
    endsubroutine assign_substage_forest
 
-   subroutine evaluate_substage_forest(self, s, nrk, dt)
+   subroutine evaluate_substage_forest(self, s, nrk, dt, realm)
    !< [Deprecated] Combined residuals + stage assignment for RK substage `s`
    !< (FNL multi-realm path, legacy 2-phase). The forest now uses the
    !< residuals/assign split; this wrapper is kept for backward-compat.
-   class(prism_fnl_object), intent(inout) :: self !< The realm.
-   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   class(prism_fnl_object), intent(inout)                :: self !< The realm.
+   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (forwarded for parity).
 
-   call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
-   call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
+   if (present(realm)) then
+      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
+      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
+   else
+      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
+      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
+   endif
    endsubroutine evaluate_substage_forest
 
    subroutine finalize_step_forest(self, dt)
@@ -2216,7 +2286,7 @@ contains
       endsubroutine copy_peer_face_gpu
    endsubroutine exchange_inter_realm_halos_forest
 
-   subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
+   subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run PRISM-FNL's per-timestep post-step work: state IO, energy
    !< diagnostics, max-divergence diagnostics.
    !<
@@ -2232,14 +2302,19 @@ contains
    !< `dt`, `t`, `it` are not consumed by the current body; they are on
    !< the contract so the forest can supply them once it owns time-state
    !< (today they are still read from the `time` module singleton).
-   class(prism_fnl_object), intent(inout)        :: self              !< The realm.
-   real(R8P),               intent(in)           :: dt                !< Timestep size just advanced.
-   real(R8P),               intent(in)           :: t                 !< Simulation time after the advance.
-   integer(I4P),            intent(in)           :: it                !< Iteration index after the advance.
-   logical,                 intent(in), optional :: do_save_state     !< Save state output this step.
-   logical,                 intent(in), optional :: do_save_residuals !< Save residuals output this step.
-   logical,                 intent(in), optional :: do_save_restart   !< Save restart dump this step.
-   logical,                 intent(in), optional :: do_amr            !< Run AMR update this step.
+   !<
+   !< Optional `realm(:)` (issue #13, 2026-05-25): forwarded to
+   !< save_simulation_data and update_ghost for the dummy-argument
+   !< inter-realm halo refresh path.
+   class(prism_fnl_object), intent(inout)                :: self              !< The realm.
+   real(R8P),               intent(in)                   :: dt                !< Timestep size just advanced.
+   real(R8P),               intent(in)                   :: t                 !< Simulation time after the advance.
+   integer(I4P),            intent(in)                   :: it                !< Iteration index after the advance.
+   logical,                 intent(in),    optional      :: do_save_state     !< Save state output this step.
+   logical,                 intent(in),    optional      :: do_save_residuals !< Save residuals output this step.
+   logical,                 intent(in),    optional      :: do_save_restart   !< Save restart dump this step.
+   logical,                 intent(in),    optional      :: do_amr            !< Run AMR update this step.
+   class(realm_object),     intent(inout), optional, target :: realm(:)       !< Sibling realms for inter-realm halo refresh.
 
    associate(dt_unused => dt, t_unused => t, it_unused => it) ! v1: dt/t/it not consumed yet
    end associate
@@ -2257,8 +2332,13 @@ contains
       !call self%amr_update
       call mpih_fnl%barrier(tictoc=.true.)
    endif
-   call self%save_simulation_data
-   call self%update_ghost(q_gpu=self%q_gpu) !Cazzo
+   if (present(realm)) then
+      call self%save_simulation_data(realm=realm)
+      call self%update_ghost(q_gpu=self%q_gpu, realm=realm) !Cazzo
+   else
+      call self%save_simulation_data
+      call self%update_ghost(q_gpu=self%q_gpu) !Cazzo
+   endif
    call self%compute_energy
    !call self%save_energy_error !Cazzo
    call self%save_energy_history !Cazzo

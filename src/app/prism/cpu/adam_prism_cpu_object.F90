@@ -886,7 +886,7 @@ contains
    endif
    endsubroutine update_ghost
 
-   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose, realm)
    !< Initialize this realm from scratch: PRISM init, IC injection (or
    !< restart load), initial ghost update, initial diagnostics dump, IO
    !< files open, plus PIC/leapfrog priming if those schemes are active.
@@ -902,20 +902,28 @@ contains
    !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are accepted;
    !< `memory_avail` stays a door-open placeholder (the budget source is mpih,
    !< only valid after mpih%initialize inside initialize_prism).
-   class(prism_cpu_object), intent(inout)        :: self          !< The realm.
-   character(*),            intent(in)           :: filename      !< Input parameters file name.
-   integer(I4P),            intent(in), optional :: realm_index   !< Index of this realm in the forest (Phase D).
-   integer(I4P),            intent(in), optional :: realms_number !< Realm count; divides the per-process budget (Phase D).
-   real(R8P),               intent(in), optional :: memory_avail  !< Per-process memory budget override (door-open placeholder).
-   integer(I4P),            intent(in), optional :: nv            !< Number of field variables override.
-   logical,                 intent(in), optional :: verbose       !< Trigger verbose output.
-   real(R8P)                                     :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
-   integer(I4P)                                  :: i, n, b       !< Counters.
+   !<
+   !< Optional `realm(:)` (issue #13, 2026-05-25): forest realm array
+   !< accepted for contract parity with FNL. CPU backend ignores it — the
+   !< polymorphic `forest_realm` module pointer path works correctly under
+   !< gfortran (the nvfortran-OpenACC bug the FNL backend is dodging does
+   !< not apply on CPU).
+   class(prism_cpu_object), intent(inout)                :: self          !< The realm.
+   character(*),            intent(in)                   :: filename      !< Input parameters file name.
+   integer(I4P),            intent(in),    optional      :: realm_index   !< Index of this realm in the forest (Phase D).
+   integer(I4P),            intent(in),    optional      :: realms_number !< Realm count; divides the per-process budget (Phase D).
+   real(R8P),               intent(in),    optional      :: memory_avail  !< Per-process memory budget override (door-open placeholder).
+   integer(I4P),            intent(in),    optional      :: nv            !< Number of field variables override.
+   logical,                 intent(in),    optional      :: verbose       !< Trigger verbose output.
+   class(realm_object),     intent(inout), optional, target :: realm(:)   !< Sibling realms (accepted but unused on CPU; contract parity).
+   real(R8P)                                             :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
+   integer(I4P)                                          :: i, n, b       !< Counters.
 
    if (present(realm_index)) continue
    if (present(memory_avail)) continue
    if (present(nv)) continue
    if (present(verbose)) continue
+   if (present(realm)) continue
 
    call self%initialize_prism(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
@@ -1110,7 +1118,7 @@ contains
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    endsubroutine prepare_step_forest
 
-   subroutine assemble_substage_forest(self, s, nrk, dt)
+   subroutine assemble_substage_forest(self, s, nrk, dt, realm)
    !< Assemble RK substage `s` on the multi-realm path.
    !<
    !< Mirrors the FIRST line of `integrate_rk_ssp`'s substage body:
@@ -1118,13 +1126,17 @@ contains
    !< `rk%q_rk(:,:,:,:,:,s)` from previously computed substages and from
    !< `self%q`. No ghost reads, no peer-realm access — peer realms may
    !< not yet have assembled their substage-s buffer when this fires.
-   class(prism_cpu_object), intent(inout) :: self !< The realm.
-   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   !<
+   !< `realm` accepted on contract for parity with FNL; unused here.
+   class(prism_cpu_object), intent(inout)                :: self !< The realm.
+   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
+   if (present(realm)) continue
    if (self%ib%solids_number>0) then
       call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
    else
@@ -1132,7 +1144,7 @@ contains
    endif
    endsubroutine assemble_substage_forest
 
-   subroutine residuals_substage_forest(self, s, nrk, dt)
+   subroutine residuals_substage_forest(self, s, nrk, dt, realm)
    !< Compute residuals for RK substage `s` — first phase of the
    !< three-phase substage loop (multi-realm path).
    !<
@@ -1150,17 +1162,23 @@ contains
    !< — which is now A's `dq`, not A's substage state. The result is
    !< exponential growth of the seam-ghost-fed stencil. Splitting
    !< residuals from assign breaks the race.
-   class(prism_cpu_object), intent(inout) :: self !< The realm.
-   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   !<
+   !< `realm` accepted on contract for parity with FNL; unused on CPU
+   !< (the polymorphic `forest_realm` module-pointer path works under
+   !< gfortran).
+   class(prism_cpu_object), intent(inout)                :: self !< The realm.
+   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (CPU ignores).
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
+   if (present(realm)) continue
    call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
    endsubroutine residuals_substage_forest
 
-   subroutine assign_substage_forest(self, s, nrk, dt)
+   subroutine assign_substage_forest(self, s, nrk, dt, realm)
    !< Assign RK substage `s` state from `self%dq` — third phase of the
    !< three-phase substage loop (multi-realm path).
    !<
@@ -1169,13 +1187,15 @@ contains
    !< overwrites `rk%q_rk(:, interior, :, b, s)` with `self%dq`. By the
    !< time this fires, no other realm needs to read this realm's
    !< q_rk(s) — they have all completed their residual evaluations.
-   class(prism_cpu_object), intent(inout) :: self !< The realm.
-   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   class(prism_cpu_object), intent(inout)                :: self !< The realm.
+   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
+   if (present(realm)) continue
    if (self%ib%solids_number>0) then
       call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
    else
@@ -1183,7 +1203,7 @@ contains
    endif
    endsubroutine assign_substage_forest
 
-   subroutine evaluate_substage_forest(self, s, nrk, dt)
+   subroutine evaluate_substage_forest(self, s, nrk, dt, realm)
    !< Combined residuals + stage assignment for RK substage `s` —
    !< backward-compat wrapper for the legacy 2-phase substage loop.
    !<
@@ -1192,13 +1212,19 @@ contains
    !< Retained so any consumer outside the forest orchestrator (e.g.
    !< unit tests, standalone scripts) can still get the combined
    !< behavior in one call.
-   class(prism_cpu_object), intent(inout) :: self !< The realm.
-   integer(I4P),            intent(in)    :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)    :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)    :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   class(prism_cpu_object), intent(inout)                :: self !< The realm.
+   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
+   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (forwarded for contract parity).
 
-   call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
-   call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
+   if (present(realm)) then
+      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
+      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
+   else
+      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
+      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
+   endif
    endsubroutine evaluate_substage_forest
 
    subroutine finalize_step_forest(self, dt)
@@ -1306,7 +1332,7 @@ contains
    endsubroutine exchange_inter_realm_halos_forest
 
 
-   subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr)
+   subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run PRISM-CPU's per-timestep post-step work: state IO, energy
    !< diagnostics, divergence diagnostics.
    !<
@@ -1322,14 +1348,17 @@ contains
    !< `dt`, `t`, `it` are not consumed by the current body; they are on
    !< the contract so the forest can supply them once it owns time-state
    !< (today they are still read from the `time` module singleton).
-   class(prism_cpu_object), intent(inout)        :: self              !< The realm.
-   real(R8P),               intent(in)           :: dt                !< Timestep size just advanced.
-   real(R8P),               intent(in)           :: t                 !< Simulation time after the advance.
-   integer(I4P),            intent(in)           :: it                !< Iteration index after the advance.
-   logical,                 intent(in), optional :: do_save_state     !< Save state output this step.
-   logical,                 intent(in), optional :: do_save_residuals !< Save residuals output this step.
-   logical,                 intent(in), optional :: do_save_restart   !< Save restart dump this step.
-   logical,                 intent(in), optional :: do_amr            !< Run AMR update this step.
+   !<
+   !< `realm` is accepted on contract parity with FNL; unused on CPU.
+   class(prism_cpu_object), intent(inout)                :: self              !< The realm.
+   real(R8P),               intent(in)                   :: dt                !< Timestep size just advanced.
+   real(R8P),               intent(in)                   :: t                 !< Simulation time after the advance.
+   integer(I4P),            intent(in)                   :: it                !< Iteration index after the advance.
+   logical,                 intent(in),    optional      :: do_save_state     !< Save state output this step.
+   logical,                 intent(in),    optional      :: do_save_residuals !< Save residuals output this step.
+   logical,                 intent(in),    optional      :: do_save_restart   !< Save restart dump this step.
+   logical,                 intent(in),    optional      :: do_amr            !< Run AMR update this step.
+   class(realm_object),     intent(inout), optional, target :: realm(:)       !< Sibling realms (CPU ignores; contract parity).
 
    associate(dt_unused => dt, t_unused => t, it_unused => it) ! v1: dt/t/it not consumed yet
    end associate
@@ -1337,6 +1366,7 @@ contains
    if (present(do_save_residuals)) continue
    if (present(do_save_restart)) continue
    if (present(do_amr)) continue
+   if (present(realm)) continue
 
    if (self%io%save_memory_status) then
       call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
