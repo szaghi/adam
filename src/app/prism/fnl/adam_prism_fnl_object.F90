@@ -731,15 +731,19 @@ contains
    !< If not specified all steps are perfermod, syncronous computation
    !<
    !< `realm(:)` is an optional dummy carrying the forest's realm array.
-   !< When present, the inter-realm halo exchange uses it directly
-   !< instead of dereferencing the polymorphic `forest_realm` module
-   !< pointer. The pointer-to-class dereference triggers an nvfortran-
-   !< OpenACC runtime bug when followed by FUNDAL cross-realm device
-   !< memcpy (issue #13, 2026-05-25 investigation). Threading the realm
-   !< array as a dummy avoids that code path entirely. Callers that
-   !< don't yet thread `realm` fall back to the module pointer path —
-   !< correct for single-realm calls (forest_realm is unassociated) but
-   !< unsafe for multi-realm under FNL. Multi-realm callers must thread.
+   !< When present AND `inter_realm_neighbors` is allocated, the
+   !< inter-realm halo exchange is invoked via the dummy-argument path.
+   !< When absent (legacy single-realm `simulate` entry point), the
+   !< inter-realm exchange is unreachable by construction (single-realm
+   !< has no peers and `inter_realm_neighbors` is unallocated).
+   !<
+   !< Historical note (issue #13, 2026-05-25): an earlier intermediate
+   !< version of this code consulted a polymorphic `class(realm_object),
+   !< pointer :: forest_realm(:)` module variable as a fallback. That
+   !< pointer was removed: pointer-to-class is forbidden by the CLAUDE.md
+   !< rule (nvfortran/OpenACC mis-offloads it). The realm array now
+   !< flows exclusively as a dummy argument from the forest down through
+   !< the per-realm contract TBPs to this routine.
    class(prism_fnl_object), intent(inout)                :: self            !< The equation.
    real(R8P),               intent(inout)                :: q_gpu(1:,         &
                                                                   1-self%ngc:,&
@@ -767,15 +771,12 @@ contains
                         call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
                                                                  comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
                                                                  q_gpu=q_gpu, step=step)
-   if (allocated(self%adam%maps%inter_realm_neighbors)) then
-      if (present(realm)) then
-         ! Dummy-argument path: avoids the polymorphic-class-pointer dereference.
-         call self%exchange_inter_realm_halos_forest(realm=realm)
-      else if (associated(forest_realm)) then
-         ! Legacy module-pointer path. Reach this only for callers that
-         ! cannot run under multi-realm FNL; otherwise thread `realm`.
-         call self%exchange_inter_realm_halos_forest(realm=forest_realm)
-      endif
+   ! Inter-realm halo exchange — only reachable when both:
+   !   1. `inter_realm_neighbors` is allocated (manifest declared a seam);
+   !   2. the caller threaded `realm(:)` (forest path).
+   ! Single-realm `simulate` has neither, so the branch is a no-op there.
+   if (allocated(self%adam%maps%inter_realm_neighbors) .and. present(realm)) then
+      call self%exchange_inter_realm_halos_forest(realm=realm)
    endif
    if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
    endsubroutine update_ghost
@@ -1149,37 +1150,32 @@ contains
       real(R8P)                   :: curlD(3), curlB(3)                 !< Residuals components.
       real(R8P)                   :: divergenceD, divergenceB           !< Divergence for hyperbolic correction.
       real(R8P)   			   	 :: gradphi(3), gradpsi(3) 	         !< Gradient for hyperbolic correction.
-
       ! rank 1D stencil for curl computations on device that contiguos memory is mandatory
-      real(R8P) :: qsx_y(1-s1:1+s1) !< Y component of vector field over the x stencil.
-      real(R8P) :: qsx_z(1-s1:1+s1) !< Z component of vector field over the x stencil.
-      real(R8P) :: qsy_x(1-s1:1+s1) !< X component of vector field over the y stencil.
-      real(R8P) :: qsy_z(1-s1:1+s1) !< Z component of vector field over the y stencil.
-      real(R8P) :: qsz_x(1-s1:1+s1) !< X component of vector field over the z stencil.
-      real(R8P) :: qsz_y(1-s1:1+s1) !< Y component of vector field over the z stencil.
-
+      real(R8P) :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the x stencil.
+      real(R8P) :: qsx_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the x stencil.
+      real(R8P) :: qsy_x(1-FDV_S_MAX:1+FDV_S_MAX) !< X component of vector field over the y stencil.
+      real(R8P) :: qsy_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the y stencil.
+      real(R8P) :: qsz_x(1-FDV_S_MAX:1+FDV_S_MAX) !< X component of vector field over the z stencil.
+      real(R8P) :: qsz_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the z stencil.
       ! rank 1D stencil for divergence computations on device that contiguos memory is mandatory
-      real(R8P) :: qsx_x(1-s1:1+s1) !< X component of vector field over the x stencil.
-      real(R8P) :: qsy_y(1-s1:1+s1) !< Y component of vector field over the y stencil.
-      real(R8P) :: qsz_z(1-s1:1+s1) !< Z component of vector field over the z stencil.
-
-      ! rank 1D stencil for gradient computations on device that contiguos memory is mandatory
-      real(R8P) :: qs(1-s1:1+s1,1-s1:1+s1,1-s1:1+s1) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
+      real(R8P) :: qsx_x(1-FDV_S_MAX:1+FDV_S_MAX) !< X component of vector field over the x stencil.
+      real(R8P) :: qsy_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the y stencil.
+      real(R8P) :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the z stencil.
 
 		if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
          self%numerics%constrained_transport_D .and. &
 		   .not.self%numerics%constrained_transport_B) then
-         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
-
+         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J
+         !             dB/dt = -curl(D/EPS0)
+         !             dphi/dt = -ch^2*div(D)
          !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
          !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
          !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-         !$acc&         qsx_x,qsy_y,qsz_z,qs,divergenceD,gradphi)
+         !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,gradphi)
          do b=1,blocks_number
          do k=1,nk
          do j=1,nj
          do i=1,ni
-
             !$acc loop seq
             do s=1-s1, 1+s1
                qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
@@ -1190,10 +1186,9 @@ contains
                qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
             enddo
             call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
-                                              qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
-                                              qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+                                              qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1),&
+                                              qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1),&
                                               curl=curlD)
-
             !$acc loop seq
             do s=1-s1, 1+s1
                qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BY)
@@ -1204,27 +1199,27 @@ contains
                qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
             enddo
             call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
-                                              qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
-                                              qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+                                              qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1),&
+                                              qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1),&
                                               curl=curlB)
-
             !$acc loop seq
             do s=1-s1, 1+s1
                qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DX)
                qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
                qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
             enddo
-            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
-                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
+            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+                                                    qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                     divergence=divergenceD)
-
             !$acc loop seq
             do s=1-s1,1+s1
-               qs(s,1,1) = q_gpu(b,i+s-1,j,k,nv_c)
-               qs(1,s,1) = q_gpu(b,i,j+s-1,k,nv_c)
-               qs(1,1,s) = q_gpu(b,i,j,k+s-1,nv_c)
+               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,nv_c)
+               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c)
+               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c)
             enddo
-            call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),q=qs,gradient=gradphi)
+            call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+                                                  qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                                  gradient=gradphi)
 
             dq_gpu(b,i,j,k,VAR_DX) =  curlB(1)/MU0 - gradphi(1) - q_gpu(b,i,j,k,var_Jx)
             dq_gpu(b,i,j,k,VAR_DY) =  curlB(2)/MU0 - gradphi(2) - q_gpu(b,i,j,k,var_Jy)
@@ -1241,12 +1236,13 @@ contains
 		elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
               .not.self%numerics%constrained_transport_D .and.       &
 		        self%numerics%constrained_transport_B) then
-         ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
-
+         ! compute RHS dD/dt = curl(B/MU0) - J
+         !             dB/dt = -curl(D/EPS0) -grad(psi)
+         !             dpsi/dt = -ch^2*div(B)
          !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
          !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
          !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-         !$acc&         qsx_x,qsy_y,qsz_z,qs,divergenceB,gradpsi)
+         !$acc&         qsx_x,qsy_y,qsz_z,divergenceB,gradpsi)
          do b=1,blocks_number
          do k=1,nk
          do j=1,nj
@@ -1260,9 +1256,9 @@ contains
                qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
             enddo
-            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
-                                              qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
-                                              qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+                                              qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                              qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                               curl=curlD)
             !$acc loop seq
             do s=1-s1, 1+s1
@@ -1273,9 +1269,9 @@ contains
                qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
             enddo
-            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
-                                              qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
-                                              qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+                                              qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                              qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                               curl=curlB)
             !$acc loop seq
             do s=1-s1, 1+s1
@@ -1283,16 +1279,18 @@ contains
                qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
                qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
             enddo
-            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
-                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
+            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+                                                    qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                     divergence=divergenceB)
             !$acc loop seq
             do s=1-s1,1+s1
-               qs(s,1,1) = q_gpu(b,i+s-1,j,k,nv_c)
-               qs(1,s,1) = q_gpu(b,i,j+s-1,k,nv_c)
-               qs(1,1,s) = q_gpu(b,i,j,k+s-1,nv_c)
+               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,nv_c)
+               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c)
+               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c)
             enddo
-            call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),q=qs,gradient=gradpsi)
+            call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+                                                  qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                                  gradient=gradpsi)
             dq_gpu(b,i,j,k,VAR_DX) =  curlB(1)/MU0 - q_gpu(b,i,j,k,var_Jx)
             dq_gpu(b,i,j,k,VAR_DY) =  curlB(2)/MU0 - q_gpu(b,i,j,k,var_Jy)
             dq_gpu(b,i,j,k,VAR_DZ) =  curlB(3)/MU0 - q_gpu(b,i,j,k,var_Jz)
@@ -1304,17 +1302,17 @@ contains
          enddo
          enddo
          enddo
-
 		elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
               self%numerics%constrained_transport_D .and. &
 		        self%numerics%constrained_transport_B) then
-		! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
-		!             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
-
+         ! compute RHS dD/dt   = curl(B/MU0) - grad(phi) - J
+         !             dB/dt   = -curl(D/EPS0) -grad(psi)
+         !             dphi/dt = -ch^2*div(D)
+         !             dpsi/dt = -ch^2*div(B)
          !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
          !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
          !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-         !$acc&         qsx_x,qsy_y,qsz_z,qs,divergenceD,divergenceB,gradphi,gradpsi)
+         !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,gradphi,gradpsi)
          do b=1,blocks_number
          do k=1,nk
          do j=1,nj
@@ -1328,9 +1326,9 @@ contains
                qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
             enddo
-            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
-                                              qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
-                                              qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+                                              qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                              qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                               curl=curlD)
             !$acc loop seq
             do s=1-s1, 1+s1
@@ -1341,9 +1339,9 @@ contains
                qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
             enddo
-            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
-                                              qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
-                                              qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+                                              qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                              qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                               curl=curlB)
             !$acc loop seq
             do s=1-s1, 1+s1
@@ -1351,32 +1349,36 @@ contains
                qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
                qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
             enddo
-            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
-                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
+            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+                                                    qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                     divergence=divergenceD)
             !$acc loop seq
             do s=1-s1,1+s1
-               qs(s,1,1) = q_gpu(b,i+s-1,j,k,nv_c-1_I4P)
-               qs(1,s,1) = q_gpu(b,i,j+s-1,k,nv_c-1_I4P)
-               qs(1,1,s) = q_gpu(b,i,j,k+s-1,nv_c-1_I4P)
+               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,nv_c-1_I4P)
+               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c-1_I4P)
+               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c-1_I4P)
             enddo
-            call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),q=qs,gradient=gradphi)
+            call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+                                                  qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                                  gradient=gradphi)
             !$acc loop seq
             do s=1-s1, 1+s1
                qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BX)
                qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
                qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
             enddo
-            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
-                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
+            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+                                                    qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                     divergence=divergenceB)
             !$acc loop seq
             do s=1-s1,1+s1
-               qs(s,1,1) = q_gpu(b,i+s-1,j,k,nv_c)
-               qs(1,s,1) = q_gpu(b,i,j+s-1,k,nv_c)
-               qs(1,1,s) = q_gpu(b,i,j,k+s-1,nv_c)
+               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,nv_c)
+               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c)
+               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c)
             enddo
-            call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),q=qs,gradient=gradpsi)
+            call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+                                                  qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                                  gradient=gradpsi)
             dq_gpu(b,i,j,k,VAR_DX)       =  curlB(1)/MU0  - gradphi(1) - q_gpu(b,i,j,k,var_Jx)
             dq_gpu(b,i,j,k,VAR_DY)       =  curlB(2)/MU0  - gradphi(2) - q_gpu(b,i,j,k,var_Jy)
             dq_gpu(b,i,j,k,VAR_DZ)       =  curlB(3)/MU0  - gradphi(3) - q_gpu(b,i,j,k,var_Jz)
@@ -1390,8 +1392,8 @@ contains
          enddo
          enddo
       else
-         ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
-
+         ! compute RHS dD/dt = curl(B/MU0) - J
+         !             dB/dt = -curl(D/EPS0)
          !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
          !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                             &
          !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)
@@ -1408,9 +1410,9 @@ contains
                qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
             enddo
-            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
-                                              qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
-                                              qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+                                              qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                              qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                               curl=curlD)
             !$acc loop seq
             do s=1-s1, 1+s1
@@ -1421,9 +1423,9 @@ contains
                qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
             enddo
-            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
-                                              qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
-                                              qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+            call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+                                              qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                              qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                               curl=curlB)
             dq_gpu(b,i,j,k,VAR_DX) =  curlB(1)/MU0 - q_gpu(b,i,j,k,var_Jx)
             dq_gpu(b,i,j,k,VAR_DY) =  curlB(2)/MU0 - q_gpu(b,i,j,k,var_Jy)
@@ -1632,10 +1634,9 @@ contains
    !< Optional `realm(:)` (issue #13, 2026-05-25): forest realm array
    !< threaded as a dummy. Forwarded to `update_ghost` and
    !< `save_simulation_data` so the initial inter-realm halo refresh
-   !< uses the dummy-argument path instead of dereferencing the
-   !< polymorphic `forest_realm` module pointer (works around an
-   !< nvfortran-OpenACC runtime bug — pointer-to-class + FUNDAL cross-
-   !< realm device memcpy is broken).
+   !< addresses peers through a dummy argument — pointer-to-class
+   !< module variables are forbidden by the CLAUDE.md rule
+   !< (nvfortran/OpenACC mishandles them).
    class(prism_fnl_object), intent(inout)                :: self          !< The realm.
    character(*),            intent(in)                   :: filename      !< Input parameters file name.
    integer(I4P),            intent(in),    optional      :: realm_index   !< Index of this realm in the forest (Phase D).
@@ -1934,9 +1935,9 @@ contains
    !< BC_SEAM-coherence rationale of the residuals/assign split.
    !<
    !< Threads `realm(:)` into `compute_residuals_dev` → `update_ghost` so
-   !< the inter-realm halo refresh uses the dummy-argument path, dodging
-   !< the polymorphic `forest_realm` module-pointer dereference that
-   !< triggers the nvfortran-OpenACC bug (issue #13, 2026-05-25).
+   !< the inter-realm halo refresh uses the dummy-argument path
+   !< (pointer-to-class module variables are forbidden by the CLAUDE.md
+   !< rule; nvfortran/OpenACC mishandles them — issue #13, 2026-05-25).
    class(prism_fnl_object), intent(inout)                :: self !< The realm.
    integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
@@ -2197,7 +2198,13 @@ contains
       integer(I4P)                           :: peer_ni, peer_nj, peer_nk
       integer(I4P)                           :: s_active
       integer(I4P)                           :: nv_
-      real(R8P), allocatable                 :: host_buf(:)
+      ! host_buf was allocatable + allocate/deallocate per call. That pattern
+      ! fires O(ngc * face_cells * nb * nrk) heap allocations per step which,
+      ! on WSL's UCX (with the eager-mode workaround), corrupts the malloc
+      ! tcache and trips a SIGABRT during the next MPI_Waitall. Hoisting
+      ! the buffer to an automatic array (stack-allocated, small) eliminates
+      ! the heap churn entirely. See issue #13 investigation 2026-05-25.
+      real(R8P)                              :: host_buf(self%nv)
 
       ng       = self%ngc
       ni_      = self%ni
@@ -2205,7 +2212,6 @@ contains
       nk_      = self%nk
       nv_      = self%nv
       s_active = forest_active_substage
-      allocate(host_buf(1:nv_))
       select type (peer_realm => realm(peer))
       class is (prism_fnl_object)
          peer_ni = peer_realm%ni
@@ -2282,7 +2288,7 @@ contains
       class default
          call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object')
       end select
-      deallocate(host_buf)
+      ! host_buf is now an automatic array, no deallocate needed.
       endsubroutine copy_peer_face_gpu
    endsubroutine exchange_inter_realm_halos_forest
 
@@ -2674,7 +2680,7 @@ contains
 			max_div(3) = max_divJ
 		endsubroutine compute_max_divergence_dev_kernel
 	endsubroutine compute_max_divergence
-   
+
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
    !< Note that self%divergence memory is used as buffer, be carefull.

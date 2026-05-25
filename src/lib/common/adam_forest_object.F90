@@ -41,7 +41,7 @@ use :: adam_realm_object,    only : realm_object
 use :: adam_maps_object,     only : inter_realm_neighbor_t, &
                                     FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
 use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
-use :: adam_forest_global,   only : forest_realm, forest_active_substage, forest_flux_register
+use :: adam_forest_global,   only : forest_active_substage, forest_flux_register
 use :: adam_flux_register_object, only : SEAM_KIND_INTER_REALM
 use :: adam_parameters,      only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_globals,         only : mpih
@@ -221,12 +221,13 @@ contains
    !<     races with peer seam reads. All realms use the same integrator
    !<     (same `nrk`); a mismatch is flagged with `mpih%error_stop`.
    !<
-   !< Per-substage inter-realm exchange: the `forest_realm` module pointer
-   !< is bound to `realm(:)` for the duration of this method so the realm
-   !< code at substage depth (inside `compute_residuals → update_ghost`)
-   !< can refresh inter-realm ghosts without threading the realm array
-   !< through the legacy signature chain. See [[adam_forest_global]] for
-   !< the rationale.
+   !< Per-substage inter-realm exchange: the realm array is threaded to
+   !< each per-realm `_forest` TBP as the optional `realm(:)` dummy
+   !< (2026-05-25, issue #13). The realm code at substage depth (inside
+   !< `compute_residuals → update_ghost`) refreshes inter-realm ghosts
+   !< by passing the dummy onward, NOT by dereferencing a class-pointer
+   !< module variable — the polymorphic-class-pointer pattern is the
+   !< nvfortran/OpenACC bug class the CLAUDE.md rule forbids.
    class(forest_object), intent(in)            :: self     !< The forest.
    class(realm_object),  intent(inout), target :: realm(:) !< The realms to advance.
    real(R8P)                                   :: dt       !< Global timestep size.
@@ -234,7 +235,6 @@ contains
    integer(I4P)                                :: nrk      !< Number of substages (multi-realm path).
    integer(I4P)                                :: nrk_chk  !< Per-realm consistency check.
 
-   forest_realm => realm
    ! Zero flux register accumulators at top of step (Phase A of [issue #13]).
    ! Skeleton commit: safe no-op when face(:) is unallocated, which is the
    ! case until the topology-registration follow-up commit populates it.
@@ -270,13 +270,11 @@ contains
          enddo
          ! Phase 2a: every realm evaluates residuals; update_ghost inside
          ! compute_residuals refreshes inter-realm ghosts using the
-         ! threaded `realm(:)` dummy argument (the FNL backend) or, for
-         ! backends that still consult the `forest_realm` module pointer
-         ! (CPU), via that pointer. Peers' q_rk(:,...,s) is still the
-         ! assembled substage state at this point — NO peer has run
-         ! `rk%assign_stage(s)` yet (which would overwrite q_rk(s) with
-         ! dq in-place and corrupt subsequent peers' seam reads).
-         ! See issue #13 BC_SEAM-coherence finding (2026-05-24).
+         ! threaded `realm(:)` dummy argument. Peers' q_rk(:,...,s) is
+         ! still the assembled substage state at this point — NO peer
+         ! has run `rk%assign_stage(s)` yet (which would overwrite
+         ! q_rk(s) with dq in-place and corrupt subsequent peers' seam
+         ! reads). See issue #13 BC_SEAM-coherence finding (2026-05-24).
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
             call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
@@ -319,7 +317,6 @@ contains
          call realm(is)%finalize_step_forest(dt=dt)
       enddo
    endif
-   forest_realm => null()
    endsubroutine evolve_one_step
 
    subroutine exchange_halos(self, realm)

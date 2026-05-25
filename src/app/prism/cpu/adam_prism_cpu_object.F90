@@ -70,9 +70,9 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
 endtype prism_cpu_object
 
 interface
-   subroutine compute_residuals_interface(self, q, dq, s)
+   subroutine compute_residuals_interface(self, q, dq, s, realm)
    !< Compute residuals of equation, space operator.
-   import :: prism_cpu_object, R8P, I4P
+   import :: prism_cpu_object, R8P, I4P, realm_object
    class(prism_cpu_object), intent(inout) :: self   !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
                                                1-self%ngc:,&
@@ -85,6 +85,7 @@ interface
                                                 1-self%ngc:,&
                                                 1:) !< Residuals.
    integer(I4P),  optional, intent(in)    :: s !< Stage counter.
+   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
    endsubroutine compute_residuals_interface
 
    subroutine integrate_interface(self)
@@ -331,14 +332,22 @@ contains
    endif
    endsubroutine save_residuals
 
-   subroutine save_simulation_data(self)
+   subroutine save_simulation_data(self, realm)
    !< Save all simulation data.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   !<
+   !< Optional `realm(:)` (issue #13, 2026-05-25): forwarded to update_ghost
+   !< for inter-realm halo refresh via the dummy-argument path.
+   class(prism_cpu_object), intent(inout)                :: self    !< The equation.
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
 
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-      call self%update_ghost(q=self%q)
+      if (present(realm)) then
+         call self%update_ghost(q=self%q, realm=realm)
+      else
+         call self%update_ghost(q=self%q)
+      endif
       call self%compute_auxiliary_fields
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
@@ -842,26 +851,34 @@ contains
    endif
    endsubroutine set_initial_conditions
 
-   subroutine update_ghost(self, q, step, s)
+   subroutine update_ghost(self, q, step, s, realm)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
    !<
-   !< Inter-realm refresh: after the intra-realm halo path completes, if a
-   !< forest is driving the run (the `forest_realm` module pointer is bound by
-   !< `forest_object%evolve_one_step`) AND this realm declares any inter-realm
-   !< neighbours, refresh the inter-realm ghosts on the same `q` buffer the
-   !< caller is about to read. Empty neighbour list ⇒ skip silently (N=1
-   !< rmf path, bit-identical to pre-Phase-D).
-   class(prism_cpu_object), intent(inout)        :: self            !< The equation.
-   real(R8P),               intent(inout)        :: q(1:,         &
-                                                      1-self%ngc:,&
-                                                      1-self%ngc:,&
-                                                      1-self%ngc:,&
-                                                      1:)           !< Conservative variables.
-   integer(I4P),            intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
-   integer(I4P),            intent(in), optional :: s               !< Stage counter.
-   logical                                       :: do_local_update !< Flag for triggering local update.
-   logical                                       :: do_set_bc       !< Flag for triggering setting bc.
+   !< Inter-realm refresh: after the intra-realm halo path completes, if
+   !< the caller threaded the forest realm array (`realm(:)`) AND this
+   !< realm declares any inter-realm neighbours, refresh the inter-realm
+   !< ghosts on the same `q` buffer the caller is about to read.
+   !< Empty neighbour list or no `realm` ⇒ skip silently (N=1 rmf path,
+   !< bit-identical to pre-Phase-D).
+   !<
+   !< Historical note (issue #13, 2026-05-25): an earlier version of this
+   !< code consulted a polymorphic `class(realm_object), pointer ::
+   !< forest_realm(:)` module variable instead of the `realm` dummy.
+   !< That pointer was removed — pointer-to-class is forbidden by the
+   !< CLAUDE.md rule (nvfortran/OpenACC mishandles it; gfortran handles
+   !< it but the rule applies uniformly to keep CPU/FNL symmetric).
+   class(prism_cpu_object), intent(inout)                :: self            !< The equation.
+   real(R8P),               intent(inout)                :: q(1:,         &
+                                                              1-self%ngc:,&
+                                                              1-self%ngc:,&
+                                                              1-self%ngc:,&
+                                                              1:)           !< Conservative variables.
+   integer(I4P),            intent(in),    optional      :: step            !< Step to be perfordmed in asyncronous comp.
+   integer(I4P),            intent(in),    optional      :: s               !< Stage counter.
+   class(realm_object),     intent(inout), optional, target :: realm(:)     !< Sibling realms for inter-realm halo refresh.
+   logical                                               :: do_local_update !< Flag for triggering local update.
+   logical                                               :: do_set_bc       !< Flag for triggering setting bc.
 
    ! perform local update if step is not speficied or if first step is selected
    do_local_update = .false.
@@ -875,8 +892,8 @@ contains
    endif
    if (do_local_update) call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
                         call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, step=step)
-   if (associated(forest_realm) .and. allocated(self%adam%maps%inter_realm_neighbors)) then
-      call self%exchange_inter_realm_halos_forest(realm=forest_realm)
+   if (allocated(self%adam%maps%inter_realm_neighbors) .and. present(realm)) then
+      call self%exchange_inter_realm_halos_forest(realm=realm)
    endif
    if (do_set_bc)       call self%set_boundary_conditions(q=q, s=s)
    if (present(s)) then
@@ -944,7 +961,11 @@ contains
       self%time%it = 0
       call mpih%print_message('impose initial conditions finish')
    endif
-   call self%update_ghost(q=self%q) ! Aggiunto da FN
+   if (present(realm)) then
+      call self%update_ghost(q=self%q, realm=realm) ! Aggiunto da FN
+   else
+      call self%update_ghost(q=self%q) ! Aggiunto da FN
+   endif
 
    do n=1, self%coil%total_coils_number
       call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
@@ -965,7 +986,11 @@ contains
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
-   call self%save_simulation_data
+   if (present(realm)) then
+      call self%save_simulation_data(realm=realm)
+   else
+      call self%save_simulation_data
+   endif
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.)
@@ -1170,12 +1195,15 @@ contains
    integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
    real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (CPU ignores).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
-   if (present(realm)) continue
-   call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+   if (present(realm)) then
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s, realm=realm)
+   else
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+   endif
    endsubroutine residuals_substage_forest
 
    subroutine assign_substage_forest(self, s, nrk, dt, realm)
@@ -1377,8 +1405,13 @@ contains
       call mpih%barrier(tictoc=.true.)
    endif
    associate(hs => self%fdv_half_stencil)
-   call self%save_simulation_data
-   call self%update_ghost(q=self%q) ! Aggiunto da FN
+   if (present(realm)) then
+      call self%save_simulation_data(realm=realm)
+      call self%update_ghost(q=self%q, realm=realm) ! Aggiunto da FN
+   else
+      call self%save_simulation_data
+      call self%update_ghost(q=self%q) ! Aggiunto da FN
+   endif
    call self%compute_energy
    !call self%save_energy_error
    call self%save_energy_history
@@ -1715,7 +1748,7 @@ contains
    endsubroutine simulate
 
    ! pointer TBP concrete implementations
-   subroutine compute_residuals_fd_centered(self, q, dq, s)
+   subroutine compute_residuals_fd_centered(self, q, dq, s, realm)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
    class(prism_cpu_object), intent(inout) :: self                     !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
@@ -1729,6 +1762,7 @@ contains
                                                 1-self%ngc:,&
                                                 1:)                   !< Residuals.
    integer(I4P),  optional, intent(in)    :: s                        !< Stage counter.
+   class(realm_object), intent(inout), optional, target :: realm(:)   !< Sibling realms for inter-realm halo refresh.
    integer(I4P)                           :: i,j,k,b                  !< Counter
    real(R8P)                              :: curlD(3), curlB(3)       !< Residuals components.
    real(R8P)                              :: gradphi(3), gradpsi(3)   !< Residuals components.
@@ -1746,7 +1780,11 @@ contains
       max_curlD = -huge(1._R8P)
 
    call self%apply_fWL_correction(q=q)
-   call self%update_ghost(q=q, s=s)
+   if (present(realm)) then
+      call self%update_ghost(q=q, s=s, realm=realm)
+   else
+      call self%update_ghost(q=q, s=s)
+   endif
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%adam%field%dxyz,                                                                                        &
              s1=>self%fdv_half_stencils(1),                                                                           &
@@ -2044,7 +2082,7 @@ contains
    endassociate
    endsubroutine compute_residuals_fd_centered
 
-   subroutine compute_residuals_fv_centered(self, q, dq, s)
+   subroutine compute_residuals_fv_centered(self, q, dq, s, realm)
    !< Compute residuals of equation, space operator, centered finite volume schemes.
    class(prism_cpu_object), intent(inout) :: self                                             !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
@@ -2058,6 +2096,7 @@ contains
                                                 1-self%ngc:,&
                                                 1:)                                           !< Residuals.
    integer(I4P),  optional, intent(in)    :: s !< Stage counter.
+   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
    integer(I4P)                           :: i,j,k,b,d,v                                      !< Counter
    integer(I4P)                           :: substage_idx !< RK substage index (captured pre-associate to avoid shadow by the stencil-half-width rebinding).
    real(R8P),    parameter                :: sir(3,3) = reshape([1._R8P,0._R8P,0._R8P,&
@@ -2075,7 +2114,11 @@ contains
    endif
 
    call self%apply_fWL_correction(q=q)
-   call self%update_ghost(q=q)
+   if (present(realm)) then
+      call self%update_ghost(q=q, realm=realm)
+   else
+      call self%update_ghost(q=q)
+   endif
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%adam%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,        &
              s=>self%fdv_half_stencils(1),                                                                            &
@@ -2297,7 +2340,7 @@ contains
    if (allocated(flux_slab)) deallocate(flux_slab)
    endsubroutine accumulate_seam_fluxes_fv
 
-   subroutine compute_residuals_weno(self, q, dq, s)
+   subroutine compute_residuals_weno(self, q, dq, s, realm)
    !< Compute residuals of equation, space operator, WENO schemes.
    class(prism_cpu_object), intent(inout) :: self   !< The equation.
    real(R8P),               intent(inout) :: q(1:,       &
@@ -2311,9 +2354,14 @@ contains
                                                 1-self%ngc:,&
                                                 1:) !< Residuals.
    integer(I4P),  optional, intent(in)    :: s !< Stage counter.
+   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
 
    call self%apply_fWL_correction(q=q)
-   call self%update_ghost(q=q)
+   if (present(realm)) then
+      call self%update_ghost(q=q, realm=realm)
+   else
+      call self%update_ghost(q=q)
+   endif
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&
              dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:),                         &

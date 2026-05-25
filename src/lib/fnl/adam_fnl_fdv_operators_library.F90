@@ -75,17 +75,19 @@ contains
    divergence = div_x + div_y + div_z
    endsubroutine compute_divergence_fd_centered_dev
 
-   pure subroutine compute_gradient_fd_centered_dev(s,dxyz,q,gradient)
+   pure subroutine compute_gradient_fd_centered_dev(s,dxyz,qsx,qsy,qsz,gradient)
    !< Compute gradient of q scalar field with finite difference centered scheme.
    integer(I4P), intent(in)  :: s                 !< Stencil len, half of accuracy order.
    real(R8P),    intent(in)  :: dxyz(1:)          !< Space steps [1:3].
-   real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
+   real(R8P),    intent(in)  :: qsx(1-s:)         !< X component of vector field over the x stencil.
+   real(R8P),    intent(in)  :: qsy(1-s:)         !< Y component of vector field over the y stencil.
+   real(R8P),    intent(in)  :: qsz(1-s:)         !< Z component of vector field over the z stencil.
    real(R8P),    intent(out) :: gradient(1:)      !< Gradient of q [1:3].
    !$acc routine seq
 
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),dq_ds=gradient(1))
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),dq_ds=gradient(2))
-   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=q(1,1,1-s:1+s),dq_ds=gradient(3))
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=qsx(1-s:1+s),dq_ds=gradient(1))
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy(1-s:1+s),dq_ds=gradient(2))
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=qsz(1-s:1+s),dq_ds=gradient(3))
    endsubroutine compute_gradient_fd_centered_dev
 
    pure subroutine compute_laplacian_fd_centered_dev(s,dxyz,q,laplacian)
