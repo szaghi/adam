@@ -691,9 +691,9 @@ contains
    !< `q_rk_gpu(s)`) instead of the canonical `q`/`q_gpu`. This dummy
    !< replaces the retired `forest_active_substage` module-scope shared
    !< integer (issue #13, 2026-05-25).
-   class(realm_object), intent(inout)           :: self     !< This realm.
-   class(realm_object), intent(in)              :: realm(:) !< All realms in the forest.
-   integer(I4P),        intent(in),    optional :: s_active !< Active RK substage (1..nrk) or 0/absent.
+   class(realm_object), intent(inout)        :: self     !< This realm.
+   class(realm_object), intent(in)           :: realm(:) !< All realms in the forest.
+   integer(I4P),        intent(in), optional :: s_active !< Active RK substage (1..nrk) or 0/absent.
 
    if (int(size(realm), I4P) > 1_I4P) &
    call mpih%error_stop(msg='realm_object%exchange_inter_realm_halos_forest: not overridden by app extension')
