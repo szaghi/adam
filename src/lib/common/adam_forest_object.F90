@@ -338,7 +338,7 @@ contains
       ! entry on realm_b's array: my=b, peer=a
       per_realm_cursor(pair%realm_b) = per_realm_cursor(pair%realm_b) + 1_I4P
       call set_neighbor(slot=realm(pair%realm_b)%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_b)), &
-                        my_realm=pair%realm_b,my_face=pair%face_b,peer_realm=pair%realm_a,peer_face=pair%face_a,  &                                        &
+                        my_realm=pair%realm_b,my_face=pair%face_b,peer_realm=pair%realm_a,peer_face=pair%face_a,  &
                         coupling=pair%coupling)
    enddo
    ! Register inter-realm seams with the program-scope flux register
