@@ -518,13 +518,17 @@ contains
    real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+x, -1=-x.
    real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for self%coil%J_vec.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:)           !< Vector potential contribution from ghost cell reconstruction.
+   real(R8P), allocatable                    :: A_gc(:,:,:,:)
+                                                                        !< Vector potential contribution from ghost cell
+                                                                        !< reconstruction.
    real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
    real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
    real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
    real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
    real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
-   real(R8P)                                 :: gc_coord(3)             !< Ghost cell center coordinate vector for ghost cell reconstruction.
+   real(R8P)                                 :: gc_coord(3)
+                                                                        !< Ghost cell center coordinate vector for ghost cell
+                                                                        !< reconstruction.
    real(R8P)                                 :: y_1                     !< Lower y-boundary of the rectangular coil.
    real(R8P)                                 :: y_2                     !< Upper y-boundary of the rectangular coil.
    real(R8P)                                 :: z_1                     !< Lower z-boundary of the rectangular coil.
@@ -532,7 +536,9 @@ contains
    real(R8P)                                 :: F_n                     !< Normal error-function profile.
    real(R8P)                                 :: W_t                     !< Tangential window function.
    real(R8P)                                 :: W_x                     !< Coil thickness window function along x.
-   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b !< Normal and tangential directions indices for ghost cell reconstruction.
+   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b
+                                                                          !< Normal and tangential directions indices for ghost cell
+                                                                          !< reconstruction.
    integer(I4P), parameter                   :: n_faces = 6_I4P         !< Number of ghost-cell face slabs.
    integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
    integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
@@ -879,13 +885,17 @@ contains
    real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+y, -1=-y.
    real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for self%coil%J_vec.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:)           !< Vector potential contribution from ghost cell reconstruction.
+   real(R8P), allocatable                    :: A_gc(:,:,:,:)
+                                                                        !< Vector potential contribution from ghost cell
+                                                                        !< reconstruction.
    real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
    real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
    real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
    real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
    real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
-   real(R8P)                                 :: gc_coord(3)             !< Ghost cell center coordinate vector for ghost cell reconstruction.
+   real(R8P)                                 :: gc_coord(3)
+                                                                        !< Ghost cell center coordinate vector for ghost cell
+                                                                        !< reconstruction.
    real(R8P)                                 :: x_1                     !< Lower x-boundary of the rectangular coil.
    real(R8P)                                 :: x_2                     !< Upper x-boundary of the rectangular coil.
    real(R8P)                                 :: z_1                     !< Lower z-boundary of the rectangular coil.
@@ -893,7 +903,9 @@ contains
    real(R8P)                                 :: F_n                     !< Normal error-function profile.
    real(R8P)                                 :: W_t                     !< Tangential window function.
    real(R8P)                                 :: W_y                     !< Coil thickness window function along y.
-   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b !< Normal and tangential directions indices for ghost cell reconstruction.
+   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b
+                                                                          !< Normal and tangential directions indices for ghost cell
+                                                                          !< reconstruction.
    integer(I4P), parameter                   :: n_faces = 6_I4P         !< Number of ghost-cell face slabs.
    integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
    integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
@@ -1254,13 +1266,17 @@ contains
    real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+z, -1=-z.
    real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for self%coil%J_vec.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:)           !< Vector potential contribution from ghost cell reconstruction.
+   real(R8P), allocatable                    :: A_gc(:,:,:,:)
+                                                                        !< Vector potential contribution from ghost cell
+                                                                        !< reconstruction.
    real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
    real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
    real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
    real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
    real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
-   real(R8P)                                 :: gc_coord(3)             !< Ghost cell center coordinate vector for ghost cell reconstruction.
+   real(R8P)                                 :: gc_coord(3)
+                                                                        !< Ghost cell center coordinate vector for ghost cell
+                                                                        !< reconstruction.
    real(R8P)                                 :: x_1                     !< Lower x-boundary of the rectangular coil.
    real(R8P)                                 :: x_2                     !< Upper x-boundary of the rectangular coil.
    real(R8P)                                 :: y_1                     !< Lower y-boundary of the rectangular coil.
@@ -1268,7 +1284,9 @@ contains
    real(R8P)                                 :: F_n                     !< Normal error-function profile.
    real(R8P)                                 :: W_t                     !< Tangential window function.
    real(R8P)                                 :: W_z                     !< Coil thickness window function along z.
-   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b !< Normal and tangential directions indices for ghost cell reconstruction.
+   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b
+                                                                          !< Normal and tangential directions indices for ghost cell
+                                                                          !< reconstruction.
    integer(I4P), parameter                   :: n_faces = 6_I4P         !< Number of ghost-cell face slabs.
    integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
    integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
@@ -2675,8 +2693,12 @@ subroutine set_solenoid_y(self, n, verse)
    real(R8P),    intent(in)  :: gc_coord(3)                           !< Ghost cell coordinates.
    real(R8P),    intent(in)  :: x_c, y_c, z_c                         !< Center coordinates.
    real(R8P),    intent(in)  :: sigma                                 !< Width of the Gaussian profile.
-   real(R8P),    intent(in)  :: a1, a2                                !< Local coordinates of the rectangular coil along the first tangential direction.
-   real(R8P),    intent(in)  :: b1, b2                                !< Local coordinates of the rectangular coil along the second tangential direction.
+   real(R8P),    intent(in)  :: a1, a2
+                                                                      !< Local coordinates of the rectangular coil along the first
+                                                                      !< tangential direction.
+   real(R8P),    intent(in)  :: b1, b2
+                                                                      !< Local coordinates of the rectangular coil along the second
+                                                                      !< tangential direction.
    integer(I4P), intent(in)  :: i_dir_n, i_dir_a, i_dir_b             !< Direction indices for the normal and tangential directions.
    real(R8P)                 :: A_gc(3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1) !< Output ghost cell A array for the curl stencil.
    real(R8P),    allocatable :: coordinates_matrix(:,:,:,:)           !< Coordinates matrix for the ghost cell stencil.

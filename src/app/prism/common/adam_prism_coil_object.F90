@@ -49,7 +49,9 @@ type :: prism_coil_object
    character(len=99), allocatable :: current_type(:)                       !< Current type.
    character(len=2 ), allocatable :: normal(:)                             !< Versore normale alla spira, che identifica anche verso
    real(R8P),         allocatable :: A(:)                                  !< Current amplitude (A)
-   real(R8P),         allocatable :: coil_amplitude(:)                     !< Current amplitude (A) for each coil, corrected for Gaussian current distribution.
+   real(R8P),         allocatable :: coil_amplitude(:)
+                                                                           !< Current amplitude (A) for each coil, corrected for
+                                                                           !< Gaussian current distribution.
    real(R8P),         allocatable :: f(:)                                  !< Current frequency, if AC (Hz)
    real(R8P),         allocatable :: phase(:)                              !< Current initial phase, if AC
    real(R8P),         allocatable :: x_center(:), y_center(:), z_center(:) !< Coil center
@@ -77,11 +79,16 @@ type :: prism_coil_object
       procedure, pass(self) :: load_from_file                            !< Load config from file.
       !procedure, pass(self) :: set_coils                                 !< Set coil_object on PRISM fields.
       !procedure, pass(self) :: set_circular_coil                         !< Set circular coils on PRISM fields.
-      !procedure, pass(self) :: set_rectangular_coil_quad_section_odd     !< Set rectangular coils on PRISM fields with quadratic section and odd number of cell
-      !procedure, pass(self) :: set_rectangular_coil_quad_section_odd_v2  !< Set rectangular coils on PRISM fields with quadratic section and odd number of cell
-      !procedure, pass(self) :: set_rectangular_coil_quad_section_even    !< Set rectangular coils on PRISM fields with quadratic section and even number of cell
-      !procedure, pass(self) :: set_rectangular_coil_quad_section_even_v2 !< Set rectangular coils on PRISM fields with quadratic section and even number of cell
-      !procedure, pass(self) :: set_rectangular_coil_circular_section     !< Set rectangular coils on PRISM fields with circular section
+      !procedure, pass(self) :: set_rectangular_coil_quad_section_odd     !< Set rectangular coils on PRISM fields with quadratic
+      !section and odd number of cell
+      !procedure, pass(self) :: set_rectangular_coil_quad_section_odd_v2  !< Set rectangular coils on PRISM fields with quadratic
+      !section and odd number of cell
+      !procedure, pass(self) :: set_rectangular_coil_quad_section_even    !< Set rectangular coils on PRISM fields with quadratic
+      !section and even number of cell
+      !procedure, pass(self) :: set_rectangular_coil_quad_section_even_v2 !< Set rectangular coils on PRISM fields with quadratic
+      !section and even number of cell
+      !procedure, pass(self) :: set_rectangular_coil_circular_section     !< Set rectangular coils on PRISM fields with circular
+      !section
 
 endtype prism_coil_object
 
@@ -183,7 +190,9 @@ contains
    endif
    endfunction description
 
-   subroutine initialize(self, field, grid, file_parameters) !Cfr ic%initialize, ma commentata parte descrizione perchè da implementare
+   subroutine initialize(self, field, grid, file_parameters)
+                                                             !Cfr ic%initialize, ma commentata parte descrizione perchè da
+                                                             !implementare
    !< Initialize the equation.
    class(prism_coil_object), intent(inout) :: self            !< Coils.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).

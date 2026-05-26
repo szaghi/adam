@@ -91,9 +91,15 @@ real(R8P), target       :: EL(6,6,3)=reshape([1._R8P,0._R8P                 , 0.
                                               -0.5_R8P*sqrt(MU0/EPS0),0._R8P                 ,0._R8P,0._R8P ,0.5_R8P,0._R8P],&
                                              [6,6,3]) !< Right eigenvectors.
 real(R8P), target       :: IEV(6)         = [1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P]                !< Identity eigenvalues.
-real(R8P), target       :: IEV_D(7)       = [1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P]         !< Identity eigenvalues with D divergence cleaning.
-real(R8P), target       :: IEV_B(7)       = [1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P]         !< Identity eigenvalues with B divergence cleaning.
-real(R8P), target       :: IEV_D_B(8)     = [1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P]  !< Identity eigenvalues with D & B divergence cleaning.
+real(R8P), target       :: IEV_D(7)       = [1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P]
+                                                                                                       !< Identity eigenvalues with
+                                                                                                       !< D divergence cleaning.
+real(R8P), target       :: IEV_B(7)       = [1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P]
+                                                                                                       !< Identity eigenvalues with
+                                                                                                       !< B divergence cleaning.
+real(R8P), target       :: IEV_D_B(8)     = [1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P,1._R8P]
+                                                                                                       !< Identity eigenvalues with
+                                                                                                       !< D & B divergence cleaning.
 real(R8P), target       :: IERL(6,6,3)    =reshape([1._R8P,0._R8P,0._R8P,0._R8P,0._R8P,0._R8P, &       ! x
                                                     0._R8P,1._R8P,0._R8P,0._R8P,0._R8P,0._R8P, &
                                                     0._R8P,0._R8P,1._R8P,0._R8P,0._R8P,0._R8P, &

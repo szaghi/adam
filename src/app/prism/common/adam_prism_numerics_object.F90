@@ -38,7 +38,9 @@ type :: prism_numerics_object
    logical                   :: constrained_transport_B=.false. !< Enable Constrained Transport Correction on D.
    ! logical                   :: d_divergence_cleaner=.false. !< Enable electric field divergence cleaning.
    ! logical                   :: b_divergence_cleaner=.false. !< Enable magnetic field divergence cleaning.
-   character(:), allocatable :: div_corr_var                    !< Type of divergence correction variables (poisson, hyperbolic,...).
+   character(:), allocatable :: div_corr_var
+                                                                !< Type of divergence correction variables (poisson,
+                                                                !< hyperbolic,...).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.

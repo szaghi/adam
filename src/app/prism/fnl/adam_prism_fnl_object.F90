@@ -104,18 +104,36 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_dt                        !< Compute time step.
       procedure, pass(self) :: initialize_forest                 !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_local_dt_forest           !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: advance_one_step_forest           !< Orchestrator contract; overrides realm_object default (N=1 fast path).
-      procedure, pass(self) :: nrk_forest                        !< Orchestrator contract; overrides realm_object default (multi-realm path).
-      procedure, pass(self) :: prepare_step_forest               !< Orchestrator contract; overrides realm_object default (multi-realm path).
-      procedure, pass(self) :: assemble_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
-      procedure, pass(self) :: residuals_substage_forest         !< Orchestrator contract; overrides realm_object default (multi-realm 3-phase loop, issue #13).
-      procedure, pass(self) :: assign_substage_forest            !< Orchestrator contract; overrides realm_object default (multi-realm 3-phase loop, issue #13).
-      procedure, pass(self) :: evaluate_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path, legacy 2-phase).
-      procedure, pass(self) :: finalize_step_forest              !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: advance_one_step_forest
+                                                                 !< Orchestrator contract; overrides realm_object default (N=1 fast
+                                                                 !< path).
+      procedure, pass(self) :: nrk_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path).
+      procedure, pass(self) :: prepare_step_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path).
+      procedure, pass(self) :: assemble_substage_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path).
+      procedure, pass(self) :: residuals_substage_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm 3-phase loop, issue #13).
+      procedure, pass(self) :: assign_substage_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm 3-phase loop, issue #13).
+      procedure, pass(self) :: evaluate_substage_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path, legacy 2-phase).
+      procedure, pass(self) :: finalize_step_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path).
       procedure, pass(self) :: post_step_forest                  !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: is_done_forest                    !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: finalize_forest                   !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize (mpih_fnl); overrides realm_object default.
+      procedure, pass(self) :: finalize_mpi_forest
+                                                                 !< Process-global MPI finalize (mpih_fnl); overrides realm_object
+                                                                 !< default.
       procedure, pass(self) :: exchange_inter_realm_halos_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
@@ -169,11 +187,17 @@ interface
    !< Compute divergence of vector fields, div(q(ivar:ivar+2).
    import :: prism_fnl_object, I4P, R8P
    class(prism_fnl_object), intent(in)             :: self                                                   !< The equation.
-   integer(I4P),            intent(in)             :: ivar                                                   !< Start index of field of q.
-   integer(I4P),            intent(in)             :: ovar                                                   !< Output index in divergence.
+   integer(I4P),            intent(in)             :: ivar
+                                                                                                             !< Start index of field
+                                                                                                             !< of q.
+   integer(I4P),            intent(in)             :: ovar
+                                                                                                             !< Output index in
+                                                                                                             !< divergence.
    real(R8P),               intent(in)             :: q_gpu(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
    real(R8P),               intent(inout)          :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   real(R8P),               intent(out), optional  :: maxdiv                                                 !< Maximum divergence for diagnostics.
+   real(R8P),               intent(out), optional  :: maxdiv
+                                                                                                             !< Maximum divergence
+                                                                                                             !< for diagnostics.
    endsubroutine compute_divergence_interface_dev
 
    subroutine compute_gradient_interface_dev(self, ivar, q_gpu, gradient_gpu)
@@ -201,7 +225,9 @@ interface
    real(R8P),               intent(inout) :: q_gpu( 1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Conservative variables.
    real(R8P),               intent(inout) :: dq_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Residuals.
    integer(I4P),  optional, intent(in)    :: s                                                 !< Stage counter.
-   class(realm_object),     intent(inout), optional, target :: realm(:)                       !< Sibling realms for inter-realm halo refresh.
+   class(realm_object),     intent(inout), optional, target :: realm(:)
+                                                                                              !< Sibling realms for inter-realm halo
+                                                                                              !< refresh.
    endsubroutine compute_residuals_interface_dev
 
    subroutine integrate_interface_dev(self)
@@ -290,7 +316,9 @@ contains
    !< Initialize PRISM equation.
    class(prism_fnl_object), intent(inout), target :: self                !< The equation.
    character(*),            intent(in)            :: filename            !< Input file name.
-   integer(I4P),            intent(in), optional  :: realms_number       !< Forest realm count; divides the per-device budget (default 1).
+   integer(I4P),            intent(in), optional  :: realms_number
+                                                                         !< Forest realm count; divides the per-device budget
+                                                                         !< (default 1).
    logical                                        :: is_mpih_initialized !< Flag to check if MPI has been inizialied.
    real(R8P)                                      :: memory_avail_       !< Per-realm device budget (GB) after the forest split.
    integer(I4P)                                   :: realms_number_      !< Local realm count (>=1).
@@ -413,7 +441,8 @@ contains
          self%adam%field%residuals(v) = sqrt(self%adam%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
       if (mpih_fnl%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
-                                                               blocks_number=self%blocks_number, residuals=self%adam%field%residuals)
+                                                               blocks_number=self%blocks_number, &
+                                                                  residuals=self%adam%field%residuals)
    endif
    endsubroutine save_residuals
 
@@ -706,7 +735,8 @@ contains
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
 
-   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, q=self%q)
+   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, &
+                                                            q=self%q)
    ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
    !    call self%particle_injection%set_particle_initial_injection(field=self%adam%field, pic=pic, q_pic=self%q_pic)
    !    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
@@ -961,11 +991,17 @@ contains
    !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
    !< Directly computes divergence from transposed GPU layout (b,i,j,k,v).
    class(prism_fnl_object), intent(in)            :: self                                                      !< The equation.
-   integer(I4P),            intent(in)            :: ivar                                                      !< Start index of field of q.
-   integer(I4P),            intent(in)            :: ovar                                                      !< Output index in div.
+   integer(I4P),            intent(in)            :: ivar
+                                                                                                               !< Start index of
+                                                                                                               !< field of q.
+   integer(I4P),            intent(in)            :: ovar
+                                                                                                               !< Output index in
+                                                                                                               !< div.
    real(R8P),               intent(in)            :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)          !< Field variables.
    real(R8P),               intent(inout)         :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   real(R8P),               intent(out), optional :: maxdiv                                                    !< Max divergence, for checking.
+   real(R8P),               intent(out), optional :: maxdiv
+                                                                                                               !< Max divergence,
+                                                                                                               !< for checking.
 
    call  compute_divergence_fd_dev_kernel(ni             = self%ni                  ,&
                                           nj             = self%nj                  ,&
@@ -984,13 +1020,19 @@ contains
                                                   ivar,ovar,s1,dxyz_gpu,q_gpu,divergence_gpu,maxdiv)
       !< Compute divergence, centered finite difference schemes, kernel device.
       integer(I4P), intent(in)              :: ni,nj,nk,ngc,blocks_number                                !< Grids dimensions.
-      integer(I4P), intent(in)              :: ivar                                                      !< Start index of variable of q.
+      integer(I4P), intent(in)              :: ivar
+                                                                                                         !< Start index of variable
+                                                                                                         !< of q.
       integer(I4P), intent(in)              :: ovar                                                      !< Output index in div.
       integer(I4P), intent(in)              :: s1                                                        !< Half FDV stencil length.
       real(R8P),    intent(in)              :: dxyz_gpu(1:,1:)                                           !< Delta cells GPU [nb,3].
-      real(R8P),    intent(in)              :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                         !< Field cell centered variables.
+      real(R8P),    intent(in)              :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+                                                                                                         !< Field cell centered
+                                                                                                         !< variables.
       real(R8P),    intent(inout)           :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-      real(R8P),    intent(out), optional   :: maxdiv                                                    !< Max divergence, for checking.
+      real(R8P),    intent(out), optional   :: maxdiv
+                                                                                                         !< Max divergence, for
+                                                                                                         !< checking.
       integer(I4P)                          :: i,j,k,b,s                                                 !< Counter
       ! rank 1D stencil for computations on device that contiguos memory is mandatory
       real(R8P) :: qsx(1-s1:1+s1) !< X component of vector field over the x stencil.
@@ -1028,15 +1070,27 @@ contains
    !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
    !< Directly computes divergence from transposed GPU layout (b,i,j,k,v).
    class(prism_fnl_object), intent(in)            :: self                                                      !< The equation.
-   integer(I4P),            intent(in)            :: ivar                                                      !< Start index of field of q.
-   integer(I4P),            intent(in)            :: ovar                                                      !< Output index in divergence.
+   integer(I4P),            intent(in)            :: ivar
+                                                                                                               !< Start index of
+                                                                                                               !< field of q.
+   integer(I4P),            intent(in)            :: ovar
+                                                                                                               !< Output index in
+                                                                                                               !< divergence.
    real(R8P),               intent(in)            :: q_gpu(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)    !< Field variables.
    real(R8P),               intent(inout)         :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   real(R8P),               intent(out), optional :: maxdiv                                                    !< Max divergence, for checking.
+   real(R8P),               intent(out), optional :: maxdiv
+                                                                                                               !< Max divergence,
+                                                                                                               !< for checking.
    integer(I4P)                                   :: i,j,k,b,m                                                 !< Counter.
-   real(R8P)                                      :: div_x, div_y, div_z                                       !< Partial derivatives.
-   real(R8P)                                      :: q_line(1-4:1+4)                                           !< 1D stencil for reconstruction.
-   real(R8P)                                      :: ql, qr                                                    !< Left/right reconstructions.
+   real(R8P)                                      :: div_x, div_y, div_z
+                                                                                                               !< Partial
+                                                                                                               !< derivatives.
+   real(R8P)                                      :: q_line(1-4:1+4)
+                                                                                                               !< 1D stencil for
+                                                                                                               !< reconstruction.
+   real(R8P)                                      :: ql, qr
+                                                                                                               !< Left/right
+                                                                                                               !< reconstructions.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_fnl%dxyz_gpu,&
              hs=>self%fdv_half_stencils(1))
@@ -1544,10 +1598,12 @@ contains
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
-         call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, &
+         call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, &
+                                           phi_gpu=self%ib_fnl%phi_gpu, &
                                            dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       else
-         call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
+         call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, &
+                                           dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       endif
    enddo
    call self%impose_div_free
@@ -1566,7 +1622,8 @@ contains
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
       if (self%ib%solids_number>0) then
-         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
+         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, &
+                                        phi_gpu=self%ib_fnl%phi_gpu)
       else
          call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
       endif
@@ -1574,13 +1631,15 @@ contains
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       ! if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
-         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
+         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
+                                       phi_gpu=self%ib_fnl%phi_gpu)
       else
          call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
       endif
    enddo
    if (self%ib%solids_number>0) then
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
+                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
       ! call self%update_rk_ghost(dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu)
    else
       call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
@@ -1647,7 +1706,9 @@ contains
    character(*),            intent(in)                   :: filename      !< Input parameters file name.
    integer(I4P),            intent(in),    optional      :: realm_index   !< Index of this realm in the forest (Phase D).
    integer(I4P),            intent(in),    optional      :: realms_number !< Realm count; divides the per-device budget (Phase D).
-   real(R8P),               intent(in),    optional      :: memory_avail  !< Per-process memory budget override (door-open placeholder).
+   real(R8P),               intent(in),    optional      :: memory_avail
+                                                                          !< Per-process memory budget override (door-open
+                                                                          !< placeholder).
    integer(I4P),            intent(in),    optional      :: nv            !< Number of field variables override.
    logical,                 intent(in),    optional      :: verbose       !< Trigger verbose output.
    class(realm_object),     intent(inout), optional, target :: realm(:)   !< Sibling realms for inter-realm halo refresh.
@@ -1920,7 +1981,9 @@ contains
    class(prism_fnl_object), intent(inout)                :: self !< The realm.
    integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   real(R8P),               intent(in)                   :: dt
+                                                                 !< Timestep size from the forest (unused; self%time%dt is
+                                                                 !< canonical).
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(dt_unused => dt, nrk_unused => nrk)
@@ -1951,9 +2014,13 @@ contains
    class(prism_fnl_object),     intent(inout)                :: self !< The realm.
    integer(I4P),                intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),                intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),                   intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   real(R8P),                   intent(in)                   :: dt
+                                                                     !< Timestep size from the forest (unused; self%time%dt is
+                                                                     !< canonical).
    class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register (unused on FNL — FV path not active).
+   class(flux_register_object), intent(inout), optional         :: flux_register
+                                                                                 !< Forest's flux register (unused on FNL — FV path
+                                                                                 !< not active).
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
@@ -1972,7 +2039,9 @@ contains
    class(prism_fnl_object), intent(inout)                :: self !< The realm.
    integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   real(R8P),               intent(in)                   :: dt
+                                                                 !< Timestep size from the forest (unused; self%time%dt is
+                                                                 !< canonical).
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(dt_unused => dt, nrk_unused => nrk)
@@ -1992,7 +2061,9 @@ contains
    class(prism_fnl_object), intent(inout)                :: self !< The realm.
    integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is canonical).
+   real(R8P),               intent(in)                   :: dt
+                                                                 !< Timestep size from the forest (unused; self%time%dt is
+                                                                 !< canonical).
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (forwarded for parity).
 
    if (present(realm)) then
@@ -2013,7 +2084,8 @@ contains
    associate(dt_unused => dt)
    end associate
    if (self%ib%solids_number>0) then
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
+                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
    else
       call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
       call self%save_residuals
@@ -2248,7 +2320,8 @@ contains
             else
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do j = 1_I4P, nj_
                   if (s_active > 0_I4P) then
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer, s_active))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer &
+                                                                                              s_active))
                      call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, 1_I4P - d, j, k, b, s_active), src=host_buf)
                   else
                      call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer))
@@ -2270,7 +2343,8 @@ contains
             else
                do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do i = 1_I4P, ni_
                   if (s_active > 0_I4P) then
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer, s_active))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer &
+                                                                                              s_active))
                      call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, 1_I4P - d, k, b, s_active), src=host_buf)
                   else
                      call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer))
@@ -2292,7 +2366,8 @@ contains
             else
                do d = 1_I4P, ng ; do j = 1_I4P, nj_ ; do i = 1_I4P, ni_
                   if (s_active > 0_I4P) then
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer, s_active))
+                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer &
+                                                                                              s_active))
                      call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, j, 1_I4P - d, b, s_active), src=host_buf)
                   else
                      call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer))

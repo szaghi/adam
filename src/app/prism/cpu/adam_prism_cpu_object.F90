@@ -50,14 +50,30 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_dt           !< Compute time step.
       procedure, pass(self) :: initialize_forest                 !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_local_dt_forest           !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: advance_one_step_forest           !< Orchestrator contract; overrides realm_object default (N=1 fast path).
-      procedure, pass(self) :: nrk_forest                        !< Orchestrator contract; overrides realm_object default (multi-realm path).
-      procedure, pass(self) :: prepare_step_forest               !< Orchestrator contract; overrides realm_object default (multi-realm path).
-      procedure, pass(self) :: assemble_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path).
-      procedure, pass(self) :: residuals_substage_forest         !< Orchestrator contract; overrides realm_object default (multi-realm 3-phase loop, issue #13).
-      procedure, pass(self) :: assign_substage_forest            !< Orchestrator contract; overrides realm_object default (multi-realm 3-phase loop, issue #13).
-      procedure, pass(self) :: evaluate_substage_forest          !< Orchestrator contract; overrides realm_object default (multi-realm path, legacy 2-phase).
-      procedure, pass(self) :: finalize_step_forest              !< Orchestrator contract; overrides realm_object default (multi-realm path).
+      procedure, pass(self) :: advance_one_step_forest
+                                                                 !< Orchestrator contract; overrides realm_object default (N=1 fast
+                                                                 !< path).
+      procedure, pass(self) :: nrk_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path).
+      procedure, pass(self) :: prepare_step_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path).
+      procedure, pass(self) :: assemble_substage_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path).
+      procedure, pass(self) :: residuals_substage_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm 3-phase loop, issue #13).
+      procedure, pass(self) :: assign_substage_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm 3-phase loop, issue #13).
+      procedure, pass(self) :: evaluate_substage_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path, legacy 2-phase).
+      procedure, pass(self) :: finalize_step_forest
+                                                                 !< Orchestrator contract; overrides realm_object default
+                                                                 !< (multi-realm path).
       procedure, pass(self) :: post_step_forest                  !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: is_done_forest                    !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: finalize_forest                   !< Orchestrator contract; overrides realm_object default.
@@ -694,7 +710,9 @@ contains
 
    if (self%bc%bc_type(1) == BC_radiative .or. self%bc%bc_type(2) == BC_radiative &
        .or. self%bc%bc_type(3) == BC_radiative .or. self%bc%bc_type(4) == BC_radiative &
-       .or. self%bc%bc_type(5) == BC_radiative .or. self%bc%bc_type(6) == BC_radiative) then !Al momento scritta per funzionare solo con un secondo ordine
+       .or. self%bc%bc_type(5) == BC_radiative .or. self%bc%bc_type(6) == BC_radiative) then
+                                                                                             !Al momento scritta per funzionare solo
+                                                                                             !con un secondo ordine
       if (present(s)) then
          if (s==1_I4P) call self%rk_bc%initialize_stages(field=self%adam%field, q=q)
          if (self%ib%solids_number>0) then !calcolo stadio per le BC
@@ -934,10 +952,14 @@ contains
    character(*),            intent(in)                   :: filename      !< Input parameters file name.
    integer(I4P),            intent(in),    optional      :: realm_index   !< Index of this realm in the forest (Phase D).
    integer(I4P),            intent(in),    optional      :: realms_number !< Realm count; divides the per-process budget (Phase D).
-   real(R8P),               intent(in),    optional      :: memory_avail  !< Per-process memory budget override (door-open placeholder).
+   real(R8P),               intent(in),    optional      :: memory_avail
+                                                                          !< Per-process memory budget override (door-open
+                                                                          !< placeholder).
    integer(I4P),            intent(in),    optional      :: nv            !< Number of field variables override.
    logical,                 intent(in),    optional      :: verbose       !< Trigger verbose output.
-   class(realm_object),     intent(inout), optional, target :: realm(:)   !< Sibling realms (accepted but unused on CPU; contract parity).
+   class(realm_object),     intent(inout), optional, target :: realm(:)
+                                                                          !< Sibling realms (accepted but unused on CPU; contract
+                                                                          !< parity).
    real(R8P)                                             :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
    integer(I4P)                                          :: i, n, b       !< Counters.
 
@@ -1161,7 +1183,9 @@ contains
    class(prism_cpu_object), intent(inout)                :: self !< The realm.
    integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   real(R8P),               intent(in)                   :: dt
+                                                                 !< Timestep size from the forest (unused; self%time%dt is the
+                                                                 !< canonical source).
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(dt_unused => dt, nrk_unused => nrk)
@@ -1199,9 +1223,13 @@ contains
    class(prism_cpu_object),     intent(inout)                :: self !< The realm.
    integer(I4P),                intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),                intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),                   intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   real(R8P),                   intent(in)                   :: dt
+                                                                     !< Timestep size from the forest (unused; self%time%dt is the
+                                                                     !< canonical source).
    class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux accumulator hooks.
+   class(flux_register_object), intent(inout), optional         :: flux_register
+                                                                                 !< Forest's flux register for FV reflux accumulator
+                                                                                 !< hooks.
 
    associate(dt_unused => dt, nrk_unused => nrk)
    end associate
@@ -1226,7 +1254,9 @@ contains
    class(prism_cpu_object), intent(inout)                :: self !< The realm.
    integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   real(R8P),               intent(in)                   :: dt
+                                                                 !< Timestep size from the forest (unused; self%time%dt is the
+                                                                 !< canonical source).
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    associate(dt_unused => dt, nrk_unused => nrk)
@@ -1251,7 +1281,9 @@ contains
    class(prism_cpu_object), intent(inout)                :: self !< The realm.
    integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
    integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt   !< Timestep size from the forest (unused; self%time%dt is the canonical source).
+   real(R8P),               intent(in)                   :: dt
+                                                                 !< Timestep size from the forest (unused; self%time%dt is the
+                                                                 !< canonical source).
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (forwarded for contract parity).
 
    if (present(realm)) then
@@ -1774,7 +1806,9 @@ contains
                                                 1:)                   !< Residuals.
    integer(I4P),  optional, intent(in)    :: s                        !< Stage counter.
    class(realm_object), intent(inout), optional, target :: realm(:)   !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional :: flux_register !< Accepted for contract parity; FD scheme has no FV reflux hook.
+   class(flux_register_object), intent(inout), optional :: flux_register
+                                                                         !< Accepted for contract parity; FD scheme has no FV reflux
+                                                                         !< hook.
    integer(I4P)                           :: i,j,k,b                  !< Counter
    real(R8P)                              :: curlD(3), curlB(3)       !< Residuals components.
    real(R8P)                              :: gradphi(3), gradpsi(3)   !< Residuals components.
@@ -1892,12 +1926,18 @@ contains
             !   call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
             !                                       q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
             !                                       divergence = divergenceB)
-            !   dq(VAR_DX,i,j,k,b)      =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-            !   dq(VAR_DY,i,j,k,b)      =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-            !   dq(VAR_DZ,i,j,k,b)      =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-            !   dq(VAR_BX,i,j,k,b)      = -curlD(1)/EPS0 - gradpsi(1)                     !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-            !   dq(VAR_BY,i,j,k,b)      = -curlD(2)/EPS0 - gradpsi(2)                     !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-            !   dq(VAR_BZ,i,j,k,b)      = -curlD(3)/EPS0 - gradpsi(3)                     !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+            !   dq(VAR_DX,i,j,k,b)      =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b) !-
+            ! sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+            !   dq(VAR_DY,i,j,k,b)      =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b) !-
+            ! sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+            !   dq(VAR_DZ,i,j,k,b)      =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b) !-
+            ! sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+            !   dq(VAR_BX,i,j,k,b)      = -curlD(1)/EPS0 - gradpsi(1)                     !-
+            ! sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+            !   dq(VAR_BY,i,j,k,b)      = -curlD(2)/EPS0 - gradpsi(2)                     !-
+            ! sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+            !   dq(VAR_BZ,i,j,k,b)      = -curlD(3)/EPS0 - gradpsi(3)                     !-
+            ! sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
             !   dq(nv_c-1_I4P,i,j,k,b)  = -(chi*C0)**2*divergenceD
             !   dq(nv_c,i,j,k,b)        = -(chi*C0)**2*divergenceB
             !enddo
@@ -1918,24 +1958,60 @@ contains
                call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlB)
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*
+               !KO_Dx_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*
+               !KO_Dx_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*
+               !KO_Dx_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*
+               !KO_Dy_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*
+               !KO_Dy_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*
+               !KO_Dy_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*
+               !KO_Dz_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*
+               !KO_Dz_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*
+               !KO_Dz_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*
+               !KO_Bx_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*
+               !KO_Bx_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*
+               !KO_Bx_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*
+               !KO_By_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*
+               !KO_By_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*
+               !KO_By_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*
+               !KO_Bz_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*
+               !KO_Bz_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*
+               !KO_Bz_z
                dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b)      !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
                dq(VAR_DY,i,j,k,b) =  curlB(2) - q(var_Jy,i,j,k,b)      !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
                dq(VAR_DZ,i,j,k,b) =  curlB(3) - q(var_Jz,i,j,k,b)      !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
@@ -2034,12 +2110,24 @@ contains
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
                                                    divergence = divergenceB)
-               dq(VAR_DX,i,j,k,b)      =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,i,j,k,b)      =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,i,j,k,b)      =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,i,j,k,b)      = -curlD(1)/EPS0 - gradpsi(1)                     !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,i,j,k,b)      = -curlD(2)/EPS0 - gradpsi(2)                     !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,i,j,k,b)      = -curlD(3)/EPS0 - gradpsi(3)                     !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(VAR_DX,i,j,k,b)      =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b)
+                                                                                         !-
+                                                                                         !sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+               dq(VAR_DY,i,j,k,b)      =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b)
+                                                                                         !-
+                                                                                         !sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+               dq(VAR_DZ,i,j,k,b)      =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b)
+                                                                                         !-
+                                                                                         !sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+               dq(VAR_BX,i,j,k,b)      = -curlD(1)/EPS0 - gradpsi(1)
+                                                                                         !-
+                                                                                         !sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+               dq(VAR_BY,i,j,k,b)      = -curlD(2)/EPS0 - gradpsi(2)
+                                                                                         !-
+                                                                                         !sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+               dq(VAR_BZ,i,j,k,b)      = -curlD(3)/EPS0 - gradpsi(3)
+                                                                                         !-
+                                                                                         !sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
                dq(nv_c-1_I4P,i,j,k,b)  = -(chi*C0)**2*divergenceD
                dq(nv_c,i,j,k,b)        = -(chi*C0)**2*divergenceB
             enddo
@@ -2060,24 +2148,60 @@ contains
                call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlB)
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
-               !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*
+               !KO_Dx_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*
+               !KO_Dx_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*
+               !KO_Dx_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*
+               !KO_Dy_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*
+               !KO_Dy_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*
+               !KO_Dy_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*
+               !KO_Dz_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*
+               !KO_Dz_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*
+               !KO_Dz_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*
+               !KO_Bx_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*
+               !KO_Bx_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*
+               !KO_Bx_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*
+               !KO_By_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*
+               !KO_By_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*
+               !KO_By_z
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*
+               !KO_Bz_x
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*
+               !KO_Bz_y
+               !call
+               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*
+               !KO_Bz_z
                dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)      !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
                dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)      !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
                dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)      !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
@@ -2109,9 +2233,13 @@ contains
                                                 1:)                                           !< Residuals.
    integer(I4P),  optional, intent(in)    :: s !< Stage counter.
    class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register; FV reflux hook accumulates into it when present.
+   class(flux_register_object), intent(inout), optional :: flux_register
+                                                                         !< Forest's flux register; FV reflux hook accumulates into
+                                                                         !< it when present.
    integer(I4P)                           :: i,j,k,b,d,v                                      !< Counter
-   integer(I4P)                           :: substage_idx !< RK substage index (captured pre-associate to avoid shadow by the stencil-half-width rebinding).
+   integer(I4P)                           :: substage_idx
+                                                          !< RK substage index (captured pre-associate to avoid shadow by the
+                                                          !< stencil-half-width rebinding).
    real(R8P),    parameter                :: sir(3,3) = reshape([1._R8P,0._R8P,0._R8P,&
                                                                  0._R8P,1._R8P,0._R8P,&
                                                                  0._R8P,0._R8P,1._R8P],[3,3]) !< Direction versor, real.
@@ -2254,7 +2382,9 @@ contains
    !< does not reach this routine (different `compute_residuals` target).
    class(prism_cpu_object),     intent(inout) :: self          !< The realm.
    integer(I4P),                intent(in)    :: ni, nj, nk    !< Interior cell counts.
-   integer(I4P),                intent(in)    :: nv_c          !< Number of conservative variables (FV scheme fills only these rows).
+   integer(I4P),                intent(in)    :: nv_c
+                                                               !< Number of conservative variables (FV scheme fills only these
+                                                               !< rows).
    integer(I4P),                intent(in)    :: blocks_number !< Number of local blocks.
    integer(I4P),                intent(in)    :: substage_idx  !< RK substage index (1..nrk).
    class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register.
@@ -2371,7 +2501,9 @@ contains
                                                 1:) !< Residuals.
    integer(I4P),  optional, intent(in)    :: s !< Stage counter.
    class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional :: flux_register !< Accepted for contract parity; WENO scheme has no FV reflux hook.
+   class(flux_register_object), intent(inout), optional :: flux_register
+                                                                         !< Accepted for contract parity; WENO scheme has no FV
+                                                                         !< reflux hook.
 
    call self%apply_fWL_correction(q=q)
    if (present(realm)) then
@@ -3041,7 +3173,9 @@ contains
    !< Compute mean value of the field in a certain region of the domain.
    class(prism_cpu_object), intent(in)  :: self                                      !< The object
    real(R8P), intent(in)                :: q(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   integer(I4P), intent(in)             :: n_x(2), n_y(2), n_z(2), n_b(2)            !< Number of cells in each direction and number of blocks
+   integer(I4P), intent(in)             :: n_x(2), n_y(2), n_z(2), n_b(2)
+                                                                                     !< Number of cells in each direction and number
+                                                                                     !< of blocks
    real(R8P), intent(out)               :: mean_value                                !< Mean value of the field out of the fWLayer
    integer(I4P)                         :: i, j, k, b                                !< Counter.
 

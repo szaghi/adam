@@ -424,7 +424,9 @@ contains
    integer(I4P),           intent(in)           :: nb              !< Number of all blocks that can be stored.
    integer(I4P),           intent(in), optional :: nv              !< Number of field variables.
    logical,                intent(in), optional :: verbose         !< Trigger verbose output.
-   logical,                intent(in), optional :: add_adam        !< Add ADAM ancestor block (mirrors tree initialize's add_adam, same default .true.).
+   logical,                intent(in), optional :: add_adam
+                                                                   !< Add ADAM ancestor block (mirrors tree initialize's add_adam,
+                                                                   !< same default .true.).
    logical                                      :: verbose_        !< Trigger verbose output, local variable.
    logical                                      :: add_adam_       !< Add ADAM ancestor block, local var.
 

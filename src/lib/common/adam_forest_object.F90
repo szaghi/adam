@@ -73,12 +73,18 @@ type :: forest_object
       procedure, pass(self) :: simulate_from_manifest   !< Main entry point (per-realm INIs via forest manifest).
       procedure, pass(self) :: compute_global_dt        !< Min-reduce each realm's compute_local_dt_forest across the forest.
       procedure, pass(self) :: evolve_one_step          !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
-      procedure, pass(self) :: exchange_halos           !< Iterate realm(:)%exchange_inter_realm_halos_forest to refresh inter-realm ghosts.
+      procedure, pass(self) :: exchange_halos
+                                                        !< Iterate realm(:)%exchange_inter_realm_halos_forest to refresh inter-realm
+                                                        !< ghosts.
       procedure, pass(self) :: post_step                !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
       procedure, pass(self) :: is_done                  !< AND-reduce each realm's is_done_forest across the forest.
       procedure, pass(self) :: finalize                 !< Sequence each realm's finalize_forest at shutdown.
-      procedure, pass(self), private :: populate_inter_realm_topology !< Translate manifest face-pairs into per-realm maps%inter_realm_neighbors.
-      procedure, pass(self), private :: apply_reflux_corrections      !< Apply Berger-Colella reflux to coarse-side q_rk for every registered seam face (Phase A step 4 of issue #13).
+      procedure, pass(self), private :: populate_inter_realm_topology
+                                                                      !< Translate manifest face-pairs into per-realm
+                                                                      !< maps%inter_realm_neighbors.
+      procedure, pass(self), private :: apply_reflux_corrections
+                                                                      !< Apply Berger-Colella reflux to coarse-side q_rk for every
+                                                                      !< registered seam face (Phase A step 4 of issue #13).
 endtype forest_object
 
 contains
@@ -186,7 +192,9 @@ contains
    !< Phase D may replace `MPI_COMM_WORLD` with a forest-specific
    !< sub-communicator once rank carve-outs land.
    class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to query (inout for the multi-realm path's shim re-bind side effect).
+   class(realm_object),  intent(inout) :: realm(:)
+                                                   !< The realms to query (inout for the multi-realm path's shim re-bind side
+                                                   !< effect).
    real(R8P),            intent(out)   :: dt       !< Global stability-limited dt.
    real(R8P)                           :: dt_local !< Per-realm local dt.
    integer(I4P)                        :: is       !< Realm index.
@@ -236,7 +244,9 @@ contains
    !< by passing the dummy onward, NOT by dereferencing a class-pointer
    !< module variable — the polymorphic-class-pointer pattern is the
    !< nvfortran/OpenACC bug class the CLAUDE.md rule forbids.
-   class(forest_object), intent(inout)         :: self     !< The forest (inout because flux_register is a value component mutated each step).
+   class(forest_object), intent(inout)         :: self
+                                                           !< The forest (inout because flux_register is a value component mutated
+                                                           !< each step).
    class(realm_object),  intent(inout), target :: realm(:) !< The realms to advance.
    real(R8P)                                   :: dt       !< Global timestep size.
    integer(I4P)                                :: is, s    !< Realm and substage indices.
@@ -384,7 +394,9 @@ contains
    !< matching the legacy single-realm semantics for v1 (with one realm
    !< the global predicate equals that realm's local one).
    class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to query (inout for the multi-realm path's shim re-bind side effect).
+   class(realm_object),  intent(inout) :: realm(:)
+                                                   !< The realms to query (inout for the multi-realm path's shim re-bind side
+                                                   !< effect).
    logical,              intent(out)   :: done     !< Forest-global termination predicate.
    logical                             :: done_local !< Per-realm local predicate.
    integer(I4P)                        :: is         !< Realm index.
@@ -575,7 +587,9 @@ contains
       !< the per-realm `inter_realm_face_register_index(b, fec_1_6)`
       !< lookup on `adam%maps`, so PRISM's compute_residuals_fv_centered
       !< can find the right register entry in O(1).
-      class(realm_object),        intent(inout) :: realm(:)      !< Initialized realms; gains inter_realm_face_register_index per realm.
+      class(realm_object),        intent(inout) :: realm(:)
+                                                                 !< Initialized realms; gains inter_realm_face_register_index per
+                                                                 !< realm.
       type(forest_manifest_t),    intent(in)    :: manifest      !< Parsed manifest.
       type(flux_register_object), intent(inout) :: flux_register !< Berger-Colella reflux accumulator owned by the forest.
       integer(I4P)                        :: f, b    !< Face-pair, block counters.

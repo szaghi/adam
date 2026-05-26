@@ -78,7 +78,9 @@ contains
    subroutine copy_cpu_gpu(self, field, maps, verbose)
    !< Copy data from the (realm-local) CPU `field`/`maps` to this (field_fnl_object) GPU.
    class(field_fnl_object), intent(inout)        :: self     !< The field.
-   type(field_object),      intent(in)           :: field    !< Realm-local CPU field (cell coords, dxyz); was the `field` singleton.
+   type(field_object),      intent(in)           :: field
+                                                             !< Realm-local CPU field (cell coords, dxyz); was the `field`
+                                                             !< singleton.
    type(maps_object),       intent(in)           :: maps     !< Realm-local CPU maps (ghost buffers); was the `maps` singleton.
    logical,                 intent(in), optional :: verbose  !< Flag to activate verbose mode.
    logical                                       :: verbose_ !< Flag to activate verbose mode, local var.
@@ -177,9 +179,15 @@ contains
    !< Initialize field from the (realm-local) CPU `grid`, `field` and `maps`.
    !< Requires `mpih_fnl` (adam_fnl_mpih_global) initialized and the passed CPU objects populated before calling.
    class(field_fnl_object), intent(inout)           :: self             !< The field.
-   type(grid_object),       intent(in),    target   :: grid             !< Realm-local CPU grid (ngc, ni/nj/nk); was the `grid` singleton.
-   type(field_object),      intent(in),    target   :: field            !< Realm-local CPU field (nb, nv, coords); was the `field` singleton.
-   type(maps_object),       intent(in)              :: maps             !< Realm-local CPU maps (ghost buffers/maps); was the `maps` singleton.
+   type(grid_object),       intent(in),    target   :: grid
+                                                                        !< Realm-local CPU grid (ngc, ni/nj/nk); was the `grid`
+                                                                        !< singleton.
+   type(field_object),      intent(in),    target   :: field
+                                                                        !< Realm-local CPU field (nb, nv, coords); was the `field`
+                                                                        !< singleton.
+   type(maps_object),       intent(in)              :: maps
+                                                                        !< Realm-local CPU maps (ghost buffers/maps); was the `maps`
+                                                                        !< singleton.
    integer(I4P),            intent(in),    optional :: nv_aux           !< Number of auxiliary variables.
    real(R8P), pointer,      intent(inout), optional :: q_gpu(:,:,:,:,:) !< Field cell centered variables.
    logical,                 intent(in),    optional :: verbose          !< Flag to activate verbose mode.

@@ -93,7 +93,9 @@ contains
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    endif
-   associate(particle_number=>self%particle_number)!, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nb=>self%nb)
+   associate(particle_number=>self%particle_number)
+                                                   !, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv,
+                                                   !nb=>self%nb)
    call allocate_variable(var=self%q_pic_old,        					 &
                           ulb=reshape([1,8,								 &
                                        1,particle_number,			 &

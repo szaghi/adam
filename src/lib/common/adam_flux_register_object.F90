@@ -98,11 +98,19 @@ type :: flux_register_object
    type(flux_register_face_t), allocatable :: face(:) !< All registered seam faces; unallocated until `initialize`.
    contains
       ! public methods
-      procedure, pass(self) :: initialize             !< Allocate `face(:)` with `nfaces` capacity (called once after topology is known).
+      procedure, pass(self) :: initialize
+                                                      !< Allocate `face(:)` with `nfaces` capacity (called once after topology is
+                                                      !< known).
       procedure, pass(self) :: register_face          !< Populate one entry in `face(:)`; called by topology pass at init/regrid.
-      procedure, pass(self) :: accumulate_coarse_flux !< Add a coarse-side per-substage flux to F_coarse on the matching face (called by compute_residuals_* on coarse-side seam faces).
-      procedure, pass(self) :: accumulate_fine_flux   !< Add a fine-side per-substage flux to F_fine_sum on the matching face (called by compute_residuals_* on fine-side seam faces).
-      procedure, pass(self) :: reduce_fine_sums       !< MPI-reduce F_fine_sum across ranks so coarse owner has complete sum (Phase A v1: no-op for replicated forest).
+      procedure, pass(self) :: accumulate_coarse_flux
+                                                      !< Add a coarse-side per-substage flux to F_coarse on the matching face
+                                                      !< (called by compute_residuals_* on coarse-side seam faces).
+      procedure, pass(self) :: accumulate_fine_flux
+                                                      !< Add a fine-side per-substage flux to F_fine_sum on the matching face
+                                                      !< (called by compute_residuals_* on fine-side seam faces).
+      procedure, pass(self) :: reduce_fine_sums
+                                                      !< MPI-reduce F_fine_sum across ranks so coarse owner has complete sum (Phase
+                                                      !< A v1: no-op for replicated forest).
       procedure, pass(self) :: reset                  !< Zero F_coarse and F_fine_sum on every face; called at top-of-step.
       procedure, pass(self) :: destroy                !< Deallocate `face(:)` and reset state to uninitialized.
 endtype flux_register_object
@@ -247,7 +255,9 @@ contains
    class(flux_register_object), intent(inout) :: self          !< The register.
    integer(I4P),                intent(in)    :: face_index    !< Index into `face(:)` of the seam face being updated.
    integer(I4P),                intent(in)    :: substage      !< RK substage 1..nrk.
-   real(R8P),                   intent(in)    :: flux_face(:,:)!< Per-face flux contribution shaped (nv, nface_cells); already mapped to the coarse-face skin.
+   real(R8P),                   intent(in)    :: flux_face(:,:)
+                                                               !< Per-face flux contribution shaped (nv, nface_cells); already
+                                                               !< mapped to the coarse-face skin.
 
    if (face_index < 1_I4P .or. face_index > self%nfaces) &
       call mpih%error_stop(msg='flux_register_object%accumulate_fine_flux: face_index out of range')

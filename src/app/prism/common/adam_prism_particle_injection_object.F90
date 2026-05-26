@@ -32,8 +32,12 @@ character(len=22), parameter :: NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION = '
 character(len=32), parameter :: VELOCITY_RANDOM_NUMBER_GENERATOR             = 'Velocity_random_number_generator'
 character(len=33), parameter :: VELOCITY_LAYERED_NUMBER_GENERATOR            = 'Velocity_layered_number_generator'
 
-procedure(space_random_number_generator_interface),    pointer :: space_rand_num_generator 	  => null() !< Space random number generator interface
-procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_num_generator  => null() !< Space random number generator interface
+procedure(space_random_number_generator_interface),    pointer :: space_rand_num_generator 	  => null()
+                                                                                                        !< Space random number
+                                                                                                        !< generator interface
+procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_num_generator  => null()
+                                                                                                         !< Space random number
+                                                                                                         !< generator interface
 
 type :: prism_particle_injection_object
    character(len=99)    :: space_distribution					!< Particle space distribution type.
@@ -66,8 +70,12 @@ type :: prism_particle_injection_object
 	logical        		:: v_av_correction = .false.			!< Flag to correct the average v.
 
    !< Pointer (abstract) TBP.
-   procedure(particle_space_injection_interface),	  pass(self), pointer :: particle_space_injection 	  => null() !< Particle space injection.
-	procedure(particle_velocity_injection_interface), pass(self), pointer :: particle_velocity_injection => null() !< Particle velocity injection.
+   procedure(particle_space_injection_interface),	  pass(self), pointer :: particle_space_injection 	  => null()
+                                                                                                                 !< Particle space
+                                                                                                                 !< injection.
+	procedure(particle_velocity_injection_interface), pass(self), pointer :: particle_velocity_injection => null()
+                                                                                                                !< Particle velocity
+                                                                                                                !< injection.
 contains
    procedure, pass(self) :: description    !< Return pretty-printed object description.
    procedure, pass(self) :: initialize     !< Initialize IC.
@@ -87,7 +95,14 @@ interface
 	type(field_object),                  	 intent(in) 	:: field
 	type(grid_object),                   	 intent(in)	:: grid
 	type(prism_pic_object),					 	 intent(in)		:: pic
-	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)                                                         !< Number of variables.
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+                                                                                                                              !< Num
+                                                                                                                              !< ber
+                                                                                                                              !< of
+                                                                                                                              !< var
+                                                                                                                              !< iab
+                                                                                                                              !< les
+                                                                                                                              !< .
    endsubroutine particle_space_injection_interface
 
 	subroutine space_random_number_generator_interface(N, shuffled_list, i_numb, r_n)
@@ -104,7 +119,14 @@ interface
 	type(field_object),                  	 intent(in) 	:: field
 	type(grid_object),                   	 intent(in)	:: grid
 	type(prism_pic_object),					 	 intent(in)		:: pic
-	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)                                                         !< Number of variables.
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+                                                                                                                              !< Num
+                                                                                                                              !< ber
+                                                                                                                              !< of
+                                                                                                                              !< var
+                                                                                                                              !< iab
+                                                                                                                              !< les
+                                                                                                                              !< .
    endsubroutine particle_velocity_injection_interface
 
 	subroutine velocity_random_number_generator_interface(N, shuffled_list, i_numb, r_n)

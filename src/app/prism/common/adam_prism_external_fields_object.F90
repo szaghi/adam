@@ -54,10 +54,12 @@ type :: prism_external_fields_object
       procedure, pass(self) :: load_from_file                        !< Load config from file.
       procedure, pass(self) :: add_external_fields_rmf               !< Add rotating magnetic field to the field.
       !procedure, pass(self) :: add_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
-      !procedure, pass(self) :: add_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to the field.
+      !procedure, pass(self) :: add_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to
+      !the field.
       procedure, pass(self) :: sub_external_fields_rmf               !< Add rotating magnetic field to the field.
       !procedure, pass(self) :: sub_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
-      !procedure, pass(self) :: sub_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to the field.
+      !procedure, pass(self) :: sub_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to
+      !the field.
 endtype prism_external_fields_object
 
 interface
@@ -65,7 +67,9 @@ interface
    import :: prism_external_fields_object, grid_object, field_object, I4P, R8P
    class(prism_external_fields_object), intent(inout)        :: self                 !< External fields.
    type(field_object),                  intent(inout)        :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),                           intent(in)           :: time                 !< Current simulation time.
    real(R8P),                           intent(in), optional :: dt                   !< Time step.
    real(R8P),                           intent(in), optional :: gamm                 !< Gamma values of RK SSP.
@@ -78,7 +82,9 @@ interface
    import :: prism_external_fields_object, grid_object, field_object, I4P, R8P
    class(prism_external_fields_object), intent(inout)        :: self                 !< External fields.
    type(field_object),                  intent(inout)        :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),                           intent(in)           :: time                 !< Current simulation time.
    real(R8P),                           intent(in), optional :: dt                   !< Time step.
    real(R8P),                           intent(in), optional :: gamm                 !< Gamma values of RK SSP.
@@ -233,20 +239,29 @@ contains
 
    !subroutine add_external_fields_rmf(self, field, time, dt, gamm, dq)
    !!< Add rotating magnetic field to the field.
-   !class(prism_external_fields_object), intent(inout)           :: self                                                              !< External fields.
-   !type(field_object),                  intent(inout)           :: field                                                             !< The field.
-   !real(R8P),                           intent(in)              :: time                                                              !< Current simulation time.
-   !real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
-   !real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values of RK SSP
-   !real(R8P),                           intent(inout)           :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
+   !class(prism_external_fields_object), intent(inout)           :: self                                                            
+   ! !< External fields.
+   !type(field_object),                  intent(inout)           :: field                                                           
+   ! !< The field.
+   !real(R8P),                           intent(in)              :: time                                                            
+   ! !< Current simulation time.
+   !real(R8P),                           intent(in), optional    :: dt                                                              
+   ! !< Time step.
+   !real(R8P),                           intent(in), optional    :: gamm                                                            
+   ! !< Gamma values of RK SSP
+   !real(R8P),                           intent(inout)           :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)
+   ! !< Primitive variables.
    !real(R8P)                                                    :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
    !                                                                y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-   !                                                                z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
-	!real(R8P) 										                      :: dB_r, dB_theta 														          !< Radial and azimuthal components of the rotating magnetic field
+   !                                                                z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)           
+   !  !< Vettori posizione centro celle del blocco b
+ !real(R8P) 										                      :: dB_r, dB_theta 														          !< Radial and azimuthal components of the
+ !rotating magnetic field
    !real(R8P)										                      :: time1															                !< Time at the next sub-step
 	!real(R8P)										                      :: theta                  								                   !< Angle in cylindrical coordinates
    !integer(I4P)                                                 :: b,i,j,k															                !< Counters
-	!real(R8P)										                      :: cell_coord(3)												                   !< Cell coordinates vector and scalar variables
+ !real(R8P)										                      :: cell_coord(3)												                   !< Cell coordinates vector and scalar
+ !variables
    !real(R8P)                                                    :: x, y, r, omega, phase, c, s
    !associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
 	!	alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)
@@ -285,7 +300,9 @@ contains
    !< Add rotating magnetic field to the field.
    class(prism_external_fields_object), intent(inout)           :: self                 !< External fields.
    type(field_object),                  intent(inout)           :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),                           intent(in)              :: time                 !< Current simulation time.
    real(R8P),                           intent(in), optional    :: dt                   !< Time step.
    real(R8P),                           intent(in), optional    :: gamm                 !< Gamma values of RK SSP
@@ -335,7 +352,9 @@ contains
    !< Add rotating magnetic field to the field.
    class(prism_external_fields_object), intent(inout)           :: self                 !< External fields.
    type(field_object),                  intent(inout)           :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),                           intent(in)              :: time                 !< Current simulation time.
    real(R8P),                           intent(in), optional    :: dt                   !< Time step.
    real(R8P),                           intent(in), optional    :: gamm                 !< Gamma values of RK SSP

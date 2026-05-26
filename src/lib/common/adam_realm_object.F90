@@ -132,20 +132,40 @@ type :: realm_object
       ! Phase A.4. Default implementations here error-stop with a
       ! "not overridden" message; each consumer app must override.
       procedure, pass(self) :: initialize_forest                !< Invoked by forest%initialize per realm at startup.
-      procedure, pass(self) :: bind_my_globals_forest           !< Re-alias singleton shims into self's value components (multi-realm path).
+      procedure, pass(self) :: bind_my_globals_forest
+                                                                !< Re-alias singleton shims into self's value components
+                                                                !< (multi-realm path).
       procedure, pass(self) :: compute_local_dt_forest          !< Invoked by forest%compute_global_dt during the min reduction.
-      procedure, pass(self) :: advance_one_step_forest          !< Invoked by forest%evolve_one_step per realm per timestep (N=1 fast path).
-      procedure, pass(self) :: nrk_forest                       !< Number of substages this realm's integrator uses (multi-realm path).
-      procedure, pass(self) :: prepare_step_forest              !< Per-step prologue (multi-realm path): initialize_stages, external-field prelude.
+      procedure, pass(self) :: advance_one_step_forest
+                                                                !< Invoked by forest%evolve_one_step per realm per timestep (N=1
+                                                                !< fast path).
+      procedure, pass(self) :: nrk_forest
+                                                                !< Number of substages this realm's integrator uses (multi-realm
+                                                                !< path).
+      procedure, pass(self) :: prepare_step_forest
+                                                                !< Per-step prologue (multi-realm path): initialize_stages,
+                                                                !< external-field prelude.
       procedure, pass(self) :: assemble_substage_forest         !< One RK substage assembly (multi-realm path): rk%compute_stage(s).
-      procedure, pass(self) :: residuals_substage_forest        !< One RK substage residual computation (multi-realm path): compute_residuals(q_rk(s)) only — NO assign_stage.
-      procedure, pass(self) :: assign_substage_forest           !< One RK substage stage assignment (multi-realm path): rk%assign_stage(s, q=dq) only — runs AFTER all peers' residuals.
-      procedure, pass(self) :: evaluate_substage_forest         !< [Deprecated] residuals + assignment in one call. Kept as backward-compat wrapper; the forest now uses residuals/assign separately to preserve substage-state coherence at the seam (see [issue #13]).
-      procedure, pass(self) :: finalize_step_forest             !< Per-step epilogue (multi-realm path): update_q, BC, impose_div_free, time bookkeeping.
+      procedure, pass(self) :: residuals_substage_forest
+                                                                !< One RK substage residual computation (multi-realm path):
+                                                                !< compute_residuals(q_rk(s)) only — NO assign_stage.
+      procedure, pass(self) :: assign_substage_forest
+                                                                !< One RK substage stage assignment (multi-realm path):
+                                                                !< rk%assign_stage(s, q=dq) only — runs AFTER all peers' residuals.
+      procedure, pass(self) :: evaluate_substage_forest
+                                                                !< [Deprecated] residuals + assignment in one call. Kept as
+                                                                !< backward-compat wrapper; the forest now uses residuals/assign
+                                                                !< separately to preserve substage-state coherence at the seam (see
+                                                                !< [issue #13]).
+      procedure, pass(self) :: finalize_step_forest
+                                                                !< Per-step epilogue (multi-realm path): update_q, BC,
+                                                                !< impose_div_free, time bookkeeping.
       procedure, pass(self) :: post_step_forest                 !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest                   !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                  !< Invoked by forest%finalize per realm at shutdown.
-      procedure, pass(self) :: finalize_mpi_forest              !< Process-global MPI finalize; forest calls it ONCE after all realms.
+      procedure, pass(self) :: finalize_mpi_forest
+                                                                !< Process-global MPI finalize; forest calls it ONCE after all
+                                                                !< realms.
       procedure, pass(self) :: exchange_inter_realm_halos_forest !< Invoked by forest%exchange_halos to refresh inter-realm ghosts.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
@@ -177,10 +197,16 @@ interface
    class(realm_object), intent(in)     :: self                                                 !< Coils.
    integer(I4P),           intent(in)     :: hs                                                   !< FDV half stencil length.
    real(R8P),              intent(in)     :: dxyz(3)                                              !< Space steps.
-   integer(I4P),           intent(in)     :: ivar                                                 !< Index of first component of vec field.
+   integer(I4P),           intent(in)     :: ivar
+                                                                                                  !< Index of first component of vec
+                                                                                                  !< field.
    real(R8P),              intent(in)     :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:)            !< Field variables.
-   real(R8P),              intent(inout)  :: tot_var_field(1-self%ngc:,1-self%ngc:,1-self%ngc:)   !< Total variation field on blocks.
-   real(R8P),              intent(out)    :: total_variation                                      !< Max total variation on given block.
+   real(R8P),              intent(inout)  :: tot_var_field(1-self%ngc:,1-self%ngc:,1-self%ngc:)
+                                                                                                  !< Total variation field on
+                                                                                                  !< blocks.
+   real(R8P),              intent(out)    :: total_variation
+                                                                                                  !< Max total variation on given
+                                                                                                  !< block.
    endsubroutine compute_block_total_variation_interface
 
    subroutine compute_curl_interface(self, hs, ivar, q, curl)
@@ -290,11 +316,15 @@ contains
    class(realm_object), intent(inout)                :: self          !< The realm.
    character(*),        intent(in)                   :: filename      !< Input parameters file name.
    integer(I4P),        intent(in),    optional      :: realm_index   !< Index of this realm in the forest (Phase D).
-   integer(I4P),        intent(in),    optional      :: realms_number !< Realm count in the forest; realm divides its budget by it (Phase D).
+   integer(I4P),        intent(in),    optional      :: realms_number
+                                                                      !< Realm count in the forest; realm divides its budget by it
+                                                                      !< (Phase D).
    real(R8P),           intent(in),    optional      :: memory_avail  !< Per-process memory budget override.
    integer(I4P),        intent(in),    optional      :: nv            !< Number of field variables override.
    logical,             intent(in),    optional      :: verbose       !< Trigger verbose output.
-   class(realm_object), intent(inout), optional, target :: realm(:)   !< Sibling realms (forest array) for inter-realm halo refresh during init.
+   class(realm_object), intent(inout), optional, target :: realm(:)
+                                                                      !< Sibling realms (forest array) for inter-realm halo refresh
+                                                                      !< during init.
 
    associate(filename_unused => filename) ! quiet "unused dummy" warnings before the stop
    end associate
@@ -679,8 +709,12 @@ contains
    !< replaces the retired `forest_active_substage` module-scope shared
    !< integer (issue #13, 2026-05-25).
    class(realm_object), intent(inout)           :: self     !< This realm.
-   class(realm_object), intent(in)              :: realm(:) !< All realms in the forest (so peers are reachable as realm(n%peer_realm)).
-   integer(I4P),        intent(in),    optional :: s_active !< Active RK substage (1..nrk) or 0/absent for the non-substage seam refresh.
+   class(realm_object), intent(in)              :: realm(:)
+                                                            !< All realms in the forest (so peers are reachable as
+                                                            !< realm(n%peer_realm)).
+   integer(I4P),        intent(in),    optional :: s_active
+                                                            !< Active RK substage (1..nrk) or 0/absent for the non-substage seam
+                                                            !< refresh.
 
    associate(self_unused => self, realm_unused => realm) ! no-op default; signature locked in for app overrides
    end associate
@@ -959,10 +993,16 @@ contains
    class(realm_object), intent(in)     :: self                                                 !< Coils.
    integer(I4P),           intent(in)     :: hs                                                   !< FDV half stencil length.
    real(R8P),              intent(in)     :: dxyz(3)                                              !< Space steps.
-   integer(I4P),           intent(in)     :: ivar                                                 !< Index of first component of vec field.
+   integer(I4P),           intent(in)     :: ivar
+                                                                                                  !< Index of first component of vec
+                                                                                                  !< field.
    real(R8P),              intent(in)     :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:)            !< Field variables.
-   real(R8P),              intent(inout)  :: tot_var_field(1-self%ngc:,1-self%ngc:,1-self%ngc:)   !< Total variation field on blocks.
-   real(R8P),              intent(out)    :: total_variation                                      !< Max total variation on given block.
+   real(R8P),              intent(inout)  :: tot_var_field(1-self%ngc:,1-self%ngc:,1-self%ngc:)
+                                                                                                  !< Total variation field on
+                                                                                                  !< blocks.
+   real(R8P),              intent(out)    :: total_variation
+                                                                                                  !< Max total variation on given
+                                                                                                  !< block.
    real(R8P)                              :: gradient(3,3)                                        !< Gradient.
    real(R8P)                              :: tv                                                   !< Total variation buffer.
    integer(I4P)                           :: i,j,k                                                !< Counter.

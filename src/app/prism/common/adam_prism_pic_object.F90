@@ -42,15 +42,21 @@ public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
 !public :: oneD_field_weighting
 
 character(len=3 ), parameter :: INI_SECTION_NAME                 = 'PIC'             !< INI file section name for PIC configuration.
-character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'          !< Analyzing physical problem involving the presence of plasma
-character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle' !< Analyzing physical problem involving the presence of a single particle
+character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'
+                                                                                     !< Analyzing physical problem involving the
+                                                                                     !< presence of plasma
+character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle'
+                                                                                     !< Analyzing physical problem involving the
+                                                                                     !< presence of a single particle
 character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'             !< CIC weighting model.
 character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'             !< NGP weighting model.
 character(len=3 ), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'             !< TSC weighting model.
 character(len=2 ), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL     = '0D'              !< 0D field weighting.
 character(len=2 ), parameter :: ONED_FIELDS_WEIGHTING_MODEL      = '1D'              !< 1D field weighting.
 character(len=8 ), parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG'        !< Leapfrog numerical scheme for time operator.
-character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'     !< Runge-Kutta numerical scheme for time operator.
+character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'
+                                                                                     !< Runge-Kutta numerical scheme for time
+                                                                                     !< operator.
 
 ! PIC variables layout in q_pic array:
 !q_pic(1) = x
@@ -99,7 +105,9 @@ interface
    import :: prism_pic_object, grid_object, field_object, I4P, R8P
    class(prism_pic_object), intent(inout) :: self                             !< External fields.
    type(field_object),                  intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),                           intent(inout) :: q(1:,1-grid%ngc:,&
                                                               1-grid%ngc:,&
                                                               1-grid%ngc:,1:) !< Field variables.
@@ -111,7 +119,9 @@ interface
    import :: prism_pic_object, grid_object, field_object, I4P, R8P
    class(prism_pic_object), intent(inout) :: self                             !< External fields.
    type(field_object),                  intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),                           intent(inout) :: q(1:,1-grid%ngc:,&
                                                               1-grid%ngc:,&
                                                               1-grid%ngc:,1:) !< Field variables.
@@ -123,7 +133,9 @@ interface
    import :: prism_pic_object, grid_object, field_object, I4P, R8P
    class(prism_pic_object), intent(inout) :: self                             !< External fields.
    type(field_object),                  intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),                           intent(inout) :: pic_fields(1:,1:)    !< Fields value at particle locations.
    real(R8P),                           intent(in)    :: q(1:,1-grid%ngc:,&
                                                               1-grid%ngc:,&
@@ -156,7 +168,9 @@ contains
    !< Initialize PIC.
    class(prism_pic_object), intent(inout) :: self            !< Pic object.
    type(field_object),      intent(in)    :: field           !< Field (sibling realm component, threaded in).
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
                                                              !< present at t0
@@ -310,7 +324,9 @@ contains
    !< Compute the grid index corresponding to a particle position. Good for cartesian grids only.
    class(prism_pic_object), intent(inout) :: self               !< External fields.
    type(field_object),      intent(in)    :: field              !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),               intent(in)    :: q_pic(1:,1:)       !< PIC variables.
    real(R8P)                              :: n                  !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p !< Particle grid indices
@@ -339,7 +355,9 @@ contains
    !!< Nearest Grid Point weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -376,7 +394,9 @@ contains
    !< Cloud-in-Cell weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -441,7 +461,9 @@ contains
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -505,7 +527,9 @@ contains
    !!< Nearest Grid Point weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -545,7 +569,9 @@ contains
    !< Cloud-in-Cell weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -612,7 +638,9 @@ contains
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -677,7 +705,9 @@ contains
    subroutine zeroD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    class(prism_pic_object), intent(inout) :: self                                             !< External fields.
    type(field_object),      intent(inout) :: field                                            !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),               intent(inout) :: pic_fields(1:,1:)                                !< Fields value at particle locations
    real(R8P),               intent(in)    :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
@@ -724,7 +754,9 @@ contains
    subroutine oneD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    class(prism_pic_object), intent(inout) :: self                                             !< External fields.
    type(field_object),      intent(inout) :: field                                            !< The field.
-   type(grid_object),                  intent(in)              :: grid                !< Grid (sibling realm component, threaded in).
+   type(grid_object),                  intent(in)              :: grid
+                                                                                      !< Grid (sibling realm component, threaded
+                                                                                      !< in).
    real(R8P),               intent(inout) :: pic_fields(1:,1:)                                !< Fields value at particle locations
    real(R8P),               intent(in)    :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
