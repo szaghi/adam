@@ -24,26 +24,14 @@ module adam_forest_object
 !< MPI sub-communicator topology, inter-realm connectivity descriptor.
 !< Adding that state later via a class extension is cheaper than via a
 !< module API break.
-!<
-!< Architectural invariants:
-!<
-!<   * **No derived-type-pointer components** on `forest_object`, ever (R1
-!<     of issue #10). The chain-resolution bug class is excluded by
-!<     construction.
-!<   * **No app-specific imports** in this module. The forest's body uses
-!<     only ADAM-lib-visible types (intrinsics with explicit kinds,
-!<     `realm_object`, MPI). App-specific dispatch lives inside the
-!<     overridden realm TBPs (O2).
-!<   * **`q` is never touched here.** All cell-centered variable access is
-!<     realm-side, via the realm's own `*_forest` TBPs (O3).
 
-use :: adam_realm_object,    only : realm_object
-use :: adam_maps_object,     only : inter_realm_neighbor_t, &
-                                    FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
-use :: adam_forest_manifest, only : forest_manifest_t, forest_face_pair_t
+use :: adam_realm_object,         only : realm_object
+use :: adam_maps_object,          only : inter_realm_neighbor_t, &
+                                         FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
+use :: adam_forest_manifest,      only : forest_manifest_t, forest_face_pair_t
 use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM
-use :: adam_parameters,      only : BC_SEAM, FEC_1_6_ARRAY
-use :: adam_globals,         only : mpih
+use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
+use :: adam_globals,              only : mpih
 use :: mpi
 use :: penf
 
@@ -53,53 +41,39 @@ public :: forest_object
 
 type :: forest_object
    !< Behavior-only orchestrator of an array of realms.
-   !<
-   !< 2026-05-25 (issue #13): `adam_forest_global` module retired. The
-   !< Berger-Colella flux register that used to live as a program-scope
-   !< singleton there is now a VALUE component on the forest (NOT a
-   !< pointer — pointer-to-derived-type is forbidden by R1 of issue #10
-   !< and the CLAUDE.md rule). The substage index that used to be a
-   !< module-scope shared integer (`forest_active_substage`) is now
-   !< threaded as an `s_active` dummy argument through the contract
-   !< chain to its only readers in PRISM CPU/FNL `copy_peer_face*`.
-   integer(I4P) :: n = 0_I4P !< Number of realms in the forest (set by initialize from size(realm)).
+   integer(I4P)               :: n = 0_I4P     !< Number of realms in the forest (set by initialize from size(realm)).
    type(flux_register_object) :: flux_register !< Coarse-fine interface reflux machinery (Phase A of issue #13).
-   ! Phase D will likely add: MPI sub-communicator handle, inter-realm
-   ! connectivity descriptor (both intrinsic-typed).
    contains
+      ! public methods
+      ! initialize/finalize
       procedure, pass(self) :: initialize               !< Sequence each realm's initialize_forest at startup (single shared INI).
       procedure, pass(self) :: initialize_from_manifest !< Like initialize, but each realm reads its own INI from a forest manifest.
-      procedure, pass(self) :: simulate                 !< Main entry point (single shared INI): drive the full simulation.
-      procedure, pass(self) :: simulate_from_manifest   !< Main entry point (per-realm INIs via forest manifest).
-      procedure, pass(self) :: compute_global_dt        !< Min-reduce each realm's compute_local_dt_forest across the forest.
-      procedure, pass(self) :: evolve_one_step          !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
-      procedure, pass(self) :: exchange_halos
-                                                        !< Iterate realm(:)%exchange_inter_realm_halos_forest to refresh inter-realm
-                                                        !< ghosts.
-      procedure, pass(self) :: post_step                !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
-      procedure, pass(self) :: is_done                  !< AND-reduce each realm's is_done_forest across the forest.
       procedure, pass(self) :: finalize                 !< Sequence each realm's finalize_forest at shutdown.
-      procedure, pass(self), private :: populate_inter_realm_topology
-                                                                      !< Translate manifest face-pairs into per-realm
-                                                                      !< maps%inter_realm_neighbors.
-      procedure, pass(self), private :: apply_reflux_corrections
-                                                                      !< Apply Berger-Colella reflux to coarse-side q_rk for every
-                                                                      !< registered seam face (Phase A step 4 of issue #13).
+      ! orchestrating methods
+      procedure, pass(self) :: compute_global_dt      !< Min-reduce each realm's compute_local_dt_forest across the forest.
+      procedure, pass(self) :: evolve_one_step        !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
+      procedure, pass(self) :: exchange_halos         !< Iterate realm(:)%exchange_inter_realm_halos_forest.
+      procedure, pass(self) :: is_done                !< AND-reduce each realm's is_done_forest across the forest.
+      procedure, pass(self) :: post_step              !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
+      procedure, pass(self) :: simulate               !< Main entry point (single shared INI): drive the full simulation.
+      procedure, pass(self) :: simulate_from_manifest !< Main entry point (per-realm INIs via forest manifest).
+      ! private methods
+      procedure, pass(self), private :: populate_inter_realm_topology !< Translate manifest face-pairs into maps of neighbors.
+      procedure, pass(self), private :: apply_reflux_corrections      !< Apply Berger-Colella reflux to coarse-side.
 endtype forest_object
 
 contains
+   ! public methods
+   ! initialize/finalize
    subroutine initialize(self, realm, filename)
    !< Initialize the forest and every realm it tends.
-   !<
-   !< Records `n = size(realm)`, then iterates `realm(is)%initialize_forest`
-   !< in increasing index order. Each realm receives its index via the
-   !< `realm_index` optional argument — useful for per-realm IO basenames
-   !< or rank carve-outs (Phase D).
    class(forest_object), intent(inout) :: self     !< The forest.
    class(realm_object),  intent(inout) :: realm(:) !< The realms to initialize.
    character(*),         intent(in)    :: filename !< Input parameters file name (shared across realms for v1).
    integer(I4P)                        :: is       !< Realm index.
 
+   if (int(size(realm), I4P) > 1_I4P) &
+      call mpih%error_stop(msg='forest_object%initialize: multi-realm forest requires initialize_from_manifest')
    self%n = int(size(realm), I4P)
    do is = 1, self%n
       call realm(is)%initialize_forest(filename=filename, realm_index=is, realms_number=self%n, realm=realm)
@@ -109,15 +83,11 @@ contains
    subroutine initialize_from_manifest(self, realm, manifest)
    !< Initialize the forest and every realm using per-realm INIs from a manifest.
    !<
-   !< Like `initialize` but each realm receives its OWN INI path
-   !< (`manifest%realm_ini(is)`) instead of a shared filename. After all
-   !< realms are initialized, translates the manifest's face-pair list into
-   !< per-realm `maps%inter_realm_neighbors` entries.
+   !< Like `initialize` but each realm receives its OWN INI path (`manifest%realm_ini(is)`) instead of a shared filename. After all
+   !< realms are initialized, translates the manifest's face-pair list into per-realm `maps%inter_realm_neighbors` entries.
    !<
-   !< The driver MUST allocate `realm(size = manifest%realms_number)` with
-   !< the concrete app type before calling this — the forest does not
-   !< allocate the realm array (it cannot, since realm_object is abstract
-   !< and each app has its own extension).
+   !< The driver MUST allocate `realm(size = manifest%realms_number)` with the concrete app type before calling this — the forest
+   !< does not !< allocate the realm array (it cannot, since realm_object is abstract and each app has its own extension).
    class(forest_object),     intent(inout) :: self     !< The forest.
    class(realm_object),      intent(inout) :: realm(:) !< The realms to initialize.
    type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest (per-realm INI paths + topology).
@@ -132,69 +102,34 @@ contains
    call self%populate_inter_realm_topology(realm, manifest)
    endsubroutine initialize_from_manifest
 
-   subroutine simulate(self, realm, filename)
-   !< Drive the full simulation: initialize, time-loop, finalize.
+   subroutine finalize(self, realm)
+   !< Shut down the forest and every realm it tends.
    !<
-   !< Top-level entry point the program driver calls instead of the legacy
-   !< per-realm `realm%simulate`. The time loop is:
-   !<
-   !<   initialize → loop { evolve_one_step → post_step → is_done } → finalize
-   !<
-   !< Each step invokes the orchestrator-contract TBPs on every realm; the
-   !< per-realm body decides what app-specific work to do internally.
-   class(forest_object), intent(inout) :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to evolve.
-   character(*),         intent(in)    :: filename !< Input parameters file name.
-   logical                             :: done     !< Forest-global termination predicate.
+   !< Iterates `realm(is)%finalize_forest` in increasing index order; each realm closes its IO files, releases its
+   !< resources, and finalizes its MPI handler.
+   class(forest_object), intent(in)    :: self     !< The forest.
+   class(realm_object),  intent(inout) :: realm(:) !< The realms to shut down.
+   integer(I4P)                        :: is       !< Realm index.
 
-   call self%initialize(realm, filename=filename)
-   done = .false.
-   do
-      call self%evolve_one_step(realm)
-      call self%post_step(realm)
-      call self%is_done(realm, done=done)
-      if (done) exit
+   do is = 1, int(size(realm), I4P)
+      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
+      call realm(is)%finalize_forest
    enddo
-   call self%finalize(realm)
-   endsubroutine simulate
+   ! MPI_FINALIZE is process-global: run it ONCE here, after every realm has done its
+   ! MPI-using teardown above — not per realm inside finalize_forest, which would tear
+   ! MPI down while later realms still need it.
+   if (size(realm) >= 1) call realm(1)%finalize_mpi_forest
+   endsubroutine finalize
 
-   subroutine simulate_from_manifest(self, realm, manifest)
-   !< Drive the full simulation using per-realm INIs from a manifest.
-   !<
-   !< Like `simulate` but uses `initialize_from_manifest` to populate each
-   !< realm from its own INI file, and (via that initialize) wires the
-   !< inter-realm topology from the manifest. The time-loop body is
-   !< identical to `simulate`.
-   class(forest_object),     intent(inout) :: self     !< The forest.
-   class(realm_object),      intent(inout) :: realm(:) !< The realms to evolve.
-   type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest.
-   logical                                 :: done     !< Forest-global termination predicate.
-
-   call self%initialize_from_manifest(realm, manifest=manifest)
-   done = .false.
-   do
-      call self%evolve_one_step(realm)
-      call self%post_step(realm)
-      call self%is_done(realm, done=done)
-      if (done) exit
-   enddo
-   call self%finalize(realm)
-   endsubroutine simulate_from_manifest
-
+   ! orchestrating methods
    subroutine compute_global_dt(self, realm, dt)
    !< Compute the forest-global stability-limited dt.
    !<
-   !< Each realm reports its local dt via `compute_local_dt_forest`; the
-   !< forest takes the min across all realms (intra-process) and then
-   !< across all MPI ranks (`MPI_ALLREDUCE` on `MPI_COMM_WORLD`). Returns
+   !< Each realm reports its local dt via `compute_local_dt_forest`; the forest takes the min across all realms
+   !< (intra-process) and then across all MPI ranks (`MPI_ALLREDUCE` on `MPI_COMM_WORLD`). Returns
    !< the bit-identical global min every rank should advance by.
-   !<
-   !< Phase D may replace `MPI_COMM_WORLD` with a forest-specific
-   !< sub-communicator once rank carve-outs land.
    class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:)
-                                                   !< The realms to query (inout for the multi-realm path's shim re-bind side
-                                                   !< effect).
+   class(realm_object),  intent(inout) :: realm(:) !< The realms to query.
    real(R8P),            intent(out)   :: dt       !< Global stability-limited dt.
    real(R8P)                           :: dt_local !< Per-realm local dt.
    integer(I4P)                        :: is       !< Realm index.
@@ -213,61 +148,19 @@ contains
 
    subroutine evolve_one_step(self, realm)
    !< Advance every realm by one global timestep.
-   !<
-   !< Two paths, selected by `size(realm)`:
-   !<
-   !<   * **N=1 fast path**: invokes the realm's `advance_one_step_forest`
-   !<     (the legacy entry point). The substage loop is internal to that
-   !<     method; the once-per-step inter-realm exchange runs afterwards.
-   !<     For single-realm forests `exchange_halos` iterates an empty
-   !<     neighbour list and the path is bit-identical to pre-Phase-D.
-   !<
-   !<   * **N>1 multi-realm path**: drives the substage loop itself in a
-   !<     **THREE-PHASE** schedule per substage `s`:
-   !<       * Phase 1 — all realms `assemble_substage_forest(s)`
-   !<         (interior-only, no peer reads).
-   !<       * Phase 2a — all realms `residuals_substage_forest(s)`
-   !<         (computes self%dq; reads peer q_rk(s) via the seam exchange,
-   !<         which is safe because no peer has overwritten q_rk(s) yet).
-   !<       * Phase 2b — all realms `assign_substage_forest(s)` (overwrites
-   !<         q_rk(:, interior, :, b, s) with self%dq for the next stage's
-   !<         linear combination — destructive but race-free at this point).
-   !<     The 2a/2b split is what closes the BC_SEAM-coherence finding of
-   !<     issue #13: combining them (the legacy `evaluate_substage_forest`)
-   !<     races with peer seam reads. All realms use the same integrator
-   !<     (same `nrk`); a mismatch is flagged with `mpih%error_stop`.
-   !<
-   !< Per-substage inter-realm exchange: the realm array is threaded to
-   !< each per-realm `_forest` TBP as the optional `realm(:)` dummy
-   !< (2026-05-25, issue #13). The realm code at substage depth (inside
-   !< `compute_residuals → update_ghost`) refreshes inter-realm ghosts
-   !< by passing the dummy onward, NOT by dereferencing a class-pointer
-   !< module variable — the polymorphic-class-pointer pattern is the
-   !< nvfortran/OpenACC bug class the CLAUDE.md rule forbids.
-   class(forest_object), intent(inout)         :: self
-                                                           !< The forest (inout because flux_register is a value component mutated
-                                                           !< each step).
+   class(forest_object), intent(inout)         :: self     !< The forest.
    class(realm_object),  intent(inout), target :: realm(:) !< The realms to advance.
    real(R8P)                                   :: dt       !< Global timestep size.
    integer(I4P)                                :: is, s    !< Realm and substage indices.
    integer(I4P)                                :: nrk      !< Number of substages (multi-realm path).
    integer(I4P)                                :: nrk_chk  !< Per-realm consistency check.
 
-   ! Zero flux register accumulators at top of step (Phase A of [issue #13]).
-   ! Skeleton commit: safe no-op when face(:) is unallocated, which is the
-   ! case until the topology-registration follow-up commit populates it.
    call self%flux_register%reset
-   call self%compute_global_dt(realm, dt=dt)
+   call self%compute_global_dt(realm=realm, dt=dt)
    if (int(size(realm), I4P) == 1_I4P) then
-      ! N=1 fast path — bit-identical to pre-Phase-D.
       call realm(1)%advance_one_step_forest(dt=dt)
-      call self%exchange_halos(realm)
+      call self%exchange_halos(realm=realm)
    else
-      ! N>1 multi-realm path — forest drives the substage loop. Before each
-      ! per-realm TBP we re-bind the legacy singleton shims to that realm's
-      ! value components; the shims would otherwise alias the last-initialized
-      ! realm and feed wrong geometry / RK state to every other realm's
-      ! per-step code. See [[realm_object]]%`bind_my_globals_forest`.
       do is = 1_I4P, int(size(realm), I4P)
          call realm(is)%bind_my_globals_forest
          call realm(is)%prepare_step_forest(dt=dt)
@@ -280,52 +173,18 @@ contains
          if (nrk_chk /= nrk) call mpih%error_stop(msg='forest_object%evolve_one_step: realms disagree on nrk_forest')
       enddo
       do s = 1_I4P, nrk
-         ! Phase 1: every realm assembles its q_rk(:,...,s) (no ghost reads).
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
             call realm(is)%assemble_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
          enddo
-         ! Phase 2a: every realm evaluates residuals; update_ghost inside
-         ! compute_residuals refreshes inter-realm ghosts using the
-         ! threaded `realm(:)` dummy argument. Peers' q_rk(:,...,s) is
-         ! still the assembled substage state at this point — NO peer
-         ! has run `rk%assign_stage(s)` yet (which would overwrite
-         ! q_rk(s) with dq in-place and corrupt subsequent peers' seam
-         ! reads). See issue #13 BC_SEAM-coherence finding (2026-05-24).
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
-            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm, &
-                                                     flux_register=self%flux_register)
+            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm, flux_register=self%flux_register)
          enddo
-         ! Phase 2b: every realm assigns its substage state from its dq.
-         ! Each `assign_stage(s, q=dq)` overwrites q_rk(:, interior, :, b, s)
-         ! with dq — destructive of the substage state — but by now every
-         ! peer's residual has already been computed and the overwrite is
-         ! race-free.
          do is = 1_I4P, int(size(realm), I4P)
             call realm(is)%bind_my_globals_forest
             call realm(is)%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
          enddo
-         ! Phase 3: Berger-Colella reflux at coarse-fine interfaces
-         ! (Phase A step 4 of [issue #13]).
-         !
-         ! Sequence:
-         !   1. reduce_fine_sums — MPI-reduce F_fine_sum across ranks so
-         !      the coarse-side rank has the full contribution. In the
-         !      replicated-forest layout (Phase A v1) this is a no-op
-         !      because every accumulator is already complete on every
-         !      rank; the call is the schema-reserved hook for the
-         !      disjoint-rank follow-up.
-         !   2. apply_reflux_corrections — for each registered seam face,
-         !      add weight·(dt/dx)·(F_coarse − F_fine_sum) to the coarse-
-         !      side realm's q_rk(:, interior, :, b, s) at the cells
-         !      adjacent to the seam face. The weight is the SSP-RK
-         !      accumulation weight read from adam_rk_object%ark(s).
-         !
-         ! For same-resolution mirror seams (current rmf-2realm with
-         ! COUPLING_MIRROR), F_coarse ≈ F_fine_sum within round-off so
-         ! the correction is round-off-zero in expectation. For AMR
-         ! coarse-fine the correction is real.
          call self%flux_register%reduce_fine_sums
          call self%apply_reflux_corrections(realm=realm, substage=s, dt=dt)
       enddo
@@ -339,65 +198,35 @@ contains
    subroutine exchange_halos(self, realm)
    !< Refresh inter-realm ghost cells across all realms.
    !<
-   !< Iterates `realm(is)%exchange_inter_realm_halos_forest(realm)` in
-   !< increasing index order. For single-realm forests (N=1, current rmf)
-   !< the inter-realm neighbour list is empty and each iteration is a
-   !< no-op; the call exists so the forest's evolve loop has a uniform
-   !< shape regardless of N.
+   !< Iterates `realm(is)%exchange_inter_realm_halos_forest(realm)` in increasing index order. For single-realm
+   !< forests (N=1, current rmf) the inter-realm neighbour list is empty and each iteration is a no-op; the call
+   !< exists so the forest's evolve loop has a uniform shape regardless of N.
    !<
-   !< Granularity: this method is invoked once per global timestep, AFTER
-   !< all realms have completed `advance_one_step_forest`. For
-   !< bit-comparability with a single-realm reference, additional refresh
-   !< points are typically required between RK substages (inside each
-   !< realm's `advance_one_step_forest` body) — see issue #13 for the
-   !< per-substage design that the first concrete N>1 use case will need.
+   !< Granularity: this method is invoked once per global timestep, AFTER all realms have completed `advance_one_step_forest`.
+   !< For bit-comparability with a single-realm reference, additional refresh points are typically required between RK
+   !< substages (inside each realm's `advance_one_step_forest` body).
+   !<
    !< This method's once-per-step invocation is the floor, not the ceiling.
    class(forest_object), intent(in)    :: self     !< The forest.
    class(realm_object),  intent(inout) :: realm(:) !< The realms whose ghosts to refresh.
    integer(I4P)                        :: is       !< Realm index.
 
-   associate(self_unused => self) ! method takes self for TBP-dispatch symmetry
-   end associate
    do is = 1, int(size(realm), I4P)
       if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%exchange_inter_realm_halos_forest(realm=realm)
    enddo
    endsubroutine exchange_halos
 
-   subroutine post_step(self, realm)
-   !< Run every realm's post-step diagnostics / IO / AMR block.
-   !<
-   !< Iterates `realm(is)%post_step_forest` without overriding cadence —
-   !< for v1, each realm uses its own internal cadence (the `do_*` flags
-   !< stay at their default). The `dt`, `t`, `it` arguments are NOT
-   !< passed here because the forest does not yet own canonical time state
-   !< (realm-side time module singletons still drive them). Once the forest
-   !< takes over time bookkeeping (Phase D), this method will pass them
-   !< through.
-   class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to query.
-   integer(I4P)                        :: is       !< Realm index.
-
-   do is = 1, int(size(realm), I4P)
-      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
-      call realm(is)%post_step_forest(dt=0._R8P, t=0._R8P, it=0_I4P, realm=realm)
-   enddo
-   endsubroutine post_step
-
    subroutine is_done(self, realm, done)
    !< Decide whether the whole forest has finished evolving.
    !<
-   !< Each realm reports its local predicate via `is_done_forest`; the
-   !< forest AND-reduces across all realms (intra-process) and then across
-   !< all MPI ranks (`MPI_ALLREDUCE` on `MPI_COMM_WORLD`). AND-reduction
-   !< means the forest keeps evolving as long as ANY realm wants to —
-   !< matching the legacy single-realm semantics for v1 (with one realm
-   !< the global predicate equals that realm's local one).
-   class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:)
-                                                   !< The realms to query (inout for the multi-realm path's shim re-bind side
-                                                   !< effect).
-   logical,              intent(out)   :: done     !< Forest-global termination predicate.
+   !< Each realm reports its local predicate via `is_done_forest`; the forest AND-reduces across all realms (intra-process)
+   !< and then across all MPI ranks (`MPI_ALLREDUCE` on `MPI_COMM_WORLD`). AND-reduction means the forest keeps evolving as
+   !< long as ANY realm wants to — matching the legacy single-realm semantics for v1 (with one realm the global predicate
+   !< equals that realm's local one).
+   class(forest_object), intent(in)    :: self       !< The forest.
+   class(realm_object),  intent(inout) :: realm(:)   !< The realms to query.
+   logical,              intent(out)   :: done       !< Forest-global termination predicate.
    logical                             :: done_local !< Per-realm local predicate.
    integer(I4P)                        :: is         !< Realm index.
    integer(I4P)                        :: ierr       !< MPI error code.
@@ -411,26 +240,62 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, done, 1, MPI_LOGICAL, MPI_LAND, MPI_COMM_WORLD, ierr)
    endsubroutine is_done
 
-   subroutine finalize(self, realm)
-   !< Shut down the forest and every realm it tends.
-   !<
-   !< Iterates `realm(is)%finalize_forest` in increasing index order; each
-   !< realm closes its IO files, releases its resources, and finalizes its
-   !< MPI handler.
+   subroutine post_step(self, realm)
+   !< Run every realm's post-step diagnostics / IO / AMR block.
    class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to shut down.
+   class(realm_object),  intent(inout) :: realm(:) !< The realms to query.
    integer(I4P)                        :: is       !< Realm index.
 
    do is = 1, int(size(realm), I4P)
       if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
-      call realm(is)%finalize_forest
+      call realm(is)%post_step_forest(dt=0._R8P, t=0._R8P, it=0_I4P, realm=realm)
    enddo
-   ! MPI_FINALIZE is process-global: run it ONCE here, after every realm has done its
-   ! MPI-using teardown above — not per realm inside finalize_forest, which would tear
-   ! MPI down while later realms still need it (issue #13 rmf-2realm MPI_Type_f2c abort).
-   if (size(realm) >= 1) call realm(1)%finalize_mpi_forest
-   endsubroutine finalize
+   endsubroutine post_step
 
+   subroutine simulate(self, realm, filename)
+   !< Drive the full simulation: initialize, time-loop, finalize.
+   !<
+   !< Top-level entry point the program driver calls. The time loop is: initialize → loop {evolve_one_step → post_step
+   !< → is_done} → finalize. Each step invokes the orchestrator-contract TBPs on every realm; the per-realm body decides what
+   !< app-specific work to do internally.
+   class(forest_object), intent(inout) :: self     !< The forest.
+   class(realm_object),  intent(inout) :: realm(:) !< The realms to evolve.
+   character(*),         intent(in)    :: filename !< Input parameters file name.
+   logical                             :: done     !< Forest-global termination predicate.
+
+   call self%initialize(realm, filename=filename)
+   done = .false.
+   do
+      call self%evolve_one_step(realm=realm)
+      call self%post_step(realm=realm)
+      call self%is_done(realm=realm, done=done)
+      if (done) exit
+   enddo
+   call self%finalize(realm=realm)
+   endsubroutine simulate
+
+   subroutine simulate_from_manifest(self, realm, manifest)
+   !< Drive the full simulation using per-realm INIs from a manifest.
+   !<
+   !< Like `simulate` but uses `initialize_from_manifest` to populate each realm from its own INI file, and (via that
+   !< initialize) wires the inter-realm topology from the manifest. The time-loop body is identical to `simulate`.
+   class(forest_object),     intent(inout) :: self     !< The forest.
+   class(realm_object),      intent(inout) :: realm(:) !< The realms to evolve.
+   type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest.
+   logical                                 :: done     !< Forest-global termination predicate.
+
+   call self%initialize_from_manifest(realm=realm, manifest=manifest)
+   done = .false.
+   do
+      call self%evolve_one_step(realm=realm)
+      call self%post_step(realm=realm)
+      call self%is_done(realm=realm, done=done)
+      if (done) exit
+   enddo
+   call self%finalize(realm=realm)
+   endsubroutine simulate_from_manifest
+
+   ! private methods
    subroutine populate_inter_realm_topology(self, realm, manifest)
    !< Translate manifest face-pairs into per-realm maps%inter_realm_neighbors.
    !<
@@ -444,20 +309,13 @@ contains
    !< per-block face cells at exchange time. This keeps the manifest small
    !< and avoids encoding block layouts that depend on AMR / decomposition
    !< state not known at INI parse time.
-   !<
-   !< Writes per-realm into `realm(is)%adam%maps%inter_realm_neighbors`.
-   !< This is the post-C.3-closure shape (each realm owns its own adam value
-   !< component). For N=1 the array on `realm(1)%adam%maps` is the same data
-   !< the singleton `maps%inter_realm_neighbors` aliases through the shim;
-   !< for N>1 each realm has its own array with only the face-pair entries
-   !< whose `my_realm` matches that realm's index.
-   class(forest_object),     intent(inout) :: self     !< The forest (inout: flux_register is initialized/populated here).
-   class(realm_object),      intent(inout) :: realm(:) !< Initialized realms whose adam%maps gets populated.
-   type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest.
+   class(forest_object),     intent(inout) :: self                !< The forest.
+   class(realm_object),      intent(inout) :: realm(:)            !< Initialized realms whose adam%maps gets populated.
+   type(forest_manifest_t),  intent(in)    :: manifest            !< Parsed manifest.
    integer(I4P), allocatable               :: per_realm_count(:)  !< How many neighbour entries each realm gets.
    integer(I4P), allocatable               :: per_realm_cursor(:) !< Write cursor per realm.
-   integer(I4P)                            :: f, is    !< Face-pair and realm index counters.
-   type(forest_face_pair_t)                :: pair     !< Loop alias.
+   integer(I4P)                            :: f, is               !< Face-pair and realm index counters.
+   type(forest_face_pair_t)                :: pair                !< Loop alias.
 
    associate(self_unused => self) ! method takes self for TBP-dispatch symmetry; uses no forest state
    end associate
@@ -486,20 +344,16 @@ contains
       pair = manifest%face_pairs(f)
       ! entry on realm_a's array: my=a, peer=b
       per_realm_cursor(pair%realm_a) = per_realm_cursor(pair%realm_a) + 1_I4P
-      call set_neighbor(realm(pair%realm_a)%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_a)), &
-                        my_realm=pair%realm_a, my_face=pair%face_a, &
-                        peer_realm=pair%realm_b, peer_face=pair%face_b, &
+      call set_neighbor(slot=realm(pair%realm_a)%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_a)), &
+                        my_realm=pair%realm_a,my_face=pair%face_a,peer_realm=pair%realm_b,peer_face=pair%face_b,  &
                         coupling=pair%coupling)
       ! entry on realm_b's array: my=b, peer=a
       per_realm_cursor(pair%realm_b) = per_realm_cursor(pair%realm_b) + 1_I4P
-      call set_neighbor(realm(pair%realm_b)%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_b)), &
-                        my_realm=pair%realm_b, my_face=pair%face_b, &
-                        peer_realm=pair%realm_a, peer_face=pair%face_a, &
+      call set_neighbor(slot=realm(pair%realm_b)%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_b)), &
+                        my_realm=pair%realm_b,my_face=pair%face_b,peer_realm=pair%realm_a,peer_face=pair%face_a,  &                                        &
                         coupling=pair%coupling)
    enddo
    ! Register inter-realm seams with the program-scope flux register
-   ! (Phase A of [issue #13], step 2: topology registration).
-   !
    ! For each (face-pair, block-on-coarse-side) tuple, one entry is added to
    ! the register. The "coarse" / "fine" labels follow the manifest's a/b
    ! ordering; for the current same-resolution (COUPLING_MIRROR) case the
@@ -508,16 +362,15 @@ contains
    ! expectation. The structural cost (allocated registers, populated
    ! topology) is the same as for the true coarse-fine AMR case that will
    ! exercise these accumulators non-trivially in follow-up commits.
-   call register_inter_realm_seams(realm, manifest, self%flux_register)
-   ! Build the per-cell inter-realm ghost map (Phase A of issue #13 — seam
-   ! comm-map). Per-realm: enumerate every ghost cell in self's seam-block
+   call register_inter_realm_seams(realm=realm, manifest=manifest, flux_register=self%flux_register)
+   ! Build the per-cell inter-realm ghost map. Per-realm: enumerate every ghost cell in self's seam-block
    ! ghost region and resolve the (peer_realm, peer_block, peer_interior_cell)
    ! tuple. The runtime exchange then becomes a flat indexed loop, replacing
    ! the per-substage geometric find_peer_block + face-slab copy that misses
-   ! corner / edge ghosts (defect B of issue #13).
-   call build_inter_realm_ghost_cell_map(realm, manifest)
+   ! corner / edge ghosts.
+   call build_inter_realm_ghost_cell_map(realm=realm, manifest=manifest)
    ! Override the BC crown's bc_type column to BC_SEAM for entries that
-   ! lie on an inter-realm seam face (Phase A of [issue #13]).
+   ! lie on an inter-realm seam face.
    !
    ! Why this is needed: each realm parses its INI in isolation and
    ! declares physical BCs on all 6 faces (bc_x_max, bc_x_min, ...). For
@@ -542,13 +395,19 @@ contains
    ! The manifest is the authoritative source of truth about realm
    ! topology; this override applies that authority over the realm's
    ! own INI declarations at the right semantic layer.
-   call override_seam_bc_in_crown(realm, manifest)
+   call override_seam_bc_in_crown(realm=realm, manifest=manifest)
    contains
       subroutine set_neighbor(slot, my_realm, my_face, peer_realm, peer_face, coupling)
-      type(inter_realm_neighbor_t), intent(out) :: slot
-      integer(I4P),                 intent(in)  :: my_realm, my_face, peer_realm, peer_face, coupling
+      !< Set inter-realm neighbor.
+      type(inter_realm_neighbor_t), intent(out) :: slot       !< Inter-realm neighbor slot.
+      integer(I4P),                 intent(in)  :: my_realm   !< My realm.
+      integer(I4P),                 intent(in)  :: my_face    !< My face.
+      integer(I4P),                 intent(in)  :: peer_realm !< Peer realm.
+      integer(I4P),                 intent(in)  :: peer_face  !< Peer face
+      integer(I4P),                 intent(in)  :: coupling   !< Coupling type.
+
       slot%my_realm   = my_realm
-      slot%my_block   = 0_I4P              ! resolved at exchange time by the realm-side override
+      slot%my_block   = 0_I4P
       slot%my_face    = my_face
       slot%peer_realm = peer_realm
       slot%peer_block = 0_I4P
@@ -582,23 +441,16 @@ contains
       !< the realm_b-side blocks that geometrically cover the realm_a-side
       !< block face; for same-resolution that resolves to a single fine
       !< block, populated by `find_peer_block` at exchange time.
-      !<
-      !< Now `intent(inout)` (Phase A step 4) because Pass 2 populates
-      !< the per-realm `inter_realm_face_register_index(b, fec_1_6)`
-      !< lookup on `adam%maps`, so PRISM's compute_residuals_fv_centered
-      !< can find the right register entry in O(1).
-      class(realm_object),        intent(inout) :: realm(:)
-                                                                 !< Initialized realms; gains inter_realm_face_register_index per
-                                                                 !< realm.
-      type(forest_manifest_t),    intent(in)    :: manifest      !< Parsed manifest.
-      type(flux_register_object), intent(inout) :: flux_register !< Berger-Colella reflux accumulator owned by the forest.
-      integer(I4P)                        :: f, b    !< Face-pair, block counters.
-      integer(I4P)                        :: a_realm !< Coarse-side realm index alias.
-      integer(I4P)                        :: a_axis, a_sign !< Coarse-face axis and sign.
-      integer(I4P)                        :: nfaces_total   !< Total register entries.
-      integer(I4P)                        :: cursor         !< Write cursor into the register.
-      integer(I4P)                        :: nface_cells    !< Cell count on the coarse-face skin.
-      type(forest_face_pair_t)            :: pair    !< Manifest face-pair alias.
+      class(realm_object),        intent(inout) :: realm(:)       !< Initialized realms.
+      type(forest_manifest_t),    intent(in)    :: manifest       !< Parsed manifest.
+      type(flux_register_object), intent(inout) :: flux_register  !< Berger-Colella reflux accumulator owned by the forest.
+      integer(I4P)                              :: f, b           !< Face-pair, block counters.
+      integer(I4P)                              :: a_realm        !< Coarse-side realm index alias.
+      integer(I4P)                              :: a_axis, a_sign !< Coarse-face axis and sign.
+      integer(I4P)                              :: nfaces_total   !< Total register entries.
+      integer(I4P)                              :: cursor         !< Write cursor into the register.
+      integer(I4P)                              :: nface_cells    !< Cell count on the coarse-face skin.
+      type(forest_face_pair_t)                  :: pair           !< Manifest face-pair alias.
 
       if (.not. allocated(manifest%face_pairs)) then
          ! No inter-realm topology — initialize with zero faces so the
@@ -709,29 +561,6 @@ contains
       enddo
       endsubroutine register_inter_realm_seams
 
-      pure subroutine face_axis_sign(face_code, axis, sgn)
-      !< Translate FACE_X_MAX / FACE_X_MIN / ... into (axis 1..3, sign ±1).
-      !<
-      !< Duplicate of the same helper inside
-      !< `prism_cpu_object%exchange_inter_realm_halos_forest`; a future
-      !< refactor should lift the canonical version into `adam_maps_object`
-      !< and have both call sites use it. Kept local here to keep this
-      !< Phase A topology-registration commit minimal in scope.
-      integer(I4P), intent(in)  :: face_code !< Face code from inter_realm_neighbor_t.
-      integer(I4P), intent(out) :: axis      !< 1=x, 2=y, 3=z.
-      integer(I4P), intent(out) :: sgn       !< +1 if MAX, -1 if MIN.
-
-      select case (face_code)
-      case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
-      case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
-      case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
-      case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
-      case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
-      case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
-      case default;      axis = 0_I4P; sgn = 0_I4P
-      end select
-      endsubroutine face_axis_sign
-
       function block_face_on_realm_boundary(this_realm, b, axis, sgn) result(yes)
       !< Return .true. iff block `b`'s face on (axis, sgn) lies on the realm boundary.
       !<
@@ -739,12 +568,14 @@ contains
       !< `field%emin/emax`, with a small absolute tolerance. This mirrors
       !< the identically-named helper inside the PRISM-CPU realm; a future
       !< refactor should lift the canonical version into `adam_maps_object`.
-      class(realm_object), intent(in) :: this_realm  !< Realm to query.
-      integer(I4P),        intent(in) :: b           !< Block index.
-      integer(I4P),        intent(in) :: axis        !< 1=x, 2=y, 3=z.
-      integer(I4P),        intent(in) :: sgn         !< +1 if checking MAX face, -1 if MIN.
-      logical                         :: yes         !< Test result.
-      real(R8P)                       :: face_coord, target_coord, tol
+      class(realm_object), intent(in) :: this_realm   !< Realm to query.
+      integer(I4P),        intent(in) :: b            !< Block index.
+      integer(I4P),        intent(in) :: axis         !< 1=x, 2=y, 3=z.
+      integer(I4P),        intent(in) :: sgn          !< +1 if checking MAX face, -1 if MIN.
+      logical                         :: yes          !< Test result.
+      real(R8P)                       :: face_coord   !< Face coordinate.
+      real(R8P)                       :: target_coord !< Taget coordinate.
+      real(R8P)                       :: tol          !< Tolerance.
 
       if (sgn > 0_I4P) then
          face_coord   = this_realm%adam%field%emax(axis, b)
@@ -767,18 +598,18 @@ contains
       !< This is the cell count for a single block's face skin (NOT the
       !< whole-realm face skin); the realm-level face skin is the sum over
       !< the seam blocks, each contributing this count.
-      class(realm_object), intent(in) :: this_realm
-      integer(I4P),        intent(in) :: axis
-      integer(I4P)                    :: n
+      class(realm_object), intent(in) :: this_realm !< Realm to query.
+      integer(I4P),        intent(in) :: axis       !< 1=x, 2=y, 3=z.
+      integer(I4P)                    :: n          !< Counter.
 
       associate(g => this_realm%adam%grid)
-      select case (axis)
-      case (1_I4P); n = g%nj * g%nk
-      case (2_I4P); n = g%ni * g%nk
-      case (3_I4P); n = g%ni * g%nj
-      case default; n = 0_I4P
-      end select
-      end associate
+         select case (axis)
+         case (1_I4P); n = g%nj * g%nk
+         case (2_I4P); n = g%ni * g%nk
+         case (3_I4P); n = g%ni * g%nj
+         case default; n = 0_I4P
+         endselect
+      endassociate
       endfunction tangential_cell_count
 
       subroutine find_seam_peer_block(realm, my_realm_idx, my_block, my_axis, my_sign, &
@@ -805,11 +636,11 @@ contains
       integer(I4P),        intent(in)  :: peer_realm_idx
       integer(I4P),        intent(in)  :: peer_axis, peer_sign
       integer(I4P),        intent(out) :: b_peer
-      integer(I4P) :: bp
-      integer(I4P) :: tax1, tax2
-      real(R8P)    :: my_face_coord, my_tmin(2), my_tmax(2)
-      real(R8P)    :: peer_face_coord
-      real(R8P)    :: tol
+      integer(I4P)                     :: bp
+      integer(I4P)                     :: tax1, tax2
+      real(R8P)                        :: my_face_coord, my_tmin(2), my_tmax(2)
+      real(R8P)                        :: peer_face_coord
+      real(R8P)                        :: tol
 
       b_peer = 0_I4P
       if (peer_axis /= my_axis) return
@@ -842,14 +673,6 @@ contains
          return
       enddo
       endsubroutine find_seam_peer_block
-
-      ! ---------------------------------------------------------------------
-      ! Phase A of issue #13 — inter-realm seam comm-map construction.
-      ! All routines below are siblings inside this contains block (Fortran
-      ! 2008 forbids contains nesting deeper than one level), and pass the
-      ! realm array + per_realm_count explicitly rather than via host
-      ! association to keep the dependency structure obvious.
-      ! ---------------------------------------------------------------------
 
       subroutine build_inter_realm_ghost_cell_map(realm, manifest)
       !< Populate each realm's `adam%maps%inter_realm_ghost_cell` map.
@@ -891,11 +714,15 @@ contains
       !< resolution differs and the same geometric match degrades to a
       !< nearest-cell mapping — the `one_or_eight` column reserves the
       !< value 8 for that future case; v1 always writes 1.
-      class(realm_object),     intent(inout) :: realm(:) !< Forest realms (their maps get populated).
-      type(forest_manifest_t), intent(in)    :: manifest !< Parsed manifest.
-      integer(I4P)                           :: f, is, ip  !< Counters: face-pair, self-realm, peer-realm.
-      integer(I4P)                           :: my_face, peer_face, my_realm_idx, peer_realm_idx
-      integer(I4P)                           :: my_axis, my_sign
+      class(realm_object),     intent(inout) :: realm(:)  !< Forest realms (their maps get populated).
+      type(forest_manifest_t), intent(in)    :: manifest  !< Parsed manifest.
+      integer(I4P)                           :: f, is, ip !< Counters: face-pair, self-realm, peer-realm.
+      integer(I4P)                           :: my_face
+      integer(I4P)                           :: my_realm_idx
+      integer(I4P)                           :: my_axis
+      integer(I4P)                           :: my_sign
+      integer(I4P)                           :: peer_face
+      integer(I4P)                           :: peer_realm_idx
       integer(I4P)                           :: count_total
       integer(I4P), allocatable              :: per_realm_count(:)
       type(forest_face_pair_t)               :: pair
@@ -911,7 +738,7 @@ contains
       allocate(per_realm_count(size(realm)))
       per_realm_count = 0_I4P
 
-      ! ---- Pass 1: per-realm row counts --------------------------------
+      ! Pass 1: per-realm row counts
       do f = 1_I4P, int(size(manifest%face_pairs), I4P)
          pair = manifest%face_pairs(f)
          ! Side A: self = realm_a, peer = realm_b, looking through face_a.
@@ -929,7 +756,7 @@ contains
          count_total = count_total + per_realm_count(is)
       enddo
 
-      ! ---- Allocate per-realm maps ------------------------------------
+      ! Allocate per-realm maps
       do is = 1_I4P, int(size(realm), I4P)
          if (allocated(realm(is)%adam%maps%inter_realm_ghost_cell)) &
             deallocate(realm(is)%adam%maps%inter_realm_ghost_cell)
@@ -937,7 +764,7 @@ contains
             allocate(realm(is)%adam%maps%inter_realm_ghost_cell(1:per_realm_count(is), 1:10))
       enddo
 
-      ! ---- Pass 2: populate -------------------------------------------
+      ! Pass 2: populate
       ! Per-realm cursor — re-use per_realm_count as the running write index,
       ! but reset to zero before reuse.
       per_realm_count = 0_I4P
@@ -1241,14 +1068,24 @@ contains
    !< Empty register fast path: the for-loop body is skipped when
    !< `nfaces == 0` (single-realm forest, no seams declared); the
    !< routine is a true no-op for the N=1 path.
-   class(forest_object), intent(in)    :: self      !< The forest (holds the flux register being read).
-   class(realm_object),  intent(inout) :: realm(:)  !< Realms whose coarse-side q_rk gets corrected.
-   integer(I4P),         intent(in)    :: substage  !< RK substage 1..nrk.
-   real(R8P),            intent(in)    :: dt        !< Time step.
-   integer(I4P)                        :: f, axis, sgn, c
-   integer(I4P)                        :: i_coarse, j_coarse, k_coarse
-   integer(I4P)                        :: ni_, nj_, nk_, c0
-   real(R8P)                           :: dx_coarse, weight, scale
+   class(forest_object), intent(in)    :: self     !< The forest (holds the flux register being read).
+   class(realm_object),  intent(inout) :: realm(:) !< Realms whose coarse-side q_rk gets corrected.
+   integer(I4P),         intent(in)    :: substage !< RK substage 1..nrk.
+   real(R8P),            intent(in)    :: dt       !< Time step.
+   integer(I4P)                        :: f
+   integer(I4P)                        :: axis
+   integer(I4P)                        :: sgn
+   integer(I4P)                        :: c
+   integer(I4P)                        :: i_coarse
+   integer(I4P)                        :: j_coarse
+   integer(I4P)                        :: k_coarse
+   integer(I4P)                        :: ni_
+   integer(I4P)                        :: nj_
+   integer(I4P)                        :: nk_
+   integer(I4P)                        :: c0
+   real(R8P)                           :: dx_coarse
+   real(R8P)                           :: weight
+   real(R8P)                           :: scale_
 
    if (.not. self%flux_register%is_initialized_) return
    if (self%flux_register%nfaces == 0_I4P)        return
@@ -1267,23 +1104,12 @@ contains
       if (.not. allocated(face_f%F_fine_sum)) cycle
       if (substage > size(face_f%F_coarse, dim=3)) cycle
 
-      ! Inline FACE_*_MAX/MIN → (axis, sgn) translation (the
-      ! `face_axis_sign` helper lives in populate_inter_realm_topology's
-      ! contains scope and isn't visible here; duplicating 8 lines is
-      ! cheaper than another module-level helper).
-      select case (face_f%coarse_face)
-      case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
-      case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
-      case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
-      case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
-      case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
-      case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
-      case default;      cycle  ! malformed face_code; defensive.
-      end select
+      call face_axis_sign(face_f%coarse_face, axis, sgn)
+      if (axis == 0_I4P) cycle  ! malformed face_code; defensive.
 
       dx_coarse = realm(face_f%coarse_realm)%adam%field%dxyz(axis, face_f%coarse_block)
       if (dx_coarse <= 0._R8P) cycle  ! defensive (uninitialised block geometry)
-      scale = real(sgn, R8P) * weight * dt / dx_coarse
+      scale_ = real(sgn, R8P) * weight * dt / dx_coarse
 
       ! Grid extents of the coarse-side realm (used to unwrap the linear
       ! face-cell index `c` into (i, j, k) on the seam face).
@@ -1312,10 +1138,26 @@ contains
 
          realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, substage) = &
             realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, substage) &
-            + scale * (face_f%F_coarse(:, c, substage) - face_f%F_fine_sum(:, c, substage))
+            + scale_ * (face_f%F_coarse(:, c, substage) - face_f%F_fine_sum(:, c, substage))
       enddo
       end associate
    enddo
    endsubroutine apply_reflux_corrections
 
+   pure subroutine face_axis_sign(face_code, axis, sgn)
+   !< Translate FACE_X_MAX / FACE_X_MIN / ... into (axis 1..3, sign ±1).
+   integer(I4P), intent(in)  :: face_code !< Face code (FACE_X_MAX..FACE_Z_MIN).
+   integer(I4P), intent(out) :: axis      !< 1=x, 2=y, 3=z.
+   integer(I4P), intent(out) :: sgn       !< +1 if MAX, -1 if MIN.
+
+   select case (face_code)
+   case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
+   case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
+   case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
+   case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
+   case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
+   case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
+   case default;      axis = 0_I4P; sgn = 0_I4P
+   end select
+   endsubroutine face_axis_sign
 endmodule adam_forest_object
