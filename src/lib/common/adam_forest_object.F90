@@ -112,7 +112,6 @@ contains
    integer(I4P)                        :: is       !< Realm index.
 
    do is = 1, int(size(realm), I4P)
-      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%finalize_forest
    enddo
    ! MPI_FINALIZE is process-global: run it ONCE here, after every realm has done its
@@ -139,7 +138,6 @@ contains
    do is = 1, int(size(realm), I4P)
       ! For N>1 each realm needs its singleton shims pointing at its own
       ! components before compute_local_dt_forest reads through them.
-      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%compute_local_dt_forest(dt_local=dt_local)
       dt = min(dt, dt_local)
    enddo
@@ -162,34 +160,27 @@ contains
       call self%exchange_halos(realm=realm)
    else
       do is = 1_I4P, int(size(realm), I4P)
-         call realm(is)%bind_my_globals_forest
          call realm(is)%prepare_step_forest(dt=dt)
       enddo
-      call realm(1)%bind_my_globals_forest
       nrk = realm(1)%nrk_forest()
       do is = 2_I4P, int(size(realm), I4P)
-         call realm(is)%bind_my_globals_forest
          nrk_chk = realm(is)%nrk_forest()
          if (nrk_chk /= nrk) call mpih%error_stop(msg='forest_object%evolve_one_step: realms disagree on nrk_forest')
       enddo
       do s = 1_I4P, nrk
          do is = 1_I4P, int(size(realm), I4P)
-            call realm(is)%bind_my_globals_forest
             call realm(is)%assemble_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
          enddo
          do is = 1_I4P, int(size(realm), I4P)
-            call realm(is)%bind_my_globals_forest
             call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm, flux_register=self%flux_register)
          enddo
          do is = 1_I4P, int(size(realm), I4P)
-            call realm(is)%bind_my_globals_forest
             call realm(is)%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
          enddo
          call self%flux_register%reduce_fine_sums
          call self%apply_reflux_corrections(realm=realm, substage=s, dt=dt)
       enddo
       do is = 1_I4P, int(size(realm), I4P)
-         call realm(is)%bind_my_globals_forest
          call realm(is)%finalize_step_forest(dt=dt)
       enddo
    endif
@@ -212,7 +203,6 @@ contains
    integer(I4P)                        :: is       !< Realm index.
 
    do is = 1, int(size(realm), I4P)
-      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%exchange_inter_realm_halos_forest(realm=realm)
    enddo
    endsubroutine exchange_halos
@@ -233,7 +223,6 @@ contains
 
    done = .true.
    do is = 1, int(size(realm), I4P)
-      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%is_done_forest(done=done_local)
       done = done .and. done_local
    enddo
@@ -247,7 +236,6 @@ contains
    integer(I4P)                        :: is       !< Realm index.
 
    do is = 1, int(size(realm), I4P)
-      if (int(size(realm), I4P) > 1_I4P) call realm(is)%bind_my_globals_forest
       call realm(is)%post_step_forest(dt=0._R8P, t=0._R8P, it=0_I4P, realm=realm)
    enddo
    endsubroutine post_step
