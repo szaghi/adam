@@ -46,38 +46,23 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_initial_conditions     !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost               !< Update ghost cells and set boundary conditions.
       procedure, pass(self) :: compute_field_mean_value   !< Compute field mean value.
+      ! forest orchestrator contract methods overridings
+      procedure, pass(self) :: initialize_forest                 !< Invoked by forest%initialize per realm at startup.
+      procedure, pass(self) :: compute_local_dt_forest           !< Invoked by forest%compute_global_dt during the min reduction.
+      procedure, pass(self) :: advance_one_step_forest           !< Invoked by forest%evolve_one_step per realm per timestep.
+      procedure, pass(self) :: nrk_forest                        !< Number of substages this realm's integrator uses.
+      procedure, pass(self) :: prepare_step_forest               !< Per-step prologue (multi-realm path).
+      procedure, pass(self) :: assemble_substage_forest          !< One RK substage assembly (multi-realm path).
+      procedure, pass(self) :: residuals_substage_forest         !< One RK substage residual computation.
+      procedure, pass(self) :: assign_substage_forest            !< One RK substage stage assignment.
+      procedure, pass(self) :: evaluate_substage_forest          !< [Deprecated] residuals + assignment in one call.
+      procedure, pass(self) :: finalize_step_forest              !< Per-step epilogue (multi-realm path).
+      procedure, pass(self) :: post_step_forest                  !< Invoked by forest%post_step per realm per timestep.
+      procedure, pass(self) :: is_done_forest                    !< Invoked by forest%is_done during the termination reduction.
+      procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
+      procedure, pass(self) :: exchange_inter_realm_halos_forest !< Invoked by forest%exchange_halos to refresh inter-realm ghosts.
       ! numerical methods
       procedure, pass(self) :: compute_dt           !< Compute time step.
-      procedure, pass(self) :: initialize_forest                 !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: compute_local_dt_forest           !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: advance_one_step_forest
-                                                                 !< Orchestrator contract; overrides realm_object default (N=1 fast
-                                                                 !< path).
-      procedure, pass(self) :: nrk_forest
-                                                                 !< Orchestrator contract; overrides realm_object default
-                                                                 !< (multi-realm path).
-      procedure, pass(self) :: prepare_step_forest
-                                                                 !< Orchestrator contract; overrides realm_object default
-                                                                 !< (multi-realm path).
-      procedure, pass(self) :: assemble_substage_forest
-                                                                 !< Orchestrator contract; overrides realm_object default
-                                                                 !< (multi-realm path).
-      procedure, pass(self) :: residuals_substage_forest
-                                                                 !< Orchestrator contract; overrides realm_object default
-                                                                 !< (multi-realm 3-phase loop, issue #13).
-      procedure, pass(self) :: assign_substage_forest
-                                                                 !< Orchestrator contract; overrides realm_object default
-                                                                 !< (multi-realm 3-phase loop, issue #13).
-      procedure, pass(self) :: evaluate_substage_forest
-                                                                 !< Orchestrator contract; overrides realm_object default
-                                                                 !< (multi-realm path, legacy 2-phase).
-      procedure, pass(self) :: finalize_step_forest
-                                                                 !< Orchestrator contract; overrides realm_object default
-                                                                 !< (multi-realm path).
-      procedure, pass(self) :: post_step_forest                  !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: is_done_forest                    !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: finalize_forest                   !< Orchestrator contract; overrides realm_object default.
-      procedure, pass(self) :: exchange_inter_realm_halos_forest !< Orchestrator contract; overrides realm_object default.
       procedure, pass(self) :: compute_energy       !< Compute energy.
       procedure, pass(self) :: compute_energy_error !< Compute energy error.
       procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
@@ -89,20 +74,20 @@ interface
    subroutine compute_residuals_interface(self, q, dq, s, realm, flux_register)
    !< Compute residuals of equation, space operator.
    import :: prism_cpu_object, R8P, I4P, realm_object, flux_register_object
-   class(prism_cpu_object), intent(inout) :: self   !< The equation.
-   real(R8P),               intent(inout) :: q(1:,         &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)  !< Conservative variables.
-   real(R8P),               intent(inout) :: dq(1:,         &
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1:) !< Residuals.
-   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
-   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register for FV reflux accumulator hooks.
+   class(prism_cpu_object),     intent(inout)                   :: self          !< The equation.
+   real(R8P),                   intent(inout)                   :: q(1:,         &
+                                                                     1-self%ngc:,&
+                                                                     1-self%ngc:,&
+                                                                     1-self%ngc:,&
+                                                                     1:)         !< Conservative variables.
+   real(R8P),                   intent(inout)                   :: dq(1:,         &
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1:)        !< Residuals.
+   integer(I4P),                intent(in),    optional         :: s             !< Stage counter.
+   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
+   class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
    endsubroutine compute_residuals_interface
 
    subroutine integrate_interface(self)
@@ -168,12 +153,9 @@ contains
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
               blocks_number=>self%blocks_number, hs=>self%fdv_half_stencils(1), dxyz=>self%adam%field%dxyz)
       select case(delta_type)
-      case(AMR_DELTA_T_X)
-         dc(1:blocks_number) = dxyz(1,1:blocks_number)
-      case(AMR_DELTA_T_Y)
-         dc(1:blocks_number) = dxyz(2,1:blocks_number)
-      case(AMR_DELTA_T_Z)
-         dc(1:blocks_number) = dxyz(3,1:blocks_number)
+      case(AMR_DELTA_T_X) ; dc(1:blocks_number) = dxyz(1,1:blocks_number)
+      case(AMR_DELTA_T_Y) ; dc(1:blocks_number) = dxyz(2,1:blocks_number)
+      case(AMR_DELTA_T_Z) ; dc(1:blocks_number) = dxyz(3,1:blocks_number)
       case(AMR_DELTA_T_MAX)
          do b=1, blocks_number
             dc(b) = maxval(dxyz(:,b))
@@ -185,13 +167,13 @@ contains
          max_total_variation = -huge(1._R8P)
          do c=1, 1!self%coil%total_coils_number
             call self%compute_block_total_variation(hs=hs, dxyz=dxyz(:,b), ivar=1,            &
-                                                    q=self%coil%j_vec(:,:,:,:,b,c),                &
-                                                    tot_var_field=self%divergence(4,:,:,:,b), & !Cazzo
+                                                    q=self%coil%j_vec(:,:,:,:,b,c),           &
+                                                    tot_var_field=self%divergence(4,:,:,:,b), &
                                                     total_variation=total_variation)
             max_total_variation = max(max_total_variation,total_variation)
          enddo
-         call mpih%print_message('Block '//trim(str(b))//': max_total_variation = '//trim(str(max_total_variation))) !Cazzo
-         max_cell_delta = max_cell_delta_grad(tv=max_total_variation)
+         call mpih%print_message('Block '//trim(str(b))//': max_total_variation = '//trim(str(max_total_variation)))
+         max_cell_delta = max_cell_delta_tv(tv=max_total_variation)
          if ((dc(b)) > max_cell_delta) then
             self%adam%field%refinements_needed(b) = TO_BE_REFINED
          elseif ((dc(b)) * threshold_ < max_cell_delta) then
@@ -202,7 +184,7 @@ contains
       enddo
    endassociate
    contains
-      function max_cell_delta_grad(tv) result(delta)
+      function max_cell_delta_tv(tv) result(delta)
       !< Return the maximum cell delta given a total variation tollerance.
       real(R8P), intent(in) :: tv    !< Total variation value.
       real(R8P)             :: delta !< Maximum cell delta admissible.
@@ -212,7 +194,7 @@ contains
       else
          delta = delta_coarse
       endif
-      endfunction max_cell_delta_grad
+      endfunction max_cell_delta_tv
    endsubroutine mark_by_j_vec_total_variation
 
    ! auxiliary methods
@@ -262,20 +244,14 @@ contains
    ! set pointer (abstract) TBP
    if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
       select case(self%numerics%scheme_time)
-      case(NUM_SCHEME_TIME_BLANES_MOAN)
-         self%integrate => integrate_blanesmoan
-      case(NUM_SCHEME_TIME_CFM)
-         self%integrate => integrate_cfm
-      case(NUM_SCHEME_TIME_LEAPFROG)
-         self%integrate => integrate_leapfrog
+      case(NUM_SCHEME_TIME_BLANES_MOAN)        ; self%integrate => integrate_blanesmoan
+      case(NUM_SCHEME_TIME_CFM)                ; self%integrate => integrate_cfm
+      case(NUM_SCHEME_TIME_LEAPFROG)           ; self%integrate => integrate_leapfrog
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%rk%scheme)
-         case(RK_1, RK_2, RK_3)
-            self%integrate => integrate_rk_ls
-         case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
-            self%integrate => integrate_rk_ssp
-         case(RK_YOSHIDA)
-            self%integrate => integrate_rk_yoshida
+         case(RK_1, RK_2, RK_3)                ; self%integrate => integrate_rk_ls
+         case(RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate => integrate_rk_ssp
+         case(RK_YOSHIDA)                      ; self%integrate => integrate_rk_yoshida
          endselect
       endselect
    elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then !Metterei qualche error stop sulle combinazioni non valide
@@ -305,17 +281,13 @@ contains
    endif
 
    select case(self%numerics%scheme_space)
-   case(NUM_SCHEME_SPACE_WENO)
-      self%compute_residuals   => compute_residuals_weno
-   case(NUM_SCHEME_SPACE_FD_CENTERED)
-      self%compute_residuals   => compute_residuals_fd_centered
-   case(NUM_SCHEME_SPACE_FV_CENTERED)
-      self%compute_residuals   => compute_residuals_fv_centered
+   case(NUM_SCHEME_SPACE_WENO)        ; self%compute_residuals => compute_residuals_weno
+   case(NUM_SCHEME_SPACE_FD_CENTERED) ; self%compute_residuals => compute_residuals_fd_centered
+   case(NUM_SCHEME_SPACE_FV_CENTERED) ; self%compute_residuals => compute_residuals_fv_centered
    endselect
 
    select case(self%numerics%div_corr_var)
-   case(DIV_CORR_VAR_POISS)
-      compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
+   case(DIV_CORR_VAR_POISS) ; compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
    case(DIV_CORR_VAR_HYPER)
       if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
          compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_d
@@ -345,7 +317,7 @@ contains
          self%adam%field%residuals(v) = sqrt(self%adam%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
       if (mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
-                                                           blocks_number=self%blocks_number, residuals=self%adam%field%residuals)
+                                                      blocks_number=self%blocks_number, residuals=self%adam%field%residuals)
    endif
    endsubroutine save_residuals
 
@@ -391,10 +363,10 @@ contains
    !< Compute current coils sources (DC/AC with smooth envelope).
    class(prism_cpu_object), intent(inout)        :: self
    real(R8P),               intent(inout)        :: q(1:,          &
-                                                     1-self%ngc:, &
-                                                     1-self%ngc:, &
-                                                     1-self%ngc:, &
-                                                     1:)
+                                                      1-self%ngc:, &
+                                                      1-self%ngc:, &
+                                                      1-self%ngc:, &
+                                                      1:)
    real(R8P),               intent(in), optional :: gamma
    character(len=128)                            :: fname
    real(R8P)                                     :: current_density
@@ -406,7 +378,7 @@ contains
    integer(I4P)                                  :: w_ac  ! =1 AC, =0 DC (branchless)
    integer(I4P)                                  :: coil_id
    integer(I4P)                                  :: i,j,k,b,n
-   real(R8P),                          parameter :: f_tol = 1.0e-30_R8P
+   real(R8P), parameter                          :: f_tol = 1.0e-30_R8P
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number,                     &
              time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                                     &
@@ -485,6 +457,7 @@ contains
                                                1-self%ngc:,&
                                                1:)           !< Conservative variables.
    integer(I4P)                           :: face            !< Counter
+
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,         &
             f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL,     &
             nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, s2=>self%fWLayer%s2, &
@@ -515,25 +488,25 @@ contains
 
    subroutine set_boundary_conditions(self, q, s)
    !< Set boundary conditions of equation.
-   class(prism_cpu_object), intent(inout) :: self                 !< The equation.
+   class(prism_cpu_object), intent(inout) :: self                         !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
                                                1-self%ngc:,&
                                                1-self%ngc:,&
-                                               1-self%ngc:,1:)    !< Conservative variables.
-   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
-   integer(I4P)                           :: b, c, i, j, k, v        !< Counter.
-   integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
+                                               1-self%ngc:,1:)            !< Conservative variables.
+   integer(I4P),  optional, intent(in)    :: s                            !< Stage counter.
+   integer(I4P)                           :: b, c, i, j, k, v             !< Counter.
+   integer(I4P)                           :: idelta,jdelta,kdelta         !< IJK delta step for extrapolation.
    integer(I4P)                           :: idelta_n, jdelta_n, kdelta_n !< IJK delta step for Neumann BC.
-   integer(I4P)                           :: bc_type                 !< Boundary condition type.
-   integer(I4P)                           :: crown                   !< Crown counter.
-   integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
-   integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
-   integer(I4P)                           :: alfa_D, beta_D, gamma_D !< Indici alfa beta gamma come in Barbas.
-   integer(I4P)                           :: alfa_B, beta_B, gamma_B !< Indici alfa beta gamma come in Barbas.
-   real(R8P)                              :: s1                      !< Coefficiente pari a +-1.
-   real(R8P)                              :: ds                      !< Distanza tra le celle in x, y o z.
-   real(R8P)                              :: ngc_r, crown_r          !< Numero di gc totale, reale
-   real(R8P)                              :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
+   integer(I4P)                           :: bc_type                      !< Boundary condition type.
+   integer(I4P)                           :: crown                        !< Crown counter.
+   integer(I4P)                           :: fec                          !< Boundary fec (1 to 26).
+   integer(I4P)                           :: fec_1_6                      !< Boundary fec (1 to 6).
+   integer(I4P)                           :: alfa_D, beta_D, gamma_D      !< Indici alfa beta gamma come in Barbas.
+   integer(I4P)                           :: alfa_B, beta_B, gamma_B      !< Indici alfa beta gamma come in Barbas.
+   real(R8P)                              :: s1                           !< Coefficiente pari a +-1.
+   real(R8P)                              :: ds                           !< Distanza tra le celle in x, y o z.
+   real(R8P)                              :: ngc_r, crown_r               !< Numero di gc totale, reale
+   real(R8P)                              :: ref(1:9)                     !< Vettore di stato di riferimento per assegnazione gc.
 
    associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                              &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),     &
@@ -608,7 +581,6 @@ contains
                   if (fec <= 6) then
                      select case(fec)
                      !Identifico gli alfa beta gamma come nel paper di Barbas, distinguendo tra alfa_D e alfa_B ecc
-
                      case(1) ! x- face alfa = 2, beta = 3, gamma = 1
                         s1 = -1.0_R8P
                         alfa_D = 2_I4P
@@ -619,7 +591,6 @@ contains
                         gamma_B = 4_I4P
                         ds = dx(b) !distanza tra le celle in x
                         ref = q(:,1,j,k,b) !vettore di stato di riferimento per assegnazione gc
-
                      case(2) ! x+ face
                         s1 = 1.0_R8P
                         alfa_D = 2_I4P
@@ -629,7 +600,6 @@ contains
                         beta_B = 6_I4P
                         gamma_B = 4_I4P
                         ref = q(:,ni,j,k,b)
-
                      case(3) ! y- face
                         s1 = -1.0_R8P
                         alfa_D = 3_I4P
@@ -639,7 +609,6 @@ contains
                         beta_B = 4_I4P
                         gamma_B = 5_I4P
                         ref = q(:,i,1,k,b)
-
                      case(4) ! y+ face
                         s1 = 1.0_R8P
                         alfa_D = 3_I4P
@@ -649,7 +618,6 @@ contains
                         beta_B = 4_I4P
                         gamma_B = 5_I4P
                         ref = q(:,i,nj,k,b)
-
                      case(5) ! z- face
                         s1 = -1.0_R8P
                         alfa_D = 1_I4P
@@ -659,7 +627,6 @@ contains
                         beta_B = 5_I4P
                         gamma_B = 6_I4P
                         ref = q(:,i,j,1,b)
-
                      case(6) ! z+ face
                         s1 = 1.0_R8P
                         alfa_D = 1_I4P
@@ -670,11 +637,11 @@ contains
                         gamma_B = 6_I4P
                         ref = q(:,i,j,nk,b)
                      endselect
-                     q(alfa_D,i,j,k,b)  = s1*C0*ref(beta_B)*EPS0
-                     q(beta_D,i,j,k,b)  = -s1*C0*ref(alfa_B)*EPS0
+                     q(alfa_D, i,j,k,b) = s1*C0*ref(beta_B)*EPS0
+                     q(beta_D, i,j,k,b) = -s1*C0*ref(alfa_B)*EPS0
                      q(gamma_D,i,j,k,b) = ref(gamma_D)
-                     q(alfa_B,i,j,k,b)  = -s1/C0*ref(beta_D)/EPS0
-                     q(beta_B,i,j,k,b)  = s1/C0*ref(alfa_D)/EPS0
+                     q(alfa_B, i,j,k,b) = -s1/C0*ref(beta_D)/EPS0
+                     q(beta_B, i,j,k,b) = s1/C0*ref(alfa_D)/EPS0
                      q(gamma_B,i,j,k,b) = ref(gamma_B)
 
                      do v=(nv_c-nv_cl+1), nv
@@ -755,7 +722,22 @@ contains
             call self%rk_bc%assign_stage(field=self%adam%field, s=s)
          endif
       else !Mi serve solo per il t0, tanto ic è il vuoto praticamente sempre
-         q(v,i,j,k,b) = 0.0_R8P
+         !q(v,i,j,k,b) = 0.0_R8P this is bugged, which are v,i,j,k,b? below the fix
+         if (allocated(self%adam%maps%local_map_bc_crown)) then
+            do crown=1, ngc
+               do c=1, size(local_map_bc_crown, dim=1)
+                  b = local_map_bc_crown(c, 1 ,crown)
+                  if (b>0) then
+                     i = local_map_bc_crown(c, 2, crown)
+                     j = local_map_bc_crown(c, 3, crown)
+                     k = local_map_bc_crown(c, 4, crown)
+                     do v=1, nv_c
+                        q(v,i,j,k,b) = 0.0_R8P
+                     enddo
+                  endif
+               enddo
+            enddo
+         endif
       endif
    endif
    endassociate
@@ -849,7 +831,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
 
-   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, & 
+   if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, &
                                                             grid=self%adam%grid, q=self%q)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       call self%particle_injection%set_particle_initial_injection(field=self%adam%field, grid=self%adam%grid, &
@@ -880,24 +862,17 @@ contains
    !< ghosts on the same `q` buffer the caller is about to read.
    !< Empty neighbour list or no `realm` ⇒ skip silently (N=1 rmf path,
    !< bit-identical to pre-Phase-D).
-   !<
-   !< Historical note (issue #13, 2026-05-25): an earlier version of this
-   !< code consulted a polymorphic `class(realm_object), pointer ::
-   !< forest_realm(:)` module variable instead of the `realm` dummy.
-   !< That pointer was removed — pointer-to-class is forbidden by the
-   !< CLAUDE.md rule (nvfortran/OpenACC mishandles it; gfortran handles
-   !< it but the rule applies uniformly to keep CPU/FNL symmetric).
-   class(prism_cpu_object), intent(inout)                :: self            !< The equation.
-   real(R8P),               intent(inout)                :: q(1:,         &
-                                                              1-self%ngc:,&
-                                                              1-self%ngc:,&
-                                                              1-self%ngc:,&
-                                                              1:)           !< Conservative variables.
-   integer(I4P),            intent(in),    optional      :: step            !< Step to be perfordmed in asyncronous comp.
-   integer(I4P),            intent(in),    optional      :: s               !< Stage counter.
-   class(realm_object),     intent(inout), optional, target :: realm(:)     !< Sibling realms for inter-realm halo refresh.
-   logical                                               :: do_local_update !< Flag for triggering local update.
-   logical                                               :: do_set_bc       !< Flag for triggering setting bc.
+   class(prism_cpu_object), intent(inout)                   :: self            !< The equation.
+   real(R8P),               intent(inout)                   :: q(1:,         &
+                                                                 1-self%ngc:,&
+                                                                 1-self%ngc:,&
+                                                                 1-self%ngc:,&
+                                                                 1:)           !< Conservative variables.
+   integer(I4P),            intent(in),    optional         :: step            !< Step to be perfordmed in asyncronous comp.
+   integer(I4P),            intent(in),    optional         :: s               !< Stage counter.
+   class(realm_object),     intent(inout), optional, target :: realm(:)        !< Sibling realms for inter-realm halo refresh.
+   logical                                                  :: do_local_update !< Flag for triggering local update.
+   logical                                                  :: do_set_bc       !< Flag for triggering setting bc.
 
    ! perform local update if step is not speficied or if first step is selected
    do_local_update = .false.
@@ -910,7 +885,7 @@ contains
       if (step==3) do_set_bc       = .true.
    endif
    if (do_local_update) call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
-                        call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, step=step)
+   call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, step=step)
    if (allocated(self%adam%maps%inter_realm_neighbors) .and. present(realm)) then
       if (present(s)) then
          call self%exchange_inter_realm_halos_forest(realm=realm, s_active=s)
@@ -918,7 +893,7 @@ contains
          call self%exchange_inter_realm_halos_forest(realm=realm)
       endif
    endif
-   if (do_set_bc)       call self%set_boundary_conditions(q=q, s=s)
+   if (do_set_bc) call self%set_boundary_conditions(q=q, s=s)
    if (present(s)) then
       call self%compute_coils_current(q=q, gamma=self%rk%gamm(s))
    else
@@ -926,6 +901,7 @@ contains
    endif
    endsubroutine update_ghost
 
+   ! forest orchestrator contract methods overridings
    subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose, realm)
    !< Initialize this realm from scratch: PRISM init, IC injection (or
    !< restart load), initial ghost update, initial diagnostics dump, IO
@@ -934,40 +910,16 @@ contains
    !< Invoked by forest%initialize. v1 implementation wraps the legacy
    !< `initialize_prism(filename)` plus the verbatim post-init / pre-loop
    !< block formerly inline in `simulate`. Behavior unchanged.
-   !<
-   !< `realms_number` (passed by the forest as the realm count) divides the
-   !< per-process memory budget so each realm sizes its block storage to its
-   !< share, not the full process budget — without it, N realms each grab the
-   !< whole budget and over-subscribe RAM/VRAM by Nx (issue #13 rmf-2realm OOM).
-   !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are accepted;
-   !< `memory_avail` stays a door-open placeholder (the budget source is mpih,
-   !< only valid after mpih%initialize inside initialize_prism).
-   !<
-   !< Optional `realm(:)` (issue #13, 2026-05-25): forest realm array
-   !< accepted for contract parity with FNL. CPU backend ignores it — the
-   !< polymorphic `forest_realm` module pointer path works correctly under
-   !< gfortran (the nvfortran-OpenACC bug the FNL backend is dodging does
-   !< not apply on CPU).
-   class(prism_cpu_object), intent(inout)                :: self          !< The realm.
-   character(*),            intent(in)                   :: filename      !< Input parameters file name.
-   integer(I4P),            intent(in),    optional      :: realm_index   !< Index of this realm in the forest (Phase D).
-   integer(I4P),            intent(in),    optional      :: realms_number !< Realm count; divides the per-process budget (Phase D).
-   real(R8P),               intent(in),    optional      :: memory_avail
-                                                                          !< Per-process memory budget override (door-open
-                                                                          !< placeholder).
-   integer(I4P),            intent(in),    optional      :: nv            !< Number of field variables override.
-   logical,                 intent(in),    optional      :: verbose       !< Trigger verbose output.
-   class(realm_object),     intent(inout), optional, target :: realm(:)
-                                                                          !< Sibling realms (accepted but unused on CPU; contract
-                                                                          !< parity).
-   real(R8P)                                             :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
-   integer(I4P)                                          :: i, n, b       !< Counters.
-
-   if (present(realm_index)) continue
-   if (present(memory_avail)) continue
-   if (present(nv)) continue
-   if (present(verbose)) continue
-   if (present(realm)) continue
+   class(prism_cpu_object), intent(inout)                   :: self          !< The realm.
+   character(*),            intent(in)                      :: filename      !< Input parameters file name.
+   integer(I4P),            intent(in),    optional         :: realm_index   !< Index of this realm in the forest.
+   integer(I4P),            intent(in),    optional         :: realms_number !< Realm count; divides the per-process budget.
+   real(R8P),               intent(in),    optional         :: memory_avail  !< Per-process memory budget override.
+   integer(I4P),            intent(in),    optional         :: nv            !< Number of field variables override.
+   logical,                 intent(in),    optional         :: verbose       !< Trigger verbose output.
+   class(realm_object),     intent(inout), optional, target :: realm(:)      !< Sibling realms.
+   real(R8P)                                                :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
+   integer(I4P)                                             :: i, n, b       !< Counters.
 
    call self%initialize_prism(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
@@ -1058,22 +1010,6 @@ contains
    endif
    endsubroutine initialize_forest
 
-   ! numerical methods
-   subroutine compute_dt(self)
-   !< Compute the global stability-limited dt and store it on `self%time%dt`.
-   !<
-   !< Body delegates the local computation to compute_local_dt_forest
-   !< (orchestrator contract method), then performs the legacy
-   !< MPI_ALLREDUCE on MPI_COMM_WORLD for backward compatibility with
-   !< simulate. The forest's `compute_global_dt` (Phase A.6 commit 8)
-   !< will perform its own reduction, possibly on a per-realm sub-comm;
-   !< the redundancy disappears once the legacy compute_dt is retired.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-
-   call self%compute_local_dt_forest(dt_local=self%time%dt)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
-   endsubroutine compute_dt
-
    subroutine compute_local_dt_forest(self, dt_local)
    !< Compute this realm's local stability-limited dt (no MPI reduction).
    !<
@@ -1142,8 +1078,6 @@ contains
    class(prism_cpu_object), intent(in) :: self !< The realm.
    integer(I4P)                        :: nrk  !< Number of substages.
 
-   associate(self_unused => self) ! reads module-scope rk singleton, not self state
-   end associate
    nrk = self%rk%nrk
    endfunction nrk_forest
 
@@ -1180,16 +1114,12 @@ contains
    !< not yet have assembled their substage-s buffer when this fires.
    !<
    !< `realm` accepted on contract for parity with FNL; unused here.
-   class(prism_cpu_object), intent(inout)                :: self !< The realm.
-   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt
-                                                                 !< Timestep size from the forest (unused; self%time%dt is the
-                                                                 !< canonical source).
+   class(prism_cpu_object), intent(inout)                   :: self     !< The realm.
+   integer(I4P),            intent(in)                      :: s        !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                      :: nrk      !< Total number of substages.
+   real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
-   associate(dt_unused => dt, nrk_unused => nrk)
-   end associate
    if (present(realm)) continue
    if (self%ib%solids_number>0) then
       call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
@@ -1220,19 +1150,13 @@ contains
    !< `realm` accepted on contract for parity with FNL; unused on CPU
    !< (the polymorphic `forest_realm` module-pointer path works under
    !< gfortran).
-   class(prism_cpu_object),     intent(inout)                :: self !< The realm.
-   integer(I4P),                intent(in)                   :: s    !< Substage index (1..nrk).
-   integer(I4P),                intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),                   intent(in)                   :: dt
-                                                                     !< Timestep size from the forest (unused; self%time%dt is the
-                                                                     !< canonical source).
+   class(prism_cpu_object),     intent(inout)                   :: self          !< The realm.
+   integer(I4P),                intent(in)                      :: s             !< Substage index (1..nrk).
+   integer(I4P),                intent(in)                      :: nrk           !< Total number of substages.
+   real(R8P),                   intent(in)                      :: dt            !< Timestep size from the forest.
    class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional         :: flux_register
-                                                                                 !< Forest's flux register for FV reflux accumulator
-                                                                                 !< hooks.
+   class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
-   associate(dt_unused => dt, nrk_unused => nrk)
-   end associate
    if (present(realm) .and. present(flux_register)) then
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s, realm=realm, flux_register=flux_register)
    else if (present(realm)) then
@@ -1251,17 +1175,12 @@ contains
    !< overwrites `rk%q_rk(:, interior, :, b, s)` with `self%dq`. By the
    !< time this fires, no other realm needs to read this realm's
    !< q_rk(s) — they have all completed their residual evaluations.
-   class(prism_cpu_object), intent(inout)                :: self !< The realm.
-   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt
-                                                                 !< Timestep size from the forest (unused; self%time%dt is the
-                                                                 !< canonical source).
+   class(prism_cpu_object), intent(inout)                   :: self     !< The realm.
+   integer(I4P),            intent(in)                      :: s        !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                      :: nrk      !< Total number of substages.
+   real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
-   associate(dt_unused => dt, nrk_unused => nrk)
-   end associate
-   if (present(realm)) continue
    if (self%ib%solids_number>0) then
       call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
    else
@@ -1278,12 +1197,10 @@ contains
    !< Retained so any consumer outside the forest orchestrator (e.g.
    !< unit tests, standalone scripts) can still get the combined
    !< behavior in one call.
-   class(prism_cpu_object), intent(inout)                :: self !< The realm.
-   integer(I4P),            intent(in)                   :: s    !< Substage index (1..nrk).
-   integer(I4P),            intent(in)                   :: nrk  !< Total number of substages.
-   real(R8P),               intent(in)                   :: dt
-                                                                 !< Timestep size from the forest (unused; self%time%dt is the
-                                                                 !< canonical source).
+   class(prism_cpu_object), intent(inout)                   :: self     !< The realm.
+   integer(I4P),            intent(in)                      :: s        !< Substage index (1..nrk).
+   integer(I4P),            intent(in)                      :: nrk      !< Total number of substages.
+   real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (forwarded for contract parity).
 
    if (present(realm)) then
@@ -1363,16 +1280,16 @@ contains
    !< explicit MPI exchange that is not yet built; under the replicated-
    !< forest layout used by rmf-2realm (both ranks own both realms) every
    !< peer cell is local and the limitation is dormant.
-   class(prism_cpu_object), intent(inout)           :: self     !< This realm.
-   class(realm_object),     intent(in)              :: realm(:) !< All realms in the forest.
-   integer(I4P),            intent(in),    optional :: s_active !< Active RK substage (1..nrk) or 0/absent for non-substage refresh.
-   integer(I4P) :: c            !< Map row counter.
-   integer(I4P) :: nrows        !< Map row count.
-   integer(I4P) :: peer_realm_idx
-   integer(I4P) :: b_send, b_recv
-   integer(I4P) :: i_send, j_send, k_send
-   integer(I4P) :: i_recv, j_recv, k_recv
-   integer(I4P) :: s_active_   !< Local copy of the optional dummy (0 default).
+   class(prism_cpu_object), intent(inout)        :: self                   !< This realm.
+   class(realm_object),     intent(in)           :: realm(:)               !< All realms in the forest.
+   integer(I4P),            intent(in), optional :: s_active               !< Active RK substage (1..nrk) or 0/absent.
+   integer(I4P)                                  :: c                      !< Map row counter.
+   integer(I4P)                                  :: nrows                  !< Map row count.
+   integer(I4P)                                  :: peer_realm_idx         !< Peer realm index.
+   integer(I4P)                                  :: b_send, b_recv         !< Block index send/recv.
+   integer(I4P)                                  :: i_send, j_send, k_send !< IJK coordinate send.
+   integer(I4P)                                  :: i_recv, j_recv, k_recv !< IJK coordinate recv.
+   integer(I4P)                                  :: s_active_              !< Local copy of the optional dummy (0 default).
 
    if (.not. allocated(self%adam%maps%inter_realm_ghost_cell)) return
    nrows     = int(size(self%adam%maps%inter_realm_ghost_cell, dim=1), I4P)
@@ -1402,7 +1319,6 @@ contains
    enddo
    endsubroutine exchange_inter_realm_halos_forest
 
-
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run PRISM-CPU's per-timestep post-step work: state IO, energy
    !< diagnostics, divergence diagnostics.
@@ -1421,31 +1337,23 @@ contains
    !< (today they are still read from the `time` module singleton).
    !<
    !< `realm` is accepted on contract parity with FNL; unused on CPU.
-   class(prism_cpu_object), intent(inout)                :: self              !< The realm.
-   real(R8P),               intent(in)                   :: dt                !< Timestep size just advanced.
-   real(R8P),               intent(in)                   :: t                 !< Simulation time after the advance.
-   integer(I4P),            intent(in)                   :: it                !< Iteration index after the advance.
-   logical,                 intent(in),    optional      :: do_save_state     !< Save state output this step.
-   logical,                 intent(in),    optional      :: do_save_residuals !< Save residuals output this step.
-   logical,                 intent(in),    optional      :: do_save_restart   !< Save restart dump this step.
-   logical,                 intent(in),    optional      :: do_amr            !< Run AMR update this step.
-   class(realm_object),     intent(inout), optional, target :: realm(:)       !< Sibling realms (CPU ignores; contract parity).
-
-   associate(dt_unused => dt, t_unused => t, it_unused => it) ! v1: dt/t/it not consumed yet
-   end associate
-   if (present(do_save_state)) continue
-   if (present(do_save_residuals)) continue
-   if (present(do_save_restart)) continue
-   if (present(do_amr)) continue
-   if (present(realm)) continue
+   class(prism_cpu_object), intent(inout)                   :: self              !< The realm.
+   real(R8P),               intent(in)                      :: dt                !< Timestep size just advanced.
+   real(R8P),               intent(in)                      :: t                 !< Simulation time after the advance.
+   integer(I4P),            intent(in)                      :: it                !< Iteration index after the advance.
+   logical,                 intent(in),    optional         :: do_save_state     !< Save state output this step.
+   logical,                 intent(in),    optional         :: do_save_residuals !< Save residuals output this step.
+   logical,                 intent(in),    optional         :: do_save_restart   !< Save restart dump this step.
+   logical,                 intent(in),    optional         :: do_amr            !< Run AMR update this step.
+   class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
    if (self%io%save_memory_status) then
       call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
    endif
    if (mod(self%time%it,self%amr%frequency)==0) then
-      call mpih%barrier(tictoc=.true.)
+      ! call mpih%barrier(tictoc=.true.)
       !call self%amr_update
-      call mpih%barrier(tictoc=.true.)
+      ! call mpih%barrier(tictoc=.true.)
    endif
    associate(hs => self%fdv_half_stencil)
    if (present(realm)) then
@@ -1464,6 +1372,72 @@ contains
    call self%save_divergence_history
    endassociate
    endsubroutine post_step_forest
+
+   subroutine is_done_forest(self, done)
+   !< Decide whether this realm has reached its local termination criterion.
+   !<
+   !< Invoked by forest%is_done. PRISM-CPU override: matches the legacy
+   !< condition inline in simulate — terminate when either the simulated
+   !< time has reached self%time%time_max (time-driven mode, it_max <= 0) or
+   !< the iteration count has reached self%time%it_max (iteration-driven mode).
+   !< Today the test reads time-state from the `time` module singleton,
+   !< so `self` is unused; once the forest takes over time bookkeeping
+   !< the body will consume self%time%* instead.
+   class(prism_cpu_object), intent(in)  :: self !< The realm.
+   logical,                 intent(out) :: done !< True if this realm is done evolving.
+
+   associate(self_unused => self)
+   end associate
+   done = ((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
+          ((self%time%it >= self%time%it_max).and.(self%time%it_max > 0))
+   endsubroutine is_done_forest
+
+   subroutine finalize_forest(self)
+   !< Shut this realm down: final state dump, close residuals/energy/
+   !< divergence history files, post-loop divergence diagnostics, finalize
+   !< MPI handler.
+   !<
+   !< Invoked by forest%finalize. v1 implementation is the verbatim post-
+   !< loop block formerly inline in `simulate`. Behavior unchanged.
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+
+   !call self%compute_energy_error
+   call self%save_simulation_data
+   call self%io%close_file_residuals
+   !call self%save_energy_error(is_to_close=.true.)
+   !call mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
+   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_D))))))
+   !call mpih%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
+   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_B))))))
+   !call mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
+   !call mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
+   call self%save_energy_history(is_to_close=.true.)
+   call self%update_ghost(q=self%q) ! Aggiunto da FN
+   associate(hs => self%fdv_half_stencil)
+   call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   endassociate
+   call self%save_divergence_history(is_to_close=.true.)
+   ! NB: MPI_FINALIZE is NOT called here — it is process-global and runs once via
+   ! forest%finalize -> finalize_mpi_forest after ALL realms finish (issue #13).
+   endsubroutine finalize_forest
+
+   ! numerical methods
+   subroutine compute_dt(self)
+   !< Compute the global stability-limited dt and store it on `self%time%dt`.
+   !<
+   !< Body delegates the local computation to compute_local_dt_forest
+   !< (orchestrator contract method), then performs the legacy
+   !< MPI_ALLREDUCE on MPI_COMM_WORLD for backward compatibility with
+   !< simulate. The forest's `compute_global_dt`
+   !< will perform its own reduction, possibly on a per-realm sub-comm;
+   !< the redundancy disappears once the legacy compute_dt is retired.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   call self%compute_local_dt_forest(dt_local=self%time%dt)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+   endsubroutine compute_dt
 
    subroutine compute_energy(self)
    !< Compute energy.
@@ -1527,7 +1501,7 @@ contains
       endassociate
       endsubroutine compute_e
 
-      subroutine compute_coil_power(ivar, coil_power) !A voler essere precisi non è un'energia ma una potenza (per unità di volume)
+      subroutine compute_coil_power(ivar, coil_power)
       !< Compute coil power of vector field starting from ivar.
       integer(I4P), intent(in)  :: ivar        !< Starting position of vector field.
       real(R8P),    intent(out) :: coil_power  !< Coil power of the vector field.
@@ -1713,67 +1687,8 @@ contains
    endassociate
    endsubroutine impose_ct_correction
 
-   subroutine is_done_forest(self, done)
-   !< Decide whether this realm has reached its local termination criterion.
-   !<
-   !< Invoked by forest%is_done. PRISM-CPU override: matches the legacy
-   !< condition inline in simulate — terminate when either the simulated
-   !< time has reached self%time%time_max (time-driven mode, it_max <= 0) or
-   !< the iteration count has reached self%time%it_max (iteration-driven mode).
-   !< Today the test reads time-state from the `time` module singleton,
-   !< so `self` is unused; once the forest takes over time bookkeeping
-   !< the body will consume self%time%* instead.
-   class(prism_cpu_object), intent(in)  :: self !< The realm.
-   logical,                 intent(out) :: done !< True if this realm is done evolving.
-
-   associate(self_unused => self)
-   end associate
-   done = ((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
-          ((self%time%it >= self%time%it_max).and.(self%time%it_max > 0))
-   endsubroutine is_done_forest
-
-   subroutine finalize_forest(self)
-   !< Shut this realm down: final state dump, close residuals/energy/
-   !< divergence history files, post-loop divergence diagnostics, finalize
-   !< MPI handler.
-   !<
-   !< Invoked by forest%finalize. v1 implementation is the verbatim post-
-   !< loop block formerly inline in `simulate`. Behavior unchanged.
-   class(prism_cpu_object), intent(inout) :: self !< The realm.
-
-   !call self%compute_energy_error
-   call self%save_simulation_data
-   call self%io%close_file_residuals
-   !call self%save_energy_error(is_to_close=.true.)
-   !call mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
-   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_D))))))
-   !call mpih%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
-   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_B))))))
-   !call mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
-   !call mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
-   call self%save_energy_history(is_to_close=.true.)
-   call self%update_ghost(q=self%q) ! Aggiunto da FN
-   associate(hs => self%fdv_half_stencil)
-   call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
-   endassociate
-   call self%save_divergence_history(is_to_close=.true.)
-   ! NB: MPI_FINALIZE is NOT called here — it is process-global and runs once via
-   ! forest%finalize -> finalize_mpi_forest after ALL realms finish (issue #13).
-   endsubroutine finalize_forest
-
    subroutine simulate(self, filename)
    !< Perform the simulation: legacy single-realm entry point.
-   !<
-   !< Preserved (R5 of issue #10) so app developers can still drive a single
-   !< realm without setting up a forest. Mirrors the forest's `simulate`
-   !< orchestration: initialize → loop {compute_dt → advance → post → done}
-   !< → finalize. Per-step bookkeeping (self%time%it increment, time_max dt cap,
-   !< time advance, progress print, save_memory_status, AMR-update hook)
-   !< now lives inside `advance_one_step_forest` and `post_step_forest`, so
-   !< this body becomes a thin orchestration that matches the forest path
-   !< bit-for-bit.
    class(prism_cpu_object), intent(inout) :: self      !< The equation.
    character(*),            intent(in)    :: filename  !< Input file name.
    logical                                :: loop_done !< Termination predicate.
@@ -1793,37 +1708,35 @@ contains
    ! pointer TBP concrete implementations
    subroutine compute_residuals_fd_centered(self, q, dq, s, realm, flux_register)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
-   class(prism_cpu_object), intent(inout) :: self                     !< The equation.
-   real(R8P),               intent(inout) :: q(1:,         &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)                    !< Conservative variables.
-   real(R8P),               intent(inout) :: dq(1:,         &
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1:)                   !< Residuals.
-   integer(I4P),  optional, intent(in)    :: s                        !< Stage counter.
-   class(realm_object), intent(inout), optional, target :: realm(:)   !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional :: flux_register
-                                                                         !< Accepted for contract parity; FD scheme has no FV reflux
-                                                                         !< hook.
-   integer(I4P)                           :: i,j,k,b                  !< Counter
-   real(R8P)                              :: curlD(3), curlB(3)       !< Residuals components.
-   real(R8P)                              :: gradphi(3), gradpsi(3)   !< Residuals components.
-   real(R8P)                              :: divergenceD, divergenceB !< Residuals components.
-   real(R8P)                              :: KO_Dx_x,KO_Dx_y,KO_Dx_z
-   real(R8P)                              :: KO_Dy_x,KO_Dy_y,KO_Dy_z
-   real(R8P)                              :: KO_Dz_x,KO_Dz_y,KO_Dz_z
-   real(R8P)                              :: KO_Bx_x,KO_Bx_y,KO_Bx_z
-   real(R8P)                              :: KO_By_x,KO_By_y,KO_By_z
-   real(R8P)                              :: KO_Bz_x,KO_Bz_y,KO_Bz_z
-   real(R8P), parameter :: sigma = 1000.01_R8P
-      real(R8P) :: min_curlD,max_curlD
+   class(prism_cpu_object),     intent(inout)                   :: self                     !< The equation.
+   real(R8P),                   intent(inout)                   :: q(1:,         &
+                                                                     1-self%ngc:,&
+                                                                     1-self%ngc:,&
+                                                                     1-self%ngc:,&
+                                                                     1:)                    !< Conservative variables.
+   real(R8P),                   intent(inout)                   :: dq(1:,         &
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1:)                   !< Residuals.
+   integer(I4P),                intent(in),    optional         :: s                        !< Stage counter.
+   class(realm_object),         intent(inout), optional, target :: realm(:)                 !< Sibling realms for inter-realm.
+   class(flux_register_object), intent(inout), optional         :: flux_register            !< Flux register.
+   integer(I4P)                                                 :: i,j,k,b                  !< Counter
+   real(R8P)                                                    :: curlD(3), curlB(3)       !< Curl of D and B.
+   real(R8P)                                                    :: gradphi(3), gradpsi(3)   !< Graident of phi and psi.
+   real(R8P)                                                    :: divergenceD, divergenceB !< Divergence of D and B.
+   real(R8P)                                                    :: KO_Dx_x,KO_Dx_y,KO_Dx_z  !< Buffer for KO correction, D x.
+   real(R8P)                                                    :: KO_Dy_x,KO_Dy_y,KO_Dy_z  !< Buffer for KO correction, D y.
+   real(R8P)                                                    :: KO_Dz_x,KO_Dz_y,KO_Dz_z  !< Buffer for KO correction, D z.
+   real(R8P)                                                    :: KO_Bx_x,KO_Bx_y,KO_Bx_z  !< Buffer for KO correction, B x.
+   real(R8P)                                                    :: KO_By_x,KO_By_y,KO_By_z  !< Buffer for KO correction, B y.
+   real(R8P)                                                    :: KO_Bz_x,KO_Bz_y,KO_Bz_z  !< Buffer for KO correction, B z.
+   real(R8P), parameter                                         :: sigma = 1000.01_R8P
+   real(R8P)                                                    :: min_curlD,max_curlD
 
-      min_curlD =  huge(1._R8P)
-      max_curlD = -huge(1._R8P)
+   min_curlD =  huge(1._R8P)
+   max_curlD = -huge(1._R8P)
 
    call self%apply_fWL_correction(q=q)
    if (present(realm)) then
@@ -1832,17 +1745,21 @@ contains
       call self%update_ghost(q=q, s=s)
    endif
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dxyz=>self%adam%field%dxyz,                                                                                        &
+             dxyz=>self%adam%field%dxyz,                                                                              &
              s1=>self%fdv_half_stencils(1),                                                                           &
              s4=>self%fdv_half_stencils(4),                                                                           &
-             chi =>self%physics%chi, constrained_transport_D=>self%numerics%constrained_transport_D,                            &
-             constrained_transport_B=>self%numerics%constrained_transport_B,                                               &
+             chi =>self%physics%chi, constrained_transport_D=>self%numerics%constrained_transport_D,                  &
+             constrained_transport_B=>self%numerics%constrained_transport_B,                                          &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
    if (blocks_number > 0) then
       if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then !Adimensional equations
          if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
             .not.constrained_transport_B) then
-         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
+            ! RHS:
+            ! dD/dt = curl(B/MU0) - grad(phi) - J
+            ! dB/dt = -curl(D/EPS0)
+            ! dphi/dt = -ch^2*div(D)
+
             !do b=1,blocks_number
             !do k=1,nk
             !do j=1,nj
@@ -1872,7 +1789,11 @@ contains
             !enddo
          elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
                  constrained_transport_B) then
-         ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
+            ! RHS:
+            ! dD/dt = curl(B/MU0) - J
+            ! dB/dt = -curl(D/EPS0) -grad(psi)
+            ! dpsi/dt = -ch^2*div(B)
+
             !do b=1,blocks_number
             !do k=1,nk
             !do j=1,nj
@@ -1902,8 +1823,11 @@ contains
             !enddo
          elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
                   constrained_transport_B) then
-         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
-         !             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
+            ! RHS:
+            ! dD/dt = curl(B/MU0) - grad(phi) - J
+            ! dB/dt = -curl(D/EPS0) -grad(psi
+            ! dphi/dt = -ch^2*div(D)
+            ! dpsi/dt = -ch^2*div(B)
             !do b=1,blocks_number
             !do k=1,nk
             !do j=1,nj
@@ -1945,7 +1869,9 @@ contains
             !enddo
             !enddo
          else
-         ! compute RHS dD/dt = curl(B) - J, dB/dt = -curl(D)
+            ! RHS:
+            ! dD/dt = curl(B) - J
+            ! dB/dt = -curl(D)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
@@ -2012,12 +1938,12 @@ contains
                !call
                !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*
                !KO_Bz_z
-               dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b)      !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,i,j,k,b) =  curlB(2) - q(var_Jy,i,j,k,b)      !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,i,j,k,b) =  curlB(3) - q(var_Jz,i,j,k,b)      !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,i,j,k,b) = -curlD(1)                         !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,i,j,k,b) = -curlD(2)                         !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,i,j,k,b) = -curlD(3)                         !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+               dq(VAR_DY,i,j,k,b) =  curlB(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+               dq(VAR_DZ,i,j,k,b) =  curlB(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+               dq(VAR_BX,i,j,k,b) = -curlD(1)                     !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+               dq(VAR_BY,i,j,k,b) = -curlD(2)                     !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+               dq(VAR_BZ,i,j,k,b) = -curlD(3)                     !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
             enddo
             enddo
             enddo
@@ -2026,7 +1952,10 @@ contains
       else !Dimensional equations
          if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
             .not.constrained_transport_B) then
-         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
+            ! RHS:
+            ! dD/dt = curl(B/MU0) - grad(phi) - J
+            ! dB/dt = -curl(D/EPS0)
+            ! dphi/dt = -ch^2*div(D)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
@@ -2049,14 +1978,17 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                                 !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                                 !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                                 !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,i,j,k,b)   = -(chi*C0)**2*divergenceD
+               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceD
             enddo
             enddo
             enddo
             enddo
          elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
                  constrained_transport_B) then
-         ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
+            ! RHS:
+            ! dD/dt = curl(B/MU0)  - J
+            ! dB/dt = -curl(D/EPS0) - grad(psi)
+            ! dpsi/dt = -ch^2*div(B)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
@@ -2079,63 +2011,56 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)       !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)       !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)       !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,i,j,k,b)   = -(chi*C0)**2*divergenceB
+               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceB
             enddo
             enddo
             enddo
             enddo
          elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
-                  constrained_transport_B) then
-         ! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
-         !             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
+                 constrained_transport_B) then
+            ! RHS:
+            ! dD/dt = curl(B/MU0) - grad(phi) - J
+            ! dB/dt = -curl(D/EPS0) - grad(psi)
+            ! dphi/dt = -ch^2*div(D)
+            ! dpsi/dt = -ch^2*div(B)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
             do i=1,ni
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
-                                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
-                                           curl=curlD)
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
-                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
-                                           curl=curlB)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
-                                                 q=q(nv_c-1_I4P,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),          &
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+                                             q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),       &
+                                             curl=curlD)
+               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+                                             q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),       &
+                                             curl=curlB)
+               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                &
+                                                 q=q(nv_c-1_I4P,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),      &
                                                  gradient=gradphi)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
-                                                 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),                &
+               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                &
+                                                 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),            &
                                                  gradient=gradpsi)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
-                                                   q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
+               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
+                                                   q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceD)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
-                                                   q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
+               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
+                                                   q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceB)
-               dq(VAR_DX,i,j,k,b)      =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b)
-                                                                                         !-
-                                                                                         !sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,i,j,k,b)      =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b)
-                                                                                         !-
-                                                                                         !sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,i,j,k,b)      =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b)
-                                                                                         !-
-                                                                                         !sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,i,j,k,b)      = -curlD(1)/EPS0 - gradpsi(1)
-                                                                                         !-
-                                                                                         !sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,i,j,k,b)      = -curlD(2)/EPS0 - gradpsi(2)
-                                                                                         !-
-                                                                                         !sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,i,j,k,b)      = -curlD(3)/EPS0 - gradpsi(3)
-                                                                                         !-
-                                                                                         !sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c-1_I4P,i,j,k,b)  = -(chi*C0)**2*divergenceD
-               dq(nv_c,i,j,k,b)        = -(chi*C0)**2*divergenceB
+               dq(VAR_DX,    i,j,k,b) =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b)!-sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+               dq(VAR_DY,    i,j,k,b) =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b)!-sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+               dq(VAR_DZ,    i,j,k,b) =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b)!-sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+               dq(VAR_BX,    i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)                    !-sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+               dq(VAR_BY,    i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)                    !-sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+               dq(VAR_BZ,    i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)                    !-sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(nv_c-1_I4P,i,j,k,b) = -(chi*C0)**2*divergenceD
+               dq(nv_c,      i,j,k,b) = -(chi*C0)**2*divergenceB
             enddo
             enddo
             enddo
             enddo
          else
-         ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
+            ! RHS:
+            ! dD/dt = curl(B/MU0) - J
+            ! dB/dt = -curl(D/EPS0)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
@@ -2202,12 +2127,12 @@ contains
                !call
                !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*
                !KO_Bz_z
-               dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)      !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)      !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)      !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                         !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                         !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                         !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+               dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+               dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+               dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                    !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+               dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                    !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+               dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                    !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
             enddo
             enddo
             enddo
@@ -2220,29 +2145,26 @@ contains
 
    subroutine compute_residuals_fv_centered(self, q, dq, s, realm, flux_register)
    !< Compute residuals of equation, space operator, centered finite volume schemes.
-   class(prism_cpu_object), intent(inout) :: self                                             !< The equation.
-   real(R8P),               intent(inout) :: q(1:,         &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)                                            !< Conservative variables.
-   real(R8P),               intent(inout) :: dq(1:,         &
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1:)                                           !< Residuals.
-   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
-   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional :: flux_register
-                                                                         !< Forest's flux register; FV reflux hook accumulates into
-                                                                         !< it when present.
-   integer(I4P)                           :: i,j,k,b,d,v                                      !< Counter
-   integer(I4P)                           :: substage_idx
-                                                          !< RK substage index (captured pre-associate to avoid shadow by the
-                                                          !< stencil-half-width rebinding).
-   real(R8P),    parameter                :: sir(3,3) = reshape([1._R8P,0._R8P,0._R8P,&
-                                                                 0._R8P,1._R8P,0._R8P,&
-                                                                 0._R8P,0._R8P,1._R8P],[3,3]) !< Direction versor, real.
+   class(prism_cpu_object),     intent(inout) :: self                                         !< The equation.
+   real(R8P),                   intent(inout) :: q(1:,         &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:)                                        !< Conservative variables.
+   real(R8P),                   intent(inout) :: dq(1:,         &
+                                                    1-self%ngc:,&
+                                                    1-self%ngc:,&
+                                                    1-self%ngc:,&
+                                                    1:)                                       !< Residuals.
+   integer(I4P),                intent(in),    optional         :: s                          !< Stage counter.
+   class(realm_object),         intent(inout), optional, target :: realm(:)                   !< Sibling realms for inter-realm.
+   class(flux_register_object), intent(inout), optional         :: flux_register              !< Forest's flux register; FV reflux.
+   integer(I4P)                                                 :: i,j,k,b,d,v                !< Counter
+   integer(I4P)                                                 :: substage_idx               !< RK substage index.
+   real(R8P), parameter                                         :: sir(3,3) = reshape([1._R8P,0._R8P,0._R8P,  &
+                                                                                       0._R8P,1._R8P,0._R8P,  &
+                                                                                       0._R8P,0._R8P,1._R8P], &
+                                                                                       [3,3]) !< Direction versor, real.
 
    ! Capture substage BEFORE the associate block rebinds `s` to the
    ! reconstruction stencil half-width. The inter-realm FV reflux hook
@@ -2380,18 +2302,18 @@ contains
    !< downstream q-correction in `forest_object%apply_reflux_corrections`
    !< is a no-op against the bit-exact regression. The FD-centered case
    !< does not reach this routine (different `compute_residuals` target).
-   class(prism_cpu_object),     intent(inout) :: self          !< The realm.
-   integer(I4P),                intent(in)    :: ni, nj, nk    !< Interior cell counts.
-   integer(I4P),                intent(in)    :: nv_c
-                                                               !< Number of conservative variables (FV scheme fills only these
-                                                               !< rows).
-   integer(I4P),                intent(in)    :: blocks_number !< Number of local blocks.
-   integer(I4P),                intent(in)    :: substage_idx  !< RK substage index (1..nrk).
-   class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register.
-   integer(I4P)                           :: b, fec, sgn_idx, face_idx
-   integer(I4P)                           :: nv_reg, nface_cells
-   integer(I4P)                           :: i, j, k, v, c
-   real(R8P), allocatable                 :: flux_slab(:,:)
+   class(prism_cpu_object),     intent(inout) :: self            !< The realm.
+   integer(I4P),                intent(in)    :: ni, nj, nk      !< Interior cell counts.
+   integer(I4P),                intent(in)    :: nv_c            !< Number of conservative variables.
+   integer(I4P),                intent(in)    :: blocks_number   !< Number of local blocks.
+   integer(I4P),                intent(in)    :: substage_idx    !< RK substage index (1..nrk).
+   class(flux_register_object), intent(inout) :: flux_register   !< Forest's flux register.
+   integer(I4P)                               :: sgn_idx
+   integer(I4P)                               :: face_idx
+   integer(I4P)                               :: nv_reg
+   integer(I4P)                               :: nface_cells
+   integer(I4P)                               :: fec,b,i,j,k,v,c !< Counter.
+   real(R8P), allocatable                     :: flux_slab(:,:)
 
    do b=1, blocks_number
       do fec=1, 6
@@ -2479,7 +2401,7 @@ contains
          if (sgn_idx > 0_I4P) then
             call flux_register%accumulate_coarse_flux(face_index=face_idx, substage=substage_idx, flux_face=flux_slab)
          else
-            call flux_register%accumulate_fine_flux         (face_index=face_idx, substage=substage_idx, flux_face=flux_slab)
+            call flux_register%accumulate_fine_flux(face_index=face_idx, substage=substage_idx, flux_face=flux_slab)
          endif
       enddo
    enddo
@@ -2488,22 +2410,20 @@ contains
 
    subroutine compute_residuals_weno(self, q, dq, s, realm, flux_register)
    !< Compute residuals of equation, space operator, WENO schemes.
-   class(prism_cpu_object), intent(inout) :: self   !< The equation.
-   real(R8P),               intent(inout) :: q(1:,       &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)  !< Conservative variables.
-   real(R8P),               intent(inout) :: dq(1:,         &
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1:) !< Residuals.
-   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
-   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional :: flux_register
-                                                                         !< Accepted for contract parity; WENO scheme has no FV
-                                                                         !< reflux hook.
+   class(prism_cpu_object),     intent(inout)                   :: self          !< The equation.
+   real(R8P),                   intent(inout)                   :: q(1:,         &
+                                                                     1-self%ngc:,&
+                                                                     1-self%ngc:,&
+                                                                     1-self%ngc:,&
+                                                                     1:)         !< Conservative variables.
+   real(R8P),                   intent(inout)                   :: dq(1:,         &
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1:)        !< Residuals.
+   integer(I4P),                intent(in),    optional         :: s             !< Stage counter.
+   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
+   class(flux_register_object), intent(inout), optional         :: flux_register !< Flux register.
 
    call self%apply_fWL_correction(q=q)
    if (present(realm)) then
@@ -2814,7 +2734,10 @@ contains
                   jdelta  = local_map_bc_crown(c, 6 ,crown)
                   kdelta  = local_map_bc_crown(c, 7 ,crown)
                   do v=1, nv_c
-                     self%q(nv_c,i,j,k,b) = 2*q_bc_rk(1,i,j,k,b,nrk+1)-self%q(nv_c,i-idelta,j-jdelta,k-kdelta,b)
+                     ! this seems bugged, loop over v and using always nv_c or 1...
+                     ! self%q(nv_c,i,j,k,b) = 2*q_bc_rk(1,i,j,k,b,nrk+1)-self%q(nv_c,i-idelta,j-jdelta,k-kdelta,b)
+                     ! probable fix below
+                     self%q(v,i,j,k,b) = 2*q_bc_rk(v,i,j,k,b,nrk+1)-self%q(v,i-idelta,j-jdelta,k-kdelta,b)
                   enddo
                   !print *, 'Updating BC SM', b, ' cell (', i, ',', j, ',', k, ')'
                endif
@@ -3147,7 +3070,7 @@ contains
      write(*,'(a,i0)') 'write_current_tab: errore open(), iostat=', ios
      error stop
    end if
-   write(iu,'(ES24.16,a,ES24.16))') time, TAB, current_density
+   write(iu,'(ES24.16,a,ES24.16)') time, TAB, current_density
    close(iu)
    endsubroutine write_current_behavior_tab
 
@@ -3167,7 +3090,7 @@ contains
    end if
    write(iu,'(ES24.16,8(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l)
    close(iu)
-   endsubroutine
+   endsubroutine write_single_particle_output
 
    subroutine compute_field_mean_value(self, q, n_x, n_y, n_z, n_b, mean_value)
    !< Compute mean value of the field in a certain region of the domain.

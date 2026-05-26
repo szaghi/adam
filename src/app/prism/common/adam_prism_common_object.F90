@@ -54,13 +54,7 @@ type, extends(realm_object) :: prism_common_object
    real(R8P)              :: max_divergence_D=0.0_R8P   !< Maximum of divergence of D field.
    real(R8P)              :: max_divergence_B=0.0_R8P   !< Maximum of divergence of B field.
    real(R8P)              :: max_divergence_J=0.0_R8P   !< Maximum of divergence of J field.
-   ! PRISM C.3 closure (issue #13 D.4b follow-up): the 13 PRISM-app objects
-   ! that previously lived as module-scope singletons are now per-realm value
-   ! components. The 13 adam_prism_*_global modules became pointer shims that
-   ! alias these components via adam_prism_common_bind. Without this, N>1
-   ! runs (rmf-2realm) crashed on realm 2's prism_bc_object%initialize
-   ! ("allocate already allocated") because realm 1 had already initialized
-   ! the shared singleton.
+   ! PRISM classes
    type(prism_bc_object)                 :: bc                 !< Boundary conditions.
    type(prism_coil_object)               :: coil               !< Coil source term.
    type(prism_external_fields_object)    :: external_fields    !< External fields.
@@ -75,9 +69,10 @@ type, extends(realm_object) :: prism_common_object
    type(prism_rk_pic_object)             :: rk_pic             !< Runge-Kutta PIC handler.
    type(prism_time_object)               :: time               !< Time integration state.
    contains
-      procedure, pass(self) :: allocate_common                              !< Allocate common data.
-      procedure, pass(self) :: compute_auxiliary_fields                     !< Compute auxiliary fields.
-      procedure, pass(self) :: initialize                                   !< Initialize the equation common data.
+      ! public methods
+      procedure, pass(self) :: allocate_common          !< Allocate common data.
+      procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
+      procedure, pass(self) :: initialize               !< Initialize the equation common data.
       ! IO methods
       procedure, pass(self) :: load_restart_files      !< Load restart files.
       procedure, pass(self) :: save_energy_error       !< Save energy error history.
@@ -459,48 +454,30 @@ contains
       selectcase(self%coil%coil_type(n))
       case(COIL_TYPE_RECTANGULAR)
          select case(self%coil%normal(n))
-         case(NORMAL_P_X)
-            call self%set_rectangular_coil_x(n=n, verse = 1._R8P)
-         case(NORMAL_P_Y)
-            call self%set_rectangular_coil_y(n=n, verse = 1._R8P)
-         case(NORMAL_P_Z)
-            call self%set_rectangular_coil_z(n=n, verse = 1._R8P)
-         case(NORMAL_M_X)
-            call self%set_rectangular_coil_x(n=n, verse = -1._R8P)
-         case(NORMAL_M_Y)
-            call self%set_rectangular_coil_y(n=n, verse = -1._R8P)
-         case(NORMAL_M_Z)
-            call self%set_rectangular_coil_z(n=n, verse = -1._R8P)
+         case(NORMAL_P_X) ; call self%set_rectangular_coil_x(n=n, verse =  1._R8P)
+         case(NORMAL_P_Y) ; call self%set_rectangular_coil_y(n=n, verse =  1._R8P)
+         case(NORMAL_P_Z) ; call self%set_rectangular_coil_z(n=n, verse =  1._R8P)
+         case(NORMAL_M_X) ; call self%set_rectangular_coil_x(n=n, verse = -1._R8P)
+         case(NORMAL_M_Y) ; call self%set_rectangular_coil_y(n=n, verse = -1._R8P)
+         case(NORMAL_M_Z) ; call self%set_rectangular_coil_z(n=n, verse = -1._R8P)
          endselect
       case(COIL_TYPE_CIRCULAR)
          select case(self%coil%normal(n))
-         case(NORMAL_P_X)
-            call self%set_circular_coil_x(n=n, verse = 1._R8P)
-         case(NORMAL_P_Y)
-            call self%set_circular_coil_y(n=n, verse = 1._R8P)
-         case(NORMAL_P_Z)
-            call self%set_circular_coil_z(n=n, verse = 1._R8P)
-         case(NORMAL_M_X)
-            call self%set_circular_coil_x(n=n, verse = -1._R8P)
-         case(NORMAL_M_Y)
-            call self%set_circular_coil_y(n=n, verse = -1._R8P)
-         case(NORMAL_M_Z)
-            call self%set_circular_coil_z(n=n, verse = -1._R8P)
+         case(NORMAL_P_X) ; call self%set_circular_coil_x(n=n, verse =  1._R8P)
+         case(NORMAL_P_Y) ; call self%set_circular_coil_y(n=n, verse =  1._R8P)
+         case(NORMAL_P_Z) ; call self%set_circular_coil_z(n=n, verse =  1._R8P)
+         case(NORMAL_M_X) ; call self%set_circular_coil_x(n=n, verse = -1._R8P)
+         case(NORMAL_M_Y) ; call self%set_circular_coil_y(n=n, verse = -1._R8P)
+         case(NORMAL_M_Z) ; call self%set_circular_coil_z(n=n, verse = -1._R8P)
          endselect
       case(COIL_TYPE_SOLENOID)
          select case(self%coil%normal(n))
-         case(NORMAL_P_X)
-            call self%set_solenoid_x(n=n, verse = 1._R8P)
-         case(NORMAL_P_Y)
-            call self%set_solenoid_y(n=n, verse = 1._R8P)
-         case(NORMAL_P_Z)
-            call self%set_solenoid_z(n=n, verse = 1._R8P)
-         case(NORMAL_M_X)
-            call self%set_solenoid_x(n=n, verse = -1._R8P)
-         case(NORMAL_M_Y)
-            call self%set_solenoid_y(n=n, verse = -1._R8P)
-         case(NORMAL_M_Z)
-            call self%set_solenoid_z(n=n, verse = -1._R8P)
+         case(NORMAL_P_X) ; call self%set_solenoid_x(n=n, verse =  1._R8P)
+         case(NORMAL_P_Y) ; call self%set_solenoid_y(n=n, verse =  1._R8P)
+         case(NORMAL_P_Z) ; call self%set_solenoid_z(n=n, verse =  1._R8P)
+         case(NORMAL_M_X) ; call self%set_solenoid_x(n=n, verse = -1._R8P)
+         case(NORMAL_M_Y) ; call self%set_solenoid_y(n=n, verse = -1._R8P)
+         case(NORMAL_M_Z) ; call self%set_solenoid_z(n=n, verse = -1._R8P)
          endselect
       endselect
       !call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),&
@@ -569,13 +546,13 @@ contains
    !   4: y = y_1, tangente lungo -z
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
-            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                        &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),  &
-            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
-            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
-            dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
+             nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                &
+             lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                                  &
+             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),       &
+             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,    &
+             z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+             dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
 
    ! Set rectangular coil boundaries with normal direction parallel to x
    ! and center located at (x_c, y_c, z_c).
@@ -693,13 +670,12 @@ contains
 
                   gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,            &
-                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,              &
-                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b,   &
+                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
+                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
+                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
                                                a1=y_1, a2=y_2, b1=z_1, b2=z_2)
 
-                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc,                       &
-                                                curl=J_vec_buffer(:,i,j,k,b))
+                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                enddo
             enddo
@@ -725,12 +701,12 @@ contains
    J_vec(1:3,:,:,:,:,n) = J_vec_buffer
 
    if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_1=y_1, y_2=y_2, z_1=z_1,   &
+      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_1=y_1, y_2=y_2, z_1=z_1,             &
                                                         z_2=z_2, A=self%coil%A(n), amplitude=self%coil%coil_amplitude(n), &
                                                         sigma=sigma, n=n, adjust_amplitude=.true.)
    else
       self%coil%coil_amplitude(n) = self%coil%coil_amplitude(1)
-      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_1=y_1, y_2=y_2, z_1=z_1,   &
+      call compute_coil_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, y_1=y_1, y_2=y_2, z_1=z_1,             &
                                                         z_2=z_2, A=self%coil%A(n), amplitude=self%coil%coil_amplitude(n), &
                                                         sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
@@ -738,9 +714,8 @@ contains
    endassociate
 
    contains
-
       subroutine compute_coil_current_density_flux_analytic_x(x_c, y_c, z_c, y_1, y_2, z_1, z_2, sigma, &
-                                                               A, amplitude, n, adjust_amplitude)
+                                                              A, amplitude, n, adjust_amplitude)
       !< Analytic amplitude correction for a rectangular coil normal to x.
       !< The current is evaluated as the flux of Jy through the lower side z = z_1.
       real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
@@ -802,29 +777,29 @@ contains
       !
       ! I_x = 1/2 * [ P_xl(xmax) - P_xl(xmin)
       !              -P_xu(xmax) + P_xu(xmin) ]
-      i_x = 0.5_R8P * (                                              &
-            erf_primitive_function(s=x_max, mu=x_l, sigma=sigma)     &
-          - erf_primitive_function(s=x_min, mu=x_l, sigma=sigma)     &
-          - erf_primitive_function(s=x_max, mu=x_u, sigma=sigma)     &
+      i_x = 0.5_R8P * (                                          &
+            erf_primitive_function(s=x_max, mu=x_l, sigma=sigma) &
+          - erf_primitive_function(s=x_min, mu=x_l, sigma=sigma) &
+          - erf_primitive_function(s=x_max, mu=x_u, sigma=sigma) &
           + erf_primitive_function(s=x_min, mu=x_u, sigma=sigma))
 
       ! Evaluate y-dependent functions at the flux-section plane.
       e_yd_ys = erf_function(s=y_s, mu=y_1, sigma=sigma)
       e_yt_ys = erf_function(s=y_s, mu=y_2, sigma=sigma)
 
-      w_y_ys = tangential_window(s     = y_s,     &
-                                 smin  = y_1,     &
-                                 smax  = y_2,     &
+      w_y_ys = tangential_window(s     = y_s, &
+                                 smin  = y_1, &
+                                 smax  = y_2, &
                                  sigma = sigma)
 
       ! Compute Delta W_z = W_z(z_max) - W_z(z_min).
-      dw_z = tangential_window(s     = z_max,     &
-                               smin  = z_1,       &
-                               smax  = z_2,       &
-                               sigma = sigma)     &
-           - tangential_window(s     = z_min,     &
-                               smin  = z_1,       &
-                               smax  = z_2,       &
+      dw_z = tangential_window(s     = z_max, &
+                               smin  = z_1,   &
+                               smax  = z_2,   &
+                               sigma = sigma) &
+           - tangential_window(s     = z_min, &
+                               smin  = z_1,   &
+                               smax  = z_2,   &
                                sigma = sigma)
 
       ! Compute Delta E_zb = E_zb(z_max) - E_zb(z_min).
@@ -885,17 +860,13 @@ contains
    real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+y, -1=-y.
    real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for self%coil%J_vec.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:)
-                                                                        !< Vector potential contribution from ghost cell
-                                                                        !< reconstruction.
+   real(R8P), allocatable                    :: A_gc(:,:,:,:)           !< Vector potential contribution from ghost cell rec.
    real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
    real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
    real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
    real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
    real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
-   real(R8P)                                 :: gc_coord(3)
-                                                                        !< Ghost cell center coordinate vector for ghost cell
-                                                                        !< reconstruction.
+   real(R8P)                                 :: gc_coord(3)             !< Ghost cell center coordinate vector for ghost cell rec.
    real(R8P)                                 :: x_1                     !< Lower x-boundary of the rectangular coil.
    real(R8P)                                 :: x_2                     !< Upper x-boundary of the rectangular coil.
    real(R8P)                                 :: z_1                     !< Lower z-boundary of the rectangular coil.
@@ -903,9 +874,7 @@ contains
    real(R8P)                                 :: F_n                     !< Normal error-function profile.
    real(R8P)                                 :: W_t                     !< Tangential window function.
    real(R8P)                                 :: W_y                     !< Coil thickness window function along y.
-   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b
-                                                                          !< Normal and tangential directions indices for ghost cell
-                                                                          !< reconstruction.
+   integer(I4P)                              :: i_dir_n,i_dir_a,i_dir_b !< Normal and tangential directions indices.
    integer(I4P), parameter                   :: n_faces = 6_I4P         !< Number of ghost-cell face slabs.
    integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
    integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
@@ -936,13 +905,13 @@ contains
    !   4: z = z_1, tangente lungo -x
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
-            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                        &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),  &
-            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
-            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
-            dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
+             nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                &
+             lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                                  &
+             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),       &
+             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,    &
+             z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+             dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
 
    ! Set rectangular coil boundaries with normal direction parallel to y
    ! and center located at (x_c, y_c, z_c).
@@ -1067,13 +1036,12 @@ contains
 
                   gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,            &
-                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma, &
-                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b,   &
+                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
+                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
+                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
                                                a1=z_1, a2=z_2, b1=x_1, b2=x_2)
 
-                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc,                       &
-                                                curl=J_vec_buffer(:,i,j,k,b))
+                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                enddo
             enddo
@@ -1099,12 +1067,12 @@ contains
    J_vec(1:3,:,:,:,:,n) = J_vec_buffer
 
    if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_1=x_1, x_2=x_2, z_1=z_1,   &
+      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_1=x_1, x_2=x_2, z_1=z_1,             &
                                                         z_2=z_2, A=self%coil%A(n), amplitude=self%coil%coil_amplitude(n), &
                                                         sigma=sigma, n=n, adjust_amplitude=.true.)
    else
       self%coil%coil_amplitude(n) = self%coil%coil_amplitude(1)
-      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_1=x_1, x_2=x_2, z_1=z_1,   &
+      call compute_coil_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, x_1=x_1, x_2=x_2, z_1=z_1,             &
                                                         z_2=z_2, A=self%coil%A(n), amplitude=self%coil%coil_amplitude(n), &
                                                         sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
@@ -1112,9 +1080,8 @@ contains
    endassociate
 
    contains
-
       subroutine compute_coil_current_density_flux_analytic_y(x_c, y_c, z_c, x_1, x_2, z_1, z_2, sigma, &
-                                                               A, amplitude, n, adjust_amplitude)
+                                                              A, amplitude, n, adjust_amplitude)
       !< Analytic amplitude correction for a rectangular coil normal to y.
       !< The current is evaluated as the flux of Jz through a section cutting the side x = x_1.
       real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
@@ -1183,29 +1150,29 @@ contains
       !
       ! I_y = 1/2 * [ P_yl(ymax) - P_yl(ymin)
       !              -P_yu(ymax) + P_yu(ymin) ]
-      i_y = 0.5_R8P * (                                              &
-            erf_primitive_function(s=y_max, mu=y_l, sigma=sigma)     &
-          - erf_primitive_function(s=y_min, mu=y_l, sigma=sigma)     &
-          - erf_primitive_function(s=y_max, mu=y_u, sigma=sigma)     &
+      i_y = 0.5_R8P * (                                          &
+            erf_primitive_function(s=y_max, mu=y_l, sigma=sigma) &
+          - erf_primitive_function(s=y_min, mu=y_l, sigma=sigma) &
+          - erf_primitive_function(s=y_max, mu=y_u, sigma=sigma) &
           + erf_primitive_function(s=y_min, mu=y_u, sigma=sigma))
 
       ! Evaluate z-dependent functions at the flux-section plane.
       e_z1_zs = erf_function(s=z_s, mu=z_1, sigma=sigma)
       e_z2_zs = erf_function(s=z_s, mu=z_2, sigma=sigma)
 
-      w_z_zs = tangential_window(s     = z_s,     &
-                                 smin  = z_1,     &
-                                 smax  = z_2,     &
+      w_z_zs = tangential_window(s     = z_s, &
+                                 smin  = z_1, &
+                                 smax  = z_2, &
                                  sigma = sigma)
 
       ! Compute Delta W_x = W_x(x_max) - W_x(x_min).
-      dw_x = tangential_window(s     = x_max,  &
-                               smin  = x_1,    &
-                               smax  = x_2,    &
-                               sigma = sigma)  &
-           - tangential_window(s     = x_min,  &
-                               smin  = x_1,    &
-                               smax  = x_2,    &
+      dw_x = tangential_window(s     = x_max, &
+                               smin  = x_1,   &
+                               smax  = x_2,   &
+                               sigma = sigma) &
+           - tangential_window(s     = x_min, &
+                               smin  = x_1,   &
+                               smax  = x_2,   &
                                sigma = sigma)
 
       ! Compute Delta E_x1 = E_x1(x_max) - E_x1(x_min).
@@ -1266,17 +1233,13 @@ contains
    real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+z, -1=-z.
    real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for self%coil%J_vec.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:)
-                                                                        !< Vector potential contribution from ghost cell
-                                                                        !< reconstruction.
+   real(R8P), allocatable                    :: A_gc(:,:,:,:)           !< Vector potential contribution from ghost cell rec.
    real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
    real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
    real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
    real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
    real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
-   real(R8P)                                 :: gc_coord(3)
-                                                                        !< Ghost cell center coordinate vector for ghost cell
-                                                                        !< reconstruction.
+   real(R8P)                                 :: gc_coord(3)             !< Ghost cell center coordinate vector for ghost cell rec.
    real(R8P)                                 :: x_1                     !< Lower x-boundary of the rectangular coil.
    real(R8P)                                 :: x_2                     !< Upper x-boundary of the rectangular coil.
    real(R8P)                                 :: y_1                     !< Lower y-boundary of the rectangular coil.
@@ -1284,9 +1247,7 @@ contains
    real(R8P)                                 :: F_n                     !< Normal error-function profile.
    real(R8P)                                 :: W_t                     !< Tangential window function.
    real(R8P)                                 :: W_z                     !< Coil thickness window function along z.
-   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b
-                                                                          !< Normal and tangential directions indices for ghost cell
-                                                                          !< reconstruction.
+   integer(I4P)                              :: i_dir_n,i_dir_a,i_dir_b !< Normal and tangential directions indices.
    integer(I4P), parameter                   :: n_faces = 6_I4P         !< Number of ghost-cell face slabs.
    integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
    integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
@@ -1317,12 +1278,12 @@ contains
    !   4: x = x_1, tangente lungo -y
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
-            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                        &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),  &
-            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
-            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                 &
+            lx=>self%coil%lx(n), ly=>self%coil%ly(n),                                                   &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),        &
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,          &
             dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
 
    ! Set rectangular coil boundaries with normal direction parallel to z
@@ -1442,13 +1403,12 @@ contains
 
                   gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,            &
-                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,              &
-                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b,   &
+                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
+                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
+                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
                                                a1=x_1, a2=x_2, b1=y_1, b2=y_2)
 
-                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc,                       &
-                                                curl=J_vec_buffer(:,i,j,k,b))
+                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                enddo
             enddo
@@ -1474,12 +1434,12 @@ contains
    J_vec(1:3,:,:,:,:,n) = J_vec_buffer
 
    if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_1=x_1, x_2=x_2, y_1=y_1,   &
+      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_1=x_1, x_2=x_2, y_1=y_1,             &
                                                         y_2=y_2, A=self%coil%A(n), amplitude=self%coil%coil_amplitude(n), &
                                                         sigma=sigma, n=n, adjust_amplitude=.true.)
    else
       self%coil%coil_amplitude(n) = self%coil%coil_amplitude(1)
-      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_1=x_1, x_2=x_2, y_1=y_1,   &
+      call compute_coil_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, x_1=x_1, x_2=x_2, y_1=y_1,             &
                                                         y_2=y_2, A=self%coil%A(n), amplitude=self%coil%coil_amplitude(n), &
                                                         sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
@@ -1487,9 +1447,8 @@ contains
    endassociate
 
    contains
-
       subroutine compute_coil_current_density_flux_analytic_z(x_c, y_c, z_c, x_1, x_2, y_1, y_2, sigma, &
-                                                               A, amplitude, n, adjust_amplitude)
+                                                              A, amplitude, n, adjust_amplitude)
       !< Analytic amplitude correction for a rectangular coil normal to z.
       !< The current is evaluated as the flux of Jx through a section cutting the side y = y_1.
       real(R8P),    intent(in)    :: x_c              !< Coil center x-coordinate.
@@ -1558,19 +1517,19 @@ contains
       !
       ! I_z = 1/2 * [ P_zl(zmax) - P_zl(zmin)
       !              -P_zu(zmax) + P_zu(zmin) ]
-      i_z = 0.5_R8P * (                                              &
-            erf_primitive_function(s=z_max, mu=z_l, sigma=sigma)     &
-          - erf_primitive_function(s=z_min, mu=z_l, sigma=sigma)     &
-          - erf_primitive_function(s=z_max, mu=z_u, sigma=sigma)     &
+      i_z = 0.5_R8P * (                                          &
+            erf_primitive_function(s=z_max, mu=z_l, sigma=sigma) &
+          - erf_primitive_function(s=z_min, mu=z_l, sigma=sigma) &
+          - erf_primitive_function(s=z_max, mu=z_u, sigma=sigma) &
           + erf_primitive_function(s=z_min, mu=z_u, sigma=sigma))
 
       ! Evaluate x-dependent functions at the flux-section plane.
       e_x1_xs = erf_function(s=x_s, mu=x_1, sigma=sigma)
       e_x2_xs = erf_function(s=x_s, mu=x_2, sigma=sigma)
 
-      w_x_xs = tangential_window(s     = x_s,     &
-                                 smin  = x_1,     &
-                                 smax  = x_2,     &
+      w_x_xs = tangential_window(s     = x_s, &
+                                 smin  = x_1, &
+                                 smax  = x_2, &
                                  sigma = sigma)
 
       ! Compute Delta W_y = W_y(y_max) - W_y(y_min).
@@ -1649,11 +1608,11 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
-            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),      &
-            normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,             &
-            y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),       &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                 &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),           &
+            normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,        &
+            y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),  &
             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1706,19 +1665,18 @@ contains
 
    if (n == 1_I4P) then
       call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n,      &
+                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
                                                                  adjust_amplitude=.true.)
    else
       self%coil%A(n) = self%coil%A(1)
       call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n,      &
+                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
                                                                  adjust_amplitude=.false.)
    endif
 
    endassociate
 
    contains
-
       subroutine compute_coil_current_density_flux_analytic_circular_x(x_c, y_c, z_c, r_c, sigma, A, n, adjust_amplitude)
       !< Analytic amplitude correction for a circular coil normal to x.
       !< The current is evaluated as the flux of Jy through the lower point z = z_c - r_c.
@@ -1823,11 +1781,11 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
-            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),      &
-            normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,             &
-            y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),       &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                 &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),           &
+            normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,        &
+            y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),  &
             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -1880,19 +1838,18 @@ contains
 
    if (n == 1_I4P) then
       call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n,      &
+                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
                                                                  adjust_amplitude=.true.)
    else
       self%coil%A(n) = self%coil%A(1)
       call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n,      &
+                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
                                                                  adjust_amplitude=.false.)
    endif
 
    endassociate
 
    contains
-
       subroutine compute_coil_current_density_flux_analytic_circular_y(x_c, y_c, z_c, r_c, sigma, A, n, adjust_amplitude)
       !< Analytic amplitude correction for a circular coil normal to y.
       !< The current is evaluated as the flux of Jz through the left point x = x_c - r_c.
@@ -1997,11 +1954,11 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,          &
-            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                      &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),      &
-            normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,             &
-            y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),       &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                 &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),           &
+            normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,        &
+            y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),  &
             J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -2054,19 +2011,18 @@ contains
 
    if (n == 1_I4P) then
       call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n,      &
+                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
                                                                  adjust_amplitude=.true.)
    else
       self%coil%A(n) = self%coil%A(1)
       call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n,      &
+                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
                                                                  adjust_amplitude=.false.)
    endif
 
    endassociate
 
    contains
-
       subroutine compute_coil_current_density_flux_analytic_circular_z(x_c, y_c, z_c, r_c, sigma, A, n, adjust_amplitude)
       !< Analytic amplitude correction for a circular coil normal to z.
       !< The current is evaluated as the flux of Jy through the left point x = x_c - r_c.
@@ -2171,12 +2127,12 @@ contains
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
-            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),  &
-            l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
-            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
-            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                 &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),        &
+            l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                            &
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,          &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -2196,9 +2152,9 @@ contains
                F_n = erf_function(s=rho, mu=r_coil, sigma=sigma)
 
                W_x = tangential_window(s     = cell_coord(1),     &
-                                        smin  = x_c-0.5_R8P*l_sol, &
-                                        smax  = x_c+0.5_R8P*l_sol, &
-                                        sigma = sigma)
+                                       smin  = x_c-0.5_R8P*l_sol, &
+                                       smax  = x_c+0.5_R8P*l_sol, &
+                                       sigma = sigma)
 
                A(1,i,j,k,b) = -F_n*W_x
             enddo
@@ -2227,22 +2183,21 @@ contains
    if (n == 1_I4P) then
       call compute_solenoid_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
                                                             l_sol=l_sol, windings=windings,           &
-                                                            A=self%coil%A(n), sigma=sigma, n=n,            &
+                                                            A=self%coil%A(n), sigma=sigma, n=n,       &
                                                             adjust_amplitude=.true.)
    else
       self%coil%A(n) = self%coil%A(1)
       call compute_solenoid_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
                                                             l_sol=l_sol, windings=windings,           &
-                                                            A=self%coil%A(n), sigma=sigma, n=n,            &
+                                                            A=self%coil%A(n), sigma=sigma, n=n,       &
                                                             adjust_amplitude=.false.)
    endif
 
    endassociate
 
    contains
-
       subroutine compute_solenoid_current_density_flux_analytic_x(x_c, y_c, z_c, r_coil, l_sol, windings, &
-                                                                   sigma, A, n, adjust_amplitude)
+                                                                  sigma, A, n, adjust_amplitude)
       !< Analytic amplitude correction for a solenoid with axis parallel to x.
       !< The current is evaluated as the flux of Jz through the lower radial section y = y_c-r_coil.
       real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
@@ -2321,10 +2276,9 @@ contains
       endif
 
       endsubroutine compute_solenoid_current_density_flux_analytic_x
+   endsubroutine set_solenoid_x
 
-endsubroutine set_solenoid_x
-
-subroutine set_solenoid_y(self, n, verse)
+   subroutine set_solenoid_y(self, n, verse)
    !< Set solenoid with axis direction parallel to y.
    class(prism_common_object), intent(inout) :: self                    !< Cpu object.
    integer(I4P),               intent(in)    :: n                       !< Coil number.
@@ -2338,12 +2292,12 @@ subroutine set_solenoid_y(self, n, verse)
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
-            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),  &
-            l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
-            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
-            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                 &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),        &
+            l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                            &
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,          &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -2394,20 +2348,19 @@ subroutine set_solenoid_y(self, n, verse)
    if (n == 1_I4P) then
       call compute_solenoid_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
                                                             l_sol=l_sol, windings=windings,           &
-                                                            A=self%coil%A(n), sigma=sigma, n=n,            &
+                                                            A=self%coil%A(n), sigma=sigma, n=n,       &
                                                             adjust_amplitude=.true.)
    else
       self%coil%A(n) = self%coil%A(1)
       call compute_solenoid_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
                                                             l_sol=l_sol, windings=windings,           &
-                                                            A=self%coil%A(n), sigma=sigma, n=n,            &
+                                                            A=self%coil%A(n), sigma=sigma, n=n,       &
                                                             adjust_amplitude=.false.)
    endif
 
    endassociate
 
    contains
-
       subroutine compute_solenoid_current_density_flux_analytic_y(x_c, y_c, z_c, r_coil, l_sol, windings, &
                                                                   sigma, A, n, adjust_amplitude)
       !< Analytic amplitude correction for a solenoid with axis parallel to y.
@@ -2505,12 +2458,12 @@ subroutine set_solenoid_y(self, n, verse)
    integer(I4P)                              :: b,i,j,k                 !< Counters.
 
    ! Associate grid, field, and coil data.
-   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,         &
-            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                     &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),  &
-            l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                 &
-            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,              &
-            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,         &
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
+            nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                 &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),        &
+            l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                            &
+            nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
+            z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,          &
             hs=>self%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
@@ -2561,20 +2514,19 @@ subroutine set_solenoid_y(self, n, verse)
    if (n == 1_I4P) then
       call compute_solenoid_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
                                                             l_sol=l_sol, windings=windings,           &
-                                                            A=self%coil%A(n), sigma=sigma, n=n,            &
+                                                            A=self%coil%A(n), sigma=sigma, n=n,       &
                                                             adjust_amplitude=.true.)
    else
       self%coil%A(n) = self%coil%A(1)
       call compute_solenoid_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
                                                             l_sol=l_sol, windings=windings,           &
-                                                            A=self%coil%A(n), sigma=sigma, n=n,            &
+                                                            A=self%coil%A(n), sigma=sigma, n=n,       &
                                                             adjust_amplitude=.false.)
    endif
 
    endassociate
 
    contains
-
       subroutine compute_solenoid_current_density_flux_analytic_z(x_c, y_c, z_c, r_coil, l_sol, windings, &
                                                                   sigma, A, n, adjust_amplitude)
       !< Analytic amplitude correction for a solenoid with axis parallel to z.
@@ -2653,9 +2605,7 @@ subroutine set_solenoid_y(self, n, verse)
          print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(flux))
 
       endif
-
       endsubroutine compute_solenoid_current_density_flux_analytic_z
-
    endsubroutine set_solenoid_z
 
    function erf_function(s, mu, sigma) result(res)
@@ -2686,7 +2636,7 @@ subroutine set_solenoid_y(self, n, verse)
    endfunction erf_primitive_function
 
    function build_A_ghost_stencil(hs, dxyz, gc_coord, x_c, y_c, z_c, sigma, &
-                                 i_dir_n, i_dir_a, i_dir_b, a1, a2, b1, b2) result(A_gc)
+                                  i_dir_n, i_dir_a, i_dir_b, a1, a2, b1, b2) result(A_gc)
    !< Build ghost cell A array to compute J_vec value through the curl, useful in multiblock application
    integer(I4P), intent(in)  :: hs                                    !< Half-stencil size for the curl computation.
    real(R8P),    intent(in)  :: dxyz(3)                               !< Space steps.
@@ -2728,14 +2678,14 @@ subroutine set_solenoid_y(self, n, verse)
    endfunction build_A_ghost_stencil
 
    function rectangular_coil_A_at_point(xp, xc, idir_n, idir_a, idir_b, a1, a2, b1, b2, sigma) result(Ap)
-   real(R8P),    intent(in) :: xp(3)   !< Punto di valutazione.
-   real(R8P),    intent(in) :: xc(3)   !< Centro spira.
-   integer(I4P), intent(in) :: idir_n  !< Componente normale: 1=x, 2=y, 3=z.
-   integer(I4P), intent(in) :: idir_a  !< Prima coordinata locale nel piano spira.
-   integer(I4P), intent(in) :: idir_b  !< Seconda coordinata locale nel piano spira.
-   real(R8P),    intent(in) :: a1, a2  !< Estremi lato locale a.
-   real(R8P),    intent(in) :: b1, b2  !< Estremi lato locale b.
-   real(R8P),    intent(in) :: sigma   !< Smearing unico della spira.
+   real(R8P),    intent(in) :: xp(3)  !< Punto di valutazione.
+   real(R8P),    intent(in) :: xc(3)  !< Centro spira.
+   integer(I4P), intent(in) :: idir_n !< Componente normale: 1=x, 2=y, 3=z.
+   integer(I4P), intent(in) :: idir_a !< Prima coordinata locale nel piano spira.
+   integer(I4P), intent(in) :: idir_b !< Seconda coordinata locale nel piano spira.
+   real(R8P),    intent(in) :: a1, a2 !< Estremi lato locale a.
+   real(R8P),    intent(in) :: b1, b2 !< Estremi lato locale b.
+   real(R8P),    intent(in) :: sigma  !< Smearing unico della spira.
    real(R8P)                :: Ap(3)
 
    real(R8P) :: x_a, x_b, x_n
@@ -2767,8 +2717,8 @@ subroutine set_solenoid_y(self, n, verse)
    x_n = xp(idir_n)
 
    W_n = tangential_window(s=x_n, smin=xc(idir_n)-sigma, &
-                                smax=xc(idir_n)+sigma, &
-                                sigma=sigma)
+                           smax=xc(idir_n)+sigma,        &
+                           sigma=sigma)
 
    F_l = erf_function(s=x_b, mu=b1, sigma=sigma)
    W_t = tangential_window(s=x_a, smin=a1, smax=a2, sigma=sigma)
@@ -2787,7 +2737,5 @@ subroutine set_solenoid_y(self, n, verse)
    A_4 = F_l*W_t*W_n
 
    Ap(idir_n) = (A_1 + A_2 + A_3 + A_4)
-
    endfunction rectangular_coil_A_at_point
-
 endmodule adam_prism_common_object
