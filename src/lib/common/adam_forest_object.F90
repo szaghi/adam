@@ -52,7 +52,8 @@ type :: forest_object
       ! orchestrating methods
       procedure, pass(self) :: compute_global_dt      !< Min-reduce each realm's compute_local_dt_forest across the forest.
       procedure, pass(self) :: evolve_one_step        !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
-      procedure, pass(self) :: exchange_halos         !< Iterate realm(:)%exchange_inter_realm_halos_forest.
+      ! exchange_halos retired with `exchange_inter_realm_halos_forest` (#13);
+      ! Phase 2 of evolve_one_step handles inter-realm seam refresh.
       procedure, pass(self) :: is_done                !< AND-reduce each realm's is_done_forest across the forest.
       procedure, pass(self) :: post_step              !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
       procedure, pass(self) :: simulate               !< Main entry point (single shared INI): drive the full simulation.
@@ -64,6 +65,7 @@ endtype forest_object
 
 contains
    ! public methods
+
    ! initialize/finalize
    subroutine initialize(self, realm, filename)
    !< Initialize the forest and every realm it tends.
@@ -76,7 +78,7 @@ contains
       call mpih%error_stop(msg='forest_object%initialize: multi-realm forest requires initialize_from_manifest')
    self%n = int(size(realm), I4P)
    do is = 1, self%n
-      call realm(is)%initialize_forest(filename=filename, realm_index=is, realms_number=self%n, realm=realm)
+      call realm(is)%initialize_forest(filename=filename, realm_index=is, realms_number=self%n)
    enddo
    endsubroutine initialize
 
@@ -97,7 +99,7 @@ contains
       call mpih%error_stop(msg='forest_object%initialize_from_manifest: size(realm) /= manifest%realms_number')
    self%n = int(size(realm), I4P)
    do is = 1, self%n
-      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realm_index=is, realms_number=self%n, realm=realm)
+      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realm_index=is, realms_number=self%n)
    enddo
    call self%populate_inter_realm_topology(realm, manifest)
    endsubroutine initialize_from_manifest
@@ -149,84 +151,92 @@ contains
    !<
    !< N=1 fast path: realm owns the whole step (advance_one_step_forest).
    !<
-   !< N>1 multi-realm path: forest drives a four-sweep substage loop.
+   !< N>1 multi-realm path: forest drives an integrator-agnostic K-stage
+   !< clock. `K = stages_per_step_forest()` is the realm's own stride —
+   !< for RK realms `K = rk%nrk`; other integrators report their own K.
    !<
-   !<   Phase 1 — `do is: assemble_substage_forest(s)`
-   !<     Each realm builds its substage buffer `q_rk(:,...,s)` and sets
-   !<     `self%s_active = s`. No ghost reads, no peer-realm access.
+   !<   Phase 0 — `do is: open_step_forest(dt)`
+   !<     Per-step prologue on each realm (external-field prelude,
+   !<     integrator-private stage-buffer init, time bookkeeping).
    !<
-   !<   Phase 2 — `do is, p: pack_seam_cells + unpack_seam_cells`
-   !<     Forest-driven inter-realm seam ghost fill. Each receiver realm
-   !<     `is` iterates its peer realms `p`; for each peer, `pack_seam_cells`
-   !<     reads the peer's INTERIOR cells (peer-side columns 2/4/5/6 of the
-   !<     seam map) via the peer's currently-active buffer, and
-   !<     `unpack_seam_cells` writes the receiver's GHOST cells (recv-side
-   !<     columns 3/7/8/9 of the same map row). Per-peer pack/unpack
-   !<     buffers live on `maps_object` so each peer's roundtrip is
-   !<     independent.
+   !<   For k = 1..K:
    !<
-   !<   Phase 3 — `do is: residuals_substage_forest(flux_register) + assign_substage_forest`
-   !<     The race that originally required the assemble/residuals/assign
-   !<     three-phase split is GONE: by the time `assign_stage` overwrites
-   !<     `q_rk(:,interior,s)`, every receiver has already read its peer's
-   !<     interior in Phase 2. Residuals + assign can therefore run in a
-   !<     single sweep per realm, preserving today's reflux semantics
-   !<     (flux_register accumulation happens inside compute_residuals_fv_centered).
+   !<     Phase 1 — `do is: begin_stage_forest(k)`
+   !<       Each realm opens stage `k` on its integrator-private buffer
+   !<       and sets `self%stage_active = k`. No ghost reads, no peer-
+   !<       realm access.
    !<
-   !<   Phase 4 — `do is: finalize_step_forest`
-   !<     Per-step epilogue (q assembly from substages, BC, div-clean,
-   !<     time advance). Each realm clears its `s_active`.
+   !<     Phase 2 — `do is, p: fill_seam_from_peer_forest`
+   !<       Forest-driven inter-realm seam ghost fill. Each receiver realm
+   !<       `is` iterates its peer realms `p`; for each peer the receiver
+   !<       walks its own seam-map slice and copies peer-INTERIOR cells
+   !<       (peer-side columns 2/4/5/6) into self's GHOST cells (recv-side
+   !<       columns 3/7/8/9). Single TBP roundtrip per (receiver, peer);
+   !<       same call site for CPU and FNL, backend dispatch via
+   !<       `select type(peer)` inside the receiver's override.
+   !<
+   !<     Phase 3 — `do is: end_stage_forest(k, flux_register)`
+   !<       The race that originally required the begin/residuals/assign
+   !<       three-phase split is GONE: by the time the stage-`k` buffer's
+   !<       interior is overwritten, every receiver has already read its
+   !<       peer's interior in Phase 2. Residuals + assignment can run in
+   !<       a single sweep per realm, preserving today's reflux semantics
+   !<       (flux_register accumulation happens inside
+   !<       compute_residuals_fv_centered).
+   !<
+   !<   Phase 4 — `do is: close_step_forest`
+   !<     Per-step epilogue (assembly of committed state from stage
+   !<     buffers, BC, div-clean, time advance). Each realm clears its
+   !<     `stage_active`.
    !<
    !< LOAD-BEARING INVARIANT: Phase 2 must complete on ALL realms before
    !< Phase 3 starts on ANY realm. If a future refactor interleaves Phase
    !< 2 and Phase 3 the read-after-overwrite race returns.
-   class(forest_object), intent(inout)         :: self        !< The forest.
-   class(realm_object),  intent(inout), target :: realm(:)    !< The realms to advance.
-   real(R8P)                                   :: dt          !< Global timestep size.
-   integer(I4P)                                :: is, p, s    !< Realm, peer, substage indices.
-   integer(I4P)                                :: nrk         !< Number of substages (multi-realm path).
-   integer(I4P)                                :: nrk_chk     !< Per-realm consistency check.
-   integer(I4P)                                :: peer_idx    !< Peer realm index for a seam exchange.
-   integer(I4P)                                :: row_start   !< First row of a peer's seam-map slice.
-   integer(I4P)                                :: row_end     !< Last  row of a peer's seam-map slice.
-   integer(I4P)                                :: nv_is       !< Number of variables for realm `is`.
+   class(forest_object), intent(inout)         :: self     !< The forest.
+   class(realm_object),  intent(inout), target :: realm(:) !< The realms to advance.
+   real(R8P)                                   :: dt       !< Global timestep size.
+   integer(I4P)                                :: is, p, k !< Realm, peer, stage indices.
+   integer(I4P)                                :: K_total  !< Forest-wide stage count (multi-realm path).
+   integer(I4P)                                :: K_chk    !< Per-realm consistency check.
+   integer(I4P)                                :: peer_idx !< Peer realm index for a seam exchange.
 
    call self%flux_register%reset
    call self%compute_global_dt(realm=realm, dt=dt)
    if (int(size(realm), I4P) == 1_I4P) then
       call realm(1)%advance_one_step_forest(dt=dt)
-      call self%exchange_halos(realm=realm)
    else
       do is = 1_I4P, int(size(realm), I4P)
-         call realm(is)%prepare_step_forest(dt=dt)
+         call realm(is)%open_step_forest(dt=dt)
       enddo
-      nrk = realm(1)%nrk_forest()
+      K_total = realm(1)%stages_per_step_forest()
       do is = 2_I4P, int(size(realm), I4P)
-         nrk_chk = realm(is)%nrk_forest()
-         if (nrk_chk /= nrk) call mpih%error_stop(msg='forest_object%evolve_one_step: realms disagree on nrk_forest')
+         K_chk = realm(is)%stages_per_step_forest()
+         if (K_chk /= K_total) &
+            call mpih%error_stop(msg='forest_object%evolve_one_step: realms disagree on stages_per_step_forest')
       enddo
-      do s = 1_I4P, nrk
-         ! Phase 1 — assemble q_rk(s) on every realm; each realm sets s_active=s.
+      do k = 1_I4P, K_total
+         ! Phase 1 — open stage k on every realm; each realm sets stage_active=k.
          do is = 1_I4P, int(size(realm), I4P)
-            call realm(is)%assemble_substage_forest(s=s, nrk=nrk, dt=dt)
+            call realm(is)%begin_stage_forest(k=k, K_total=K_total, dt=dt)
          enddo
 
          ! Phase 2 — forest-driven inter-realm seam ghost fill.
+         !
+         ! Backend-agnostic dispatch via a single TBP on the RECEIVER:
+         ! `realm(is)%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)`.
+         ! The receiver walks its own seam map (host on CPU, device on FNL),
+         ! `select type`s the peer to access its active buffer, and copies
+         ! peer-INTERIOR cells into self's GHOST cells. Single TBP, same
+         ! call site for CPU and FNL; backend differences confined to one
+         ! method per backend.
          do is = 1_I4P, int(size(realm), I4P)
             if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
             ! Phase-A guard: cross-rank seam path is not implemented.
             if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
                call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented (Phase B)')
-            nv_is = realm(is)%nv
             do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
-               peer_idx  = realm(is)%adam%maps%seam_local_peer_realm(p)
-               row_start = realm(is)%adam%maps%seam_local_peer_row_start(p)
-               row_end   = row_start + realm(is)%adam%maps%seam_local_peer_row_count(p) - 1_I4P
-               associate(rows => realm(is)%adam%maps%seam_local_map_ghost_cell(row_start:row_end, :), &
-                         buf  => realm(is)%adam%maps%seam_local_send_buf(:, p))
-                  call realm(peer_idx)%pack_seam_cells (map_rows=rows, nv=nv_is, buf=buf)
-                  call realm(is      )%unpack_seam_cells(map_rows=rows, nv=nv_is, buf=buf)
-               endassociate
+               peer_idx = realm(is)%adam%maps%seam_local_peer_realm(p)
+               call realm(is)%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)
             enddo
          enddo
 
@@ -235,40 +245,18 @@ contains
          ! intra-realm residuals→assign ordering is the integrator's normal
          ! flow within a single realm.
          do is = 1_I4P, int(size(realm), I4P)
-            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, flux_register=self%flux_register)
-            call realm(is)%assign_substage_forest(s=s, nrk=nrk, dt=dt)
+            call realm(is)%end_stage_forest(k=k, K_total=K_total, dt=dt, flux_register=self%flux_register)
          enddo
 
-         ! Reflux corrections — preserved placement; ark(s)-weighted inside.
+         ! Reflux corrections — preserved placement; integrator-weighted inside.
          call self%flux_register%reduce_fine_sums
-         call self%apply_reflux_corrections(realm=realm, substage=s, dt=dt)
+         call self%apply_reflux_corrections(realm=realm, stage=k, dt=dt)
       enddo
       do is = 1_I4P, int(size(realm), I4P)
-         call realm(is)%finalize_step_forest(dt=dt)
+         call realm(is)%close_step_forest(dt=dt)
       enddo
    endif
    endsubroutine evolve_one_step
-
-   subroutine exchange_halos(self, realm)
-   !< Refresh inter-realm ghost cells across all realms.
-   !<
-   !< Iterates `realm(is)%exchange_inter_realm_halos_forest(realm)` in increasing index order. For single-realm
-   !< forests (N=1, current rmf) the inter-realm neighbour list is empty and each iteration is a no-op; the call
-   !< exists so the forest's evolve loop has a uniform shape regardless of N.
-   !<
-   !< Granularity: this method is invoked once per global timestep, AFTER all realms have completed `advance_one_step_forest`.
-   !< For bit-comparability with a single-realm reference, additional refresh points are typically required between RK
-   !< substages (inside each realm's `advance_one_step_forest` body).
-   !<
-   !< This method's once-per-step invocation is the floor, not the ceiling.
-   class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms whose ghosts to refresh.
-   integer(I4P)                        :: is       !< Realm index.
-
-   do is = 1, int(size(realm), I4P)
-      call realm(is)%exchange_inter_realm_halos_forest(realm=realm)
-   enddo
-   endsubroutine exchange_halos
 
    subroutine is_done(self, realm, done)
    !< Decide whether the whole forest has finished evolving.
@@ -417,7 +405,7 @@ contains
    ! Build the per-cell inter-realm ghost map. Per-realm: enumerate every ghost cell in self's seam-block
    ! ghost region and resolve the (peer_realm, peer_block, peer_interior_cell)
    ! tuple. The runtime exchange then becomes a flat indexed loop, replacing
-   ! the per-substage geometric find_peer_block + face-slab copy that misses
+   ! the per-stage geometric find_peer_block + face-slab copy that misses
    ! corner / edge ghosts.
    call build_inter_realm_ghost_cell_map(realm=realm, manifest=manifest)
    ! Derive the sorted-by-peer seam_local map + per-peer index arrays + per-peer
@@ -440,7 +428,7 @@ contains
    ! `initialize_forest`, well before this point) has already populated
    ! `local_map_bc_crown` with BC_NEUMANN entries for the seam face's
    ! cells. Without this override, `set_boundary_conditions` would then
-   ! extrapolate Neumann values into those cells at every substage,
+   ! extrapolate Neumann values into those cells at every stage,
    ! overwriting the peer-interior values written by
    ! `exchange_inter_realm_halos_forest`.
    !
@@ -455,6 +443,15 @@ contains
    ! topology; this override applies that authority over the realm's
    ! own INI declarations at the right semantic layer.
    call override_seam_bc_in_crown(realm=realm, manifest=manifest)
+   ! Backend hook: each realm propagates the freshly-built host seam maps
+   ! to whatever device-side / backend-specific structures it owns. CPU
+   ! realms no-op; FNL realms refresh maps_fnl%seam_local_* device pointers.
+   block
+      integer(I4P) :: is_tb
+      do is_tb = 1_I4P, int(size(realm), I4P)
+         call realm(is_tb)%after_topology_build_forest
+      enddo
+   endblock
    contains
       subroutine set_neighbor(slot, my_realm, my_face, peer_realm, peer_face, coupling)
       !< Set inter-realm neighbor.
@@ -1211,19 +1208,22 @@ contains
       endsubroutine find_peer_cell
    endsubroutine populate_inter_realm_topology
 
-   subroutine apply_reflux_corrections(self, realm, substage, dt)
-   !< Apply the Berger-Colella reflux correction to the coarse-side q_rk
-   !< for every registered seam face (Phase A step 4 of [issue #13]).
+   subroutine apply_reflux_corrections(self, realm, stage, dt)
+   !< Apply the Berger-Colella reflux correction to the coarse-side stage
+   !< buffer for every registered seam face (Phase A step 4 of [issue #13]).
    !<
    !< Per face, the correction is
-   !<     q_coarse(:, seam_cell, b, s) +=
+   !<     q_coarse(:, seam_cell, b, k) +=
    !<         weight * sign * (dt / dx_coarse_normal) *
-   !<         ( F_coarse(:, c, s) - F_fine_sum(:, c, s) )
+   !<         ( F_coarse(:, c, k) - F_fine_sum(:, c, k) )
    !< where:
-   !<   * weight = adam_rk_object%ark(s) — the SSP-RK accumulation weight
-   !<     for this substage. For SSP-RK 1 (ark = [1]) and SSP-RK 5
+   !<   * weight = adam_rk_object%ark(k) — the SSP-RK accumulation weight
+   !<     for this stage. For SSP-RK 1 (ark = [1]) and SSP-RK 5
    !<     (ark = [0.39175, 0.36841, 0.25109, 0.54497, 0.22692]) ADAM's
    !<     legacy substage loop already uses these in `rk%update_q`.
+   !<     (Reflux is currently RK-coupled here; the integrator-agnostic
+   !<     follow-up moves this weight pickup and the q_rk write into a
+   !<     realm-side `apply_reflux_to_stage_forest` TBP.)
    !<   * sign = +1 if coarse_face is MAX (+axis) — the flux exits the
    !<     coarse cell in the +axis direction and the conservative update
    !<     subtracts (F(i+1/2) - F(i-1/2))/dx; the reflux delta needs the
@@ -1236,8 +1236,8 @@ contains
    !<
    !< The cell-slice corrected is one-cell-thick on the coarse side,
    !< i.e. (i = ni or 1, j ∈ [1..nj], k ∈ [1..nk]) for an x-normal face,
-   !< analogously for y/z faces. q_rk(:, interior, :, b, s) currently
-   !< holds dq of stage s (the SSP-RK trick — q_rk(s) carries dq into
+   !< analogously for y/z faces. q_rk(:, interior, :, b, k) currently
+   !< holds dq of stage k (the SSP-RK trick — q_rk(k) carries dq into
    !< the next stage's linear combination), so modifying it here adds
    !< the reflux delta to the right buffer.
    !<
@@ -1245,8 +1245,8 @@ contains
    !< `nfaces == 0` (single-realm forest, no seams declared); the
    !< routine is a true no-op for the N=1 path.
    class(forest_object), intent(in)    :: self     !< The forest (holds the flux register being read).
-   class(realm_object),  intent(inout) :: realm(:) !< Realms whose coarse-side q_rk gets corrected.
-   integer(I4P),         intent(in)    :: substage !< RK substage 1..nrk.
+   class(realm_object),  intent(inout) :: realm(:) !< Realms whose coarse-side stage buffer gets corrected.
+   integer(I4P),         intent(in)    :: stage    !< Integrator stage 1..K_total.
    real(R8P),            intent(in)    :: dt       !< Time step.
    integer(I4P)                        :: f
    integer(I4P)                        :: axis
@@ -1267,18 +1267,18 @@ contains
    if (self%flux_register%nfaces == 0_I4P)        return
    if (.not. allocated(self%flux_register%face))  return
 
-   ! SSP-RK substage weight. realm(1) is the canonical source — the
-   ! invariant that all realms agree on the integrator (same nrk, same
+   ! SSP-RK stage weight. realm(1) is the canonical source — the
+   ! invariant that all realms agree on the integrator (same K, same
    ! ark) is asserted upstream in evolve_one_step.
-   if (substage < 1_I4P .or. substage > realm(1)%rk%nrk) return
+   if (stage < 1_I4P .or. stage > realm(1)%rk%nrk) return
    if (.not. allocated(realm(1)%rk%ark)) return
-   weight = realm(1)%rk%ark(substage)
+   weight = realm(1)%rk%ark(stage)
 
    do f = 1_I4P, self%flux_register%nfaces
       associate(face_f => self%flux_register%face(f))
       if (.not. allocated(face_f%F_coarse))   cycle
       if (.not. allocated(face_f%F_fine_sum)) cycle
-      if (substage > size(face_f%F_coarse, dim=3)) cycle
+      if (stage > size(face_f%F_coarse, dim=3)) cycle
 
       call face_axis_sign(face_f%coarse_face, axis, sgn)
       if (axis == 0_I4P) cycle  ! malformed face_code; defensive.
@@ -1312,9 +1312,9 @@ contains
             cycle
          end select
 
-         realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, substage) = &
-            realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, substage) &
-            + scale_ * (face_f%F_coarse(:, c, substage) - face_f%F_fine_sum(:, c, substage))
+         realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) = &
+            realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) &
+            + scale_ * (face_f%F_coarse(:, c, stage) - face_f%F_fine_sum(:, c, stage))
       enddo
       end associate
    enddo

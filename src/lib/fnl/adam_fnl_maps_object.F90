@@ -30,6 +30,21 @@ type :: maps_fnl_object
    real(R8P),    pointer :: send_buffer_ghost_gpu(:)          => null() !< Send buffer of ghost cells.
    real(R8P),    pointer :: recv_buffer_ghost_gpu(:)          => null() !< Receive buffer of ghost cells.
    integer(I8P), pointer :: local_map_bc_crown_gpu(:,:,:)     => null() !< Local map for face BC ghost cells, "crown" order.
+   ! Inter-realm seam ghost-fill — device-resident counterparts of the host
+   ! seam maps/buffers on `maps_object` (see adam_maps_object.F90). The host
+   ! arrays drive layout; these are sized/populated 1:1 by `copy_cpu_gpu`.
+   ! Per-peer buffers shaped `(buf_len, n_peers)` so concurrent peers do not
+   ! alias. Cross-rank seam path (`seam_*_mpi_*`) uses GPU-direct MPI: device
+   ! pointers handed straight to MPI_Isend/MPI_Irecv (same model as
+   ! update_ghost_mpi_gpu).
+   integer(I4P), pointer :: seam_local_map_ghost_cell_gpu(:,:)  => null() !< Per-cell seam ghost map (sorted by peer_realm).
+   real(R8P),    pointer :: seam_local_send_buf_gpu(:,:)        => null() !< Per-peer pack buffer, device-resident.
+   real(R8P),    pointer :: seam_local_recv_buf_gpu(:,:)        => null() !< Per-peer unpack buffer, device-resident.
+   ! Cross-rank seam — Phase A: declared but not populated.
+   integer(I4P), pointer :: seam_comm_map_send_ghost_cell_gpu(:,:) => null()
+   integer(I4P), pointer :: seam_comm_map_recv_ghost_cell_gpu(:,:) => null()
+   real(R8P),    pointer :: seam_mpi_send_buf_gpu(:)               => null()
+   real(R8P),    pointer :: seam_mpi_recv_buf_gpu(:)               => null()
    contains
       procedure, pass(self) :: copy_cpu_gpu !< Copy data from (maps global singleton) CPU to (maps_fnl_object) GPU.
       procedure, pass(self) :: initialize   !< Initialize MPI handler data.
@@ -88,6 +103,40 @@ contains
       if (verbose_) call mpih_fnl%print_message('copy local_map_bc_crown done')
    else if (verbose_) then
       call mpih_fnl%print_message('skip local_map_bc_crown_gpu (CPU map not allocated)')
+   endif
+   ! Inter-realm seam ghost-fill — device-resident counterparts.
+   if (allocated(maps%seam_local_map_ghost_cell)) then
+      call dev_assign_to_device(dst=self%seam_local_map_ghost_cell_gpu, src=maps%seam_local_map_ghost_cell)
+      if (verbose_) call mpih_fnl%print_message('copy seam_local_map_ghost_cell done')
+   else if (verbose_) then
+      call mpih_fnl%print_message('skip seam_local_map_ghost_cell_gpu (CPU map not allocated)')
+   endif
+   if (allocated(maps%seam_local_send_buf)) then
+      call dev_assign_to_device(dst=self%seam_local_send_buf_gpu, src=maps%seam_local_send_buf)
+      if (verbose_) call mpih_fnl%print_message('copy seam_local_send_buf done')
+   else if (verbose_) then
+      call mpih_fnl%print_message('skip seam_local_send_buf_gpu (CPU map not allocated)')
+   endif
+   if (allocated(maps%seam_local_recv_buf)) then
+      call dev_assign_to_device(dst=self%seam_local_recv_buf_gpu, src=maps%seam_local_recv_buf)
+      if (verbose_) call mpih_fnl%print_message('copy seam_local_recv_buf done')
+   else if (verbose_) then
+      call mpih_fnl%print_message('skip seam_local_recv_buf_gpu (CPU map not allocated)')
+   endif
+   ! Cross-rank seam — Phase A: host counterparts unallocated, skip silently.
+   if (allocated(maps%seam_comm_map_send_ghost_cell)) then
+      call dev_assign_to_device(dst=self%seam_comm_map_send_ghost_cell_gpu, src=maps%seam_comm_map_send_ghost_cell)
+      if (verbose_) call mpih_fnl%print_message('copy seam_comm_map_send_ghost_cell done')
+   endif
+   if (allocated(maps%seam_comm_map_recv_ghost_cell)) then
+      call dev_assign_to_device(dst=self%seam_comm_map_recv_ghost_cell_gpu, src=maps%seam_comm_map_recv_ghost_cell)
+      if (verbose_) call mpih_fnl%print_message('copy seam_comm_map_recv_ghost_cell done')
+   endif
+   if (allocated(maps%seam_mpi_send_buf)) then
+      call dev_assign_to_device(dst=self%seam_mpi_send_buf_gpu, src=maps%seam_mpi_send_buf)
+   endif
+   if (allocated(maps%seam_mpi_recv_buf)) then
+      call dev_assign_to_device(dst=self%seam_mpi_recv_buf_gpu, src=maps%seam_mpi_recv_buf)
    endif
    if (verbose_) call mpih_fnl%print_message('maps_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu

@@ -103,18 +103,25 @@ type :: realm_object
    integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
    integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
    integer(I4P), pointer :: nv=>null()            !< Number of variables in q vector.
-   !< Inter-realm seam coupling — current-substage tracking.
+   !< Inter-realm seam coupling — currently-published stage buffer key.
+   !<
+   !< Integrator-agnostic: the forest sees an opaque `k = 1..K` clock, where
+   !< `K = stages_per_step_forest()` is the realm's own stride. For RK
+   !< realms `k` happens to map 1-to-1 to the SSP-RK substage; for other
+   !< integrators (Leapfrog, Yoshida, CFM, splitting) it indexes whatever
+   !< sub-operator boundary the integrator chooses to expose to peers.
    !<
    !< Lifecycle:
-   !<   * 0 at construction and after `finalize_step_forest`
-   !<   * set to `s` by `assemble_substage_forest(s)` (each override must set it)
-   !<   * read by `get_cell` / `pack_seam_cells` to select the active buffer
-   !<     (`q` when 0, `rk%q_rk(:,...,s_active)` when > 0).
+   !<   * 0 at construction and after `close_step_forest`
+   !<   * set to `k` by `begin_stage_forest(k)` (each override must set it)
+   !<   * read by `fill_seam_from_peer_forest` (on both sides) to select the
+   !<     active buffer (`q` when 0, integrator-private stage buffer when > 0;
+   !<     for RK realms that buffer is `rk%q_rk(:,...,stage_active)`).
    !<
-   !< Invariant: MUST be 0 entering `prepare_step_forest`. The base type's
-   !< `finalize_step_forest` default clears it; overrides chain via base call
+   !< Invariant: MUST be 0 entering `open_step_forest`. The base type's
+   !< `close_step_forest` default clears it; overrides chain via base call
    !< or duplicate the assignment.
-   integer(I4P) :: s_active = 0_I4P
+   integer(I4P) :: stage_active = 0_I4P
    !< Procedure pointer TBPs for FDV operators (set at initialization by backend).
    procedure(compute_block_total_variation_interface), pass(self),pointer :: compute_block_total_variation=>null()!< Compute TV.
    procedure(compute_curl_interface),                  pass(self),pointer :: compute_curl                 =>null()!< Compute curl.
@@ -132,23 +139,18 @@ type :: realm_object
       procedure, pass(self) :: initialize_forest                 !< Invoked by forest%initialize per realm at startup.
       procedure, pass(self) :: compute_local_dt_forest           !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest           !< Invoked by forest%evolve_one_step per realm per timestep.
-      procedure, pass(self) :: nrk_forest                        !< Number of substages this realm's integrator uses.
-      procedure, pass(self) :: prepare_step_forest               !< Per-step prologue (multi-realm path).
-      procedure, pass(self) :: assemble_substage_forest          !< One RK substage assembly (multi-realm path).
-      procedure, pass(self) :: residuals_substage_forest         !< [Legacy / FNL] residuals-only phase; CPU path uses evaluate_substage_forest.
-      procedure, pass(self) :: assign_substage_forest            !< [Legacy / FNL] assign-only phase; CPU path uses evaluate_substage_forest.
-      procedure, pass(self) :: evaluate_substage_forest          !< Per-substage residuals + stage assignment (multi-realm path, CPU).
-      procedure, pass(self) :: finalize_step_forest              !< Per-step epilogue (multi-realm path).
+      procedure, pass(self) :: stages_per_step_forest            !< Number of integrator stages this realm exposes per step.
+      procedure, pass(self) :: open_step_forest                  !< Per-step prologue (multi-realm path).
+      procedure, pass(self) :: begin_stage_forest                !< Begin one integrator stage on this realm (multi-realm path).
+      procedure, pass(self) :: end_stage_forest                  !< End the stage: residuals + assignment (multi-realm path).
+      procedure, pass(self) :: close_step_forest                 !< Per-step epilogue (multi-realm path).
       procedure, pass(self) :: post_step_forest                  !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest                    !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
       procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize; forest calls it ONCE after all.
-      procedure, pass(self) :: exchange_inter_realm_halos_forest !< [Legacy / FNL] Invoked by forest%exchange_halos; CPU path uses pack/unpack_seam_cells instead.
       ! inter-realm seam ghost-fill contract (agnostic-dummy redesign).
-      procedure, pass(self) :: get_cell                          !< Read active buffer at (v,i,j,k,b); base errors_stops.
-      procedure, pass(self) :: set_cell                          !< Write active buffer at (v,i,j,k,b); base error_stops.
-      procedure, pass(self) :: pack_seam_cells                   !< Pack interior cells (peer side); default uses get_cell.
-      procedure, pass(self) :: unpack_seam_cells                 !< Unpack ghost cells (receiver side); default uses set_cell.
+      procedure, pass(self) :: fill_seam_from_peer_forest        !< Receive-side roundtrip: copy peer's interior into self's ghosts.
+      procedure, pass(self) :: after_topology_build_forest       !< Backend hook invoked once after the forest builds the seam maps.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
       procedure, nopass     :: close_file_xh5f  !< Close XH5F file.
@@ -362,33 +364,24 @@ contains
    endsubroutine load_fdv_from_file
 
    ! forest orchestrator contract methods
-   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose, realm)
-   !< Initialize this realm from scratch: app-level initialize, IC injection
-   !< (or restart load), initial AMR, IO file open, initial diagnostics dump.
+   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
+   !< Initialize this realm from scratch: app-level initialize, IC injection (or restart load), initial
+   !< AMR, IO file open, initial diagnostics dump.
    !<
-   !< Invoked by forest%initialize once per realm at startup, before the
-   !< time loop begins. This is the single per-realm setup entry point the
-   !< orchestrator uses: it both runs the basic per-realm initialize
-   !< (which the legacy simulate did via `realm%initialize_prism(filename)`
-   !< or equivalent) and performs the post-init / pre-loop setup that has
-   !< to happen before `forest%evolve_one_step` can be called.
+   !< Invoked by forest%initialize once per realm at startup, before the time loop begins. This is the
+   !< single per-realm setup entry point the orchestrator uses: it both runs the basic per-realm initialize
+   !< (which the legacy simulate did via `realm%initialize_prism(filename)` or equivalent) and performs
+   !< the post-init / pre-loop setup that has to happen before `forest%evolve_one_step` can be called.
    !<
-   !< Default implementation error-stops: every consumer app MUST override
-   !< this method (the initial-condition catalog, AMR strategy, and which
-   !< IO files to open are app-specific). PRISM's override lives on
-   !< prism_cpu_object/prism_fnl_object.
-   !<
-   !< Optional `realm_index`, `memory_avail`, `nv`, `verbose` are door-
-   !< kept-open for Phase D: for N=1 they are unused, but the signature is
-   !< locked in so adding them later does not break callers.
-   class(realm_object), intent(inout)                   :: self          !< The realm.
-   character(*),        intent(in)                      :: filename      !< Input parameters file name.
-   integer(I4P),        intent(in),    optional         :: realm_index   !< Index of this realm in the forest (Phase D).
-   integer(I4P),        intent(in),    optional         :: realms_number !< Realm count in the forest.
-   real(R8P),           intent(in),    optional         :: memory_avail  !< Per-process memory budget override.
-   integer(I4P),        intent(in),    optional         :: nv            !< Number of field variables override.
-   logical,             intent(in),    optional         :: verbose       !< Trigger verbose output.
-   class(realm_object), intent(inout), optional, target :: realm(:)      !< Sibling realms (forest array) for inter-realm.
+   !< Default implementation error-stops: every consumer app MUST override this method (the initial-condition
+   !< catalog, AMR strategy, and which IO files to open are app-specific).
+   class(realm_object), intent(inout)           :: self          !< The realm.
+   character(*),        intent(in)              :: filename      !< Input parameters file name.
+   integer(I4P),        intent(in),    optional :: realm_index   !< Index of this realm in the forest (Phase D).
+   integer(I4P),        intent(in),    optional :: realms_number !< Realm count in the forest.
+   real(R8P),           intent(in),    optional :: memory_avail  !< Per-process memory budget override.
+   integer(I4P),        intent(in),    optional :: nv            !< Number of field variables override.
+   logical,             intent(in),    optional :: verbose       !< Trigger verbose output.
 
    call mpih%error_stop(msg='realm_object%initialize_forest: not overridden by app extension')
    endsubroutine initialize_forest
@@ -414,10 +407,10 @@ contains
    !<
    !< Invoked by forest%evolve_one_step once per realm per timestep when the
    !< forest contains a single realm (N=1 fast path). For N>1 the forest
-   !< drives the substage loop itself via `prepare_step_forest`,
-   !< `compute_substage_forest`, `finalize_step_forest`, and this TBP is
-   !< NOT invoked — see [[forest_object]]%`evolve_one_step` for the
-   !< multi-realm path.
+   !< drives the stage loop itself via `open_step_forest`,
+   !< `begin_stage_forest`, `end_stage_forest`, `close_step_forest`, and
+   !< this TBP is NOT invoked — see [[forest_object]]%`evolve_one_step` for
+   !< the multi-realm path.
    !<
    !< The orchestrator owns global dt selection (compute_global_dt) and the
    !< termination check; this method owns the integration itself — RK
@@ -436,29 +429,37 @@ contains
    call mpih%error_stop(msg='realm_object%advance_one_step_forest: not overridden by app extension')
    endsubroutine advance_one_step_forest
 
-   function nrk_forest(self) result(nrk)
-   !< Return the number of RK substages this realm's integrator uses.
+   function stages_per_step_forest(self) result(K)
+   !< Return the number of integrator stages this realm exposes per step.
+   !<
+   !< Integrator-agnostic: `K` is the number of inter-realm seam-coherence
+   !< boundaries the realm wants visible to the forest. For SSP-RK realms
+   !< `K = rk%nrk`; for Leapfrog realms `K = 2` (kick, drift); for Yoshida
+   !< composition `K` is the number of sub-operators; for an operator-split
+   !< realm that does all its work atomically and only needs one peer-sync
+   !< per step, `K = 1`.
    !<
    !< Invoked by forest%evolve_one_step on the multi-realm path to size the
-   !< substage loop. The forest assumes every realm reports the same `nrk`
-   !< (Phase D v1 — all realms run the same integrator scheme); a mismatch
-   !< is flagged by the forest with `mpih%error_stop`.
+   !< stage loop. Phase A v1 assumes every realm reports the same `K`;
+   !< a mismatch is flagged by the forest with `mpih%error_stop`.
+   !< (Per-realm `K` with sparse stage participation is a follow-up.)
    !<
    !< Default implementation error-stops: every realm that participates in a
    !< multi-realm forest MUST override this. Apps that only ever run as N=1
    !< may leave it (the N=1 fast path doesn't call this).
    class(realm_object), intent(in) :: self !< The realm.
-   integer(I4P)                    :: nrk  !< Number of substages.
+   integer(I4P)                    :: K    !< Number of integrator stages per step.
 
-   call mpih%error_stop(msg='realm_object%nrk_forest: not overridden by app extension')
-   endfunction nrk_forest
+   call mpih%error_stop(msg='realm_object%stages_per_step_forest: not overridden by app extension')
+   endfunction stages_per_step_forest
 
-   subroutine prepare_step_forest(self, dt)
-   !< Per-step prologue on the multi-realm path: pre-substage setup.
+   subroutine open_step_forest(self, dt)
+   !< Per-step prologue on the multi-realm path: pre-stage-loop setup.
    !<
-   !< Invoked once per realm per timestep, BEFORE the forest's substage loop
-   !< starts. Body owns whatever the integrator does between substages once
-   !< per step: external-field prelude, RK stage-array initialization, time
+   !< Invoked once per realm per timestep, BEFORE the forest's stage loop
+   !< starts. Body owns whatever the integrator does once per step before
+   !< its first stage: external-field prelude, integrator-private state
+   !< initialization (for RK realms: `rk%initialize_stages`), time
    !< bookkeeping (it increment, dt capping for time_max), progress prints.
    !<
    !< Default implementation error-stops: every multi-realm participant MUST
@@ -466,138 +467,85 @@ contains
    class(realm_object), intent(inout) :: self !< The realm.
    real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
 
-   call mpih%error_stop(msg='realm_object%prepare_step_forest: not overridden by app extension')
-   endsubroutine prepare_step_forest
+   call mpih%error_stop(msg='realm_object%open_step_forest: not overridden by app extension')
+   endsubroutine open_step_forest
 
-   subroutine assemble_substage_forest(self, s, nrk, dt, realm)
-   !< Assemble substage q-buffer on the multi-realm path.
+   subroutine begin_stage_forest(self, k, K_total, dt, realm)
+   !< Open one integrator stage on this realm — multi-realm path.
    !<
-   !< Invoked once per (realm, substage) by the forest, with `s` iterating
-   !< from 1 to `nrk`. Body assembles `rk%q_rk(:,...,s)` from the previously
-   !< computed substages and from `self%q` — i.e. it runs whatever
-   !< `rk%compute_stage(s)` does in the legacy integrator body — and stops
-   !< there. Crucially it does NOT invoke `compute_residuals` or anything
-   !< that touches ghost cells from peer realms; the peer realms may not
-   !< yet have assembled their own substage-s buffer when this fires.
+   !< Invoked once per (realm, stage) by the forest, with `k` iterating
+   !< from 1 to `K_total`. Body publishes the realm's stage-`k` buffer to
+   !< peers: it runs whatever integrator-private work is needed BEFORE
+   !< residuals (for RK realms: `rk%compute_stage(s=k)` populating
+   !< `rk%q_rk(:,...,k)` from prior stages and `self%q`), and assigns
+   !< `self%stage_active = k` so peer-realm reads pick up the right buffer.
+   !< Crucially it does NOT touch ghost cells from peer realms; peer realms
+   !< may not yet have opened their own stage-`k` buffer when this fires.
    !<
-   !< The forest invokes `assemble_substage_forest` on EVERY realm before
-   !< proceeding to `evaluate_substage_forest`, so by the time residuals
-   !< evaluate, every peer realm has its substage-s buffer populated and
-   !< the inter-realm ghost exchange returns coherent values.
+   !< The forest invokes `begin_stage_forest` on EVERY realm before
+   !< proceeding to the seam fill and `end_stage_forest`, so by the time
+   !< residuals evaluate, every peer realm has its stage-`k` buffer
+   !< populated and the inter-realm ghost exchange returns coherent values.
    !<
    !< Default implementation error-stops: every multi-realm participant MUST
    !< override this.
    class(realm_object), intent(inout)                   :: self     !< The realm.
-   integer(I4P),        intent(in)                      :: s        !< Substage index (1..nrk).
-   integer(I4P),        intent(in)                      :: nrk      !< Total number of substages.
+   integer(I4P),        intent(in)                      :: k        !< Stage index (1..K_total).
+   integer(I4P),        intent(in)                      :: K_total  !< Forest-wide stage count for this step.
    real(R8P),           intent(in)                      :: dt       !< Timestep size from the forest.
    class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
-   call mpih%error_stop(msg='realm_object%assemble_substage_forest: not overridden by app extension')
-   endsubroutine assemble_substage_forest
+   call mpih%error_stop(msg='realm_object%begin_stage_forest: not overridden by app extension')
+   endsubroutine begin_stage_forest
 
-   subroutine residuals_substage_forest(self, s, nrk, dt, realm, flux_register)
-   !< Compute residuals for RK substage `s` on the multi-realm path.
+   subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
+   !< Close one integrator stage on this realm — multi-realm path.
    !<
-   !< Invoked once per (realm, substage) AFTER every realm has run
-   !< `assemble_substage_forest(s)`. Body calls `compute_residuals(q=
-   !< rk%q_rk(:,...,s), dq=self%dq, s=s)` ONLY — it must NOT call
-   !< `rk%assign_stage`, because doing so would overwrite
-   !< `rk%q_rk(:, interior, :, b, s)` with `dq` IN-PLACE, corrupting the
-   !< substage-state read by peers' subsequent residual evaluations at
-   !< the seam.
+   !< Invoked once per (realm, stage) by the forest AFTER its Phase 2
+   !< inter-realm seam fill has populated the seam ghost cells. The body
+   !< runs the integrator's per-stage work that needs valid peer ghosts:
+   !< residual computation and stage assignment in a single sweep (for RK
+   !< realms: `compute_residuals + rk%assign_stage`). The read-after-
+   !< overwrite race that originally required a three-phase split is
+   !< eliminated by the upstream seam fill, which decouples peer state
+   !< reads from the in-place overwrite of the stage buffer's interior.
    !<
-   !< The forest invokes `residuals_substage_forest` on EVERY realm
-   !< before any realm runs `assign_substage_forest(s)` — that is the
-   !< three-phase substage loop that keeps `q_rk(:, interior, :, b, s)`
-   !< stable as the assembled substage state for the duration of all
-   !< realms' residual evaluations.
+   !< `flux_register` is an optional dummy used by FV residuals
+   !< (`compute_residuals_fv_centered`) to accumulate seam-face flux
+   !< contributions for Phase-A Berger–Colella reflux. Backends that don't
+   !< implement FV reflux (e.g. FNL's FD-centered path) ignore it.
    !<
    !< Default implementation error-stops: every multi-realm participant
-   !< MUST override this.
-   !<
-   !< Optional `realm(:)`: forest realm array
-   !< for inter-realm halo refresh during update_ghost calls inside the
-   !< residual computation. When present, the FNL backend forwards it
-   !< through to `update_ghost(realm=realm)` so the seam exchange uses
-   !< the dummy-argument path instead of the polymorphic `forest_realm`
-   !< module pointer (works around an nvfortran-OpenACC runtime bug
-   !< triggered by polymorphic-class-pointer dereferences followed by
-   !< FUNDAL cross-realm device memcpy).
+   !< MUST override this. `realm` accepted on contract for parity but is
+   !< not needed: peer state is read via the seam fill, not here.
    class(realm_object),         intent(inout)                   :: self          !< The realm.
-   integer(I4P),                intent(in)                      :: s             !< Substage index (1..nrk).
-   integer(I4P),                intent(in)                      :: nrk           !< Total number of substages.
+   integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
+   integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count for this step.
    real(R8P),                   intent(in)                      :: dt            !< Timestep size from the forest.
-   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
+   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms (parity only).
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
-   call mpih%error_stop(msg='realm_object%residuals_substage_forest: not overridden by app extension')
-   endsubroutine residuals_substage_forest
+   call mpih%error_stop(msg='realm_object%end_stage_forest: not overridden by app extension')
+   endsubroutine end_stage_forest
 
-   subroutine assign_substage_forest(self, s, nrk, dt, realm)
-   !< Assign RK substage `s` state from `self%dq` on the multi-realm path.
+   subroutine close_step_forest(self, dt)
+   !< Per-step epilogue on the multi-realm path: post-stage-loop finalization.
    !<
-   !< Invoked once per (realm, substage) AFTER every realm has run
-   !< `residuals_substage_forest(s)`. Body calls `rk%assign_stage(s=s,
-   !< q=self%dq)`, which overwrites `rk%q_rk(:, interior, :, b, s)` with
-   !< the residual buffer (the SSP-RK trick — q_rk(s) holds the dq of
-   !< stage s for the next stage's linear combination).
-   !<
-   !< By the time this fires, every realm's residual evaluation has
-   !< completed, so the in-place overwrite of `q_rk(s)` does not race
-   !< with peer reads.
-   !<
-   !< Default implementation error-stops: every multi-realm participant
-   !< MUST override this.
-   class(realm_object), intent(inout)                   :: self     !< The realm.
-   integer(I4P),        intent(in)                      :: s        !< Substage index (1..nrk).
-   integer(I4P),        intent(in)                      :: nrk      !< Total number of substages.
-   real(R8P),           intent(in)                      :: dt       !< Timestep size from the forest.
-   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
-
-   call mpih%error_stop(msg='realm_object%assign_substage_forest: not overridden by app extension')
-   endsubroutine assign_substage_forest
-
-   subroutine evaluate_substage_forest(self, s, nrk, dt, realm)
-   !< [Deprecated] Combined residuals + stage assignment.
-   !<
-   !< Was the single-phase substage entry point before the
-   !< residuals/assign split required by the BC_SEAM-coherence fix
-   !< (issue #13, 2026-05-24). Retained as a backward-compat wrapper:
-   !< default implementation calls residuals then assign in sequence.
-   !< The forest no longer invokes this — it drives the three-phase
-   !< loop directly via the split TBPs. App overrides may still
-   !< implement this for use outside the forest orchestrator.
-   class(realm_object), intent(inout)                   :: self     !< The realm.
-   integer(I4P),        intent(in)                      :: s        !< Substage index (1..nrk).
-   integer(I4P),        intent(in)                      :: nrk      !< Total number of substages.
-   real(R8P),           intent(in)                      :: dt       !< Timestep size from the forest.
-   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms (forwarded to residuals/assign).
-
-   if (present(realm)) then
-      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
-      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
-   else
-      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
-      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
-   endif
-   endsubroutine evaluate_substage_forest
-
-   subroutine finalize_step_forest(self, dt)
-   !< Per-step epilogue on the multi-realm path: post-substage finalization.
-   !<
-   !< Invoked once per realm per timestep, AFTER the forest's substage loop
+   !< Invoked once per realm per timestep, AFTER the forest's stage loop
    !< completes. Body owns whatever the integrator does once per step at the
-   !< end: q assembly from substage state (rk%update_q), BC update,
-   !< divergence cleaning, coil current refresh, residual save, time advance.
+   !< end: assembly of the committed state from stage buffers (for RK realms:
+   !< `rk%update_q`), BC update, divergence cleaning, coil current refresh,
+   !< residual save, time advance. Should also clear `self%stage_active = 0`
+   !< so any inter-step `fill_seam_from_peer_forest` query reads from the
+   !< committed state rather than a stale stage buffer.
    !<
    !< Default implementation error-stops: every multi-realm participant MUST
    !< override this.
    class(realm_object), intent(inout) :: self !< The realm.
    real(R8P),           intent(in)    :: dt   !< Timestep size from the forest.
 
-   call mpih%error_stop(msg='realm_object%finalize_step_forest: not overridden by app extension')
-   endsubroutine finalize_step_forest
+   call mpih%error_stop(msg='realm_object%close_step_forest: not overridden by app extension')
+   endsubroutine close_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run this realm's per-timestep post-step work: diagnostics, IO, AMR.
@@ -682,128 +630,51 @@ contains
    call mpih%finalize
    endsubroutine finalize_mpi_forest
 
-   subroutine exchange_inter_realm_halos_forest(self, realm, s_active)
-   !< Refresh THIS realm's ghost cells that depend on neighbour realms.
-   !<
-   !< Invoked by forest%exchange_halos once per realm per call. The peer
-   !< realms are passed through as the `realm(:)` assumed-shape dummy so the
-   !< override can index into `realm(n%peer_realm)%field%q` (host-side chain
-   !< walk, in line with R2 of issue #10 — kernels never walk this chain).
-   !<
-   !< Default implementation is a **no-op**: the base class cannot read
-   !< `q` (which is app-private per O3 of issue #10) and therefore cannot
-   !< copy peer cells into self's ghosts. Apps that participate in a
-   !< multi-realm forest MUST override this TBP; apps that only ever run as
-   !< N=1 may leave it. The no-op default keeps single-realm rmf
-   !< (`self%maps%inter_realm_neighbors` unallocated) bit-identical to its
-   !< pre-Phase-D behaviour.
-   !<
-   !< Granularity note: this TBP is invoked by the forest *between* whole
-   !< timesteps (after `advance_one_step_forest`) AND between RK substages
-   !< from inside the realm's `update_ghost` path. The optional `s_active`
-   !< dummy carries the current substage index when called from substage
-   !< depth (1..nrk), or 0 when called outside a substage (e.g. initial
-   !< seam refresh during `initialize_forest`). The CPU/FNL overrides use
-   !< `s_active` to select the peer's substage-`s` buffer (`q_rk(s)` or
-   !< `q_rk_gpu(s)`) instead of the canonical `q`/`q_gpu`. This dummy
-   !< replaces the retired `forest_active_substage` module-scope shared
-   !< integer (issue #13, 2026-05-25).
-   class(realm_object), intent(inout)        :: self     !< This realm.
-   class(realm_object), intent(in)           :: realm(:) !< All realms in the forest.
-   integer(I4P),        intent(in), optional :: s_active !< Active RK substage (1..nrk) or 0/absent.
-
-   if (int(size(realm), I4P) > 1_I4P) &
-   call mpih%error_stop(msg='realm_object%exchange_inter_realm_halos_forest: not overridden by app extension')
-   endsubroutine exchange_inter_realm_halos_forest
-
-   ! Inter-realm seam ghost-fill contract — agnostic-dummy redesign.
+   ! Inter-realm seam ghost-fill contract — agnostic-dummy redesign (#13).
    !
-   ! These four TBPs (`get_cell`, `set_cell`, `pack_seam_cells`,
-   ! `unpack_seam_cells`) form the integrator-agnostic peer-data accessor
-   ! contract consumed by the forest's Phase 2 seam fill.
+   ! Single forest-facing TBP:
    !
-   ! The scalar pair (`get_cell` / `set_cell`) IS the semantic contract: any
-   ! realm extension that implements them correctly is consumable by the
-   ! seam fill regardless of integrator (RK / leapfrog / Yoshida / Blanes-
-   ! Moan / Euler) because each implementation decides internally which of
-   ! its buffers is "active" right now (typically keyed on `self%s_active`).
+   !   * `fill_seam_from_peer_forest(self, peer, p_idx)` — invoked on the
+   !     RECEIVER realm. Walks the receiver's `seam_local_map_ghost_cell`
+   !     for the row slice associated with peer slot `p_idx`, reads peer's
+   !     INTERIOR cells (peer-side columns 2/4/5/6 of the map), and writes
+   !     them into self's GHOST cells (recv-side columns 3/7/8/9). Active-
+   !     buffer selection (`q` vs the integrator-private stage buffer)
+   !     honours each realm's own `stage_active` independently — peer's
+   !     for the read, self's for the write.
    !
-   ! The bulk pair (`pack_seam_cells` / `unpack_seam_cells`) is a
-   ! PERFORMANCE optimization: the base defaults below loop over the seam
-   ! map and call `get_cell` / `set_cell` per entry — correct but with
-   ! per-cell virtual-dispatch overhead. App extensions (e.g.
-   ! `prism_cpu_object`) override the bulk pair with a direct
-   ! contiguous-slice copy from the active buffer, recovering bulk-memory
-   ! throughput while preserving the correctness contract.
+   !   * Backend dispatch: `select type(peer) class is (<concrete>)` is
+   !     confined to ONE method per backend. CPU implementation reads
+   !     host arrays; FNL wraps the body in an OpenACC `parallel loop`
+   !     and reads/writes device pointers. Same signature, same forest
+   !     call site, same semantics.
+   !
+   !   * For cross-rank peers (Phase B, not implemented in Phase A) this
+   !     TBP will instead drive an MPI exchange path using the
+   !     `seam_comm_map_*` plumbing.
 
-   function get_cell(self, v, i, j, k, b) result(val)
-   !< Read this realm's currently-active `q`/`q_rk(s)` buffer at the cell
-   !< coordinate (v, i, j, k, b). Base implementation error_stops; every
-   !< realm that participates in inter-realm seam coupling MUST override.
-   class(realm_object), intent(in) :: self
-   integer(I4P),        intent(in) :: v, i, j, k, b
-   real(R8P)                       :: val
+   subroutine fill_seam_from_peer_forest(self, peer, p_idx)
+   !< Fill THIS realm's seam ghost cells for peer slot `p_idx` from `peer`'s
+   !< interior. Default: error_stops; every multi-realm participant MUST
+   !< override (the receiver is the dispatch target).
+   class(realm_object), intent(inout)         :: self
+   class(realm_object), intent(in),    target :: peer
+   integer(I4P),        intent(in)            :: p_idx
 
-   val = 0.0_R8P
-   call mpih%error_stop(msg='realm_object%get_cell: not overridden by app extension')
-   endfunction get_cell
+   call mpih%error_stop(msg='realm_object%fill_seam_from_peer_forest: not overridden by app extension')
+   endsubroutine fill_seam_from_peer_forest
 
-   subroutine set_cell(self, v, i, j, k, b, val)
-   !< Write this realm's currently-active `q`/`q_rk(s)` buffer at the cell
-   !< coordinate (v, i, j, k, b). Base implementation error_stops; every
-   !< realm that participates in inter-realm seam coupling MUST override.
+   subroutine after_topology_build_forest(self)
+   !< Backend hook invoked by `forest%populate_inter_realm_topology` AFTER
+   !< all host-side seam maps have been built. CPU default is a no-op
+   !< (host maps are the production state). GPU backends override to
+   !< propagate the freshly-built host seam maps to device-resident
+   !< copies (e.g. via maps_fnl%copy_cpu_gpu).
    class(realm_object), intent(inout) :: self
-   integer(I4P),        intent(in)    :: v, i, j, k, b
-   real(R8P),           intent(in)    :: val
 
-   call mpih%error_stop(msg='realm_object%set_cell: not overridden by app extension')
-   endsubroutine set_cell
-
-   subroutine pack_seam_cells(self, map_rows, nv, buf)
-   !< Walk the seam-map rows assigned to one peer and pack this realm's
-   !< INTERIOR cells (peer-side coordinates: columns 2, 4, 5, 6) into `buf`
-   !< in row-major order. Default implementation dispatches through
-   !< `get_cell` per (cell, variable) — correct but slow; overrides are
-   !< expected to do a direct contiguous-slice copy from the active buffer.
-   class(realm_object), intent(in)  :: self
-   integer(I4P),        intent(in)  :: map_rows(:,:)
-   integer(I4P),        intent(in)  :: nv
-   real(R8P),           intent(out) :: buf(:)
-   integer(I4P)                     :: c, v, b, i, j, k
-   integer(I4P)                     :: nrows
-
-   nrows = int(size(map_rows, dim=1), I4P)
-   do c = 1_I4P, nrows
-      b = map_rows(c, 2)
-      i = map_rows(c, 4) ; j = map_rows(c, 5) ; k = map_rows(c, 6)
-      do v = 1_I4P, nv
-         buf((c - 1_I4P) * nv + v) = self%get_cell(v, i, j, k, b)
-      enddo
-   enddo
-   endsubroutine pack_seam_cells
-
-   subroutine unpack_seam_cells(self, map_rows, nv, buf)
-   !< Walk the seam-map rows assigned to one peer and unpack `buf` into
-   !< this realm's GHOST cells (receiver-side coordinates: columns 3, 7,
-   !< 8, 9) in row-major order. Default implementation dispatches through
-   !< `set_cell` per (cell, variable); overrides are expected to do a
-   !< direct contiguous-slice copy into the active buffer.
-   class(realm_object), intent(inout) :: self
-   integer(I4P),        intent(in)    :: map_rows(:,:)
-   integer(I4P),        intent(in)    :: nv
-   real(R8P),           intent(in)    :: buf(:)
-   integer(I4P)                       :: c, v, b, i, j, k
-   integer(I4P)                       :: nrows
-
-   nrows = int(size(map_rows, dim=1), I4P)
-   do c = 1_I4P, nrows
-      b = map_rows(c, 3)
-      i = map_rows(c, 7) ; j = map_rows(c, 8) ; k = map_rows(c, 9)
-      do v = 1_I4P, nv
-         call self%set_cell(v, i, j, k, b, buf((c - 1_I4P) * nv + v))
-      enddo
-   enddo
-   endsubroutine unpack_seam_cells
+   ! Default: nothing to do — host-side seam maps are already in place.
+   if (.false. .and. associated(self%ngc)) continue
+   endsubroutine after_topology_build_forest
 
    ! IO methods
    subroutine close_block_xh5f(xh5f)

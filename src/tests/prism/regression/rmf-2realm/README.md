@@ -110,11 +110,11 @@ This cross-config equivalence holds because:
    sentinel) — without this override, PRISM's `set_boundary_conditions`
    would extrapolate Neumann into the seam ghost cells and overwrite the
    peer-interior values the inter-realm exchange wrote.
-3. The forest's three-phase substage loop (same commit) keeps each realm's
-   `q_rk(:, interior, :, b, s)` consistent across all peers' seam reads —
+3. The forest's three-phase stage loop (same commit) keeps each realm's
+   `q_rk(:, interior, :, b, k)` consistent across all peers' seam reads —
    the legacy two-phase loop (`compute_residuals` + `rk%assign_stage`
    back-to-back per realm) raced because `assign_stage` overwrites
-   `q_rk(s)` with `dq` in-place.
+   `q_rk(k)` with `dq` in-place.
 4. Ghost cells are stripped from the digest, so the inter-realm-mirror
    ghost cells (which differ from single-realm's neighbouring-block reads
    only in how they are populated, not in what data they hold
@@ -124,10 +124,10 @@ This cross-config equivalence holds because:
 
 The FNL backend has a known limitation in the multi-realm path: `rk_fnl`
 (and other `*_fnl` singletons) is a program-scope singleton, not a per-realm
-component. With two realms the substage state on the device is
-overwritten on each realm's `assemble_substage_forest`, so the per-substage
+component. With two realms the stage state on the device is
+overwritten on each realm's `begin_stage_forest`, so the per-stage
 inter-realm exchange cannot reach a bit-comparable state. The FNL exchange
-override therefore error-stops on the per-substage entry, surfacing the
+override therefore error-stops on the per-stage entry, surfacing the
 limitation rather than silently producing wrong results.
 
 Resolving this is a follow-up that promotes the FNL singletons (rk_fnl,

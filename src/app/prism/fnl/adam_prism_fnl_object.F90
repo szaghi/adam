@@ -98,18 +98,18 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: initialize_forest                 !< Invoked by forest%initialize per realm at startup.
       procedure, pass(self) :: compute_local_dt_forest           !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest           !< Invoked by forest%evolve_one_step per realm per timestep.
-      procedure, pass(self) :: nrk_forest                        !< Number of substages this realm's integrator uses.
-      procedure, pass(self) :: prepare_step_forest               !< Per-step prologue (multi-realm path).
-      procedure, pass(self) :: assemble_substage_forest          !< One RK substage assembly (multi-realm path).
-      procedure, pass(self) :: residuals_substage_forest         !< One RK substage residual computation.
-      procedure, pass(self) :: assign_substage_forest            !< One RK substage stage assignment.
-      procedure, pass(self) :: evaluate_substage_forest          !< [Deprecated] residuals + assignment in one call.
-      procedure, pass(self) :: finalize_step_forest              !< Per-step epilogue (multi-realm path).
+      procedure, pass(self) :: stages_per_step_forest            !< Number of integrator stages this realm exposes per step.
+      procedure, pass(self) :: open_step_forest                  !< Per-step prologue (multi-realm path).
+      procedure, pass(self) :: begin_stage_forest                !< Begin one integrator stage on this realm (multi-realm path).
+      procedure, pass(self) :: end_stage_forest                  !< End the stage: residuals + assignment (multi-realm path).
+      procedure, pass(self) :: close_step_forest                 !< Per-step epilogue (multi-realm path).
       procedure, pass(self) :: post_step_forest                  !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest                    !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
-      procedure, pass(self) :: exchange_inter_realm_halos_forest !< Invoked by forest%exchange_halos to refresh inter-realm ghosts.
       procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize (mpih_fnl).
+      ! inter-realm seam ghost-fill contract (agnostic-dummy redesign)
+      procedure, pass(self) :: fill_seam_from_peer_forest !< OpenACC device-direct copy of peer's GPU interior into self's GPU ghosts.
+      procedure, pass(self) :: after_topology_build_forest !< Refresh device-resident seam maps from freshly-built host maps.
       ! numerical methods, miscellanea
       procedure, pass(self) :: compute_dt             !< Compute time step.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
@@ -197,22 +197,27 @@ interface
    real(R8P),               intent(inout) :: laplacian_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Laplacian.
    endsubroutine compute_laplacian_interface_dev
 
-   subroutine compute_residuals_interface_dev(self, q_gpu, dq_gpu, s, realm)
+   subroutine compute_residuals_interface_dev(self, q_gpu, dq_gpu, s)
    !< Compute residuals of equation, space operator.
-   import :: prism_fnl_object, R8P, I4P, realm_object
-   class(prism_fnl_object), intent(inout)                   :: self       !< The equation.
-   real(R8P),               intent(inout)                   :: q_gpu(1:,         &
-                                                                     1-self%ngc:,&
-                                                                     1-self%ngc:,&
-                                                                     1-self%ngc:,&
-                                                                     1:)  !< Conservative variables.
-   real(R8P),               intent(inout)                   :: dq_gpu(1:,         &
-                                                                      1-self%ngc:,&
-                                                                      1-self%ngc:,&
-                                                                      1-self%ngc:,&
-                                                                      1:) !< Residuals.
-   integer(I4P),            intent(in),    optional         :: s          !< Stage counter.
-   class(realm_object),     intent(inout), optional, target :: realm(:)   !< Sibling realms for inter-realm halo refresh.
+   !<
+   !< Inter-realm seam ghost cells are filled by the forest's Phase 2 seam
+   !< exchange BEFORE this routine fires, so the stencil reads valid halo
+   !< data without any peer-realm access. The `realm(:)` optional that
+   !< used to thread through this signature has been retired by the
+   !< agnostic-dummy seam redesign.
+   import :: prism_fnl_object, R8P, I4P
+   class(prism_fnl_object), intent(inout)             :: self       !< The equation.
+   real(R8P),               intent(inout)             :: q_gpu(1:,         &
+                                                               1-self%ngc:,&
+                                                               1-self%ngc:,&
+                                                               1-self%ngc:,&
+                                                               1:)  !< Conservative variables.
+   real(R8P),               intent(inout)             :: dq_gpu(1:,         &
+                                                                1-self%ngc:,&
+                                                                1-self%ngc:,&
+                                                                1-self%ngc:,&
+                                                                1:) !< Residuals.
+   integer(I4P),            intent(in),    optional   :: s          !< Stage counter.
    endsubroutine compute_residuals_interface_dev
 
    subroutine integrate_interface_dev(self)
@@ -418,19 +423,14 @@ contains
    endif
    endsubroutine save_residuals
 
-   subroutine save_simulation_data(self, realm)
+   subroutine save_simulation_data(self)
    !< Save all simulation data.
-   class(prism_fnl_object), intent(inout)                   :: self     !< The equation.
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-      if (present(realm)) then
-         call self%update_ghost(q_gpu=self%q_gpu, realm=realm)
-      else
-         call self%update_ghost(q_gpu=self%q_gpu)
-      endif
+      call self%update_ghost(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu
       call self%compute_auxiliary_fields
 
@@ -725,29 +725,29 @@ contains
    call self%copy_cpu_gpu
    endsubroutine set_initial_conditions
 
-   subroutine update_ghost(self, q_gpu, step, s, realm)
-   !< Update ghost cells.
-   !< If not specified all steps are perfermod, syncronous computation
+   subroutine update_ghost(self, q_gpu, step, s)
+   !< Update ghost cells (intra-realm only).
    !<
-   !< `realm(:)` is an optional dummy carrying the forest's realm array.
-   !< When present AND `inter_realm_neighbors` is allocated, the
-   !< inter-realm halo exchange is invoked via the dummy-argument path.
-   !< When absent (legacy single-realm `simulate` entry point), the
-   !< inter-realm exchange is unreachable by construction (single-realm
-   !< has no peers and `inter_realm_neighbors` is unallocated).
+   !< Inter-realm seam ghost cells are filled by the forest's Phase 2 seam
+   !< exchange (between assemble and evaluate) via
+   !< `fill_seam_from_peer_forest`, NOT here. The legacy
+   !< `realm(:)` optional dummy and the
+   !< `exchange_inter_realm_halos_forest` call have been retired by the
+   !< agnostic-dummy seam redesign.
    class(prism_fnl_object), intent(inout)                   :: self            !< The equation.
    real(R8P),               intent(inout)                   :: q_gpu(1:,         &
                                                                      1-self%ngc:,&
                                                                      1-self%ngc:,&
                                                                      1-self%ngc:,&
                                                                      1:)       !< Conservative variables.
-   integer(I4P),            intent(in),    optional         :: step            !< Step to be perfordmed in asyncronous comp.
+   integer(I4P),            intent(in),    optional         :: step            !< Step to be performed in async comp.
    integer(I4P),            intent(in),    optional         :: s               !< Stage counter.
-   class(realm_object),     intent(inout), optional, target :: realm(:)        !< Sibling realms for inter-realm halo refresh.
    logical                                                  :: do_local_update !< Flag for triggering local update.
    logical                                                  :: do_set_bc       !< Flag for triggering setting bc.
 
-   ! perform local update if step is not speficied or if first step is selected
+   if (present(s)) continue  ! `s` is retained for API symmetry with CPU update_ghost.
+
+   ! perform local update if step is not specified or if first step is selected
    do_local_update = .false.
    do_set_bc       = .false.
    if (.not.present(step)) then
@@ -762,19 +762,6 @@ contains
                         call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
                                                                  comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
                                                                  q_gpu=q_gpu, step=step)
-   ! Inter-realm halo exchange — only reachable when both:
-   !   1. `inter_realm_neighbors` is allocated (manifest declared a seam);
-   !   2. the caller threaded `realm(:)` (forest path).
-   ! Single-realm `simulate` has neither, so the branch is a no-op there.
-   ! `s` (the RK substage index, when present) is forwarded as `s_active`
-   ! to drive the substage-buffer selection inside `copy_peer_face_gpu`.
-   if (allocated(self%adam%maps%inter_realm_neighbors) .and. present(realm)) then
-      if (present(s)) then
-         call self%exchange_inter_realm_halos_forest(realm=realm, s_active=s)
-      else
-         call self%exchange_inter_realm_halos_forest(realm=realm)
-      endif
-   endif
    if (do_set_bc) call self%set_boundary_conditions(q_gpu=q_gpu)
    endsubroutine update_ghost
 
@@ -1116,7 +1103,7 @@ contains
    endsubroutine compute_laplacian_fv_dev
 
    ! numerical methods, space operators
-   subroutine compute_residuals_fd_centered_dev(self, q_gpu, dq_gpu, s, realm)
+   subroutine compute_residuals_fd_centered_dev(self, q_gpu, dq_gpu, s)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
    class(prism_fnl_object), intent(inout)                :: self       !< The equation.
    real(R8P),               intent(inout)                :: q_gpu(1:,         &
@@ -1130,15 +1117,10 @@ contains
                                                                    1-self%ngc:,&
                                                                    1:) !< Residuals.
    integer(I4P),            intent(in),    optional      :: s          !< Stage counter.
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms for inter-realm halo refresh.
 
    if (self%blocks_number > 0) then
       call self%apply_fwl_correction(q_gpu=q_gpu)
-      if (present(realm)) then
-         call self%update_ghost(q_gpu=q_gpu, s=s, realm=realm)
-      else
-         call self%update_ghost(q_gpu=q_gpu, s=s)
-      endif
+      call self%update_ghost(q_gpu=q_gpu, s=s)
       call compute_residuals_fd_centered_dev_kernel(ni            = self%ni                  ,&
                                                     nj            = self%nj                  ,&
                                                     nk            = self%nk                  ,&
@@ -1643,89 +1625,6 @@ contains
    ! call self%impose_div_free
    endsubroutine integrate_rk_yoshida_dev
 
-   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose, realm)
-   !< Initialize this realm from scratch: PRISM init, IC injection (or
-   !< restart load), initial ghost update on device, initial diagnostics
-   !< dump, IO files open, plus PIC/leapfrog priming if those schemes are
-   !< active.
-   !<
-   !< Invoked by forest%initialize. v1 implementation wraps the legacy
-   !< `initialize_prism(filename)` plus the verbatim post-init / pre-loop
-   !< block formerly inline in `simulate`. Behavior unchanged.
-   !<
-   !< `realms_number` (passed by the forest as the realm count) divides the
-   !< per-device memory budget so each realm sizes its block storage to its
-   !< share, not the full device budget — without it, N realms each grab the
-   !< whole VRAM and over-subscribe the GPU by Nx (issue #13 rmf-2realm OOM).
-   !< The optional `realm_index`, `memory_avail`, `nv`, `verbose` are accepted;
-   !< `memory_avail` stays a door-open placeholder (the budget source is
-   !< mpih_fnl, only valid after device init inside initialize_prism).
-   class(prism_fnl_object), intent(inout)                   :: self          !< The realm.
-   character(*),            intent(in)                      :: filename      !< Input parameters file name.
-   integer(I4P),            intent(in),    optional         :: realm_index   !< Index of this realm in the forest.
-   integer(I4P),            intent(in),    optional         :: realms_number !< Realm count; divides the per-device budget.
-   real(R8P),               intent(in),    optional         :: memory_avail  !< Per-process memory budget override.
-   integer(I4P),            intent(in),    optional         :: nv            !< Number of field variables override.
-   logical,                 intent(in),    optional         :: verbose       !< Trigger verbose output.
-   class(realm_object),     intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
-   integer(I4P)                                             :: i             !< Counter.
-
-   call self%initialize_prism(filename=filename, realms_number=realms_number)
-   if (self%io%restart) then
-      call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
-      call self%load_restart_files(t=self%time%it, time=self%time%time)
-      call self%set_initial_conditions(is_restart=self%io%restart)
-      call mpih_fnl%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
-   else
-      call mpih_fnl%print_message('impose initial conditions start')
-      do i=1, self%ic%amr_iterations
-         call mpih_fnl%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
-         call self%set_initial_conditions(is_restart=self%io%restart)
-         !if (ib%solids_number > 0) call self%compute_phi()
-         !call self%amr_update
-      enddo
-      call self%adam%make_comm_local_maps_ghost_bc
-      call self%set_initial_conditions(is_restart=self%io%restart)
-      self%time%time = 0._R8P
-      self%time%it = 0
-      call mpih_fnl%print_message('impose initial conditions finish')
-   endif
-   !if (ib%solids_number > 0) call self%compute_phi()
-   ! call self%amr_update
-   ! call self%update_ghost(q=self%q) ! Aggiunto da FN
-   if (present(realm)) then
-      call self%update_ghost(q_gpu=self%q_gpu, realm=realm)
-   else
-      call self%update_ghost(q_gpu=self%q_gpu)
-   endif
-
-   if (present(realm)) then
-      call self%save_simulation_data(realm=realm)
-   else
-      call self%save_simulation_data
-   endif
-   call self%compute_energy
-   !call self%save_energy_error(is_to_open=.true.)
-   call self%save_energy_history(is_to_open=.true.) !Cazzo
-   call self%compute_max_divergence
-   call self%save_divergence_history(is_to_open=.true.) !Cazzo
-   call self%io%open_file_residuals(nv=self%nv)
-
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
-      ! to be implemented leapfrog on device
-      ! call self%leapfrog%assign_step(s=1, q=self%q)
-      ! call self%compute_dt
-      ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
-      ! self%q = self%q + self%time%dt * self%dq
-   endif
-
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
-         ! to be implemented
-      endif
-   endif
-   endsubroutine initialize_forest
-
    subroutine is_done_forest(self, done)
    !< Decide whether this realm has reached its local termination criterion.
    !<
@@ -1783,17 +1682,89 @@ contains
    endsubroutine simulate
 
    ! forest orchestrator contract methods overridings
+   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
+   !< Initialize this realm from scratch: PRISM init, IC injection (or restart load), initial ghost update,
+   !< initial diagnostics dump, IO files open, plus PIC/leapfrog priming if those schemes are active.
+   !<
+   !< Invoked by forest%initialize.
+   class(prism_fnl_object), intent(inout)           :: self          !< The realm.
+   character(*),            intent(in)              :: filename      !< Input parameters file name.
+   integer(I4P),            intent(in),    optional :: realm_index   !< Index of this realm in the forest.
+   integer(I4P),            intent(in),    optional :: realms_number !< Realm count; divides the per-device budget.
+   real(R8P),               intent(in),    optional :: memory_avail  !< Per-process memory budget override.
+   integer(I4P),            intent(in),    optional :: nv            !< Number of field variables override.
+   logical,                 intent(in),    optional :: verbose       !< Trigger verbose output.
+   integer(I4P)                                     :: i             !< Counter.
+
+   call self%initialize_prism(filename=filename, realms_number=realms_number)
+   if (self%io%restart) then
+      call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
+      call self%load_restart_files(t=self%time%it, time=self%time%time)
+      call mpih_fnl%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
+      call self%set_initial_conditions(is_restart=self%io%restart)
+   else
+      call mpih_fnl%print_message('impose initial conditions start')
+      do i=1, self%ic%amr_iterations
+         call mpih_fnl%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
+         call self%set_initial_conditions(is_restart=self%io%restart)
+         !call self%amr_update
+      enddo
+      call self%set_initial_conditions(is_restart=self%io%restart)
+      call self%adam%make_comm_local_maps_ghost_bc
+      self%time%time = 0._R8P
+      self%time%it = 0
+      call mpih_fnl%print_message('impose initial conditions finish')
+   endif
+   call self%update_ghost(q_gpu=self%q_gpu)
+
+   call mpih_fnl%print_message('Coils initialization values')
+   do n=1, self%coil%total_coils_number
+      ! call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
+      !                              divergence=self%divergence(3,:,:,:,:))
+      call mpih_fnl%print_message('Coil n='//trim(str(n,.true.)))
+      call mpih_fnl%print_message('   max j_vec     ='//trim(str(maxval(abs(self%coil%J_vec(1:3,:,:,:,:,n))))))
+      call mpih_fnl%print_message('   max div(j_vec)='//trim(str(maxval(abs(self%divergence(3,:,:,:,:))))))
+   enddo
+
+   call mpih_fnl%print_message('assigned block number: '//trim(str(self%adam%field%blocks_number,.true.)))
+   do b = 1, self%adam%field%blocks_number
+      call mpih_fnl%print_message('  b='//trim(str(b,.true.))//' code='//trim(str(self%adam%field%code(b))))
+   enddo
+
+   ! associate(hs => self%fdv_half_stencil)
+   ! call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
+   ! call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
+   ! call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   ! endassociate
+   call self%save_simulation_data
+   call self%compute_energy
+   !call self%save_energy_error(is_to_open=.true.)
+   call self%save_energy_history(is_to_open=.true.) !Cazzo
+   call self%compute_max_divergence
+   call self%save_divergence_history(is_to_open=.true.) !Cazzo
+   call self%io%open_file_residuals(nv=self%nv)
+
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
+      ! to be implemented leapfrog on device
+      ! call self%leapfrog%assign_step(s=1, q=self%q)
+      ! call self%compute_dt
+      ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
+      ! self%q = self%q + self%time%dt * self%dq
+   endif
+
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
+         ! to be implemented
+      endif
+   endif
+   endsubroutine initialize_forest
+
    subroutine compute_local_dt_forest(self, dt_local)
    !< Compute this realm's local stability-limited dt (no MPI reduction).
    !<
-   !< Invoked by forest%compute_global_dt during the min reduction across
-   !< all realms in the forest. The reduction itself is the orchestrator's
-   !< job; this method computes only the value local to `self`.
-   !<
-   !< PRISM-FNL override: CFL on the minimum cell size divided by the
-   !< maximum wave speed (light speed for Maxwell), local to this MPI
-   !< rank's blocks. Mirrors the previous body of compute_dt minus the
-   !< MPI_ALLREDUCE.
+   !< Invoked by forest%compute_global_dt during the min reduction across all realms in the forest. The reduction
+   !< itself is the orchestrator's job; this method computes only the value local to `self`.
+   !< Compute this realm's local stability-limited dt (no MPI reduction).
    class(prism_fnl_object), intent(in)  :: self     !< The realm.
    real(R8P),               intent(out) :: dt_local !< Local stability-limited dt.
    real(R8P)                            :: dxyz_min !< Minimum space step.
@@ -1820,22 +1791,8 @@ contains
    subroutine advance_one_step_forest(self, dt)
    !< Advance this realm by one full timestep of size `dt`.
    !<
-   !< Invoked by forest%evolve_one_step once per realm per timestep. Owns
-   !< the integration itself — RK substages, BC application, intra-realm
-   !< ghost exchange, divergence cleaning — i.e. everything that turns
-   !< `q` at time `t` into `q` at time `t + dt`. Also owns the per-step
-   !< bookkeeping the legacy `simulate` loop did inline: self%time%it
-   !< increment, time_max cap on `dt`, self%time%time advance, progress
-   !< printing. These move here so the forest's evolve_one_step path is
-   !< bit-identical to the legacy per-realm simulate loop.
-   !<
-   !< PRISM-FNL override: thin wrapper around the legacy `integrate_dev`
-   !< procedure pointer dispatched by `self%numerics%scheme_time` at init.
-   !< `integrate_dev`'s body still reads `self%time%dt`, so the wrapper
-   !< propagates the (possibly capped) `dt` into the module-scope
-   !< singleton before dispatching, then advances `self%time%time`. Once the
-   !< forest takes over time bookkeeping (Phase D), the self%time%* updates
-   !< move to the forest and this wrapper reduces to `call self%integrate_dev`.
+   !< Invoked by forest%evolve_one_step once per realm per timestep. Owns the integration itself, i.e. everything that turns
+   !< `q` at time `t` into `q` at time `t + dt`.
    class(prism_fnl_object), intent(inout) :: self    !< The realm.
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest's global reduction.
    real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
@@ -1849,22 +1806,27 @@ contains
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    endsubroutine advance_one_step_forest
 
-   function nrk_forest(self) result(nrk)
-   !< Number of RK substages used by this realm's integrator (FNL).
-   class(prism_fnl_object), intent(in) :: self !< The realm.
-   integer(I4P)                        :: nrk  !< Number of substages.
-
-   nrk = self%rk%nrk
-   endfunction nrk_forest
-
-   subroutine prepare_step_forest(self, dt)
-   !< Per-step prologue on the multi-realm path: set dt, external-field prelude,
-   !< RK GPU stage-array init. Mirror of `integrate_rk_ssp_dev`'s head.
+   function stages_per_step_forest(self) result(K)
+   !< Number of integrator stages this realm exposes per step (FNL).
    !<
-   !< The per-step time bookkeeping (`self%time%it`, `self%time%dt`, time_max cap) that
-   !< `advance_one_step_forest` does inline on the N=1 fast path moves here on
-   !< the multi-realm path. `self%time%time` advance and progress print run in
-   !< `finalize_step_forest`, mirroring the legacy SSP ordering.
+   !< For the multi-realm path the forest drives the stage loop, so it
+   !< needs to know `K` up front. Currently only `runge-kutta-ssp-*` is
+   !< split into per-stage TBPs (`begin_stage_forest` / `end_stage_forest`);
+   !< for RK realms `K = rk%nrk`. Other integrators (Yoshida, Leapfrog,
+   !< Blanes-Moan, CFM) will error-stop on the multi-realm path until they
+   !< are split as well.
+   class(prism_fnl_object), intent(in) :: self !< The realm.
+   integer(I4P)                        :: K    !< Number of integrator stages per step.
+
+   K = self%rk%nrk
+   endfunction stages_per_step_forest
+
+   subroutine open_step_forest(self, dt)
+   !< Per-step prologue on the multi-realm path: set dt, init RK stages.
+   !<
+   !< Mirrors the head of `integrate_rk_ssp`: external-field prelude (if active), `rk%initialize_stages(q=self%q)`, and
+   !< the per-step time bookkeeping `advance_one_step_forest` does inline (it increment, dt cap for time_max, self%time%dt update).
+   !< Time advance and progress print run in `close_step_forest`, mirroring the legacy ordering.
    class(prism_fnl_object), intent(inout) :: self    !< The realm.
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
    real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
@@ -1877,90 +1839,64 @@ contains
       call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
-   endsubroutine prepare_step_forest
+   endsubroutine open_step_forest
 
-   subroutine assemble_substage_forest(self, s, nrk, dt, realm)
-   !< Assemble RK substage `s` on the multi-realm path (FNL/GPU).
+   subroutine begin_stage_forest(self, k, K_total, dt, realm)
+   !< Begin integrator stage `k` on the multi-realm path (FNL).
    !<
-   !< Mirrors the FIRST two lines of `integrate_rk_ssp_dev`'s substage body:
-   !< `rk_fnl%compute_stage(s, dt [, phi_gpu])` then `compute_coils_current(q_gpu=rk_fnl%q_rk_gpu(:,...,s), gamm=rk%gamm(s))`.
-   !< The coil-current refresh happens here (substage prep) because it's a
-   !< source-term update on `q_rk_gpu(:,...,s)` and is needed BEFORE the
-   !< inter-realm exchange in the evaluate pass.
+   !< Mirrors the FIRST line of `integrate_rk_ssp`'s substage body:
+   !< `rk_fnl%compute_stage(s=k, dt=self%time%dt [, phi_gpu=ib_fnl%phi_gpu])`.
+   !< This populates `rk_fnl%q_rk_gpu(:,:,:,:,:,k)` from previously computed
+   !< substages and from `self%q_gpu`, and publishes the stage buffer to
+   !< peers by setting `self%stage_active = k`. No ghost reads, no
+   !< peer-realm access — peer realms may not yet have opened their
+   !< stage-`k` buffer when this fires.
    class(prism_fnl_object), intent(inout)                   :: self     !< The realm.
-   integer(I4P),            intent(in)                      :: s        !< Substage index (1..nrk).
-   integer(I4P),            intent(in)                      :: nrk      !< Total number of substages.
+   integer(I4P),            intent(in)                      :: k        !< Stage index (1..K_total).
+   integer(I4P),            intent(in)                      :: K_total  !< Forest-wide stage count for this step.
    real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
+   self%stage_active = k
    if (self%ib%solids_number>0) then
-      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
+      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=k, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
    else
-      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
+      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=k, dt=self%time%dt)
    endif
-   call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
-   endsubroutine assemble_substage_forest
+   call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), gamm=self%rk%gamm(k))
+   endsubroutine begin_stage_forest
 
-   subroutine residuals_substage_forest(self, s, nrk, dt, realm, flux_register)
-   !< Compute residuals for RK substage `s` (FNL multi-realm path,
-   !< 3-phase loop). Reads q_rk_gpu(s), writes dq_gpu. NO assign_stage.
-   !< See [[prism_cpu_object]]%`residuals_substage_forest` for the
-   !< BC_SEAM-coherence rationale of the residuals/assign split.
+   subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
+   !< Close integrator stage `k`: residuals + stage assignment in one sweep (FNL).
    !<
-   !< `flux_register` is accepted for contract parity; FNL FD-centered
-   !< residual has no FV reflux hook (the FV residual path is
-   !< commented out — `compute_residuals_fv_centered_dev` not yet ported).
+   !< This is the FNL forest's Phase 3 TBP. Inter-realm seam ghost cells
+   !< on `rk_fnl%q_rk_gpu(:,...,k)` are already filled by Phase 2 (which
+   !< called `fill_seam_from_peer_forest` on this realm and its
+   !< peers), so `compute_residuals_dev` reads valid halo data and
+   !< `rk_fnl%assign_stage`'s in-place overwrite of the stage interior
+   !< no longer races with peer reads.
+   !<
+   !< `realm` accepted on contract for parity but unused: the seam has
+   !< already been refreshed by the forest. Reflux for FV is not yet
+   !< implemented on the FNL side (the FV residual path is commented out;
+   !< `compute_residuals_fv_centered_dev` is a Phase B / follow-up port).
    class(prism_fnl_object),     intent(inout)                   :: self          !< The realm.
-   integer(I4P),                intent(in)                      :: s             !< Substage index (1..nrk).
-   integer(I4P),                intent(in)                      :: nrk           !< Total number of substages.
+   integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
+   integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count for this step.
    real(R8P),                   intent(in)                      :: dt            !< Timestep size from the forest.
-   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
-   class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register.
+   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms (FNL parity only; unused).
+   class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
-   if (present(realm)) then
-      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s, realm=realm)
-   else
-      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
-   endif
-   endsubroutine residuals_substage_forest
-
-   subroutine assign_substage_forest(self, s, nrk, dt, realm)
-   !< Assign RK substage `s` state from dq_gpu (FNL multi-realm path,
-   !< 3-phase loop). Overwrites q_rk_gpu(:, interior, :, b, s) with
-   !< dq_gpu. Runs AFTER all peers have computed residuals.
-   class(prism_fnl_object), intent(inout)                   :: self     !< The realm.
-   integer(I4P),            intent(in)                      :: s        !< Substage index (1..nrk).
-   integer(I4P),            intent(in)                      :: nrk      !< Total number of substages.
-   real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
-
+   if (present(realm)) continue
+   call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k)
    if (self%ib%solids_number>0) then
-      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
+      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=k, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
    else
-      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
+      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=k, q_gpu=self%dq_gpu)
    endif
-   endsubroutine assign_substage_forest
+   endsubroutine end_stage_forest
 
-   subroutine evaluate_substage_forest(self, s, nrk, dt, realm)
-   !< [Deprecated] Combined residuals + stage assignment for RK substage `s`
-   !< (FNL multi-realm path, legacy 2-phase). The forest now uses the
-   !< residuals/assign split; this wrapper is kept for backward-compat.
-   class(prism_fnl_object), intent(inout)                   :: self     !< The realm.
-   integer(I4P),            intent(in)                      :: s        !< Substage index (1..nrk).
-   integer(I4P),            intent(in)                      :: nrk      !< Total number of substages.
-   real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (forwarded for parity).
-
-   if (present(realm)) then
-      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
-      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
-   else
-      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
-      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
-   endif
-   endsubroutine evaluate_substage_forest
-
-   subroutine finalize_step_forest(self, dt)
+   subroutine close_step_forest(self, dt)
    !< Per-step epilogue on the multi-realm path: q assembly, BC, div-clean,
    !< residual save, coil source refresh, time advance, progress print (FNL).
    class(prism_fnl_object), intent(inout) :: self !< The realm.
@@ -1980,291 +1916,139 @@ contains
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
-   endsubroutine finalize_step_forest
+   ! Clear active-stage marker (mirror of CPU). Inter-step get_cell /
+   ! `fill_seam_from_peer_forest` queries read self%q_gpu (committed) instead of
+   ! a stale q_rk_gpu slot from the previous step.
+   self%stage_active = 0_I4P
+   endsubroutine close_step_forest
 
-   subroutine exchange_inter_realm_halos_forest(self, realm, s_active)
-   !< Refresh `self`'s ghost cells from peer realms on GPU buffers (FNL).
-   !<
-   !< FNL twin of [[prism_cpu_object]]%`exchange_inter_realm_halos_forest`.
-   !< Algorithm structure is identical (geometric block matching, mirror
-   !< copy at the face slab); the only difference is the buffer location —
-   !< host arrays on CPU vs device pointers on FNL.
-   !<
-   !< Substage selection: when `s_active > 0` (passed by the substage
-   !< caller chain), the buffer copied is `rk_fnl%q_rk_gpu(:,:,:,:,:,s)`;
-   !< outside any substage (initial seam refresh, once-per-step floor)
-   !< `s_active` is absent/zero and the buffer is `self%q_gpu`. The branch
-   !< is taken inside `copy_peer_face_gpu` per face. This `s_active` dummy
-   !< replaces the retired `forest_active_substage` module-scope integer
-   !< (issue #13, 2026-05-25).
-   class(prism_fnl_object), intent(inout)        :: self      !< This realm.
-   class(realm_object),     intent(in)           :: realm(:)  !< All realms in the forest.
-   integer(I4P),            intent(in), optional :: s_active  !< Active RK substage (1..nrk) or 0/absent.for non-substage refresh.
-   integer(I4P)                                  :: s_active_ !< Local, defaulted from optional.
-   integer(I4P)                                  :: n         !< Neighbour entry counter.
-   integer(I4P)                                  :: peer      !< Peer realm index.
-   integer(I4P)                                  :: my_face   !< Self face code.
-   integer(I4P)                                  :: peer_face !< Peer face code.
-   integer(I4P)                                  :: my_axis   !< Coupling axis (1=x, 2=y, 3=z).
-   integer(I4P)                                  :: my_sign   !< +1 (MAX face) or -1 (MIN face).
-   integer(I4P)                                  :: b         !< Self block index.
-   integer(I4P)                                  :: b_peer    !< Peer block index.
-   logical                                       :: found     !< Peer block resolution flag.
+   ! Inter-realm seam ghost-fill contract — PRISM FNL override.
+   !
+   ! Same signature as CPU (`fill_seam_from_peer_forest(self, peer, p_idx)`);
+   ! only the body differs. Walks the DEVICE-resident seam map
+   ! (`maps_fnl%seam_local_map_ghost_cell_gpu`) under an OpenACC
+   ! `parallel loop` and copies peer's active GPU buffer cells into self's
+   ! GPU ghost cells. No host staging; same-rank peers share device
+   ! memory so the cross-realm read is a device-to-device copy on the
+   ! same GPU. Cross-rank peers (Phase B) will instead route the same
+   ! row range through the `seam_comm_map_*` MPI path (GPU-direct
+   ! MPI_Isend/MPI_Irecv on the device-resident
+   ! `seam_mpi_send/recv_buf_gpu`).
 
-   s_active_ = 0_I4P ; if (present(s_active)) s_active_ = s_active
-   if (.not. allocated(self%adam%maps%inter_realm_neighbors)) return
-   do n = 1_I4P, int(size(self%adam%maps%inter_realm_neighbors), I4P)
-      associate(entry => self%adam%maps%inter_realm_neighbors(n))
-         if (entry%coupling /= COUPLING_MIRROR) &
-            call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: only COUPLING_MIRROR is implemented')
-         peer      = entry%peer_realm
-         my_face   = entry%my_face
-         peer_face = entry%peer_face
-         call face_axis_sign(my_face, my_axis, my_sign)
-         do b = 1_I4P, int(self%adam%field%blocks_number, I4P)
-            if (.not. block_face_on_realm_boundary(b=b, axis=my_axis, sgn=my_sign)) cycle
-            call find_peer_block(peer=peer, peer_face=peer_face, my_block=b, &
-                                  my_axis=my_axis, my_sign=my_sign,           &
-                                  b_peer=b_peer, found=found, realm=realm)
-            if (.not. found) cycle
-            call copy_peer_face_gpu(b=b, my_axis=my_axis, my_sign=my_sign, &
-                                    b_peer=b_peer, peer=peer, realm=realm, &
-                                    s_active=s_active_)
+   subroutine fill_seam_from_peer_forest(self, peer, p_idx)
+   !< FNL twin of `prism_cpu_object%fill_seam_from_peer_forest`. Walks the
+   !< host-side row-range bookkeeping (`seam_local_peer_row_start/count`,
+   !< populated by `build_seam_local_map` on the host), then dispatches
+   !< an OpenACC kernel that reads peer's GPU buffer at peer-INTERIOR
+   !< coords (FNL layout `(b,i,j,k,v)`) and writes self's GPU buffer at
+   !< recv-side coords.
+   class(prism_fnl_object), intent(inout)         :: self
+   class(realm_object),     intent(in),    target :: peer
+   integer(I4P),            intent(in)            :: p_idx
+   integer(I4P)                                   :: c, v, row
+   integer(I4P)                                   :: b_send, i_send, j_send, k_send
+   integer(I4P)                                   :: b_recv, i_recv, j_recv, k_recv
+   integer(I4P)                                   :: row_start, row_count
+   integer(I4P)                                   :: nv_loc, ngc_loc
+   integer(I4P)                                   :: self_s, peer_s
+   integer(I4P), pointer                          :: rows_gpu(:,:)
+
+   row_start = self%adam%maps%seam_local_peer_row_start(p_idx)
+   row_count = self%adam%maps%seam_local_peer_row_count(p_idx)
+   rows_gpu => self%field_fnl%maps%seam_local_map_ghost_cell_gpu
+   nv_loc   = self%nv
+   ngc_loc  = self%ngc
+   self_s   = self%stage_active
+   select type (peer)
+   class is (prism_fnl_object)
+      peer_s = peer%stage_active
+      if (self_s > 0_I4P .and. peer_s > 0_I4P) then
+         associate(self_q_rk_gpu => self%rk_fnl%q_rk_gpu, peer_q_rk_gpu => peer%rk_fnl%q_rk_gpu)
+         !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_rk_gpu) &
+         !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s, peer_s)
+         !$omp OMPLOOP DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_rk_gpu) &
+         !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s, peer_s)
+         do c = 1, row_count
+            do v = 1, nv_loc
+               row    = row_start + c - 1
+               b_send = rows_gpu(row, 2) ; i_send = rows_gpu(row, 4)
+               j_send = rows_gpu(row, 5) ; k_send = rows_gpu(row, 6)
+               b_recv = rows_gpu(row, 3) ; i_recv = rows_gpu(row, 7)
+               j_recv = rows_gpu(row, 8) ; k_recv = rows_gpu(row, 9)
+               self_q_rk_gpu(b_recv, i_recv, j_recv, k_recv, v, self_s) = &
+                  peer_q_rk_gpu(b_send, i_send, j_send, k_send, v, peer_s)
+            enddo
          enddo
-      end associate
-   enddo
-   contains
-      pure subroutine face_axis_sign(face_code, axis, sgn)
-      integer(I4P), intent(in)  :: face_code
-      integer(I4P), intent(out) :: axis
-      integer(I4P), intent(out) :: sgn
-
-      select case (face_code)
-      case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
-      case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
-      case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
-      case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
-      case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
-      case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
-      case default;      axis = 0_I4P; sgn = 0_I4P
-      end select
-      endsubroutine face_axis_sign
-
-      function block_face_on_realm_boundary(b, axis, sgn) result(yes)
-      integer(I4P), intent(in) :: b
-      integer(I4P), intent(in) :: axis
-      integer(I4P), intent(in) :: sgn
-      logical                  :: yes
-      real(R8P)                :: face_coord, target_coord, tol
-
-      if (sgn > 0_I4P) then
-         face_coord   = self%adam%field%emax(axis, b)
-         target_coord = self%adam%grid%domain_emax(axis)
-      else
-         face_coord   = self%adam%field%emin(axis, b)
-         target_coord = self%adam%grid%domain_emin(axis)
-      endif
-      tol = max(abs(target_coord), 1._R8P) * 1.0e-10_R8P
-      yes = abs(face_coord - target_coord) <= tol
-      endfunction block_face_on_realm_boundary
-
-      subroutine find_peer_block(peer, peer_face, my_block, my_axis, my_sign, b_peer, found, realm)
-      integer(I4P),        intent(in)  :: peer
-      integer(I4P),        intent(in)  :: peer_face
-      integer(I4P),        intent(in)  :: my_block
-      integer(I4P),        intent(in)  :: my_axis
-      integer(I4P),        intent(in)  :: my_sign
-      integer(I4P),        intent(out) :: b_peer
-      logical,             intent(out) :: found
-      class(realm_object), intent(in)  :: realm(:)
-      integer(I4P)                     :: bp, peer_axis, peer_sign
-      integer(I4P)                     :: tax1, tax2
-      real(R8P)                        :: my_face_coord
-      real(R8P)                        :: my_tmin(2), my_tmax(2)
-      real(R8P)                        :: peer_face_coord
-      real(R8P)                        :: tol
-
-      found  = .false.
-      b_peer = 0_I4P
-      call face_axis_sign(peer_face, peer_axis, peer_sign)
-      if (peer_axis /= my_axis) return
-      if (peer_sign == my_sign) return
-      tax1 = mod(my_axis,        3_I4P) + 1_I4P
-      tax2 = mod(my_axis + 1_I4P, 3_I4P) + 1_I4P
-      if (my_sign > 0_I4P) then
-         my_face_coord = self%adam%field%emax(my_axis, my_block)
-      else
-         my_face_coord = self%adam%field%emin(my_axis, my_block)
-      endif
-      my_tmin(1) = self%adam%field%emin(tax1, my_block)
-      my_tmax(1) = self%adam%field%emax(tax1, my_block)
-      my_tmin(2) = self%adam%field%emin(tax2, my_block)
-      my_tmax(2) = self%adam%field%emax(tax2, my_block)
-      tol = max(abs(my_face_coord), 1._R8P) * 1.0e-10_R8P
-      select type (peer_realm => realm(peer))
-      class is (prism_fnl_object)
-         do bp = 1_I4P, int(peer_realm%adam%field%blocks_number, I4P)
-            if (peer_sign > 0_I4P) then
-               peer_face_coord = peer_realm%adam%field%emax(peer_axis, bp)
-            else
-               peer_face_coord = peer_realm%adam%field%emin(peer_axis, bp)
-            endif
-            if (abs(peer_face_coord - my_face_coord) > tol) cycle
-            if (abs(peer_realm%adam%field%emin(tax1, bp) - my_tmin(1)) > tol) cycle
-            if (abs(peer_realm%adam%field%emax(tax1, bp) - my_tmax(1)) > tol) cycle
-            if (abs(peer_realm%adam%field%emin(tax2, bp) - my_tmin(2)) > tol) cycle
-            if (abs(peer_realm%adam%field%emax(tax2, bp) - my_tmax(2)) > tol) cycle
-            b_peer = bp
-            found  = .true.
-            return
+         endassociate
+      else if (self_s > 0_I4P) then
+         associate(self_q_rk_gpu => self%rk_fnl%q_rk_gpu, peer_q_gpu => peer%q_gpu)
+         !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_gpu) &
+         !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s)
+         !$omp OMPLOOP DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_gpu) &
+         !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s)
+         do c = 1, row_count
+            do v = 1, nv_loc
+               row    = row_start + c - 1
+               b_send = rows_gpu(row, 2) ; i_send = rows_gpu(row, 4)
+               j_send = rows_gpu(row, 5) ; k_send = rows_gpu(row, 6)
+               b_recv = rows_gpu(row, 3) ; i_recv = rows_gpu(row, 7)
+               j_recv = rows_gpu(row, 8) ; k_recv = rows_gpu(row, 9)
+               self_q_rk_gpu(b_recv, i_recv, j_recv, k_recv, v, self_s) = &
+                  peer_q_gpu(b_send, i_send, j_send, k_send, v)
+            enddo
          enddo
-      class default
-         call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object')
-      end select
-      endsubroutine find_peer_block
+         endassociate
+      else if (peer_s > 0_I4P) then
+         associate(self_q_gpu => self%q_gpu, peer_q_rk_gpu => peer%rk_fnl%q_rk_gpu)
+         !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_gpu, peer_q_rk_gpu) &
+         !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count, peer_s)
+         !$omp OMPLOOP DEVICEVAR(rows_gpu, self_q_gpu, peer_q_rk_gpu) &
+         !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count, peer_s)
+         do c = 1, row_count
+            do v = 1, nv_loc
+               row    = row_start + c - 1
+               b_send = rows_gpu(row, 2) ; i_send = rows_gpu(row, 4)
+               j_send = rows_gpu(row, 5) ; k_send = rows_gpu(row, 6)
+               b_recv = rows_gpu(row, 3) ; i_recv = rows_gpu(row, 7)
+               j_recv = rows_gpu(row, 8) ; k_recv = rows_gpu(row, 9)
+               self_q_gpu(b_recv, i_recv, j_recv, k_recv, v) = &
+                  peer_q_rk_gpu(b_send, i_send, j_send, k_send, v, peer_s)
+            enddo
+         enddo
+         endassociate
+      else
+         associate(self_q_gpu => self%q_gpu, peer_q_gpu => peer%q_gpu)
+         !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_gpu, peer_q_gpu) &
+         !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count)
+         !$omp OMPLOOP DEVICEVAR(rows_gpu, self_q_gpu, peer_q_gpu) &
+         !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count)
+         do c = 1, row_count
+            do v = 1, nv_loc
+               row    = row_start + c - 1
+               b_send = rows_gpu(row, 2) ; i_send = rows_gpu(row, 4)
+               j_send = rows_gpu(row, 5) ; k_send = rows_gpu(row, 6)
+               b_recv = rows_gpu(row, 3) ; i_recv = rows_gpu(row, 7)
+               j_recv = rows_gpu(row, 8) ; k_recv = rows_gpu(row, 9)
+               self_q_gpu(b_recv, i_recv, j_recv, k_recv, v) = &
+                  peer_q_gpu(b_send, i_send, j_send, k_send, v)
+            enddo
+         enddo
+         endassociate
+      endif
+   class default
+      call mpih_fnl%error_stop(msg='prism_fnl_object%fill_seam_from_peer_forest: peer realm is not prism_fnl_object')
+   end select
+   endsubroutine fill_seam_from_peer_forest
 
-      subroutine copy_peer_face_gpu(b, my_axis, my_sign, b_peer, peer, realm, s_active)
-      !< Host-staged peer→self ghost-slab copy for FNL.
-      !<
-      !< Pulls the peer's interior slab from device → host, writes into
-      !< self's ghost slab on host, pushes back to device. The buffer copied
-      !< depends on `s_active` (passed through from the substage caller
-      !< chain): when `s_active > 0`, both sides are at substage `s_active`
-      !< and the buffer is `rk_fnl%q_rk_gpu(:,:,:,:,:,s_active)`; when
-      !< `s_active == 0` (no substage active, e.g. initial seam refresh
-      !< during `initialize_forest`), the canonical state is
-      !< `self%q_gpu` / `peer_realm%q_gpu`.
-      !<
-      !< Memory-model fix (2026-05-24, issue #13 FNL multi-realm):
-      !<
-      !< Previously this routine used raw `!$acc update host(slice)` /
-      !< `!$acc update device(slice)` on `peer_realm%rk_fnl%q_rk_gpu` and
-      !< `self%rk_fnl%q_rk_gpu` slices. That fails at runtime with
-      !<   `FATAL ERROR: data in update host clause was not found on device`
-      !< because those arrays are FUNDAL `dev_alloc`-managed raw device
-      !< pointers, NOT entries in the OpenACC present-table — `acc update`
-      !< does a present-table lookup, raw-pointer arrays are invisible to
-      !< it. The two memory models cannot be mixed.
-      !<
-      !< The fix uses FUNDAL's structured-pointer memcpy
-      !< (`dev_memcpy_from_device` / `dev_memcpy_to_device`) which goes
-      !< through `acc_memcpy_from_device_f(c_loc(d), c_loc(s), bytes_size)`
-      !< — addressing the device array by its actual device pointer
-      !< instead of a present-table key. Strided sub-array slices on the
-      !< leftmost (stride-1) dimension `(:, d, j, k, ...)` are passed to
-      !< the rank-1 overloads; `bytes_size(slice) = nv*8` and `c_loc(slice)`
-      !< points at the first element of the `nv`-long contiguous strip
-      !< (column-major: dim 1 is stride 1), so the byte-level memcpy is
-      !< correct.
-      !<
-      !< A small `host_buf(1:nv)` scratch carries each strip between the
-      !< two halves of the copy. This is one strip-per-ghost-cell, the same
-      !< granularity the original `acc update` calls used.
-      integer(I4P),        intent(in) :: b
-      integer(I4P),        intent(in) :: my_axis
-      integer(I4P),        intent(in) :: my_sign
-      integer(I4P),        intent(in) :: b_peer
-      integer(I4P),        intent(in) :: peer
-      class(realm_object), intent(in) :: realm(:)
-      integer(I4P),        intent(in) :: s_active   !< Threaded from the caller chain (0 = no substage active).
-      integer(I4P)                    :: d, i, j, k, ng, ni_, nj_, nk_
-      integer(I4P)                    :: peer_ni, peer_nj, peer_nk
-      integer(I4P)                    :: nv_
-      ! host_buf was allocatable + allocate/deallocate per call. That pattern
-      ! fires O(ngc * face_cells * nb * nrk) heap allocations per step which,
-      ! on WSL's UCX (with the eager-mode workaround), corrupts the malloc
-      ! tcache and trips a SIGABRT during the next MPI_Waitall. Hoisting
-      ! the buffer to an automatic array (stack-allocated, small) eliminates
-      ! the heap churn entirely. See issue #13 investigation 2026-05-25.
-      real(R8P)                       :: host_buf(self%nv)
+   subroutine after_topology_build_forest(self)
+   !< Propagate the freshly-built host seam maps and per-peer buffers to
+   !< device-resident counterparts on `field_fnl%maps`. Invoked by the
+   !< forest at the end of `populate_inter_realm_topology` AFTER
+   !< `build_seam_local_map` has populated `self%adam%maps%seam_local_*`.
+   class(prism_fnl_object), intent(inout) :: self
 
-      ng  = self%ngc
-      ni_ = self%ni
-      nj_ = self%nj
-      nk_ = self%nk
-      nv_ = self%nv
-      select type (peer_realm => realm(peer))
-      class is (prism_fnl_object)
-         peer_ni = peer_realm%ni
-         peer_nj = peer_realm%nj
-         peer_nk = peer_realm%nk
-         select case (my_axis)
-         case (1_I4P)
-            if (my_sign > 0_I4P) then
-               do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do j = 1_I4P, nj_
-                  if (s_active > 0_I4P) then
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, d, j, k, b_peer, s_active))
-                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, ni_ + d, j, k, b, s_active), src=host_buf)
-                  else
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, d, j, k, b_peer))
-                     call dev_memcpy_to_device(dst=self%q_gpu(:, ni_ + d, j, k, b), src=host_buf)
-                  endif
-               enddo ; enddo ; enddo
-            else
-               do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do j = 1_I4P, nj_
-                  if (s_active > 0_I4P) then
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer,&
-                                                                                              s_active))
-                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, 1_I4P - d, j, k, b, s_active), src=host_buf)
-                  else
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, peer_ni - d + 1_I4P, j, k, b_peer))
-                     call dev_memcpy_to_device(dst=self%q_gpu(:, 1_I4P - d, j, k, b), src=host_buf)
-                  endif
-               enddo ; enddo ; enddo
-            endif
-         case (2_I4P)
-            if (my_sign > 0_I4P) then
-               do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do i = 1_I4P, ni_
-                  if (s_active > 0_I4P) then
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, d, k, b_peer, s_active))
-                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, nj_ + d, k, b, s_active), src=host_buf)
-                  else
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, d, k, b_peer))
-                     call dev_memcpy_to_device(dst=self%q_gpu(:, i, nj_ + d, k, b), src=host_buf)
-                  endif
-               enddo ; enddo ; enddo
-            else
-               do d = 1_I4P, ng ; do k = 1_I4P, nk_ ; do i = 1_I4P, ni_
-                  if (s_active > 0_I4P) then
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer,&
-                                                                                              s_active))
-                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, 1_I4P - d, k, b, s_active), src=host_buf)
-                  else
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, peer_nj - d + 1_I4P, k, b_peer))
-                     call dev_memcpy_to_device(dst=self%q_gpu(:, i, 1_I4P - d, k, b), src=host_buf)
-                  endif
-               enddo ; enddo ; enddo
-            endif
-         case (3_I4P)
-            if (my_sign > 0_I4P) then
-               do d = 1_I4P, ng ; do j = 1_I4P, nj_ ; do i = 1_I4P, ni_
-                  if (s_active > 0_I4P) then
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, j, d, b_peer, s_active))
-                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, j, nk_ + d, b, s_active), src=host_buf)
-                  else
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, j, d, b_peer))
-                     call dev_memcpy_to_device(dst=self%q_gpu(:, i, j, nk_ + d, b), src=host_buf)
-                  endif
-               enddo ; enddo ; enddo
-            else
-               do d = 1_I4P, ng ; do j = 1_I4P, nj_ ; do i = 1_I4P, ni_
-                  if (s_active > 0_I4P) then
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%rk_fnl%q_rk_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer,&
-                                                                                              s_active))
-                     call dev_memcpy_to_device(dst=self%rk_fnl%q_rk_gpu(:, i, j, 1_I4P - d, b, s_active), src=host_buf)
-                  else
-                     call dev_memcpy_from_device(dst=host_buf, src=peer_realm%q_gpu(:, i, j, peer_nk - d + 1_I4P, b_peer))
-                     call dev_memcpy_to_device(dst=self%q_gpu(:, i, j, 1_I4P - d, b), src=host_buf)
-                  endif
-               enddo ; enddo ; enddo
-            endif
-         end select
-      class default
-         call mpih%error_stop(msg='prism_fnl_object%exchange_inter_realm_halos_forest: peer realm is not prism_fnl_object')
-      end select
-      ! host_buf is now an automatic array, no deallocate needed.
-      endsubroutine copy_peer_face_gpu
-   endsubroutine exchange_inter_realm_halos_forest
+   call self%field_fnl%maps%copy_cpu_gpu(maps=self%adam%maps)
+   endsubroutine after_topology_build_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run PRISM-FNL's per-timestep post-step work: state IO, energy
@@ -2305,13 +2089,8 @@ contains
       !call self%amr_update
       call mpih_fnl%barrier(tictoc=.true.)
    endif
-   if (present(realm)) then
-      call self%save_simulation_data(realm=realm)
-      call self%update_ghost(q_gpu=self%q_gpu, realm=realm) !Cazzo
-   else
-      call self%save_simulation_data
-      call self%update_ghost(q_gpu=self%q_gpu) !Cazzo
-   endif
+   call self%save_simulation_data
+   call self%update_ghost(q_gpu=self%q_gpu) !Cazzo
    call self%compute_energy
    !call self%save_energy_error !Cazzo
    call self%save_energy_history !Cazzo
@@ -2578,18 +2357,18 @@ contains
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    real(R8P)                              :: max_div(3) !< Maximum divergence.
 
-	call compute_max_divergence_dev_kernel( ni            = self%ni                  ,&
-                                           nj            = self%nj                  ,&
-                                           nk            = self%nk                  ,&
-                                           blocks_number = self%blocks_number       ,&
-														 ngc           = self%ngc                 ,&
-                                           var_jx        = self%physics%var_jx           ,&
-                                           var_jy        = self%physics%var_jy           ,&
-                                           var_jz        = self%physics%var_jz           ,&
-                                           s1            = self%fdv_half_stencils(1),&
-                                           dxyz_gpu      = self%field_fnl%dxyz_gpu       ,&
-                                           q_gpu         = self%q_gpu               ,&
-                                           max_div       = max_div)
+	call compute_max_divergence_dev_kernel(ni            = self%ni                  ,&
+                                          nj            = self%nj                  ,&
+                                          nk            = self%nk                  ,&
+                                          blocks_number = self%blocks_number       ,&
+														ngc           = self%ngc                 ,&
+                                          var_jx        = self%physics%var_jx      ,&
+                                          var_jy        = self%physics%var_jy      ,&
+                                          var_jz        = self%physics%var_jz      ,&
+                                          s1            = self%fdv_half_stencils(1),&
+                                          dxyz_gpu      = self%field_fnl%dxyz_gpu  ,&
+                                          q_gpu         = self%q_gpu               ,&
+                                          max_div       = max_div)
 
 	self%max_divergence_D = max_div(1)
 	self%max_divergence_B = max_div(2)
