@@ -519,15 +519,26 @@ contains
       !<     supplying `coarse_realm = pair%realm_a`, `fine_realm =
       !<     pair%realm_b`, `nface_cells` from the realm-a side's grid (the
       !<     two tangential axes' cell counts), `nv` from the realm-a side's
-      !<     `field%nv`, and `nrk` from realm-a's `rk%nrk`.
+      !<     `field%nv`, and the per-stage register depth from realm-a's
+      !<     `stages_per_step_forest()` — the integrator-agnostic contract
+      !<     TBP, NOT a direct `rk%nrk` reach.
       !<
       !< For the current same-resolution (COUPLING_MIRROR) case, realm_a and
-      !< realm_b carry identical `nv`/`nrk`/`nface_cells` by construction
-      !< (validated upstream by the manifest's structural checks). A
-      !< coarse-fine AMR case would resolve `fine_block(:)` by enumerating
-      !< the realm_b-side blocks that geometrically cover the realm_a-side
-      !< block face; for same-resolution that resolves to a single fine
-      !< block, populated by `find_peer_block` at exchange time.
+      !< realm_b carry identical `nv` / stage-count / `nface_cells` by
+      !< construction (validated upstream by the manifest's structural
+      !< checks and by the `K_realm` equality guard in
+      !< `forest_object%evolve_one_step`). A coarse-fine AMR case would
+      !< resolve `fine_block(:)` by enumerating the realm_b-side blocks
+      !< that geometrically cover the realm_a-side block face; for
+      !< same-resolution that resolves to a single fine block, populated
+      !< by `find_peer_block` at exchange time.
+      !<
+      !< Note on naming: `flux_register%register_face` still takes a
+      !< keyword arg named `nrk`. Renaming it to a neutral `n_stages` is
+      !< a separate refactor on the flux_register API and its consumers
+      !< (PRISM's `compute_residuals_fv_centered`), and is not scoped
+      !< here. This call site already feeds it from the integrator-
+      !< agnostic source.
       class(realm_object),        intent(inout) :: realm(:)       !< Initialized realms.
       type(forest_manifest_t),    intent(in)    :: manifest       !< Parsed manifest.
       type(flux_register_object), intent(inout) :: flux_register  !< Berger-Colella reflux accumulator owned by the forest.
@@ -612,7 +623,7 @@ contains
                                              fine_realm=pair%realm_b,                      &
                                              nface_cells=nface_cells,                      &
                                              nv=int(realm(a_realm)%adam%field%nv, I4P),    &
-                                             nrk=realm(a_realm)%rk%nrk)
+                                             nrk=realm(a_realm)%stages_per_step_forest())
 
             ! Index lookups: coarse side knows its own (b, face_a → fec)
             ! immediately. Fine side requires a geometric peer lookup to
