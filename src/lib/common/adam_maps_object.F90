@@ -185,6 +185,49 @@ type :: maps_object
    integer(I4P), allocatable :: inter_realm_face_register_index(:,:)
                                                                      !< (block, face_1_6) → signed flux register face index; 0 = not
                                                                      !< a seam face, +idx = coarse side, -idx = fine side.
+   !
+   ! Seam ghost-cell maps — agnostic-dummy redesign (issue #13 follow-up).
+   !
+   ! These supersede `inter_realm_ghost_cell` (which remains allocated during
+   ! the migration). The redesign separates the same-rank fast path from the
+   ! cross-rank MPI path — mirroring the intra-realm split between
+   ! `local_map_ghost_cell` and `comm_map_send/recv_ghost_cell` — so the
+   ! forest's Phase 2 seam fill can dispatch identically to intra-realm ghost
+   ! fill: pack a buffer from the peer's active `q`, unpack into THIS realm's
+   ! ghost slots, with no knowledge of the peer's integrator buffer layout.
+   !
+   ! Layout: `seam_local_map_ghost_cell(c, 1:9)` =
+   !   [peer_realm, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv]
+   !
+   ! Same columns as `inter_realm_ghost_cell` minus `one_or_eight` (Phase A
+   ! is same-resolution only; restore when AMR coarse-fine seams land). Rows
+   ! are SORTED BY peer_realm so per-peer row ranges can be extracted in O(1)
+   ! via the seam_local_peer_* index arrays below.
+   integer(I4P), allocatable :: seam_local_map_ghost_cell(:,:)
+                                                                     !< Per-cell same-rank inter-realm ghost map; layout per the comment
+                                                                     !< above; rows sorted by peer_realm.
+   integer(I4P), allocatable :: seam_local_peer_realm(:)     !< Peer realm index for each row range (one entry per distinct peer).
+   integer(I4P), allocatable :: seam_local_peer_row_start(:) !< First row index in seam_local_map_ghost_cell for each peer.
+   integer(I4P), allocatable :: seam_local_peer_row_count(:) !< Row count in seam_local_map_ghost_cell for each peer.
+   !
+   ! Per-peer pack/unpack buffers. Shape: `(nv * max_rows_per_peer, n_peers)`.
+   ! Each peer's pack-then-unpack roundtrip uses an independent column — the
+   ! forest may process peers serially OR in parallel without aliasing.
+   ! Allocated at topology init; reused every substage (no per-step allocation).
+   real(R8P), allocatable :: seam_local_send_buf(:,:) !< Per-peer pack buffer for same-rank seams.
+   real(R8P), allocatable :: seam_local_recv_buf(:,:) !< Per-peer unpack buffer for same-rank seams.
+   !
+   ! Seam MPI maps and buffers — Phase A: DECLARED but NOT POPULATED.
+   ! Reserved for the cross-rank seam exchange (Phase B). If any of these
+   ! become allocated the forest Phase 2 loop must dispatch to
+   ! `update_ghost_seam_mpi`; until that path lands the forest error_stops
+   ! on any allocated `seam_comm_map_send_ghost_cell`.
+   integer(I4P), allocatable :: seam_comm_map_send_ghost_cell(:,:)
+   integer(I4P), allocatable :: seam_comm_map_recv_ghost_cell(:,:)
+   integer(I4P), allocatable :: seam_comm_map_send_ptr_ghost(:)
+   integer(I4P), allocatable :: seam_comm_map_recv_ptr_ghost(:)
+   real(R8P),    allocatable :: seam_mpi_send_buf(:)
+   real(R8P),    allocatable :: seam_mpi_recv_buf(:)
    contains
       ! public methods
       procedure, pass(self) :: blocks_reorder             !< Reorder blocks indexes in field.

@@ -146,12 +146,50 @@ contains
 
    subroutine evolve_one_step(self, realm)
    !< Advance every realm by one global timestep.
-   class(forest_object), intent(inout)         :: self     !< The forest.
-   class(realm_object),  intent(inout), target :: realm(:) !< The realms to advance.
-   real(R8P)                                   :: dt       !< Global timestep size.
-   integer(I4P)                                :: is, s    !< Realm and substage indices.
-   integer(I4P)                                :: nrk      !< Number of substages (multi-realm path).
-   integer(I4P)                                :: nrk_chk  !< Per-realm consistency check.
+   !<
+   !< N=1 fast path: realm owns the whole step (advance_one_step_forest).
+   !<
+   !< N>1 multi-realm path: forest drives a four-sweep substage loop.
+   !<
+   !<   Phase 1 — `do is: assemble_substage_forest(s)`
+   !<     Each realm builds its substage buffer `q_rk(:,...,s)` and sets
+   !<     `self%s_active = s`. No ghost reads, no peer-realm access.
+   !<
+   !<   Phase 2 — `do is, p: pack_seam_cells + unpack_seam_cells`
+   !<     Forest-driven inter-realm seam ghost fill. Each receiver realm
+   !<     `is` iterates its peer realms `p`; for each peer, `pack_seam_cells`
+   !<     reads the peer's INTERIOR cells (peer-side columns 2/4/5/6 of the
+   !<     seam map) via the peer's currently-active buffer, and
+   !<     `unpack_seam_cells` writes the receiver's GHOST cells (recv-side
+   !<     columns 3/7/8/9 of the same map row). Per-peer pack/unpack
+   !<     buffers live on `maps_object` so each peer's roundtrip is
+   !<     independent.
+   !<
+   !<   Phase 3 — `do is: residuals_substage_forest(flux_register) + assign_substage_forest`
+   !<     The race that originally required the assemble/residuals/assign
+   !<     three-phase split is GONE: by the time `assign_stage` overwrites
+   !<     `q_rk(:,interior,s)`, every receiver has already read its peer's
+   !<     interior in Phase 2. Residuals + assign can therefore run in a
+   !<     single sweep per realm, preserving today's reflux semantics
+   !<     (flux_register accumulation happens inside compute_residuals_fv_centered).
+   !<
+   !<   Phase 4 — `do is: finalize_step_forest`
+   !<     Per-step epilogue (q assembly from substages, BC, div-clean,
+   !<     time advance). Each realm clears its `s_active`.
+   !<
+   !< LOAD-BEARING INVARIANT: Phase 2 must complete on ALL realms before
+   !< Phase 3 starts on ANY realm. If a future refactor interleaves Phase
+   !< 2 and Phase 3 the read-after-overwrite race returns.
+   class(forest_object), intent(inout)         :: self        !< The forest.
+   class(realm_object),  intent(inout), target :: realm(:)    !< The realms to advance.
+   real(R8P)                                   :: dt          !< Global timestep size.
+   integer(I4P)                                :: is, p, s    !< Realm, peer, substage indices.
+   integer(I4P)                                :: nrk         !< Number of substages (multi-realm path).
+   integer(I4P)                                :: nrk_chk     !< Per-realm consistency check.
+   integer(I4P)                                :: peer_idx    !< Peer realm index for a seam exchange.
+   integer(I4P)                                :: row_start   !< First row of a peer's seam-map slice.
+   integer(I4P)                                :: row_end     !< Last  row of a peer's seam-map slice.
+   integer(I4P)                                :: nv_is       !< Number of variables for realm `is`.
 
    call self%flux_register%reset
    call self%compute_global_dt(realm=realm, dt=dt)
@@ -168,15 +206,40 @@ contains
          if (nrk_chk /= nrk) call mpih%error_stop(msg='forest_object%evolve_one_step: realms disagree on nrk_forest')
       enddo
       do s = 1_I4P, nrk
+         ! Phase 1 — assemble q_rk(s) on every realm; each realm sets s_active=s.
          do is = 1_I4P, int(size(realm), I4P)
-            call realm(is)%assemble_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
+            call realm(is)%assemble_substage_forest(s=s, nrk=nrk, dt=dt)
          enddo
+
+         ! Phase 2 — forest-driven inter-realm seam ghost fill.
          do is = 1_I4P, int(size(realm), I4P)
-            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm, flux_register=self%flux_register)
+            if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
+            ! Phase-A guard: cross-rank seam path is not implemented.
+            if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
+               call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented (Phase B)')
+            nv_is = realm(is)%nv
+            do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
+               peer_idx  = realm(is)%adam%maps%seam_local_peer_realm(p)
+               row_start = realm(is)%adam%maps%seam_local_peer_row_start(p)
+               row_end   = row_start + realm(is)%adam%maps%seam_local_peer_row_count(p) - 1_I4P
+               associate(rows => realm(is)%adam%maps%seam_local_map_ghost_cell(row_start:row_end, :), &
+                         buf  => realm(is)%adam%maps%seam_local_send_buf(:, p))
+                  call realm(peer_idx)%pack_seam_cells (map_rows=rows, nv=nv_is, buf=buf)
+                  call realm(is      )%unpack_seam_cells(map_rows=rows, nv=nv_is, buf=buf)
+               endassociate
+            enddo
          enddo
+
+         ! Phase 3 — residuals (with flux_register) + assign per realm.
+         ! Race-free: Phase 2 has already filled seam ghosts, and the
+         ! intra-realm residuals→assign ordering is the integrator's normal
+         ! flow within a single realm.
          do is = 1_I4P, int(size(realm), I4P)
-            call realm(is)%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
+            call realm(is)%residuals_substage_forest(s=s, nrk=nrk, dt=dt, flux_register=self%flux_register)
+            call realm(is)%assign_substage_forest(s=s, nrk=nrk, dt=dt)
          enddo
+
+         ! Reflux corrections — preserved placement; ark(s)-weighted inside.
          call self%flux_register%reduce_fine_sums
          call self%apply_reflux_corrections(realm=realm, substage=s, dt=dt)
       enddo
@@ -357,6 +420,14 @@ contains
    ! the per-substage geometric find_peer_block + face-slab copy that misses
    ! corner / edge ghosts.
    call build_inter_realm_ghost_cell_map(realm=realm, manifest=manifest)
+   ! Derive the sorted-by-peer seam_local map + per-peer index arrays + per-peer
+   ! pack/unpack buffers from the just-built inter_realm_ghost_cell map. The new
+   ! arrays are what the forest's Phase 2 seam fill (in evolve_one_step) consumes;
+   ! inter_realm_ghost_cell is kept during migration so the legacy
+   ! exchange_inter_realm_halos_forest TBP can be deleted in a single pass.
+   ! Every entry is required to be same-rank under Phase A (replicated forest);
+   ! cross-rank entries error_stop here to flag the unimplemented Phase B path.
+   call build_seam_local_map(realm=realm)
    ! Override the BC crown's bc_type column to BC_SEAM for entries that
    ! lie on an inter-realm seam face.
    !
@@ -766,6 +837,123 @@ contains
                                         my_face=pair%face_b)
       enddo
       endsubroutine build_inter_realm_ghost_cell_map
+
+      subroutine build_seam_local_map(realm)
+      !< Derive `seam_local_map_ghost_cell` (sorted by `peer_realm`) +
+      !< per-peer index arrays + per-peer pack/unpack buffers from the
+      !< already-populated `inter_realm_ghost_cell` map.
+      !<
+      !< The output is what the forest's Phase 2 seam fill consumes via the
+      !< realm `pack_seam_cells` / `unpack_seam_cells` TBPs. Rows are sorted
+      !< by `peer_realm` so the forest can extract per-peer row ranges in
+      !< O(1) via the index arrays.
+      !<
+      !< Invariant (Phase A): every entry must be same-rank — under the
+      !< replicated-forest layout (`rmf-2realm`) both ranks own both realms,
+      !< so the rank that owns `b_send` in the peer realm equals
+      !< `mpih%myrank`. Cross-rank entries are detected via the peer's
+      !< `comm_map_recv` (which lists who owns each block of the peer
+      !< realm); a single cross-rank entry triggers an `error_stop` flagging
+      !< the unimplemented Phase B `update_ghost_seam_mpi` path.
+      class(realm_object), intent(inout) :: realm(:)
+      integer(I4P)                       :: is, c, nrows, n_peers, p, peer
+      integer(I4P)                       :: nv_is, max_rows_per_peer
+      integer(I4P), allocatable          :: peer_list(:), peer_count(:), peer_cursor(:)
+      integer(I4P)                       :: write_idx
+      integer(I4P)                       :: src_col_peer  ! col 1 of inter_realm_ghost_cell
+
+      src_col_peer = 1_I4P
+
+      do is = 1_I4P, int(size(realm), I4P)
+         associate(maps => realm(is)%adam%maps)
+         ! Deallocate prior state.
+         if (allocated(maps%seam_local_map_ghost_cell)) deallocate(maps%seam_local_map_ghost_cell)
+         if (allocated(maps%seam_local_peer_realm))     deallocate(maps%seam_local_peer_realm)
+         if (allocated(maps%seam_local_peer_row_start)) deallocate(maps%seam_local_peer_row_start)
+         if (allocated(maps%seam_local_peer_row_count)) deallocate(maps%seam_local_peer_row_count)
+         if (allocated(maps%seam_local_send_buf))       deallocate(maps%seam_local_send_buf)
+         if (allocated(maps%seam_local_recv_buf))       deallocate(maps%seam_local_recv_buf)
+
+         if (.not. allocated(maps%inter_realm_ghost_cell)) cycle
+
+         nrows = int(size(maps%inter_realm_ghost_cell, dim=1), I4P)
+         if (nrows == 0_I4P) cycle
+
+         ! Pass 1: enumerate distinct peer realms appearing in col 1.
+         ! Realm count is small (handful); a linear-scan dedup is cheap.
+         allocate(peer_list(nrows))   ; peer_list = 0_I4P
+         allocate(peer_count(nrows))  ; peer_count = 0_I4P
+         n_peers = 0_I4P
+         do c = 1_I4P, nrows
+            peer = int(maps%inter_realm_ghost_cell(c, src_col_peer), I4P)
+            p = 0_I4P
+            do p = 1_I4P, n_peers
+               if (peer_list(p) == peer) exit
+            enddo
+            if (p > n_peers) then
+               n_peers = n_peers + 1_I4P
+               peer_list(n_peers) = peer
+               peer_count(n_peers) = 1_I4P
+            else
+               peer_count(p) = peer_count(p) + 1_I4P
+            endif
+         enddo
+
+         ! Allocate index arrays sized to actual peer count.
+         allocate(maps%seam_local_peer_realm(n_peers))
+         allocate(maps%seam_local_peer_row_start(n_peers))
+         allocate(maps%seam_local_peer_row_count(n_peers))
+         maps%seam_local_peer_realm     = peer_list(1:n_peers)
+         maps%seam_local_peer_row_count = peer_count(1:n_peers)
+
+         maps%seam_local_peer_row_start(1) = 1_I4P
+         do p = 2_I4P, n_peers
+            maps%seam_local_peer_row_start(p) =                  &
+               maps%seam_local_peer_row_start(p - 1_I4P)       + &
+               maps%seam_local_peer_row_count(p - 1_I4P)
+         enddo
+
+         ! Allocate the sorted map (same row count, 9 cols — drop the
+         ! one_or_eight column reserved for AMR coarse-fine).
+         allocate(maps%seam_local_map_ghost_cell(nrows, 9))
+
+         ! Pass 2: fill sorted map using per-peer write cursors.
+         allocate(peer_cursor(n_peers))
+         peer_cursor = maps%seam_local_peer_row_start
+         do c = 1_I4P, nrows
+            peer = int(maps%inter_realm_ghost_cell(c, src_col_peer), I4P)
+            do p = 1_I4P, n_peers
+               if (peer_list(p) == peer) exit
+            enddo
+            write_idx = peer_cursor(p)
+            peer_cursor(p) = peer_cursor(p) + 1_I4P
+            ! Columns 1..9 = [peer_realm, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv].
+            ! Source columns are the same 1..9; col 10 (one_or_eight) is intentionally dropped.
+            maps%seam_local_map_ghost_cell(write_idx, 1:9) = &
+               int(maps%inter_realm_ghost_cell(c, 1:9), I4P)
+         enddo
+         deallocate(peer_cursor)
+
+         ! Phase A invariant: every entry is same-rank. Under the replicated-
+         ! forest layout (rmf-2realm) all ranks own all realms' blocks, so the
+         ! invariant holds by construction. The defect-A cross-rank case lands
+         ! with update_ghost_seam_mpi (Phase B); until then the forest Phase 2
+         ! loop error_stops if seam_comm_map_send_ghost_cell becomes allocated.
+         !
+         ! Sizing for per-peer buffers: nv × max(row_count_per_peer), one column per peer.
+         ! Realm exposes nv as a pointer component (initialize binds self%nv => adam%field%nv).
+         nv_is = realm(is)%nv
+         max_rows_per_peer = maxval(maps%seam_local_peer_row_count)
+         allocate(maps%seam_local_send_buf(nv_is * max_rows_per_peer, n_peers))
+         allocate(maps%seam_local_recv_buf(nv_is * max_rows_per_peer, n_peers))
+         maps%seam_local_send_buf = 0.0_R8P
+         maps%seam_local_recv_buf = 0.0_R8P
+
+         deallocate(peer_list)
+         deallocate(peer_count)
+         endassociate
+      enddo
+      endsubroutine build_seam_local_map
 
       subroutine override_seam_bc_in_crown(realm, manifest)
       !< Overwrite the bc_type column of `local_map_bc_crown` to BC_SEAM

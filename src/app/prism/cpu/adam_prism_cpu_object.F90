@@ -60,7 +60,11 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: post_step_forest                  !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest                    !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
-      procedure, pass(self) :: exchange_inter_realm_halos_forest !< Invoked by forest%exchange_halos to refresh inter-realm ghosts.
+      ! inter-realm seam ghost-fill contract (agnostic-dummy redesign)
+      procedure, pass(self) :: get_cell           !< Read active buffer at (v,i,j,k,b): q or rk%q_rk(s) per s_active.
+      procedure, pass(self) :: set_cell           !< Write active buffer at (v,i,j,k,b): q or rk%q_rk(s) per s_active.
+      procedure, pass(self) :: pack_seam_cells    !< Bulk pack override: direct slice copy from active buffer.
+      procedure, pass(self) :: unpack_seam_cells  !< Bulk unpack override: direct slice copy into active buffer.
       ! numerical methods
       procedure, pass(self) :: compute_dt           !< Compute time step.
       procedure, pass(self) :: compute_energy       !< Compute energy.
@@ -71,9 +75,15 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
 endtype prism_cpu_object
 
 interface
-   subroutine compute_residuals_interface(self, q, dq, s, realm, flux_register)
+   subroutine compute_residuals_interface(self, q, dq, s, flux_register)
    !< Compute residuals of equation, space operator.
-   import :: prism_cpu_object, R8P, I4P, realm_object, flux_register_object
+   !<
+   !< Inter-realm seam ghost cells are filled by the forest BEFORE this
+   !< routine fires (Phase 2 of the forest's substage loop), so the stencil
+   !< reads valid halo data without any peer-realm access here. The
+   !< `realm(:)` optional that used to thread through this signature has
+   !< been retired by the agnostic-dummy seam redesign (issue #13 follow-up).
+   import :: prism_cpu_object, R8P, I4P, flux_register_object
    class(prism_cpu_object),     intent(inout)                   :: self          !< The equation.
    real(R8P),                   intent(inout)                   :: q(1:,         &
                                                                      1-self%ngc:,&
@@ -86,7 +96,6 @@ interface
                                                                       1-self%ngc:,&
                                                                       1:)        !< Residuals.
    integer(I4P),                intent(in),    optional         :: s             !< Stage counter.
-   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
    endsubroutine compute_residuals_interface
 
@@ -332,11 +341,7 @@ contains
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-      if (present(realm)) then
-         call self%update_ghost(q=self%q, realm=realm)
-      else
-         call self%update_ghost(q=self%q)
-      endif
+      call self%update_ghost(q=self%q)
       call self%compute_auxiliary_fields
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
@@ -852,16 +857,16 @@ contains
    endif
    endsubroutine set_initial_conditions
 
-   subroutine update_ghost(self, q, step, s, realm)
-   !< Update ghost cells.
-   !< If not specified all steps are perfermod, syncronous computation
+   subroutine update_ghost(self, q, step, s)
+   !< Update ghost cells (intra-realm only).
+   !< If not specified all steps are performed, synchronous computation.
    !<
-   !< Inter-realm refresh: after the intra-realm halo path completes, if
-   !< the caller threaded the forest realm array (`realm(:)`) AND this
-   !< realm declares any inter-realm neighbours, refresh the inter-realm
-   !< ghosts on the same `q` buffer the caller is about to read.
-   !< Empty neighbour list or no `realm` ⇒ skip silently (N=1 rmf path,
-   !< bit-identical to pre-Phase-D).
+   !< Inter-realm seam ghost cells are NO LONGER filled here: the forest's
+   !< Phase 2 seam fill (between assemble and evaluate) populates them via
+   !< the new `pack_seam_cells` / `unpack_seam_cells` TBPs operating on the
+   !< realm's currently-active buffer (selected internally via `s_active`).
+   !< The `realm(:)` optional dummy that used to thread through this
+   !< signature has been retired.
    class(prism_cpu_object), intent(inout)                   :: self            !< The equation.
    real(R8P),               intent(inout)                   :: q(1:,         &
                                                                  1-self%ngc:,&
@@ -870,11 +875,10 @@ contains
                                                                  1:)           !< Conservative variables.
    integer(I4P),            intent(in),    optional         :: step            !< Step to be perfordmed in asyncronous comp.
    integer(I4P),            intent(in),    optional         :: s               !< Stage counter.
-   class(realm_object),     intent(inout), optional, target :: realm(:)        !< Sibling realms for inter-realm halo refresh.
    logical                                                  :: do_local_update !< Flag for triggering local update.
    logical                                                  :: do_set_bc       !< Flag for triggering setting bc.
 
-   ! perform local update if step is not speficied or if first step is selected
+   ! perform local update if step is not specified or if first step is selected
    do_local_update = .false.
    do_set_bc       = .false.
    if (.not.present(step)) then
@@ -886,13 +890,6 @@ contains
    endif
    if (do_local_update) call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
    call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, step=step)
-   if (allocated(self%adam%maps%inter_realm_neighbors) .and. present(realm)) then
-      if (present(s)) then
-         call self%exchange_inter_realm_halos_forest(realm=realm, s_active=s)
-      else
-         call self%exchange_inter_realm_halos_forest(realm=realm)
-      endif
-   endif
    if (do_set_bc) call self%set_boundary_conditions(q=q, s=s)
    if (present(s)) then
       call self%compute_coils_current(q=q, gamma=self%rk%gamm(s))
@@ -940,11 +937,7 @@ contains
       self%time%it = 0
       call mpih%print_message('impose initial conditions finish')
    endif
-   if (present(realm)) then
-      call self%update_ghost(q=self%q, realm=realm) ! Aggiunto da FN
-   else
-      call self%update_ghost(q=self%q) ! Aggiunto da FN
-   endif
+   call self%update_ghost(q=self%q) ! Aggiunto da FN
 
    do n=1, self%coil%total_coils_number
       call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
@@ -1121,6 +1114,10 @@ contains
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    if (present(realm)) continue
+   ! Mark substage `s` as active so the realm's get_cell / pack_seam_cells
+   ! contract methods read from rk%q_rk(:,...,s) when the forest's Phase 2
+   ! seam fill queries this realm's boundary cells.
+   self%s_active = s
    if (self%ib%solids_number>0) then
       call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
    else
@@ -1157,13 +1154,15 @@ contains
    class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
-   if (present(realm) .and. present(flux_register)) then
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s, realm=realm, flux_register=flux_register)
-   else if (present(realm)) then
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s, realm=realm)
+   if (present(flux_register)) then
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s, flux_register=flux_register)
    else
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
    endif
+   ! NOTE: `realm` is accepted on contract for FNL parity but ignored here —
+   ! the CPU forest's Phase 2 has already filled seam ghost cells via
+   ! pack_seam_cells/unpack_seam_cells before residuals fire.
+   if (present(realm)) continue
    endsubroutine residuals_substage_forest
 
    subroutine assign_substage_forest(self, s, nrk, dt, realm)
@@ -1189,27 +1188,25 @@ contains
    endsubroutine assign_substage_forest
 
    subroutine evaluate_substage_forest(self, s, nrk, dt, realm)
-   !< Combined residuals + stage assignment for RK substage `s` —
-   !< backward-compat wrapper for the legacy 2-phase substage loop.
+   !< Combined residuals + stage assignment for RK substage `s`.
    !<
-   !< The forest no longer invokes this TBP; it drives the three-phase
-   !< loop via `residuals_substage_forest` + `assign_substage_forest`.
-   !< Retained so any consumer outside the forest orchestrator (e.g.
-   !< unit tests, standalone scripts) can still get the combined
-   !< behavior in one call.
+   !< This is the CPU forest's Phase 3 TBP. It calls
+   !< `residuals_substage_forest` and `assign_substage_forest` in sequence
+   !< on `self`. Inter-realm seam ghost cells are already filled (Phase 2),
+   !< so the residual stencil reads valid halo data without any
+   !< peer-realm access here, and `assign_stage`'s in-place overwrite of
+   !< `q_rk(:,interior,s)` no longer races with peer reads.
+   !<
+   !< `realm` accepted on contract for FNL parity but unused on CPU.
    class(prism_cpu_object), intent(inout)                   :: self     !< The realm.
    integer(I4P),            intent(in)                      :: s        !< Substage index (1..nrk).
    integer(I4P),            intent(in)                      :: nrk      !< Total number of substages.
    real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (forwarded for contract parity).
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (FNL parity only).
 
-   if (present(realm)) then
-      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
-      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt, realm=realm)
-   else
-      call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
-      call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
-   endif
+   if (present(realm)) continue
+   call self%residuals_substage_forest(s=s, nrk=nrk, dt=dt)
+   call self%assign_substage_forest(s=s, nrk=nrk, dt=dt)
    endsubroutine evaluate_substage_forest
 
    subroutine finalize_step_forest(self, dt)
@@ -1240,84 +1237,107 @@ contains
                                                       time=self%time%time, dt=self%time%dt, q=self%q)
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
+   ! Clear active-substage marker so any get_cell / pack_seam_cells query
+   ! between steps reads from self%q (committed state) rather than a stale
+   ! q_rk slot from the previous step's last substage.
+   self%s_active = 0_I4P
    endsubroutine finalize_step_forest
 
-   subroutine exchange_inter_realm_halos_forest(self, realm, s_active)
-   !< Refresh `self%q` (or `self%rk%q_rk(:,...,s)`) ghost cells that depend
-   !< on neighbour realms — map-driven version.
-   !<
-   !< Per-cell lookup table `self%adam%maps%inter_realm_ghost_cell(c, 1:10)`
-   !< is precomputed at topology time by `forest_object%build_inter_realm_ghost_cell_map`.
-   !< This routine walks that table and applies a per-cell copy
-   !<
-   !<     self%q(:, i_recv, j_recv, k_recv, b_recv)
-   !<       = peer_realm%q(:, i_send, j_send, k_send, b_send)
-   !<
-   !< (or the substage `rk%q_rk(:,...,s_active)` form when the forest's
-   !< substage loop is active). This replaces the previous per-call
-   !< geometric `find_peer_block` + face-slab `copy_peer_face` pair, which
-   !< missed the CORNER and EDGE ghosts (defect B of issue #13) — the map
-   !< includes ghost cells in the FULL tangentially-extended range, so
-   !< stencils crossing the seam see the same data a contiguous-domain
-   !< stencil would.
-   !<
-   !< Substage selection follows the existing convention: when
-   !< `s_active > 0` (passed by the substage caller chain) both sides'
-   !< canonical buffer is `rk%q_rk(:,...,s_active)`; when `s_active == 0`
-   !< or `s_active` is absent (non-substage initial seam refresh) the
-   !< canonical buffer is `q`. The `s_active` dummy replaces the retired
-   !< `forest_active_substage` module-scope integer (issue #13, 2026-05-25).
-   !<
-   !< Coupling kinds: only COUPLING_MIRROR is exercised by Phase A v1. The
-   !< per-cell map currently encodes mirror-only because the topology pass
-   !< returns no entry for cells whose peer-coordinate falls outside the
-   !< peer's physical extent (those are left to the physical BC); PERIODIC
-   !< / INTERPOLATE would need an extension of the map builder, not of this
-   !< consumer.
-   !<
-   !< Cross-rank limitation (defect A of issue #13): the map currently
-   !< encodes only LOCAL peer entries. Off-rank peer cells require an
-   !< explicit MPI exchange that is not yet built; under the replicated-
-   !< forest layout used by rmf-2realm (both ranks own both realms) every
-   !< peer cell is local and the limitation is dormant.
-   class(prism_cpu_object), intent(inout)        :: self                   !< This realm.
-   class(realm_object),     intent(in)           :: realm(:)               !< All realms in the forest.
-   integer(I4P),            intent(in), optional :: s_active               !< Active RK substage (1..nrk) or 0/absent.
-   integer(I4P)                                  :: c                      !< Map row counter.
-   integer(I4P)                                  :: nrows                  !< Map row count.
-   integer(I4P)                                  :: peer_realm_idx         !< Peer realm index.
-   integer(I4P)                                  :: b_send, b_recv         !< Block index send/recv.
-   integer(I4P)                                  :: i_send, j_send, k_send !< IJK coordinate send.
-   integer(I4P)                                  :: i_recv, j_recv, k_recv !< IJK coordinate recv.
-   integer(I4P)                                  :: s_active_              !< Local copy of the optional dummy (0 default).
+   ! Inter-realm seam ghost-fill contract — PRISM CPU overrides.
 
-   if (.not. allocated(self%adam%maps%inter_realm_ghost_cell)) return
-   nrows     = int(size(self%adam%maps%inter_realm_ghost_cell, dim=1), I4P)
-   s_active_ = 0_I4P ; if (present(s_active)) s_active_ = s_active
-   do c = 1_I4P, nrows
-      peer_realm_idx = int(self%adam%maps%inter_realm_ghost_cell(c, 1), I4P)
-      b_send         = int(self%adam%maps%inter_realm_ghost_cell(c, 2), I4P)
-      b_recv         = int(self%adam%maps%inter_realm_ghost_cell(c, 3), I4P)
-      i_send         = int(self%adam%maps%inter_realm_ghost_cell(c, 4), I4P)
-      j_send         = int(self%adam%maps%inter_realm_ghost_cell(c, 5), I4P)
-      k_send         = int(self%adam%maps%inter_realm_ghost_cell(c, 6), I4P)
-      i_recv         = int(self%adam%maps%inter_realm_ghost_cell(c, 7), I4P)
-      j_recv         = int(self%adam%maps%inter_realm_ghost_cell(c, 8), I4P)
-      k_recv         = int(self%adam%maps%inter_realm_ghost_cell(c, 9), I4P)
-      select type (peer => realm(peer_realm_idx))
-      class is (prism_cpu_object)
-         if (s_active_ > 0_I4P) then
-            self%rk%q_rk(:, i_recv, j_recv, k_recv, b_recv, s_active_) = &
-               peer%rk%q_rk(:, i_send, j_send, k_send, b_send, s_active_)
-         else
-            self%q(:, i_recv, j_recv, k_recv, b_recv) = &
-               peer%q(:, i_send, j_send, k_send, b_send)
-         endif
-      class default
-         call mpih%error_stop(msg='prism_cpu_object%exchange_inter_realm_halos_forest: peer realm is not prism_cpu_object')
-      end select
-   enddo
-   endsubroutine exchange_inter_realm_halos_forest
+   function get_cell(self, v, i, j, k, b) result(val)
+   !< Read this realm's currently-active conservative-state buffer at the
+   !< cell coordinate (v, i, j, k, b). Selection:
+   !<   * `self%s_active > 0` → `self%rk%q_rk(v,i,j,k,b,s_active)`
+   !<   * otherwise           → `self%q(v,i,j,k,b)` (committed state).
+   class(prism_cpu_object), intent(in) :: self
+   integer(I4P),            intent(in) :: v, i, j, k, b
+   real(R8P)                           :: val
+
+   if (self%s_active > 0_I4P) then
+      val = self%rk%q_rk(v, i, j, k, b, self%s_active)
+   else
+      val = self%q(v, i, j, k, b)
+   endif
+   endfunction get_cell
+
+   subroutine set_cell(self, v, i, j, k, b, val)
+   !< Write this realm's currently-active conservative-state buffer at the
+   !< cell coordinate (v, i, j, k, b). Mirror of `get_cell` for the seam
+   !< unpack path. Selection follows the same `s_active` rule.
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P),            intent(in)    :: v, i, j, k, b
+   real(R8P),               intent(in)    :: val
+
+   if (self%s_active > 0_I4P) then
+      self%rk%q_rk(v, i, j, k, b, self%s_active) = val
+   else
+      self%q(v, i, j, k, b) = val
+   endif
+   endsubroutine set_cell
+
+   subroutine pack_seam_cells(self, map_rows, nv, buf)
+   !< Bulk pack override: contiguous slice copy from the active buffer.
+   !<
+   !< Branch on `s_active` ONCE outside the loop body, then bulk-copy
+   !< `nv` contiguous values per row. Vectorizable; the base default
+   !< (per-cell virtual dispatch through `get_cell`) is correct but
+   !< several times slower. The forest calls this — never `get_cell` —
+   !< on the hot path.
+   class(prism_cpu_object), intent(in)  :: self
+   integer(I4P),            intent(in)  :: map_rows(:,:)
+   integer(I4P),            intent(in)  :: nv
+   real(R8P),               intent(out) :: buf(:)
+   integer(I4P)                         :: c, b, i, j, k
+   integer(I4P)                         :: nrows
+
+   nrows = int(size(map_rows, dim=1), I4P)
+   if (self%s_active > 0_I4P) then
+      do c = 1_I4P, nrows
+         b = map_rows(c, 2)
+         i = map_rows(c, 4) ; j = map_rows(c, 5) ; k = map_rows(c, 6)
+         buf((c - 1_I4P) * nv + 1_I4P : c * nv) = self%rk%q_rk(1:nv, i, j, k, b, self%s_active)
+      enddo
+   else
+      do c = 1_I4P, nrows
+         b = map_rows(c, 2)
+         i = map_rows(c, 4) ; j = map_rows(c, 5) ; k = map_rows(c, 6)
+         buf((c - 1_I4P) * nv + 1_I4P : c * nv) = self%q(1:nv, i, j, k, b)
+      enddo
+   endif
+   endsubroutine pack_seam_cells
+
+   subroutine unpack_seam_cells(self, map_rows, nv, buf)
+   !< Bulk unpack override: contiguous slice copy into the active buffer.
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P),            intent(in)    :: map_rows(:,:)
+   integer(I4P),            intent(in)    :: nv
+   real(R8P),               intent(in)    :: buf(:)
+   integer(I4P)                           :: c, b, i, j, k
+   integer(I4P)                           :: nrows
+
+   nrows = int(size(map_rows, dim=1), I4P)
+   if (self%s_active > 0_I4P) then
+      do c = 1_I4P, nrows
+         b = map_rows(c, 3)
+         i = map_rows(c, 7) ; j = map_rows(c, 8) ; k = map_rows(c, 9)
+         self%rk%q_rk(1:nv, i, j, k, b, self%s_active) = buf((c - 1_I4P) * nv + 1_I4P : c * nv)
+      enddo
+   else
+      do c = 1_I4P, nrows
+         b = map_rows(c, 3)
+         i = map_rows(c, 7) ; j = map_rows(c, 8) ; k = map_rows(c, 9)
+         self%q(1:nv, i, j, k, b) = buf((c - 1_I4P) * nv + 1_I4P : c * nv)
+      enddo
+   endif
+   endsubroutine unpack_seam_cells
+
+   ! Note: `exchange_inter_realm_halos_forest` was previously overridden here.
+   ! It has been retired by the agnostic-dummy seam redesign — the forest's
+   ! Phase 2 seam fill drives `pack_seam_cells`/`unpack_seam_cells` instead.
+   ! The base class default (which error_stops on N>1) is inherited; the
+   ! forest's `exchange_halos` consumer remains for FNL parity but is a
+   ! no-op on the CPU path since the seam is filled per-substage in Phase 2.
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run PRISM-CPU's per-timestep post-step work: state IO, energy
@@ -1358,11 +1378,10 @@ contains
    associate(hs => self%fdv_half_stencil)
    if (present(realm)) then
       call self%save_simulation_data(realm=realm)
-      call self%update_ghost(q=self%q, realm=realm) ! Aggiunto da FN
    else
       call self%save_simulation_data
-      call self%update_ghost(q=self%q) ! Aggiunto da FN
    endif
+   call self%update_ghost(q=self%q) ! Aggiunto da FN
    call self%compute_energy
    !call self%save_energy_error
    call self%save_energy_history
@@ -1706,7 +1725,7 @@ contains
    endsubroutine simulate
 
    ! pointer TBP concrete implementations
-   subroutine compute_residuals_fd_centered(self, q, dq, s, realm, flux_register)
+   subroutine compute_residuals_fd_centered(self, q, dq, s, flux_register)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
    class(prism_cpu_object),     intent(inout)                   :: self                     !< The equation.
    real(R8P),                   intent(inout)                   :: q(1:,         &
@@ -1720,7 +1739,6 @@ contains
                                                                       1-self%ngc:,&
                                                                       1:)                   !< Residuals.
    integer(I4P),                intent(in),    optional         :: s                        !< Stage counter.
-   class(realm_object),         intent(inout), optional, target :: realm(:)                 !< Sibling realms for inter-realm.
    class(flux_register_object), intent(inout), optional         :: flux_register            !< Flux register.
    integer(I4P)                                                 :: i,j,k,b                  !< Counter
    real(R8P)                                                    :: curlD(3), curlB(3)       !< Curl of D and B.
@@ -1739,11 +1757,7 @@ contains
    max_curlD = -huge(1._R8P)
 
    call self%apply_fWL_correction(q=q)
-   if (present(realm)) then
-      call self%update_ghost(q=q, s=s, realm=realm)
-   else
-      call self%update_ghost(q=q, s=s)
-   endif
+   call self%update_ghost(q=q, s=s)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%adam%field%dxyz,                                                                              &
              s1=>self%fdv_half_stencils(1),                                                                           &
@@ -2143,7 +2157,7 @@ contains
    endassociate
    endsubroutine compute_residuals_fd_centered
 
-   subroutine compute_residuals_fv_centered(self, q, dq, s, realm, flux_register)
+   subroutine compute_residuals_fv_centered(self, q, dq, s, flux_register)
    !< Compute residuals of equation, space operator, centered finite volume schemes.
    class(prism_cpu_object),     intent(inout) :: self                                         !< The equation.
    real(R8P),                   intent(inout) :: q(1:,         &
@@ -2157,7 +2171,6 @@ contains
                                                     1-self%ngc:,&
                                                     1:)                                       !< Residuals.
    integer(I4P),                intent(in),    optional         :: s                          !< Stage counter.
-   class(realm_object),         intent(inout), optional, target :: realm(:)                   !< Sibling realms for inter-realm.
    class(flux_register_object), intent(inout), optional         :: flux_register              !< Forest's flux register; FV reflux.
    integer(I4P)                                                 :: i,j,k,b,d,v                !< Counter
    integer(I4P)                                                 :: substage_idx               !< RK substage index.
@@ -2177,11 +2190,7 @@ contains
    endif
 
    call self%apply_fWL_correction(q=q)
-   if (present(realm)) then
-      call self%update_ghost(q=q, realm=realm)
-   else
-      call self%update_ghost(q=q)
-   endif
+   call self%update_ghost(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%adam%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,        &
              s=>self%fdv_half_stencils(1),                                                                            &
@@ -2408,7 +2417,7 @@ contains
    if (allocated(flux_slab)) deallocate(flux_slab)
    endsubroutine accumulate_seam_fluxes_fv
 
-   subroutine compute_residuals_weno(self, q, dq, s, realm, flux_register)
+   subroutine compute_residuals_weno(self, q, dq, s, flux_register)
    !< Compute residuals of equation, space operator, WENO schemes.
    class(prism_cpu_object),     intent(inout)                   :: self          !< The equation.
    real(R8P),                   intent(inout)                   :: q(1:,         &
@@ -2422,15 +2431,10 @@ contains
                                                                       1-self%ngc:,&
                                                                       1:)        !< Residuals.
    integer(I4P),                intent(in),    optional         :: s             !< Stage counter.
-   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms for inter-realm halo refresh.
    class(flux_register_object), intent(inout), optional         :: flux_register !< Flux register.
 
    call self%apply_fWL_correction(q=q)
-   if (present(realm)) then
-      call self%update_ghost(q=q, realm=realm)
-   else
-      call self%update_ghost(q=q)
-   endif
+   call self%update_ghost(q=q)
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&
              dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:),                         &

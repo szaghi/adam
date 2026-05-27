@@ -82,6 +82,8 @@ use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 implicit none
 private
 public :: field_object
+public :: pack_seam_cells_local, unpack_seam_cells_local
+public :: pack_seam_cells_mpi,   unpack_seam_cells_mpi
 
 character(len=5), parameter :: INI_SECTION_NAME="field" !< INI (config) file section name containing configs.
 
@@ -997,6 +999,86 @@ contains
    call MPI_Barrier(MPI_COMM_WORLD, error)
    endassociate
    endsubroutine update_ghost_mpi
+
+   ! Inter-realm seam ghost fill — agnostic-dummy primitives.
+   !
+   ! These mirror update_ghost_local/update_ghost_mpi but operate across an
+   ! inter-realm seam: the SENDER realm's `q_peer` is read at INTERIOR
+   ! coordinates (i_send, j_send, k_send, b_send), and the RECEIVER realm's
+   ! `q` is written at GHOST coordinates (i_recv, j_recv, k_recv, b_recv).
+   ! Both arrays have the same `nv` and `ngc` by the Phase-A constraint
+   ! (same physics, ghost depth capped to the minimum compatible value).
+   !
+   ! These subroutines are integrator-agnostic — they take `q` as a plain
+   ! dummy. The realm-side `pack_seam_cells` / `unpack_seam_cells` TBPs are
+   ! the bridge that maps the realm's current active buffer (whichever it
+   ! is: `q`, `q_rk(:,...,s)`, a leapfrog half-step buffer, etc.) into the
+   ! `q_peer` / `q` dummies these primitives consume.
+
+   subroutine pack_seam_cells_local(map_rows, q_peer, nv, buf)
+   !< Walk the seam-map rows for ONE peer; read peer's INTERIOR cells from
+   !< `q_peer` and pack them into `buf` in row-major order.
+   integer(I4P), intent(in)  :: map_rows(:,:)           !< Subset of seam_local_map_ghost_cell (one peer's rows).
+   real(R8P),    intent(in)  :: q_peer(:,:,:,:,:)       !< Peer realm's active buffer (assumed-shape; bounds from caller).
+   integer(I4P), intent(in)  :: nv                      !< Number of field variables.
+   real(R8P),    intent(out) :: buf(:)                  !< Packed output buffer; must have at least nv*size(map_rows,1) entries.
+   integer(I4P)              :: c, b, i, j, k
+   integer(I4P)              :: nrows
+
+   nrows = int(size(map_rows, dim=1), I4P)
+   do c = 1_I4P, nrows
+      b = map_rows(c, 2)
+      i = map_rows(c, 4) ; j = map_rows(c, 5) ; k = map_rows(c, 6)
+      buf((c - 1_I4P) * nv + 1_I4P : c * nv) = q_peer(1:nv, i, j, k, b)
+   enddo
+   endsubroutine pack_seam_cells_local
+
+   subroutine unpack_seam_cells_local(map_rows, buf, nv, q)
+   !< Walk the seam-map rows for ONE peer; write the receiver's GHOST cells
+   !< in `q` from the previously packed `buf`.
+   integer(I4P), intent(in)    :: map_rows(:,:)         !< Subset of seam_local_map_ghost_cell (one peer's rows).
+   real(R8P),    intent(in)    :: buf(:)                !< Packed input buffer (from pack_seam_cells_local).
+   integer(I4P), intent(in)    :: nv                    !< Number of field variables.
+   real(R8P),    intent(inout) :: q(:,:,:,:,:)          !< Receiver realm's active buffer (assumed-shape; bounds from caller).
+   integer(I4P)                :: c, b, i, j, k
+   integer(I4P)                :: nrows
+
+   nrows = int(size(map_rows, dim=1), I4P)
+   do c = 1_I4P, nrows
+      b = map_rows(c, 3)
+      i = map_rows(c, 7) ; j = map_rows(c, 8) ; k = map_rows(c, 9)
+      q(1:nv, i, j, k, b) = buf((c - 1_I4P) * nv + 1_I4P : c * nv)
+   enddo
+   endsubroutine unpack_seam_cells_local
+
+   subroutine pack_seam_cells_mpi(map_rows, q_peer, nv, buf)
+   !< Phase-A stub for the cross-rank seam pack path. Not implemented; the
+   !< forest Phase 2 loop error_stops before reaching this if any
+   !< `seam_comm_map_send_ghost_cell` is allocated. Body kept for symmetry
+   !< with `update_ghost_mpi` and to mark the integration point for Phase B.
+   integer(I4P), intent(in)  :: map_rows(:,:)
+   real(R8P),    intent(in)  :: q_peer(:,:,:,:,:)
+   integer(I4P), intent(in)  :: nv
+   real(R8P),    intent(out) :: buf(:)
+   integer(I4P)              :: dummy
+
+   dummy = int(size(map_rows, dim=1), I4P)  ! suppress unused-arg warnings
+   if (size(q_peer) > 0 .and. nv > 0 .and. size(buf) > 0) continue
+   call mpih%error_stop(msg='pack_seam_cells_mpi: cross-rank seam pack not implemented (Phase B)')
+   endsubroutine pack_seam_cells_mpi
+
+   subroutine unpack_seam_cells_mpi(map_rows, buf, nv, q)
+   !< Phase-A stub for the cross-rank seam unpack path. See `pack_seam_cells_mpi`.
+   integer(I4P), intent(in)    :: map_rows(:,:)
+   real(R8P),    intent(in)    :: buf(:)
+   integer(I4P), intent(in)    :: nv
+   real(R8P),    intent(inout) :: q(:,:,:,:,:)
+   integer(I4P)                :: dummy
+
+   dummy = int(size(map_rows, dim=1), I4P)  ! suppress unused-arg warnings
+   if (size(q) > 0 .and. nv > 0 .and. size(buf) > 0) continue
+   call mpih%error_stop(msg='unpack_seam_cells_mpi: cross-rank seam unpack not implemented (Phase B)')
+   endsubroutine unpack_seam_cells_mpi
 
    ! private methods
    subroutine derefine1D(self, grid, ratio, block_to_derefine, block_derefined, q)

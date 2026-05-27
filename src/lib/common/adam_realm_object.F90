@@ -103,6 +103,18 @@ type :: realm_object
    integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
    integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
    integer(I4P), pointer :: nv=>null()            !< Number of variables in q vector.
+   !< Inter-realm seam coupling — current-substage tracking.
+   !<
+   !< Lifecycle:
+   !<   * 0 at construction and after `finalize_step_forest`
+   !<   * set to `s` by `assemble_substage_forest(s)` (each override must set it)
+   !<   * read by `get_cell` / `pack_seam_cells` to select the active buffer
+   !<     (`q` when 0, `rk%q_rk(:,...,s_active)` when > 0).
+   !<
+   !< Invariant: MUST be 0 entering `prepare_step_forest`. The base type's
+   !< `finalize_step_forest` default clears it; overrides chain via base call
+   !< or duplicate the assignment.
+   integer(I4P) :: s_active = 0_I4P
    !< Procedure pointer TBPs for FDV operators (set at initialization by backend).
    procedure(compute_block_total_variation_interface), pass(self),pointer :: compute_block_total_variation=>null()!< Compute TV.
    procedure(compute_curl_interface),                  pass(self),pointer :: compute_curl                 =>null()!< Compute curl.
@@ -123,15 +135,20 @@ type :: realm_object
       procedure, pass(self) :: nrk_forest                        !< Number of substages this realm's integrator uses.
       procedure, pass(self) :: prepare_step_forest               !< Per-step prologue (multi-realm path).
       procedure, pass(self) :: assemble_substage_forest          !< One RK substage assembly (multi-realm path).
-      procedure, pass(self) :: residuals_substage_forest         !< One RK substage residual computation.
-      procedure, pass(self) :: assign_substage_forest            !< One RK substage stage assignment.
-      procedure, pass(self) :: evaluate_substage_forest          !< [Deprecated] residuals + assignment in one call.
+      procedure, pass(self) :: residuals_substage_forest         !< [Legacy / FNL] residuals-only phase; CPU path uses evaluate_substage_forest.
+      procedure, pass(self) :: assign_substage_forest            !< [Legacy / FNL] assign-only phase; CPU path uses evaluate_substage_forest.
+      procedure, pass(self) :: evaluate_substage_forest          !< Per-substage residuals + stage assignment (multi-realm path, CPU).
       procedure, pass(self) :: finalize_step_forest              !< Per-step epilogue (multi-realm path).
       procedure, pass(self) :: post_step_forest                  !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest                    !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
       procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize; forest calls it ONCE after all.
-      procedure, pass(self) :: exchange_inter_realm_halos_forest !< Invoked by forest%exchange_halos to refresh inter-realm ghosts.
+      procedure, pass(self) :: exchange_inter_realm_halos_forest !< [Legacy / FNL] Invoked by forest%exchange_halos; CPU path uses pack/unpack_seam_cells instead.
+      ! inter-realm seam ghost-fill contract (agnostic-dummy redesign).
+      procedure, pass(self) :: get_cell                          !< Read active buffer at (v,i,j,k,b); base errors_stops.
+      procedure, pass(self) :: set_cell                          !< Write active buffer at (v,i,j,k,b); base error_stops.
+      procedure, pass(self) :: pack_seam_cells                   !< Pack interior cells (peer side); default uses get_cell.
+      procedure, pass(self) :: unpack_seam_cells                 !< Unpack ghost cells (receiver side); default uses set_cell.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
       procedure, nopass     :: close_file_xh5f  !< Close XH5F file.
@@ -698,6 +715,95 @@ contains
    if (int(size(realm), I4P) > 1_I4P) &
    call mpih%error_stop(msg='realm_object%exchange_inter_realm_halos_forest: not overridden by app extension')
    endsubroutine exchange_inter_realm_halos_forest
+
+   ! Inter-realm seam ghost-fill contract — agnostic-dummy redesign.
+   !
+   ! These four TBPs (`get_cell`, `set_cell`, `pack_seam_cells`,
+   ! `unpack_seam_cells`) form the integrator-agnostic peer-data accessor
+   ! contract consumed by the forest's Phase 2 seam fill.
+   !
+   ! The scalar pair (`get_cell` / `set_cell`) IS the semantic contract: any
+   ! realm extension that implements them correctly is consumable by the
+   ! seam fill regardless of integrator (RK / leapfrog / Yoshida / Blanes-
+   ! Moan / Euler) because each implementation decides internally which of
+   ! its buffers is "active" right now (typically keyed on `self%s_active`).
+   !
+   ! The bulk pair (`pack_seam_cells` / `unpack_seam_cells`) is a
+   ! PERFORMANCE optimization: the base defaults below loop over the seam
+   ! map and call `get_cell` / `set_cell` per entry — correct but with
+   ! per-cell virtual-dispatch overhead. App extensions (e.g.
+   ! `prism_cpu_object`) override the bulk pair with a direct
+   ! contiguous-slice copy from the active buffer, recovering bulk-memory
+   ! throughput while preserving the correctness contract.
+
+   function get_cell(self, v, i, j, k, b) result(val)
+   !< Read this realm's currently-active `q`/`q_rk(s)` buffer at the cell
+   !< coordinate (v, i, j, k, b). Base implementation error_stops; every
+   !< realm that participates in inter-realm seam coupling MUST override.
+   class(realm_object), intent(in) :: self
+   integer(I4P),        intent(in) :: v, i, j, k, b
+   real(R8P)                       :: val
+
+   val = 0.0_R8P
+   call mpih%error_stop(msg='realm_object%get_cell: not overridden by app extension')
+   endfunction get_cell
+
+   subroutine set_cell(self, v, i, j, k, b, val)
+   !< Write this realm's currently-active `q`/`q_rk(s)` buffer at the cell
+   !< coordinate (v, i, j, k, b). Base implementation error_stops; every
+   !< realm that participates in inter-realm seam coupling MUST override.
+   class(realm_object), intent(inout) :: self
+   integer(I4P),        intent(in)    :: v, i, j, k, b
+   real(R8P),           intent(in)    :: val
+
+   call mpih%error_stop(msg='realm_object%set_cell: not overridden by app extension')
+   endsubroutine set_cell
+
+   subroutine pack_seam_cells(self, map_rows, nv, buf)
+   !< Walk the seam-map rows assigned to one peer and pack this realm's
+   !< INTERIOR cells (peer-side coordinates: columns 2, 4, 5, 6) into `buf`
+   !< in row-major order. Default implementation dispatches through
+   !< `get_cell` per (cell, variable) — correct but slow; overrides are
+   !< expected to do a direct contiguous-slice copy from the active buffer.
+   class(realm_object), intent(in)  :: self
+   integer(I4P),        intent(in)  :: map_rows(:,:)
+   integer(I4P),        intent(in)  :: nv
+   real(R8P),           intent(out) :: buf(:)
+   integer(I4P)                     :: c, v, b, i, j, k
+   integer(I4P)                     :: nrows
+
+   nrows = int(size(map_rows, dim=1), I4P)
+   do c = 1_I4P, nrows
+      b = map_rows(c, 2)
+      i = map_rows(c, 4) ; j = map_rows(c, 5) ; k = map_rows(c, 6)
+      do v = 1_I4P, nv
+         buf((c - 1_I4P) * nv + v) = self%get_cell(v, i, j, k, b)
+      enddo
+   enddo
+   endsubroutine pack_seam_cells
+
+   subroutine unpack_seam_cells(self, map_rows, nv, buf)
+   !< Walk the seam-map rows assigned to one peer and unpack `buf` into
+   !< this realm's GHOST cells (receiver-side coordinates: columns 3, 7,
+   !< 8, 9) in row-major order. Default implementation dispatches through
+   !< `set_cell` per (cell, variable); overrides are expected to do a
+   !< direct contiguous-slice copy into the active buffer.
+   class(realm_object), intent(inout) :: self
+   integer(I4P),        intent(in)    :: map_rows(:,:)
+   integer(I4P),        intent(in)    :: nv
+   real(R8P),           intent(in)    :: buf(:)
+   integer(I4P)                       :: c, v, b, i, j, k
+   integer(I4P)                       :: nrows
+
+   nrows = int(size(map_rows, dim=1), I4P)
+   do c = 1_I4P, nrows
+      b = map_rows(c, 3)
+      i = map_rows(c, 7) ; j = map_rows(c, 8) ; k = map_rows(c, 9)
+      do v = 1_I4P, nv
+         call self%set_cell(v, i, j, k, b, buf((c - 1_I4P) * nv + v))
+      enddo
+   enddo
+   endsubroutine unpack_seam_cells
 
    ! IO methods
    subroutine close_block_xh5f(xh5f)
