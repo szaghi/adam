@@ -3,10 +3,16 @@ module adam_flux_register_object
 !< ADAM, flux register class definition
 !<
 !< Berger-Colella reflux machinery for coarse-fine interfaces — Phase A of
-!< [issue #13]. Accumulates per-substage fluxes on registered seam faces from
-!< both the coarse and the fine side; at end-of-substage, applies the
+!< [issue #13]. Accumulates per-stage fluxes on registered seam faces from
+!< both the coarse and the fine side; at end-of-stage, applies the
 !< stage-weighted correction `(Δt/Δx)·(F_coarse_used − Σ F_fine)` to the
 !< coarse-side conserved variables.
+!<
+!< Integrator-agnostic vocabulary: the per-face accumulator's third axis is
+!< sized by `n_stages` (the realm's `stages_per_step_forest()` return value).
+!< For RK realms this happens to equal `rk%nrk`, but the register API uses
+!< the neutral name so a non-RK integrator can register / accumulate /
+!< correct against the same machinery without any vocabulary mismatch.
 !<
 !< Two seam kinds share the same accumulator topology:
 !<
@@ -21,12 +27,12 @@ module adam_flux_register_object
 !<
 !<   - init / regrid:    `register_face` populates `face(:)`
 !<   - per step (top):   `reset` zeroes accumulators
-!<   - per substage:     `accumulate_*_flux` collect contributions from
+!<   - per stage:        `accumulate_*_flux` collect contributions from
 !<                       `compute_residuals_*`
-!<   - end of substage:  `apply_reflux` reduces (MPI) and corrects the coarse `q`
+!<   - end of stage:     `apply_reflux` reduces (MPI) and corrects the coarse `q`
 !<
-!< Memory cost is O(seam-area × nv × nrk), bounded by the surface area of the
-!< AMR boundaries — independent of the interior cell count.
+!< Memory cost is O(seam-area × nv × n_stages), bounded by the surface area
+!< of the AMR boundaries — independent of the interior cell count.
 !<
 !< Architectural notes (constraints from [issue #10] R1/R2):
 !<   - All accumulators are intrinsic-typed arrays; no derived-type pointer
@@ -69,7 +75,7 @@ type :: flux_register_face_t
    !< is covered by 4 fine faces; `fine_block(:)` lists them.
    !<
    !< Both accumulators (`F_coarse`, `F_fine_sum`) are sized
-   !< `(nv, nface_cells, nrk)` — the per-substage flux on the **coarse-face
+   !< `(nv, nface_cells, n_stages)` — the per-stage flux on the **coarse-face
    !< skin** (the nface_cells coarse cells that lie under this coarse face).
    !< The fine side accumulates into the same coarse-face skin via 2:1
    !< averaging at the time of accumulation, so the two arrays are
@@ -81,8 +87,8 @@ type :: flux_register_face_t
    integer(I4P) :: fine_realm   = 0_I4P  !< Realm owning the fine side (1-based; 0 sentinel = unset).
    integer(I4P), allocatable :: fine_block(:)        !< Fine blocks covering this coarse face (size 4 for 2:1 refinement in 3D).
    integer(I4P) :: nface_cells  = 0_I4P  !< Coarse cells covered by this face (coarse-side count).
-   real(R8P), allocatable :: F_coarse(:,:,:)         !< Coarse-side flux per substage: (nv, nface_cells, nrk).
-   real(R8P), allocatable :: F_fine_sum(:,:,:)       !< Fine-side accumulator per substage: (nv, nface_cells, nrk).
+   real(R8P), allocatable :: F_coarse(:,:,:)         !< Coarse-side flux per stage: (nv, nface_cells, n_stages).
+   real(R8P), allocatable :: F_fine_sum(:,:,:)       !< Fine-side accumulator per stage: (nv, nface_cells, n_stages).
 endtype flux_register_face_t
 
 type :: flux_register_object
@@ -103,10 +109,10 @@ type :: flux_register_object
                                                       !< known).
       procedure, pass(self) :: register_face          !< Populate one entry in `face(:)`; called by topology pass at init/regrid.
       procedure, pass(self) :: accumulate_coarse_flux
-                                                      !< Add a coarse-side per-substage flux to F_coarse on the matching face
+                                                      !< Add a coarse-side per-stage flux to F_coarse on the matching face
                                                       !< (called by compute_residuals_* on coarse-side seam faces).
       procedure, pass(self) :: accumulate_fine_flux
-                                                      !< Add a fine-side per-substage flux to F_fine_sum on the matching face
+                                                      !< Add a fine-side per-stage flux to F_fine_sum on the matching face
                                                       !< (called by compute_residuals_* on fine-side seam faces).
       procedure, pass(self) :: reduce_fine_sums
                                                       !< MPI-reduce F_fine_sum across ranks so coarse owner has complete sum (Phase
@@ -143,7 +149,7 @@ contains
    endsubroutine initialize
 
    subroutine register_face(self, face_index, seam_kind, coarse_realm, coarse_block, coarse_face, &
-                            fine_realm, fine_block, nface_cells, nv, nrk)
+                            fine_realm, fine_block, nface_cells, nv, n_stages)
    !< Populate one entry in `face(:)`; called by topology pass at init/regrid.
    !<
    !< For each coarse-fine adjacency discovered during topology population
@@ -151,7 +157,7 @@ contains
    !< and in the analogous AMR-jump walk for intra-realm seams), the topology
    !< pass calls this routine to fill in the corresponding `face(face_index)`
    !< entry. The accumulator arrays `F_coarse` and `F_fine_sum` are allocated
-   !< here with shape (nv, nface_cells, nrk) and zeroed.
+   !< here with shape (nv, nface_cells, n_stages) and zeroed.
    !<
    !< Same-resolution case (current rmf-2realm with COUPLING_MIRROR and no
    !< intra-realm AMR jumps): `coarse_realm` and `fine_realm` are the two
@@ -178,7 +184,7 @@ contains
                                                                          !< CUDA_ERROR_INVALID_VALUE).
    integer(I4P),                intent(in)              :: nface_cells   !< Coarse cells covered by this face.
    integer(I4P),                intent(in)              :: nv            !< Number of variables (state-vector width).
-   integer(I4P),                intent(in)              :: nrk           !< Number of RK substages.
+   integer(I4P),                intent(in)              :: n_stages      !< Number of integrator stages per step.
 
    if (.not. self%is_initialized_) &
       call mpih%error_stop(msg='flux_register_object%register_face: called before initialize')
@@ -188,8 +194,8 @@ contains
       call mpih%error_stop(msg='flux_register_object%register_face: nface_cells must be >= 1')
    if (nv < 1_I4P) &
       call mpih%error_stop(msg='flux_register_object%register_face: nv must be >= 1')
-   if (nrk < 1_I4P) &
-      call mpih%error_stop(msg='flux_register_object%register_face: nrk must be >= 1')
+   if (n_stages < 1_I4P) &
+      call mpih%error_stop(msg='flux_register_object%register_face: n_stages must be >= 1')
 
    associate(slot => self%face(face_index))
    slot%seam_kind    = seam_kind
@@ -208,15 +214,15 @@ contains
    ! No allocation ↔ no fine-side blocks recorded for this face.
    if (allocated(slot%F_coarse  )) deallocate(slot%F_coarse  )
    if (allocated(slot%F_fine_sum)) deallocate(slot%F_fine_sum)
-   allocate(slot%F_coarse  (1:nv, 1:nface_cells, 1:nrk))
-   allocate(slot%F_fine_sum(1:nv, 1:nface_cells, 1:nrk))
+   allocate(slot%F_coarse  (1:nv, 1:nface_cells, 1:n_stages))
+   allocate(slot%F_fine_sum(1:nv, 1:nface_cells, 1:n_stages))
    slot%F_coarse   = 0._R8P
    slot%F_fine_sum = 0._R8P
    end associate
    endsubroutine register_face
 
-   subroutine accumulate_coarse_flux(self, face_index, substage, flux_face)
-   !< Add a coarse-side per-substage flux contribution to `F_coarse(:,:,substage)`.
+   subroutine accumulate_coarse_flux(self, face_index, stage, flux_face)
+   !< Add a coarse-side per-stage flux contribution to `F_coarse(:,:,stage)`.
    !<
    !< Called by PRISM's `compute_residuals_fv_centered` (option α, #13 §3.2)
    !< when processing a face that has been identified as a coarse-side seam
@@ -225,25 +231,25 @@ contains
    !< the lookup is O(1).
    !<
    !< Accumulation is additive: a face may receive contributions from
-   !< multiple `accumulate_*_flux` calls within one substage (e.g. if the
+   !< multiple `accumulate_*_flux` calls within one stage (e.g. if the
    !< FV scheme processes the same face from both the cell-i and cell-(i+1)
    !< side); the register holds the running sum.
    class(flux_register_object), intent(inout) :: self          !< The register.
    integer(I4P),                intent(in)    :: face_index    !< Index into `face(:)` of the seam face being updated.
-   integer(I4P),                intent(in)    :: substage      !< RK substage 1..nrk.
+   integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..n_stages.
    real(R8P),                   intent(in)    :: flux_face(:,:)!< Per-face flux contribution shaped (nv, nface_cells).
 
    if (face_index < 1_I4P .or. face_index > self%nfaces) &
       call mpih%error_stop(msg='flux_register_object%accumulate_coarse_flux: face_index out of range')
    if (.not. allocated(self%face(face_index)%F_coarse)) &
       call mpih%error_stop(msg='flux_register_object%accumulate_coarse_flux: F_coarse not allocated; was register_face called?')
-   if (substage < 1_I4P .or. substage > size(self%face(face_index)%F_coarse, dim=3)) &
-      call mpih%error_stop(msg='flux_register_object%accumulate_coarse_flux: substage out of range')
-   self%face(face_index)%F_coarse(:,:,substage) = self%face(face_index)%F_coarse(:,:,substage) + flux_face(:,:)
+   if (stage < 1_I4P .or. stage > size(self%face(face_index)%F_coarse, dim=3)) &
+      call mpih%error_stop(msg='flux_register_object%accumulate_coarse_flux: stage out of range')
+   self%face(face_index)%F_coarse(:,:,stage) = self%face(face_index)%F_coarse(:,:,stage) + flux_face(:,:)
    endsubroutine accumulate_coarse_flux
 
-   subroutine accumulate_fine_flux(self, face_index, substage, flux_face)
-   !< Add a fine-side per-substage flux contribution to `F_fine_sum(:,:,substage)`.
+   subroutine accumulate_fine_flux(self, face_index, stage, flux_face)
+   !< Add a fine-side per-stage flux contribution to `F_fine_sum(:,:,stage)`.
    !<
    !< Called by PRISM's `compute_residuals_fv_centered` when processing a
    !< face identified as a fine-side seam face. The contribution is assumed
@@ -254,7 +260,7 @@ contains
    !< simple at the cost of caller-side averaging discipline for AMR.
    class(flux_register_object), intent(inout) :: self          !< The register.
    integer(I4P),                intent(in)    :: face_index    !< Index into `face(:)` of the seam face being updated.
-   integer(I4P),                intent(in)    :: substage      !< RK substage 1..nrk.
+   integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..n_stages.
    real(R8P),                   intent(in)    :: flux_face(:,:)
                                                                !< Per-face flux contribution shaped (nv, nface_cells); already
                                                                !< mapped to the coarse-face skin.
@@ -263,9 +269,9 @@ contains
       call mpih%error_stop(msg='flux_register_object%accumulate_fine_flux: face_index out of range')
    if (.not. allocated(self%face(face_index)%F_fine_sum)) &
       call mpih%error_stop(msg='flux_register_object%accumulate_fine_flux: F_fine_sum not allocated; was register_face called?')
-   if (substage < 1_I4P .or. substage > size(self%face(face_index)%F_fine_sum, dim=3)) &
-      call mpih%error_stop(msg='flux_register_object%accumulate_fine_flux: substage out of range')
-   self%face(face_index)%F_fine_sum(:,:,substage) = self%face(face_index)%F_fine_sum(:,:,substage) + flux_face(:,:)
+   if (stage < 1_I4P .or. stage > size(self%face(face_index)%F_fine_sum, dim=3)) &
+      call mpih%error_stop(msg='flux_register_object%accumulate_fine_flux: stage out of range')
+   self%face(face_index)%F_fine_sum(:,:,stage) = self%face(face_index)%F_fine_sum(:,:,stage) + flux_face(:,:)
    endsubroutine accumulate_fine_flux
 
    subroutine reduce_fine_sums(self)
@@ -292,7 +298,7 @@ contains
    !< Zero `F_coarse` and `F_fine_sum` on every registered face.
    !<
    !< Called by `forest_object%evolve_one_step` at top-of-step. After this
-   !< call, every face's accumulators are zero; substage flux contributions
+   !< call, every face's accumulators are zero; per-stage flux contributions
    !< land into clean slots.
    !<
    !< **Skeleton commit:** safe no-op when `face(:)` is unallocated (the

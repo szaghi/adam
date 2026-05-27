@@ -214,7 +214,7 @@ type :: maps_object
    ! Per-peer pack/unpack buffers. Shape: `(nv * max_rows_per_peer, n_peers)`.
    ! Each peer's pack-then-unpack roundtrip uses an independent column — the
    ! forest may process peers serially OR in parallel without aliasing.
-   ! Allocated at topology init; reused every substage (no per-step allocation).
+   ! Allocated at topology init; reused every stage (no per-step allocation).
    real(R8P), allocatable :: seam_local_send_buf(:,:) !< Per-peer pack buffer for same-rank seams.
    real(R8P), allocatable :: seam_local_recv_buf(:,:) !< Per-peer unpack buffer for same-rank seams.
    !

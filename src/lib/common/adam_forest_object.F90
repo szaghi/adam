@@ -533,12 +533,10 @@ contains
       !< same-resolution that resolves to a single fine block, populated
       !< by `find_peer_block` at exchange time.
       !<
-      !< Note on naming: `flux_register%register_face` still takes a
-      !< keyword arg named `nrk`. Renaming it to a neutral `n_stages` is
-      !< a separate refactor on the flux_register API and its consumers
-      !< (PRISM's `compute_residuals_fv_centered`), and is not scoped
-      !< here. This call site already feeds it from the integrator-
-      !< agnostic source.
+      !< The keyword arg on `flux_register%register_face` is `n_stages`
+      !< (renamed from the original `nrk` together with `accumulate_*_flux`'s
+      !< `stage`); both sides of the wiring now speak integrator-neutral
+      !< vocabulary end-to-end.
       class(realm_object),        intent(inout) :: realm(:)       !< Initialized realms.
       type(forest_manifest_t),    intent(in)    :: manifest       !< Parsed manifest.
       type(flux_register_object), intent(inout) :: flux_register  !< Berger-Colella reflux accumulator owned by the forest.
@@ -615,15 +613,15 @@ contains
             ! `[integer(I4P) ::]` here was the original Phase A shortcut; it
             ! poisoned the descriptor copy on nvfortran 26.x. Absent ↔ unallocated
             ! `slot%fine_block`, which every consumer must guard with allocated().
-            call flux_register%register_face(face_index=cursor,                            &
-                                             seam_kind=SEAM_KIND_INTER_REALM,              &
-                                             coarse_realm=pair%realm_a,                    &
-                                             coarse_block=b,                               &
-                                             coarse_face=pair%face_a,                      &
-                                             fine_realm=pair%realm_b,                      &
-                                             nface_cells=nface_cells,                      &
-                                             nv=int(realm(a_realm)%adam%field%nv, I4P),    &
-                                             nrk=realm(a_realm)%stages_per_step_forest())
+            call flux_register%register_face(face_index=cursor,                                 &
+                                             seam_kind=SEAM_KIND_INTER_REALM,                   &
+                                             coarse_realm=pair%realm_a,                         &
+                                             coarse_block=b,                                    &
+                                             coarse_face=pair%face_a,                           &
+                                             fine_realm=pair%realm_b,                           &
+                                             nface_cells=nface_cells,                           &
+                                             nv=int(realm(a_realm)%adam%field%nv, I4P),         &
+                                             n_stages=realm(a_realm)%stages_per_step_forest())
 
             ! Index lookups: coarse side knows its own (b, face_a → fec)
             ! immediately. Fine side requires a geometric peer lookup to

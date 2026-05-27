@@ -2097,20 +2097,20 @@ contains
    integer(I4P),                intent(in),    optional         :: s                          !< Stage counter.
    class(flux_register_object), intent(inout), optional         :: flux_register              !< Forest's flux register; FV reflux.
    integer(I4P)                                                 :: i,j,k,b,d,v                !< Counter
-   integer(I4P)                                                 :: substage_idx               !< RK substage index.
+   integer(I4P)                                                 :: stage_idx                  !< Integrator stage index.
    real(R8P), parameter                                         :: sir(3,3) = reshape([1._R8P,0._R8P,0._R8P,  &
                                                                                        0._R8P,1._R8P,0._R8P,  &
                                                                                        0._R8P,0._R8P,1._R8P], &
                                                                                        [3,3]) !< Direction versor, real.
 
-   ! Capture substage BEFORE the associate block rebinds `s` to the
+   ! Capture stage BEFORE the associate block rebinds `s` to the
    ! reconstruction stencil half-width. The inter-realm FV reflux hook
-   ! below needs the RK substage to index into `forest_flux_register`'s
-   ! per-substage accumulators.
+   ! below needs the stage index to address `forest_flux_register`'s
+   ! per-stage accumulators.
    if (present(s)) then
-      substage_idx = s
+      stage_idx = s
    else
-      substage_idx = 0_I4P
+      stage_idx = 0_I4P
    endif
 
    call self%apply_fWL_correction(q=q)
@@ -2178,13 +2178,13 @@ contains
       ! `flz_f` into the register's `(nv, nface_cells)` accumulator
       ! shape, then dispatch by sign (+ = coarse side → F_coarse, − =
       ! fine side → F_fine_sum). Symmetric mirror seams (rmf-2realm)
-      ! produce equal coarse/fine fluxes → end-of-substage reflux is
+      ! produce equal coarse/fine fluxes → end-of-stage reflux is
       ! round-off zero by expectation and the FD-centered case is
       ! unreachable here (the hook only fires for fv_centered).
-      if (present(flux_register) .and. substage_idx > 0_I4P &
+      if (present(flux_register) .and. stage_idx > 0_I4P &
                                   .and. allocated(self%adam%maps%inter_realm_face_register_index)) then
          if (flux_register%nfaces > 0_I4P) then
-            call accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, substage_idx, flux_register)
+            call accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, stage_idx, flux_register)
          endif
       endif
       ! compute fluxes difference for RHS, dF/ds = (F(i+1/2)-F(i-1/2))/Ds
@@ -2209,7 +2209,7 @@ contains
    endassociate
    endsubroutine compute_residuals_fv_centered
 
-   subroutine accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, substage_idx, flux_register)
+   subroutine accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, stage_idx, flux_register)
    !< Accumulate per-substage face fluxes on inter-realm seam faces of
    !< the FV-centered scheme. Phase A step 4 of [issue #13] FV consumer
    !< wiring.
@@ -2221,9 +2221,10 @@ contains
    !< accumulator: positive index → coarse side → `accumulate_coarse_flux`,
    !< negative index → fine side → `accumulate_fine_flux`.
    !<
-   !< The register accumulators are sized `(nv, nface_cells, nrk)` with
-   !< the full state-vector width `nv` (set at `register_face` time
-   !< from `realm%adam%field%nv`). The FV scheme only fills the
+   !< The register accumulators are sized `(nv, nface_cells, n_stages)`
+   !< with the full state-vector width `nv` (set at `register_face` time
+   !< from `realm%adam%field%nv`; `n_stages` set from the realm's
+   !< `stages_per_step_forest()`). The FV scheme only fills the
    !< conservative slice `1:nv_c` of the flux arrays; the remaining
    !< rows are left at zero in `flux_slab` so the register's
    !< `F_coarse - F_fine_sum` correction is identically zero outside
@@ -2239,7 +2240,7 @@ contains
    integer(I4P),                intent(in)    :: ni, nj, nk      !< Interior cell counts.
    integer(I4P),                intent(in)    :: nv_c            !< Number of conservative variables.
    integer(I4P),                intent(in)    :: blocks_number   !< Number of local blocks.
-   integer(I4P),                intent(in)    :: substage_idx    !< RK substage index (1..nrk).
+   integer(I4P),                intent(in)    :: stage_idx       !< Integrator stage index (1..n_stages).
    class(flux_register_object), intent(inout) :: flux_register   !< Forest's flux register.
    integer(I4P)                               :: sgn_idx
    integer(I4P)                               :: face_idx
@@ -2332,9 +2333,9 @@ contains
          if (c /= nface_cells) &
             call mpih%error_stop(msg='prism_cpu_object: FV seam-flux pack count != nface_cells')
          if (sgn_idx > 0_I4P) then
-            call flux_register%accumulate_coarse_flux(face_index=face_idx, substage=substage_idx, flux_face=flux_slab)
+            call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=stage_idx, flux_face=flux_slab)
          else
-            call flux_register%accumulate_fine_flux(face_index=face_idx, substage=substage_idx, flux_face=flux_slab)
+            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=stage_idx, flux_face=flux_slab)
          endif
       enddo
    enddo
