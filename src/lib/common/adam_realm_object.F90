@@ -103,6 +103,17 @@ type :: realm_object
    integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
    integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
    integer(I4P), pointer :: nv=>null()            !< Number of variables in q vector.
+   !< 1-based position of this realm in the forest's `realm(:)` array, or 0 in
+   !< the N=1 single-realm legacy path (where the program driver calls
+   !< `realm%initialize_forest` directly, bypassing the forest orchestrator).
+   !<
+   !< Set by `forest_object%initialize` / `initialize_from_manifest`
+   !< immediately BEFORE invoking `realm(is)%initialize_forest(...)`; never
+   !< cleared. Read by realm-side forest TBPs (e.g. `apply_reflux_to_stage_forest`)
+   !< that need to filter flux-register or seam entries against their own
+   !< forest position. Keeps the realm self-aware so the forest doesn't have
+   !< to thread `is` through every dispatch.
+   integer(I4P) :: realm_index = 0_I4P
    !< Inter-realm seam coupling — currently-published stage buffer key.
    !<
    !< Integrator-agnostic: the forest sees an opaque `k = 1..K` clock, where
@@ -365,7 +376,7 @@ contains
    endsubroutine load_fdv_from_file
 
    ! forest orchestrator contract methods
-   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
    !< Initialize this realm from scratch: app-level initialize, IC injection (or restart load), initial
    !< AMR, IO file open, initial diagnostics dump.
    !<
@@ -374,11 +385,15 @@ contains
    !< (which the legacy simulate did via `realm%initialize_prism(filename)` or equivalent) and performs
    !< the post-init / pre-loop setup that has to happen before `forest%evolve_one_step` can be called.
    !<
+   !< Realm-position context: the forest sets `self%realm_index = is` BEFORE
+   !< invoking this TBP, so the override body can already read its own
+   !< 1-based forest position from `self%realm_index` for per-realm IO
+   !< filenames, log prefixes, etc.
+   !<
    !< Default implementation error-stops: every consumer app MUST override this method (the initial-condition
    !< catalog, AMR strategy, and which IO files to open are app-specific).
    class(realm_object), intent(inout)           :: self          !< The realm.
    character(*),        intent(in)              :: filename      !< Input parameters file name.
-   integer(I4P),        intent(in),    optional :: realm_index   !< Index of this realm in the forest (Phase D).
    integer(I4P),        intent(in),    optional :: realms_number !< Realm count in the forest.
    real(R8P),           intent(in),    optional :: memory_avail  !< Per-process memory budget override.
    integer(I4P),        intent(in),    optional :: nv            !< Number of field variables override.
@@ -677,16 +692,16 @@ contains
    if (.false. .and. associated(self%ngc)) continue
    endsubroutine after_topology_build_forest
 
-   subroutine apply_reflux_to_stage_forest(self, my_index, stage, dt, flux_register)
+   subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
    !< Apply the Berger-Colella reflux correction to THIS realm's stage-`stage`
    !< buffer for every flux-register face where `self` is the coarse side.
    !<
    !< Invoked by `forest_object%evolve_one_step` once per realm per stage,
    !< AFTER `flux_register%reduce_fine_sums` has globalised the fine-side
    !< accumulators. The realm filters the register's face array by
-   !< `face%coarse_realm == my_index`, picks up its OWN integrator-specific
-   !< stage weight (for RK realms: `self%rk%ark(stage)`), and writes the
-   !< correction delta into its OWN stage buffer (for RK realms:
+   !< `face%coarse_realm == self%realm_index`, picks up its OWN integrator-
+   !< specific stage weight (for RK realms: `self%rk%ark(stage)`), and writes
+   !< the correction delta into its OWN stage buffer (for RK realms:
    !< `self%rk%q_rk(:, i, j, k, b, stage)`).
    !<
    !< Architectural role: this TBP keeps the per-realm reflux write
@@ -695,16 +710,15 @@ contains
    !< Leapfrog / Yoshida / CFM realm can implement reflux on its own
    !< buffer naming without touching the orchestrator.
    !<
-   !< `my_index` is the realm's 1-based forest index; the forest passes it
-   !< at call time rather than storing it on the realm so the realm stays
-   !< stateless about its forest position.
+   !< The realm's 1-based forest position is read from `self%realm_index`,
+   !< which the forest writes once at initialize-time; no per-call plumbing
+   !< of `is` through the dispatch is needed.
    !<
    !< Default implementation error-stops: every multi-realm participant
    !< that uses FV reflux MUST override this. Multi-realm participants
    !< that DO NOT accumulate flux contributions (e.g. an FD-only realm)
    !< should override with a no-op body.
    class(realm_object),         intent(inout) :: self          !< The realm.
-   integer(I4P),                intent(in)    :: my_index      !< 1-based forest index of self.
    integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
    real(R8P),                   intent(in)    :: dt            !< Time step.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register (read-only).

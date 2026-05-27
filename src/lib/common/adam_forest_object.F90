@@ -79,7 +79,12 @@ contains
       call mpih%error_stop(msg='forest_object%initialize: multi-realm forest requires initialize_from_manifest')
    self%n = int(size(realm), I4P)
    do is = 1, self%n
-      call realm(is)%initialize_forest(filename=filename, realm_index=is, realms_number=self%n)
+      ! Set the realm's self-aware forest position BEFORE invoking the per-
+      ! realm initialize; downstream forest TBPs (apply_reflux_to_stage_forest,
+      ! diagnostic prefixes) read self%realm_index instead of having `is`
+      ! plumbed through every dispatch.
+      realm(is)%realm_index = is
+      call realm(is)%initialize_forest(filename=filename, realms_number=self%n)
    enddo
    endsubroutine initialize
 
@@ -100,7 +105,12 @@ contains
       call mpih%error_stop(msg='forest_object%initialize_from_manifest: size(realm) /= manifest%realms_number')
    self%n = int(size(realm), I4P)
    do is = 1, self%n
-      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realm_index=is, realms_number=self%n)
+      ! Set the realm's self-aware forest position BEFORE invoking the per-
+      ! realm initialize; downstream forest TBPs (apply_reflux_to_stage_forest,
+      ! diagnostic prefixes) read self%realm_index instead of having `is`
+      ! plumbed through every dispatch.
+      realm(is)%realm_index = is
+      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realms_number=self%n)
    enddo
    call self%populate_inter_realm_topology(realm, manifest)
    endsubroutine initialize_from_manifest
@@ -1253,11 +1263,12 @@ contains
    !<
    !< The forest's role here is purely an orchestrator: it iterates the
    !< realm array and invokes each realm's `apply_reflux_to_stage_forest`
-   !< TBP, passing the realm's 1-based forest index as `my_index`. The
-   !< realm-side body filters `flux_register%face(:)` by
-   !< `face%coarse_realm == my_index` and writes the per-cell correction
-   !< into its OWN integrator-private stage buffer (for RK realms:
-   !< `self%rk%q_rk(:, ..., stage)`, weighted by `self%rk%ark(stage)`).
+   !< TBP. The realm-side body filters `flux_register%face(:)` by
+   !< `face%coarse_realm == self%realm_index` (read from the realm's own
+   !< component, set by the forest at initialize-time) and writes the
+   !< per-cell correction into its OWN integrator-private stage buffer
+   !< (for RK realms: `self%rk%q_rk(:, ..., stage)`, weighted by
+   !< `self%rk%ark(stage)`).
    !<
    !< The forest never reaches `realm%rk` directly: the integrator-specific
    !< weight pickup, the buffer name, and the per-cell write all live
@@ -1280,7 +1291,7 @@ contains
    if (.not. allocated(self%flux_register%face))  return
 
    do is = 1_I4P, int(size(realm), I4P)
-      call realm(is)%apply_reflux_to_stage_forest(my_index=is, stage=stage, dt=dt, &
+      call realm(is)%apply_reflux_to_stage_forest(stage=stage, dt=dt, &
                                                   flux_register=self%flux_register)
    enddo
    endsubroutine apply_reflux_corrections

@@ -1683,14 +1683,15 @@ contains
    endsubroutine simulate
 
    ! forest orchestrator contract methods overridings
-   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
    !< Initialize this realm from scratch: PRISM init, IC injection (or restart load), initial ghost update,
    !< initial diagnostics dump, IO files open, plus PIC/leapfrog priming if those schemes are active.
    !<
-   !< Invoked by forest%initialize.
+   !< Invoked by forest%initialize. The forest writes `self%realm_index = is`
+   !< BEFORE calling this routine, so the body can already read the 1-based
+   !< forest position from `self%realm_index` if needed.
    class(prism_fnl_object), intent(inout)           :: self          !< The realm.
    character(*),            intent(in)              :: filename      !< Input parameters file name.
-   integer(I4P),            intent(in),    optional :: realm_index   !< Index of this realm in the forest.
    integer(I4P),            intent(in),    optional :: realms_number !< Realm count; divides the per-device budget.
    real(R8P),               intent(in),    optional :: memory_avail  !< Per-process memory budget override.
    integer(I4P),            intent(in),    optional :: nv            !< Number of field variables override.
@@ -2051,7 +2052,7 @@ contains
    call self%field_fnl%maps%copy_cpu_gpu(maps=self%adam%maps)
    endsubroutine after_topology_build_forest
 
-   subroutine apply_reflux_to_stage_forest(self, my_index, stage, dt, flux_register)
+   subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
    !< PRISM-FNL override of the Berger-Colella reflux correction TBP.
    !<
    !< Phase A: FV reflux is not yet implemented on the FNL side — the FNL
@@ -2064,11 +2065,11 @@ contains
    !< When the FV residual port lands and starts accumulating into the
    !< register on the FNL side, this body grows into the OpenACC twin of
    !< `prism_cpu_object%apply_reflux_to_stage_forest`: walk
-   !< `flux_register%face(:)` for entries where `coarse_realm == my_index`
-   !< and write the per-cell correction into `self%rk_fnl%q_rk_gpu(:, b,
-   !< i, j, k, stage)` under a `!$acc parallel loop`.
+   !< `flux_register%face(:)` for entries where `coarse_realm ==
+   !< self%realm_index` and write the per-cell correction into
+   !< `self%rk_fnl%q_rk_gpu(:, b, i, j, k, stage)` under a
+   !< `!$acc parallel loop`.
    class(prism_fnl_object),     intent(inout) :: self          !< The realm.
-   integer(I4P),                intent(in)    :: my_index      !< 1-based forest index of self.
    integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
    real(R8P),                   intent(in)    :: dt            !< Time step.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
@@ -2076,7 +2077,6 @@ contains
    ! Reference-but-don't-consume the dummies so the no-op body doesn't trip
    ! an unused-dummy warning under -Wimplicit-procedure / strict modes.
    if (.false.) then
-      if (my_index < 0_I4P) continue
       if (stage    < 0_I4P) continue
       if (dt       < 0._R8P) continue
       if (flux_register%nfaces < 0_I4P) continue

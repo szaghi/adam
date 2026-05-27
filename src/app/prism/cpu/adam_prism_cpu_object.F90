@@ -890,14 +890,15 @@ contains
    endsubroutine update_ghost
 
    ! forest orchestrator contract methods overridings
-   subroutine initialize_forest(self, filename, realm_index, realms_number, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
    !< Initialize this realm from scratch: PRISM init, IC injection (or restart load), initial ghost update,
    !< initial diagnostics dump, IO files open, plus PIC/leapfrog priming if those schemes are active.
    !<
-   !< Invoked by forest%initialize.
+   !< Invoked by forest%initialize. The forest writes `self%realm_index = is`
+   !< BEFORE calling this routine, so the body can already read the 1-based
+   !< forest position from `self%realm_index` if needed.
    class(prism_cpu_object), intent(inout)           :: self          !< The realm.
    character(*),            intent(in)              :: filename      !< Input parameters file name.
-   integer(I4P),            intent(in),    optional :: realm_index   !< Index of this realm in the forest.
    integer(I4P),            intent(in),    optional :: realms_number !< Realm count; divides the per-process budget.
    real(R8P),               intent(in),    optional :: memory_avail  !< Per-process memory budget override.
    integer(I4P),            intent(in),    optional :: nv            !< Number of field variables override.
@@ -1190,10 +1191,10 @@ contains
    end select
    endsubroutine fill_seam_from_peer_forest
 
-   subroutine apply_reflux_to_stage_forest(self, my_index, stage, dt, flux_register)
+   subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
    !< PRISM-CPU override of the Berger-Colella reflux correction TBP.
    !<
-   !< For each face in `flux_register` where `face%coarse_realm == my_index`,
+   !< For each face in `flux_register` where `face%coarse_realm == self%realm_index`,
    !< writes the per-cell correction
    !<     q_rk(:, seam_cell, b_coarse, stage) +=
    !<         ark(stage) * sign * (dt / dx_coarse) * (F_coarse - F_fine_sum)
@@ -1205,7 +1206,6 @@ contains
    !< realm with no seam faces (or one whose stage exceeds the register's
    !< third dimension) returns cleanly.
    class(prism_cpu_object),     intent(inout) :: self          !< The realm.
-   integer(I4P),                intent(in)    :: my_index      !< 1-based forest index of self.
    integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
    real(R8P),                   intent(in)    :: dt            !< Time step.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
@@ -1228,7 +1228,7 @@ contains
 
    do f = 1_I4P, flux_register%nfaces
       associate(face_f => flux_register%face(f))
-      if (face_f%coarse_realm /= my_index)        cycle
+      if (face_f%coarse_realm /= self%realm_index) cycle
       if (.not. allocated(face_f%F_coarse))       cycle
       if (.not. allocated(face_f%F_fine_sum))     cycle
       if (stage > size(face_f%F_coarse, dim=3))   cycle
