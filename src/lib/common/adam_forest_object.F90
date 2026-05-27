@@ -26,8 +26,9 @@ module adam_forest_object
 !< module API break.
 
 use :: adam_realm_object,         only : realm_object
-use :: adam_maps_object,          only : inter_realm_neighbor_t, &
-                                         FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
+use :: adam_maps_object,          only : inter_realm_neighbor_t,                                                  &
+                                         FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
+                                         face_axis_sign
 use :: adam_forest_manifest,      only : forest_manifest_t, forest_face_pair_t
 use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
@@ -1239,131 +1240,39 @@ contains
    endsubroutine populate_inter_realm_topology
 
    subroutine apply_reflux_corrections(self, realm, stage, dt)
-   !< Apply the Berger-Colella reflux correction to the coarse-side stage
-   !< buffer for every registered seam face (Phase A step 4 of [issue #13]).
+   !< Dispatch the Berger-Colella reflux correction to every realm.
    !<
-   !< Per face, the correction is
-   !<     q_coarse(:, seam_cell, b, k) +=
-   !<         weight * sign * (dt / dx_coarse_normal) *
-   !<         ( F_coarse(:, c, k) - F_fine_sum(:, c, k) )
-   !< where:
-   !<   * weight = adam_rk_object%ark(k) — the SSP-RK accumulation weight
-   !<     for this stage. For SSP-RK 1 (ark = [1]) and SSP-RK 5
-   !<     (ark = [0.39175, 0.36841, 0.25109, 0.54497, 0.22692]) ADAM's
-   !<     legacy substage loop already uses these in `rk%update_q`.
-   !<     (Reflux is currently RK-coupled here; the integrator-agnostic
-   !<     follow-up moves this weight pickup and the q_rk write into a
-   !<     realm-side `apply_reflux_to_stage_forest` TBP.)
-   !<   * sign = +1 if coarse_face is MAX (+axis) — the flux exits the
-   !<     coarse cell in the +axis direction and the conservative update
-   !<     subtracts (F(i+1/2) - F(i-1/2))/dx; the reflux delta needs the
-   !<     same sign as the original face contribution.
-   !<     sign = -1 if MIN: the seam face is the -axis face and the flux
-   !<     enters the coarse cell, flipping the sign.
-   !<   * dx_coarse_normal = realm(coarse_realm)%adam%field%dxyz(axis,
-   !<     coarse_block) — the coarse block's cell width in the face-normal
-   !<     direction.
+   !< The forest's role here is purely an orchestrator: it iterates the
+   !< realm array and invokes each realm's `apply_reflux_to_stage_forest`
+   !< TBP, passing the realm's 1-based forest index as `my_index`. The
+   !< realm-side body filters `flux_register%face(:)` by
+   !< `face%coarse_realm == my_index` and writes the per-cell correction
+   !< into its OWN integrator-private stage buffer (for RK realms:
+   !< `self%rk%q_rk(:, ..., stage)`, weighted by `self%rk%ark(stage)`).
    !<
-   !< The cell-slice corrected is one-cell-thick on the coarse side,
-   !< i.e. (i = ni or 1, j ∈ [1..nj], k ∈ [1..nk]) for an x-normal face,
-   !< analogously for y/z faces. q_rk(:, interior, :, b, k) currently
-   !< holds dq of stage k (the SSP-RK trick — q_rk(k) carries dq into
-   !< the next stage's linear combination), so modifying it here adds
-   !< the reflux delta to the right buffer.
+   !< The forest never reaches `realm%rk` directly: the integrator-specific
+   !< weight pickup, the buffer name, and the per-cell write all live
+   !< realm-side. This is the integrator-agnostic split — see
+   !< [[realm_object]]%`apply_reflux_to_stage_forest` for the contract,
+   !< and [[prism_cpu_object]] for the RK-specific override.
    !<
-   !< Empty register fast path: the for-loop body is skipped when
-   !< `nfaces == 0` (single-realm forest, no seams declared); the
-   !< routine is a true no-op for the N=1 path.
-   class(forest_object), intent(in)    :: self     !< The forest (holds the flux register being read).
-   class(realm_object),  intent(inout) :: realm(:) !< Realms whose coarse-side stage buffer gets corrected.
+   !< Empty register fast path: when the register has no faces (single-
+   !< realm forest, no seams declared) the per-realm calls each short-
+   !< circuit on `flux_register%nfaces == 0` and the dispatch is a true
+   !< no-op for the N=1 path.
+   class(forest_object), intent(in)    :: self     !< The forest (holds the flux register).
+   class(realm_object),  intent(inout) :: realm(:) !< Realms; each realm's reflux TBP fires once.
    integer(I4P),         intent(in)    :: stage    !< Integrator stage 1..K_total.
    real(R8P),            intent(in)    :: dt       !< Time step.
-   integer(I4P)                        :: f
-   integer(I4P)                        :: axis
-   integer(I4P)                        :: sgn
-   integer(I4P)                        :: c
-   integer(I4P)                        :: i_coarse
-   integer(I4P)                        :: j_coarse
-   integer(I4P)                        :: k_coarse
-   integer(I4P)                        :: ni_
-   integer(I4P)                        :: nj_
-   integer(I4P)                        :: nk_
-   integer(I4P)                        :: c0
-   real(R8P)                           :: dx_coarse
-   real(R8P)                           :: weight
-   real(R8P)                           :: scale_
+   integer(I4P)                        :: is       !< Realm index.
 
    if (.not. self%flux_register%is_initialized_) return
    if (self%flux_register%nfaces == 0_I4P)        return
    if (.not. allocated(self%flux_register%face))  return
 
-   ! SSP-RK stage weight. realm(1) is the canonical source — the
-   ! invariant that all realms agree on the integrator (same K, same
-   ! ark) is asserted upstream in evolve_one_step.
-   if (stage < 1_I4P .or. stage > realm(1)%rk%nrk) return
-   if (.not. allocated(realm(1)%rk%ark)) return
-   weight = realm(1)%rk%ark(stage)
-
-   do f = 1_I4P, self%flux_register%nfaces
-      associate(face_f => self%flux_register%face(f))
-      if (.not. allocated(face_f%F_coarse))   cycle
-      if (.not. allocated(face_f%F_fine_sum)) cycle
-      if (stage > size(face_f%F_coarse, dim=3)) cycle
-
-      call face_axis_sign(face_f%coarse_face, axis, sgn)
-      if (axis == 0_I4P) cycle  ! malformed face_code; defensive.
-
-      dx_coarse = realm(face_f%coarse_realm)%adam%field%dxyz(axis, face_f%coarse_block)
-      if (dx_coarse <= 0._R8P) cycle  ! defensive (uninitialised block geometry)
-      scale_ = real(sgn, R8P) * weight * dt / dx_coarse
-
-      ! Grid extents of the coarse-side realm (used to unwrap the linear
-      ! face-cell index `c` into (i, j, k) on the seam face).
-      ni_ = realm(face_f%coarse_realm)%adam%grid%ni
-      nj_ = realm(face_f%coarse_realm)%adam%grid%nj
-      nk_ = realm(face_f%coarse_realm)%adam%grid%nk
-
-      do c = 1_I4P, face_f%nface_cells
-         c0 = c - 1_I4P
-         select case (axis)
-         case (1_I4P)  ! x-normal face: i fixed to ni or 1; tangentials (j, k) walk (mod nj, div nj).
-            i_coarse = merge(ni_, 1_I4P, sgn > 0_I4P)
-            j_coarse = 1_I4P + mod(c0, nj_)
-            k_coarse = 1_I4P + c0 / nj_
-         case (2_I4P)  ! y-normal face: j fixed; tangentials (i, k) walk (mod ni, div ni).
-            i_coarse = 1_I4P + mod(c0, ni_)
-            j_coarse = merge(nj_, 1_I4P, sgn > 0_I4P)
-            k_coarse = 1_I4P + c0 / ni_
-         case (3_I4P)  ! z-normal face: k fixed; tangentials (i, j) walk (mod ni, div ni).
-            i_coarse = 1_I4P + mod(c0, ni_)
-            j_coarse = 1_I4P + c0 / ni_
-            k_coarse = merge(nk_, 1_I4P, sgn > 0_I4P)
-         case default
-            cycle
-         end select
-
-         realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) = &
-            realm(face_f%coarse_realm)%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) &
-            + scale_ * (face_f%F_coarse(:, c, stage) - face_f%F_fine_sum(:, c, stage))
-      enddo
-      end associate
+   do is = 1_I4P, int(size(realm), I4P)
+      call realm(is)%apply_reflux_to_stage_forest(my_index=is, stage=stage, dt=dt, &
+                                                  flux_register=self%flux_register)
    enddo
    endsubroutine apply_reflux_corrections
-
-   pure subroutine face_axis_sign(face_code, axis, sgn)
-   !< Translate FACE_X_MAX / FACE_X_MIN / ... into (axis 1..3, sign ±1).
-   integer(I4P), intent(in)  :: face_code !< Face code (FACE_X_MAX..FACE_Z_MIN).
-   integer(I4P), intent(out) :: axis      !< 1=x, 2=y, 3=z.
-   integer(I4P), intent(out) :: sgn       !< +1 if MAX, -1 if MIN.
-
-   select case (face_code)
-   case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
-   case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
-   case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
-   case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
-   case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
-   case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
-   case default;      axis = 0_I4P; sgn = 0_I4P
-   end select
-   endsubroutine face_axis_sign
 endmodule adam_forest_object

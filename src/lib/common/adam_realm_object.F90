@@ -151,6 +151,7 @@ type :: realm_object
       ! inter-realm seam ghost-fill contract (agnostic-dummy redesign).
       procedure, pass(self) :: fill_seam_from_peer_forest        !< Receive-side roundtrip: copy peer's interior into self's ghosts.
       procedure, pass(self) :: after_topology_build_forest       !< Backend hook invoked once after the forest builds the seam maps.
+      procedure, pass(self) :: apply_reflux_to_stage_forest      !< Apply Berger-Colella reflux to self's stage buffer.
       ! IO methods
       procedure, nopass     :: close_block_xh5f !< Close XH5F file block.
       procedure, nopass     :: close_file_xh5f  !< Close XH5F file.
@@ -675,6 +676,41 @@ contains
    ! Default: nothing to do — host-side seam maps are already in place.
    if (.false. .and. associated(self%ngc)) continue
    endsubroutine after_topology_build_forest
+
+   subroutine apply_reflux_to_stage_forest(self, my_index, stage, dt, flux_register)
+   !< Apply the Berger-Colella reflux correction to THIS realm's stage-`stage`
+   !< buffer for every flux-register face where `self` is the coarse side.
+   !<
+   !< Invoked by `forest_object%evolve_one_step` once per realm per stage,
+   !< AFTER `flux_register%reduce_fine_sums` has globalised the fine-side
+   !< accumulators. The realm filters the register's face array by
+   !< `face%coarse_realm == my_index`, picks up its OWN integrator-specific
+   !< stage weight (for RK realms: `self%rk%ark(stage)`), and writes the
+   !< correction delta into its OWN stage buffer (for RK realms:
+   !< `self%rk%q_rk(:, i, j, k, b, stage)`).
+   !<
+   !< Architectural role: this TBP keeps the per-realm reflux write
+   !< integrator-private. The forest never names `q_rk`, `ark`, or any
+   !< other RK-specific identifier — those live realm-side, so a future
+   !< Leapfrog / Yoshida / CFM realm can implement reflux on its own
+   !< buffer naming without touching the orchestrator.
+   !<
+   !< `my_index` is the realm's 1-based forest index; the forest passes it
+   !< at call time rather than storing it on the realm so the realm stays
+   !< stateless about its forest position.
+   !<
+   !< Default implementation error-stops: every multi-realm participant
+   !< that uses FV reflux MUST override this. Multi-realm participants
+   !< that DO NOT accumulate flux contributions (e.g. an FD-only realm)
+   !< should override with a no-op body.
+   class(realm_object),         intent(inout) :: self          !< The realm.
+   integer(I4P),                intent(in)    :: my_index      !< 1-based forest index of self.
+   integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
+   real(R8P),                   intent(in)    :: dt            !< Time step.
+   class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register (read-only).
+
+   call mpih%error_stop(msg='realm_object%apply_reflux_to_stage_forest: not overridden by app extension')
+   endsubroutine apply_reflux_to_stage_forest
 
    ! IO methods
    subroutine close_block_xh5f(xh5f)

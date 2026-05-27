@@ -21,6 +21,7 @@ public :: maps_object
 public :: inter_realm_neighbor_t
 public :: FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
 public :: COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE
+public :: face_axis_sign
 
 !< Face direction codes (see [[inter_realm_neighbor_t]]).
 !<
@@ -250,6 +251,29 @@ type :: maps_object
 endtype maps_object
 
 contains
+   ! public module-scope helpers
+   pure subroutine face_axis_sign(face_code, axis, sgn)
+   !< Translate FACE_X_MAX / FACE_X_MIN / ... into (axis 1..3, sign ±1).
+   !<
+   !< Canonical decoder for the FACE_* face-direction constants. Used by
+   !< the forest's seam-topology builder, by inter-realm ghost-fill paths,
+   !< and by realm-side reflux TBPs that need to map a `face_code` onto
+   !< the corresponding axis and sign.
+   integer(I4P), intent(in)  :: face_code !< Face code (FACE_X_MAX..FACE_Z_MIN).
+   integer(I4P), intent(out) :: axis      !< 1=x, 2=y, 3=z. 0 on malformed input.
+   integer(I4P), intent(out) :: sgn       !< +1 if MAX, -1 if MIN. 0 on malformed input.
+
+   select case (face_code)
+   case (FACE_X_MAX); axis = 1_I4P; sgn = +1_I4P
+   case (FACE_X_MIN); axis = 1_I4P; sgn = -1_I4P
+   case (FACE_Y_MAX); axis = 2_I4P; sgn = +1_I4P
+   case (FACE_Y_MIN); axis = 2_I4P; sgn = -1_I4P
+   case (FACE_Z_MAX); axis = 3_I4P; sgn = +1_I4P
+   case (FACE_Z_MIN); axis = 3_I4P; sgn = -1_I4P
+   case default;      axis = 0_I4P; sgn = 0_I4P
+   end select
+   endsubroutine face_axis_sign
+
    ! public methods
    subroutine blocks_reorder(self, tree)
    !< Reorder blocks indexes in field.

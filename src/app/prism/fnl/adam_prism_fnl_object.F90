@@ -108,8 +108,9 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
       procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize (mpih_fnl).
       ! inter-realm seam ghost-fill contract (agnostic-dummy redesign)
-      procedure, pass(self) :: fill_seam_from_peer_forest !< OpenACC device-direct copy of peer's GPU interior into self's GPU ghosts.
-      procedure, pass(self) :: after_topology_build_forest !< Refresh device-resident seam maps from freshly-built host maps.
+      procedure, pass(self) :: fill_seam_from_peer_forest    !< OpenACC device-direct copy of peer's GPU interior into self's GPU ghosts.
+      procedure, pass(self) :: after_topology_build_forest   !< Refresh device-resident seam maps from freshly-built host maps.
+      procedure, pass(self) :: apply_reflux_to_stage_forest  !< Apply Berger-Colella reflux to self's RK stage buffer (FNL no-op).
       ! numerical methods, miscellanea
       procedure, pass(self) :: compute_dt             !< Compute time step.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
@@ -2049,6 +2050,39 @@ contains
 
    call self%field_fnl%maps%copy_cpu_gpu(maps=self%adam%maps)
    endsubroutine after_topology_build_forest
+
+   subroutine apply_reflux_to_stage_forest(self, my_index, stage, dt, flux_register)
+   !< PRISM-FNL override of the Berger-Colella reflux correction TBP.
+   !<
+   !< Phase A: FV reflux is not yet implemented on the FNL side — the FNL
+   !< FV residual path (`compute_residuals_fv_centered_dev`) is a Phase B
+   !< port and currently does NOT accumulate fluxes into the register. The
+   !< override is therefore a deliberate **no-op**: with an empty flux
+   !< register on the FNL side (or with `nfaces == 0` for a single-realm
+   !< FNL forest), there is nothing to correct.
+   !<
+   !< When the FV residual port lands and starts accumulating into the
+   !< register on the FNL side, this body grows into the OpenACC twin of
+   !< `prism_cpu_object%apply_reflux_to_stage_forest`: walk
+   !< `flux_register%face(:)` for entries where `coarse_realm == my_index`
+   !< and write the per-cell correction into `self%rk_fnl%q_rk_gpu(:, b,
+   !< i, j, k, stage)` under a `!$acc parallel loop`.
+   class(prism_fnl_object),     intent(inout) :: self          !< The realm.
+   integer(I4P),                intent(in)    :: my_index      !< 1-based forest index of self.
+   integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
+   real(R8P),                   intent(in)    :: dt            !< Time step.
+   class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
+
+   ! Reference-but-don't-consume the dummies so the no-op body doesn't trip
+   ! an unused-dummy warning under -Wimplicit-procedure / strict modes.
+   if (.false.) then
+      if (my_index < 0_I4P) continue
+      if (stage    < 0_I4P) continue
+      if (dt       < 0._R8P) continue
+      if (flux_register%nfaces < 0_I4P) continue
+      if (associated(self%ngc)) continue
+   endif
+   endsubroutine apply_reflux_to_stage_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run PRISM-FNL's per-timestep post-step work: state IO, energy

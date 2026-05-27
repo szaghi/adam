@@ -58,7 +58,8 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: post_step_forest           !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest             !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest            !< Invoked by forest%finalize per realm at shutdown.
-      procedure, pass(self) :: fill_seam_from_peer_forest !< Copy peer's interior into self's ghosts for peer slot p_idx.
+      procedure, pass(self) :: fill_seam_from_peer_forest    !< Copy peer's interior into self's ghosts for peer slot p_idx.
+      procedure, pass(self) :: apply_reflux_to_stage_forest  !< Apply Berger-Colella reflux to self's RK stage buffer.
       ! numerical methods
       procedure, pass(self) :: compute_dt           !< Compute time step.
       procedure, pass(self) :: compute_energy       !< Compute energy.
@@ -1188,6 +1189,83 @@ contains
       call mpih%error_stop(msg='prism_cpu_object%fill_seam_from_peer_forest: peer realm is not prism_cpu_object')
    end select
    endsubroutine fill_seam_from_peer_forest
+
+   subroutine apply_reflux_to_stage_forest(self, my_index, stage, dt, flux_register)
+   !< PRISM-CPU override of the Berger-Colella reflux correction TBP.
+   !<
+   !< For each face in `flux_register` where `face%coarse_realm == my_index`,
+   !< writes the per-cell correction
+   !<     q_rk(:, seam_cell, b_coarse, stage) +=
+   !<         ark(stage) * sign * (dt / dx_coarse) * (F_coarse - F_fine_sum)
+   !< on the matching one-cell-thick seam slice (i ∈ {1, ni} for x-normal
+   !< faces, etc.). RK-specific: weight is `self%rk%ark(stage)`, write
+   !< target is `self%rk%q_rk(:, ..., stage)`.
+   !<
+   !< Empty-register / out-of-range guards short-circuit to a no-op, so a
+   !< realm with no seam faces (or one whose stage exceeds the register's
+   !< third dimension) returns cleanly.
+   class(prism_cpu_object),     intent(inout) :: self          !< The realm.
+   integer(I4P),                intent(in)    :: my_index      !< 1-based forest index of self.
+   integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
+   real(R8P),                   intent(in)    :: dt            !< Time step.
+   class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
+   integer(I4P)                               :: f, c, c0
+   integer(I4P)                               :: axis, sgn
+   integer(I4P)                               :: i_coarse, j_coarse, k_coarse
+   integer(I4P)                               :: ni_, nj_, nk_
+   real(R8P)                                  :: dx_coarse, weight, scale_
+
+   if (.not. flux_register%is_initialized_) return
+   if (flux_register%nfaces == 0_I4P)        return
+   if (.not. allocated(flux_register%face))  return
+   if (stage < 1_I4P .or. stage > self%rk%nrk) return
+   if (.not. allocated(self%rk%ark))         return
+   weight = self%rk%ark(stage)
+
+   ni_ = self%adam%grid%ni
+   nj_ = self%adam%grid%nj
+   nk_ = self%adam%grid%nk
+
+   do f = 1_I4P, flux_register%nfaces
+      associate(face_f => flux_register%face(f))
+      if (face_f%coarse_realm /= my_index)        cycle
+      if (.not. allocated(face_f%F_coarse))       cycle
+      if (.not. allocated(face_f%F_fine_sum))     cycle
+      if (stage > size(face_f%F_coarse, dim=3))   cycle
+
+      call face_axis_sign(face_f%coarse_face, axis, sgn)
+      if (axis == 0_I4P) cycle  ! malformed face_code; defensive.
+
+      dx_coarse = self%adam%field%dxyz(axis, face_f%coarse_block)
+      if (dx_coarse <= 0._R8P) cycle  ! defensive (uninitialised block geometry)
+      scale_ = real(sgn, R8P) * weight * dt / dx_coarse
+
+      do c = 1_I4P, face_f%nface_cells
+         c0 = c - 1_I4P
+         select case (axis)
+         case (1_I4P)  ! x-normal face: i fixed; tangentials (j, k) walk (mod nj, div nj).
+            i_coarse = merge(ni_, 1_I4P, sgn > 0_I4P)
+            j_coarse = 1_I4P + mod(c0, nj_)
+            k_coarse = 1_I4P + c0 / nj_
+         case (2_I4P)  ! y-normal face: j fixed; tangentials (i, k) walk (mod ni, div ni).
+            i_coarse = 1_I4P + mod(c0, ni_)
+            j_coarse = merge(nj_, 1_I4P, sgn > 0_I4P)
+            k_coarse = 1_I4P + c0 / ni_
+         case (3_I4P)  ! z-normal face: k fixed; tangentials (i, j) walk (mod ni, div ni).
+            i_coarse = 1_I4P + mod(c0, ni_)
+            j_coarse = 1_I4P + c0 / ni_
+            k_coarse = merge(nk_, 1_I4P, sgn > 0_I4P)
+         case default
+            cycle
+         end select
+
+         self%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) = &
+            self%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) &
+            + scale_ * (face_f%F_coarse(:, c, stage) - face_f%F_fine_sum(:, c, stage))
+      enddo
+      end associate
+   enddo
+   endsubroutine apply_reflux_to_stage_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run PRISM-CPU's per-timestep post-step work: state IO, energy
