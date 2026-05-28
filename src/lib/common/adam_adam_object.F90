@@ -28,7 +28,7 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   ! Owned sub-objects — Step 1 of forest-of-trees migration (issue #10).
+   ! Owned sub-objects.
    ! Value components (no pointers): kernels never see this type, so the
    ! pointer-to-derived-type chain-resolution bug class is irrelevant here.
    type(grid_object)  :: grid  !< Structured-block grid.
@@ -131,7 +131,7 @@ contains
    !< Check if blocks number is groving too much.
    class(adam_object), intent(inout) :: self             !< ADAM.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I8P)                      :: max_nb           !< Maximum number of blocks desidered.
    character(len=1), parameter       :: NL=new_line('a') !< New line character.
 
@@ -558,7 +558,7 @@ contains
    type(vtk_file)                           :: vtk                                           !< VTK file handler.
    type(vtm_file)                           :: vtm                                           !< VTM file handler.
    type(tree_node_object), pointer          :: node                                          !< Pointer to node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I4P)                             :: b, l, v                                       !< Counter.
    integer(I4P)                             :: i                                             !< Counter.
    integer(I4P)                             :: max_level                                     !< Maximum level.

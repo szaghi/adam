@@ -2,14 +2,17 @@
 module adam_forest_manifest
 !< ADAM, forest manifest parser — reads forest.ini into a transient struct.
 !<
-!< Phase D of issue #10 (design in issue #13). A **forest manifest** is the
-!< small INI that lists the realms making up a forest and how they couple.
-!< This module reads such a manifest and returns the data the driver needs
-!< to allocate the realm array and the topology data the forest needs to
-!< populate per-realm `maps%inter_realm_neighbors` after each realm has
-!< been initialized.
+!< A **forest manifest** is the small INI that lists the realms making up a
+!< forest and how they couple. This module reads such a manifest and returns
+!< the data the driver needs to allocate the realm array and the topology
+!< data the forest needs to populate per-realm `maps%inter_realm_neighbors`
+!< after each realm has been initialized.
 !<
-!< Manifest shape (see issue #13 for full spec):
+!< See `docs/guide/forest.md` for the conceptual overview of the multi-realm
+!< machinery and `src/lib/common/README.md` → "Forest orchestration" for the
+!< library-developer contract surface.
+!<
+!< Manifest shape:
 !<
 !<```
 !<   [forest]
@@ -30,14 +33,14 @@ module adam_forest_manifest
 !<   realm_b          = 2
 !<   face_b           = -x
 !<   coupling         = mirror             ; mirror | periodic | interpolate
-!<   coupling_cadence = end_of_step        ; end_of_step | stage_coincident (optional, default end_of_step; issue #18)
+!<   coupling_cadence = end_of_step        ; end_of_step (α default) | stage_coincident (β opt-in)
 !<```
 !<
 !< Single-INI detection: callers MUST check whether the file actually IS a
 !< manifest before invoking this parser — a plain PRISM input.ini has no
 !< [forest] section and `is_forest_manifest` returns .false. without
 !< loading any state. This lets the driver short-circuit to the legacy
-!< single-INI path for current rmf usage.
+!< single-INI path.
 !<
 !< Architectural invariants:
 !<
@@ -50,7 +53,7 @@ module adam_forest_manifest
 !<     face/coupling codes as integers. The realm objects themselves are
 !<     allocated by the driver from `realms_number`; the topology entries
 !<     are translated to `inter_realm_neighbor_t` instances on the
-!<     realm-side later (Phase D follow-up).
+!<     realm-side by `forest_object%populate_inter_realm_topology`.
 
 ! ADAM classes, libraries, parameters
 use :: adam_maps_object, only : FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
@@ -81,7 +84,7 @@ type :: forest_face_pair_t
    integer(I4P) :: realm_b          = 0_I4P                !< Second realm in the pair.
    integer(I4P) :: face_b           = 0_I4P                !< Face code on realm_b.
    integer(I4P) :: coupling         = COUPLING_MIRROR      !< Coupling kind (default MIRROR for the first use case).
-   integer(I4P) :: coupling_cadence = CADENCE_END_OF_STEP  !< Seam-fill cadence (issue #18; α default, β opt-in).
+   integer(I4P) :: coupling_cadence = CADENCE_END_OF_STEP  !< Seam-fill cadence (α default, β opt-in).
 endtype forest_face_pair_t
 
 type :: forest_manifest_t
@@ -189,7 +192,7 @@ contains
    ! coupling — optional, default MIRROR
    call handle%get(section_name=section_name, option_name='coupling', val=buff, error=error)
    if (error == 0) pair%coupling = parse_coupling(trim(adjustl(buff)), section_name, context)
-   ! coupling_cadence — optional, default END_OF_STEP (α; issue #18)
+   ! coupling_cadence — optional, default END_OF_STEP (α)
    call handle%get(section_name=section_name, option_name='coupling_cadence', val=buff, error=error)
    if (error == 0) pair%coupling_cadence = parse_cadence(trim(adjustl(buff)), section_name, context)
    endsubroutine read_face_pair
@@ -230,7 +233,7 @@ contains
    endfunction parse_coupling
 
    function parse_cadence(text, section_name, context) result(code)
-   !< Translate "end_of_step" / "stage_coincident" to the cadence code constant (issue #18).
+   !< Translate "end_of_step" / "stage_coincident" to the cadence code constant.
    character(*), intent(in) :: text         !< Cadence spec from the INI.
    character(*), intent(in) :: section_name !< Section name (for error message).
    character(*), intent(in) :: context      !< Manifest filename (for error message).

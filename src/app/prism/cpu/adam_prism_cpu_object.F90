@@ -74,10 +74,9 @@ interface
    !< Compute residuals of equation, space operator.
    !<
    !< Inter-realm seam ghost cells are filled by the forest BEFORE this
-   !< routine fires (Phase 2 of the forest's substage loop), so the stencil
-   !< reads valid halo data without any peer-realm access here. The
-   !< `realm(:)` optional that used to thread through this signature has
-   !< been retired by the agnostic-dummy seam redesign (issue #13 follow-up).
+   !< routine fires (Phase 2 of the forest's substage loop, for β seams;
+   !< Phase 5 of the previous step, for α seams), so the stencil reads
+   !< valid halo data without any peer-realm access here.
    import :: prism_cpu_object, R8P, I4P, flux_register_object
    class(prism_cpu_object),     intent(inout)           :: self          !< The equation.
    real(R8P),                   intent(inout)           :: q(1:,         &
@@ -1290,9 +1289,8 @@ contains
    !< step, since today's cadence is enforced inside the save_* routines
    !< themselves (e.g. save_simulation_data honours `io%it_save`). The
    !< `do_*` flags are signature-only for now: when the forest takes over
-   !< cadence (Phase A.6 commit 8 / Phase C), the flags will gate the
-   !< individual calls. For now they are accepted but unused, preserving
-   !< present-day behavior bit-for-bit.
+   !< cadence the flags will gate the individual calls. For now they are
+   !< accepted but unused, preserving present-day behavior bit-for-bit.
    !<
    !< `dt`, `t`, `it` are not consumed by the current body; they are on
    !< the contract so the forest can supply them once it owns time-state
@@ -1377,7 +1375,7 @@ contains
    endassociate
    call self%save_divergence_history(is_to_close=.true.)
    ! NB: MPI_FINALIZE is NOT called here — it is process-global and runs once via
-   ! forest%finalize -> finalize_mpi_forest after ALL realms finish (issue #13).
+   ! forest%finalize -> finalize_mpi_forest after ALL realms finish.
    endsubroutine finalize_forest
 
    ! numerical methods
@@ -1659,7 +1657,7 @@ contains
       if (loop_done) exit integration
    enddo integration
    call self%finalize_forest
-   call self%finalize_mpi_forest ! finalize_forest no longer finalizes MPI (issue #13); single-realm legacy path
+   call self%finalize_mpi_forest ! finalize_forest no longer finalizes MPI; single-realm legacy path
    endsubroutine simulate
 
    ! pointer TBP concrete implementations
@@ -2183,7 +2181,7 @@ contains
       enddo
       enddo
       enddo
-      ! Inter-realm seam flux accumulation (Phase A step 4 of issue #13).
+      ! Inter-realm seam flux accumulation.
       !
       ! After face fluxes are reconstructed, before the conservative
       ! update consumes them, walk every (block, fec) pair and check the
@@ -2191,18 +2189,17 @@ contains
       ! face: pack the corresponding flux skin from `flx_f`/`fly_f`/
       ! `flz_f` into the register's `(nv, nface_cells)` accumulator
       ! shape, then dispatch by sign (+ = coarse side → F_coarse, − =
-      ! fine side → F_fine_sum). Symmetric mirror seams (rmf-2realm)
-      ! produce equal coarse/fine fluxes → end-of-step reflux is
-      ! round-off zero by expectation and the FD-centered case is
-      ! unreachable here (the hook only fires for fv_centered).
+      ! fine side → F_fine_sum). Symmetric mirror seams produce equal
+      ! coarse/fine fluxes → end-of-step reflux is round-off zero by
+      ! expectation and the FD-centered case is unreachable here (the
+      ! hook only fires for fv_centered).
       !
-      ! α.r1 end-of-step gate (PRD #16 M4): accumulate ONLY at the
-      ! realm's final RK substage. The register holds a single
-      ! end-of-step bucket (M2 reshape) and the reflux correction
-      ! consumes it at the same final substage (M3 gate). Earlier
-      ! substages skip the accumulation entirely — their face fluxes
-      ! are intermediate-stage values not used by the Berger-Colella
-      ! end-of-step correction.
+      ! α.r1 end-of-step gate: accumulate ONLY at the realm's final RK
+      ! substage. The register holds a single end-of-step bucket and the
+      ! reflux correction consumes it at the same final substage.
+      ! Earlier substages skip the accumulation entirely — their face
+      ! fluxes are intermediate-stage values not used by the
+      ! Berger-Colella end-of-step correction.
       if (present(flux_register) .and. stage_idx == self%rk%nrk &
                                   .and. allocated(self%adam%maps%inter_realm_face_register_index)) then
          if (flux_register%nfaces > 0_I4P) then
@@ -2233,8 +2230,8 @@ contains
 
    subroutine accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, flux_register)
    !< Accumulate end-of-step face fluxes on inter-realm seam faces of
-   !< the FV-centered scheme. Phase A step 4 of [issue #13] FV consumer
-   !< wiring, gated to the realm's final RK substage under α.r1 (PRD #16).
+   !< the FV-centered scheme. Gated to the realm's final RK substage
+   !< under α.r1.
    !<
    !< Walks every (block, fec) pair and, for non-zero entries in
    !< `self%adam%maps%inter_realm_face_register_index(b, fec)`, packs

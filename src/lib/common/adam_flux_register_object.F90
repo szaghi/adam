@@ -2,11 +2,11 @@
 module adam_flux_register_object
 !< ADAM, flux register class definition
 !<
-!< Berger-Colella reflux machinery for coarse-fine interfaces — Phase A of
-!< [issue #13]. Accumulates per-stage fluxes on registered seam faces from
-!< both the coarse and the fine side; at end-of-stage, applies the
-!< stage-weighted correction `(Δt/Δx)·(F_coarse_used − Σ F_fine)` to the
-!< coarse-side conserved variables.
+!< Berger-Colella reflux machinery for coarse-fine interfaces.
+!< Accumulates per-stage fluxes on registered seam faces from both the
+!< coarse and the fine side; at end-of-stage, applies the stage-weighted
+!< correction `(Δt/Δx)·(F_coarse_used − Σ F_fine)` to the coarse-side
+!< conserved variables.
 !<
 !< Integrator-agnostic vocabulary: the per-face accumulator's third axis is
 !< nominally sized by `n_stages` (the realm's `stages_per_step_forest()`
@@ -16,28 +16,32 @@ module adam_flux_register_object
 !< mismatch.
 !<
 !< **α.r1 (current operating mode): third-axis collapsed to 1.** Under the
-!< α end-of-step barrier seam coupling (PRD #16), per-stage RK-weighted
-!< reflux refinement (Wang 2018) is dropped to admit asymmetric per-realm
-!< stage counts (`K_realm(is) /= K_max`). The accumulator collapses to a
-!< single end-of-step bucket: `F_coarse(:,:,1)` and `F_fine_sum(:,:,1)` hold
-!< the realm-final-stage face flux, and the correction is applied once per
+!< α end-of-step barrier seam coupling, per-stage RK-weighted reflux
+!< refinement (Wang 2018) is dropped to admit asymmetric per-realm stage
+!< counts (`K_realm(is) /= K_max`). The accumulator collapses to a single
+!< end-of-step bucket: `F_coarse(:,:,1)` and `F_fine_sum(:,:,1)` hold the
+!< realm-final-stage face flux, and the correction is applied once per
 !< realm per step at `stage == stages_per_step_forest()`. The `n_stages`
 !< argument on `register_face` is retained for API stability but **the
 !< third-axis allocation is forced to 1 regardless of the value passed**;
-!< the per-stage discipline at the call site lives in the caller (the forest
-!< passes `n_stages=1`, PRISM's `accumulate_seam_fluxes_fv` passes `stage=1`
-!< and gates the accumulation on `stage_idx == rk%nrk`). This is the AMReX
-!< `Reflux` cadence; same-K and asymmetric-K both reduce to the same
-!< Berger-Colella end-of-step correction.
+!< the per-stage discipline at the call site lives in the caller (the
+!< forest passes `n_stages=1`, PRISM's `accumulate_seam_fluxes_fv` passes
+!< `stage=1` and gates the accumulation on `stage_idx == rk%nrk`). This is
+!< the AMReX `Reflux` cadence; same-K and asymmetric-K both reduce to the
+!< same Berger-Colella end-of-step correction.
+!<
+!< See `docs/guide/forest.md` for the conceptual overview of seam coupling
+!< cadence and `src/lib/common/README.md` → "Forest orchestration" for the
+!< contract surface.
 !<
 !< Two seam kinds share the same accumulator topology:
 !<
 !<   - `SEAM_KIND_INTRA_REALM_AMR` — fine-coarse adjacency between two AMR
 !<     levels inside one realm. Fine and coarse sides typically co-resident
 !<     on the same rank (ADAM keeps levels co-resident by construction).
-!<   - `SEAM_KIND_INTER_REALM` — face coupling between two realms in a forest.
-!<     Fine and coarse sides may live on different ranks (the cross-rank case
-!<     defect A of [issue #13]).
+!<   - `SEAM_KIND_INTER_REALM` — face coupling between two realms in a
+!<     forest. Fine and coarse sides may live on different ranks; cross-
+!<     rank seam transport is not yet implemented.
 !<
 !< Lifecycle (driven by `forest_object`):
 !<
@@ -45,21 +49,17 @@ module adam_flux_register_object
 !<   - per step (top):   `reset` zeroes accumulators
 !<   - per stage:        `accumulate_*_flux` collect contributions from
 !<                       `compute_residuals_*`
-!<   - end of stage:     `apply_reflux` reduces (MPI) and corrects the coarse `q`
+!<   - end of stage:     `apply_reflux` reduces (MPI) and corrects the
+!<                       coarse `q`
 !<
-!< Memory cost is O(seam-area × nv × n_stages), bounded by the surface area
-!< of the AMR boundaries — independent of the interior cell count.
+!< Memory cost is O(seam-area × nv × n_stages), bounded by the surface
+!< area of the AMR boundaries — independent of the interior cell count.
 !<
-!< Architectural notes (constraints from [issue #10] R1/R2):
-!<   - All accumulators are intrinsic-typed arrays; no derived-type pointer
-!<     components reachable from kernels.
-!<   - The register owns no field data — only the per-face flux skin. Field
-!<     pointers (`q`, `dq`) are threaded in by callers, not stored.
-!<
-!< This is the **skeleton commit** of Phase A: every TBP body is a no-op
-!< (or, for `reset`, a trivial allocation guard). The wiring into
-!< `forest_object` (see #13 §3.2) and into PRISM's `compute_residuals_*`
-!< (option α, #13 §3.2) lands in follow-up commits.
+!< Architectural invariants:
+!<   - All accumulators are intrinsic-typed arrays; no derived-type
+!<     pointer components reachable from kernels.
+!<   - The register owns no field data — only the per-face flux skin.
+!<     Field pointers (`q`, `dq`) are threaded in by callers, not stored.
 
 ! ADAM classes, libraries, parameters
 use :: adam_parameters
@@ -150,7 +150,7 @@ contains
    !< Idempotent: a re-initialization with the same forest topology yields
    !< the same allocation; under a regrid that changes block layouts, the
    !< caller is expected to call `destroy` first, then `initialize` with
-   !< the new face count. (Phase A v1 has no regrid hook; this is the
+   !< the new face count. (No regrid hook yet; this is the
    !< schema-reserved path for AMR-active follow-ups.)
    !<
    !< Calling with `nfaces == 0` is valid: it flips `is_initialized_` so
@@ -204,7 +204,7 @@ contains
    integer(I4P),                intent(in)              :: fine_realm    !< Realm owning the fine side (1-based).
    integer(I4P),                intent(in),    optional :: fine_block(:) !< Fine blocks covering the coarse face;
                                                                          !< absent ↔ no fine-side blocks recorded
-                                                                         !< (same-resolution mirror seam, Phase A v1).
+                                                                         !< (same-resolution mirror seam).
                                                                          !< Caller must NOT pass an empty array literal
                                                                          !< `[integer(I4P) ::]`: nvfortran 26.x propagates
                                                                          !< the null data pointer through the descriptor
@@ -256,9 +256,9 @@ contains
    subroutine accumulate_coarse_flux(self, face_index, stage, flux_face)
    !< Add a coarse-side per-stage flux contribution to `F_coarse(:,:,stage)`.
    !<
-   !< Called by PRISM's `compute_residuals_fv_centered` (option α, #13 §3.2)
-   !< when processing a face that has been identified as a coarse-side seam
-   !< face. The `face_index` is looked up via a precomputed
+   !< Called by PRISM's `compute_residuals_fv_centered` when processing a
+   !< face that has been identified as a coarse-side seam face. The
+   !< `face_index` is looked up via a precomputed
    !< `seam_face_index(b, face_code)` table owned by the residual routine;
    !< the lookup is O(1).
    !<
@@ -308,11 +308,11 @@ contains
 
    subroutine reduce_fine_sums(self)
    !< MPI-reduce `F_fine_sum` across ranks so the coarse-side rank has the
-   !< full sum for the correction. Phase A v1 of [issue #13] uses the
-   !< replicated-forest layout (both ranks own both realms) where every
-   !< accumulator is already complete on every rank — this routine is
-   !< a no-op in that case. Cross-rank reduce is left to a follow-up
-   !< commit that adds disjoint-rank carve-out.
+   !< full sum for the correction. Under the current replicated-forest
+   !< layout (both ranks own both realms) every accumulator is already
+   !< complete on every rank — this routine is a no-op in that case.
+   !< Cross-rank reduce is left to a follow-up commit that adds
+   !< disjoint-rank carve-out.
    !<
    !< The reduce happens here (not in `apply_reflux_corrections` on
    !< `forest_object`) because it is purely register-internal: it

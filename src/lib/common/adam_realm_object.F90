@@ -151,7 +151,7 @@ type :: realm_object
       procedure, pass(self) :: compute_local_dt_forest           !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest           !< Invoked by forest%evolve_one_step per realm per timestep.
       procedure, pass(self) :: stages_per_step_forest            !< Number of integrator stages this realm exposes per step.
-      procedure, pass(self) :: coupling_descriptor_forest        !< Report (scheme_time, rk_scheme, nv) for β admissibility (#18).
+      procedure, pass(self) :: coupling_descriptor_forest        !< Report (scheme_time, rk_scheme, nv) for β admissibility.
       procedure, pass(self) :: open_step_forest                  !< Per-step prologue (multi-realm path).
       procedure, pass(self) :: begin_stage_forest                !< Begin one integrator stage on this realm (multi-realm path).
       procedure, pass(self) :: end_stage_forest                  !< End the stage: residuals + assignment (multi-realm path).
@@ -298,10 +298,8 @@ contains
    if (verbose_) call mpih%print_message('realm_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
-      ! The legacy adam/grid/field/tree/maps shim singletons have been retired;
-      ! adam%initialize and its sub-initializations now read their realm-local
-      ! objects via self%... or threaded dummy arguments, so no pre-binding is
-      ! needed here (see issue #15).
+      ! adam%initialize and its sub-initializations read their realm-local
+      ! objects via self%... or threaded dummy arguments; no pre-binding needed.
       if (present(L0)) then
          call self%adam%initialize(file_parameters=file_parameters, memory_avail=memory_avail, nv=nv, verbose=verbose_, L0=L0)
       else
@@ -457,9 +455,11 @@ contains
    !< per step, `K = 1`.
    !<
    !< Invoked by forest%evolve_one_step on the multi-realm path to size the
-   !< stage loop. Phase A v1 assumes every realm reports the same `K`;
-   !< a mismatch is flagged by the forest with `mpih%error_stop`.
-   !< (Per-realm `K` with sparse stage participation is a follow-up.)
+   !< stage loop. Under α (end-of-step seam coupling) realms may report
+   !< different `K` values: the orchestrator iterates `k = 1..max(K_realm)`
+   !< and gates each per-stage TBP on `k <= K_realm(is)`. Under β
+   !< (stage-coincident) admissibility requires equal `K` on both endpoints
+   !< of every β seam (enforced at init).
    !<
    !< Default implementation error-stops: every realm that participates in a
    !< multi-realm forest MUST override this. Apps that only ever run as N=1
@@ -471,7 +471,7 @@ contains
    endfunction stages_per_step_forest
 
    subroutine coupling_descriptor_forest(self, scheme_time, rk_scheme, nv)
-   !< Report this realm's coupling descriptor for β admissibility (issue #18).
+   !< Report this realm's coupling descriptor for β admissibility.
    !<
    !< Returns the identity of the realm's ODE solver + physics layout. Two
    !< realms may share a seam with `CADENCE_STAGE_COINCIDENT` only if all
@@ -605,10 +605,9 @@ contains
    !< this method (the diagnostic catalog and IO layout are app-specific).
    !< PRISM's override lives on prism_cpu_object and prism_fnl_object.
    !<
-   !< Optional `realm(:)` (issue #13, 2026-05-25): forest realm array
-   !< threaded for inter-realm halo refresh inside `save_simulation_data`
-   !< (which calls update_ghost). FNL backend forwards it through;
-   !< CPU backend ignores it.
+   !< Optional `realm(:)`: forest realm array threaded for inter-realm
+   !< halo refresh inside `save_simulation_data` (which calls update_ghost).
+   !< FNL backend forwards it through; CPU backend ignores it.
    class(realm_object), intent(inout)                   :: self              !< The realm.
    real(R8P),           intent(in)                      :: dt                !< Timestep size just advanced.
    real(R8P),           intent(in)                      :: t                 !< Simulation time after the advance.
@@ -664,16 +663,16 @@ contains
    !< realm has completed all MPI-using teardown. The forest therefore calls
    !< this on a SINGLE realm after the per-realm `finalize_forest` loop — not
    !< inside `finalize_forest` (which runs per realm; doing the finalize there
-   !< tore MPI down while later realms still had IO/ghost work pending, e.g.
-   !< issue #13 rmf-2realm: realm 2's update_ghost hit MPI_Type_f2c after
-   !< realm 1 had already finalized). The default targets the CPU `mpih`
-   !< singleton; the FNL backend overrides to finalize `mpih_fnl`.
+   !< tore MPI down while later realms still had IO/ghost work pending —
+   !< the next realm's update_ghost would hit MPI_Type_f2c on a finalized
+   !< communicator). The default targets the CPU `mpih` singleton; the FNL
+   !< backend overrides to finalize `mpih_fnl`.
    class(realm_object), intent(inout) :: self !< The realm (carries no MPI state; dispatch picks the backend handler).
 
    call mpih%finalize
    endsubroutine finalize_mpi_forest
 
-   ! Inter-realm seam ghost-fill contract — agnostic-dummy redesign (#13).
+   ! Inter-realm seam ghost-fill contract.
    !
    ! Single forest-facing TBP:
    !
@@ -692,9 +691,8 @@ contains
    !     and reads/writes device pointers. Same signature, same forest
    !     call site, same semantics.
    !
-   !   * For cross-rank peers (Phase B, not implemented in Phase A) this
-   !     TBP will instead drive an MPI exchange path using the
-   !     `seam_comm_map_*` plumbing.
+   !   * Cross-rank peers: not yet implemented. The MPI exchange path
+   !     using `seam_comm_map_*` plumbing is reserved but unpopulated.
 
    subroutine fill_seam_from_peer_forest(self, peer, p_idx)
    !< Fill THIS realm's seam ghost cells for peer slot `p_idx` from `peer`'s

@@ -173,7 +173,7 @@ type :: tree_iterator_object
    !< explicit reset is needed. Caller-owned state (rather than a procedure
    !< `save`) makes traversals re-entrant and safe across coexisting tree
    !< instances — required by the multi-realm forest, where two realms' trees
-   !< may be walked on the same rank (issue #13).
+   !< may be walked on the same rank.
    integer(I4P)                    :: b = 1_I4P    !< Bucket counter.
    type(tree_node_object), pointer :: p => null()  !< Pointer to current node.
 endtype tree_iterator_object
@@ -335,7 +335,7 @@ contains
    logical                                  :: only_mine_     !< If true return only the nodes of myrank process.
    logical                                  :: sort_by_level_ !< If true sort codes be level instead of position.
    type(tree_node_object), pointer          :: node_ptr       !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I8P)                             :: c              !< Counter.
    integer(I8P), allocatable                :: work(:)        !< Working memory for sorting codes list.
 
@@ -651,7 +651,7 @@ contains
    !<
    !< The traversal cursor lives in the caller-owned `iter` (see
    !< [[tree_iterator_object]]), not in a procedure `save`, so nested and
-   !< multi-instance traversals are re-entrant (issue #13).
+   !< multi-instance traversals are re-entrant.
    class(tree_object),         intent(in)                     :: self      !< The tree bucket.
    type(tree_iterator_object), intent(inout)                  :: iter      !< Traversal cursor (caller-owned).
    integer(I8P),               intent(out), optional          :: code      !< The Morton code.
@@ -698,7 +698,7 @@ contains
    class(tree_object), intent(inout) :: self     !< The tree.
    type(grid_object),  intent(in) :: grid !< Grid (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I4P)                      :: fec      !< Counter.
 
    iter%b = 1_I4P ; iter%p => null()
@@ -748,7 +748,7 @@ contains
    class(tree_object), intent(inout) :: self     !< The tree.
    integer(I4P),       intent(in)    :: mark     !< Mark to be imposed [TO_BE_REFINED,...].
    type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
 
    iter%b = 1_I4P ; iter%p => null()
    do while(self%loop(iter, node_ptr=node_ptr))
@@ -765,7 +765,7 @@ contains
    real(R8P),          intent(in), optional :: threshold        !< Threshold for sphere proximity.
    real(R8P)                                :: threshold_       !< Threshold for sphere proximity, local var.
    type(tree_node_object), pointer          :: node_ptr         !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    real(R8P)                                :: block_center(3)  !< block center coordinates.
    real(R8P)                                :: block_diagonal   !< block diagonal.
    real(R8P)                                :: distance(0:8)    !< Distances between block and sphere.
@@ -862,7 +862,7 @@ contains
    class(tree_object), intent(inout) :: self          !< The tree.
    integer(I4P),       intent(inout) :: ijkl_prune(4) !< Maximum coordinates after which the prune operates.
    type(tree_node_object), pointer   :: node_ptr      !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I4P)                      :: ijkl(4)       !< Coordinates counter.
    integer(I4P)                      :: i             !< Counter.
 
@@ -894,7 +894,7 @@ contains
    real(R8P),          intent(in), optional :: max_load     !< Maximum load of tree buckets.
    type(tree_object)                        :: swap         !< Temporary (swap) tree.
    type(tree_node_object), pointer          :: node_ptr     !< Pointer to node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
 
    if (self%is_initialized_) then
       if (present(max_load)) self%max_load = max_load
@@ -963,7 +963,7 @@ contains
    class(tree_object), intent(inout) :: self            !< The tree.
    integer(I4P),       intent(in)    :: my_nodes_number !< Number of my nodes, keep_nodes_number + recv_nodes_number.
    type(tree_node_object), pointer   :: node_ptr        !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I4P)                      :: i, j, k, l      !< Counter.
 
    if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(self%block_coordinates(4, my_nodes_number))
@@ -1002,7 +1002,7 @@ contains
    integer(I4P), allocatable, intent(in)    :: refinements_needed_all(:) !< Refinements needed of all blocks.
    integer(I4P), allocatable, intent(in)    :: disp_count(:)             !< Displacement of blocks that are received from process.
    type(tree_node_object), pointer          :: node_ptr                  !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I8P)                             :: b                         !< Counter.
    integer(I4P)                             :: myrank                    !< Counter.
 
@@ -1881,7 +1881,7 @@ contains
    integer(I4P),              intent(in), optional :: iterations_number    !< Sanitazie iterations number.
    integer(I4P)                                    :: iterations_number_   !< Sanitazie iterations number.
    type(tree_node_object), pointer                 :: node_ptr             !< Pointer to node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    type(tree_node_object), pointer                 :: sibling              !< Pointer to node sibling.
    integer(I8P)                                    :: code                 !< Code.
    integer(I8P), allocatable                       :: siblings(:)          !< List of code siblings, excluded the quering code.

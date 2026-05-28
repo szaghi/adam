@@ -27,8 +27,8 @@ public :: face_axis_sign
 !< Face direction codes (see [[inter_realm_neighbor_t]]).
 !<
 !< Encoded as small integers rather than a Fortran enum because the values
-!< travel through the manifest INI parser (D.3 task of [issue #13]) and need
-!< stable, INI-friendly representations.
+!< travel through the manifest INI parser and need stable, INI-friendly
+!< representations.
 integer(I4P), parameter :: FACE_X_MAX = 1_I4P  !< +x face (max-x boundary of a block).
 integer(I4P), parameter :: FACE_X_MIN = 2_I4P  !< -x face (min-x boundary of a block).
 integer(I4P), parameter :: FACE_Y_MAX = 3_I4P  !< +y face.
@@ -38,16 +38,16 @@ integer(I4P), parameter :: FACE_Z_MIN = 6_I4P  !< -z face.
 
 !< Inter-realm coupling kinds.
 !<
-!< COUPLING_MIRROR is the only kind exercised by the first Phase D use case
-!< (two-realm x-split rmf, [issue #13]). PERIODIC and INTERPOLATE are
-!< schema-reserved for follow-up use cases and are not implemented yet.
+!< COUPLING_MIRROR is the only kind currently exercised (same-resolution
+!< mirror seam, e.g. the two-realm x-split rmf regression). PERIODIC and
+!< INTERPOLATE are schema-reserved for follow-up use cases.
 integer(I4P), parameter :: COUPLING_MIRROR      = 1_I4P  !< Peer cells copied as-is (the trivial pass-through coupling).
 integer(I4P), parameter :: COUPLING_PERIODIC    = 2_I4P
                                                          !< Periodic identification across the inter-realm face (reserved, not
                                                          !< implemented).
 integer(I4P), parameter :: COUPLING_INTERPOLATE = 3_I4P  !< Interpolate across mismatched grids (reserved, not implemented).
 
-!< Inter-realm seam-coupling cadence (issue #18, forest β).
+!< Inter-realm seam-coupling cadence.
 !<
 !< `CADENCE_END_OF_STEP` is the α default: peer ghosts are refreshed once per
 !< global timestep, after `close_step_forest` on every realm (AMReX-aligned;
@@ -57,7 +57,7 @@ integer(I4P), parameter :: COUPLING_INTERPOLATE = 3_I4P  !< Interpolate across m
 !< per RK substage, inside the stage loop, before `end_stage_forest` reads
 !< them. Admissible only when both endpoint realms agree on (ODE scheme, K,
 !< physics layout). Recovers bit-equivalence to a monolithic single-realm
-!< run on the union grid when admissible.
+!< run on the union grid when admissible. See `docs/guide/forest.md`.
 integer(I4P), parameter :: CADENCE_END_OF_STEP      = 0_I4P !< α: once per step, after close_step_forest (default).
 integer(I4P), parameter :: CADENCE_STAGE_COINCIDENT = 1_I4P !< β: once per RK substage, inside the stage loop.
 
@@ -65,14 +65,14 @@ type :: inter_realm_neighbor_t
    !< Description of a single inter-realm face coupling.
    !<
    !< One entry per (my realm, my block, my face) that touches a face on
-   !< another realm. Populated by the forest during initialization from the
-   !< `[forest.topology]` section of the manifest (D.3 task of [issue #13]).
-   !< Consumed by the realm-side `exchange_inter_realm_halos_forest` TBP.
+   !< another realm. Populated by the forest during initialization from
+   !< the `[forest.topology]` section of the manifest.
    !<
-   !< Architectural note: this type carries only intrinsic-typed components
-   !< (R1 of [issue #10] — no derived-type pointer components reachable from
-   !< kernels). The `peer_realm` index is used by the consumer to look up the
-   !< peer realm in the `realm(:)` array the forest passes through; the
+   !< Architectural note: this type carries only intrinsic-typed
+   !< components — no derived-type pointer components reachable from
+   !< kernels. The `peer_realm` index is used by the consumer to look up
+   !< the peer realm in the `realm(:)` array the forest passes through;
+   !< the
    !< lookup happens on the host side outside any device region (R2).
    integer(I4P) :: my_realm   = 0_I4P
                                       !< Realm index that owns this entry (1-based; redundant with the enclosing maps' realm, kept
@@ -121,15 +121,14 @@ type :: maps_object
    ! MPI send/recv ghost buffers
    real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
    real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
-   ! Inter-realm coupling (Phase D of issue #10, design in issue #13).
-   ! Unallocated for single-realm runs (the no-op case). Populated by the
-   ! forest during initialization from the manifest's [forest.topology]
-   ! section. Consumed by realm_object%exchange_inter_realm_halos_forest.
+   ! Inter-realm coupling. Unallocated for single-realm runs (the no-op
+   ! case). Populated by the forest during initialization from the
+   ! manifest's [forest.topology] section.
    type(inter_realm_neighbor_t), allocatable :: inter_realm_neighbors(:)
                                                                          !< Face couplings to other realms; unallocated when this
                                                                          !< realm has no inter-realm neighbors.
    !
-   ! Inter-realm ghost-cell map (Phase A of issue #13 — seam comm-map).
+   ! Inter-realm ghost-cell map (per-cell seam comm-map).
    !
    ! One row per ghost cell that lives in THIS realm and pulls its value
    ! from another realm. Mirrors `local_map_ghost_cell` (the intra-realm
@@ -148,25 +147,21 @@ type :: maps_object
    !   * `i/j/k_recv`   — GHOST cell coordinates in self's block
    !                      (in [1-ngc..ni+ngc] etc.);
    !   * `one_or_eight` — 1 for same-resolution mirror copy, reserved 8
-   !                      for the 2:1-coarser case (Phase A v1 only
-   !                      populates same-resolution = 1; AMR jumps are
+   !                      for the 2:1-coarser case (currently only
+   !                      same-resolution = 1 is populated; AMR jumps are
    !                      a follow-up).
    !
    ! Unallocated when there are no inter-realm seams. Populated by
-   ! `forest_object%populate_inter_realm_topology` (D.4a + Phase A) by
-   ! enumerating every ghost cell in every self-seam-block's ghost
-   ! region and resolving the matching peer (realm, block, interior
-   ! cell) — including the corner / edge ghosts that the previous
-   ! geometric `exchange_inter_realm_halos_forest` missed (defect B of
-   ! issue #13).
+   ! `forest_object%populate_inter_realm_topology` by enumerating every
+   ! ghost cell in every self-seam-block's ghost region and resolving the
+   ! matching peer (realm, block, interior cell) — including the corner /
+   ! edge ghosts.
    !
-   ! Consumer: a flat-loop exchange in
-   ! `realm_object%exchange_inter_realm_halos_forest` overrides
-   ! (currently `prism_cpu_object`), replacing the per-call geometric
-   ! `find_peer_block` + `copy_peer_face` pair with an indexed read.
+   ! Consumer: a flat-loop seam exchange dispatched from the realm-side
+   ! `fill_seam_from_peer_forest` TBP overrides.
    integer(I4P), allocatable :: inter_realm_ghost_cell(:,:) !< Per-cell inter-realm ghost map; layout per the comment above.
    !
-   ! Inter-realm seam → flux register lookup (Phase A step 4 of issue #13).
+   ! Inter-realm seam → flux register lookup.
    !
    ! Maps a (block, face_1_6) pair on THIS realm to the index of the
    ! corresponding entry in `forest_flux_register%face(:)`. The
@@ -190,9 +185,9 @@ type :: maps_object
    ! resolution; the labels become load-bearing when true AMR coarse-fine
    ! adjacency lands).
    !
-   ! Populated by `forest_object%populate_inter_realm_topology` (Phase A
-   ! step 4) at the same time as the per-cell ghost map and the BC_SEAM
-   ! override; ALL three derive from the same manifest face-pair walk.
+   ! Populated by `forest_object%populate_inter_realm_topology` at the
+   ! same time as the per-cell ghost map and the BC_SEAM override; ALL
+   ! three derive from the same manifest face-pair walk.
    !
    ! Consumer: PRISM's `compute_residuals_fv_centered` consults the table
    ! after reconstructing each face's flux. If non-zero, the routine
@@ -202,7 +197,7 @@ type :: maps_object
                                                                      !< (block, face_1_6) → signed flux register face index; 0 = not
                                                                      !< a seam face, +idx = coarse side, -idx = fine side.
    !
-   ! Seam ghost-cell maps — agnostic-dummy redesign (issue #13 follow-up).
+   ! Seam ghost-cell maps — agnostic-dummy redesign.
    !
    ! These supersede `inter_realm_ghost_cell` (which remains allocated during
    ! the migration). The redesign separates the same-rank fast path from the
@@ -215,18 +210,19 @@ type :: maps_object
    ! Layout: `seam_local_map_ghost_cell(c, 1:9)` =
    !   [peer_realm, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv]
    !
-   ! Same columns as `inter_realm_ghost_cell` minus `one_or_eight` (Phase A
-   ! is same-resolution only; restore when AMR coarse-fine seams land). Rows
-   ! are SORTED BY peer_realm so per-peer row ranges can be extracted in O(1)
-   ! via the seam_local_peer_* index arrays below.
+   ! Same columns as `inter_realm_ghost_cell` minus `one_or_eight`
+   ! (same-resolution only; AMR coarse-fine seams are a follow-up). Rows
+   ! are SORTED BY peer_realm so per-peer row ranges can be extracted in
+   ! O(1) via the seam_local_peer_* index arrays below.
    integer(I4P), allocatable :: seam_local_map_ghost_cell(:,:)
                                                                      !< Per-cell same-rank inter-realm ghost map; layout per the comment
                                                                      !< above; rows sorted by peer_realm.
    integer(I4P), allocatable :: seam_local_peer_realm(:)     !< Peer realm index for each row range (one entry per distinct peer).
    integer(I4P), allocatable :: seam_local_peer_row_start(:) !< First row index in seam_local_map_ghost_cell for each peer.
    integer(I4P), allocatable :: seam_local_peer_row_count(:) !< Row count in seam_local_map_ghost_cell for each peer.
-   integer(I4P), allocatable :: seam_local_cadence(:)        !< Per-peer seam-fill cadence (CADENCE_END_OF_STEP|CADENCE_STAGE_COINCIDENT;
-                                                             !< populated from manifest face_pairs; issue #18).
+   integer(I4P), allocatable :: seam_local_cadence(:)        !< Per-peer seam-fill cadence
+                                                             !< (CADENCE_END_OF_STEP | CADENCE_STAGE_COINCIDENT; populated from
+                                                             !< manifest face_pairs).
    !
    ! Per-peer pack/unpack buffers. Shape: `(nv * max_rows_per_peer, n_peers)`.
    ! Each peer's pack-then-unpack roundtrip uses an independent column — the
@@ -235,9 +231,9 @@ type :: maps_object
    real(R8P), allocatable :: seam_local_send_buf(:,:) !< Per-peer pack buffer for same-rank seams.
    real(R8P), allocatable :: seam_local_recv_buf(:,:) !< Per-peer unpack buffer for same-rank seams.
    !
-   ! Seam MPI maps and buffers — Phase A: DECLARED but NOT POPULATED.
-   ! Reserved for the cross-rank seam exchange (Phase B). If any of these
-   ! become allocated the forest Phase 2 loop must dispatch to
+   ! Seam MPI maps and buffers — DECLARED but NOT POPULATED.
+   ! Reserved for cross-rank seam exchange (not yet implemented). If any
+   ! of these become allocated the forest seam-fill loop must dispatch to
    ! `update_ghost_seam_mpi`; until that path lands the forest error_stops
    ! on any allocated `seam_comm_map_send_ghost_cell`.
    integer(I4P), allocatable :: seam_comm_map_send_ghost_cell(:,:)
@@ -297,7 +293,7 @@ contains
    class(maps_object), intent(inout) :: self                !< The maps.
    type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr            !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I4P)                      :: outer_blocks_number !< Number of outer blocks where I need fecs.
    integer(I4P)                      :: inner_blocks_number !< Number of inner blocks where I need fecs.
    logical                           :: is_inner_block      !< Flag to check if a neighbor block is inner or not.
@@ -408,7 +404,7 @@ contains
    class(maps_object), intent(inout) :: self                 !< The maps.
    type(tree_object),  intent(inout) :: tree !< Tree (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr             !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I8P), allocatable         :: codes_sorted(:)      !< List of (sorted) codes.
    integer(I4P), allocatable         :: comm_map_send_ctr(:) !< Communication map, counters in list to send [procs_number+1].
    integer(I4P), allocatable         :: comm_map_recv_ctr(:) !< Communication map, counters in list to recv [procs_number+1].
@@ -554,7 +550,7 @@ contains
    type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    character(*),       intent(in)    :: node_member    !< Node member to be shared.
    type(tree_node_object), pointer   :: node_ptr       !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I8P), allocatable         :: send_buffer(:) !< Send buffer nodes data.
    integer(I8P), allocatable         :: recv_buffer(:) !< Recv buffer nodes data.
    integer(I4P), allocatable         :: recv_count(:)  !< Number of nodes that are received from each process.
@@ -628,7 +624,7 @@ contains
    logical,            intent(in), optional :: verbose                !< Flag to activate verbose mode.
    logical                                  :: verbose_               !< Flag to activate verbose mode, local var.
    type(tree_node_object), pointer          :: node_ptr               !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I4P)                             :: neighbor_type          !< Neighbors type.
    integer(I4P)                             :: neighbor_bc_fec        !< Neighbors fec for BC.
    integer(I4P)                             :: fec                    !< Counter.
@@ -731,7 +727,7 @@ contains
    type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P),       intent(in)    :: nv               !< Number of field variables.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I8P), allocatable         :: neighbor(:)      !< List of code neighbors.
    type(tree_node_object), pointer   :: neigh            !< Pointer to node neighbor.
    integer(I4P)                      :: neighbor_type    !< Neighbors type.
@@ -826,7 +822,7 @@ contains
    integer(I4P),       intent(out)   :: fec_bc_edges_number    !< BC edges number.
    integer(I4P),       intent(out)   :: fec_bc_corners_number  !< BC corners number.
    type(tree_node_object), pointer   :: node_ptr               !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I4P)                      :: fec                    !< Counter.
 
    fec_bc_faces_number = 0_I4P
@@ -1331,7 +1327,7 @@ contains
    type(tree_object),  intent(in) :: tree !< Tree (sibling realm component, threaded in).
    type(grid_object),     intent(in)              :: grid !< Grid (sibling realm component, threaded in).
    type(tree_node_object), pointer   :: node_ptr                   !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (issue #13: re-entrant loop).
+   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
    integer(I8P), allocatable         :: neighbor(:)                !< List of code neighbors.
    type(tree_node_object), pointer   :: neigh                      !< Pointer to node neighbor.
    integer(I4P)                      :: neighbor_type              !< Neighbors type.

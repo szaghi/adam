@@ -19,11 +19,15 @@ module adam_forest_object
 !< the realm-side TBPs that carry the **`_forest`** suffix. Together these
 !< TBPs form the orchestrator contract (see [[adam_realm_object]]).
 !<
-!< Class-with-TBPs (not module-of-routines) because Phase D (issue #10
-!< Step 7) will need intrinsic-typed configuration on the forest itself —
-!< MPI sub-communicator topology, inter-realm connectivity descriptor.
-!< Adding that state later via a class extension is cheaper than via a
-!< module API break.
+!< Class-with-TBPs (not module-of-routines) so future forest-level
+!< configuration (MPI sub-communicator topology, inter-realm
+!< connectivity descriptor) can be added as intrinsic-typed state
+!< without a module API break.
+!<
+!< See `docs/guide/forest.md` for the conceptual overview of the
+!< multi-realm machinery (manifest schema, α/β cadence trade-offs, phase
+!< cycle) and `src/lib/common/README.md` → "Forest orchestration" for the
+!< library-developer contract surface.
 
 use :: adam_realm_object,         only : realm_object
 use :: adam_maps_object,          only : inter_realm_neighbor_t,                                                  &
@@ -44,7 +48,7 @@ public :: forest_object
 type :: forest_object
    !< Behavior-only orchestrator of an array of realms.
    integer(I4P)               :: n = 0_I4P     !< Number of realms in the forest (set by initialize from size(realm)).
-   type(flux_register_object) :: flux_register !< Coarse-fine interface reflux machinery (Phase A of issue #13).
+   type(flux_register_object) :: flux_register !< Coarse-fine interface reflux machinery.
    contains
       ! public methods
       ! initialize/finalize
@@ -54,8 +58,8 @@ type :: forest_object
       ! orchestrating methods
       procedure, pass(self) :: compute_global_dt      !< Min-reduce each realm's compute_local_dt_forest across the forest.
       procedure, pass(self) :: evolve_one_step        !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
-      ! exchange_halos retired with `exchange_inter_realm_halos_forest` (#13);
-      ! α end-of-step seam fill (Phase 5 of evolve_one_step) handles inter-realm seam refresh.
+      ! Inter-realm seam refresh runs inside evolve_one_step: β seams at every
+      ! substage (Phase 2), α seams once at end-of-step (Phase 5).
       procedure, pass(self) :: is_done                !< AND-reduce each realm's is_done_forest across the forest.
       procedure, pass(self) :: post_step              !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
       procedure, pass(self) :: simulate               !< Main entry point (single shared INI): drive the full simulation.
@@ -175,7 +179,7 @@ contains
    !< no-ops the trailing stages.
    !<
    !< Each inter-realm seam carries a `coupling_cadence` from the manifest
-   !< (cached on the realm as `seam_local_cadence(p)`; see issue #18):
+   !< (cached on the realm as `seam_local_cadence(p)`):
    !<
    !< α (CADENCE_END_OF_STEP, default; AMReX-aligned coarse-fine convention)
    !<   Mid-step peer ghosts are INTENTIONALLY STALE-BY-ONE-STEP. During
@@ -190,7 +194,7 @@ contains
    !<   committed `q`. α admits asymmetric per-realm K (the K-equality
    !<   guard is removed). Cost: first-order seam coupling in time.
    !<
-   !< β (CADENCE_STAGE_COINCIDENT, opt-in; issue #18)
+   !< β (CADENCE_STAGE_COINCIDENT, opt-in)
    !<   Peer ghosts are refreshed once per RK substage, inside the K loop
    !<   (Phase 2 below), before `end_stage_forest` reads them. Admissible
    !<   only when both endpoint realms agree on (scheme_time, rk_scheme,
@@ -269,7 +273,7 @@ contains
             call realm(is)%begin_stage_forest(k=k, K_total=K_max, dt=dt)
          enddo
 
-         ! Phase 2 — per-seam mid-step inter-realm seam fill (β, issue #18).
+         ! Phase 2 — per-seam mid-step inter-realm seam fill (β).
          !
          ! Fires only for seams whose manifest `coupling_cadence` is
          ! `CADENCE_STAGE_COINCIDENT`. At this point all participating
@@ -295,7 +299,7 @@ contains
             if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
             if (.not. allocated(realm(is)%adam%maps%seam_local_cadence)) cycle
             if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
-               call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented (Phase B)')
+               call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented')
             do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
                if (realm(is)%adam%maps%seam_local_cadence(p) /= CADENCE_STAGE_COINCIDENT) cycle
                peer_idx = realm(is)%adam%maps%seam_local_peer_realm(p)
@@ -346,7 +350,7 @@ contains
       ! peer-INTERIOR cells into self's GHOST cells; backend dispatch via
       ! `select type(peer)` inside the receiver's override.
       !
-      ! Per-seam gating (issue #18): only seams with `coupling_cadence ==
+      ! Per-seam gating: only seams with `coupling_cadence ==
       ! CADENCE_END_OF_STEP` (the α default) fire here. β seams
       ! (`CADENCE_STAGE_COINCIDENT`) were already filled at every substage
       ! in Phase 2 inside the K loop; firing again here would double-write
@@ -357,9 +361,9 @@ contains
       do is = 1_I4P, int(size(realm), I4P)
          if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
          if (.not. allocated(realm(is)%adam%maps%seam_local_cadence)) cycle
-         ! Phase-A guard: cross-rank seam path is not implemented.
+         ! Guard: cross-rank seam path is not yet implemented.
          if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
-            call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented (Phase B)')
+            call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented')
          do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
             if (realm(is)%adam%maps%seam_local_cadence(p) /= CADENCE_END_OF_STEP) cycle
             peer_idx = realm(is)%adam%maps%seam_local_peer_realm(p)
@@ -461,8 +465,8 @@ contains
    !< (`stages_per_step_forest()`) is verified too: under β both endpoints
    !< must report the same K (asymmetric-K is α's domain, not β's).
    !<
-   !< Issue #18. Runs once at `initialize_from_manifest` time, after every
-   !< realm's `initialize_forest` has populated `numerics`, `rk`, `physics`.
+   !< Runs once at `initialize_from_manifest` time, after every realm's
+   !< `initialize_forest` has populated `numerics`, `rk`, `physics`.
    class(realm_object),     intent(inout) :: realm(:) !< The initialized realms.
    type(forest_manifest_t), intent(in)    :: manifest !< Parsed manifest.
    integer(I4P)                           :: f        !< Face-pair index.
@@ -482,25 +486,23 @@ contains
       if (nv_a < 0_I4P .or. nv_b < 0_I4P) &
          call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
             ' has stage_coincident cadence but realm '//trim(str(ra, .true.))//' or '//                       &
-            trim(str(rb, .true.))//' does not implement coupling_descriptor_forest (issue #18)')
+            trim(str(rb, .true.))//' does not implement coupling_descriptor_forest')
       if (st_a /= st_b) &
          call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
             ' stage_coincident requires equal scheme_time between realm '//trim(str(ra, .true.))//' ("'//     &
-            st_a//'") and realm '//trim(str(rb, .true.))//' ("'//st_b//'") (issue #18)')
+            st_a//'") and realm '//trim(str(rb, .true.))//' ("'//st_b//'")')
       if (rk_a /= rk_b) &
          call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
             ' stage_coincident requires equal rk_scheme between realm '//trim(str(ra, .true.))//' ("'//       &
-            rk_a//'") and realm '//trim(str(rb, .true.))//' ("'//rk_b//'") (issue #18)')
+            rk_a//'") and realm '//trim(str(rb, .true.))//' ("'//rk_b//'")')
       if (nv_a /= nv_b) &
          call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
             ' stage_coincident requires equal physics nv between realm '//trim(str(ra, .true.))//' ('//       &
-            trim(str(nv_a, .true.))//') and realm '//trim(str(rb, .true.))//' ('//trim(str(nv_b, .true.))//   &
-            ') (issue #18)')
+            trim(str(nv_a, .true.))//') and realm '//trim(str(rb, .true.))//' ('//trim(str(nv_b, .true.))//')')
       if (k_a /= k_b) &
          call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
             ' stage_coincident requires equal K (no stalling) between realm '//trim(str(ra, .true.))//' ('// &
-            trim(str(k_a, .true.))//') and realm '//trim(str(rb, .true.))//' ('//trim(str(k_b, .true.))//    &
-            ') (issue #18)')
+            trim(str(k_a, .true.))//') and realm '//trim(str(rb, .true.))//' ('//trim(str(k_b, .true.))//')')
    enddo
    endsubroutine check_beta_admissibility
 
@@ -577,13 +579,12 @@ contains
    ! the per-stage geometric find_peer_block + face-slab copy that misses
    ! corner / edge ghosts.
    call build_inter_realm_ghost_cell_map(realm=realm, manifest=manifest)
-   ! Derive the sorted-by-peer seam_local map + per-peer index arrays + per-peer
-   ! pack/unpack buffers from the just-built inter_realm_ghost_cell map. The new
-   ! arrays are what the forest's Phase 2 seam fill (in evolve_one_step) consumes;
-   ! inter_realm_ghost_cell is kept during migration so the legacy
-   ! exchange_inter_realm_halos_forest TBP can be deleted in a single pass.
-   ! Every entry is required to be same-rank under Phase A (replicated forest);
-   ! cross-rank entries error_stop here to flag the unimplemented Phase B path.
+   ! Derive the sorted-by-peer seam_local map + per-peer index arrays +
+   ! per-peer pack/unpack buffers from the just-built
+   ! inter_realm_ghost_cell map. The new arrays are what the forest's
+   ! seam-fill TBPs (in evolve_one_step) consume.
+   ! Every entry is required to be same-rank (replicated forest); cross-
+   ! rank entries error_stop here to flag the unimplemented MPI path.
    call build_seam_local_map(realm=realm, manifest=manifest)
    ! Override the BC crown's bc_type column to BC_SEAM for entries that
    ! lie on an inter-realm seam face.
@@ -741,16 +742,16 @@ contains
          do b = 1_I4P, int(realm(a_realm)%adam%field%blocks_number, I4P)
             if (.not. block_face_on_realm_boundary(realm(a_realm), b, a_axis, a_sign)) cycle
             cursor = cursor + 1_I4P
-            ! fine_block(:) is left empty (size 0) here — Phase A v1 uses
-            ! same-resolution mirror seams where the fine-side block is
-            ! resolved via the per-cell ghost map (inter_realm_ghost_cell).
-            ! True AMR coarse-fine adjacency would populate fine_block(:)
-            ! with the 4 (in 3D) finer blocks covering this coarse face.
-            ! `fine_block` deliberately omitted: same-resolution mirror seam
-            ! has no fine-side blocks to record. Passing an empty array literal
-            ! `[integer(I4P) ::]` here was the original Phase A shortcut; it
-            ! poisoned the descriptor copy on nvfortran 26.x. Absent ↔ unallocated
-            ! `slot%fine_block`, which every consumer must guard with allocated().
+            ! fine_block(:) is left empty (size 0) here — same-resolution
+            ! mirror seams resolve the fine-side block via the per-cell
+            ! ghost map (inter_realm_ghost_cell). True AMR coarse-fine
+            ! adjacency would populate fine_block(:) with the 4 (in 3D)
+            ! finer blocks covering this coarse face.
+            ! `fine_block` deliberately omitted: same-resolution mirror
+            ! seam has no fine-side blocks to record. Passing an empty
+            ! array literal `[integer(I4P) ::]` here poisons the descriptor
+            ! copy on nvfortran 26.x; absent ↔ unallocated `slot%fine_block`,
+            ! which every consumer must guard with allocated().
             call flux_register%register_face(face_index=cursor,                                 &
                                              seam_kind=SEAM_KIND_INTER_REALM,                   &
                                              coarse_realm=pair%realm_a,                         &
@@ -911,8 +912,8 @@ contains
       subroutine build_inter_realm_ghost_cell_map(realm, manifest)
       !< Populate each realm's `adam%maps%inter_realm_ghost_cell` map.
       !<
-      !< This is the per-cell seam ghost map driving
-      !< `exchange_inter_realm_halos_forest` (Phase A of issue #13).
+      !< This is the per-cell seam ghost map driving the realm-side
+      !< `fill_seam_from_peer_forest` overrides.
       !< Algorithm, per realm:
       !<
       !<   * Two-pass over (face_pair, seam_block, ghost_cell).
@@ -944,10 +945,10 @@ contains
       !<
       !< For the rmf-2realm same-resolution case `field%dxyz` is uniform
       !< across both realms, so the match is integer-clean. For the
-      !< coarse-fine AMR case (not exercised in Phase A v1) the per-cell
-      !< resolution differs and the same geometric match degrades to a
-      !< nearest-cell mapping — the `one_or_eight` column reserves the
-      !< value 8 for that future case; v1 always writes 1.
+      !< coarse-fine AMR case (not yet exercised) the per-cell resolution
+      !< differs and the same geometric match degrades to a nearest-cell
+      !< mapping — the `one_or_eight` column reserves the value 8 for
+      !< that future case; same-resolution always writes 1.
       class(realm_object),     intent(inout) :: realm(:)  !< Forest realms (their maps get populated).
       type(forest_manifest_t), intent(in)    :: manifest  !< Parsed manifest.
       integer(I4P)                           :: f, is, ip !< Counters: face-pair, self-realm, peer-realm.
@@ -1023,19 +1024,19 @@ contains
       !< by `peer_realm` so the forest can extract per-peer row ranges in
       !< O(1) via the index arrays.
       !<
-      !< Invariant (Phase A): every entry must be same-rank — under the
-      !< replicated-forest layout (`rmf-2realm`) both ranks own both realms,
-      !< so the rank that owns `b_send` in the peer realm equals
-      !< `mpih%myrank`. Cross-rank entries are detected via the peer's
-      !< `comm_map_recv` (which lists who owns each block of the peer
-      !< realm); a single cross-rank entry triggers an `error_stop` flagging
-      !< the unimplemented Phase B `update_ghost_seam_mpi` path.
+      !< Invariant: every entry must be same-rank — under the replicated-
+      !< forest layout both ranks own both realms, so the rank that owns
+      !< `b_send` in the peer realm equals `mpih%myrank`. Cross-rank
+      !< entries are detected via the peer's `comm_map_recv` (which lists
+      !< who owns each block of the peer realm); a single cross-rank
+      !< entry triggers an `error_stop` flagging the unimplemented
+      !< `update_ghost_seam_mpi` path.
       !<
-      !< Issue #18 (β): also populates `seam_local_cadence(p)` per distinct
-      !< peer by matching `(is, peer)` against `manifest%face_pairs`. If two
+      !< Also populates `seam_local_cadence(p)` per distinct peer by
+      !< matching `(is, peer)` against `manifest%face_pairs`. If two
       !< face_pairs connect the same realm pair with conflicting cadences
-      !< the manifest is rejected here (cadence is a property of the realm
-      !< pair, not of an individual face).
+      !< the manifest is rejected here (cadence is a property of the
+      !< realm pair, not of an individual face).
       class(realm_object),     intent(inout) :: realm(:)
       type(forest_manifest_t), intent(in)    :: manifest
       integer(I4P)                       :: is, c, nrows, n_peers, p, peer
@@ -1097,11 +1098,11 @@ contains
                maps%seam_local_peer_row_count(p - 1_I4P)
          enddo
 
-         ! Resolve per-peer seam-fill cadence from the manifest face-pairs
-         ! (issue #18). For each (is, peer) ordered pair, walk
-         ! manifest%face_pairs and record the cadence of the first match;
-         ! subsequent matches on the same pair MUST agree (otherwise the
-         ! manifest is ambiguous and we error_stop).
+         ! Resolve per-peer seam-fill cadence from the manifest face-pairs.
+         ! For each (is, peer) ordered pair, walk manifest%face_pairs and
+         ! record the cadence of the first match; subsequent matches on
+         ! the same pair MUST agree (otherwise the manifest is ambiguous
+         ! and we error_stop).
          allocate(maps%seam_local_cadence(n_peers))
          maps%seam_local_cadence = CADENCE_END_OF_STEP  ! safe default if no face-pair matches
          if (allocated(manifest%face_pairs)) then
@@ -1118,7 +1119,7 @@ contains
                         call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: '// &
                            'conflicting coupling_cadence between realm '//trim(str(is, .true.))// &
                            ' and realm '//trim(str(peer_list(p), .true.))//                       &
-                           ' across multiple face_pairs (issue #18)')
+                           ' across multiple face_pairs')
                      endif
                   endif
                enddo
@@ -1147,11 +1148,11 @@ contains
          enddo
          deallocate(peer_cursor)
 
-         ! Phase A invariant: every entry is same-rank. Under the replicated-
-         ! forest layout (rmf-2realm) all ranks own all realms' blocks, so the
-         ! invariant holds by construction. The defect-A cross-rank case lands
-         ! with update_ghost_seam_mpi (Phase B); until then the forest Phase 2
-         ! loop error_stops if seam_comm_map_send_ghost_cell becomes allocated.
+         ! Invariant: every entry is same-rank. Under the replicated-forest
+         ! layout all ranks own all realms' blocks, so the invariant holds
+         ! by construction. Cross-rank entries are not yet supported; the
+         ! forest's seam-fill loops error_stop if `seam_comm_map_send_ghost_cell`
+         ! becomes allocated.
          !
          ! Sizing for per-peer buffers: nv × max(row_count_per_peer), one column per peer.
          ! Realm exposes nv as a pointer component (initialize binds self%nv => adam%field%nv).

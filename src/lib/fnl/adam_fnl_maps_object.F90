@@ -40,7 +40,7 @@ type :: maps_fnl_object
    integer(I4P), pointer :: seam_local_map_ghost_cell_gpu(:,:)  => null() !< Per-cell seam ghost map (sorted by peer_realm).
    real(R8P),    pointer :: seam_local_send_buf_gpu(:,:)        => null() !< Per-peer pack buffer, device-resident.
    real(R8P),    pointer :: seam_local_recv_buf_gpu(:,:)        => null() !< Per-peer unpack buffer, device-resident.
-   ! Cross-rank seam — Phase A: declared but not populated.
+   ! Cross-rank seam — declared but not yet populated (same-rank fast path only).
    integer(I4P), pointer :: seam_comm_map_send_ghost_cell_gpu(:,:) => null()
    integer(I4P), pointer :: seam_comm_map_recv_ghost_cell_gpu(:,:) => null()
    real(R8P),    pointer :: seam_mpi_send_buf_gpu(:)               => null()
@@ -123,7 +123,7 @@ contains
    else if (verbose_) then
       call mpih_fnl%print_message('skip seam_local_recv_buf_gpu (CPU map not allocated)')
    endif
-   ! Cross-rank seam — Phase A: host counterparts unallocated, skip silently.
+   ! Cross-rank seam — host counterparts not yet populated; skip silently when absent.
    if (allocated(maps%seam_comm_map_send_ghost_cell)) then
       call dev_assign_to_device(dst=self%seam_comm_map_send_ghost_cell_gpu, src=maps%seam_comm_map_send_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy seam_comm_map_send_ghost_cell done')

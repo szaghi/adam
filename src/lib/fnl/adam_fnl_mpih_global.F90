@@ -10,9 +10,8 @@ module adam_fnl_mpih_global
 !< the local communicator — all one-per-process, not one-per-realm. FUNDAL's mpih_object
 !< even associates its device members (`mydev`, `local_comm`, ...) to fundal_env global
 !< variables, so there is exactly one device context regardless of realm count. Promoting
-!< it to a per-realm value component (the C.3 over-application, issue #13 D.4a) duplicated
-!< the handler and re-ran device init per realm, corrupting the CUDA primary context on the
-!< multi-realm path. Reverted to a true singleton here.
+!< it to a per-realm value component duplicates the handler and re-runs device init per
+!< realm, corrupting the CUDA primary context on the multi-realm path. True singleton here.
 !<
 !< Init-once discipline: FUNDAL's `initialize` is `intent(out)` (it wipes self) and runs the
 !< device init + communicator split under `do_device_init`. It must therefore be called

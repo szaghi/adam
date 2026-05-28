@@ -91,7 +91,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: set_solenoid_x         !< Subroutine to set a solenoid source with +-x normal
       procedure, pass(self) :: set_solenoid_y         !< Subroutine to set a solenoid source with +-y normal
       procedure, pass(self) :: set_solenoid_z         !< Subroutine to set a solenoid source with +-z normal
-      procedure, pass(self) :: coupling_descriptor_forest !< Report (scheme_time, rk_scheme, nv) for β admissibility (#18).
+      procedure, pass(self) :: coupling_descriptor_forest !< Report (scheme_time, rk_scheme, nv) for β admissibility.
 endtype prism_common_object
 
 contains
@@ -2610,7 +2610,7 @@ contains
    endsubroutine set_solenoid_z
 
    subroutine coupling_descriptor_forest(self, scheme_time, rk_scheme, nv)
-   !< Report this realm's coupling descriptor for β admissibility (issue #18).
+   !< Report this realm's coupling descriptor for β admissibility.
    !<
    !< Returns `(numerics%scheme_time, rk%scheme, physics%nv)`. β admits a
    !< seam between two realms iff all three values agree. Spatial operator

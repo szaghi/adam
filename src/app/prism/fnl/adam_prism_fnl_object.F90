@@ -1679,7 +1679,7 @@ contains
       if (loop_done) exit integration
    enddo integration
    call self%finalize_forest
-   call self%finalize_mpi_forest ! finalize_forest no longer finalizes MPI (issue #13); single-realm legacy path
+   call self%finalize_mpi_forest ! finalize_forest no longer finalizes MPI; single-realm legacy path
    endsubroutine simulate
 
    ! forest orchestrator contract methods overridings
@@ -1882,8 +1882,8 @@ contains
    !<
    !< `realm` accepted on contract for parity but unused: the seam has
    !< already been refreshed by the forest. Reflux for FV is not yet
-   !< implemented on the FNL side (the FV residual path is commented out;
-   !< `compute_residuals_fv_centered_dev` is a Phase B / follow-up port).
+   !< implemented on the FNL side (the FV residual path is commented
+   !< out; `compute_residuals_fv_centered_dev` is a follow-up port).
    class(prism_fnl_object),     intent(inout)                   :: self          !< The realm.
    integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
    integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count for this step.
@@ -1934,9 +1934,9 @@ contains
    ! `parallel loop` and copies peer's active GPU buffer cells into self's
    ! GPU ghost cells. No host staging; same-rank peers share device
    ! memory so the cross-realm read is a device-to-device copy on the
-   ! same GPU. Cross-rank peers (Phase B) will instead route the same
-   ! row range through the `seam_comm_map_*` MPI path (GPU-direct
-   ! MPI_Isend/MPI_Irecv on the device-resident
+   ! same GPU. Cross-rank peers (not yet implemented) will instead route
+   ! the same row range through the `seam_comm_map_*` MPI path
+   ! (GPU-direct MPI_Isend/MPI_Irecv on the device-resident
    ! `seam_mpi_send/recv_buf_gpu`).
 
    subroutine fill_seam_from_peer_forest(self, peer, p_idx)
@@ -2057,25 +2057,26 @@ contains
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
    !< PRISM-FNL override of the Berger-Colella reflux correction TBP.
    !<
-   !< Phase A: FV reflux is not yet implemented on the FNL side — the FNL
-   !< FV residual path (`compute_residuals_fv_centered_dev`) is a Phase B
-   !< port and currently does NOT accumulate fluxes into the register. The
-   !< override is therefore a deliberate **no-op**: with an empty flux
-   !< register on the FNL side (or with `nfaces == 0` for a single-realm
-   !< FNL forest), there is nothing to correct.
+   !< FV reflux is not yet implemented on the FNL side — the FNL FV
+   !< residual path (`compute_residuals_fv_centered_dev`) is a follow-up
+   !< port and currently does NOT accumulate fluxes into the register.
+   !< The override is therefore a deliberate **no-op**: with an empty
+   !< flux register on the FNL side (or with `nfaces == 0` for a
+   !< single-realm FNL forest), there is nothing to correct.
    !<
-   !< **α.r1 cadence (forward-consistency gate; PRD #16 M5):** the body
-   !< returns immediately for `stage /= self%rk%nrk`. Under the current
-   !< no-op body this is observationally identical to the previous
-   !< unconditional return, but it expresses the α.r1 contract explicitly:
-   !< when the FNL FV residual path is ported (Phase B), the body grows
-   !< into the OpenACC twin of `prism_cpu_object%apply_reflux_to_stage_forest`
-   !< — walk `flux_register%face(:)` for entries where `coarse_realm ==
+   !< **α.r1 cadence (forward-consistency gate):** the body returns
+   !< immediately for `stage /= self%rk%nrk`. Under the current no-op
+   !< body this is observationally identical to the previous
+   !< unconditional return, but it expresses the α.r1 contract
+   !< explicitly: when the FNL FV residual path is ported, the body
+   !< grows into the OpenACC twin of
+   !< `prism_cpu_object%apply_reflux_to_stage_forest` — walk
+   !< `flux_register%face(:)` for entries where `coarse_realm ==
    !< self%realm_index` and write the per-cell correction into
    !< `self%rk_fnl%q_rk_gpu(:, b, i, j, k, stage)` under a
    !< `!$acc parallel loop` — and that twin must fire exactly once per
    !< realm per step at the realm's final RK substage, reading the
-   !< register's collapsed third-axis `(:,:,1)` bucket (M2 reshape).
+   !< register's collapsed third-axis `(:,:,1)` bucket.
    class(prism_fnl_object),     intent(inout) :: self          !< The realm.
    integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
    real(R8P),                   intent(in)    :: dt            !< Time step.
@@ -2104,18 +2105,17 @@ contains
    !< step block formerly inline in `simulate` — every action runs every
    !< step, since today's cadence is enforced inside the save_* routines
    !< themselves (e.g. save_simulation_data honours `io%it_save`). The
-   !< `do_*` flags are signature-only for now: when the forest takes over
-   !< cadence (Phase A.6 commit 8 / Phase C), the flags will gate the
-   !< individual calls. For now they are accepted but unused, preserving
-   !< present-day behavior bit-for-bit.
+   !< `do_*` flags are signature-only for now: when the forest takes
+   !< over cadence the flags will gate the individual calls. For now
+   !< they are accepted but unused, preserving present-day behavior
+   !< bit-for-bit.
    !<
    !< `dt`, `t`, `it` are not consumed by the current body; they are on
    !< the contract so the forest can supply them once it owns time-state
    !< (today they are still read from the `time` module singleton).
    !<
-   !< Optional `realm(:)` (issue #13, 2026-05-25): forwarded to
-   !< save_simulation_data and update_ghost for the dummy-argument
-   !< inter-realm halo refresh path.
+   !< Optional `realm(:)`: forwarded to save_simulation_data and
+   !< update_ghost for the dummy-argument inter-realm halo refresh path.
    class(prism_fnl_object), intent(inout)                   :: self              !< The realm.
    real(R8P),               intent(in)                      :: dt                !< Timestep size just advanced.
    real(R8P),               intent(in)                      :: t                 !< Simulation time after the advance.
@@ -2151,9 +2151,9 @@ contains
    !< Body delegates the local computation to compute_local_dt_forest
    !< (orchestrator contract method), then performs the legacy
    !< MPI_ALLREDUCE on MPI_COMM_WORLD for backward compatibility with
-   !< simulate. The forest's `compute_global_dt` (Phase A.6 commit 8)
-   !< will perform its own reduction, possibly on a per-realm sub-comm;
-   !< the redundancy disappears once the legacy compute_dt is retired.
+   !< simulate. The forest's `compute_global_dt` performs its own
+   !< reduction, possibly on a per-realm sub-comm; the redundancy
+   !< disappears once the legacy compute_dt is retired.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    call self%compute_local_dt_forest(dt_local=self%time%dt)
