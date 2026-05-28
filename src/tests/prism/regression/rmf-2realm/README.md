@@ -18,11 +18,8 @@ rmf-2realm/
    realm_2.ini     # complete PRISM INI for realm 2 (x ∈ [ 0,  0.06], ni=8, nj=16, nk=16)
    golden/
       cpu/         # CPU-backend α golden (digest.txt + per-realm residuals.dat)
+      fnl/         # FNL-backend α golden (digest.txt + per-realm residuals.dat)
 ```
-
-The companion case `../rmf-2realm-asymK/` extends this geometry to
-asymmetric per-realm K (realm_1: SSP-RK-3, realm_2: SSP-RK-5); see PRD #16
-M7 for the rationale.
 
 The two `realm_*.ini` files differ only in:
 
@@ -35,7 +32,17 @@ Every other section — `[numerics]`, `[physics]`, `[fdv]`, `[runge_kutta]`,
 blocks, the BC sections — is byte-identical between realms and to the
 single-realm `rmf/input.ini`.
 
-There is no FNL golden yet — see "FNL status" below.
+### Sibling cases
+
+| Case | Cadence | K_realm | Validation oracle | Tracked in |
+|---|---|---|---|---|
+| `rmf-2realm`           | α (end_of_step)       | 5/5 | own α golden                          | PRD #16 M6 |
+| `rmf-2realm-asymK`     | α (end_of_step)       | 3/5 | own α golden (asymmetric K)           | PRD #16 M7 |
+| `rmf-2realm-stagesync` | β (stage_coincident)  | 5/5 | own β golden **+** match against `rmf/golden/<backend>/digest.txt` | PRD #18 M5 |
+
+All three cases share the same geometry (x-split at x=0, `ni=8` per realm)
+and physics; they differ only in the manifest's `coupling_cadence`
+(α/β) and, for `rmf-2realm-asymK`, the per-realm RK scheme.
 
 ## Grid-alignment rationale
 
@@ -133,25 +140,28 @@ orthogonal to the per-stage vs end-of-step cadence change.
 
 ## FNL status
 
-The architectural blocker that prevented FNL multi-realm has been resolved
-on develop: `field_fnl`, `rk_fnl`, `ib_fnl`, `weno_fnl` (and PRISM-specific
-`coil_fnl`, `fwlayer_fnl`) are now per-realm value components on
-`prism_fnl_object` instead of program-scope singletons (commits
-`8000ae7b`, `d2fb7bc8`, `90d0343e`, `76760724`). The α end-of-step gate is
-in place on the FNL twin (commit `ebd5024d`, PRD #16 M5); the body remains
-a no-op pending the FNL FV residual port (PRD #16 out-of-scope, Phase B).
+The FNL backend is fully exercised by this case. The architectural
+prerequisites — per-realm `field_fnl`, `rk_fnl`, `ib_fnl`, `weno_fnl`,
+plus PRISM-specific `coil_fnl` and `fwlayer_fnl`, all promoted from
+program-scope singletons to value components on `prism_fnl_object` —
+landed during PRD #16 (commits `8000ae7b`, `d2fb7bc8`, `90d0343e`,
+`76760724`). The α end-of-step reflux gate is in place (commit
+`ebd5024d`, PRD #16 M5); the body remains a no-op pending the FNL FV
+residual port (Phase B, out of scope).
 
-A runtime crash remains on WSL2: `rmf-2realm/fnl` aborts at
-`receive_recv_buffer_ghost_gpu_dev:139` with `CUDA_ERROR_INVALID_VALUE`
-after the first cross-realm seam exchange. Standalone FUNDAL tests
-(including `mpirun -np 2`) all pass; single-realm `rmf/fnl` passes. The
-failure is not reproducible outside PRISM and is hypothesised to be a
-WSL-UCX × OpenACC × FUNDAL device-memcpy interaction (the WSL `/dev/dxg`
-shim does not retrieve the GPU primary context through UCX rendezvous;
-see CLAUDE.md "Development Environment: WSL2 GPU+MPI Caveats").
+A latent nvfortran 26.1 polymorphic-array TBP dispatch bug surfaced
+during the FNL bring-up on bare-metal host `adam`: dispatching
+`realm(is)%end_stage_forest(...)` directly on the polymorphic array
+element segfaulted inside libnvf's `pgf90_copy_f90_argl_i8` while
+marshalling explicit-bound array dummies. The fix is a one-line
+`associate(r => realm(is))` wrapper that binds the element to a
+polymorphic scalar before dispatch (commit `0062a237`), pre-emptively
+applied to every polymorphic-array TBP call site in `evolve_one_step`.
+The CPU build (gfortran) is unaffected.
 
-Cluster validation is required before the FNL rmf-2realm golden can be
-captured. Until then the case runs only under CPU.
+Both backends now capture and PASS goldens for all three sibling cases:
+`rmf-2realm/{cpu,fnl}`, `rmf-2realm-asymK/{cpu,fnl}`, and
+`rmf-2realm-stagesync/{cpu,fnl}`.
 
 ## Per-realm INI duplication
 
