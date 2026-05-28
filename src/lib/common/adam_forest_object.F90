@@ -163,33 +163,47 @@ contains
    !< Advance every realm by one global timestep — α end-of-step barrier semantics.
    !<
    !< N=1 fast path: realm owns the whole step (advance_one_step_forest).
-   !< No α machinery is exercised (there are no peer seams to refresh).
+   !< No seam machinery is exercised (there are no peer seams to refresh).
    !<
-   !< N>1 multi-realm path (α, AMReX-aligned coarse-fine convention):
+   !< N>1 multi-realm path: per-seam coupling cadence (α / β).
    !<
    !< The forest drives an integrator-agnostic K-stage clock with
    !< `K_realm(is) = realm(is)%stages_per_step_forest()` and
    !< `K_max = max(K_realm)`. Asymmetric per-realm K is a first-class
-   !< operating mode: the K-equality guard is removed. The per-stage TBPs
-   !< (begin/end_stage_forest) are gated behind `k <= K_realm(is)` so a
-   !< realm with K < K_max no-ops the trailing stages.
+   !< operating mode under α; the per-stage TBPs (begin/end_stage_forest)
+   !< are gated behind `k <= K_realm(is)` so a realm with K < K_max
+   !< no-ops the trailing stages.
    !<
-   !< Seam coupling cadence (the α innovation):
+   !< Each inter-realm seam carries a `coupling_cadence` from the manifest
+   !< (cached on the realm as `seam_local_cadence(p)`; see issue #18):
    !<
-   !<   Mid-step peer ghosts are INTENTIONALLY STALE-BY-ONE-STEP. The
-   !<   per-stage inter-realm seam fill that earlier versions ran inside
-   !<   the stage loop is REMOVED. During stages 1..K, each realm reads
-   !<   the peer ghosts established by the previous end-of-step exchange
-   !<   (or by the initial-condition seam fill at populate_inter_realm_topology
-   !<   time, for the first step). This is structurally identical to
-   !<   AMReX's `FillCoarsePatch` reading coarse `t^n` data during fine
-   !<   sub-steps (Berger-Oliger 1984; AMReX_Amr.cpp::timeStep).
+   !< α (CADENCE_END_OF_STEP, default; AMReX-aligned coarse-fine convention)
+   !<   Mid-step peer ghosts are INTENTIONALLY STALE-BY-ONE-STEP. During
+   !<   stages 1..K, each realm reads the peer ghosts established by the
+   !<   previous end-of-step exchange (or by the initial-condition seam
+   !<   fill at populate_inter_realm_topology time, for the first step).
+   !<   This is structurally identical to AMReX's `FillCoarsePatch`
+   !<   reading coarse `t^n` data during fine sub-steps (Berger-Oliger
+   !<   1984; AMReX_Amr.cpp::timeStep). Phase 5 (below) is the α seam
+   !<   coherence boundary: once per step, after `close_step_forest`,
+   !<   every realm's `stage_active == 0` and the receiver reads peer's
+   !<   committed `q`. α admits asymmetric per-realm K (the K-equality
+   !<   guard is removed). Cost: first-order seam coupling in time.
    !<
-   !<   The end-of-step seam fill (Phase 5 below) is the seam coherence
-   !<   boundary. After every realm completes `close_step_forest`, every
-   !<   realm's `stage_active == 0` and the receiver reads peer's committed
-   !<   `q` (the same buffer-selection logic that already lives in
-   !<   `fill_seam_from_peer_forest`).
+   !< β (CADENCE_STAGE_COINCIDENT, opt-in; issue #18)
+   !<   Peer ghosts are refreshed once per RK substage, inside the K loop
+   !<   (Phase 2 below), before `end_stage_forest` reads them. Admissible
+   !<   only when both endpoint realms agree on (scheme_time, rk_scheme,
+   !<   nv, K) — enforced at forest init by `check_beta_admissibility`.
+   !<   Recovers bit-equivalence to a monolithic single-realm run on the
+   !<   union grid when admissible. Seam coupling order matches the
+   !<   per-realm interior order. Spatial operator MAY differ per realm.
+   !<
+   !< Per-seam selection: the same forest may carry α seams and β seams
+   !< simultaneously. Phase 2 iterates seams and fires only for β; Phase 5
+   !< iterates seams and fires only for α. A seam is filled exactly once
+   !< per step under either cadence (Phase 2 may fire K times for β, but
+   !< at successive substages, never duplicating the same substage).
    !<
    !< Reflux cadence (α.r1):
    !<
@@ -198,25 +212,30 @@ contains
    !<   on the realm's own final RK substage (`stage == rk%nrk`). Earlier
    !<   substages no-op. The mid-step `apply_reflux_corrections` call below
    !<   therefore fires for every k, but only the k == K_realm(is)
-   !<   invocation does real work on realm `is`. End-of-step single-stage
-   !<   reflux is the AMReX-aligned default; per-stage RK-weighted reflux
-   !<   (Wang 2018) is a same-K-only refinement that is dropped under α to
-   !<   enable asymmetric K.
+   !<   invocation does real work on realm `is`. Independent of α/β: β
+   !<   does not restore Wang 2018 per-stage RK-weighted reflux (deferred).
    !<
    !< Phase outline:
    !<
    !<   Phase 0 — open_step_forest (per-realm prologue)
    !<   For k = 1..K_max:
    !<     Phase 1 — begin_stage_forest (per-realm, gated by k <= K_realm(is))
-   !<     Phase 3 — end_stage_forest   (per-realm, gated by k <= K_realm(is))
+   !<     Phase 2 — fill_seam_from_peer_forest (per-seam, β-gated)
+   !<     Phase 3 — end_stage_forest (per-realm, gated by k <= K_realm(is))
    !<               + reduce_fine_sums + apply_reflux_corrections
    !<               (reflux body is α.r1 end-of-step gated inside the realm)
    !<   Phase 4 — close_step_forest (per-realm epilogue)
-   !<   Phase 5 — fill_seam_from_peer_forest (forest-driven, once per step)
+   !<   Phase 5 — fill_seam_from_peer_forest (per-seam, α-gated)
    !<
-   !< Future per-realm-dt subcycling (Berger-Colella "case 4") is a strict
-   !< superset of α and will reuse this barrier with added temporal
-   !< interpolation. γ (dense-output peer reads) is a separate research RFC.
+   !< LOAD-BEARING INVARIANT (β): Phase 2 must complete on ALL realms
+   !< before Phase 3 starts on ANY realm. The orchestrator's serial inner
+   !< loops within a rank give this for free under the Phase-A
+   !< replicated-forest layout. If a future refactor interleaves Phase 2
+   !< and Phase 3, the read-after-overwrite race returns.
+   !<
+   !< Future per-realm-dt subcycling (Berger-Colella "case 4") and γ
+   !< (dense-output peer reads) are deferred. β with asymmetric K would
+   !< require γ-class interpolation; not in scope.
    class(forest_object), intent(inout)         :: self        !< The forest.
    class(realm_object),  intent(inout), target :: realm(:)    !< The realms to advance.
    real(R8P)                                   :: dt          !< Global timestep size.
@@ -250,8 +269,41 @@ contains
             call realm(is)%begin_stage_forest(k=k, K_total=K_max, dt=dt)
          enddo
 
-         ! α: no mid-step inter-realm seam fill. Peer ghosts hold the
-         ! previous end-of-step exchange (AMReX FillCoarsePatch convention).
+         ! Phase 2 — per-seam mid-step inter-realm seam fill (β, issue #18).
+         !
+         ! Fires only for seams whose manifest `coupling_cadence` is
+         ! `CADENCE_STAGE_COINCIDENT`. At this point all participating
+         ! realms have completed `begin_stage_forest(k)` (their stage-k
+         ! interior buffer is written), so reading peer's stage-k interior
+         ! is well-defined. The TBP's buffer-selection logic in
+         ! `fill_seam_from_peer_forest` reads peer's `rk%q_rk(:,...,
+         ! peer%stage_active)` = peer's stage-k slice and writes self's
+         ! stage-k ghosts. Race-free under the Phase-A replicated-forest
+         ! layout (serial inner loops within a rank); the
+         ! Phase 2 → Phase 3 ordering invariant the pre-α three-phase
+         ! split mitigated is re-established.
+         !
+         ! α seams keep `CADENCE_END_OF_STEP` and skip this loop; their
+         ! peer ghosts continue to hold the previous end-of-step exchange
+         ! (Berger-Oliger 1984 / AMReX FillCoarsePatch).
+         !
+         ! `associate` wrapper: nvfortran 26.1 workaround for the polymorphic
+         ! array element dispatch bug (same fix shape as Phase 3 below;
+         ! commit 0062a237). Pre-emptive: this is a new dispatch site that
+         ! the workaround should cover from the start.
+         do is = 1_I4P, int(size(realm), I4P)
+            if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
+            if (.not. allocated(realm(is)%adam%maps%seam_local_cadence)) cycle
+            if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
+               call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented (Phase B)')
+            do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
+               if (realm(is)%adam%maps%seam_local_cadence(p) /= CADENCE_STAGE_COINCIDENT) cycle
+               peer_idx = realm(is)%adam%maps%seam_local_peer_realm(p)
+               associate(r => realm(is))
+                  call r%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)
+               end associate
+            enddo
+         enddo
 
          ! Phase 3 — residuals (with flux_register) + assign on each participating realm.
          do is = 1_I4P, int(size(realm), I4P)
@@ -293,14 +345,27 @@ contains
       ! former per-stage Phase 2: receiver walks its own seam map, copies
       ! peer-INTERIOR cells into self's GHOST cells; backend dispatch via
       ! `select type(peer)` inside the receiver's override.
+      !
+      ! Per-seam gating (issue #18): only seams with `coupling_cadence ==
+      ! CADENCE_END_OF_STEP` (the α default) fire here. β seams
+      ! (`CADENCE_STAGE_COINCIDENT`) were already filled at every substage
+      ! in Phase 2 inside the K loop; firing again here would double-write
+      ! and waste work.
+      !
+      ! `associate` wrapper: same nvfortran 26.1 workaround as Phase 2 and
+      ! Phase 3 (commit 0062a237). Pre-emptive coverage.
       do is = 1_I4P, int(size(realm), I4P)
          if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
+         if (.not. allocated(realm(is)%adam%maps%seam_local_cadence)) cycle
          ! Phase-A guard: cross-rank seam path is not implemented.
          if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
             call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented (Phase B)')
          do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
+            if (realm(is)%adam%maps%seam_local_cadence(p) /= CADENCE_END_OF_STEP) cycle
             peer_idx = realm(is)%adam%maps%seam_local_peer_realm(p)
-            call realm(is)%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)
+            associate(r => realm(is))
+               call r%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)
+            end associate
          enddo
       enddo
 
