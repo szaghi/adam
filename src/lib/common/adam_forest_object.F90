@@ -28,6 +28,7 @@ module adam_forest_object
 use :: adam_realm_object,         only : realm_object
 use :: adam_maps_object,          only : inter_realm_neighbor_t,                                                  &
                                          FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
+                                         CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT,                          &
                                          face_axis_sign
 use :: adam_forest_manifest,      only : forest_manifest_t, forest_face_pair_t
 use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM
@@ -113,6 +114,7 @@ contains
       call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realms_number=self%n)
    enddo
    call self%populate_inter_realm_topology(realm, manifest)
+   call check_beta_admissibility(realm=realm, manifest=manifest)
    endsubroutine initialize_from_manifest
 
    subroutine finalize(self, realm)
@@ -383,6 +385,60 @@ contains
    endsubroutine simulate_from_manifest
 
    ! private methods
+   subroutine check_beta_admissibility(realm, manifest)
+   !< Enforce β admissibility contract on every `stage_coincident` seam.
+   !<
+   !< For each manifest face-pair with `coupling_cadence == CADENCE_STAGE_COINCIDENT`,
+   !< query both endpoint realms' `coupling_descriptor_forest` and verify
+   !< they agree on (scheme_time, rk_scheme, nv). On any mismatch
+   !< `error_stop` with a precise diagnostic naming the offending pair and
+   !< the specific descriptor field that disagrees. Per-realm K participation
+   !< (`stages_per_step_forest()`) is verified too: under β both endpoints
+   !< must report the same K (asymmetric-K is α's domain, not β's).
+   !<
+   !< Issue #18. Runs once at `initialize_from_manifest` time, after every
+   !< realm's `initialize_forest` has populated `numerics`, `rk`, `physics`.
+   class(realm_object),     intent(inout) :: realm(:) !< The initialized realms.
+   type(forest_manifest_t), intent(in)    :: manifest !< Parsed manifest.
+   integer(I4P)                           :: f        !< Face-pair index.
+   integer(I4P)                           :: ra, rb   !< Endpoint realm indices.
+   character(:), allocatable              :: st_a, rk_a, st_b, rk_b !< Descriptor strings.
+   integer(I4P)                           :: nv_a, nv_b, k_a, k_b   !< Descriptor integers.
+
+   if (.not. allocated(manifest%face_pairs)) return
+   do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+      if (manifest%face_pairs(f)%coupling_cadence /= CADENCE_STAGE_COINCIDENT) cycle
+      ra = manifest%face_pairs(f)%realm_a
+      rb = manifest%face_pairs(f)%realm_b
+      call realm(ra)%coupling_descriptor_forest(scheme_time=st_a, rk_scheme=rk_a, nv=nv_a)
+      call realm(rb)%coupling_descriptor_forest(scheme_time=st_b, rk_scheme=rk_b, nv=nv_b)
+      k_a = realm(ra)%stages_per_step_forest()
+      k_b = realm(rb)%stages_per_step_forest()
+      if (nv_a < 0_I4P .or. nv_b < 0_I4P) &
+         call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
+            ' has stage_coincident cadence but realm '//trim(str(ra, .true.))//' or '//                       &
+            trim(str(rb, .true.))//' does not implement coupling_descriptor_forest (issue #18)')
+      if (st_a /= st_b) &
+         call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
+            ' stage_coincident requires equal scheme_time between realm '//trim(str(ra, .true.))//' ("'//     &
+            st_a//'") and realm '//trim(str(rb, .true.))//' ("'//st_b//'") (issue #18)')
+      if (rk_a /= rk_b) &
+         call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
+            ' stage_coincident requires equal rk_scheme between realm '//trim(str(ra, .true.))//' ("'//       &
+            rk_a//'") and realm '//trim(str(rb, .true.))//' ("'//rk_b//'") (issue #18)')
+      if (nv_a /= nv_b) &
+         call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
+            ' stage_coincident requires equal physics nv between realm '//trim(str(ra, .true.))//' ('//       &
+            trim(str(nv_a, .true.))//') and realm '//trim(str(rb, .true.))//' ('//trim(str(nv_b, .true.))//   &
+            ') (issue #18)')
+      if (k_a /= k_b) &
+         call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
+            ' stage_coincident requires equal K (no stalling) between realm '//trim(str(ra, .true.))//' ('// &
+            trim(str(k_a, .true.))//') and realm '//trim(str(rb, .true.))//' ('//trim(str(k_b, .true.))//    &
+            ') (issue #18)')
+   enddo
+   endsubroutine check_beta_admissibility
+
    subroutine populate_inter_realm_topology(self, realm, manifest)
    !< Translate manifest face-pairs into per-realm maps%inter_realm_neighbors.
    !<
@@ -463,7 +519,7 @@ contains
    ! exchange_inter_realm_halos_forest TBP can be deleted in a single pass.
    ! Every entry is required to be same-rank under Phase A (replicated forest);
    ! cross-rank entries error_stop here to flag the unimplemented Phase B path.
-   call build_seam_local_map(realm=realm)
+   call build_seam_local_map(realm=realm, manifest=manifest)
    ! Override the BC crown's bc_type column to BC_SEAM for entries that
    ! lie on an inter-realm seam face.
    !
@@ -892,7 +948,7 @@ contains
       enddo
       endsubroutine build_inter_realm_ghost_cell_map
 
-      subroutine build_seam_local_map(realm)
+      subroutine build_seam_local_map(realm, manifest)
       !< Derive `seam_local_map_ghost_cell` (sorted by `peer_realm`) +
       !< per-peer index arrays + per-peer pack/unpack buffers from the
       !< already-populated `inter_realm_ghost_cell` map.
@@ -909,12 +965,20 @@ contains
       !< `comm_map_recv` (which lists who owns each block of the peer
       !< realm); a single cross-rank entry triggers an `error_stop` flagging
       !< the unimplemented Phase B `update_ghost_seam_mpi` path.
-      class(realm_object), intent(inout) :: realm(:)
+      !<
+      !< Issue #18 (β): also populates `seam_local_cadence(p)` per distinct
+      !< peer by matching `(is, peer)` against `manifest%face_pairs`. If two
+      !< face_pairs connect the same realm pair with conflicting cadences
+      !< the manifest is rejected here (cadence is a property of the realm
+      !< pair, not of an individual face).
+      class(realm_object),     intent(inout) :: realm(:)
+      type(forest_manifest_t), intent(in)    :: manifest
       integer(I4P)                       :: is, c, nrows, n_peers, p, peer
       integer(I4P)                       :: nv_is, max_rows_per_peer
       integer(I4P), allocatable          :: peer_list(:), peer_count(:), peer_cursor(:)
       integer(I4P)                       :: write_idx
       integer(I4P)                       :: src_col_peer  ! col 1 of inter_realm_ghost_cell
+      integer(I4P)                       :: f, cadence    ! manifest face-pair loop + resolved cadence
 
       src_col_peer = 1_I4P
 
@@ -925,6 +989,7 @@ contains
          if (allocated(maps%seam_local_peer_realm))     deallocate(maps%seam_local_peer_realm)
          if (allocated(maps%seam_local_peer_row_start)) deallocate(maps%seam_local_peer_row_start)
          if (allocated(maps%seam_local_peer_row_count)) deallocate(maps%seam_local_peer_row_count)
+         if (allocated(maps%seam_local_cadence))        deallocate(maps%seam_local_cadence)
          if (allocated(maps%seam_local_send_buf))       deallocate(maps%seam_local_send_buf)
          if (allocated(maps%seam_local_recv_buf))       deallocate(maps%seam_local_recv_buf)
 
@@ -966,6 +1031,35 @@ contains
                maps%seam_local_peer_row_start(p - 1_I4P)       + &
                maps%seam_local_peer_row_count(p - 1_I4P)
          enddo
+
+         ! Resolve per-peer seam-fill cadence from the manifest face-pairs
+         ! (issue #18). For each (is, peer) ordered pair, walk
+         ! manifest%face_pairs and record the cadence of the first match;
+         ! subsequent matches on the same pair MUST agree (otherwise the
+         ! manifest is ambiguous and we error_stop).
+         allocate(maps%seam_local_cadence(n_peers))
+         maps%seam_local_cadence = CADENCE_END_OF_STEP  ! safe default if no face-pair matches
+         if (allocated(manifest%face_pairs)) then
+            do p = 1_I4P, n_peers
+               cadence = -1_I4P  ! sentinel: "no match yet"
+               do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+                  if ((manifest%face_pairs(f)%realm_a == is             .and.    &
+                       manifest%face_pairs(f)%realm_b == peer_list(p))  .or.     &
+                      (manifest%face_pairs(f)%realm_b == is             .and.    &
+                       manifest%face_pairs(f)%realm_a == peer_list(p))) then
+                     if (cadence == -1_I4P) then
+                        cadence = manifest%face_pairs(f)%coupling_cadence
+                     elseif (cadence /= manifest%face_pairs(f)%coupling_cadence) then
+                        call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: '// &
+                           'conflicting coupling_cadence between realm '//trim(str(is, .true.))// &
+                           ' and realm '//trim(str(peer_list(p), .true.))//                       &
+                           ' across multiple face_pairs (issue #18)')
+                     endif
+                  endif
+               enddo
+               if (cadence /= -1_I4P) maps%seam_local_cadence(p) = cadence
+            enddo
+         endif
 
          ! Allocate the sorted map (same row count, 9 cols — drop the
          ! one_or_eight column reserved for AMR coarse-fine).

@@ -151,6 +151,7 @@ type :: realm_object
       procedure, pass(self) :: compute_local_dt_forest           !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest           !< Invoked by forest%evolve_one_step per realm per timestep.
       procedure, pass(self) :: stages_per_step_forest            !< Number of integrator stages this realm exposes per step.
+      procedure, pass(self) :: coupling_descriptor_forest        !< Report (scheme_time, rk_scheme, nv) for β admissibility (#18).
       procedure, pass(self) :: open_step_forest                  !< Per-step prologue (multi-realm path).
       procedure, pass(self) :: begin_stage_forest                !< Begin one integrator stage on this realm (multi-realm path).
       procedure, pass(self) :: end_stage_forest                  !< End the stage: residuals + assignment (multi-realm path).
@@ -468,6 +469,32 @@ contains
 
    call mpih%error_stop(msg='realm_object%stages_per_step_forest: not overridden by app extension')
    endfunction stages_per_step_forest
+
+   subroutine coupling_descriptor_forest(self, scheme_time, rk_scheme, nv)
+   !< Report this realm's coupling descriptor for β admissibility (issue #18).
+   !<
+   !< Returns the identity of the realm's ODE solver + physics layout. Two
+   !< realms may share a seam with `CADENCE_STAGE_COINCIDENT` only if all
+   !< three values match between them; otherwise the forest rejects the
+   !< manifest. Spatial operator (`scheme_space`) and grid resolution are
+   !< NOT in the descriptor — those are precisely the dimensions β allows
+   !< to differ between realms.
+   !<
+   !< Default implementation returns empty strings and sentinel `nv = -1`:
+   !< a realm that does not override this TBP cannot participate in β.
+   !< App-side overrides (e.g. `prism_common_object`) report
+   !< `numerics%scheme_time`, `rk%scheme`, `physics%nv`.
+   class(realm_object),       intent(in)  :: self        !< The realm.
+   character(:), allocatable, intent(out) :: scheme_time !< Time-integration family tag ("runge_kutta", "leapfrog", ...).
+   character(:), allocatable, intent(out) :: rk_scheme   !< Within-family scheme tag ("runge-kutta-ssp-54", ...).
+   integer(I4P),              intent(out) :: nv          !< Number of conserved variables on this realm.
+
+   associate(self_unused => self) ! method takes self for TBP-dispatch symmetry; default reports sentinel
+   end associate
+   scheme_time = ''
+   rk_scheme   = ''
+   nv          = -1_I4P
+   endsubroutine coupling_descriptor_forest
 
    subroutine open_step_forest(self, dt)
    !< Per-step prologue on the multi-realm path: pre-stage-loop setup.

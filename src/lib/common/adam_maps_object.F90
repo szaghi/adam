@@ -225,6 +225,8 @@ type :: maps_object
    integer(I4P), allocatable :: seam_local_peer_realm(:)     !< Peer realm index for each row range (one entry per distinct peer).
    integer(I4P), allocatable :: seam_local_peer_row_start(:) !< First row index in seam_local_map_ghost_cell for each peer.
    integer(I4P), allocatable :: seam_local_peer_row_count(:) !< Row count in seam_local_map_ghost_cell for each peer.
+   integer(I4P), allocatable :: seam_local_cadence(:)        !< Per-peer seam-fill cadence (CADENCE_END_OF_STEP|CADENCE_STAGE_COINCIDENT;
+                                                             !< populated from manifest face_pairs; issue #18).
    !
    ! Per-peer pack/unpack buffers. Shape: `(nv * max_rows_per_peer, n_peers)`.
    ! Each peer's pack-then-unpack roundtrip uses an independent column — the

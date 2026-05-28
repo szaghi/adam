@@ -91,6 +91,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: set_solenoid_x         !< Subroutine to set a solenoid source with +-x normal
       procedure, pass(self) :: set_solenoid_y         !< Subroutine to set a solenoid source with +-y normal
       procedure, pass(self) :: set_solenoid_z         !< Subroutine to set a solenoid source with +-z normal
+      procedure, pass(self) :: coupling_descriptor_forest !< Report (scheme_time, rk_scheme, nv) for β admissibility (#18).
 endtype prism_common_object
 
 contains
@@ -2607,6 +2608,26 @@ contains
       endif
       endsubroutine compute_solenoid_current_density_flux_analytic_z
    endsubroutine set_solenoid_z
+
+   subroutine coupling_descriptor_forest(self, scheme_time, rk_scheme, nv)
+   !< Report this realm's coupling descriptor for β admissibility (issue #18).
+   !<
+   !< Returns `(numerics%scheme_time, rk%scheme, physics%nv)`. β admits a
+   !< seam between two realms iff all three values agree. Spatial operator
+   !< (`numerics%scheme_space`) is intentionally NOT in the descriptor — β
+   !< exists precisely to support different spatial operators per realm.
+   !<
+   !< Provided on `prism_common_object` so both `prism_cpu_object` and
+   !< `prism_fnl_object` inherit a single implementation.
+   class(prism_common_object), intent(in)  :: self        !< The realm.
+   character(:), allocatable,  intent(out) :: scheme_time !< Time-integration family tag ("runge_kutta", "leapfrog", ...).
+   character(:), allocatable,  intent(out) :: rk_scheme   !< Within-family scheme tag ("runge-kutta-ssp-54", ...).
+   integer(I4P),               intent(out) :: nv          !< Number of conserved variables on this realm.
+
+   scheme_time = self%numerics%scheme_time
+   rk_scheme   = self%rk%scheme
+   nv          = self%physics%nv
+   endsubroutine coupling_descriptor_forest
 
    function erf_function(s, mu, sigma) result(res)
    real(R8P), intent(in) :: s, mu, sigma
