@@ -25,11 +25,12 @@ module adam_forest_manifest
 !<   inter_realm_faces_number = 1
 !<
 !<   [forest.topology.face_1]
-!<   realm_a  = 1
-!<   face_a   = +x
-!<   realm_b  = 2
-!<   face_b   = -x
-!<   coupling = mirror       ; mirror | periodic | interpolate
+!<   realm_a          = 1
+!<   face_a           = +x
+!<   realm_b          = 2
+!<   face_b           = -x
+!<   coupling         = mirror             ; mirror | periodic | interpolate
+!<   coupling_cadence = end_of_step        ; end_of_step | stage_coincident (optional, default end_of_step; issue #18)
 !<```
 !<
 !< Single-INI detection: callers MUST check whether the file actually IS a
@@ -53,7 +54,8 @@ module adam_forest_manifest
 
 ! ADAM classes, libraries, parameters
 use :: adam_maps_object, only : FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
-                                 COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE
+                                 COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE,             &
+                                 CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, str
@@ -74,11 +76,12 @@ type :: forest_face_pair_t
    !< (during forest%initialize) each realm's maps%inter_realm_neighbors is
    !< populated with TWO inter_realm_neighbor_t entries per face pair — one
    !< from realm_a's perspective and one from realm_b's perspective.
-   integer(I4P) :: realm_a  = 0_I4P            !< First realm in the pair (1-based).
-   integer(I4P) :: face_a   = 0_I4P            !< Face code on realm_a (FACE_X_MAX..FACE_Z_MIN).
-   integer(I4P) :: realm_b  = 0_I4P            !< Second realm in the pair.
-   integer(I4P) :: face_b   = 0_I4P            !< Face code on realm_b.
-   integer(I4P) :: coupling = COUPLING_MIRROR  !< Coupling kind (default MIRROR for the first use case).
+   integer(I4P) :: realm_a          = 0_I4P                !< First realm in the pair (1-based).
+   integer(I4P) :: face_a           = 0_I4P                !< Face code on realm_a (FACE_X_MAX..FACE_Z_MIN).
+   integer(I4P) :: realm_b          = 0_I4P                !< Second realm in the pair.
+   integer(I4P) :: face_b           = 0_I4P                !< Face code on realm_b.
+   integer(I4P) :: coupling         = COUPLING_MIRROR      !< Coupling kind (default MIRROR for the first use case).
+   integer(I4P) :: coupling_cadence = CADENCE_END_OF_STEP  !< Seam-fill cadence (issue #18; α default, β opt-in).
 endtype forest_face_pair_t
 
 type :: forest_manifest_t
@@ -186,6 +189,9 @@ contains
    ! coupling — optional, default MIRROR
    call handle%get(section_name=section_name, option_name='coupling', val=buff, error=error)
    if (error == 0) pair%coupling = parse_coupling(trim(adjustl(buff)), section_name, context)
+   ! coupling_cadence — optional, default END_OF_STEP (α; issue #18)
+   call handle%get(section_name=section_name, option_name='coupling_cadence', val=buff, error=error)
+   if (error == 0) pair%coupling_cadence = parse_cadence(trim(adjustl(buff)), section_name, context)
    endsubroutine read_face_pair
 
    function parse_face(text, section_name, context) result(code)
@@ -222,4 +228,20 @@ contains
       error stop 'adam_forest_manifest: ['//trim(section_name)//'] unknown coupling "'//trim(text)//'" in '//trim(context)
    endselect
    endfunction parse_coupling
+
+   function parse_cadence(text, section_name, context) result(code)
+   !< Translate "end_of_step" / "stage_coincident" to the cadence code constant (issue #18).
+   character(*), intent(in) :: text         !< Cadence spec from the INI.
+   character(*), intent(in) :: section_name !< Section name (for error message).
+   character(*), intent(in) :: context      !< Manifest filename (for error message).
+   integer(I4P)             :: code         !< Resolved cadence code.
+
+   select case (text)
+   case ('end_of_step',      'End_of_step',      'END_OF_STEP'     ); code = CADENCE_END_OF_STEP
+   case ('stage_coincident', 'Stage_coincident', 'STAGE_COINCIDENT'); code = CADENCE_STAGE_COINCIDENT
+   case default
+      error stop 'adam_forest_manifest: ['//trim(section_name)//'] unknown coupling_cadence "'//trim(text)// &
+                 '" in '//trim(context)//' (expected end_of_step or stage_coincident)'
+   endselect
+   endfunction parse_cadence
 endmodule adam_forest_manifest

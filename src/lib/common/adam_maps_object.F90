@@ -21,6 +21,7 @@ public :: maps_object
 public :: inter_realm_neighbor_t
 public :: FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
 public :: COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE
+public :: CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT
 public :: face_axis_sign
 
 !< Face direction codes (see [[inter_realm_neighbor_t]]).
@@ -45,6 +46,20 @@ integer(I4P), parameter :: COUPLING_PERIODIC    = 2_I4P
                                                          !< Periodic identification across the inter-realm face (reserved, not
                                                          !< implemented).
 integer(I4P), parameter :: COUPLING_INTERPOLATE = 3_I4P  !< Interpolate across mismatched grids (reserved, not implemented).
+
+!< Inter-realm seam-coupling cadence (issue #18, forest β).
+!<
+!< `CADENCE_END_OF_STEP` is the α default: peer ghosts are refreshed once per
+!< global timestep, after `close_step_forest` on every realm (AMReX-aligned;
+!< first-order seam coupling in time; admits asymmetric per-realm K).
+!<
+!< `CADENCE_STAGE_COINCIDENT` is the β opt-in: peer ghosts are refreshed once
+!< per RK substage, inside the stage loop, before `end_stage_forest` reads
+!< them. Admissible only when both endpoint realms agree on (ODE scheme, K,
+!< physics layout). Recovers bit-equivalence to a monolithic single-realm
+!< run on the union grid when admissible.
+integer(I4P), parameter :: CADENCE_END_OF_STEP      = 0_I4P !< α: once per step, after close_step_forest (default).
+integer(I4P), parameter :: CADENCE_STAGE_COINCIDENT = 1_I4P !< β: once per RK substage, inside the stage loop.
 
 type :: inter_realm_neighbor_t
    !< Description of a single inter-realm face coupling.
