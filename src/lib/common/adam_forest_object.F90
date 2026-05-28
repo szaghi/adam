@@ -54,7 +54,7 @@ type :: forest_object
       procedure, pass(self) :: compute_global_dt      !< Min-reduce each realm's compute_local_dt_forest across the forest.
       procedure, pass(self) :: evolve_one_step        !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
       ! exchange_halos retired with `exchange_inter_realm_halos_forest` (#13);
-      ! Phase 2 of evolve_one_step handles inter-realm seam refresh.
+      ! α end-of-step seam fill (Phase 5 of evolve_one_step) handles inter-realm seam refresh.
       procedure, pass(self) :: is_done                !< AND-reduce each realm's is_done_forest across the forest.
       procedure, pass(self) :: post_step              !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
       procedure, pass(self) :: simulate               !< Main entry point (single shared INI): drive the full simulation.
@@ -158,66 +158,63 @@ contains
    endsubroutine compute_global_dt
 
    subroutine evolve_one_step(self, realm)
-   !< Advance every realm by one global timestep.
+   !< Advance every realm by one global timestep — α end-of-step barrier semantics.
    !<
    !< N=1 fast path: realm owns the whole step (advance_one_step_forest).
+   !< No α machinery is exercised (there are no peer seams to refresh).
    !<
-   !< N>1 multi-realm path: forest drives an integrator-agnostic K-stage
-   !< clock. `K_realm(is) = realm(is)%stages_per_step_forest()` is each
-   !< realm's own stride — for RK realms `K_realm = rk%nrk`; other
-   !< integrators report their own K. The forest takes
-   !< `K_max = max(K_realm)` and gates each per-stage TBP behind
-   !< `k <= K_realm(is)` so realms with a shorter stride participate
-   !< only in the stages they have.
+   !< N>1 multi-realm path (α, AMReX-aligned coarse-fine convention):
    !<
-   !< Per-stage participation guard (Phase A v2): all realms MUST report
-   !< the same K. The K_realm/K_max mechanics are in place so a future
-   !< PR can lift the guard without touching the loop shape, but the
-   !< temporal-coherence policy for sparse stages (what does a peer with
-   !< `stage_active == K_realm < k` publish during stages k > K_realm?
-   !< its committed `q`, or its last stage buffer?) is an open semantic
-   !< decision and the safe Phase-A default is "no sparsity".
+   !< The forest drives an integrator-agnostic K-stage clock with
+   !< `K_realm(is) = realm(is)%stages_per_step_forest()` and
+   !< `K_max = max(K_realm)`. Asymmetric per-realm K is a first-class
+   !< operating mode: the K-equality guard is removed. The per-stage TBPs
+   !< (begin/end_stage_forest) are gated behind `k <= K_realm(is)` so a
+   !< realm with K < K_max no-ops the trailing stages.
    !<
-   !<   Phase 0 — `do is: open_step_forest(dt)`
-   !<     Per-step prologue on each realm (external-field prelude,
-   !<     integrator-private stage-buffer init, time bookkeeping).
+   !< Seam coupling cadence (the α innovation):
    !<
+   !<   Mid-step peer ghosts are INTENTIONALLY STALE-BY-ONE-STEP. The
+   !<   per-stage inter-realm seam fill that earlier versions ran inside
+   !<   the stage loop is REMOVED. During stages 1..K, each realm reads
+   !<   the peer ghosts established by the previous end-of-step exchange
+   !<   (or by the initial-condition seam fill at populate_inter_realm_topology
+   !<   time, for the first step). This is structurally identical to
+   !<   AMReX's `FillCoarsePatch` reading coarse `t^n` data during fine
+   !<   sub-steps (Berger-Oliger 1984; AMReX_Amr.cpp::timeStep).
+   !<
+   !<   The end-of-step seam fill (Phase 5 below) is the seam coherence
+   !<   boundary. After every realm completes `close_step_forest`, every
+   !<   realm's `stage_active == 0` and the receiver reads peer's committed
+   !<   `q` (the same buffer-selection logic that already lives in
+   !<   `fill_seam_from_peer_forest`).
+   !<
+   !< Reflux cadence (α.r1):
+   !<
+   !<   The flux register's third axis is collapsed to 1. PRISM realms
+   !<   gate `apply_reflux_to_stage_forest` and `accumulate_seam_fluxes_fv`
+   !<   on the realm's own final RK substage (`stage == rk%nrk`). Earlier
+   !<   substages no-op. The mid-step `apply_reflux_corrections` call below
+   !<   therefore fires for every k, but only the k == K_realm(is)
+   !<   invocation does real work on realm `is`. End-of-step single-stage
+   !<   reflux is the AMReX-aligned default; per-stage RK-weighted reflux
+   !<   (Wang 2018) is a same-K-only refinement that is dropped under α to
+   !<   enable asymmetric K.
+   !<
+   !< Phase outline:
+   !<
+   !<   Phase 0 — open_step_forest (per-realm prologue)
    !<   For k = 1..K_max:
+   !<     Phase 1 — begin_stage_forest (per-realm, gated by k <= K_realm(is))
+   !<     Phase 3 — end_stage_forest   (per-realm, gated by k <= K_realm(is))
+   !<               + reduce_fine_sums + apply_reflux_corrections
+   !<               (reflux body is α.r1 end-of-step gated inside the realm)
+   !<   Phase 4 — close_step_forest (per-realm epilogue)
+   !<   Phase 5 — fill_seam_from_peer_forest (forest-driven, once per step)
    !<
-   !<     Phase 1 — `do is where k <= K_realm(is): begin_stage_forest(k)`
-   !<       Each participating realm opens stage `k` on its integrator-
-   !<       private buffer and sets `self%stage_active = k`. No ghost
-   !<       reads, no peer-realm access.
-   !<
-   !<     Phase 2 — `do is, p: fill_seam_from_peer_forest`
-   !<       Forest-driven inter-realm seam ghost fill. Each receiver realm
-   !<       `is` iterates its peer realms `p`; for each peer the receiver
-   !<       walks its own seam-map slice and copies peer-INTERIOR cells
-   !<       (peer-side columns 2/4/5/6) into self's GHOST cells (recv-side
-   !<       columns 3/7/8/9). Single TBP roundtrip per (receiver, peer);
-   !<       same call site for CPU and FNL, backend dispatch via
-   !<       `select type(peer)` inside the receiver's override. Buffer
-   !<       selection on each side is driven by `stage_active`, so the
-   !<       sparse-stage extension (peer with `K_realm < k`) is a no-op
-   !<       once the guard above is lifted.
-   !<
-   !<     Phase 3 — `do is where k <= K_realm(is): end_stage_forest(k, flux_register)`
-   !<       The race that originally required the begin/residuals/assign
-   !<       three-phase split is GONE: by the time the stage-`k` buffer's
-   !<       interior is overwritten, every receiver has already read its
-   !<       peer's interior in Phase 2. Residuals + assignment can run in
-   !<       a single sweep per realm, preserving today's reflux semantics
-   !<       (flux_register accumulation happens inside
-   !<       compute_residuals_fv_centered).
-   !<
-   !<   Phase 4 — `do is: close_step_forest`
-   !<     Per-step epilogue (assembly of committed state from stage
-   !<     buffers, BC, div-clean, time advance). Each realm clears its
-   !<     `stage_active`.
-   !<
-   !< LOAD-BEARING INVARIANT: Phase 2 must complete on ALL realms before
-   !< Phase 3 starts on ANY realm. If a future refactor interleaves Phase
-   !< 2 and Phase 3 the read-after-overwrite race returns.
+   !< Future per-realm-dt subcycling (Berger-Colella "case 4") is a strict
+   !< superset of α and will reuse this barrier with added temporal
+   !< interpolation. γ (dense-output peer reads) is a separate research RFC.
    class(forest_object), intent(inout)         :: self        !< The forest.
    class(realm_object),  intent(inout), target :: realm(:)    !< The realms to advance.
    real(R8P)                                   :: dt          !< Global timestep size.
@@ -242,12 +239,8 @@ contains
          K_realm(is) = realm(is)%stages_per_step_forest()
       enddo
       K_max = maxval(K_realm)
-      ! Phase A v2 guard: sparse stages (K_realm /= K_max) are structurally
-      ! supported by the loop below but semantically not yet defined; reject.
-      do is = 1_I4P, int(size(realm), I4P)
-         if (K_realm(is) /= K_max) &
-            call mpih%error_stop(msg='forest_object%evolve_one_step: realms disagree on stages_per_step_forest')
-      enddo
+      ! α: no K-equality guard. Asymmetric K is a first-class mode; the
+      ! per-stage gates below let a realm with K < K_max no-op trailing stages.
       do k = 1_I4P, K_max
          ! Phase 1 — open stage k on each participating realm; each realm sets stage_active=k.
          do is = 1_I4P, int(size(realm), I4P)
@@ -255,46 +248,45 @@ contains
             call realm(is)%begin_stage_forest(k=k, K_total=K_max, dt=dt)
          enddo
 
-         ! Phase 2 — forest-driven inter-realm seam ghost fill.
-         !
-         ! Backend-agnostic dispatch via a single TBP on the RECEIVER:
-         ! `realm(is)%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)`.
-         ! The receiver walks its own seam map (host on CPU, device on FNL),
-         ! `select type`s the peer to access its active buffer, and copies
-         ! peer-INTERIOR cells into self's GHOST cells. Single TBP, same
-         ! call site for CPU and FNL; backend differences confined to one
-         ! method per backend. Runs unconditionally regardless of K_realm —
-         ! a stalled realm (K_realm < k) keeps `stage_active = K_realm`
-         ! until close_step, so peers naturally pick up its last stage
-         ! buffer; if the receiver itself is stalled it writes into its
-         ! own last-stage buffer, which `close_step_forest` will overwrite.
-         do is = 1_I4P, int(size(realm), I4P)
-            if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
-            ! Phase-A guard: cross-rank seam path is not implemented.
-            if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
-               call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented (Phase B)')
-            do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
-               peer_idx = realm(is)%adam%maps%seam_local_peer_realm(p)
-               call realm(is)%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)
-            enddo
-         enddo
+         ! α: no mid-step inter-realm seam fill. Peer ghosts hold the
+         ! previous end-of-step exchange (AMReX FillCoarsePatch convention).
 
          ! Phase 3 — residuals (with flux_register) + assign on each participating realm.
-         ! Race-free: Phase 2 has already filled seam ghosts, and the
-         ! intra-realm residuals→assign ordering is the integrator's normal
-         ! flow within a single realm.
          do is = 1_I4P, int(size(realm), I4P)
             if (k > K_realm(is)) cycle
             call realm(is)%end_stage_forest(k=k, K_total=K_max, dt=dt, flux_register=self%flux_register)
          enddo
 
-         ! Reflux corrections — preserved placement; integrator-weighted inside.
+         ! Reflux corrections — invoked every stage; under α.r1 the realm-side
+         ! body is gated on `stage == rk%nrk` so real work happens only at each
+         ! realm's own end-of-step.
          call self%flux_register%reduce_fine_sums
          call self%apply_reflux_corrections(realm=realm, stage=k, dt=dt)
       enddo
       do is = 1_I4P, int(size(realm), I4P)
          call realm(is)%close_step_forest(dt=dt)
       enddo
+
+      ! Phase 5 — end-of-step inter-realm seam fill (α coherence barrier).
+      !
+      ! After close_step_forest, every realm has stage_active == 0 and its
+      ! committed `q` is the peer-visible state. fill_seam_from_peer_forest's
+      ! buffer-selection logic reads peer%q when peer%stage_active == 0, so
+      ! no new TBP or call-site contract is needed. Same dispatch as the
+      ! former per-stage Phase 2: receiver walks its own seam map, copies
+      ! peer-INTERIOR cells into self's GHOST cells; backend dispatch via
+      ! `select type(peer)` inside the receiver's override.
+      do is = 1_I4P, int(size(realm), I4P)
+         if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
+         ! Phase-A guard: cross-rank seam path is not implemented.
+         if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
+            call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented (Phase B)')
+         do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
+            peer_idx = realm(is)%adam%maps%seam_local_peer_realm(p)
+            call realm(is)%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)
+         enddo
+      enddo
+
       deallocate(K_realm)
    endif
    endsubroutine evolve_one_step
