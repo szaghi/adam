@@ -184,6 +184,14 @@ The base type aggregates all framework and PRISM sub-objects:
 
 **Energy diagnostics**: `energy_D(:)`, `energy_B(:)` (time histories), `rms_energy_error_D/B`
 
+## Multi-realm support
+
+PRISM realms participate in multi-realm forests as `prism_cpu_object` / `prism_fnl_object` arrays. Both backends override the `_forest`-suffixed TBP family (`begin_stage_forest`, `end_stage_forest`, `close_step_forest`, `fill_seam_from_peer_forest`, `apply_reflux_to_stage_forest`, `coupling_descriptor_forest`, ...) inherited from `realm_object` via `prism_common_object`.
+
+- **Worked manifest example**: `src/tests/prism/regression/rmf-2realm/input.ini` and the sibling cases (`rmf-2realm-asymK`, `rmf-2realm-stagesync`).
+- **Conceptual overview**: [Forest (multi-realm)](/guide/forest) — the project documentation site covers the manifest schema, the α/β seam-coupling cadence trade-offs, and the orchestrator's phase cycle.
+- **Library contract reference**: `src/lib/common/README.md` → "Forest orchestration" — the per-realm and per-forest TBP surface, manifest data flow, and load-bearing invariants.
+
 ## Backends
 
 | Backend | Entry point | Key type | Accelerator |

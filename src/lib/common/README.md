@@ -15,6 +15,7 @@ The aggregate entry point `adam_common_library` re-exports all modules below; a 
 - [Numerical methods — temporal](#numerical-methods--temporal)
 - [Physics support](#physics-support)
 - [Infrastructure](#infrastructure)
+- [Forest orchestration (multi-realm)](#forest-orchestration-multi-realm)
 
 ---
 
@@ -336,6 +337,113 @@ Singletons are never passed as dummy arguments and never embedded as members of 
 
 ---
 
+## Forest orchestration (multi-realm)
+
+The **forest** machinery coordinates more than one independent simulation domain — a **realm** — through a synchronized time loop. The user-facing conceptual overview, the manifest schema, and the α/β cadence trade-offs are documented in [`/guide/forest.md`](/guide/forest); this section is the library-developer reference for the contract surface.
+
+### `adam_realm_object` — the per-realm contract
+
+`realm_object` is the abstract parent every solver application extends. It owns the conventional per-domain components (`tree`, `grid`, `field`, `maps`, `weno`, `rk`, `io`, `ib`, ...) and declares the **`_forest`-suffixed TBP family** the forest dispatches against. Default implementations error_stop; every app extension that participates in a multi-realm forest must override them.
+
+| TBP | Role |
+|---|---|
+| `initialize_forest(filename, realms_number)` | Per-realm prologue: load INI, allocate state, place initial conditions, open IO. |
+| `finalize_forest()`                          | Per-realm epilogue: close IO, release resources, MPI finalize. |
+| `compute_local_dt_forest(dt_local)`          | Report this realm's CFL-limited dt; the forest min-reduces across realms. |
+| `advance_one_step_forest(dt)`                | N=1 fast path: realm owns the entire step internally. |
+| `open_step_forest(dt)`                       | N>1 path: per-step prologue (external fields, RK stage buffer init, time bookkeeping). |
+| `begin_stage_forest(k, K_total, dt)`         | N>1 path: open integrator stage `k`; sets `self%stage_active = k`. |
+| `end_stage_forest(k, K_total, dt, ...)`      | N>1 path: residuals + stage assignment for stage `k`. |
+| `close_step_forest(dt)`                      | N>1 path: per-step epilogue (state assembly, BC, div-clean, time advance). |
+| `fill_seam_from_peer_forest(peer, p_idx)`    | Receive-side roundtrip: copy peer's interior into self's seam ghosts. |
+| `apply_reflux_to_stage_forest(stage, dt, flux_register)` | Apply Berger-Colella reflux at the realm's end-of-step (α.r1 gate). |
+| `stages_per_step_forest()`                   | Report K (the realm's integrator stride; `rk%nrk` for SSP-RK). |
+| `coupling_descriptor_forest(scheme_time, rk_scheme, nv)` | Report `(scheme_time, rk_scheme, nv)` for β admissibility (issue #18). |
+| `is_done_forest(done)`                       | Report whether the simulation has reached its termination predicate. |
+| `post_step_forest(dt, t, it, realm)`         | Per-step diagnostics / IO block (savers, residual prints). |
+
+Each `_forest` TBP is `pass(self)`-dispatched. The forest receives `class(realm_object), intent(inout) :: realm(:)` as a parameter and never owns realm state; the realm array is allocated by the driver as a concrete app type (e.g. `type(prism_cpu_object), allocatable :: realm(:)`).
+
+The N=1 fast path bypasses every per-stage TBP. Single-realm apps that do not participate in multi-realm forests may leave them at the default error_stop.
+
+### `adam_forest_object` — the orchestrator
+
+`forest_object` is behaviour-only: it owns no derived-type state (only an `n` integer realm count). All forest operations are TBP dispatches against the realm array passed in.
+
+**Public methods**:
+
+| Method | Purpose |
+|---|---|
+| `initialize(realm, filename)`                 | Shared-INI path: every realm reads the same INI. Used by legacy single-INI drivers (e.g. PRISM's no-manifest form). |
+| `initialize_from_manifest(realm, manifest)`   | Manifest path: each realm reads its own INI from the parsed `forest_manifest_t`; topology is wired afterwards. |
+| `simulate(realm, filename)`                   | Top-level entry: `initialize` → time loop → `finalize`. |
+| `simulate_from_manifest(realm, manifest)`     | Top-level entry: manifest variant. |
+| `compute_global_dt(realm, dt)`                | Min-reduce per-realm CFL across realms (intra-process) and ranks (`MPI_ALLREDUCE`). |
+| `evolve_one_step(realm)`                      | One global timestep: Phase 0 → K-loop (Phases 1–3) → Phase 4 → Phase 5; per-seam cadence gating inside. |
+| `post_step(realm)`                            | Per-step diagnostics block across realms. |
+| `is_done(realm, done)`                        | AND-reduce per-realm termination across realms and ranks. |
+| `finalize(realm)`                             | Sequence each realm's `finalize_forest`. |
+
+**Private helpers**:
+
+| Helper | Purpose |
+|---|---|
+| `populate_inter_realm_topology(realm, manifest)` | Translate manifest face-pairs into per-realm `maps%inter_realm_neighbors` and the derived `seam_local_*` arrays. |
+| `check_beta_admissibility(realm, manifest)`      | Enforce β admissibility on every `stage_coincident` seam (PRD #18 M2). |
+| `apply_reflux_corrections(realm, stage, dt)`     | Dispatch each realm's `apply_reflux_to_stage_forest` (realm-side body gates on end-of-step under α.r1). |
+
+### Manifest data flow
+
+```
+forest.ini                          (text manifest)
+  │
+  ▼  adam_forest_manifest.F90 ─ read_forest_manifest
+forest_manifest_t                   (transient struct: realm_ini paths + face_pairs)
+  │
+  ▼  forest_object%populate_inter_realm_topology
+realm(is)%adam%maps%inter_realm_neighbors(:)              (per-realm symmetric topology)
+  │
+  ▼  build_inter_realm_ghost_cell_map + build_seam_local_map
+realm(is)%adam%maps%seam_local_map_ghost_cell(:,:)        (sorted per-cell ghost map)
+realm(is)%adam%maps%seam_local_peer_realm(:)              (one entry per distinct peer)
+realm(is)%adam%maps%seam_local_peer_row_start(:)
+realm(is)%adam%maps%seam_local_peer_row_count(:)
+realm(is)%adam%maps%seam_local_cadence(:)                 (CADENCE_END_OF_STEP | CADENCE_STAGE_COINCIDENT)
+realm(is)%adam%maps%seam_local_send_buf / recv_buf        (per-peer pack/unpack buffers, allocated once)
+```
+
+The orchestrator's per-step Phase 2 (β) and Phase 5 (α) loops consume the `seam_local_*` arrays directly; no manifest reads happen at step time.
+
+### Per-seam coupling cadence
+
+Two integer parameters on `adam_maps_object` tag each peer slot:
+
+- `CADENCE_END_OF_STEP = 0` — α default: seam fill at the end of each global step, after `close_step_forest` (Phase 5).
+- `CADENCE_STAGE_COINCIDENT = 1` — β opt-in: seam fill at every RK substage, before `end_stage_forest` (Phase 2 inside the K loop).
+
+The orchestrator gates per-seam: Phase 2 fires only on `STAGE_COINCIDENT` seams; Phase 5 fires only on `END_OF_STEP` seams. A seam is filled exactly once per step under either cadence.
+
+β admissibility — same `scheme_time`, `rk_scheme`, `nv`, and K between both endpoint realms — is verified at `initialize_from_manifest` time via `check_beta_admissibility`. Mismatch → immediate `error_stop`; no silent downgrade.
+
+### Load-bearing invariants
+
+- **Phase 2 → Phase 3 ordering (β)**: Phase 2 must complete on ALL realms before Phase 3 starts on ANY realm; otherwise the read-after-overwrite race between `fill_seam_from_peer_forest` writes and `compute_residuals` reads returns. The serial inner loops within a rank give this for free under the Phase-A replicated-forest layout.
+- **`stage_active` discipline**: `begin_stage_forest(k)` MUST set `self%stage_active = k`; `close_step_forest(dt)` MUST clear it back to 0. The `fill_seam_from_peer_forest` buffer-selection logic reads `self%stage_active` and `peer%stage_active` to pick between `q` (committed) and `rk%q_rk(:,...,stage_active)`. Mid-step writes to `q` outside this discipline corrupt peer reads.
+- **α.r1 reflux gate**: `apply_reflux_to_stage_forest` and `accumulate_seam_fluxes_fv` MUST gate on `stage == rk%nrk` (the realm's own final substage). `flux_register`'s third axis is collapsed to 1 under α.r1; per-stage RK-weighted reflux (Wang 2018) is deferred. Both α and β share this gate — β does not undo α.r1.
+- **N=1 fast path**: when `size(realm) == 1`, `evolve_one_step` routes through `advance_one_step_forest` directly with zero exposure to the per-stage TBPs. App backends MAY leave the per-stage TBPs at the parent's error_stop default for N=1-only use.
+- **No singletons embedded on realms**: the program-scope singletons (`mpih`, `grid`, `field`, ...) are aliased per-step from each active realm's components; they are not value members on the realm type. See "Program-scope singletons" above.
+
+### Tracked through
+
+| PRD | Scope | Status |
+|---|---|---|
+| [#10](https://github.com/szaghi/adam/issues/10)  | Phase D inception — forest orchestrator design          | shipped |
+| [#13](https://github.com/szaghi/adam/issues/13)  | Coarse-fine interface machinery (A/B/C)                 | A shipped; B & C deferred |
+| [#16](https://github.com/szaghi/adam/issues/16)  | α end-of-step barrier + asymmetric K                    | shipped |
+| [#18](https://github.com/szaghi/adam/issues/18)  | β stage-coincident recovery + cross-config oracle       | shipped |
+
+---
+
 ## Module summary
 
 | Module | Category | File |
@@ -362,6 +470,10 @@ Singletons are never passed as dummy arguments and never embedded as members of 
 | `adam_io_object` | Infrastructure | `adam_io_object.F90` |
 | `adam_slices_object` | Infrastructure | `adam_slices_object.F90` |
 | `adam_adam_object` | Infrastructure | `adam_adam_object.F90` |
+| `adam_realm_object` | Forest | `adam_realm_object.F90` |
+| `adam_forest_object` | Forest | `adam_forest_object.F90` |
+| `adam_forest_manifest` | Forest | `adam_forest_manifest.F90` |
+| `adam_flux_register_object` | Forest | `adam_flux_register_object.F90` |
 | `adam_common_library` | Entry point | `adam_common_library.F90` |
 | `adam_mpih_global` | Singleton | `adam_mpih_global.F90` |
 | `adam_grid_global` | Singleton | `adam_grid_global.F90` |
