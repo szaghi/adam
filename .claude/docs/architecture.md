@@ -156,6 +156,10 @@ type :: realm_object
    ! FDV scheme metadata (used by backend dispatch):
    character(:), allocatable :: fdv_scheme
    integer(I4P)              :: fdv_order, fdv_half_stencil, fdv_half_stencils(6)
+   ! Forest-position context (set by forest%initialize_from_manifest before the
+   ! realm's initialize_forest fires; consumed by realm-side forest TBPs):
+   integer(I4P) :: realm_index   = 0_I4P
+   integer(I4P) :: stage_active  = 0_I4P  ! 0 between steps; k while RK substage k is open
    ! Scalar replica pointers (point into grid/field components):
    integer(I4P), pointer :: ngc, ni, nj, nk, nb, blocks_number, nv
    ! FDV operator procedure pointers (set at init by backend):
@@ -167,47 +171,98 @@ type :: realm_object
    procedure(compute_derivative2_interface), pointer :: compute_derivative2
    procedure(compute_derivative4_interface), pointer :: compute_derivative4
 contains
-   ! Orchestrator contract — TBPs the forest may invoke on a realm (the `_forest` suffix is the contract marker).
-   ! All have default no-op or error-stop bodies; app extensions override.
-   procedure, pass(self) :: initialize_forest                 ! sequenced by forest%initialize
-   procedure, pass(self) :: compute_local_dt_forest           ! min-reduced by forest%compute_global_dt
-   procedure, pass(self) :: advance_one_step_forest           ! iterated by forest%evolve_one_step
-   procedure, pass(self) :: post_step_forest                  ! iterated by forest%post_step
-   procedure, pass(self) :: is_done_forest                    ! AND-reduced by forest%is_done
-   procedure, pass(self) :: finalize_forest                   ! sequenced by forest%finalize
-   procedure, pass(self) :: exchange_inter_realm_halos_forest ! iterated by forest%exchange_halos (D.2 scaffolding, no-op for N=1)
+   ! Forest contract — `_forest`-suffixed TBPs the orchestrator dispatches.
+   ! Default bodies are error_stop; every multi-realm participant overrides.
+   ! Per-step contract (N=1 fast path uses advance_one_step_forest only):
+   procedure, pass(self) :: initialize_forest          ! per-realm init (manifest or shared INI)
+   procedure, pass(self) :: finalize_forest            ! per-realm shutdown
+   procedure, pass(self) :: compute_local_dt_forest    ! report CFL dt → forest min-reduce
+   procedure, pass(self) :: advance_one_step_forest    ! N=1 fast path: realm owns whole step
+   procedure, pass(self) :: open_step_forest           ! N>1: per-step prologue
+   procedure, pass(self) :: begin_stage_forest         ! N>1: open RK substage k; sets stage_active=k
+   procedure, pass(self) :: end_stage_forest           ! N>1: residuals + assign for substage k
+   procedure, pass(self) :: close_step_forest          ! N>1: per-step epilogue (clears stage_active)
+   procedure, pass(self) :: fill_seam_from_peer_forest ! receive-side: copy peer interior → self ghosts
+   procedure, pass(self) :: apply_reflux_to_stage_forest ! Berger-Colella reflux (α.r1 gates on stage==nrk)
+   procedure, pass(self) :: stages_per_step_forest     ! report K (rk%nrk for SSP-RK)
+   procedure, pass(self) :: coupling_descriptor_forest ! report (scheme_time, rk_scheme, nv) for β admissibility
+   procedure, pass(self) :: is_done_forest             ! AND-reduced termination predicate
+   procedure, pass(self) :: post_step_forest           ! per-step diagnostics / IO block
 end type
 ```
 
 ### `forest_object` (`src/lib/common/adam_forest_object.F90`)
 
-Added in issue #10 Step 6 Phase C (commits `2d74fb6d` + `a294681a`). **Behavior-only orchestrator**: owns no derived-type state, receives the realm array as `class(realm_object), intent(inout) :: realm(:)` and orchestrates inter-realm operations via the `_forest`-suffixed TBPs above.
+Added in issue #10 Step 6 Phase C (commits `2d74fb6d` + `a294681a`); extended through PRDs [#13](https://github.com/szaghi/adam/issues/13) (interface machinery A), [#16](https://github.com/szaghi/adam/issues/16) (α end-of-step barrier + asymmetric K), and [#18](https://github.com/szaghi/adam/issues/18) (β stage-coincident seam coupling). **Behavior-only orchestrator**: owns no derived-type state, receives the realm array as `class(realm_object), intent(inout) :: realm(:)` and orchestrates inter-realm operations via the `_forest`-suffixed TBPs above.
 
 ```fortran
 type :: forest_object
-   integer(I4P) :: n = 0_I4P   ! number of realms; set by initialize from size(realm)
+   integer(I4P)               :: n = 0_I4P                 ! realm count
+   type(flux_register_object) :: flux_register             ! Berger-Colella reflux register (α.r1: third axis = 1)
    ! NO derived-type-pointer components, ever (R1 of issue #10).
 contains
-   procedure, pass(self) :: initialize        ! sequence realm(:)%initialize_forest
-   procedure, pass(self) :: simulate          ! main entry point
-   procedure, pass(self) :: compute_global_dt ! min-reduce realm(:)%compute_local_dt_forest + MPI_ALLREDUCE
-   procedure, pass(self) :: evolve_one_step   ! iterate realm(:)%advance_one_step_forest then exchange_halos
-   procedure, pass(self) :: exchange_halos    ! iterate realm(:)%exchange_inter_realm_halos_forest (D.2)
-   procedure, pass(self) :: post_step         ! iterate realm(:)%post_step_forest
-   procedure, pass(self) :: is_done           ! AND-reduce realm(:)%is_done_forest + MPI_ALLREDUCE
-   procedure, pass(self) :: finalize          ! sequence realm(:)%finalize_forest
+   procedure, pass(self) :: initialize                 ! shared-INI: every realm reads the same file
+   procedure, pass(self) :: initialize_from_manifest   ! manifest path: each realm reads its own INI
+   procedure, pass(self) :: simulate                   ! entry: initialize → loop → finalize
+   procedure, pass(self) :: simulate_from_manifest     ! entry: manifest variant
+   procedure, pass(self) :: compute_global_dt          ! min-reduce realm(:)%compute_local_dt_forest + MPI_ALLREDUCE
+   procedure, pass(self) :: evolve_one_step            ! one global timestep (Phase 0..5; per-seam α/β gating)
+   procedure, pass(self) :: post_step                  ! iterate realm(:)%post_step_forest
+   procedure, pass(self) :: is_done                    ! AND-reduce realm(:)%is_done_forest + MPI_ALLREDUCE
+   procedure, pass(self) :: finalize                   ! sequence realm(:)%finalize_forest
+   procedure, pass(self), private :: populate_inter_realm_topology  ! manifest → per-realm seam_local_* arrays
+   procedure, pass(self), private :: check_beta_admissibility       ! enforce β contract on stage_coincident seams
+   procedure, pass(self), private :: apply_reflux_corrections       ! dispatch realm(:)%apply_reflux_to_stage_forest
 end type
 ```
 
-Driver pattern (e.g. `src/app/prism/cpu/adam_prism_cpu.F90`):
+`evolve_one_step` phase outline (N>1 path):
 
-```fortran
-type(prism_cpu_object) :: realm(1)   ! concrete monomorphic; N=1 today, N>1 in Phase D
-type(forest_object)    :: forest
-call forest%simulate(realm=realm, filename='input.ini')
+```
+Phase 0 — open_step_forest      (per-realm prologue)
+For k = 1..K_max:
+  Phase 1 — begin_stage_forest  (per-realm, K-gated by k ≤ K_realm(is))
+  Phase 2 — fill_seam_from_peer_forest  (per-seam, fires only for β seams)
+  Phase 3 — end_stage_forest    (per-realm, K-gated)
+            + flux_register%reduce_fine_sums + apply_reflux_corrections
+Phase 4 — close_step_forest     (per-realm epilogue)
+Phase 5 — fill_seam_from_peer_forest  (per-seam, fires only for α seams)
 ```
 
-Phase D (issue #13, design only as of 2026-05-18) will extend the driver to `realm(realms_number)` driven by a `forest.ini` manifest pointing at one PRISM INI per realm.
+Each inter-realm seam carries a `coupling_cadence` (cached in `realm(is)%adam%maps%seam_local_cadence(p)`):
+
+- `CADENCE_END_OF_STEP` (α default; AMReX `FillCoarsePatch` convention): mid-step peer ghosts are stale-by-one-step; one synchronized exchange at Phase 5. Admits asymmetric K. Cost: first-order seam coupling in time.
+- `CADENCE_STAGE_COINCIDENT` (β; opt-in per seam): per-substage exchange at Phase 2. Admissibility (enforced by `check_beta_admissibility` at init): same `scheme_time`, `rk_scheme`, `physics%nv`, K on both endpoints. Mismatch → `error_stop`, no silent downgrade. Recovers single-realm bit-equivalence when admissible.
+
+Driver pattern (manifest path, e.g. `src/app/prism/cpu/adam_prism_cpu.F90`):
+
+```fortran
+type(prism_cpu_object), allocatable :: realm(:)
+type(forest_object)                  :: forest
+type(forest_manifest_t)              :: manifest
+
+if (is_forest_manifest(input_file_name)) then
+   call read_forest_manifest(filename=input_file_name, manifest=manifest)
+   allocate(realm(manifest%realms_number))
+   call forest%simulate_from_manifest(realm=realm, manifest=manifest)
+else
+   allocate(realm(1))                                    ! N=1 fast path
+   call forest%simulate(realm=realm, filename=input_file_name)
+endif
+```
+
+**nvfortran 26.1 polymorphic-array workaround** (commit `0062a237`): the polymorphic-array TBP dispatch site `realm(is)%end_stage_forest(...)` segfaults inside libnvf's `pgf90_copy_f90_argl_i8` while marshalling the explicit-bound `q_gpu(1:, 1-self%ngc:, ...)` actual passed deep in the body to `compute_residuals_dev`. The fix is a one-line `associate(r => realm(is))` wrapper at the call site — binds the array element to a polymorphic scalar before the TBP fires, letting nvfortran resolve the element's concrete-type stride correctly. Pre-emptively applied at every polymorphic-array TBP dispatch site in `evolve_one_step` (Phase 1 `begin_stage_forest`, Phase 2 `fill_seam_from_peer_forest`, Phase 3 `end_stage_forest`, Phase 4 `close_step_forest`, Phase 5 `fill_seam_from_peer_forest`). gfortran does not exhibit the issue; CPU builds are unaffected.
+
+Tracked through:
+
+| PRD | Scope | Status |
+|---|---|---|
+| [#10](https://github.com/szaghi/adam/issues/10) | Phase D inception — forest orchestrator design | shipped |
+| [#13](https://github.com/szaghi/adam/issues/13) | Coarse-fine interface machinery (A/B/C) | A shipped; B & C deferred |
+| [#16](https://github.com/szaghi/adam/issues/16) | α end-of-step barrier + asymmetric K | shipped (closed 2026-05-28) |
+| [#18](https://github.com/szaghi/adam/issues/18) | β stage-coincident recovery + cross-config oracle | shipped (closed 2026-05-28) |
+
+User-facing conceptual overview, manifest schema, and α/β cadence rationale are documented in `docs/guide/forest.md` (the project VitePress site). Library-developer contract reference is in `src/lib/common/README.md` → "Forest orchestration".
 
 ### `grid_object` (`src/lib/common/adam_grid_object.F90`)
 
