@@ -215,7 +215,7 @@ contains
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
    call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, physics=self%physics)
-   call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
+   call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, physics=self%physics, file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
       call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &

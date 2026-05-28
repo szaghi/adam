@@ -7,7 +7,7 @@ use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
-use :: adam_prism_physics_object, only : prism_physics_object
+use :: adam_prism_physics_object, only : prism_physics_object, ADIM_EM_PHYSICAL_MODEL
 use :: adam_prism_parameters
 ! third party modules
 use :: finer
@@ -77,6 +77,7 @@ type :: prism_coil_object
       procedure, pass(self) :: description                               !< Return pretty-printed object description.
       procedure, pass(self) :: initialize                                !< Initialize IC.
       procedure, pass(self) :: load_from_file                            !< Load config from file.
+      procedure, pass(self) :: adimensionalize_coils_parameters          !< Adimensionalize coils parameters.
       !procedure, pass(self) :: set_coils                                 !< Set coil_object on PRISM fields.
       !procedure, pass(self) :: set_circular_coil                         !< Set circular coils on PRISM fields.
       !procedure, pass(self) :: set_rectangular_coil_quad_section_odd     !< Set rectangular coils on PRISM fields with quadratic
@@ -190,33 +191,35 @@ contains
    endif
    endfunction description
 
-   subroutine initialize(self, field, grid, file_parameters)
+   subroutine initialize(self, field, grid, physics, file_parameters)
                                                              !Cfr ic%initialize, ma commentata parte descrizione perchè da
                                                              !implementare
    !< Initialize the equation.
-   class(prism_coil_object), intent(inout) :: self            !< Coils.
-   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
-   type(grid_object),  intent(in), target :: grid !< Grid (sibling realm component, threaded in).
-   type(file_ini),           intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   class(prism_coil_object),   intent(inout)      :: self            !< Coils.
+   type(field_object),         intent(in)         :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),          intent(in), target :: grid !< Grid (sibling realm component, threaded in).
+   type(prism_physics_object), intent(in)         :: physics         !< PRISM physics.
+   type(file_ini),             intent(in)         :: file_parameters !< Simulation parameters ini file handler.
 
    print '(A)', mpih%myrankstr//'prism_coil_object%initialize start'
-   call self%load_from_file(field=field, grid=grid, file_parameters=file_parameters)
+   call self%load_from_file(field=field, physics=physics, grid=grid, file_parameters=file_parameters)
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'prism_coil_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_from_file(self, field, grid, file_parameters, go_on_fail)
+   subroutine load_from_file(self, field, grid, physics, file_parameters, go_on_fail)
    !< Load config from file.
-   class(prism_coil_object), intent(inout)        :: self            !< coils.
-   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
-   type(grid_object),  intent(in), target :: grid !< Grid (sibling realm component, threaded in).
-   type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                  intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                        :: go_on_fail_     !< Go on if load fails.
-   character(:), allocatable                      :: sname           !< Section name.
-   integer(I4P)                                   :: i               !< Counter.
-   integer(I4P)                                   :: error           !< Error status.
-   character(99)                                  :: buff_char       !< Option character buffer.
+   class(prism_coil_object),   intent(inout)        :: self            !< coils.
+   type(field_object),         intent(in)           :: field           !< Field (sibling realm component, threaded in).
+   type(grid_object),          intent(in), target   :: grid            !< Grid (sibling realm component, threaded in).
+   type(prism_physics_object), intent(in)           :: physics         !< PRISM physics.
+   type(file_ini),             intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+   logical,                    intent(in), optional :: go_on_fail      !< Go on if load fails.
+   logical                                          :: go_on_fail_     !< Go on if load fails.
+   character(:), allocatable                        :: sname           !< Section name.
+   integer(I4P)                                     :: i               !< Counter.
+   integer(I4P)                                     :: error           !< Error status.
+   character(99)                                    :: buff_char       !< Option character buffer.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
@@ -341,6 +344,10 @@ contains
 
       endselect
    enddo
+
+   if (physics%physical_model == ADIM_EM_PHYSICAL_MODEL) &
+      call self%adimensionalize_coils_parameters(physics=physics)
+   
    contains
       subroutine associate_adam_data
       !< Associate grid data pointers for easy handling.
@@ -351,4 +358,26 @@ contains
       self%ngc => grid%ngc
       endsubroutine associate_adam_data
    endsubroutine load_from_file
+
+   subroutine adimensionalize_coils_parameters(self, physics)
+   !< Adimensionalize coils parameters.
+   class(prism_coil_object),   intent(inout) :: self    !< Coils
+   type(prism_physics_object), intent(in)    :: physics !< PRISM physics.
+
+   !Adimensionalization spatial parameters
+   self%x_center(:)   = self%x_center(:)/physics%L0
+   self%y_center(:)   = self%y_center(:)/physics%L0
+   self%z_center(:)   = self%z_center(:)/physics%L0
+   self%lx(:)         = self%lx(:)/physics%L0
+   self%ly(:)         = self%ly(:)/physics%L0
+   self%r_coil(:)     = self%r_coil(:)/physics%L0
+   self%l_solenoid(:) = self%l_solenoid(:)/physics%L0
+   self%sigma(:)      = self%sigma(:)/physics%L0
+   !Adimensionalization of current parameters
+   self%A(:) = self%A(:)/physics%J0
+   !Adimensionalization of frequency parameters
+   self%f(:) = self%f(:)*physics%T0
+   !Adimensionalization of time parameters
+   self%td = self%td/physics%T0
+   endsubroutine adimensionalize_coils_parameters
 endmodule adam_prism_coil_object

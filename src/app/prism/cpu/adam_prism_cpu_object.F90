@@ -246,7 +246,8 @@ contains
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
-   if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. & 
+         self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)        ; self%integrate => integrate_blanesmoan
       case(NUM_SCHEME_TIME_CFM)                ; self%integrate => integrate_cfm
@@ -437,8 +438,6 @@ contains
             current_density_o = A(n) * g * cos(theta)
             write(fname,'(A,SS,I0,A)') 'current_density_coil_', n, '.dat'
             call write_current_behavior_tab(trim(fname), time=time_s, current_density=current_density_o)
-            !call write_current_behavior_tab('current_density_coil_'//trim(adjustl(str(n))), &
-            !                                 time=time_s, current_density=current_density_o)
          enddo
       endif
    endassociate
