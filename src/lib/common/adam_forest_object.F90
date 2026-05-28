@@ -254,7 +254,22 @@ contains
          ! Phase 3 — residuals (with flux_register) + assign on each participating realm.
          do is = 1_I4P, int(size(realm), I4P)
             if (k > K_realm(is)) cycle
-            call realm(is)%end_stage_forest(k=k, K_total=K_max, dt=dt, flux_register=self%flux_register)
+            ! NVFORTRAN 26.1 WORKAROUND: dispatching the polymorphic array
+            ! element `realm(is)%end_stage_forest(...)` directly segfaults
+            ! inside libnvf's `pgf90_copy_f90_argl_i8` when marshalling the
+            ! explicit-bound `q_gpu(1:, 1-self%ngc:, ...)` actual passed to
+            ! `compute_residuals_dev` deep in the body (rmf-2realm/fnl
+            ! reproducer; line 1895 of adam_prism_fnl_object.F90). Binding
+            ! `realm(is)` to a polymorphic scalar via `associate` before
+            ! dispatch lets the marshaller resolve the element's concrete-
+            ! type stride correctly. Other dispatch sites in this routine
+            ! happen not to trigger the bug because their bodies do not
+            ! reach an equally complex arg-marshalling path; if a future
+            ! refactor exposes them, apply the same wrapper. CPU build is
+            ! unaffected (gfortran does not exhibit the issue).
+            associate(r => realm(is))
+               call r%end_stage_forest(k=k, K_total=K_max, dt=dt, flux_register=self%flux_register)
+            end associate
          enddo
 
          ! Reflux corrections — invoked every stage; under α.r1 the realm-side
