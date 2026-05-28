@@ -1697,6 +1697,8 @@ contains
    integer(I4P),            intent(in),    optional :: nv            !< Number of field variables override.
    logical,                 intent(in),    optional :: verbose       !< Trigger verbose output.
    integer(I4P)                                     :: i             !< Counter.
+   integer(I4P)                                     :: n             !< Coil counter.
+   integer(I4P)                                     :: b             !< Block counter.
 
    call self%initialize_prism(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
@@ -2062,17 +2064,27 @@ contains
    !< register on the FNL side (or with `nfaces == 0` for a single-realm
    !< FNL forest), there is nothing to correct.
    !<
-   !< When the FV residual port lands and starts accumulating into the
-   !< register on the FNL side, this body grows into the OpenACC twin of
-   !< `prism_cpu_object%apply_reflux_to_stage_forest`: walk
-   !< `flux_register%face(:)` for entries where `coarse_realm ==
+   !< **α.r1 cadence (forward-consistency gate; PRD #16 M5):** the body
+   !< returns immediately for `stage /= self%rk%nrk`. Under the current
+   !< no-op body this is observationally identical to the previous
+   !< unconditional return, but it expresses the α.r1 contract explicitly:
+   !< when the FNL FV residual path is ported (Phase B), the body grows
+   !< into the OpenACC twin of `prism_cpu_object%apply_reflux_to_stage_forest`
+   !< — walk `flux_register%face(:)` for entries where `coarse_realm ==
    !< self%realm_index` and write the per-cell correction into
    !< `self%rk_fnl%q_rk_gpu(:, b, i, j, k, stage)` under a
-   !< `!$acc parallel loop`.
+   !< `!$acc parallel loop` — and that twin must fire exactly once per
+   !< realm per step at the realm's final RK substage, reading the
+   !< register's collapsed third-axis `(:,:,1)` bucket (M2 reshape).
    class(prism_fnl_object),     intent(inout) :: self          !< The realm.
    integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
    real(R8P),                   intent(in)    :: dt            !< Time step.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
+
+   ! α.r1 end-of-step gate: parity with PRISM-CPU M3. Returns immediately
+   ! for any non-final substage. Body below is a no-op until FNL FV
+   ! reflux lands; the gate is in place for forward consistency.
+   if (stage /= self%rk%nrk) return
 
    ! Reference-but-don't-consume the dummies so the no-op body doesn't trip
    ! an unused-dummy warning under -Wimplicit-procedure / strict modes.
