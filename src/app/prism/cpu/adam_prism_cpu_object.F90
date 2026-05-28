@@ -1194,17 +1194,29 @@ contains
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
    !< PRISM-CPU override of the Berger-Colella reflux correction TBP.
    !<
+   !< **α.r1 cadence: end-of-step barrier.** The body fires exactly once per
+   !< realm per step, at `stage == self%rk%nrk` (the realm's own final RK
+   !< substage). Earlier stages return immediately as a no-op. This pairs
+   !< with M4 (`accumulate_seam_fluxes_fv` gated on `stage_idx == rk%nrk`):
+   !< the realm accumulates its end-of-step face flux into
+   !< `F_coarse(:,:,1)` / `F_fine_sum(:,:,1)` at its final substage, and the
+   !< same final substage immediately applies the Berger-Colella correction
+   !< from those accumulators. This is the AMReX `Reflux` cadence; same-K
+   !< and asymmetric-K both reduce to the same expression because the
+   !< accumulators hold the final, committed face flux.
+   !<
    !< For each face in `flux_register` where `face%coarse_realm == self%realm_index`,
    !< writes the per-cell correction
    !<     q_rk(:, seam_cell, b_coarse, stage) +=
-   !<         ark(stage) * sign * (dt / dx_coarse) * (F_coarse - F_fine_sum)
+   !<         ark(stage) * sign * (dt / dx_coarse) * (F_coarse(:,:,1) - F_fine_sum(:,:,1))
    !< on the matching one-cell-thick seam slice (i ∈ {1, ni} for x-normal
-   !< faces, etc.). RK-specific: weight is `self%rk%ark(stage)`, write
-   !< target is `self%rk%q_rk(:, ..., stage)`.
+   !< faces, etc.). The third-axis index is **hardcoded to 1** under α.r1
+   !< (register collapsed by M2); the `stage` parameter is retained on the
+   !< signature for API stability and used only for the cadence gate and
+   !< as the write target into `self%rk%q_rk(:, ..., stage)`.
    !<
    !< Empty-register / out-of-range guards short-circuit to a no-op, so a
-   !< realm with no seam faces (or one whose stage exceeds the register's
-   !< third dimension) returns cleanly.
+   !< realm with no seam faces returns cleanly.
    class(prism_cpu_object),     intent(inout) :: self          !< The realm.
    integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
    real(R8P),                   intent(in)    :: dt            !< Time step.
@@ -1219,6 +1231,9 @@ contains
    if (flux_register%nfaces == 0_I4P)        return
    if (.not. allocated(flux_register%face))  return
    if (stage < 1_I4P .or. stage > self%rk%nrk) return
+   ! α.r1 end-of-step gate: reflux fires once per realm per step at the
+   ! realm's own final RK substage. Earlier stages no-op.
+   if (stage /= self%rk%nrk)                 return
    if (.not. allocated(self%rk%ark))         return
    weight = self%rk%ark(stage)
 
@@ -1231,7 +1246,6 @@ contains
       if (face_f%coarse_realm /= self%realm_index) cycle
       if (.not. allocated(face_f%F_coarse))       cycle
       if (.not. allocated(face_f%F_fine_sum))     cycle
-      if (stage > size(face_f%F_coarse, dim=3))   cycle
 
       call face_axis_sign(face_f%coarse_face, axis, sgn)
       if (axis == 0_I4P) cycle  ! malformed face_code; defensive.
@@ -1259,9 +1273,10 @@ contains
             cycle
          end select
 
+         ! α.r1: third axis hardcoded to 1 (register collapsed by M2).
          self%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) = &
             self%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) &
-            + scale_ * (face_f%F_coarse(:, c, stage) - face_f%F_fine_sum(:, c, stage))
+            + scale_ * (face_f%F_coarse(:, c, 1) - face_f%F_fine_sum(:, c, 1))
       enddo
       end associate
    enddo
@@ -2178,13 +2193,21 @@ contains
       ! `flz_f` into the register's `(nv, nface_cells)` accumulator
       ! shape, then dispatch by sign (+ = coarse side → F_coarse, − =
       ! fine side → F_fine_sum). Symmetric mirror seams (rmf-2realm)
-      ! produce equal coarse/fine fluxes → end-of-stage reflux is
+      ! produce equal coarse/fine fluxes → end-of-step reflux is
       ! round-off zero by expectation and the FD-centered case is
       ! unreachable here (the hook only fires for fv_centered).
-      if (present(flux_register) .and. stage_idx > 0_I4P &
+      !
+      ! α.r1 end-of-step gate (PRD #16 M4): accumulate ONLY at the
+      ! realm's final RK substage. The register holds a single
+      ! end-of-step bucket (M2 reshape) and the reflux correction
+      ! consumes it at the same final substage (M3 gate). Earlier
+      ! substages skip the accumulation entirely — their face fluxes
+      ! are intermediate-stage values not used by the Berger-Colella
+      ! end-of-step correction.
+      if (present(flux_register) .and. stage_idx == self%rk%nrk &
                                   .and. allocated(self%adam%maps%inter_realm_face_register_index)) then
          if (flux_register%nfaces > 0_I4P) then
-            call accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, stage_idx, flux_register)
+            call accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, flux_register)
          endif
       endif
       ! compute fluxes difference for RHS, dF/ds = (F(i+1/2)-F(i-1/2))/Ds
@@ -2209,38 +2232,40 @@ contains
    endassociate
    endsubroutine compute_residuals_fv_centered
 
-   subroutine accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, stage_idx, flux_register)
-   !< Accumulate per-substage face fluxes on inter-realm seam faces of
+   subroutine accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, flux_register)
+   !< Accumulate end-of-step face fluxes on inter-realm seam faces of
    !< the FV-centered scheme. Phase A step 4 of [issue #13] FV consumer
-   !< wiring.
+   !< wiring, gated to the realm's final RK substage under α.r1 (PRD #16).
    !<
    !< Walks every (block, fec) pair and, for non-zero entries in
    !< `self%adam%maps%inter_realm_face_register_index(b, fec)`, packs
    !< the appropriate `flx_f`/`fly_f`/`flz_f` face skin into a
    !< `(nv, nface_cells)` slab and routes it to the right register
    !< accumulator: positive index → coarse side → `accumulate_coarse_flux`,
-   !< negative index → fine side → `accumulate_fine_flux`.
+   !< negative index → fine side → `accumulate_fine_flux`. The call site
+   !< above gates on `stage_idx == self%rk%nrk`, so this routine fires
+   !< exactly once per realm per step at the realm's end-of-step.
    !<
-   !< The register accumulators are sized `(nv, nface_cells, n_stages)`
-   !< with the full state-vector width `nv` (set at `register_face` time
-   !< from `realm%adam%field%nv`; `n_stages` set from the realm's
-   !< `stages_per_step_forest()`). The FV scheme only fills the
-   !< conservative slice `1:nv_c` of the flux arrays; the remaining
-   !< rows are left at zero in `flux_slab` so the register's
-   !< `F_coarse - F_fine_sum` correction is identically zero outside
-   !< the conservative variables.
+   !< The register accumulators are sized `(nv, nface_cells, 1)` under
+   !< α.r1 (M2 reshape) with the full state-vector width `nv` (set at
+   !< `register_face` time from `realm%adam%field%nv`). The FV scheme
+   !< only fills the conservative slice `1:nv_c` of the flux arrays;
+   !< the remaining rows are left at zero in `flux_slab` so the
+   !< register's `F_coarse - F_fine_sum` correction is identically zero
+   !< outside the conservative variables. The third-axis index passed
+   !< to `accumulate_*_flux` is hardcoded to `1` (collapsed register).
    !<
    !< For the current same-resolution mirror seam (rmf-2realm), each
-   !< coarse and fine side carries an identical flux at the seam face;
-   !< `F_coarse - F_fine_sum` is round-off zero in expectation and the
-   !< downstream q-correction in `forest_object%apply_reflux_corrections`
-   !< is a no-op against the bit-exact regression. The FD-centered case
-   !< does not reach this routine (different `compute_residuals` target).
+   !< coarse and fine side carries an identical end-of-step flux at the
+   !< seam face; `F_coarse - F_fine_sum` is round-off zero in expectation
+   !< and the downstream q-correction in
+   !< `forest_object%apply_reflux_corrections` is a no-op against the
+   !< bit-exact regression. The FD-centered case does not reach this
+   !< routine (different `compute_residuals` target).
    class(prism_cpu_object),     intent(inout) :: self            !< The realm.
    integer(I4P),                intent(in)    :: ni, nj, nk      !< Interior cell counts.
    integer(I4P),                intent(in)    :: nv_c            !< Number of conservative variables.
    integer(I4P),                intent(in)    :: blocks_number   !< Number of local blocks.
-   integer(I4P),                intent(in)    :: stage_idx       !< Integrator stage index (1..n_stages).
    class(flux_register_object), intent(inout) :: flux_register   !< Forest's flux register.
    integer(I4P)                               :: sgn_idx
    integer(I4P)                               :: face_idx
@@ -2332,10 +2357,13 @@ contains
          end select
          if (c /= nface_cells) &
             call mpih%error_stop(msg='prism_cpu_object: FV seam-flux pack count != nface_cells')
+         ! α.r1: third axis collapsed to 1 by M2; the gate at the
+         ! call site guarantees `stage_idx == self%rk%nrk`, so this
+         ! call is the realm's once-per-step end-of-step accumulation.
          if (sgn_idx > 0_I4P) then
-            call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=stage_idx, flux_face=flux_slab)
+            call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
          else
-            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=stage_idx, flux_face=flux_slab)
+            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
          endif
       enddo
    enddo
