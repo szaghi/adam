@@ -262,6 +262,30 @@ for case_dir in "$REGRESSION_DIR"/*/; do
       shopt -u nullglob
    fi
 
+   # --- β cross-config invariant (issue #18) ---
+   # The rmf-2realm-stagesync case exercises β (stage-coincident seam fill)
+   # on a geometry whose union is bit-aligned with the single-realm rmf
+   # case. β's design oracle is: under same-K + same-physics + same-ODE +
+   # different/identical spatial operators, the multi-realm digest must
+   # match the monolithic single-realm digest within the usual tolerance
+   # (per-block metadata `dxdydz`, `origin`, `time_iteration` differ by
+   # block-count scaling and are auto-downgraded to SKIP_METADATA by
+   # digest.py). Enforced here as a continuously-checked invariant
+   # (hardcoded for this single case; if a second case ever needs cross-
+   # config equivalence, generalise to a per-case `equiv_to` annotation).
+   if [[ "$case_name" == "rmf-2realm-stagesync" && -f "$workdir/digest.txt" ]]; then
+      rmf_golden="${REGRESSION_DIR}/rmf/golden/${BACKEND}/digest.txt"
+      if [[ ! -f "$rmf_golden" ]]; then
+         echo "FAIL [$case_name/$BACKEND] β cross-config oracle: missing single-realm reference $rmf_golden"
+         case_failed=1
+      elif ! "$VENV_PY" "$DIGEST_PY" compare "$workdir/digest.txt" "$rmf_golden"; then
+         echo "FAIL [$case_name/$BACKEND] β cross-config oracle: digest does not match single-realm rmf golden (issue #18)"
+         case_failed=1
+      else
+         echo ">> [$case_name/$BACKEND] β cross-config oracle: matches single-realm rmf golden"
+      fi
+   fi
+
    if [[ $case_failed -eq 0 ]]; then
       echo "PASS [$case_name/$BACKEND]"
       pass_count=$((pass_count + 1))
