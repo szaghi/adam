@@ -47,12 +47,13 @@ export default withMermaid({
       {
         text: 'Guide',
         items: [
-          { text: 'About',         link: '/guide/' },
-          { text: 'Features',      link: '/guide/features' },
-          { text: 'Installation',  link: '/guide/installation' },
-          { text: 'Architecture',  link: '/guide/architecture' },
-          { text: 'Contributing',  link: '/guide/contributing' },
-          { text: 'Changelog',     link: '/guide/changelog' },
+          { text: 'About',                  link: '/guide/' },
+          { text: 'Features',               link: '/guide/features' },
+          { text: 'Installation',           link: '/guide/installation' },
+          { text: 'Architecture',           link: '/guide/architecture' },
+          { text: 'Forest (multi-realm)',   link: '/guide/forest' },
+          { text: 'Contributing',           link: '/guide/contributing' },
+          { text: 'Changelog',              link: '/guide/changelog' },
         ],
       },
       { text: 'Library',      link: '/library/' },
@@ -73,8 +74,9 @@ export default withMermaid({
         {
           text: 'Getting Started',
           items: [
-            { text: 'Installation', link: '/guide/installation' },
-            { text: 'Architecture', link: '/guide/architecture' },
+            { text: 'Installation',       link: '/guide/installation' },
+            { text: 'Architecture',       link: '/guide/architecture' },
+            { text: 'Forest (multi-realm)', link: '/guide/forest' },
           ],
         },
         {
