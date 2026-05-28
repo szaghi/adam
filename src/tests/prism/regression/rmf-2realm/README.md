@@ -1,11 +1,13 @@
 # rmf-2realm regression case
 
 Two-realm x-split version of the single-realm `rmf` regression case (Phase D
-of issue #10 / D.4 of issue #13). Domain is split at x=0 into two adjacent
-realms; the union of cell centers reconstructs the single-realm rmf grid
-bit-for-bit, so the same physics integrated under the multi-realm forest
-orchestrator MUST produce digests that match the single-realm rmf golden
-within the project's standard regression tolerances.
+of issue #10 / D.4 of issue #13, ratified under α — PRD #16). Domain is split
+at x=0 into two adjacent realms; the union of cell centers reconstructs the
+single-realm rmf grid bit-for-bit.
+
+The case anchors the multi-realm forest orchestrator's CPU path. The
+companion case `rmf-2realm-asymK` covers the asymmetric-K mode introduced by
+α (realm_1: SSP-RK-3, realm_2: SSP-RK-5).
 
 ## Files
 
@@ -15,9 +17,12 @@ rmf-2realm/
    realm_1.ini     # complete PRISM INI for realm 1 (x ∈ [-0.06, 0],   ni=8, nj=16, nk=16)
    realm_2.ini     # complete PRISM INI for realm 2 (x ∈ [ 0,  0.06], ni=8, nj=16, nk=16)
    golden/
-      cpu/         # CPU-backend golden (digest.txt + per-realm residuals.dat)
-      fnl/         # FNL-backend golden (see "FNL caveat" below)
+      cpu/         # CPU-backend α golden (digest.txt + per-realm residuals.dat)
 ```
+
+The companion case `../rmf-2realm-asymK/` extends this geometry to
+asymmetric per-realm K (realm_1: SSP-RK-3, realm_2: SSP-RK-5); see PRD #16
+M7 for the rationale.
 
 The two `realm_*.ini` files differ only in:
 
@@ -29,6 +34,8 @@ Every other section — `[numerics]`, `[physics]`, `[fdv]`, `[runge_kutta]`,
 `[weno]`, `[time]`, `[coils_input]`, all four `[coils_input_coil_<n>]`
 blocks, the BC sections — is byte-identical between realms and to the
 single-realm `rmf/input.ini`.
+
+There is no FNL golden yet — see "FNL status" below.
 
 ## Grid-alignment rationale
 
@@ -65,76 +72,86 @@ cp rmf-2realm/work-cpu/digest.txt                  rmf-2realm/golden/cpu/
 cp rmf-2realm/work-cpu/rmf_2realm_r*-residuals.dat rmf-2realm/golden/cpu/
 ```
 
-The FNL backend follows the same recipe via `run-fnl-local.sh` instead of
-`run.sh`. See the FNL caveat below for current status.
+The FNL backend cannot be rebaselined locally (WSL2 runtime failure; see
+"FNL status" below). Cluster validation under `run-fnl-local.sh` will
+follow the same recipe once the runtime issue is resolved.
 
-## Cross-config sanity check
+## α end-of-step barrier semantics
 
-In addition to passing against its own golden (the automatic harness
-check), the `rmf-2realm` digest should also match the `rmf` single-realm
-digest for every physics-meaningful FIELD variable — that is the deeper
-correctness oracle for the seam machinery. The check is a manual one-liner
-because the harness compares each case against its own golden only:
+PRD #16 (M1–M7) restructured `forest_object%evolve_one_step` to follow the
+AMReX coarse-fine interface convention (`AMReX_Amr.cpp::timeStep`,
+`FillBoundary`, `Reflux`). Under α the seam coupling between realms is
+once-per-step, not once-per-stage:
 
-```bash
-exe/.regression-venv/bin/python src/tests/prism/regression/digest.py compare \
-    src/tests/prism/regression/rmf-2realm/work-cpu/digest.txt \
-    src/tests/prism/regression/rmf/golden/cpu/digest.txt
-```
+- **Mid-step peer ghosts are intentionally stale-by-one-step.** During RK
+  stages 1..K each realm reads the seam ghosts established by the previous
+  step's end-of-step exchange. This mirrors AMReX's `FillCoarsePatch`
+  reading coarse `t^n` data during fine sub-steps (Berger-Oliger 1984) and
+  is well-understood numerically: first-order seam coupling in time, full
+  per-realm RK order in the interior.
+- **End-of-step seam fill** fires once per global step, after every realm
+  has completed `close_step_forest`. At that point every realm's
+  `stage_active == 0` and `fill_seam_from_peer_forest` reads peer's
+  committed `q` automatically (no new TBP).
+- **Reflux at α.r1** is single-stage: the flux register's third axis is
+  collapsed to 1; `apply_reflux_to_stage_forest` and the FV
+  `accumulate_seam_fluxes_fv` call are gated on `stage == rk%nrk` so real
+  work fires once per realm per step at its own final substage.
 
-Expected outcome:
+A consequence the regression validates: bit-identity with the single-realm
+`rmf` digest is **no longer expected**. The α discretization deliberately
+differs from the pre-α (and from single-realm) discretization at the seam.
+This case's golden was rebaselined under α in commit `2df013a0` (PRD #16 M6).
 
-```
->> 9 per-block-metadata discrepancies skipped (benign across block-partitioning changes; ...)
-  SKIP_METADATA 000000000 / dxdydz — count 384 != 192
-  SKIP_METADATA 000000000 / origin — count 384 != 192
-  SKIP_METADATA 000000000 / time_iteration — count 128 != 64
-  ... (3 more per output iteration)
->> digest match: 102 rows within rtol=1e-06 atol=0.001
-```
+### Seam localisation invariant
 
-The 9 SKIP_METADATA lines are benign per-block-metadata mismatches:
-`dxdydz`, `origin`, `time_iteration` are per-block attributes (3 / 3 / 1
-values per block respectively) whose digest reductions scale with the block
-count, and the 2-realm config has 2× the blocks of the 1-realm config.
-These rows are downgraded from MISMATCH to SKIP_METADATA by `digest.py
-compare` automatically (see `_PER_BLOCK_METADATA_VARS` in `digest.py`); the
-overall comparison passes when every FIELD variable matches.
+The α seam coupling error must remain spatially localised within one
+block-width of x=0. The structural test (run before M6 ratified the
+golden):
 
-This cross-config equivalence holds because:
+| distance from seam | max |Bz| | |Bz| / |By| |
+|---|---|---|
+| 0 – 0.015 (seam-adjacent block) | 1.0e-07 | 6.4% |
+| 0.015 – 0.030 (next block out)  | 5.4e-10 | 0.04% |
+| 0.030 – 0.045 (mid-interior)    | 4.3e-10 | 0.03% |
+| 0.045 – 0.060 (far-interior)    | 4.3e-10 | 0.03% |
 
-1. Cell centers in realm_1 ∪ realm_2 = cell centers in single-realm rmf (by
-   construction — see "Grid-alignment rationale" above).
-2. The manifest's `[forest.topology.face_*]` declaration overrides each
-   realm's INI-declared BC for the seam face (commit 6987c20, BC_SEAM
-   sentinel) — without this override, PRISM's `set_boundary_conditions`
-   would extrapolate Neumann into the seam ghost cells and overwrite the
-   peer-interior values the inter-realm exchange wrote.
-3. The forest's three-phase stage loop (same commit) keeps each realm's
-   `q_rk(:, interior, :, b, k)` consistent across all peers' seam reads —
-   the legacy two-phase loop (`compute_residuals` + `rk%assign_stage`
-   back-to-back per realm) raced because `assign_stage` overwrites
-   `q_rk(k)` with `dq` in-place.
-4. Ghost cells are stripped from the digest, so the inter-realm-mirror
-   ghost cells (which differ from single-realm's neighbouring-block reads
-   only in how they are populated, not in what data they hold
-   post-exchange) don't pollute the comparison.
+A ≥200× drop crossing one block (8 cells) into the interior confirms the
+coupling is structurally seam-local, not interior-leaking. If a future
+refactor of `forest_object` or PRISM's intra-stage routines spreads `|Bz|`
+beyond the seam-adjacent slab, that is a hidden ordering assumption — see
+PRD #16 risk clause and re-run the spatial check before rebaselining.
 
-## FNL caveat (Phase D.4)
+### Why the manifest still overrides the seam face BC
 
-The FNL backend has a known limitation in the multi-realm path: `rk_fnl`
-(and other `*_fnl` singletons) is a program-scope singleton, not a per-realm
-component. With two realms the stage state on the device is
-overwritten on each realm's `begin_stage_forest`, so the per-stage
-inter-realm exchange cannot reach a bit-comparable state. The FNL exchange
-override therefore error-stops on the per-stage entry, surfacing the
-limitation rather than silently producing wrong results.
+The manifest's `[forest.topology.face_*]` declaration overrides each realm's
+INI-declared BC for the seam face (BC_SEAM sentinel, commit `6987c20`).
+Without this override, PRISM's `set_boundary_conditions` would extrapolate
+Neumann into the seam ghost cells and overwrite the peer-interior values
+the inter-realm exchange wrote. This is unchanged by α — the BC override is
+orthogonal to the per-stage vs end-of-step cadence change.
 
-Resolving this is a follow-up that promotes the FNL singletons (rk_fnl,
-field_fnl, ib_fnl, weno_fnl, coil_fnl, fwlayer_fnl) to per-realm value
-components on `prism_fnl_object`, paralleling the C.3-closure pattern
-applied to the CPU side. Until that lands the FNL rmf-2realm golden cannot
-be captured.
+## FNL status
+
+The architectural blocker that prevented FNL multi-realm has been resolved
+on develop: `field_fnl`, `rk_fnl`, `ib_fnl`, `weno_fnl` (and PRISM-specific
+`coil_fnl`, `fwlayer_fnl`) are now per-realm value components on
+`prism_fnl_object` instead of program-scope singletons (commits
+`8000ae7b`, `d2fb7bc8`, `90d0343e`, `76760724`). The α end-of-step gate is
+in place on the FNL twin (commit `ebd5024d`, PRD #16 M5); the body remains
+a no-op pending the FNL FV residual port (PRD #16 out-of-scope, Phase B).
+
+A runtime crash remains on WSL2: `rmf-2realm/fnl` aborts at
+`receive_recv_buffer_ghost_gpu_dev:139` with `CUDA_ERROR_INVALID_VALUE`
+after the first cross-realm seam exchange. Standalone FUNDAL tests
+(including `mpirun -np 2`) all pass; single-realm `rmf/fnl` passes. The
+failure is not reproducible outside PRISM and is hypothesised to be a
+WSL-UCX × OpenACC × FUNDAL device-memcpy interaction (the WSL `/dev/dxg`
+shim does not retrieve the GPU primary context through UCX rendezvous;
+see CLAUDE.md "Development Environment: WSL2 GPU+MPI Caveats").
+
+Cluster validation is required before the FNL rmf-2realm golden can be
+captured. Until then the case runs only under CPU.
 
 ## Per-realm INI duplication
 
