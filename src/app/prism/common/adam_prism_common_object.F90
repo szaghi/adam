@@ -489,6 +489,129 @@ contains
    self%coil%J_vec(:,:,:,:,:,:) = self%coil%J_vec(:,:,:,:,:,:)/self%physics%J0
    endsubroutine initialize_coils
 
+   !subroutine set_helicon_coil(self, n)
+   !!< Set helicon coil.
+   !class(prism_common_object), intent(inout) :: self                                    !< Cpu object.
+   !integer(I4P),               intent(in)    :: n                                       !< Coil number.
+   !real(R8P), allocatable                    :: A(:,:,:,:,:)                            !< Total coil vector potential field.
+   !real(R8P), allocatable                    :: A_cyl(:,:,:,:,:)                        !< Total coil vector potential field.
+   !real(R8P), allocatable                    :: A_gc(:,:,:,:)                           !< Coil vector potential field at ghost cells, used for boundary condition application.
+   !real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:)                 !< Buffer variable for self%coil%J_vec.
+   !real(R8P)                                 :: r1, theta1, axial1                      !< Cylindrical coordinates of the first coil point.
+   !real(R8P)                                 :: r2, theta2, axial2                      !< Cylindrical coordinates of the second coil point.
+   !real(R8P)                                 :: r, theta, axial                         !< Cylindrical coordinates of the cell center.
+   !real(R8P)                                 :: F_theta, W_axial, W_r, F_axial, W_theta !< Cylindrical coordinates of the cell center and auxiliary variables for coil field computation.
+   !real(R8P)                                 :: cell_coord(3)                           !< Cartesian coordinates of the cell center.
+!
+   !integer(I4P)                              :: b,i,j,k,f               !< Counters.
+!
+   !! Associate grid, field, and coil data.
+   !associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj, &
+   !          nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                 &
+   !          y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),        &
+   !          R=>self%coil%r_coil(n), N_points=>self%coil%N_points(n), x_points=>self%coil%x_points(n,:), &
+   !          y_points=>self%coil%y_points(n,:), z_points=>self%coil%z_points(n,:),                       &
+   !          nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
+   !          z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,          &
+   !          dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
+   !
+   !allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   !A(:,:,:,:,:) = 0.0_R8P
+   !allocate(A_cyl(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   !A_cyl(:,:,:,:,:) = 0.0_R8P
+   !allocate(A_gc(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))
+   !A_gc(:,:,:,:) = 0.0_R8P
+!
+   !allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   !J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+   !do p=1, N_points(n)-1
+   !   x1 = x_points(n,p)
+   !   y1 = y_points(n,p)
+   !   z1 = z_points(n,p)
+   !   x2 = x_points(n,p+1)
+   !   y2 = y_points(n,p+1)
+   !   z2 = z_points(n,p+1)
+   !   call cartesian_to_cylindrical(x=x1, y=y1, z=z1, x_c=self%coil%center(n,1), y_c=self%coil%center(n,2), &
+   !                        z_c=self%coil%center(n,3), normal=self%coil%normal(n), r=r1, theta=theta1, axial=axial1)
+   !   call cartesian_to_cylindrical(x=x2, y=y2, z=z2, x_c=self%coil%center(n,1), y_c=self%coil%center(n,2), &
+   !                        z_c=self%coil%center(n,3), normal=self%coil%normal(n), r=r2, theta=theta2, axial=axial2)
+   !
+   !   if (abs(r1-r2) > 10E-6_R8P) then
+   !      call mpih%error_stop(msg=mpih%myrankstr//'prism_common_object%set_helicon_coil: error, coil points are not on cylinder surface')
+   !   elseif (abs(theta1-theta2) < 10E-6_R8P .and. abs(axial1-axial2) < 10E-6_R8P) then
+   !      call mpih%error_stop(msg=mpih%myrankstr//'prism_common_object%set_helicon_coil: error, coil points are coincident')
+   !   elseif (abs(theta1-theta2) > pi*179.R8P/180.R8P) then
+   !      call mpih%error_stop(msg=mpih%myrankstr//&
+   !      'prism_common_object%set_helicon_coil: error, coil points are too far in the azimuthal direction, add an intermediate point!')
+   !   elseif (abs(theta1-theta2) < 10E-6_R8P .and. abs(axial1-axial2) > 10E-6_R8P) then !< Straight segment along axial direction
+   !      do b=1, blocks_number
+   !         do k=1-ngc, nk+ngc
+   !            do j=1-ngc, nj+ngc
+   !               do i=1-ngc, ni+ngc
+   !                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+   !                  call cartesian_to_cylindrical(x=cell_coord(1), y=cell_coord(2), z=cell_coord(3),        &
+   !                                               x_c=x_c(n), y_c=y_c(n), z_c=z_c(n),                        &
+   !                                               normal=self%coil%normal(n), r=r, theta=theta, axial=axial)
+   !                  F_theta = erf_function(s=R*(theta-theta1), mu=0.R8P, sigma=sigma(n))
+   !                  W_axial = tangential_window(s=axial, smin=min(axial1,axial2), smax=max(axial1,axial2), sigma=sigma)
+   !                  W_r = tangential_window(s=r, smin=R-sigma, smax=R+sigma, sigma=sigma)
+   !                  A_cyl(1,i,j,k,b) = A_cyl(1,i,j,k,b) - sign(1.0_R8P,axial2-axial1)*F_theta*W_axial*W_r
+   !               enddo
+   !            enddo
+   !         enddo
+   !      enddo
+   !   elseif (abs(theta1-theta2) >= 10E-6_R8P .and. abs(axial1-axial2) < 10E-6_R8P) then !< Cirdular arc on the cylinder surface
+   !      do b=1, blocks_number
+   !         do k=1-ngc, nk+ngc
+   !            do j=1-ngc, nj+ngc
+   !               do i=1-ngc, ni+ngc
+   !                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+   !                  call cartesian_to_cylindrical(x=cell_coord(1), y=cell_coord(2), z=cell_coord(3),        &
+   !                                               x_c=x_c(n), y_c=y_c(n), z_c=z_c(n),                        &
+   !                                               normal=self%coil%normal(n), r=r, theta=theta, axial=axial)
+   !                  F_axial = erf_function(s=axial, mu=axial1, sigma=sigma(n))
+   !                  W_theta = tangential_window(s=R*(theta-min(theta1,theta2)), smin=0.R8P, smax=R*abs(theta2-theta1), sigma=sigma)
+   !                  W_r = tangential_window(s=r, smin=R-sigma, smax=R+sigma, sigma=sigma)
+   !                  A_cyl(1,i,j,k,b) = A_cyl(1,i,j,k,b) + sign(1.0_R8P,theta2-theta1)*F_axial*W_theta*W_r
+   !               enddo
+   !            enddo
+   !         enddo
+   !      enddo
+   !   else !< Helical segment
+   !      call mpih%error_stop(msg=mpih%myrankstr// &
+   !                           'prism_common_object%set_helicon_coil: error, helical segments are not supported yet')
+   !   endif
+   !enddo
+   !endassociate
+   !            
+   !contains
+!
+   !subroutine cartesian_to_cylindrical(x, y, z, x_c, y_c, z_c, normal, r, theta, axial)
+   !!< Convert cartesian coordinates to cylindrical coordinates with respect to the coil center and normal direction.
+   !real(R8P), intent(in)  :: x, y, z          !< Cartesian coordinates.
+   !real(R8P), intent(in)  :: x_c, y_c, z_c    !< Coil center coordinates.
+   !real(R8P), intent(in)  :: normal           !< Normal direction.
+   !real(R8P), intent(out) :: r, theta, axial !< Cylindrical coordinates.
+!
+   !! Compute the cylindrical coordinates based on the normal direction.
+   !select case (normal)
+   !case (NORMAL_P_X, NORMAL_M_X)
+   !   r = sqrt((y - y_c)**2 + (z - z_c)**2)
+   !   theta = atan2(z - z_c, y - y_c)
+   !   axial = x - x_c
+   !case (NORMAL_P_Y, NORMAL_M_Y)
+   !   r = sqrt((x - x_c)**2 + (z - z_c)**2)
+   !   theta = atan2(z - z_c, x - x_c)
+   !   axial = y - y_c
+   !case (NORMAL_P_Z, NORMAL_M_Z)
+   !   r = sqrt((x - x_c)**2 + (y - y_c)**2)
+   !   theta = atan2(y - y_c, x - x_c)
+   !   axial = z - z_c
+   !endselect
+   !endsubroutine cartesian_to_cylindrical
+!
+   !endsubroutine set_helicon_coil
+
    subroutine set_rectangular_coil_x(self, n, verse)
    !< Set rectangular coil with normal direction parallel to x.
    class(prism_common_object), intent(inout) :: self                    !< Cpu object.

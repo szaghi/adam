@@ -20,6 +20,7 @@ public :: INI_SECTION_NAME
 public :: COIL_TYPE_RECTANGULAR
 public :: COIL_TYPE_CIRCULAR
 public :: COIL_TYPE_SOLENOID
+public :: COIL_TYPE_HELICON
 public :: CURRENT_TYPE_AC
 public :: CURRENT_TYPE_DC
 public :: prism_coil_object
@@ -34,6 +35,7 @@ character(len=11), parameter :: INI_SECTION_NAME="coils_input"        !< INI (co
 character(len=11), parameter :: COIL_TYPE_RECTANGULAR="rectangular"   !< Rectangular shape coil.
 character(len=8),  parameter :: COIL_TYPE_CIRCULAR="circular"         !< Circular shape coil.
 character(len=8),  parameter :: COIL_TYPE_SOLENOID="solenoid"         !< Solenoid shape coil.
+character(len=8),  parameter :: COIL_TYPE_HELICON="helicon"           !< Helicon shape coil.
 character(len=10), parameter :: CURRENT_TYPE_DC="DC_current"          !< DC current.
 character(len=10), parameter :: CURRENT_TYPE_AC="AC_current"          !< AC current
 character(len=2),  parameter :: NORMAL_P_X="+x"                       !< Normal versor along positive x axis.
@@ -45,27 +47,31 @@ character(len=2),  parameter :: NORMAL_M_Z="-z"                       !< Normal 
 
 type :: prism_coil_object
    !< ADAM, PRISM coil source definition, CPU backend.
-   character(len=99), allocatable :: coil_type(:)                          !< Coil type.
-   character(len=99), allocatable :: current_type(:)                       !< Current type.
-   character(len=2 ), allocatable :: normal(:)                             !< Versore normale alla spira, che identifica anche verso
-   real(R8P),         allocatable :: A(:)                                  !< Current amplitude (A)
-   real(R8P),         allocatable :: coil_amplitude(:)
-                                                                           !< Current amplitude (A) for each coil, corrected for
-                                                                           !< Gaussian current distribution.
-   real(R8P),         allocatable :: f(:)                                  !< Current frequency, if AC (Hz)
-   real(R8P),         allocatable :: phase(:)                              !< Current initial phase, if AC
-   real(R8P),         allocatable :: x_center(:), y_center(:), z_center(:) !< Coil center
-   real(R8P),         allocatable :: lx(:), ly(:)                          !< Rectangle's sizes (if rectangular coil)
-   real(R8P),         allocatable :: r_coil(:)                             !< Circle's radius (if circular coil)
-   real(R8P),         allocatable :: l_solenoid(:)                         !< Solenoid length (if solenoidal coil)
-   real(R8P),         allocatable :: windings(:)                           !< Windings number (if solenoidal coil)
-   real(R8P),         allocatable :: sigma(:)                              !< Gaussian current distribution sigma
-   real(R8P),         allocatable :: J_vec(:,:,:,:,:,:)                    !< Matrice contenente versori corrente spire (se assente
-   real(R8P)                      :: td                                    !< Delay di accensione della spira
-   integer(I4P)                   :: circular_coils_number=0_I4P           !< Number of circular coils
-   integer(I4P)                   :: rectangular_coils_number=0_I4P        !< Number of rectangular coils
-   integer(I4P)                   :: total_coils_number=0_I4P              !< Number of coils
-   type(string), allocatable      :: j_vec_name(:,:)                       !< J vec names.
+   character(len=99), allocatable :: coil_type(:)                                !< Coil type.
+   character(len=99), allocatable :: current_type(:)                             !< Current type.
+   character(len=2 ), allocatable :: normal(:)                                   !< Versore normale alla spira, che identifica anche verso
+   real(R8P),         allocatable :: A(:)                                        !< Current amplitude (A)
+   real(R8P),         allocatable :: coil_amplitude(:)      
+                                                                                 !< Current amplitude (A) for each coil, corrected for
+                                                                                 !< Gaussian current distribution.
+   real(R8P),         allocatable :: f(:)                                        !< Current frequency, if AC (Hz)
+   real(R8P),         allocatable :: phase(:)                                    !< Current initial phase, if AC
+   real(R8P),         allocatable :: x_center(:), y_center(:), z_center(:)       !< Coil center
+   real(R8P),         allocatable :: lx(:), ly(:)                                !< Rectangle's sizes (if rectangular coil)
+   real(R8P),         allocatable :: r_coil(:)                                   !< Circle's radius (if circular coil)
+   real(R8P),         allocatable :: l_solenoid(:)                               !< Solenoid length (if solenoidal coil)
+   real(R8P),         allocatable :: windings(:)                                 !< Windings number (if solenoidal coil)
+   real(R8P),         allocatable :: N_points(:)                               !< Number of points for coil representation (for helicon coil setting)
+   real(R8P),         allocatable :: x_points(:,:), y_points(:,:), z_points(:,:) !< Coil points coordinates (for helicon coil setting)
+   real(R8P),         allocatable :: sigma(:)                                    !< Gaussian current distribution sigma
+   real(R8P),         allocatable :: J_vec(:,:,:,:,:,:)                          !< Matrice contenente versori corrente spire (se assente
+   real(R8P)                      :: td                                          !< Delay di accensione della spira
+   integer(I4P)                   :: circular_coils_number=0_I4P                 !< Number of circular coils
+   integer(I4P)                   :: rectangular_coils_number=0_I4P              !< Number of rectangular coils
+   integer(I4P)                   :: solenoid_coils_number=0_I4P                 !< Number of solenoid coils
+   integer(I4P)                   :: helicon_coils_number=0_I4P                  !< Number of helicon coils
+   integer(I4P)                   :: total_coils_number=0_I4P                    !< Number of coils
+   type(string), allocatable      :: j_vec_name(:,:)                             !< J vec names.
    ! grid data replica for easy handling
    integer(I4P), pointer :: ngc=>null() !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()  !< Number of cells in i direction.
@@ -98,28 +104,32 @@ contains
    subroutine allocate_coil(self, field, grid)
    !< Allocate coil data.
    class(prism_coil_object), intent(inout) :: self !< Coils.
-   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
-   type(grid_object),  intent(in), target :: grid !< Grid (sibling realm component, threaded in).
+   type(field_object), intent(in)          :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),  intent(in), target  :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P)                            :: c    !< Counter.
 
    associate(ngc=>self%ngc,ni=>self%ni,nj=>self%nj,nk=>self%nk,nb=>field%nb,total_coils_number=>self%total_coils_number)
 
-   allocate(self%r_coil              (0:total_coils_number)) ; self%r_coil = 0.0_R8P
-   allocate(self%ly                  (0:total_coils_number)) ; self%ly = 0.0_R8P
-   allocate(self%lx                  (0:total_coils_number)) ; self%lx = 0.0_R8P
-   allocate(self%l_solenoid          (0:total_coils_number)) ; self%l_solenoid = 0.0_R8P
-   allocate(self%windings            (0:total_coils_number)) ; self%windings = 0.0_R8P
-   allocate(self%sigma               (0:total_coils_number)) ; self%sigma = 0.0_R8P
-   allocate(self%x_center            (0:total_coils_number)) ; self%x_center = 0.0_R8P
-   allocate(self%y_center            (0:total_coils_number)) ; self%y_center = 0.0_R8P
-   allocate(self%z_center            (0:total_coils_number)) ; self%z_center = 0.0_R8P
-   allocate(self%coil_type           (0:total_coils_number)) ; self%coil_type = ' '
-   allocate(self%current_type        (0:total_coils_number)) ; self%current_type = ' '
-   allocate(self%normal              (0:total_coils_number)) ; self%normal = ' '
-   allocate(self%A                   (0:total_coils_number)) ; self%A = 0.0_R8P
-   allocate(self%coil_amplitude      (0:total_coils_number)) ; self%coil_amplitude = 0.0_R8P
-   allocate(self%f                   (0:total_coils_number)) ; self%f = 0.0_R8P
-   allocate(self%phase               (0:total_coils_number)) ; self%phase = 0.0_R8P
+   allocate(self%r_coil              (0:total_coils_number))    ; self%r_coil = 0.0_R8P
+   allocate(self%ly                  (0:total_coils_number))    ; self%ly = 0.0_R8P
+   allocate(self%lx                  (0:total_coils_number))    ; self%lx = 0.0_R8P
+   allocate(self%l_solenoid          (0:total_coils_number))    ; self%l_solenoid = 0.0_R8P
+   allocate(self%windings            (0:total_coils_number))    ; self%windings = 0.0_R8P
+   allocate(self%N_points            (0:total_coils_number))    ; self%N_points = 0.0_R8P
+   allocate(self%x_points            (0:total_coils_number,50)) ; self%x_points = 0.0_R8P
+   allocate(self%y_points            (0:total_coils_number,50)) ; self%y_points = 0.0_R8P
+   allocate(self%z_points            (0:total_coils_number,50)) ; self%z_points = 0.0_R8P
+   allocate(self%sigma               (0:total_coils_number))    ; self%sigma = 0.0_R8P
+   allocate(self%x_center            (0:total_coils_number))    ; self%x_center = 0.0_R8P
+   allocate(self%y_center            (0:total_coils_number))    ; self%y_center = 0.0_R8P
+   allocate(self%z_center            (0:total_coils_number))    ; self%z_center = 0.0_R8P
+   allocate(self%coil_type           (0:total_coils_number))    ; self%coil_type = ' '
+   allocate(self%current_type        (0:total_coils_number))    ; self%current_type = ' '
+   allocate(self%normal              (0:total_coils_number))    ; self%normal = ' '
+   allocate(self%A                   (0:total_coils_number))    ; self%A = 0.0_R8P
+   allocate(self%coil_amplitude      (0:total_coils_number))    ; self%coil_amplitude = 0.0_R8P
+   allocate(self%f                   (0:total_coils_number))    ; self%f = 0.0_R8P
+   allocate(self%phase               (0:total_coils_number))    ; self%phase = 0.0_R8P
 
    allocate(self%J_vec(3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb,total_coils_number)) ; self%J_vec = 0._R8P
    allocate(self%j_vec_name(3,total_coils_number))
@@ -217,7 +227,7 @@ contains
    logical,                    intent(in), optional :: go_on_fail      !< Go on if load fails.
    logical                                          :: go_on_fail_     !< Go on if load fails.
    character(:), allocatable                        :: sname           !< Section name.
-   integer(I4P)                                     :: i               !< Counter.
+   integer(I4P)                                     :: i,j             !< Counter.
    integer(I4P)                                     :: error           !< Error status.
    character(99)                                    :: buff_char       !< Option character buffer.
 
@@ -233,7 +243,18 @@ contains
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
 
-   self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='solenoid_coils_number', &
+                            val=self%solenoid_coils_number, error=error)
+   if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(solenoid_coils_number)')
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='helicon_coils_number', &
+                            val=self%helicon_coils_number, error=error)
+   if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(helicon_coils_number)')
+
+   self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number &
+                              + self%solenoid_coils_number + self%helicon_coils_number
 
    if (self%total_coils_number==0_I4P) return
 
@@ -323,6 +344,47 @@ contains
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
+
+      case(COIL_TYPE_HELICON)
+         call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+
+         call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+
+         call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+
+         call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+
+         call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         self%normal(i) = trim(buff_char)
+         self%normal(i) = trim(self%normal(i))
+
+         call file_parameters%get(section_name=sname, option_name='N_points', val=self%N_points(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(N_points)')
+         if (self%N_points(i) > 50.0_R8P) then
+            call mpih%error_stop(msg=': too many points for ['//sname//'].(N_points). Max allowed is 50.')
+         end if
+
+         do j = 1, self%N_points(i)
+            call file_parameters%get(section_name=sname, option_name='x_point_'//trim(str(j,.true.)), &
+                                     val=self%x_points(i,j), error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_point_' & 
+                                                                     //trim(str(j,.true.))//')')
+
+            call file_parameters%get(section_name=sname, option_name='y_point_'//trim(str(j,.true.)), &
+                                     val=self%y_points(i,j), error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_point_' & 
+                                                                     //trim(str(j,.true.))//')')
+
+            call file_parameters%get(section_name=sname, option_name='z_point_'//trim(str(j,.true.)), &
+                                     val=self%z_points(i,j), error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_point_' & 
+                                                                     //trim(str(j,.true.))//')')
+         enddo
       endselect
 
       select case(self%current_type(i))
