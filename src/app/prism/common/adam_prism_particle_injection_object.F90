@@ -40,34 +40,34 @@ procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_
                                                                                                          !< generator interface
 
 type :: prism_particle_injection_object
-   character(len=99)    :: space_distribution					!< Particle space distribution type.
-	character(len=99)    :: space_random_number_generator		!< Type of random number generator for space distribution
-	real(R8P)				:: box_number = 0.0_R8P					!< Number of boxes in which ensure charge neutrality
-	logical					:: space_pairing = .false.				!< Enable space pairing of particles
-	character(len=99)    :: velocity_distribution				!< Particle velocity distribution type.
-	real(R8P)				:: T_i=0.0_R8P								!< Ionic plasma temperature (uniform)
-	real(R8P)				:: T_i_x=0.0_R8P							!< Ionic plasma temperature along x (non-uniform)
-	real(R8P)				:: T_i_y=0.0_R8P							!< Ionic plasma temperature along y (non-uniform)
-	real(R8P)				:: T_i_z=0.0_R8P							!< Ionic plasma temperature along z (non-uniform)
-	real(R8P)				:: T_e=0.0_R8P								!< Electronic plasma temperature (uniform)
-	real(R8P)				:: T_e_x=0.0_R8P							!< Electronic plasma temperature along x (non-uniform)
-	real(R8P)				:: T_e_y=0.0_R8P							!< Electronic plasma temperature along y (non-uniform)
-	real(R8P)				:: T_e_z=0.0_R8P							!< Electronic plasma temperature along z (non-uniform)
-	real(R8P)				:: T_n=0.0_R8P								!< Neutrals plasma temperature (uniform)
-	real(R8P)				:: T_n_x=0.0_R8P							!< Neutrals plasma temperature along x (non-uniform)
-	real(R8P)				:: T_n_y=0.0_R8P							!< Neutrals plasma temperature along y (non-uniform)
-	real(R8P)				:: T_n_z=0.0_R8P							!< Neutrals plasma temperature along z (non-uniform)
-	real(R8P)				:: x_position=0.0_R8P					!< x coordinate of the initial position of the particle in single particle problem
-	real(R8P)				:: y_position=0.0_R8P					!< y coordinate of the initial position of the particle in single particle problem
-	real(R8P)				:: z_position=0.0_R8P					!< z coordinate of the initial position of the particle in single particle problem
-	real(R8P)				:: charge=0.0_R8P							!< charge of the particle in single particle problem
-	real(R8P)				:: mass=0.0_R8P							!< mass of the particle in single particle problem
-	character(len=99)    :: velocity_random_number_generator !< Type of random number generator for space distribution
-	logical			 		:: velocity_pairing = .false.			!< Enable space pairing of particles
-	real(R8P)				:: v_drift_x=0.0_R8P						!< Plasma drift velocity along x
-	real(R8P)				:: v_drift_y=0.0_R8P						!< Plasma drift_velocity along y
-	real(R8P)				:: v_drift_z=0.0_R8P						!< Plasma drift velocity along z
-	logical        		:: v_av_correction = .false.			!< Flag to correct the average v.
+   character(len=99) :: space_distribution				   !< Particle space distribution type.
+   character(len=99) :: space_random_number_generator	   !< Type of random number generator for space distribution
+   real(R8P)			:: box_number = 0.0_R8P				   !< Number of boxes in which ensure charge neutrality
+   logical				:: space_pairing = .false.			   !< Enable space pairing of particles
+   character(len=99) :: velocity_distribution			   !< Particle velocity distribution type.
+   real(R8P)			:: T_i=0.0_R8P						      !< Ionic plasma temperature (uniform)
+   real(R8P)			:: T_i_x=0.0_R8P					      !< Ionic plasma temperature along x (non-uniform)
+   real(R8P)			:: T_i_y=0.0_R8P					      !< Ionic plasma temperature along y (non-uniform)
+   real(R8P)			:: T_i_z=0.0_R8P					      !< Ionic plasma temperature along z (non-uniform)
+   real(R8P)			:: T_e=0.0_R8P						      !< Electronic plasma temperature (uniform)
+   real(R8P)			:: T_e_x=0.0_R8P					      !< Electronic plasma temperature along x (non-uniform)
+   real(R8P)			:: T_e_y=0.0_R8P					      !< Electronic plasma temperature along y (non-uniform)
+   real(R8P)			:: T_e_z=0.0_R8P					      !< Electronic plasma temperature along z (non-uniform)
+   real(R8P)			:: T_n=0.0_R8P						      !< Neutrals plasma temperature (uniform)
+   real(R8P)			:: T_n_x=0.0_R8P					      !< Neutrals plasma temperature along x (non-uniform)
+   real(R8P)			:: T_n_y=0.0_R8P					      !< Neutrals plasma temperature along y (non-uniform)
+   real(R8P)			:: T_n_z=0.0_R8P					      !< Neutrals plasma temperature along z (non-uniform)
+   real(R8P)			:: x_position=0.0_R8P				   !< x coordinate of the initial position of the particle in single particle problem
+   real(R8P)			:: y_position=0.0_R8P				   !< y coordinate of the initial position of the particle in single particle problem
+   real(R8P)			:: z_position=0.0_R8P				   !< z coordinate of the initial position of the particle in single particle problem
+   real(R8P)			:: charge=0.0_R8P					      !< charge of the particle in single particle problem
+   real(R8P)			:: mass=0.0_R8P						   !< mass of the particle in single particle problem
+   character(len=99) :: velocity_random_number_generator !< Type of random number generator for space distribution
+   logical			 	:: velocity_pairing = .false.		   !< Enable space pairing of particles
+   real(R8P)			:: v_drift_x=0.0_R8P				      !< Plasma drift velocity along x
+   real(R8P)			:: v_drift_y=0.0_R8P				      !< Plasma drift_velocity along y
+   real(R8P)			:: v_drift_z=0.0_R8P				      !< Plasma drift velocity along z
+   logical        	:: v_av_correction = .false.	      !< Flag to correct the average v
 
    !< Pointer (abstract) TBP.
    procedure(particle_space_injection_interface),	  pass(self), pointer :: particle_space_injection 	  => null()
@@ -80,29 +80,22 @@ contains
    procedure, pass(self) :: description    !< Return pretty-printed object description.
    procedure, pass(self) :: initialize     !< Initialize IC.
    procedure, pass(self) :: load_from_file !< Load config from file.
-	procedure, pass(self) :: set_particle_initial_injection
-	procedure, pass(self) :: uniform_domain_space_injection
-	procedure, pass(self) :: uniform_cell_space_injection
-	procedure, pass(self) :: uniform_maxwellian_velocity_injection
-	procedure, pass(self) :: non_uniform_maxwellian_velocity_injection
-	procedure, pass(self) :: single_particle_injection
+   procedure, pass(self) :: set_particle_initial_injection
+   procedure, pass(self) :: uniform_domain_space_injection
+   procedure, pass(self) :: uniform_cell_space_injection
+   procedure, pass(self) :: uniform_maxwellian_velocity_injection
+   procedure, pass(self) :: non_uniform_maxwellian_velocity_injection
+   procedure, pass(self) :: single_particle_injection
 endtype prism_particle_injection_object
 
 interface
    subroutine particle_space_injection_interface(self, field, grid, pic, q_pic)
    import :: prism_particle_injection_object, field_object, grid_object, prism_pic_object, I4P, R8P
-	class(prism_particle_injection_object), intent(inout) :: self
-	type(field_object),                  	 intent(in) 	:: field
-	type(grid_object),                   	 intent(in)	:: grid
-	type(prism_pic_object),					 	 intent(in)		:: pic
-	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
-                                                                                                                              !< Num
-                                                                                                                              !< ber
-                                                                                                                              !< of
-                                                                                                                              !< var
-                                                                                                                              !< iab
-                                                                                                                              !< les
-                                                                                                                              !< .
+   class(prism_particle_injection_object), intent(inout) :: self
+   type(field_object),                  	 intent(in) 	:: field
+   type(grid_object),                   	 intent(in)		:: grid
+   type(prism_pic_object),					 	 intent(in)		:: pic
+   real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
    endsubroutine particle_space_injection_interface
 
 	subroutine space_random_number_generator_interface(N, shuffled_list, i_numb, r_n)
@@ -117,16 +110,9 @@ interface
    import :: prism_particle_injection_object, field_object, grid_object, prism_pic_object, I4P, R8P
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
-	type(grid_object),                   	 intent(in)	:: grid
+	type(grid_object),                   	 intent(in)	   :: grid
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
-                                                                                                                              !< Num
-                                                                                                                              !< ber
-                                                                                                                              !< of
-                                                                                                                              !< var
-                                                                                                                              !< iab
-                                                                                                                              !< les
-                                                                                                                              !< .
    endsubroutine particle_velocity_injection_interface
 
 	subroutine velocity_random_number_generator_interface(N, shuffled_list, i_numb, r_n)
@@ -474,7 +460,7 @@ contains
 	subroutine set_particle_initial_injection(self, field, grid, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
-	type(grid_object),                   	 intent(in)	:: grid
+	type(grid_object),                   	 intent(in)	   :: grid
 	type(prism_pic_object),					 	 intent(inout)	:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 
@@ -1000,7 +986,7 @@ contains
 	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
 	integer(I4P), intent(in) 	 :: i_numb
 	integer(I4P), intent(in) 	 :: N  		 					!Numero di elementi
-	real(R8P), intent(inout) 	 :: r_n(1:) 					!Random numbers
+	real(R8P),    intent(inout) :: r_n(1:) 					!Random numbers
 	integer(I4P) 					 :: index_list(N)
 	integer(I4P) 					 :: w, h
 	integer(I4P)					 :: n_rn
@@ -1035,7 +1021,7 @@ contains
 	shuffled_list = index_list
 	do ii = nn, 2, -1
       call random_number(u)     ! u in [0,1)
-      jj = 1 + int(u*real(ii))    ! j in [1,i]
+      jj = 1 + int(u*real(ii))  ! j in [1,i]
       tmp    			   = shuffled_list(ii)
       shuffled_list(ii) = shuffled_list(jj)
       shuffled_list(jj) = tmp

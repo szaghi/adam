@@ -11,6 +11,7 @@ use :: adam_prism_fWLayer_object
 use :: adam_prism_ic_object
 use :: adam_prism_leapfrog_pic_object
 use :: adam_prism_numerics_object
+use :: adam_prism_parameters
 use :: adam_prism_physics_object
 use :: adam_prism_pic_object
 use :: adam_prism_particle_injection_object
@@ -91,6 +92,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: set_solenoid_x         !< Subroutine to set a solenoid source with +-x normal
       procedure, pass(self) :: set_solenoid_y         !< Subroutine to set a solenoid source with +-y normal
       procedure, pass(self) :: set_solenoid_z         !< Subroutine to set a solenoid source with +-z normal
+      procedure, pass(self) :: set_helicon_coil       !< Subroutine to set a helicon coil source.
       procedure, pass(self) :: coupling_descriptor_forest !< Report (scheme_time, rk_scheme, nv) for β admissibility.
 endtype prism_common_object
 
@@ -480,137 +482,483 @@ contains
          case(NORMAL_M_Y) ; call self%set_solenoid_y(n=n, verse = -1._R8P)
          case(NORMAL_M_Z) ; call self%set_solenoid_z(n=n, verse = -1._R8P)
          endselect
+      case(COIL_TYPE_HELICON)
+         call self%set_helicon_coil(n=n)
       endselect
-      !call self%compute_divergence(hs=self%fdv_half_stencils(1),ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),&
-      !                             divergence=self%divergence(3,:,:,:,:))
-      !print '(A)', mpih%myrankstr//'Divergenza J vec della spira: ' &
-      !            //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
    enddo
-   self%coil%J_vec(:,:,:,:,:,:) = self%coil%J_vec(:,:,:,:,:,:)/self%physics%J0
    endsubroutine initialize_coils
 
-   !subroutine set_helicon_coil(self, n)
-   !!< Set helicon coil.
-   !class(prism_common_object), intent(inout) :: self                                    !< Cpu object.
-   !integer(I4P),               intent(in)    :: n                                       !< Coil number.
-   !real(R8P), allocatable                    :: A(:,:,:,:,:)                            !< Total coil vector potential field.
-   !real(R8P), allocatable                    :: A_cyl(:,:,:,:,:)                        !< Total coil vector potential field.
-   !real(R8P), allocatable                    :: A_gc(:,:,:,:)                           !< Coil vector potential field at ghost cells, used for boundary condition application.
-   !real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:)                 !< Buffer variable for self%coil%J_vec.
-   !real(R8P)                                 :: r1, theta1, axial1                      !< Cylindrical coordinates of the first coil point.
-   !real(R8P)                                 :: r2, theta2, axial2                      !< Cylindrical coordinates of the second coil point.
-   !real(R8P)                                 :: r, theta, axial                         !< Cylindrical coordinates of the cell center.
-   !real(R8P)                                 :: F_theta, W_axial, W_r, F_axial, W_theta !< Cylindrical coordinates of the cell center and auxiliary variables for coil field computation.
-   !real(R8P)                                 :: cell_coord(3)                           !< Cartesian coordinates of the cell center.
+   subroutine set_helicon_coil(self, n)
+   !< Set helicon coil.
+   class(prism_common_object), intent(inout) :: self                                    !< Cpu object.
+   integer(I4P),               intent(in)    :: n                                       !< Coil number.
+   real(R8P), allocatable                    :: A(:,:,:,:,:)                            !< Total coil vector potential field.
+   real(R8P) :: A_r
+   real(R8P), allocatable                    :: A_gc(:,:,:,:)                           !< Coil vector potential field at ghost cells, used for boundary condition application.
+   real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:)                 !< Buffer variable for self%coil%J_vec.
+   real(R8P), allocatable                    :: xpoints(:), ypoints(:), zpoints(:)
+   real(R8P)                                 :: r_p1, theta_p1, csi_p1                  !< Cylindrical coordinates of the first coil point.
+   real(R8P)                                 :: r_p2, theta_p2, csi_p2                  !< Cylindrical coordinates of the second coil point.
+   real(R8P)                                 :: e1(3), e2(3), csi(3)                    !< Terna di assi ortonormale all'asse del cilindro centrata in x_c
+   real(R8P)                                 :: r_p, theta_p                            !< Coordinate del punto in coordinate cilindriche
+   real(R8P)                                 :: s_p, csi_p                              !< Coordinate del secondo punto nel s.d.r. sull'asse del cilindro
+   real(R8P)                                 :: theta_p1_prime, theta_p2_prime          !< Coordinata azimuthale da atan2
+   real(R8P)                                 :: theta_p_prime, theta_c
+   real(R8P)                                 :: dtheta_seg                              !<Delta teta tra due punti della spira
+   real(R8P), allocatable                    :: s_map(:), csi_map(:)                    !< Coordinate dei punti nella spira nel piano cilindrico srotolato s=R*theta; csi = axial
+   real(R8P)                                 :: area_signed, eta
+   real(R8P)                                 :: lambda, v_hat(2), p_near(2), p_nearest(2) !<Parametro di proiezione
+   real(R8P)                                 :: d_p, d_p_0, p_star, w_n
+   real(R8P)                                 :: chi, W_r
+   real(R8P)                                 :: cell_coord(3)                           !< Cartesian coordinates of the cell center.
+   real(R8P)                                 :: x_p1, y_p1, z_p1
+   real(R8P)                                 :: x_p2, y_p2, z_p2
+   integer(I4P)                              :: b,i,j,k,p,f                             !< Counters.   
+   real(R8P)                                 :: gc_coord(3)
+   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b               !< Normal and tangential directions indices for ghost cell reconstruction
+   integer(I4P), parameter                   :: n_faces = 6_I4P                         !< Number of ghost-cell face slabs.
+   integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
+   integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
+   integer(I4P)                              :: k1_f(n_faces), k2_f(n_faces)
+
+   ! Associate grid, field, and coil data.
+   associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,      &
+             nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                      &
+             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),             &
+             Radius=>self%coil%r_coil(n), N_points=>self%coil%N_points(n), x_points=>self%coil%x_points(n,:), &
+             y_points=>self%coil%y_points(n,:), z_points=>self%coil%z_points(n,:),                            &
+             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,          &
+             z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,               &
+             dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
+   
+   allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   A(:,:,:,:,:) = 0.0_R8P
+   allocate(A_gc(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))
+   A_gc(:,:,:,:) = 0.0_R8P
+   allocate(s_map(1:N_points))
+   allocate(csi_map(1:N_points))
+
+   allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   do p=1, N_points-1 !Porto tutto in coordinate locali e coordinate cilindriche, per poi mappare tutto nel piano srotolato (s,csi)
+      x_p1 = x_points(p)
+      y_p1 = y_points(p)
+      z_p1 = z_points(p)
+      x_p2 = x_points(p+1)
+      y_p2 = y_points(p+1)
+      z_p2 = z_points(p+1)
+
+      call cartesian_to_cylindrical(x=x_p1, y=y_p1, z=z_p1, x_c=x_c, y_c=y_c, &
+                           z_c=z_c, normal=normal, r=r_p1, theta=theta_p1_prime, axial=csi_p1)
+      call cartesian_to_cylindrical(x=x_p2, y=y_p2, z=z_p2, x_c=x_c, y_c=y_c, &
+                           z_c=z_c, normal=normal, r=r_p2, theta=theta_p2_prime, axial=csi_p2)
+
+      !Diagnostic
+      dtheta_seg = wrap_to_pi(theta_p2_prime-theta_p1_prime)
+      if (abs(r_p1-Radius)>1.0E-6_R8P .or. abs(r_p2-Radius)>1.0E-6_R8P) then
+         call mpih%error_stop(msg=mpih%myrankstr & 
+               //'prism_common_object%set_helicon_coil: error, coil points are not on cylinder surface')
+      elseif (abs(dtheta_seg) < 1.0E-6_R8P .and. abs(csi_p1-csi_p2) < 1.0E-6_R8P) then
+         call mpih%error_stop(msg=mpih%myrankstr &
+               //'prism_common_object%set_helicon_coil: error, coil points are coincident')
+      elseif (abs(dtheta_seg) > PI*179.0_R8P/180.0_R8P) then
+         call mpih%error_stop(msg=mpih%myrankstr//&
+         'prism_common_object%set_helicon_coil: error, & 
+            coil points are too far in the azimuthal direction, add an intermediate point!')
+      endif
+
+      if (p == 1) then
+         theta_p1 = theta_p1_prime
+         dtheta_seg = wrap_to_pi(theta_p2_prime-theta_p1_prime)
+         theta_p2 = theta_p1 + dtheta_seg
+      else
+         dtheta_seg = wrap_to_pi(theta_p1_prime - s_map(p-1)/Radius)
+         theta_p1 = s_map(p-1)/Radius + dtheta_seg
+         dtheta_seg = wrap_to_pi(theta_p2_prime-theta_p1)
+         theta_p2 = theta_p1 + dtheta_seg
+      endif
+      s_map(p)     = Radius*theta_p1
+      s_map(p+1)   = Radius*theta_p2
+      csi_map(p)   = csi_p1
+      csi_map(p+1) = csi_p2
+   enddo
+
+   !Definisco il verso della corrente con area firmata
+   area_signed = compute_signed_area(N_points=N_points, x_points=s_map, y_points=csi_map)
+   eta = sign(1.0_R8P, area_signed)
+   theta_c = 0.5_R8P * (minval(s_map/Radius) + maxval(s_map/Radius))
+   
+   !Mappatura funzione indicatrice del bordo Chi
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+               call cartesian_to_cylindrical(x=cell_coord(1), y=cell_coord(2), z=cell_coord(3),     &
+                                            x_c=x_c, y_c=y_c, z_c=z_c,                              &
+                                            normal=normal, r=r_p, theta=theta_p_prime, axial=csi_p)
+               theta_p = theta_c + wrap_to_pi(theta_p_prime - theta_c)
+               s_p = Radius * theta_p
+               d_p = huge(1.0_R8P)
+               do p=1, N_points-1 !Calcolo distanza minima nel piano
+                  v_hat  = [s_map(p+1)-s_map(p), csi_map(p+1)-csi_map(p)]
+                  lambda = dot_product([s_p-s_map(p), csi_p-csi_map(p)], v_hat)/dot_product(v_hat,v_hat)
+                  lambda = min(1.0_R8P, max(0.0_R8P, lambda))
+                  p_near = [s_map(p), csi_map(p)] + lambda*v_hat
+                  d_p_0  = sqrt((s_p - p_near(1))**2 + (csi_p - p_near(2))**2)
+                  if (d_p_0 < d_p) then
+                     p_nearest = p_near
+                     d_p = d_p_0
+                     p_star = p
+                  endif
+               enddo
+               !Calcolo segno distanza firmata
+               w_n = compute_windings_number(N_points=N_points, x_points=s_map, y_points=csi_map, coord=[s_p, csi_p])
+               if (w_n /= 0.0_R8P) then !Il punto è dentro la superficie racchiusa dalla spezzata
+                  d_p = d_p
+               else !Il punto è fuori la superficie racchiusa dalla spezzata
+                  d_p = -d_p
+               endif
+               !definisco funzioni per il calcolo del campo ausiliario
+               chi = 0.5*(1+erf_function(s=d_p, mu=0.0_R8P, sigma=sigma))
+               W_r = tangential_window(s=r_p, smin=Radius-sigma, smax=Radius+sigma, sigma=sigma)
+               A_r = eta*W_r*chi
+               call cylindrical_vector_to_cartesian(A_r = A_r, A_theta = 0.0_R8P, A_axial = 0.0_R8P,           &
+                                                   theta = theta_p, normal = normal,                           &
+                                                   A_x = A(1,i,j,k,b), A_y = A(2,i,j,k,b), A_z = A(3,i,j,k,b))
+            enddo
+         enddo
+      enddo
+   enddo
+   call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
+   !Parte relativa alle ghost cells, visto che compute_curl lavora solo
+   !sui punti interni del dominio.
+   i_dir_n = 1_I4P
+   i_dir_a = 2_I4P
+   i_dir_b = 3_I4P
+
+   ! Faccia -x
+   i1_f(1) = 1_I4P - ngc
+   i2_f(1) = 0_I4P
+   j1_f(1) = 1_I4P
+   j2_f(1) = nj
+   k1_f(1) = 1_I4P
+   k2_f(1) = nk
+
+   ! Faccia +x
+   i1_f(2) = ni + 1_I4P
+   i2_f(2) = ni + ngc
+   j1_f(2) = 1_I4P
+   j2_f(2) = nj
+   k1_f(2) = 1_I4P
+   k2_f(2) = nk
+
+   ! Faccia -y
+   i1_f(3) = 1_I4P
+   i2_f(3) = ni
+   j1_f(3) = 1_I4P - ngc
+   j2_f(3) = 0_I4P
+   k1_f(3) = 1_I4P
+   k2_f(3) = nk
+
+   ! Faccia +y
+   i1_f(4) = 1_I4P
+   i2_f(4) = ni
+   j1_f(4) = nj + 1_I4P
+   j2_f(4) = nj + ngc
+   k1_f(4) = 1_I4P
+   k2_f(4) = nk
+
+   ! Faccia -z
+   i1_f(5) = 1_I4P
+   i2_f(5) = ni
+   j1_f(5) = 1_I4P
+   j2_f(5) = nj
+   k1_f(5) = 1_I4P - ngc
+   k2_f(5) = 0_I4P
+
+   ! Faccia +z
+   i1_f(6) = 1_I4P
+   i2_f(6) = ni
+   j1_f(6) = 1_I4P
+   j2_f(6) = nj
+   k1_f(6) = nk + 1_I4P
+   k2_f(6) = nk + ngc
+  
+   allocate(xpoints(1:N_points))
+   allocate(ypoints(1:N_points))
+   allocate(zpoints(1:N_points))
+   xpoints = x_points(1:N_points)
+   ypoints = y_points(1:N_points)
+   zpoints = z_points(1:N_points)
 !
-   !integer(I4P)                              :: b,i,j,k,f               !< Counters.
+   do f = 1_I4P, n_faces
+      do b = 1, blocks_number
+         do k = k1_f(f), k2_f(f)
+            do j = j1_f(f), j2_f(f)
+               do i = i1_f(f), i2_f(f)
+                  gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+
+                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,                    &
+                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,                      &
+                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b,           &
+                                               N_Points=N_Points, r_coil=Radius, normal=normal,             & 
+                                               s_map=s_map, csi_map=csi_map, eta=eta,                       &
+                                               area_signed=area_signed, theta_c=theta_c, coil_type=4.0_R8P)
+                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1.0e-12_R8P) then
+                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   J_vec(1:3,:,:,:,:,n) = J_vec_buffer
+   endassociate
+
+   call compute_Helicon_coil_amplitude(I_target = self%coil%A(n),                           &
+                                       rb = self%coil%r_coil(n)+3.5_R8P*self%coil%sigma(n), &
+                                       ra = self%coil%r_coil(n)-3.5_R8P*self%coil%sigma(n), &
+                                       r1 = self%coil%r_coil(n)-self%coil%sigma(n),         &
+                                       r2 = self%coil%r_coil(n)+self%coil%sigma(n),         &
+                                       sigma = self%coil%sigma(n), n=n,                     &
+                                       amplitude = self%coil%coil_amplitude(n))
+   endsubroutine set_helicon_coil
+
+   subroutine compute_Helicon_coil_amplitude(I_target, rb, ra, r1, r2, sigma, n, amplitude)
+   !< Compute amplitude correction for helicon coil
+   real(R8P),    intent(in)  :: I_target
+   real(R8P),    intent(in)  :: rb, ra
+   real(R8P),    intent(in)  :: r1, r2
+   real(R8P),    intent(in)  :: sigma
+   integer(I4P), intent(in)  :: n
+   real(R8P),    intent(out) :: amplitude
+   real(R8P)                 :: flux
+   real(R8P)                 :: P1, P2, P3, P4
+
+   P1 = erf_primitive_function(s=rb, mu=r1, sigma=sigma)
+   P2 = erf_primitive_function(s=ra, mu=r1, sigma=sigma)
+   P3 = erf_primitive_function(s=rb, mu=r2, sigma=sigma)
+   P4 = erf_primitive_function(s=ra, mu=r2, sigma=sigma)
+   flux = (0.5_R8P*(P1-P2-P3+P4))
+   amplitude = I_target/flux
+
+   print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux*I_target))
+   print '(A)', mpih%myrankstr//trim(str(I_target))//' Amplitude A('//trim(str(n))//') before correction'
+   print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(1/flux))
+   print '(A)', mpih%myrankstr//trim(str(amplitude))//' Amplitude A('//trim(str(n))//') after correction'
+   print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(amplitude*flux))
+   endsubroutine compute_Helicon_coil_amplitude
+
+   function helicon_coil_A_at_point(cell_coord, x_c, y_c, z_c, normal, Radius, & 
+                           N_points, s_map, csi_map, area_signed, eta, theta_c, sigma) result(Ap)
+   !< Compute helicon/saddle coil auxiliary vector potential A at one point.
+   real(R8P),         intent(in) :: cell_coord(3)                             !< Coordinate cartesiane del punto di valutazione.
+   real(R8P),         intent(in) :: x_c                                       !< Coordinata x centro cilindro.
+   real(R8P),         intent(in) :: y_c                                       !< Coordinata x centro cilindro.
+   real(R8P),         intent(in) :: z_c                                       !< Coordinata z centro cilindro.
+   character(len=2 ), intent(in) :: normal                                    !< Asse cilindro.
+   real(R8P),         intent(in) :: Radius                                    !< Raggio cilindro.
+   integer(I4P),      intent(in) :: N_points                                  !< Numero di punti della spline.
+   real(R8P),         intent(in) :: s_map(1:N_points)                         !< s coordinates of the spline points for the helicon coil case.
+   real(R8P),         intent(in) :: csi_map(1:N_points)                       !< csi coordinates of the spline points for the helicon coil case.
+   real(R8P),         intent(in) :: area_signed                               !< 
+   real(R8P),         intent(in) :: eta                  
+   real(R8P),         intent(in) :: theta_c                 
+   real(R8P),         intent(in) :: sigma                                     !< Smearing.
+   real(R8P)                     :: Ap(3)                                     !< Output vector potential at the evaluation point.
+   real(R8P)                     :: r_p1, theta_p1, csi_p1                    !< Cylindrical coordinates of the first coil point.
+   real(R8P)                     :: r_p2, theta_p2, csi_p2                    !< Cylindrical coordinates of the second coil point.
+   real(R8P)                     :: e1(3), e2(3), csi(3)                      !< Terna di assi ortonormale all'asse del cilindro centrata in x_c
+   real(R8P)                     :: r_p, theta_p, theta_p_prime               !< Coordinate del punto in coordinate cilindriche
+   real(R8P)                     :: s_p, csi_p                                !< Coordinate del secondo punto nel s.d.r. sull'asse del cilindro
+   real(R8P)                     :: lambda, v_hat(2), p_near(2), p_nearest(2) !<
+   real(R8P)                     :: d_p, d_p_0, p_star, w_n
+   real(R8P)                     :: chi, W_r, A_r
+   integer(I4P)                  :: p                            !< Counters.
 !
-   !! Associate grid, field, and coil data.
-   !associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj, &
-   !          nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                 &
-   !          y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),        &
-   !          R=>self%coil%r_coil(n), N_points=>self%coil%N_points(n), x_points=>self%coil%x_points(n,:), &
-   !          y_points=>self%coil%y_points(n,:), z_points=>self%coil%z_points(n,:),                       &
-   !          nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
-   !          z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,          &
-   !          dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
-   !
-   !allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   !A(:,:,:,:,:) = 0.0_R8P
-   !allocate(A_cyl(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   !A_cyl(:,:,:,:,:) = 0.0_R8P
-   !allocate(A_gc(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))
-   !A_gc(:,:,:,:) = 0.0_R8P
-!
-   !allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   !J_vec_buffer(:,:,:,:,:) = 0.0_R8P
-   !do p=1, N_points(n)-1
-   !   x1 = x_points(n,p)
-   !   y1 = y_points(n,p)
-   !   z1 = z_points(n,p)
-   !   x2 = x_points(n,p+1)
-   !   y2 = y_points(n,p+1)
-   !   z2 = z_points(n,p+1)
-   !   call cartesian_to_cylindrical(x=x1, y=y1, z=z1, x_c=self%coil%center(n,1), y_c=self%coil%center(n,2), &
-   !                        z_c=self%coil%center(n,3), normal=self%coil%normal(n), r=r1, theta=theta1, axial=axial1)
-   !   call cartesian_to_cylindrical(x=x2, y=y2, z=z2, x_c=self%coil%center(n,1), y_c=self%coil%center(n,2), &
-   !                        z_c=self%coil%center(n,3), normal=self%coil%normal(n), r=r2, theta=theta2, axial=axial2)
-   !
-   !   if (abs(r1-r2) > 10E-6_R8P) then
-   !      call mpih%error_stop(msg=mpih%myrankstr//'prism_common_object%set_helicon_coil: error, coil points are not on cylinder surface')
-   !   elseif (abs(theta1-theta2) < 10E-6_R8P .and. abs(axial1-axial2) < 10E-6_R8P) then
-   !      call mpih%error_stop(msg=mpih%myrankstr//'prism_common_object%set_helicon_coil: error, coil points are coincident')
-   !   elseif (abs(theta1-theta2) > pi*179.R8P/180.R8P) then
-   !      call mpih%error_stop(msg=mpih%myrankstr//&
-   !      'prism_common_object%set_helicon_coil: error, coil points are too far in the azimuthal direction, add an intermediate point!')
-   !   elseif (abs(theta1-theta2) < 10E-6_R8P .and. abs(axial1-axial2) > 10E-6_R8P) then !< Straight segment along axial direction
-   !      do b=1, blocks_number
-   !         do k=1-ngc, nk+ngc
-   !            do j=1-ngc, nj+ngc
-   !               do i=1-ngc, ni+ngc
-   !                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-   !                  call cartesian_to_cylindrical(x=cell_coord(1), y=cell_coord(2), z=cell_coord(3),        &
-   !                                               x_c=x_c(n), y_c=y_c(n), z_c=z_c(n),                        &
-   !                                               normal=self%coil%normal(n), r=r, theta=theta, axial=axial)
-   !                  F_theta = erf_function(s=R*(theta-theta1), mu=0.R8P, sigma=sigma(n))
-   !                  W_axial = tangential_window(s=axial, smin=min(axial1,axial2), smax=max(axial1,axial2), sigma=sigma)
-   !                  W_r = tangential_window(s=r, smin=R-sigma, smax=R+sigma, sigma=sigma)
-   !                  A_cyl(1,i,j,k,b) = A_cyl(1,i,j,k,b) - sign(1.0_R8P,axial2-axial1)*F_theta*W_axial*W_r
-   !               enddo
-   !            enddo
-   !         enddo
-   !      enddo
-   !   elseif (abs(theta1-theta2) >= 10E-6_R8P .and. abs(axial1-axial2) < 10E-6_R8P) then !< Cirdular arc on the cylinder surface
-   !      do b=1, blocks_number
-   !         do k=1-ngc, nk+ngc
-   !            do j=1-ngc, nj+ngc
-   !               do i=1-ngc, ni+ngc
-   !                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-   !                  call cartesian_to_cylindrical(x=cell_coord(1), y=cell_coord(2), z=cell_coord(3),        &
-   !                                               x_c=x_c(n), y_c=y_c(n), z_c=z_c(n),                        &
-   !                                               normal=self%coil%normal(n), r=r, theta=theta, axial=axial)
-   !                  F_axial = erf_function(s=axial, mu=axial1, sigma=sigma(n))
-   !                  W_theta = tangential_window(s=R*(theta-min(theta1,theta2)), smin=0.R8P, smax=R*abs(theta2-theta1), sigma=sigma)
-   !                  W_r = tangential_window(s=r, smin=R-sigma, smax=R+sigma, sigma=sigma)
-   !                  A_cyl(1,i,j,k,b) = A_cyl(1,i,j,k,b) + sign(1.0_R8P,theta2-theta1)*F_axial*W_theta*W_r
-   !               enddo
-   !            enddo
-   !         enddo
-   !      enddo
-   !   else !< Helical segment
-   !      call mpih%error_stop(msg=mpih%myrankstr// &
-   !                           'prism_common_object%set_helicon_coil: error, helical segments are not supported yet')
-   !   endif
-   !enddo
-   !endassociate
-   !            
-   !contains
-!
-   !subroutine cartesian_to_cylindrical(x, y, z, x_c, y_c, z_c, normal, r, theta, axial)
-   !!< Convert cartesian coordinates to cylindrical coordinates with respect to the coil center and normal direction.
-   !real(R8P), intent(in)  :: x, y, z          !< Cartesian coordinates.
-   !real(R8P), intent(in)  :: x_c, y_c, z_c    !< Coil center coordinates.
-   !real(R8P), intent(in)  :: normal           !< Normal direction.
-   !real(R8P), intent(out) :: r, theta, axial !< Cylindrical coordinates.
-!
-   !! Compute the cylindrical coordinates based on the normal direction.
-   !select case (normal)
-   !case (NORMAL_P_X, NORMAL_M_X)
-   !   r = sqrt((y - y_c)**2 + (z - z_c)**2)
-   !   theta = atan2(z - z_c, y - y_c)
-   !   axial = x - x_c
-   !case (NORMAL_P_Y, NORMAL_M_Y)
-   !   r = sqrt((x - x_c)**2 + (z - z_c)**2)
-   !   theta = atan2(z - z_c, x - x_c)
-   !   axial = y - y_c
-   !case (NORMAL_P_Z, NORMAL_M_Z)
-   !   r = sqrt((x - x_c)**2 + (y - y_c)**2)
-   !   theta = atan2(y - y_c, x - x_c)
-   !   axial = z - z_c
-   !endselect
-   !endsubroutine cartesian_to_cylindrical
-!
-   !endsubroutine set_helicon_coil
+   Ap(:) = 0.0_R8P
+   call cartesian_to_cylindrical(x=cell_coord(1), y=cell_coord(2), z=cell_coord(3),                 &
+                                            x_c=x_c, y_c=y_c, z_c=z_c,                              &
+                                            normal=normal, r=r_p, theta=theta_p_prime, axial=csi_p)
+   theta_p = theta_c + wrap_to_pi(theta_p_prime - theta_c)
+   s_p = Radius * theta_p
+   d_p = huge(1.0_R8P)
+   do p=1, N_points-1 !Calcolo distanza minima nel piano
+      v_hat  = [s_map(p+1)-s_map(p), csi_map(p+1)-csi_map(p)]
+      lambda = dot_product([s_p-s_map(p), csi_p-csi_map(p)], v_hat)/dot_product(v_hat,v_hat)
+      lambda = min(1.0_R8P, max(0.0_R8P, lambda))
+      p_near = [s_map(p), csi_map(p)] + lambda*v_hat
+      d_p_0  = sqrt((s_p - p_near(1))**2 + (csi_p - p_near(2))**2)
+      if (d_p_0 < d_p) then
+         p_nearest = p_near
+         d_p = d_p_0
+         p_star = p
+      endif
+   enddo
+   !Calcolo segno distanza firmata
+   w_n = compute_windings_number(N_points=N_points, x_points=s_map, y_points=csi_map, coord=[s_p, csi_p])
+   if (w_n /= 0.0_R8P) then !Il punto è dentro la superficie racchiusa dalla spezzata
+      d_p = d_p
+   else !Il punto è fuori la superficie racchiusa dalla spezzata
+      d_p = -d_p
+   endif
+   !definisco funzioni per il calcolo del campo ausiliario
+   chi = 0.5*(1+erf_function(s=d_p, mu=0.0_R8P, sigma=sigma))
+   W_r = tangential_window(s=r_p, smin=Radius-sigma, smax=Radius+sigma, sigma=sigma)
+   A_r = eta*W_r*chi
+   call cylindrical_vector_to_cartesian(A_r = A_r, A_theta = 0.0_R8P, A_axial = 0.0_R8P,           &
+                                       theta = theta_p, normal = normal,                           &
+                                       A_x = Ap(1), A_y = Ap(2), A_z = Ap(3))
+
+   endfunction helicon_coil_A_at_point
+
+   pure subroutine cartesian_to_cylindrical(x, y, z, x_c, y_c, z_c, normal, r, theta, axial)
+   !< Convert cartesian coordinates to cylindrical coordinates with respect to the coil center and normal direction.
+   real(R8P),         intent(in)  :: x, y, z          !< Cartesian coordinates.
+   real(R8P),         intent(in)  :: x_c, y_c, z_c    !< Coil center coordinates.
+   character(len=2 ), intent(in)  :: normal           !< Normal direction.
+   real(R8P),         intent(out) :: r, theta, axial  !< Cylindrical coordinates.
+
+   ! Compute the cylindrical coordinates based on the normal direction.
+   select case (normal)
+   case (NORMAL_P_X, NORMAL_M_X)
+      r = sqrt((y - y_c)**2 + (z - z_c)**2)
+      theta = atan2(z - z_c, y - y_c)
+      if (theta < 0.0_R8P) theta = theta + 2.0_R8P*PI
+      axial = x - x_c
+   case (NORMAL_P_Y, NORMAL_M_Y)
+      r = sqrt((x - x_c)**2 + (z - z_c)**2)
+      theta = atan2(x - x_c, z - z_c)
+      if (theta < 0.0_R8P) theta = theta + 2.0_R8P*PI
+      axial = y - y_c
+   case (NORMAL_P_Z, NORMAL_M_Z)
+      r = sqrt((x - x_c)**2 + (y - y_c)**2)
+      theta = atan2(y - y_c, x - x_c)
+      if (theta < 0.0_R8P) theta = theta + 2.0_R8P*PI
+      axial = z - z_c
+   endselect
+   endsubroutine cartesian_to_cylindrical
+
+   pure subroutine cylindrical_to_cartesian(r, theta, axial, x_c, y_c, z_c, normal, x, y, z)
+   !< Convert cylindrical coordinates to cartesian coordinates with respect to the coil center and normal direction.
+   real(R8P),         intent(in)  :: r, theta, axial
+   real(R8P),         intent(in)  :: x_c, y_c, z_c
+   character(len=2 ), intent(in)  :: normal
+   real(R8P),         intent(out) :: x, y, z
+
+   select case (normal)
+
+   case (NORMAL_P_X, NORMAL_M_X)
+      x = x_c + axial
+      y = y_c + r*cos(theta)
+      z = z_c + r*sin(theta)
+
+   case (NORMAL_P_Y, NORMAL_M_Y)
+      x = x_c + r*sin(theta)
+      y = y_c + axial
+      z = z_c + r*cos(theta)
+
+   case (NORMAL_P_Z, NORMAL_M_Z)
+      x = x_c + r*cos(theta)
+      y = y_c + r*sin(theta)
+      z = z_c + axial
+
+   endselect
+   endsubroutine cylindrical_to_cartesian
+
+   pure subroutine cylindrical_vector_to_cartesian(A_r, A_theta, A_axial, theta, normal, A_x, A_y, A_z)
+   !< Convert cylindrical vector A components to cartesian vector components.
+   real(R8P),         intent(in)  :: A_r, A_theta, A_axial
+   real(R8P),         intent(in)  :: theta
+   character(len=2 ), intent(in)  :: normal
+   real(R8P),         intent(out) :: A_x, A_y, A_z
+
+   select case (normal)
+   case (NORMAL_P_X, NORMAL_M_X)
+   ! axis = x
+   ! e_r     =  cos(theta) e_y + sin(theta) e_z
+   ! e_theta = -sin(theta) e_y + cos(theta) e_z
+   A_x = A_axial
+   A_y = A_r*cos(theta) - A_theta*sin(theta)
+   A_z = A_r*sin(theta) + A_theta*cos(theta)
+   case (NORMAL_P_Y, NORMAL_M_Y)
+   ! axis = y
+   ! e_r     =  cos(theta) e_z + sin(theta) e_x
+   ! e_theta = -sin(theta) e_z + cos(theta) e_x
+   A_x = A_r*sin(theta) + A_theta*cos(theta)
+   A_y = A_axial
+   A_z = A_r*cos(theta) - A_theta*sin(theta)
+   case (NORMAL_P_Z, NORMAL_M_Z)
+   ! axis = z
+   ! e_r     =  cos(theta) e_x + sin(theta) e_y
+   ! e_theta = -sin(theta) e_x + cos(theta) e_y
+   A_x = A_r*cos(theta) - A_theta*sin(theta)
+   A_y = A_r*sin(theta) + A_theta*cos(theta)
+   A_z = A_axial
+   endselect
+   endsubroutine cylindrical_vector_to_cartesian
+
+   pure elemental function wrap_to_pi(alpha) result(alpha_w)
+   !< Wrap angle to [-pi, pi).
+   real(R8P), intent(in) :: alpha
+   real(R8P)             :: alpha_w
+   real(R8P), parameter  :: twopi = 2.0_R8P*PI
+
+   alpha_w = modulo(alpha + PI, twopi) - PI
+   endfunction wrap_to_pi
+
+   function compute_signed_area(N_points, x_points, y_points) result(signed_area)
+   !< Compute signed area of a a 2D polygon
+   integer(I4P), intent(in) :: N_points
+   real(R8P),    intent(in) :: x_points(N_points)
+   real(R8P),    intent(in) :: y_points(N_points)
+   real(R8P)                :: signed_area
+   integer(I4P)             :: p 
+   
+   signed_area = 0.0_R8P
+   do p = 1,N_points-1
+      signed_area = signed_area + 0.5*(x_points(p)*y_points(p+1)-x_points(p+1)*y_points(p))
+   enddo
+   endfunction compute_signed_area
+
+   function compute_windings_number(N_points, x_points, y_points, coord) result(w_n)
+   !Compute number of windings of a closed 2D curve around a point using horizontal ray casting
+   integer(I4P), intent(in) :: N_points
+   real(R8P),    intent(in) :: x_points(N_points)
+   real(R8P),    intent(in) :: y_points(N_points)
+   real(R8P),    intent(in) :: coord(2)
+   real(R8P)                :: w_n
+   real(R8P)                :: is_left
+   integer(I4P)             :: p
+
+   w_n = 0.0_R8P
+   do p = 1,N_points-1
+      is_left = (x_points(p+1)-x_points(p))*(coord(2)-y_points(p)) - (coord(1)-x_points(p))*(y_points(p+1)-y_points(p))
+      if (y_points(p) <= coord(2)) then
+         if (y_points(p+1) > coord(2)) then
+            if (is_left > 0.0_R8P) w_n = w_n + 1.0_R8P
+         endif
+      else
+         if (y_points(p+1) <= coord(2)) then
+            if (is_left < 0.0_R8P) w_n = w_n - 1.0_R8P
+         endif
+      endif
+   enddo
+   endfunction compute_windings_number
 
    subroutine set_rectangular_coil_x(self, n, verse)
    !< Set rectangular coil with normal direction parallel to x.
@@ -797,7 +1145,8 @@ contains
                   A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
                                                x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
                                                i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                               a1=y_1, a2=y_2, b1=z_1, b2=z_2)
+                                               a1=y_1, a2=y_2, b1=z_1, b2=z_2,                    &
+                                               coil_type=1.0_R8P, N_points=0_I4P)
 
                   call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
@@ -1163,7 +1512,8 @@ contains
                   A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
                                                x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
                                                i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                               a1=z_1, a2=z_2, b1=x_1, b2=x_2)
+                                               a1=z_1, a2=z_2, b1=x_1, b2=x_2,                    &
+                                               coil_type=1.0_R8P, N_points=0_I4P)
 
                   call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
@@ -1524,14 +1874,12 @@ contains
          do k = k1_f(f), k2_f(f)
             do j = j1_f(f), j2_f(f)
                do i = i1_f(f), i2_f(f)
-
                   gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-
                   A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
                                                x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
                                                i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                               a1=x_1, a2=x_2, b1=y_1, b2=y_2)
-
+                                               a1=x_1, a2=x_2, b1=y_1, b2=y_2,                    &
+                                               coil_type=1.0_R8P, N_points=0_I4P)
                   call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                enddo
@@ -1716,6 +2064,68 @@ contains
 
       endsubroutine compute_coil_current_density_flux_analytic_z
    endsubroutine set_rectangular_coil_z
+
+   function rectangular_coil_A_at_point(xp, xc, idir_n, idir_a, idir_b, a1, a2, b1, b2, sigma) result(Ap)
+   real(R8P),    intent(in) :: xp(3)  !< Punto di valutazione.
+   real(R8P),    intent(in) :: xc(3)  !< Centro spira.
+   integer(I4P), intent(in) :: idir_n !< Componente normale: 1=x, 2=y, 3=z.
+   integer(I4P), intent(in) :: idir_a !< Prima coordinata locale nel piano spira.
+   integer(I4P), intent(in) :: idir_b !< Seconda coordinata locale nel piano spira.
+   real(R8P),    intent(in) :: a1, a2 !< Estremi lato locale a.
+   real(R8P),    intent(in) :: b1, b2 !< Estremi lato locale b.
+   real(R8P),    intent(in) :: sigma  !< Smearing unico della spira.
+   real(R8P)                :: Ap(3)
+
+   real(R8P) :: x_a, x_b, x_n
+   real(R8P) :: A_1, A_2, A_3, A_4
+   real(R8P) :: F_l, W_t, W_n
+
+   Ap(:) = 0.0_R8P
+
+   ! Schema locale nel piano della spira (a,b):
+   !
+   !          b
+   !          ^
+   !          |
+   !   b2  3 <-------- 2
+   !       |            |
+   !       |            |
+   !       |            |
+   !   b1  4 --------> 1
+   !          a1       a2  ---> a
+   !
+   ! Lati:
+   !   1: b = b1, tangente lungo +a
+   !   2: a = a2, tangente lungo +b
+   !   3: b = b2, tangente lungo -a
+   !   4: a = a1, tangente lungo -b
+
+   x_a = xp(idir_a)
+   x_b = xp(idir_b)
+   x_n = xp(idir_n)
+
+   W_n = tangential_window(s=x_n, smin=xc(idir_n)-sigma, &
+                           smax=xc(idir_n)+sigma,        &
+                           sigma=sigma)
+
+   F_l = erf_function(s=x_b, mu=b1, sigma=sigma)
+   W_t = tangential_window(s=x_a, smin=a1, smax=a2, sigma=sigma)
+   A_1 = F_l*W_t*W_n
+
+   F_l = erf_function(s=x_a, mu=a2, sigma=sigma)
+   W_t = tangential_window(s=x_b, smin=b1, smax=b2, sigma=sigma)
+   A_2 = -F_l*W_t*W_n
+
+   F_l = erf_function(s=x_b, mu=b2, sigma=sigma)
+   W_t = tangential_window(s=x_a, smin=a1, smax=a2, sigma=sigma)
+   A_3 = -F_l*W_t*W_n
+
+   F_l = erf_function(s=x_a, mu=a1, sigma=sigma)
+   W_t = tangential_window(s=x_b, smin=b1, smax=b2, sigma=sigma)
+   A_4 = F_l*W_t*W_n
+
+   Ap(idir_n) = (A_1 + A_2 + A_3 + A_4)
+   endfunction rectangular_coil_A_at_point
 
    subroutine set_circular_coil_x(self, n, verse)
    !< Set circular coil with normal direction parallel to x.
@@ -2304,24 +2714,26 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
-   if (n == 1_I4P) then
+   !if (n == 1_I4P) then
       call compute_solenoid_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
                                                             l_sol=l_sol, windings=windings,           &
                                                             A=self%coil%A(n), sigma=sigma, n=n,       &
+                                                            amplitude=self%coil%coil_amplitude(n),    &
                                                             adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call compute_solenoid_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
-                                                            l_sol=l_sol, windings=windings,           &
-                                                            A=self%coil%A(n), sigma=sigma, n=n,       &
-                                                            adjust_amplitude=.false.)
-   endif
+   !else
+   !   self%coil%A(n) = self%coil%A(1)
+   !   call compute_solenoid_current_density_flux_analytic_x(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
+   !                                                         l_sol=l_sol, windings=windings,           &
+   !                                                         A=self%coil%A(n), sigma=sigma, n=n,       &
+   !                                                         amplitude=self%coil%coil_amplitude(n),    &
+   !                                                         adjust_amplitude=.false.)
+   !endif
 
    endassociate
 
    contains
       subroutine compute_solenoid_current_density_flux_analytic_x(x_c, y_c, z_c, r_coil, l_sol, windings, &
-                                                                  sigma, A, n, adjust_amplitude)
+                                                                  sigma, A, amplitude, n, adjust_amplitude)
       !< Analytic amplitude correction for a solenoid with axis parallel to x.
       !< The current is evaluated as the flux of Jz through the lower radial section y = y_c-r_coil.
       real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
@@ -2331,7 +2743,8 @@ contains
       real(R8P),    intent(in)    :: l_sol            !< Solenoid length.
       real(R8P),    intent(in)    :: windings         !< Number of solenoid windings.
       real(R8P),    intent(in)    :: sigma            !< Solenoid Gaussian smoothing width.
-      real(R8P),    intent(inout) :: A                !< Solenoid amplitude, corrected in place.
+      real(R8P),    intent(in)    :: A                !< Solenoid input amplitude
+      real(R8P),    intent(inout) :: amplitude        !< Solenoid amplitude, corrected in place
       integer(I4P), intent(in)    :: n                !< Coil number.
       logical,      intent(in)    :: adjust_amplitude !< If true, correct the solenoid amplitude.
       real(R8P),    parameter     :: alpha = 3.5_R8P  !< Half-width of the radial integration interval in sigma units.
@@ -2385,14 +2798,14 @@ contains
          print '(A)', mpih%myrankstr//trim(str(target_current))//' Target current A('//trim(str(n))//')*N before correction'
          print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
 
-         A = target_current * correction
+         amplitude = target_current * correction
 
-         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//trim(str(amplitude))//' Amplitude A('//trim(str(n))//') after correction'
          print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(A*flux_unit))
 
       else
 
-         flux = A * flux_unit
+         flux = amplitude * flux_unit
 
          print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
          print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(flux))
@@ -2469,24 +2882,27 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
-   if (n == 1_I4P) then
+   !if (n == 1_I4P) then
       call compute_solenoid_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
                                                             l_sol=l_sol, windings=windings,           &
                                                             A=self%coil%A(n), sigma=sigma, n=n,       &
+                                                            amplitude=self%coil%coil_amplitude(n),    &
                                                             adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call compute_solenoid_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
-                                                            l_sol=l_sol, windings=windings,           &
-                                                            A=self%coil%A(n), sigma=sigma, n=n,       &
-                                                            adjust_amplitude=.false.)
-   endif
+   !else
+   !   self%coil%coil_amplitude(n) = self%coil%coil_amplitude(1)
+   !   call compute_solenoid_current_density_flux_analytic_y(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
+   !                                                         l_sol=l_sol, windings=windings,           &
+   !                                                         A=self%coil%A(n), sigma=sigma, n=n,       &
+   !                                                         amplitude=self%coil%coil_amplitude(n),    &
+   !                                                         adjust_amplitude=.false.)
+   !endif
 
    endassociate
 
    contains
+
       subroutine compute_solenoid_current_density_flux_analytic_y(x_c, y_c, z_c, r_coil, l_sol, windings, &
-                                                                  sigma, A, n, adjust_amplitude)
+                                                                  sigma, A, amplitude, n, adjust_amplitude)
       !< Analytic amplitude correction for a solenoid with axis parallel to y.
       !< The current is evaluated as the flux of Jz through the section x = x_c-r_coil.
       real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
@@ -2496,7 +2912,8 @@ contains
       real(R8P),    intent(in)    :: l_sol            !< Solenoid length.
       real(R8P),    intent(in)    :: windings         !< Number of solenoid windings.
       real(R8P),    intent(in)    :: sigma            !< Solenoid Gaussian smoothing width.
-      real(R8P),    intent(inout) :: A                !< Solenoid amplitude, corrected in place.
+      real(R8P),    intent(in)    :: A                !< Solenoid input amplitude.
+      real(R8P),    intent(inout) :: amplitude        !< Solenoid amplitude, corrected in place.
       integer(I4P), intent(in)    :: n                !< Coil number.
       logical,      intent(in)    :: adjust_amplitude !< If true, correct the solenoid amplitude.
       real(R8P),    parameter     :: alpha = 3.5_R8P  !< Half-width of the radial integration interval in sigma units.
@@ -2550,16 +2967,16 @@ contains
          print '(A)', mpih%myrankstr//trim(str(target_current))//' Target current A('//trim(str(n))//')*N before correction'
          print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
 
-         A = target_current * correction
+         amplitude = target_current * correction
 
-         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
-         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(A*flux_unit))
+         print '(A)', mpih%myrankstr//trim(str(amplitude))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(amplitude*flux_unit))
 
       else
 
-         flux = A * flux_unit
+         flux = amplitude * flux_unit
 
-         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(amplitude))
          print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(flux))
 
       endif
@@ -2635,24 +3052,27 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
-   if (n == 1_I4P) then
+   !if (n == 1_I4P) then
       call compute_solenoid_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
                                                             l_sol=l_sol, windings=windings,           &
                                                             A=self%coil%A(n), sigma=sigma, n=n,       &
+                                                            amplitude=self%coil%coil_amplitude(n),    &
                                                             adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call compute_solenoid_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
-                                                            l_sol=l_sol, windings=windings,           &
-                                                            A=self%coil%A(n), sigma=sigma, n=n,       &
-                                                            adjust_amplitude=.false.)
-   endif
+   !else
+   !   self%coil%A(n) = self%coil%A(1)
+   !   call compute_solenoid_current_density_flux_analytic_z(x_c=x_c, y_c=y_c, z_c=z_c, r_coil=r_coil, &
+   !                                                         l_sol=l_sol, windings=windings,           &
+   !                                                         A=self%coil%A(n), sigma=sigma, n=n,       &
+   !                                                         amplitude=self%coil%coil_amplitude(n),    &
+   !                                                         adjust_amplitude=.false.)
+   !endif
 
    endassociate
 
    contains
+
       subroutine compute_solenoid_current_density_flux_analytic_z(x_c, y_c, z_c, r_coil, l_sol, windings, &
-                                                                  sigma, A, n, adjust_amplitude)
+                                                                  sigma, A, amplitude, n, adjust_amplitude)
       !< Analytic amplitude correction for a solenoid with axis parallel to z.
       !< The current is evaluated as the flux of Jy through the section x = x_c-r_coil.
       real(R8P),    intent(in)    :: x_c              !< Solenoid center x-coordinate.
@@ -2662,10 +3082,11 @@ contains
       real(R8P),    intent(in)    :: l_sol            !< Solenoid length.
       real(R8P),    intent(in)    :: windings         !< Number of solenoid windings.
       real(R8P),    intent(in)    :: sigma            !< Solenoid Gaussian smoothing width.
-      real(R8P),    intent(inout) :: A                !< Solenoid amplitude, corrected in place.
+      real(R8P),    intent(in)    :: A                !< Solenoid input amplitude.
+      real(R8P),    intent(inout) :: amplitude        !< Solenoid amplitude, corrected in place.
       integer(I4P), intent(in)    :: n                !< Coil number.
       logical,      intent(in)    :: adjust_amplitude !< If true, correct the solenoid amplitude.
-      real(R8P), parameter        :: alpha = 3.5_R8P  !< Half-width of the radial integration interval in sigma units.
+      real(R8P),    parameter     :: alpha = 3.5_R8P  !< Half-width of the radial integration interval in sigma units.
       real(R8P)                   :: z_l              !< Lower z-boundary of the solenoid axial window.
       real(R8P)                   :: z_u              !< Upper z-boundary of the solenoid axial window.
       real(R8P)                   :: z_1              !< Lower z-integration boundary.
@@ -2716,20 +3137,23 @@ contains
          print '(A)', mpih%myrankstr//trim(str(target_current))//' Target current A('//trim(str(n))//')*N before correction'
          print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(correction))
 
-         A = target_current * correction
+         amplitude = target_current * correction
 
-         print '(A)', mpih%myrankstr//trim(str(A))//' Amplitude A('//trim(str(n))//') after correction'
-         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(A*flux_unit))
+         print '(A)', mpih%myrankstr//trim(str(amplitude))//' Amplitude A('//trim(str(n))//') after correction'
+         print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(amplitude*flux_unit))
 
       else
 
-         flux = A * flux_unit
+         flux = amplitude * flux_unit
 
-         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(A))
+         print '(A)', mpih%myrankstr//'Amplitude A('//trim(str(n))//') not corrected: '//trim(str(amplitude))
          print '(A)', mpih%myrankstr//'Final solenoid current '//trim(str(n))//': '//trim(str(flux))
 
       endif
+
       endsubroutine compute_solenoid_current_density_flux_analytic_z
+
+
    endsubroutine set_solenoid_z
 
    subroutine coupling_descriptor_forest(self, scheme_time, rk_scheme, nv)
@@ -2779,25 +3203,34 @@ contains
 
    endfunction erf_primitive_function
 
-   function build_A_ghost_stencil(hs, dxyz, gc_coord, x_c, y_c, z_c, sigma, &
-                                  i_dir_n, i_dir_a, i_dir_b, a1, a2, b1, b2) result(A_gc)
+   function build_A_ghost_stencil(hs, dxyz, gc_coord, x_c, y_c, z_c, sigma, i_dir_n, &
+                     i_dir_a, i_dir_b, a1, a2, b1, b2, N_Points, s_map, csi_map, area_signed, &
+                     eta, theta_c, r_coil, normal, coil_type) result(A_gc)
    !< Build ghost cell A array to compute J_vec value through the curl, useful in multiblock application
-   integer(I4P), intent(in)  :: hs                                    !< Half-stencil size for the curl computation.
-   real(R8P),    intent(in)  :: dxyz(3)                               !< Space steps.
-   real(R8P),    intent(in)  :: gc_coord(3)                           !< Ghost cell coordinates.
-   real(R8P),    intent(in)  :: x_c, y_c, z_c                         !< Center coordinates.
-   real(R8P),    intent(in)  :: sigma                                 !< Width of the Gaussian profile.
-   real(R8P),    intent(in)  :: a1, a2
-                                                                      !< Local coordinates of the rectangular coil along the first
-                                                                      !< tangential direction.
-   real(R8P),    intent(in)  :: b1, b2
-                                                                      !< Local coordinates of the rectangular coil along the second
-                                                                      !< tangential direction.
-   integer(I4P), intent(in)  :: i_dir_n, i_dir_a, i_dir_b             !< Direction indices for the normal and tangential directions.
-   real(R8P)                 :: A_gc(3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1) !< Output ghost cell A array for the curl stencil.
-   real(R8P),    allocatable :: coordinates_matrix(:,:,:,:)           !< Coordinates matrix for the ghost cell stencil.
-
-   integer(I4P)              :: i,j,k                         !< Counters.
+   integer(I4P),     intent(in)            :: hs                                    !< Half-stencil size for the curl computation.
+   real(R8P),        intent(in)            :: dxyz(3)                               !< Space steps.
+   real(R8P),        intent(in)            :: gc_coord(3)                           !< Ghost cell coordinates.
+   real(R8P),        intent(in)            :: x_c, y_c, z_c                         !< Center coordinates.
+   real(R8P),        intent(in)            :: sigma                                 !< Width of the Gaussian profile.
+   real(R8P),        intent(in), optional  :: a1, a2           
+                                                                                    !< Local coordinates of the rectangular coil along the first
+                                                                                    !< tangential direction.
+   real(R8P),        intent(in), optional  :: b1, b2               
+                                                                                    !< Local coordinates of the rectangular coil along the second
+                                                                                    !< tangential direction.
+   integer(I4P),     intent(in)            :: N_Points
+   real(R8P),        intent(in), optional  :: s_map(1:N_points)                     !< s coordinates of the spline points for the helicon coil case.
+   real(R8P),        intent(in), optional  :: csi_map(1:N_points)                   !< csi coordinates of the spline points for the helicon coil case.
+   real(R8P),        intent(in), optional  :: area_signed                           !< 
+   real(R8P),        intent(in), optional  :: eta                  
+   real(R8P),        intent(in), optional  :: theta_c                 
+   real(R8P),        intent(in), optional  :: r_coil                                !< Radius of the helicon coil.
+   character(len=2), intent(in), optional  :: normal                                !< Normal vector for the helicon coil case.
+   real(R8P),        intent(in)            :: coil_type                             !< Coil type.
+   integer(I4P),     intent(in)            :: i_dir_n, i_dir_a, i_dir_b             !< Direction indices for the normal and tangential directions.
+   real(R8P)                               :: A_gc(3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1) !< Output ghost cell A array for the curl stencil.
+   real(R8P),        allocatable           :: coordinates_matrix(:,:,:,:)           !< Coordinates matrix for the ghost cell stencil.
+   integer(I4P)                            :: i,j,k                                 !< Counters.
 
    allocate(coordinates_matrix(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))
    do i = 1, 2*hs+1
@@ -2811,75 +3244,35 @@ contains
    do i = 1, 2*hs+1
       do j = 1, 2*hs+1
          do k = 1, 2*hs+1
-            A_gc(:,i,j,k) = rectangular_coil_A_at_point(xp=coordinates_matrix(:,i,j,k), &
-                                                        xc=[x_c, y_c, z_c], &
-                                                        idir_n=i_dir_n, idir_a=i_dir_a, idir_b=i_dir_b, &
-                                                        a1=a1, a2=a2, b1=b1, b2=b2, &
-                                                        sigma=sigma)
+            if (coil_type == 1.0_R8P) then
+               A_gc(:,i,j,k) = rectangular_coil_A_at_point(xp=coordinates_matrix(:,i,j,k),                 &
+                                                           xc=[x_c, y_c, z_c],                             &
+                                                           idir_n=i_dir_n, idir_a=i_dir_a, idir_b=i_dir_b, &
+                                                           a1=a1, a2=a2, b1=b1, b2=b2,                     &
+                                                           sigma=sigma)
+            else if (coil_type == 4.0_R8P) then
+               A_gc(:,i,j,k) = helicon_coil_A_at_point(cell_coord=coordinates_matrix(:,i,j,k),        &
+                                                        x_c=x_c, y_c=y_c, z_c=z_c,                    &
+                                                        normal=normal, Radius=r_coil,                 &
+                                                        N_points=N_Points, s_map=s_map,               &
+                                                        csi_map=csi_map, area_signed=area_signed,     &
+                                                        eta=eta, theta_c=theta_c, sigma=sigma)
+            else
+               error stop 'build_A_ghost_stencil: unknown coil type'
+            endif
          enddo
       enddo
    enddo
    endfunction build_A_ghost_stencil
 
-   function rectangular_coil_A_at_point(xp, xc, idir_n, idir_a, idir_b, a1, a2, b1, b2, sigma) result(Ap)
-   real(R8P),    intent(in) :: xp(3)  !< Punto di valutazione.
-   real(R8P),    intent(in) :: xc(3)  !< Centro spira.
-   integer(I4P), intent(in) :: idir_n !< Componente normale: 1=x, 2=y, 3=z.
-   integer(I4P), intent(in) :: idir_a !< Prima coordinata locale nel piano spira.
-   integer(I4P), intent(in) :: idir_b !< Seconda coordinata locale nel piano spira.
-   real(R8P),    intent(in) :: a1, a2 !< Estremi lato locale a.
-   real(R8P),    intent(in) :: b1, b2 !< Estremi lato locale b.
-   real(R8P),    intent(in) :: sigma  !< Smearing unico della spira.
-   real(R8P)                :: Ap(3)
+   function crossproduct(a, b) result(cross)
+   real(R8P), intent(in) :: a(3)     !< Left hand side.
+   real(R8P), intent(in) :: b(3)     !< Left hand side.
+   real(R8P)             :: cross(3) !< Cross product.
 
-   real(R8P) :: x_a, x_b, x_n
-   real(R8P) :: A_1, A_2, A_3, A_4
-   real(R8P) :: F_l, W_t, W_n
+   cross(1) = (a(2) * b(3)) - (a(3) * b(2))
+   cross(2) = (a(3) * b(1)) - (a(1) * b(3))
+   cross(3) = (a(1) * b(2)) - (a(2) * b(1))
+   endfunction crossproduct
 
-   Ap(:) = 0.0_R8P
-
-   ! Schema locale nel piano della spira (a,b):
-   !
-   !          b
-   !          ^
-   !          |
-   !   b2  3 <-------- 2
-   !       |            |
-   !       |            |
-   !       |            |
-   !   b1  4 --------> 1
-   !          a1       a2  ---> a
-   !
-   ! Lati:
-   !   1: b = b1, tangente lungo +a
-   !   2: a = a2, tangente lungo +b
-   !   3: b = b2, tangente lungo -a
-   !   4: a = a1, tangente lungo -b
-
-   x_a = xp(idir_a)
-   x_b = xp(idir_b)
-   x_n = xp(idir_n)
-
-   W_n = tangential_window(s=x_n, smin=xc(idir_n)-sigma, &
-                           smax=xc(idir_n)+sigma,        &
-                           sigma=sigma)
-
-   F_l = erf_function(s=x_b, mu=b1, sigma=sigma)
-   W_t = tangential_window(s=x_a, smin=a1, smax=a2, sigma=sigma)
-   A_1 = F_l*W_t*W_n
-
-   F_l = erf_function(s=x_a, mu=a2, sigma=sigma)
-   W_t = tangential_window(s=x_b, smin=b1, smax=b2, sigma=sigma)
-   A_2 = -F_l*W_t*W_n
-
-   F_l = erf_function(s=x_b, mu=b2, sigma=sigma)
-   W_t = tangential_window(s=x_a, smin=a1, smax=a2, sigma=sigma)
-   A_3 = -F_l*W_t*W_n
-
-   F_l = erf_function(s=x_a, mu=a1, sigma=sigma)
-   W_t = tangential_window(s=x_b, smin=b1, smax=b2, sigma=sigma)
-   A_4 = F_l*W_t*W_n
-
-   Ap(idir_n) = (A_1 + A_2 + A_3 + A_4)
-   endfunction rectangular_coil_A_at_point
 endmodule adam_prism_common_object

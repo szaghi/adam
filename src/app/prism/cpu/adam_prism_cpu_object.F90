@@ -401,7 +401,6 @@ contains
          end if
          s = max(0._R8P, min(1._R8P, s))
          g = 10._R8P*s**3 - 15._R8P*s**4 + 6._R8P*s**5
-
          do n=1, self%coil%total_coils_number
             coil_id = n
 
@@ -930,8 +929,7 @@ contains
       call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
                                    divergence=self%divergence(3,:,:,:,:))
       call mpih%print_message('Coil n='//trim(str(n,.true.)))
-      call mpih%print_message('   max j_vec     ='//trim(str(maxval(abs(self%coil%J_vec(1:3,:,:,:,:,n))))))
-      call mpih%print_message('   max div(j_vec)='//trim(str(maxval(abs(self%divergence(3,:,:,:,:))))))
+      call mpih%print_message('   max div(J)='//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))*self%coil%coil_amplitude(n))))
    enddo
 
    call mpih%print_message('assigned block number: '//trim(str(self%adam%field%blocks_number,.true.)))

@@ -61,7 +61,7 @@ type :: prism_coil_object
    real(R8P),         allocatable :: r_coil(:)                                   !< Circle's radius (if circular coil)
    real(R8P),         allocatable :: l_solenoid(:)                               !< Solenoid length (if solenoidal coil)
    real(R8P),         allocatable :: windings(:)                                 !< Windings number (if solenoidal coil)
-   real(R8P),         allocatable :: N_points(:)                               !< Number of points for coil representation (for helicon coil setting)
+   integer(I4P),      allocatable :: N_points(:)                                 !< Number of points for coil representation (for helicon coil setting)
    real(R8P),         allocatable :: x_points(:,:), y_points(:,:), z_points(:,:) !< Coil points coordinates (for helicon coil setting)
    real(R8P),         allocatable :: sigma(:)                                    !< Gaussian current distribution sigma
    real(R8P),         allocatable :: J_vec(:,:,:,:,:,:)                          !< Matrice contenente versori corrente spire (se assente
@@ -115,7 +115,7 @@ contains
    allocate(self%lx                  (0:total_coils_number))    ; self%lx = 0.0_R8P
    allocate(self%l_solenoid          (0:total_coils_number))    ; self%l_solenoid = 0.0_R8P
    allocate(self%windings            (0:total_coils_number))    ; self%windings = 0.0_R8P
-   allocate(self%N_points            (0:total_coils_number))    ; self%N_points = 0.0_R8P
+   allocate(self%N_points            (0:total_coils_number))    ; self%N_points = 0_I4P
    allocate(self%x_points            (0:total_coils_number,50)) ; self%x_points = 0.0_R8P
    allocate(self%y_points            (0:total_coils_number,50)) ; self%y_points = 0.0_R8P
    allocate(self%z_points            (0:total_coils_number,50)) ; self%z_points = 0.0_R8P
@@ -148,7 +148,7 @@ contains
    class(prism_coil_object), intent(in) :: self             !< IC.
    character(len=:), allocatable        :: desc             !< Description.
    character(len=1), parameter          :: NL=new_line('a') !< New line character.
-   integer(I4P)                         :: r                !< Counter.
+   integer(I4P)                         :: r, p             !< Counter.
 
    desc =       mpih%myrankstr//'Coils main data'
    if (self%total_coils_number > 0_I4P) then
@@ -194,6 +194,24 @@ contains
          desc = desc//NL//mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
          desc = desc//NL//mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
          desc = desc//NL//mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
+         case(COIL_TYPE_HELICON)
+         desc = desc//NL//mpih%myrankstr//'    Coil type: '//trim(self%coil_type(r))
+         desc = desc//NL//mpih%myrankstr//'    Current type: '//trim(self%current_type(r))
+         desc = desc//NL//mpih%myrankstr//'    Radius: '//trim(str(self%r_coil(r)))
+         desc = desc//NL//mpih%myrankstr//'    Normal: '//trim(self%normal(r))
+         desc = desc//NL//mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
+         desc = desc//NL//mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
+         desc = desc//NL//mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
+         desc = desc//NL//mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
+         desc = desc//NL//mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
+         desc = desc//NL//mpih%myrankstr//'    N_points: '//trim(str(self%N_points(r)))
+         do p=1, self%N_points(r)
+            desc = desc//NL//mpih%myrankstr//'      Point '//trim(str(p,.true.))//': ('// &
+               trim(str(self%x_points(r,p)))//', '//trim(str(self%y_points(r,p)))//', '// &
+               trim(str(self%z_points(r,p)))//')'
+         enddo
          endselect
       enddo
    else
@@ -230,6 +248,7 @@ contains
    integer(I4P)                                     :: i,j             !< Counter.
    integer(I4P)                                     :: error           !< Error status.
    character(99)                                    :: buff_char       !< Option character buffer.
+   real(R8P), allocatable                           :: buff_vec(:)     !< Option real buffer.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
@@ -369,7 +388,9 @@ contains
             call mpih%error_stop(msg=': too many points for ['//sname//'].(N_points). Max allowed is 50.')
          end if
 
-         do j = 1, self%N_points(i)
+         allocate(buff_vec(1:self%N_points(i)))
+
+         do j=1, self%N_points(i)
             call file_parameters%get(section_name=sname, option_name='x_point_'//trim(str(j,.true.)), &
                                      val=self%x_points(i,j), error=error)
             if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_point_' & 
@@ -435,8 +456,11 @@ contains
    self%r_coil(:)     = self%r_coil(:)/physics%L0
    self%l_solenoid(:) = self%l_solenoid(:)/physics%L0
    self%sigma(:)      = self%sigma(:)/physics%L0
+   self%x_points(:,:) = self%x_points(:,:)/physics%L0
+   self%y_points(:,:) = self%y_points(:,:)/physics%L0
+   self%z_points(:,:) = self%z_points(:,:)/physics%L0
    !Adimensionalization of current parameters
-   self%A(:) = self%A(:)/physics%J0
+   self%A(:) = self%A(:)/physics%I0
    !Adimensionalization of frequency parameters
    self%f(:) = self%f(:)*physics%T0
    !Adimensionalization of time parameters

@@ -75,7 +75,7 @@ type :: prism_physics_object
    real(R8P)                   :: B0                     !< Maximum signal speed (eigenvalue).
    real(R8P)                   :: D0                     !< Maximum signal speed (eigenvalue).
    real(R8P)                   :: T0                     !< Maximum signal speed (eigenvalue).
-   real(R8P)                   :: J0                     !< Maximum signal speed (eigenvalue).
+   real(R8P)                   :: I0                     !< Maximum signal speed (eigenvalue).
    real(R8P), pointer          :: erw(:,:,:)=>null()     !< Right eigenvectors for high order reconstruction.
    real(R8P), pointer          :: elw(:,:,:)=>null()     !< Left  eigenvectors for high order reconstruction.
    real(R8P)                   :: EV_D(7)                !< Eigenvalues with D divergence cleaning.
@@ -114,7 +114,7 @@ contains
       desc = desc//mpih%myrankstr//'  B0:                                           '//trim(str(self%B0       ))//NL
       desc = desc//mpih%myrankstr//'  D0:                                           '//trim(str(self%D0       ))//NL
       desc = desc//mpih%myrankstr//'  T0:                                           '//trim(str(self%T0       ))//NL
-      desc = desc//mpih%myrankstr//'  J0:                                           '//trim(str(self%J0       ))!//NL
+      desc = desc//mpih%myrankstr//'  I0:                                           '//trim(str(self%I0       ))!//NL
    endif
    endfunction description
 
@@ -448,7 +448,7 @@ contains
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
       self%T0 = self%L0/C0
       self%D0 = self%B0*C0*EPS0
-      self%J0 = self%B0/(MU0*self%L0)
+      self%I0 = self%B0/(MU0*self%L0)*(self%L0**2)
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
@@ -467,7 +467,7 @@ contains
       self%B0 = 1.0_R8P
       self%T0 = 1.0_R8P
       self%D0 = 1.0_R8P
-      self%J0 = 1.0_R8P
+      self%I0 = 1.0_R8P
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')

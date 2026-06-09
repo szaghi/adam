@@ -48,8 +48,8 @@ character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'
 character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle'
                                                                                      !< Analyzing physical problem involving the
                                                                                      !< presence of a single particle
-character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'             !< CIC weighting model.
 character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'             !< NGP weighting model.
+character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'             !< CIC weighting model.
 character(len=3 ), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'             !< TSC weighting model.
 character(len=2 ), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL     = '0D'              !< 0D field weighting.
 character(len=2 ), parameter :: ONED_FIELDS_WEIGHTING_MODEL      = '1D'              !< 1D field weighting.
@@ -168,7 +168,7 @@ contains
    !< Initialize PIC.
    class(prism_pic_object), intent(inout) :: self            !< Pic object.
    type(field_object),      intent(in)    :: field           !< Field (sibling realm component, threaded in).
-   type(grid_object),                  intent(in)              :: grid
+   type(grid_object),       intent(in)    :: grid
                                                                                       !< Grid (sibling realm component, threaded
                                                                                       !< in).
    type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
