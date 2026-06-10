@@ -29,6 +29,7 @@ character(len=29), parameter :: SPACE_RANDOM_NUMBER_GENERATOR                = '
 character(len=30), parameter :: SPACE_LAYERED_NUMBER_GENERATOR               = 'Space_layered_number_generator'
 character(len=18), parameter :: UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION     = 'Uniform_Maxwellian'
 character(len=22), parameter :: NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION = 'Non_uniform_Maxwellian'
+character(len=10), parameter :: PURE_DRIFT_VELOCITY_DISTRIBUTION             = 'Pure_drift'
 character(len=32), parameter :: VELOCITY_RANDOM_NUMBER_GENERATOR             = 'Velocity_random_number_generator'
 character(len=33), parameter :: VELOCITY_LAYERED_NUMBER_GENERATOR            = 'Velocity_layered_number_generator'
 
@@ -40,42 +41,51 @@ procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_
                                                                                                          !< generator interface
 
 type :: prism_particle_injection_object
-   character(len=99) :: space_distribution				   !< Particle space distribution type.
-   character(len=99) :: space_random_number_generator	   !< Type of random number generator for space distribution
-   real(R8P)			:: box_number = 0.0_R8P				   !< Number of boxes in which ensure charge neutrality
-   logical				:: space_pairing = .false.			   !< Enable space pairing of particles
-   character(len=99) :: velocity_distribution			   !< Particle velocity distribution type.
-   real(R8P)			:: T_i=0.0_R8P						      !< Ionic plasma temperature (uniform)
-   real(R8P)			:: T_i_x=0.0_R8P					      !< Ionic plasma temperature along x (non-uniform)
-   real(R8P)			:: T_i_y=0.0_R8P					      !< Ionic plasma temperature along y (non-uniform)
-   real(R8P)			:: T_i_z=0.0_R8P					      !< Ionic plasma temperature along z (non-uniform)
-   real(R8P)			:: T_e=0.0_R8P						      !< Electronic plasma temperature (uniform)
-   real(R8P)			:: T_e_x=0.0_R8P					      !< Electronic plasma temperature along x (non-uniform)
-   real(R8P)			:: T_e_y=0.0_R8P					      !< Electronic plasma temperature along y (non-uniform)
-   real(R8P)			:: T_e_z=0.0_R8P					      !< Electronic plasma temperature along z (non-uniform)
-   real(R8P)			:: T_n=0.0_R8P						      !< Neutrals plasma temperature (uniform)
-   real(R8P)			:: T_n_x=0.0_R8P					      !< Neutrals plasma temperature along x (non-uniform)
-   real(R8P)			:: T_n_y=0.0_R8P					      !< Neutrals plasma temperature along y (non-uniform)
-   real(R8P)			:: T_n_z=0.0_R8P					      !< Neutrals plasma temperature along z (non-uniform)
-   real(R8P)			:: x_position=0.0_R8P				   !< x coordinate of the initial position of the particle in single particle problem
-   real(R8P)			:: y_position=0.0_R8P				   !< y coordinate of the initial position of the particle in single particle problem
-   real(R8P)			:: z_position=0.0_R8P				   !< z coordinate of the initial position of the particle in single particle problem
-   real(R8P)			:: charge=0.0_R8P					      !< charge of the particle in single particle problem
-   real(R8P)			:: mass=0.0_R8P						   !< mass of the particle in single particle problem
-   character(len=99) :: velocity_random_number_generator !< Type of random number generator for space distribution
-   logical			 	:: velocity_pairing = .false.		   !< Enable space pairing of particles
-   real(R8P)			:: v_drift_x=0.0_R8P				      !< Plasma drift velocity along x
-   real(R8P)			:: v_drift_y=0.0_R8P				      !< Plasma drift_velocity along y
-   real(R8P)			:: v_drift_z=0.0_R8P				      !< Plasma drift velocity along z
-   logical        	:: v_av_correction = .false.	      !< Flag to correct the average v
+   character(len=99)  :: space_distribution				    !< Particle space distribution type.
+   character(len=99)  :: space_random_number_generator	 !< Type of random number generator for space distribution
+   real(R8P)		    :: box_number = 0.0_R8P				 !< Number of boxes in which ensure charge neutrality
+   logical			    :: space_pairing = .false.			 !< Enable space pairing of particles
+	character(len=99)  :: electrons_velocity_distribution	 !< Electrons velocity distribution type.
+	character(len=99)  :: ions_velocity_distribution		 !< Ions velocity distribution type.
+	character(len=99)  :: neutrals_velocity_distribution	 !< Neutrals velocity distribution type.
+   real(R8P)		    :: T_i=0.0_R8P						    !< Ionic plasma temperature (uniform)
+   real(R8P)		    :: T_i_x=0.0_R8P					       !< Ionic plasma temperature along x (non-uniform)
+   real(R8P)		    :: T_i_y=0.0_R8P					       !< Ionic plasma temperature along y (non-uniform)
+   real(R8P)		    :: T_i_z=0.0_R8P					       !< Ionic plasma temperature along z (non-uniform)
+   real(R8P)		    :: T_e=0.0_R8P						    !< Electronic plasma temperature (uniform)
+   real(R8P)		    :: T_e_x=0.0_R8P					       !< Electronic plasma temperature along x (non-uniform)
+   real(R8P)		    :: T_e_y=0.0_R8P					       !< Electronic plasma temperature along y (non-uniform)
+   real(R8P)		    :: T_e_z=0.0_R8P					       !< Electronic plasma temperature along z (non-uniform)
+   real(R8P)		    :: T_n=0.0_R8P						    !< Neutrals plasma temperature (uniform)
+   real(R8P)		    :: T_n_x=0.0_R8P					       !< Neutrals plasma temperature along x (non-uniform)
+   real(R8P)		    :: T_n_y=0.0_R8P					       !< Neutrals plasma temperature along y (non-uniform)
+   real(R8P)		    :: T_n_z=0.0_R8P					       !< Neutrals plasma temperature along z (non-uniform)
+   real(R8P)		    :: x_position=0.0_R8P				    !< x coordinate of the initial position of the particle in single particle problem
+   real(R8P)		    :: y_position=0.0_R8P				    !< y coordinate of the initial position of the particle in single particle problem
+   real(R8P)		    :: z_position=0.0_R8P				    !< z coordinate of the initial position of the particle in single particle problem
+   real(R8P)		    :: charge=0.0_R8P					    !< charge of the particle in single particle problem
+   real(R8P)		    :: mass=0.0_R8P						    !< mass of the particle in single particle problem
+   character(len=99)  :: velocity_random_number_generator !< Type of random number generator for space distribution
+   logical			    :: velocity_pairing = .false.		 !< Enable space pairing of particles
+   real(R8P)		    :: v_drift_x=0.0_R8P			    	 !< Single particle drift velocity along x
+   real(R8P)		    :: v_drift_y=0.0_R8P			    	 !< Single particle drift_velocity along y
+   real(R8P)		    :: v_drift_z=0.0_R8P			    	 !< Single particle drift velocity along z
+   real(R8P)		    :: electrons_drift_x=0.0_R8P			 !< Electrons drift velocity along x
+   real(R8P)		    :: electrons_drift_y=0.0_R8P			 !< Electrons drift_velocity along y
+   real(R8P)		    :: electrons_drift_z=0.0_R8P			 !< Electrons drift velocity along z
+   real(R8P)		    :: ions_drift_x=0.0_R8P			    !< Ions drift velocity along x
+   real(R8P)		    :: ions_drift_y=0.0_R8P			    !< Ions drift_velocity along y
+   real(R8P)		    :: ions_drift_z=0.0_R8P			    !< Ions drift velocity along z
+   real(R8P)		    :: neutrals_drift_x=0.0_R8P			 !< Neutrals drift velocity along x
+   real(R8P)		    :: neutrals_drift_y=0.0_R8P			 !< Neutrals drift_velocity along y
+   real(R8P)		    :: neutrals_drift_z=0.0_R8P			 !< Neutrals drift velocity along z
+   logical        	 :: v_av_correction = .false.	       !< Flag to correct the average v
 
    !< Pointer (abstract) TBP.
-   procedure(particle_space_injection_interface),	  pass(self), pointer :: particle_space_injection 	  => null()
-                                                                                                                 !< Particle space
-                                                                                                                 !< injection.
-	procedure(particle_velocity_injection_interface), pass(self), pointer :: particle_velocity_injection => null()
-                                                                                                                !< Particle velocity
-                                                                                                                !< injection.
+   procedure(particle_space_injection_interface),	   pass(self), pointer :: particle_space_injection 	 => null() !< Particle space injection.
+	procedure(electrons_velocity_injection_interface), pass(self), pointer :: electrons_velocity_injection => null() !< Electrons velocity injection.
+	procedure(ions_velocity_injection_interface),      pass(self), pointer :: ions_velocity_injection      => null() !< Ions velocity injection.
+	procedure(neutrals_velocity_injection_interface),  pass(self), pointer :: neutrals_velocity_injection  => null() !< Neutrals velocity injection.
 contains
    procedure, pass(self) :: description    !< Return pretty-printed object description.
    procedure, pass(self) :: initialize     !< Initialize IC.
@@ -85,6 +95,7 @@ contains
    procedure, pass(self) :: uniform_cell_space_injection
    procedure, pass(self) :: uniform_maxwellian_velocity_injection
    procedure, pass(self) :: non_uniform_maxwellian_velocity_injection
+	procedure, pass(self) :: pure_drift_velocity_injection
    procedure, pass(self) :: single_particle_injection
 endtype prism_particle_injection_object
 
@@ -92,32 +103,53 @@ interface
    subroutine particle_space_injection_interface(self, field, grid, pic, q_pic)
    import :: prism_particle_injection_object, field_object, grid_object, prism_pic_object, I4P, R8P
    class(prism_particle_injection_object), intent(inout) :: self
-   type(field_object),                  	 intent(in) 	:: field
-   type(grid_object),                   	 intent(in)		:: grid
-   type(prism_pic_object),					 	 intent(in)		:: pic
-   real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+   type(field_object),                     intent(in) 	 :: field
+   type(grid_object),                      intent(in)  	 :: grid
+   type(prism_pic_object),				   intent(in)  	 :: pic
+   real(R8P),                              intent(inout) :: q_pic(1:,1:)
    endsubroutine particle_space_injection_interface
 
 	subroutine space_random_number_generator_interface(N, shuffled_list, i_numb, r_n)
 	import :: I4P, R8P
-	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
+	integer(I4P), intent(inout)  :: shuffled_list(1:,1:)
 	integer(I4P), intent(in) 	 :: i_numb
 	integer(I4P), intent(in) 	 :: N
 	real(R8P), intent(inout) 	 :: r_n(1:)
 	endsubroutine space_random_number_generator_interface
 
-	subroutine particle_velocity_injection_interface(self, field, grid, pic, q_pic)
+	subroutine electrons_velocity_injection_interface(self, field, grid, pic, q_pic, particle_type)
    import :: prism_particle_injection_object, field_object, grid_object, prism_pic_object, I4P, R8P
 	class(prism_particle_injection_object), intent(inout) :: self
-	type(field_object),                  	 intent(in) 	:: field
+	type(field_object),                  	 intent(in)    :: field
 	type(grid_object),                   	 intent(in)	   :: grid
-	type(prism_pic_object),					 	 intent(in)		:: pic
+	type(prism_pic_object),					    intent(in)	   :: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
-   endsubroutine particle_velocity_injection_interface
+	character(len=1),								 intent(in)    :: particle_type
+   endsubroutine electrons_velocity_injection_interface
+
+	subroutine ions_velocity_injection_interface(self, field, grid, pic, q_pic, particle_type)
+   import :: prism_particle_injection_object, field_object, grid_object, prism_pic_object, I4P, R8P
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in)    :: field
+	type(grid_object),                   	 intent(in)	   :: grid
+	type(prism_pic_object),					    intent(in)	   :: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	character(len=1),								 intent(in)    :: particle_type
+   endsubroutine ions_velocity_injection_interface
+
+	subroutine neutrals_velocity_injection_interface(self, field, grid, pic, q_pic, particle_type)
+   import :: prism_particle_injection_object, field_object, grid_object, prism_pic_object, I4P, R8P
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in)    :: field
+	type(grid_object),                   	 intent(in)	   :: grid
+	type(prism_pic_object),					    intent(in)	   :: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	character(len=1),								 intent(in)    :: particle_type
+   endsubroutine neutrals_velocity_injection_interface
 
 	subroutine velocity_random_number_generator_interface(N, shuffled_list, i_numb, r_n)
 	import :: I4P, R8P
-	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
+	integer(I4P), intent(inout)  :: shuffled_list(1:,1:)
 	integer(I4P), intent(in) 	 :: i_numb
 	integer(I4P), intent(in) 	 :: N
 	real(R8P), intent(inout) 	 :: r_n(1:)
@@ -133,6 +165,7 @@ contains
    character(len=1), parameter                     	:: NL=new_line('a') !< New line character.
 
    desc =       mpih%myrankstr//'Particle injection object description:'
+
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
    	desc = desc//NL//mpih%myrankstr//'    	Space initial distribution: '//self%space_distribution
 		if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
@@ -140,39 +173,86 @@ contains
 		endif
 		desc = desc//NL//mpih%myrankstr//'    	Space random number generator: '//self%space_random_number_generator
 		desc = desc//NL//mpih%myrankstr//'    	Space pairing: '//trim(str(self%space_pairing))
-		desc = desc//NL//mpih%myrankstr//'    	Velocity initial distribution: '//self%velocity_distribution
-		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+		desc = desc//NL//mpih%myrankstr//'    	Ions velocity initial distribution: '//trim(self%ions_velocity_distribution)
+		desc = desc//NL//mpih%myrankstr//'    	Electrons velocity initial distribution: '//trim(self%electrons_velocity_distribution)
+		desc = desc//NL//mpih%myrankstr//'    	Neutrals velocity initial distribution: '//trim(self%neutrals_velocity_distribution)
+
+		if (self%ions_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			desc = desc//NL//mpih%myrankstr//'    	Plasma  Ionic Temperature: '//trim(str(self%T_i))
-			desc = desc//NL//mpih%myrankstr//'    	Plasma  Electronic Temperature: '//trim(str(self%T_e))
-			desc = desc//NL//mpih%myrankstr//'    	Plasma  Neutrals Temperature: '//trim(str(self%T_n))
-		elseif (self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			desc = desc//NL//mpih%myrankstr//'    	Ions drift velocity along x: '//trim(str(self%ions_drift_x))
+	   	desc = desc//NL//mpih%myrankstr//'    	Ions drift velocity along y: '//trim(str(self%ions_drift_y))
+	   	desc = desc//NL//mpih%myrankstr//'    	Ions drift velocity along z: '//trim(str(self%ions_drift_z))
+		elseif (self%ions_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			desc = desc//NL//mpih%myrankstr//'    	Plasma x Ionic Temperature: '//trim(str(self%T_i_x))
 			desc = desc//NL//mpih%myrankstr//'    	Plasma y Ionic Temperature: '//trim(str(self%T_i_y))
 			desc = desc//NL//mpih%myrankstr//'    	Plasma z Ionic Temperature: '//trim(str(self%T_i_z))
+			desc = desc//NL//mpih%myrankstr//'    	Ions drift velocity along x: '//trim(str(self%ions_drift_x))
+	   	desc = desc//NL//mpih%myrankstr//'    	Ions drift velocity along y: '//trim(str(self%ions_drift_y))
+	   	desc = desc//NL//mpih%myrankstr//'    	Ions drift velocity along z: '//trim(str(self%ions_drift_z))
+		elseif (self%ions_velocity_distribution == PURE_DRIFT_VELOCITY_DISTRIBUTION) then
+			desc = desc//NL//mpih%myrankstr//'    	Ions drift velocity along x: '//trim(str(self%ions_drift_x))
+	   	desc = desc//NL//mpih%myrankstr//'    	Ions drift velocity along y: '//trim(str(self%ions_drift_y))
+	   	desc = desc//NL//mpih%myrankstr//'    	Ions drift velocity along z: '//trim(str(self%ions_drift_z))
+		endif
+
+		if (self%electrons_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			desc = desc//NL//mpih%myrankstr//'    	Plasma  Electronic Temperature: '//trim(str(self%T_e))
+			desc = desc//NL//mpih%myrankstr//'    	Electrons drift velocity along x: '//trim(str(self%electrons_drift_x))
+	   	desc = desc//NL//mpih%myrankstr//'    	Electrons drift velocity along y: '//trim(str(self%electrons_drift_y))
+	   	desc = desc//NL//mpih%myrankstr//'    	Electrons drift velocity along z: '//trim(str(self%electrons_drift_z))
+		elseif (self%electrons_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			desc = desc//NL//mpih%myrankstr//'    	Plasma x Electronic Temperature: '//trim(str(self%T_e_x))
 			desc = desc//NL//mpih%myrankstr//'    	Plasma y Electronic Temperature: '//trim(str(self%T_e_y))
 			desc = desc//NL//mpih%myrankstr//'    	Plasma z Electronic Temperature: '//trim(str(self%T_e_z))
+			desc = desc//NL//mpih%myrankstr//'    	Electrons drift velocity along x: '//trim(str(self%electrons_drift_x))
+	   	desc = desc//NL//mpih%myrankstr//'    	Electrons drift velocity along y: '//trim(str(self%electrons_drift_y))
+	   	desc = desc//NL//mpih%myrankstr//'    	Electrons drift velocity along z: '//trim(str(self%electrons_drift_z))
+		elseif (self%electrons_velocity_distribution == PURE_DRIFT_VELOCITY_DISTRIBUTION) then
+			desc = desc//NL//mpih%myrankstr//'    	Electrons drift velocity along x: '//trim(str(self%electrons_drift_x))
+	   	desc = desc//NL//mpih%myrankstr//'    	Electrons drift velocity along y: '//trim(str(self%electrons_drift_y))
+	   	desc = desc//NL//mpih%myrankstr//'    	Electrons drift velocity along z: '//trim(str(self%electrons_drift_z))
+		endif
+
+		if (self%neutrals_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			desc = desc//NL//mpih%myrankstr//'    	Plasma  Neutrals Temperature: '//trim(str(self%T_n))
+			desc = desc//NL//mpih%myrankstr//'    	Neutrals drift velocity along x: '//trim(str(self%neutrals_drift_x))
+	   	desc = desc//NL//mpih%myrankstr//'    	Neutrals drift velocity along y: '//trim(str(self%neutrals_drift_y))
+	   	desc = desc//NL//mpih%myrankstr//'    	Neutrals drift velocity along z: '//trim(str(self%neutrals_drift_z))
+		elseif (self%neutrals_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			desc = desc//NL//mpih%myrankstr//'    	Plasma x Neutrals Temperature: '//trim(str(self%T_n_x))
 			desc = desc//NL//mpih%myrankstr//'    	Plasma y Neutrals Temperature: '//trim(str(self%T_n_y))
 			desc = desc//NL//mpih%myrankstr//'    	Plasma z Neutrals Temperature: '//trim(str(self%T_n_z))
+			desc = desc//NL//mpih%myrankstr//'    	Neutrals drift velocity along x: '//trim(str(self%neutrals_drift_x))
+	   	desc = desc//NL//mpih%myrankstr//'    	Neutrals drift velocity along y: '//trim(str(self%neutrals_drift_y))
+	   	desc = desc//NL//mpih%myrankstr//'    	Neutrals drift velocity along z: '//trim(str(self%neutrals_drift_z))
+		elseif (self%neutrals_velocity_distribution == PURE_DRIFT_VELOCITY_DISTRIBUTION) then
+			desc = desc//NL//mpih%myrankstr//'    	Neutrals drift velocity along x: '//trim(str(self%neutrals_drift_x))
+	   	desc = desc//NL//mpih%myrankstr//'    	Neutrals drift velocity along y: '//trim(str(self%neutrals_drift_y))
+	   	desc = desc//NL//mpih%myrankstr//'    	Neutrals drift velocity along z: '//trim(str(self%neutrals_drift_z))
 		endif
-		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
-			self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+
+		if (self%electrons_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION     .or. &
+			 self%electrons_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
+			 self%ions_velocity_distribution      == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION     .or. &
+			 self%ions_velocity_distribution      == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
+			 self%neutrals_velocity_distribution  == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION     .or. &
+			 self%neutrals_velocity_distribution  == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			desc = desc//NL//mpih%myrankstr//'    	Velocity random number generator: '//trim(self%velocity_random_number_generator)
 			desc = desc//NL//mpih%myrankstr//'    	Velocity pairing: '//trim(str(self%velocity_pairing))
 		endif
 		desc = desc//NL//mpih%myrankstr//'    	Velocity averaging: '//trim(str(self%v_av_correction))
+
+
 	elseif (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
 		desc = desc//NL//mpih%myrankstr//'    	Particle x coordinate initial position: '//trim(str(self%x_position))
 		desc = desc//NL//mpih%myrankstr//'    	Particle y coordinate initial position: '//trim(str(self%y_position))
 		desc = desc//NL//mpih%myrankstr//'    	Particle z coordinate initial position: '//trim(str(self%z_position))
 		desc = desc//NL//mpih%myrankstr//'    	Particle charge: '//trim(str(self%charge))
 		desc = desc//NL//mpih%myrankstr//'    	Particle mass: '//trim(str(self%mass))
+		desc = desc//NL//mpih%myrankstr//'    	Drift velocity along x: '//trim(str(self%v_drift_x))
+	   desc = desc//NL//mpih%myrankstr//'    	Drift velocity along y: '//trim(str(self%v_drift_y))
+	   desc = desc//NL//mpih%myrankstr//'    	Drift velocity along z: '//trim(str(self%v_drift_z))
 	endif
-	desc = desc//NL//mpih%myrankstr//'    	Drift velocity along x: '//trim(str(self%v_drift_x))
-	desc = desc//NL//mpih%myrankstr//'    	Drift velocity along y: '//trim(str(self%v_drift_y))
-	desc = desc//NL//mpih%myrankstr//'    	Drift velocity along z: '//trim(str(self%v_drift_z))
-
    endfunction description
 
    subroutine initialize(self, file_parameters, pic)
@@ -207,13 +287,35 @@ contains
    	   call mpih%error_stop &
 			(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
    	endselect
-		select case(self%velocity_distribution)
+		select case(self%ions_velocity_distribution)
    	case(UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
-   	   self%particle_velocity_injection => uniform_maxwellian_velocity_injection
+   	   self%ions_velocity_injection => uniform_maxwellian_velocity_injection
    	case(NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
-   	   self%particle_velocity_injection => non_uniform_maxwellian_velocity_injection
+   	   self%ions_velocity_injection => non_uniform_maxwellian_velocity_injection
+		case(PURE_DRIFT_VELOCITY_DISTRIBUTION)
+			self%ions_velocity_injection => pure_drift_velocity_injection
    	case default
-   	   call mpih%error_stop(msg=': invalid particle velocity injection model in prism_particle_injection_object%initialize')
+   	   call mpih%error_stop(msg=': invalid ions velocity injection model in prism_particle_injection_object%initialize')
+   	endselect
+		select case(self%electrons_velocity_distribution)
+   	case(UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
+   	   self%electrons_velocity_injection => uniform_maxwellian_velocity_injection
+   	case(NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
+   	   self%electrons_velocity_injection => non_uniform_maxwellian_velocity_injection
+		case(PURE_DRIFT_VELOCITY_DISTRIBUTION)
+			self%electrons_velocity_injection => pure_drift_velocity_injection
+   	case default
+   	   call mpih%error_stop(msg=': invalid electrons velocity injection model in prism_particle_injection_object%initialize')
+   	endselect
+		select case(self%neutrals_velocity_distribution)
+   	case(UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
+   	   self%neutrals_velocity_injection => uniform_maxwellian_velocity_injection
+   	case(NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
+   	   self%neutrals_velocity_injection => non_uniform_maxwellian_velocity_injection
+		case(PURE_DRIFT_VELOCITY_DISTRIBUTION)
+			self%neutrals_velocity_injection => pure_drift_velocity_injection
+   	case default
+   	   call mpih%error_stop(msg=': invalid neutrals velocity injection model in prism_particle_injection_object%initialize')
    	endselect
 		select case(self%velocity_random_number_generator)
    	case(VELOCITY_RANDOM_NUMBER_GENERATOR)
@@ -290,85 +392,129 @@ contains
    	   ['//INI_SECTION_NAME//'].(space_pairing)')
 		endselect
 
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='velocity_distribution', val=buff,error=error)
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ions_velocity_distribution', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
-   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_distribution) from file')
+   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_velocity_distribution) from file')
    	select case(trim(adjustl(buff)))
    	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
 				'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
-   	   self%velocity_distribution = UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
+   	   self%ions_velocity_distribution = UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
    	case('Non_Uniform_Maxwellian', 'non_uniform_maxwellian', 'non_uniform_Maxwellian')
-   	   self%velocity_distribution = NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
+   	   self%ions_velocity_distribution = NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
+		case('Drift', 'drift', 'Pure_drift', 'pure_drift')
+			self%ions_velocity_distribution = PURE_DRIFT_VELOCITY_DISTRIBUTION
 		case default
 			call mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  &
-   	   ['//INI_SECTION_NAME//'].(velocity_distribution)')
+   	   ['//INI_SECTION_NAME//'].(ions_velocity_distribution)')
 		endselect
 
-		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature', &
+		if (self%ions_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ionic_temperature', &
    		val=self%T_i, error=error)
    		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ionic_temperature)')
 
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature', &
-   		val=self%T_e, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature)')
-
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature', &
-   		val=self%T_n, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature)')
-
-		elseif (self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_x', &
+		elseif (self%ions_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ionic_temperature_x', &
    		val=self%T_i_x, error=error)
    		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_x)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ionic_temperature_x)')
 
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_y', &
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ionic_temperature_y', &
    		val=self%T_i_y, error=error)
    		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_y)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ionic_temperature_y)')
 
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_z', &
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ionic_temperature_z', &
    		val=self%T_i_z, error=error)
    		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_z)')
-
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_x', &
-   		val=self%T_e_x, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_x)')
-
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_y', &
-   		val=self%T_e_y, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_y)')
-
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_z', &
-   		val=self%T_e_z, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_z)')
-
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_x', &
-   		val=self%T_n_x, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_x)')
-
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_y', &
-   		val=self%T_n_y, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_y)')
-
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_z', &
-   		val=self%T_n_z, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_z)')
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ionic_temperature_z)')
 		endif
 
-		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
-			self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electrons_velocity_distribution', val=buff,error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electrons_velocity_distribution) from file')
+   	select case(trim(adjustl(buff)))
+   	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
+				'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
+   	   self%electrons_velocity_distribution = UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
+   	case('Non_Uniform_Maxwellian', 'non_uniform_maxwellian', 'non_uniform_Maxwellian')
+   	   self%electrons_velocity_distribution = NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
+		case('Drift', 'drift', 'Pure_drift', 'pure_drift')
+			self%electrons_velocity_distribution = PURE_DRIFT_VELOCITY_DISTRIBUTION
+		case default
+			call mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  &
+   	   ['//INI_SECTION_NAME//'].(electrons_velocity_distribution)')
+		endselect
+
+		if (self%electrons_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electronic_temperature', &
+   		val=self%T_e, error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electronic_temperature)')
+
+		elseif (self%electrons_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electronic_temperature_x', &
+   		val=self%T_e_x, error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electronic_temperature_x)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electronic_temperature_y', &
+   		val=self%T_e_y, error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electronic_temperature_y)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electronic_temperature_z', &
+   		val=self%T_e_z, error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electronic_temperature_z)')
+		endif
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_velocity_distribution', val=buff,error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_velocity_distribution) from file')
+   	select case(trim(adjustl(buff)))
+   	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
+				'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
+   	   self%neutrals_velocity_distribution = UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
+   	case('Non_Uniform_Maxwellian', 'non_uniform_maxwellian', 'non_uniform_Maxwellian')
+   	   self%neutrals_velocity_distribution = NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
+		case('Drift', 'drift', 'Pure_drift', 'pure_drift')
+			self%neutrals_velocity_distribution = PURE_DRIFT_VELOCITY_DISTRIBUTION
+		case default
+			call mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  &
+   	   ['//INI_SECTION_NAME//'].(neutrals_velocity_distribution)')
+		endselect
+
+		if (self%neutrals_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_temperature', &
+   		val=self%T_n, error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_temperature)')
+
+		elseif (self%neutrals_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_temperature_x', &
+   		val=self%T_n_x, error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_temperature_x)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_temperature_y', &
+   		val=self%T_n_y, error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_temperature_y)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_temperature_z', &
+   		val=self%T_n_z, error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_temperature_z)')
+		endif
+
+		if (self%electrons_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION     .or. &
+			 self%electrons_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
+			 self%ions_velocity_distribution      == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION     .or. &
+			 self%ions_velocity_distribution      == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
+			 self%neutrals_velocity_distribution  == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION     .or. &
+			 self%neutrals_velocity_distribution  == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, &
 											 option_name='velocity_random_number_generator', val=buff,error=error)
@@ -399,6 +545,36 @@ contains
 			endselect
 		endif
 
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ions_drift_x', &
+   	val=self%ions_drift_x, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_drift_x)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ions_drift_y', &
+   			val=self%ions_drift_y, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_drift_y)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ions_drift_z', &
+   			val=self%ions_drift_z, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_drift_z)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_drift_x', &
+   			val=self%neutrals_drift_x, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_drift_x)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_drift_y', &
+   			val=self%neutrals_drift_y, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_drift_y)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_drift_z', &
+   			val=self%neutrals_drift_z, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_drift_z)')
+
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_av_correction', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
    	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_av_correction)')
@@ -411,9 +587,8 @@ contains
 			call mpih%error_stop(msg=': invalid velocity average correction flag ['//trim(adjustl(buff))//'] in  &
    	   ['//INI_SECTION_NAME//'].(v_av_correction)')
 		endselect
-	endif
 
-	if (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+	elseif (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_position', &
    		val=self%x_position, error=error)
    	if (.not.go_on_fail_.and.error>0) &
@@ -438,23 +613,22 @@ contains
    		val=self%mass, error=error)
    	if (.not.go_on_fail_.and.error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(mass)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_x', &
+   			val=self%v_drift_x, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_x)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_y', &
+   			val=self%v_drift_y, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_y)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_z', &
+   			val=self%v_drift_z, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_z)')
 	endif
-
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_x', &
-   		val=self%v_drift_x, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_x)')
-
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_y', &
-   		val=self%v_drift_y, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_y)')
-
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_z', &
-   		val=self%v_drift_z, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_z)')
-
    endsubroutine load_from_file
 
 	subroutine set_particle_initial_injection(self, field, grid, pic, q_pic)
@@ -468,7 +642,9 @@ contains
 		!Setta posizione spaziale delle particelle e relativa tipologia
 		call self%particle_space_injection(field=field, grid=grid, pic=pic, q_pic=q_pic)
 		!Setta velocità iniziale delle particelle
-		call self%particle_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic)
+		call self%ions_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'i')
+		call self%electrons_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'e')
+		call self%neutrals_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'n')
 		!Definisci neighbour list
 		call pic%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic)
 
@@ -655,8 +831,6 @@ contains
 							q_pic(3,p) = z_p
 							q_pic(7,p) = -E_CHARGE
 							q_pic(8,p) = E_MASS
-							!Z0 = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
-							!Z1 = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 						enddo
 					enddo
 				enddo
@@ -742,12 +916,13 @@ contains
 	endassociate
 	endsubroutine uniform_cell_space_injection
 
-	subroutine uniform_maxwellian_velocity_injection(self, field, grid, pic, q_pic)
+	subroutine uniform_maxwellian_velocity_injection(self, field, grid, pic, q_pic, particle_type)
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
-	type(grid_object),                       intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
+	type(grid_object),                      intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	character(len=1), 							 intent(in)    :: particle_type
 	real(R8P)															:: r_n(4)
 	real(R8P)															:: vx_p, vy_p, vz_p
 	real(R8P)															:: Zx, Zy, Zz
@@ -757,24 +932,23 @@ contains
 	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
 	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
 
-	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,              &
-      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),          &
-      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		 &
-				neutral_fraction=>pic%neutral_fraction, v_av_correction=>self%v_av_correction, 				 	 &
-				v_drift_x=>self%v_drift_x, v_drift_y=>self%v_drift_y, v_drift_z=>self%v_drift_z, 				 &
-				T_i=>self%T_i, T_e=>self%T_e, T_n=>self%T_n, 																 &
-				n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, n_neutrals=>pic%n_neutrals)
+	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,                              &
+      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                            &
+      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		                        &
+				neutral_fraction=>pic%neutral_fraction, v_av_correction=>self%v_av_correction,  	 	                     &
+				T_i=>self%T_i, T_e=>self%T_e, T_n=>self%T_n, 											 		                     &
+				n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, n_neutrals=>pic%n_neutrals,                            &
+				ions_drift_x => self%ions_drift_x, ions_drift_y => self%ions_drift_y, ions_drift_z => self%ions_drift_z, &
+				electrons_drift_x => self%electrons_drift_x, electrons_drift_y => self%electrons_drift_y,                &
+				electrons_drift_z => self%electrons_drift_z, neutrals_drift_x => self%neutrals_drift_x,                  & 
+				neutrals_drift_y => self%neutrals_drift_y, neutrals_drift_z => self%neutrals_drift_z)
 
-	allocate(shuffled_list_ions	  (1:4,1:n_ions))
-	allocate(shuffled_list_electrons(1:4,1:n_electrons))
-	allocate(shuffled_list_neutrals (1:4,1:n_neutrals))
-	shuffled_list_ions(:,:) 	  = 0_I4P
-	shuffled_list_electrons(:,:) = 0_I4P
-	shuffled_list_neutrals(:,:)  = 0_I4P
-
-	!if(.not.space_pairing) then
+	if (particle_type == 'i') then
+	!if(.not.velocity_pairing) then
+		allocate(shuffled_list_ions(1:4,1:n_ions))
+		shuffled_list_ions(:,:) = 0_I4P
 		do i = 1, n_ions
-			call space_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
+			call velocity_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
 			v_t = sqrt(K_B*T_i/q_pic(8,i))
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
@@ -786,16 +960,22 @@ contains
 			q_pic(5,i) = vy_p
 			q_pic(6,i) = vz_p
 		enddo
-		call add_drift_velocity(q_pic=q_pic(4,1:n_ions), v_drift=v_drift_x)
-		call add_drift_velocity(q_pic=q_pic(5,1:n_ions), v_drift=v_drift_y)
-		call add_drift_velocity(q_pic=q_pic(6,1:n_ions), v_drift=v_drift_z)
+		call add_drift_velocity(q_pic=q_pic(4,1:n_ions), v_drift=ions_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,1:n_ions), v_drift=ions_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,1:n_ions), v_drift=ions_drift_z)
 		if (v_av_correction) then
-			call apply_vel_av_correction(q_pic=q_pic(4,1:n_ions), v_drift = v_drift_x)
-			call apply_vel_av_correction(q_pic=q_pic(5,1:n_ions), v_drift = v_drift_y)
-			call apply_vel_av_correction(q_pic=q_pic(6,1:n_ions), v_drift = v_drift_z)
+			call apply_vel_av_correction(q_pic=q_pic(4,1:n_ions), v_drift = ions_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,1:n_ions), v_drift = ions_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,1:n_ions), v_drift = ions_drift_z)
 		endif
+	!else
+
+	!endif
+	elseif (particle_type == 'e') then
+		allocate(shuffled_list_electrons(1:4,1:n_electrons))
+		shuffled_list_electrons(:,:) = 0_I4P
 		do i = 1, n_electrons
-			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
+			call velocity_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
 			v_t = sqrt(K_B*T_e/q_pic(8,i))
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
@@ -807,16 +987,19 @@ contains
 			q_pic(5,i+n_ions) = vy_p
 			q_pic(6,i+n_ions) = vz_p
 		enddo
-		call add_drift_velocity(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift=v_drift_x)
-		call add_drift_velocity(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift=v_drift_y)
-		call add_drift_velocity(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift=v_drift_z)
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift=electrons_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift=electrons_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift=electrons_drift_z)
 		if (v_av_correction) then
-			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift = v_drift_x)
-			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift = v_drift_y)
-			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift = v_drift_z)
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift = electrons_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift = electrons_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift = electrons_drift_z)
 		endif
+	elseif (particle_type == 'n') then
+		allocate(shuffled_list_neutrals (1:4,1:n_neutrals))
+		shuffled_list_neutrals(:,:)  = 0_I4P
 		do i = 1, n_neutrals
-			call space_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
+			call velocity_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
 			v_t = sqrt(K_B*T_n/q_pic(8,i))
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
@@ -828,27 +1011,25 @@ contains
 			q_pic(5,i+n_ions+n_electrons) = vy_p
 			q_pic(6,i+n_ions+n_electrons) = vz_p
 		enddo
-		call add_drift_velocity(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift=v_drift_x)
-		call add_drift_velocity(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift=v_drift_y)
-		call add_drift_velocity(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift=v_drift_z)
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift=neutrals_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift=neutrals_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift=neutrals_drift_z)
 		if (v_av_correction) then
-			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift = v_drift_x)
-			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift = v_drift_y)
-			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift = v_drift_z)
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift = neutrals_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift = neutrals_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift = neutrals_drift_z)
 		endif
-	!else
-
-	!endif
-
+	endif
 	endassociate
 	endsubroutine uniform_maxwellian_velocity_injection
 
-	subroutine non_uniform_maxwellian_velocity_injection(self, field, grid, pic, q_pic)
+	subroutine non_uniform_maxwellian_velocity_injection(self, field, grid, pic, q_pic, particle_type)
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
-	type(grid_object),                       intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
+	type(grid_object),                      intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	character(len=1), 							 intent(in)    :: particle_type
 	real(R8P)															:: r_n(4)
 	real(R8P)															:: vx_p, vy_p, vz_p
 	real(R8P)															:: Zx, Zy, Zz
@@ -858,25 +1039,23 @@ contains
 	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
 	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
 
-	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,              &
-      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),          &
-      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		 &
-				neutral_fraction=>pic%neutral_fraction, 																		 &
-				T_i_x=>self%T_i_x, T_e_x=>self%T_e_x, T_n_x=>self%T_n_x, 												 &
-				T_i_y=>self%T_i_y, T_e_y=>self%T_e_y, T_n_y=>self%T_n_y, 												 &
-				T_i_z=>self%T_i_z, T_e_z=>self%T_e_z, T_n_z=>self%T_n_z, 												 &
-				v_av_correction=>self%v_av_correction, v_drift_x=>self%v_drift_x, v_drift_y=>self%v_drift_y,  &
-				v_drift_z=>self%v_drift_z, n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, 						 &
-				n_neutrals=>pic%n_neutrals)
+	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,                   			   &
+      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                 			   &
+      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		             			   &
+				neutral_fraction=>pic%neutral_fraction, v_av_correction=>self%v_av_correction,    				 			   &
+				T_i_x=>self%T_i_x, T_e_x=>self%T_e_x, T_n_x=>self%T_n_x, 												 			   &
+				T_i_y=>self%T_i_y, T_e_y=>self%T_e_y, T_n_y=>self%T_n_y, 												 			   &
+				T_i_z=>self%T_i_z, T_e_z=>self%T_e_z, T_n_z=>self%T_n_z, 												 			   &
+				n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, n_neutrals=>pic%n_neutrals,						 			   &
+				ions_drift_x => self%ions_drift_x, ions_drift_y => self%ions_drift_y, ions_drift_z => self%ions_drift_z, &
+				electrons_drift_x => self%electrons_drift_x, electrons_drift_y => self%electrons_drift_y,                &
+				electrons_drift_z => self%electrons_drift_z, neutrals_drift_x => self%neutrals_drift_x,                  & 
+				neutrals_drift_y => self%neutrals_drift_y, neutrals_drift_z => self%neutrals_drift_z)
 
-	allocate(shuffled_list_ions	  (1:4,1:n_ions))
-	allocate(shuffled_list_electrons(1:4,1:n_electrons))
-	allocate(shuffled_list_neutrals (1:4,1:n_neutrals))
-	shuffled_list_ions(:,:) 	  = 0_I4P
-	shuffled_list_electrons(:,:) = 0_I4P
-	shuffled_list_neutrals(:,:)  = 0_I4P
-
+	if (particle_type == 'i') then
 	!if(.not.velocity_pairing) then
+		allocate(shuffled_list_ions(1:4,1:n_ions))
+		shuffled_list_ions(:,:) = 0_I4P
 		do i = 1, n_ions
 			call velocity_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
 			v_tx = sqrt(K_B*T_i_x/q_pic(8,i))
@@ -892,14 +1071,20 @@ contains
 			q_pic(5,i) = vy_p
 			q_pic(6,i) = vz_p
 		enddo
-		call add_drift_velocity(q_pic=q_pic(4,1:n_ions), v_drift=v_drift_x)
-		call add_drift_velocity(q_pic=q_pic(5,1:n_ions), v_drift=v_drift_y)
-		call add_drift_velocity(q_pic=q_pic(6,1:n_ions), v_drift=v_drift_z)
+		call add_drift_velocity(q_pic=q_pic(4,1:n_ions), v_drift=ions_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,1:n_ions), v_drift=ions_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,1:n_ions), v_drift=ions_drift_z)
 		if (v_av_correction) then
-			call apply_vel_av_correction(q_pic=q_pic(4,1:n_ions), v_drift = v_drift_x)
-			call apply_vel_av_correction(q_pic=q_pic(5,1:n_ions), v_drift = v_drift_y)
-			call apply_vel_av_correction(q_pic=q_pic(6,1:n_ions), v_drift = v_drift_z)
+			call apply_vel_av_correction(q_pic=q_pic(4,1:n_ions), v_drift = ions_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,1:n_ions), v_drift = ions_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,1:n_ions), v_drift = ions_drift_z)
 		endif
+	!else
+
+	!endif
+	elseif (particle_type == 'e') then
+		allocate(shuffled_list_electrons(1:4,1:n_electrons))
+		shuffled_list_electrons(:,:) = 0_I4P
 		do i = 1, n_electrons
 			call velocity_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
 			v_tx = sqrt(K_B*T_e_x/q_pic(8,i))
@@ -915,14 +1100,17 @@ contains
 			q_pic(5,i+n_ions) = vy_p
 			q_pic(6,i+n_ions) = vz_p
 		enddo
-		call add_drift_velocity(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift=v_drift_x)
-		call add_drift_velocity(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift=v_drift_y)
-		call add_drift_velocity(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift=v_drift_z)
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift=electrons_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift=electrons_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift=electrons_drift_z)
 		if (v_av_correction) then
-			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift = v_drift_x)
-			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift = v_drift_y)
-			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift = v_drift_z)
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift = electrons_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift = electrons_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift = electrons_drift_z)
 		endif
+	elseif (particle_type == 'n') then
+		allocate(shuffled_list_neutrals (1:4,1:n_neutrals))
+		shuffled_list_neutrals(:,:)  = 0_I4P
 		do i = 1, n_neutrals
 			call velocity_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
 			v_tx = sqrt(K_B*T_n_x/q_pic(8,i))
@@ -938,20 +1126,67 @@ contains
 			q_pic(5,i+n_ions+n_electrons) = vy_p
 			q_pic(6,i+n_ions+n_electrons) = vz_p
 		enddo
-		call add_drift_velocity(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift=v_drift_x)
-		call add_drift_velocity(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift=v_drift_y)
-		call add_drift_velocity(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift=v_drift_z)
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift=neutrals_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift=neutrals_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift=neutrals_drift_z)
 		if (v_av_correction) then
-			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift = v_drift_x)
-			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift = v_drift_y)
-			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift = v_drift_z)
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift = neutrals_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift = neutrals_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift = neutrals_drift_z)
+		endif
+	endif
+	endassociate
+	endsubroutine non_uniform_maxwellian_velocity_injection
+
+	subroutine pure_drift_velocity_injection(self, field, grid, pic, q_pic, particle_type)
+	!< Inject a particle distribution with a uniform drift velocity
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                      intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
+	type(prism_pic_object),					 	 intent(in)		:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	character(len=1), 							 intent(in)    :: particle_type
+
+	associate(n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, n_neutrals=>pic%n_neutrals, 						 			&
+				ions_drift_x => self%ions_drift_x, ions_drift_y => self%ions_drift_y, ions_drift_z => self%ions_drift_z, &
+				electrons_drift_x => self%electrons_drift_x, electrons_drift_y => self%electrons_drift_y,                &
+				electrons_drift_z => self%electrons_drift_z, neutrals_drift_x => self%neutrals_drift_x,                  & 
+				neutrals_drift_y => self%neutrals_drift_y, neutrals_drift_z => self%neutrals_drift_z,                    &
+				v_av_correction=>self%v_av_correction, np=>pic%particle_number)
+
+	if (particle_type == 'i') then
+		call add_drift_velocity(q_pic=q_pic(4,1:n_ions), v_drift=ions_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,1:n_ions), v_drift=ions_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,1:n_ions), v_drift=ions_drift_z)
+		if (v_av_correction) then
+			call apply_vel_av_correction(q_pic=q_pic(4,1:n_ions), v_drift = ions_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,1:n_ions), v_drift = ions_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,1:n_ions), v_drift = ions_drift_z)
 		endif
 	!else
 
 	!endif
-
+	elseif (particle_type == 'e') then
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift=electrons_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift=electrons_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift=electrons_drift_z)
+		if (v_av_correction) then
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift = electrons_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift = electrons_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift = electrons_drift_z)
+		endif
+	elseif (particle_type == 'n') then
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift=neutrals_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift=neutrals_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift=neutrals_drift_z)
+		if (v_av_correction) then
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift = neutrals_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift = neutrals_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift = neutrals_drift_z)
+		endif
+	endif
 	endassociate
-	endsubroutine non_uniform_maxwellian_velocity_injection
+   endsubroutine pure_drift_velocity_injection
 
 	subroutine write_initial_injection_tab(filename, q_pic, np)
 	character(len=1), parameter  :: TAB = achar(9)
