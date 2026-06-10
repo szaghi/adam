@@ -1402,7 +1402,11 @@ contains
 
    call compute_e(ivar=VAR_DX, energy=energy_D)
    call compute_e(ivar=VAR_BX, energy=energy_B)
-   if (self%coil%total_coils_number > 0_I4P) call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
+   if (self%coil%total_coils_number > 0_I4P) then
+      call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
+   else
+      coil_power = 0.0_R8P
+   endif
    call compute_Poynting_flux(Poynting_flux=Poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
@@ -1461,17 +1465,18 @@ contains
       integer(I4P)              :: i,j,k,b     !< Counter.
 
       coil_power = 0.0_R8P
-      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
-                dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:))
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,         &
+                dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:), &
+                J_vec=>self%coil%J_vec)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
       do i=1, ni
-         !if (coil_flag(i,j,k,b) /= 0_I4P) then
+         if (abs(minval(J_vec(:,i,j,k,b,:))) >= 1E-12_R8P) then
             coil_power = coil_power - (self%q(VAR_DX  ,i,j,k,b)*self%q(ivar  ,i,j,k,b) + &
                                        self%q(VAR_DX+1,i,j,k,b)*self%q(ivar+1,i,j,k,b) + &
                                        self%q(VAR_DX+2,i,j,k,b)*self%q(ivar+2,i,j,k,b))/EPS0*(dx(b)*dy(b)*dz(b))
-         !endif
+         endif
       enddo
       enddo
       enddo

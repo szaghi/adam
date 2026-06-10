@@ -519,10 +519,10 @@ contains
 	character(len=:), allocatable		                   	:: desc
    character(len=1), parameter  		                   	:: NL=new_line('a')
 
-	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,              &
-      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),          &
-      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		 &
-				neutral_fraction=>pic%neutral_fraction, n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, 	 &
+	associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,               &
+      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),             &
+      		np=>pic%particle_number, e_min=>grid%domain_emin, e_max=>grid%domain_emax,  		         &
+				neutral_fraction=>pic%neutral_fraction, n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, &
 				n_neutrals=>pic%n_neutrals)
 
 	allocate(shuffled_list_ions	  (1:3,1:n_ions))

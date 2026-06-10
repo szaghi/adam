@@ -157,6 +157,10 @@ contains
    if (self%problem_type == PLASMA_TYPE_PROBLEM) then
       desc = desc//NL//mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
       desc = desc//NL//mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
+      !desc = desc//NL//mpih%myrankstr//'    Total number of particles: '//trim(str(self%particle_number))
+      !desc = desc//NL//mpih%myrankstr//'    of which ions: '//trim(str(self%n_ions))
+      !desc = desc//NL//mpih%myrankstr//'    of which electrons: '//trim(str(self%n_electrons))
+      !desc = desc//NL//mpih%myrankstr//'    of which neutrals: '//trim(str(self%n_neutrals))
    endif
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
@@ -180,13 +184,11 @@ contains
    print '(A)', mpih%myrankstr//'prism_pic_object%initialize start'
 
    call self%load_from_file(file_parameters=file_parameters)
-   print '(A)', self%description()
-
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, &
-               e_min=>grid%domain_emin, e_max=>grid%domain_emax)
+               emin=>grid%domain_emin, emax=>grid%domain_emax)
 
    if (self%problem_type == PLASMA_TYPE_PROBLEM) then
-      domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
+      domain_volume = (emax(1)-emin(1))*(emax(2)-emin(2))*(emax(3)-emin(3))
       self%particle_number = nint(self%plasma_density*domain_volume)
       self%n_neutrals = nint(self%neutral_fraction*real(self%particle_number,R8P))
 	   self%n_ions = nint(real(self%particle_number-self%n_neutrals, R8P)/2.0_R8P)
@@ -195,8 +197,9 @@ contains
    elseif (self%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
       self%particle_number = 1_I4P
    endif
-
    endassociate
+
+   print '(A)', self%description()
 
    allocate(self%neighbour_list(4, self%particle_number))
 
@@ -324,29 +327,34 @@ contains
    !< Compute the grid index corresponding to a particle position. Good for cartesian grids only.
    class(prism_pic_object), intent(inout) :: self               !< External fields.
    type(field_object),      intent(in)    :: field              !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
+   type(grid_object),       intent(in)    :: grid               !< Grid (sibling realm component, threaded in)
    real(R8P),               intent(in)    :: q_pic(1:,1:)       !< PIC variables.
-   real(R8P)                              :: n                  !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p !< Particle grid indices
+   real(R8P)                              :: n, b               !< Counters
+   integer(I4P)                           :: i_p, j_p, k_p, b_p !< Particle grid indices
 
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                                  &
-            nk=>grid%nk, ngc=>grid%ngc, dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:),&
-            np => self%particle_number, e_min => grid%domain_emin, e_max => grid%domain_emax,               &
-            neighbour_list => self%neighbour_list)
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                                   &
+            nk=>grid%nk, ngc=>grid%ngc, dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), &
+            np => self%particle_number, domain_emin => grid%domain_emin, domain_emax => grid%domain_emax,    &
+            emin => field%emin, emax => field%emax, neighbour_list => self%neighbour_list)
 
-   !Va completato considerando la presenza di più blocchi, questo funziona per un blocco solo
+   !Di sicuro va considerata una parte relativa alle particelle che escono dal dominio
+   !Rivedi con Stefano, molto dipende se quei min max contano pure le gc. In tal caso a emin devi sommare ngc*dx o dx o dz
    do n = 1, np
-      i_p = (q_pic(1,n) - e_min(1)) / dx(1)
-      j_p = (q_pic(2,n) - e_min(2)) / dy(1)
-      k_p = (q_pic(3,n) - e_min(3)) / dz(1)
-      b_p = 1 ! Single block only for now
-
-      neighbour_list(1,n) = ceiling(b_p)
-      neighbour_list(2,n) = ceiling(i_p)
-      neighbour_list(3,n) = ceiling(j_p)
-      neighbour_list(4,n) = ceiling(k_p)
+      do b = 1, blocks_number
+         i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
+         j_p = ceiling((q_pic(2,n) - emin(2,b)) / dy(b))
+         k_p = ceiling((q_pic(3,n) - emin(3,b)) / dz(b))
+         b_p = b 
+         if (i_p >= 1_I4P .and. i_p <= ni .and. &
+             j_p >= 1_I4P .and. j_p <= nj .and. &
+             k_p >= 1_I4P .and. k_p <= nk) then
+            neighbour_list(1,n) = b_p
+            neighbour_list(2,n) = i_p
+            neighbour_list(3,n) = j_p
+            neighbour_list(4,n) = k_p
+            exit
+         endif
+      enddo
    enddo
    endassociate
    endsubroutine particle_cartesian_grid_index

@@ -53,9 +53,9 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_cpu_gpu start')
-   call dev_memcpy_to_device(src=coil%A    ,dst=self%A_gpu    )
-   call dev_memcpy_to_device(src=coil%f    ,dst=self%f_gpu    )
-   call dev_memcpy_to_device(src=coil%phase,dst=self%phase_gpu)
+   call dev_memcpy_to_device(src=coil%coil_amplitude    ,dst=self%A_gpu    )
+   call dev_memcpy_to_device(src=coil%f                 ,dst=self%f_gpu    )
+   call dev_memcpy_to_device(src=coil%phase             ,dst=self%phase_gpu)
    if (present(buf6D)) then
       db6(1,:) = lbound(self%j_vec_gpu ) ; db6(2,:) = ubound(self%j_vec_gpu )
       hb6(1,:) = lbound(coil%j_vec) ; hb6(2,:) = ubound(coil%j_vec)
@@ -86,9 +86,9 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_gpu_cpu start')
-   call dev_memcpy_from_device(src=self%A_gpu    ,dst=coil%A    )
-   call dev_memcpy_from_device(src=self%f_gpu    ,dst=coil%f    )
-   call dev_memcpy_from_device(src=self%phase_gpu,dst=coil%phase)
+   call dev_memcpy_from_device(src=self%A_gpu    ,dst=coil%coil_amplitude)
+   call dev_memcpy_from_device(src=self%f_gpu    ,dst=coil%f             )
+   call dev_memcpy_from_device(src=self%phase_gpu,dst=coil%phase         )
    if (present(buf6D)) then
       db6(1,:) = lbound(self%j_vec_gpu) ; db6(2,:) = ubound(self%j_vec_gpu )
       hb6(1,:) = lbound(coil%j_vec    ) ; hb6(2,:) = ubound(coil%j_vec     )
