@@ -148,6 +148,11 @@ contains
       q(:,:,0,:,b) = 0._R8P ; q(:,:   ,nj+1,:   ,b) = 0._R8P
       q(:,:,:,0,b) = 0._R8P ; q(:,:   ,:   ,nk+1,b) = 0._R8P
    enddo
+   !do b=1, blocks_number
+   !   q(:,0,:,:,b) = q(:,1,:,:,b) ; q(:,ni+1,:   ,:   ,b) = q(:,ni,:   ,:   ,b) 
+   !   q(:,:,0,:,b) = q(:,:,1,:,b) ; q(:,:   ,nj+1,:   ,b) = q(:,:   ,nj,:   ,b)
+   !   q(:,:,:,0,b) = q(:,:,:,1,b) ; q(:,:   ,:   ,nk+1,b) = q(:,:   ,:   ,nk,b)
+   !enddo
    endsubroutine apply_bc_dirichlet
 
    subroutine compute_prolongation(ngc, nic, njc, nkc, nv, blocks_number, coarse, fine)
@@ -340,6 +345,7 @@ contains
          enddo
          enddo
       enddo
+      print *, 'at the end of iter ', iter, 'dq_max = ', dq_max_
    enddo
    if (present(dq_max)) dq_max = dq_max_
    endsubroutine compute_smoothing_gauss_seidel

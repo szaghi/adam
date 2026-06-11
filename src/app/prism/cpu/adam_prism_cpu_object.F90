@@ -47,26 +47,27 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: update_ghost               !< Update ghost cells and set boundary conditions.
       procedure, pass(self) :: compute_field_mean_value   !< Compute field mean value.
       ! forest orchestrator contract methods overridings
-      procedure, pass(self) :: initialize_forest          !< Invoked by forest%initialize per realm at startup.
-      procedure, pass(self) :: compute_local_dt_forest    !< Invoked by forest%compute_global_dt during the min reduction.
-      procedure, pass(self) :: advance_one_step_forest    !< Invoked by forest%evolve_one_step per realm per timestep.
-      procedure, pass(self) :: stages_per_step_forest     !< Number of integrator stages this realm exposes per step.
-      procedure, pass(self) :: open_step_forest           !< Per-step prologue (multi-realm path).
-      procedure, pass(self) :: begin_stage_forest         !< Begin one integrator stage on this realm (multi-realm path).
-      procedure, pass(self) :: end_stage_forest           !< End the stage: residuals + assignment (multi-realm path).
-      procedure, pass(self) :: close_step_forest          !< Per-step epilogue (multi-realm path).
-      procedure, pass(self) :: post_step_forest           !< Invoked by forest%post_step per realm per timestep.
-      procedure, pass(self) :: is_done_forest             !< Invoked by forest%is_done during the termination reduction.
-      procedure, pass(self) :: finalize_forest            !< Invoked by forest%finalize per realm at shutdown.
-      procedure, pass(self) :: fill_seam_from_peer_forest    !< Copy peer's interior into self's ghosts for peer slot p_idx.
-      procedure, pass(self) :: apply_reflux_to_stage_forest  !< Apply Berger-Colella reflux to self's RK stage buffer.
+      procedure, pass(self) :: initialize_forest            !< Invoked by forest%initialize per realm at startup.
+      procedure, pass(self) :: compute_local_dt_forest      !< Invoked by forest%compute_global_dt during the min reduction.
+      procedure, pass(self) :: advance_one_step_forest      !< Invoked by forest%evolve_one_step per realm per timestep.
+      procedure, pass(self) :: stages_per_step_forest       !< Number of integrator stages this realm exposes per step.
+      procedure, pass(self) :: open_step_forest             !< Per-step prologue (multi-realm path).
+      procedure, pass(self) :: begin_stage_forest           !< Begin one integrator stage on this realm (multi-realm path).
+      procedure, pass(self) :: end_stage_forest             !< End the stage: residuals + assignment (multi-realm path).
+      procedure, pass(self) :: close_step_forest            !< Per-step epilogue (multi-realm path).
+      procedure, pass(self) :: post_step_forest             !< Invoked by forest%post_step per realm per timestep.
+      procedure, pass(self) :: is_done_forest               !< Invoked by forest%is_done during the termination reduction.
+      procedure, pass(self) :: finalize_forest              !< Invoked by forest%finalize per realm at shutdown.
+      procedure, pass(self) :: fill_seam_from_peer_forest   !< Copy peer's interior into self's ghosts for peer slot p_idx.
+      procedure, pass(self) :: apply_reflux_to_stage_forest !< Apply Berger-Colella reflux to self's RK stage buffer.
       ! numerical methods
-      procedure, pass(self) :: compute_dt           !< Compute time step.
-      procedure, pass(self) :: compute_energy       !< Compute energy.
-      procedure, pass(self) :: compute_energy_error !< Compute energy error.
-      procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
-      procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
-      procedure, pass(self) :: simulate             !< Perform the simulation.
+      procedure, pass(self) :: compute_dt                   !< Compute time step.
+      procedure, pass(self) :: compute_energy               !< Compute energy.
+      procedure, pass(self) :: compute_energy_error         !< Compute energy error.
+      procedure, pass(self) :: impose_div_free              !< Impose divergence-free property.
+      procedure, pass(self) :: impose_ct_correction         !< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: impose_pic_fields_time_zero
+      procedure, pass(self) :: simulate                     !< Perform the simulation.
 endtype prism_cpu_object
 
 interface
@@ -823,6 +824,7 @@ contains
    !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
+   integer(I4P)                           :: ind
 
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, &
                                                             grid=self%adam%grid, q=self%q)
@@ -843,6 +845,23 @@ contains
       call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
                                     pic_fields=self%pic_fields, nv=self%nv)
    endif
+   call self%compute_coils_current(q=self%q) !Solo per un test, qui è da vedere come implementare insieme J delle correnti di plasma e J delle spire
+   !Qui ci va la parte di inizializzazione dei campi con solutori ellittici.
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL)                              call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+   if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0.0_R8P) call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+
+   call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), &
+                                   divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_BX:VAR_BZ,:,:,:,:), &
+                                   divergence=self%divergence(2,:,:,:,:))
+   call mpih%print_message('Initial conditions setting completed')
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      call mpih%print_message('   max div(D) at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      ind = size(self%q(:,1,1,1,1))
+      call mpih%print_message('   max div(D)-rho at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
+   endif
+   call mpih%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q, step, s)
@@ -901,7 +920,7 @@ contains
    integer(I4P),            intent(in),    optional :: nv            !< Number of field variables override.
    logical,                 intent(in),    optional :: verbose       !< Trigger verbose output.
    real(R8P)                                        :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
-   integer(I4P)                                     :: i, n, b       !< Counters.
+   integer(I4P)                                     :: i, n, b, ind  !< Counters.
 
    call self%initialize_prism(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
@@ -923,7 +942,7 @@ contains
       call mpih%print_message('impose initial conditions finish')
    endif
    call self%update_ghost(q=self%q)
-
+   !Il controllo sulla divergenza dei campi a t = 0 lo metterai poi a valle di questo update ghost
    call mpih%print_message('Coils initialization values')
    do n=1, self%coil%total_coils_number
       call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
@@ -942,6 +961,19 @@ contains
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
+
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      call mpih%print_message('   max div(D) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      ind = size(self%q(:,1,1,1,1))
+      call mpih%print_message('   max div(D)-rho at t0 after update ghost='// &
+                                    trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
+   endif
+   call mpih%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+
+   !call mpih%print_message('   max div(D) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+   !call mpih%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
@@ -1618,8 +1650,8 @@ contains
    if (blocks_number>0) then
       do iter=1, self%flail%iterations
          call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-                                          dxyz=self%adam%field%dxyz,                                                &
-                                          f=-buffer(4:4,:,:,:,:),                                         &
+                                          dxyz=self%adam%field%dxyz,                                      &
+                                          f=buffer(4:4,:,:,:,:),                                          &
                                           q=buffer(7:7,:,:,:,:),                                          &
                                           dq_max=dq_max,                                                  &
                                           dq=buffer(5:5,:,:,:,:),                                         &
@@ -1635,7 +1667,7 @@ contains
             do j=1, nj
                do i=1, ni
                   do v=1, 3
-                     self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(3+v,i,j,k,b)
+                     self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(3+v,i,j,k,b)
                   enddo
                enddo
             enddo
@@ -1644,6 +1676,131 @@ contains
    endif
    endassociate
    endsubroutine impose_ct_correction
+
+   subroutine impose_pic_fields_time_zero(self, ivar)
+   !< 
+   !< 
+   class(prism_cpu_object), intent(inout) :: self      !< The equation.
+   integer(I4P),            intent(in)    :: ivar      !< Variable (start) index in q.
+   real(R8P)                              :: dphi_max  !< Maximum residual.
+   real(R8P),               allocatable   :: phi(:,:,:,:,:)
+   real(R8P),               allocatable   :: dphi(:,:,:,:,:)
+   real(R8P),               allocatable   :: f(:,:,:,:,:)
+   integer(I4P)                           :: ind       !< Rho index
+   integer(I4P)                           :: iter      !< Counter.
+   integer(I4P)                           :: i,j,k,b,v !< Counter.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
+            nb=>self%nb, buffer=>self%divergence, hs=>self%fdv_half_stencil)
+   !call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(4,:,:,:,:))
+
+   !Da valutare se usare buffer o farci i cazzi nostri. Per ora scelgo la seconda, vediamo se è un disastro a livello
+   !di memoria. Si potrebbe pensare anche ad una deallocazione
+
+   if (ivar == VAR_DX) then
+      allocate(phi(1:1,        &
+                 1-ngc:ni+ngc, &
+                 1-ngc:nj+ngc, &
+                 1-ngc:nk+ngc, &
+                 1:nb))
+      allocate(dphi(1:1,       &
+                 1-ngc:ni+ngc, &
+                 1-ngc:nj+ngc, &
+                 1-ngc:nk+ngc, &
+                 1:nb))
+      allocate(f(1:1,          &
+                 1-ngc:ni+ngc, &
+                 1-ngc:nj+ngc, &
+                 1-ngc:nk+ngc, &
+                 1:nb))
+      phi (:,:,:,:,:) = 0._R8P
+      dphi(:,:,:,:,:) = 0._R8P
+      f   (:,:,:,:,:) = 0._R8P
+      print *, size(f(:,1,1,1,1)), 'cazzo D'                
+      ind            = size(self%q(:,1,1,1,1))
+      f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0
+      if (blocks_number>0) then
+         do iter=1, self%flail%iterations
+            call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,             &
+                                             blocks_number=blocks_number,                    &
+                                             dxyz=self%adam%field%dxyz,                      &
+                                             f=f,                                            &
+                                             q=phi,                                          &
+                                             dq_max=dphi_max,                                &
+                                             dq=dphi,                                        &
+                                             iterations_init=self%flail%iterations_init,     &
+                                             iterations_fine=self%flail%iterations_fine,     &
+                                             iterations_coarse=self%flail%iterations_coarse)
+            if (dphi_max < self%flail%tolerance) exit
+         enddo
+         call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
+                               reached at iteration '//trim(str(iter,.true.)))
+         call self%compute_gradient(hs=hs,ivar=1,q=phi,gradient=buffer(5:7,:,:,:,:)) !Calcolo E da phi, ma con il segno opposto
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     do v=1, 3
+                        self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*EPS0 !E quindi qui aggiungo un segno -
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      endif
+   elseif (ivar == VAR_BX) then
+      allocate(phi(1:3,        &
+                 1-ngc:ni+ngc, &
+                 1-ngc:nj+ngc, &
+                 1-ngc:nk+ngc, &
+                 1:nb))
+      allocate(dphi(1:3,       &
+                 1-ngc:ni+ngc, &
+                 1-ngc:nj+ngc, &
+                 1-ngc:nk+ngc, &
+                 1:nb))
+      allocate(f(1:3,          &
+                 1-ngc:ni+ngc, &
+                 1-ngc:nj+ngc, &
+                 1-ngc:nk+ngc, &
+                 1:nb))
+      phi (:,:,:,:,:) = 0._R8P
+      dphi(:,:,:,:,:) = 0._R8P
+      f   (:,:,:,:,:) = 0._R8P
+      print *, size(f(:,1,1,1,1)), 'cazzo B'                
+      f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+      if (blocks_number>0) then
+         do iter=1, self%flail%iterations
+            call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,             &
+                                             blocks_number=blocks_number,                    &
+                                             dxyz=self%adam%field%dxyz,                      &
+                                             f=f,                                            &
+                                             q=phi,                                          &
+                                             dq_max=dphi_max,                                &
+                                             dq=dphi,                                        &
+                                             iterations_init=self%flail%iterations_init,     &
+                                             iterations_fine=self%flail%iterations_fine,     &
+                                             iterations_coarse=self%flail%iterations_coarse)
+            if (dphi_max < self%flail%tolerance) exit
+         enddo
+         call mpih%print_message('FLAIL convergence for magnetic field at t0 &
+                               reached at iteration '//trim(str(iter,.true.)))
+         call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     do v=1, 3
+                        self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      endif
+   endif
+   endassociate
+   endsubroutine impose_pic_fields_time_zero
 
    subroutine simulate(self, filename)
    !< Perform the simulation: legacy single-realm entry point.
@@ -1667,15 +1824,15 @@ contains
    subroutine compute_residuals_fd_centered(self, q, dq, s, flux_register)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
    class(prism_cpu_object),     intent(inout)                   :: self                     !< The equation.
-   real(R8P),                   intent(inout)                   :: q(1:,         &
-                                                                     1-self%ngc:,&
-                                                                     1-self%ngc:,&
-                                                                     1-self%ngc:,&
+   real(R8P),                   intent(inout)                   :: q(1:,          &
+                                                                     1-self%ngc:, &
+                                                                     1-self%ngc:, &
+                                                                     1-self%ngc:, &
                                                                      1:)                    !< Conservative variables.
-   real(R8P),                   intent(inout)                   :: dq(1:,         &
-                                                                      1-self%ngc:,&
-                                                                      1-self%ngc:,&
-                                                                      1-self%ngc:,&
+   real(R8P),                   intent(inout)                   :: dq(1:,          &
+                                                                      1-self%ngc:, &
+                                                                      1-self%ngc:, &
+                                                                      1-self%ngc:, &
                                                                       1:)                   !< Residuals.
    integer(I4P),                intent(in),    optional         :: s                        !< Stage counter.
    class(flux_register_object), intent(inout), optional         :: flux_register            !< Flux register.
