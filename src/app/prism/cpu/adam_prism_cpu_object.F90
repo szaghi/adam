@@ -847,8 +847,10 @@ contains
    endif
    call self%compute_coils_current(q=self%q) !Solo per un test, qui è da vedere come implementare insieme J delle correnti di plasma e J delle spire
    !Qui ci va la parte di inizializzazione dei campi con solutori ellittici.
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL)                              call self%impose_pic_fields_time_zero(ivar=VAR_DX)
-   if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0.0_R8P) call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+                                 call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+   if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0.0_R8P) &
+                                 call self%impose_pic_fields_time_zero(ivar=VAR_BX)
 
    call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), &
                                    divergence=self%divergence(1,:,:,:,:))
@@ -1638,41 +1640,113 @@ contains
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
    !< Note that self%divergence memory is used as buffer, be careful.
-   class(prism_cpu_object), intent(inout) :: self      !< The equation.
-   integer(I4P),            intent(in)    :: ivar      !< Variable (start) index in q.
-   real(R8P)                              :: dq_max    !< Maximum residual.
-   integer(I4P)                           :: iter      !< Counter.
-   integer(I4P)                           :: i,j,k,b,v !< Counter.
+   class(prism_cpu_object), intent(inout) :: self          !< The equation.
+   integer(I4P),            intent(in)    :: ivar          !< Variable (start) index in q.
+   real(R8P)                              :: dq_max        !< Maximum residual.
+   integer(I4P)                           :: iter          !< Counter.
+   integer(I4P)                           :: i,j,k,b,v,ind !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence, &
-             hs=>self%fdv_half_stencil)
-   call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(4,:,:,:,:))
-   if (blocks_number>0) then
-      do iter=1, self%flail%iterations
-         call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-                                          dxyz=self%adam%field%dxyz,                                      &
-                                          f=buffer(4:4,:,:,:,:),                                          &
-                                          q=buffer(7:7,:,:,:,:),                                          &
-                                          dq_max=dq_max,                                                  &
-                                          dq=buffer(5:5,:,:,:,:),                                         &
-                                          iterations_init=self%flail%iterations_init,                     &
-                                          iterations_fine=self%flail%iterations_fine,                     &
-                                          iterations_coarse=self%flail%iterations_coarse)
-         if (dq_max < self%flail%tolerance) exit
-      enddo
-      call mpih%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
-      call self%compute_gradient(hs=hs,ivar=1,q=buffer(7:7,:,:,:,:),gradient=buffer(4:6,:,:,:,:))
-      do b=1, blocks_number
-         do k=1, nk
-            do j=1, nj
-               do i=1, ni
-                  do v=1, 3
-                     self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(3+v,i,j,k,b)
+             hs=>self%fdv_half_stencil, physical_model=>self%physics%physical_model)
+
+   buffer(5:9,:,:,:,:) = 0._R8P
+
+   if (ivar == VAR_DX) then
+      if (physical_model==EM_PHYSICAL_MODEL .or. physical_model==ADIM_EM_PHYSICAL_MODEL) then
+         call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
+         if (blocks_number>0) then
+            do iter=1, self%flail%iterations
+               call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+                                                dxyz=self%adam%field%dxyz,                                      &
+                                                f=buffer(5:5,:,:,:,:),                                          &
+                                                q=buffer(8:8,:,:,:,:),                                          &
+                                                dq_max=dq_max,                                                  &
+                                                dq=buffer(6:6,:,:,:,:),                                         &
+                                                iterations_init=self%flail%iterations_init,                     &
+                                                iterations_fine=self%flail%iterations_fine,                     &
+                                                iterations_coarse=self%flail%iterations_coarse)
+               if (dq_max < self%flail%tolerance) exit
+            enddo
+            call mpih%print_message('FLAIL convergence for divD correction reached at iteration '//trim(str(iter,.true.)))
+            call self%compute_gradient(hs=hs,ivar=1,q=buffer(8:8,:,:,:,:),gradient=buffer(5:7,:,:,:,:))
+            do b=1, blocks_number
+               do k=1, nk
+                  do j=1, nj
+                     do i=1, ni
+                        do v=1, 3
+                           self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)
+                        enddo
+                     enddo
+                  enddo
+               enddo
+            enddo
+         endif
+      elseif (physical_model==PIC_PHYSICAL_MODEL) then
+         ind = size(self%q(:,1,1,1,1))
+         if (blocks_number>0) then
+            do iter=1, self%flail%iterations
+               call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
+               buffer(5,:,:,:,:)   = buffer(5,:,:,:,:) - self%q(ind,:,:,:,:)
+               call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+                                                      dxyz=self%adam%field%dxyz,                                      &
+                                                      f=buffer(5:5,:,:,:,:),                                          &
+                                                      q=buffer(8:8,:,:,:,:),                                          &
+                                                      dq_max=dq_max,                                                  &
+                                                      dq=buffer(6:6,:,:,:,:),                                         &
+                                                      iterations_init=self%flail%iterations_init,                     &
+                                                      iterations_fine=self%flail%iterations_fine,                     &
+                                                      iterations_coarse=self%flail%iterations_coarse)
+            !if (dq_max < self%flail%tolerance) exit
+            !enddo
+            !call mpih%print_message('FLAIL convergence for divD-rho correction reached at iteration '//trim(str(iter,.true.)))
+               call self%compute_gradient(hs=hs,ivar=1,q=buffer(8:8,:,:,:,:),gradient=buffer(5:7,:,:,:,:))
+               do b=1, blocks_number
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
+                           do v=1, 3
+                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)
+                           enddo
+                        enddo
+                     enddo
+                  enddo
+               enddo
+               call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(9,:,:,:,:))
+               call mpih%print_message('Divergence maximum value: '//trim(str(maxval(abs(buffer(9,:,:,:,:)- &
+                                                                           self%q(ind,:,:,:,:))),.true.)))
+               if (maxval(abs(buffer(9,:,:,:,:)- self%q(ind,:,:,:,:))) < 10.0E-12_R8P) exit
+            enddo
+         endif
+      endif
+   elseif (ivar == VAR_BX) then
+      call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
+      if (blocks_number>0) then
+         do iter=1, self%flail%iterations
+            call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+                                             dxyz=self%adam%field%dxyz,                                      &
+                                             f=buffer(5:5,:,:,:,:),                                          &
+                                             q=buffer(8:8,:,:,:,:),                                          &
+                                             dq_max=dq_max,                                                  &
+                                             dq=buffer(6:6,:,:,:,:),                                         &
+                                             iterations_init=self%flail%iterations_init,                     &
+                                             iterations_fine=self%flail%iterations_fine,                     &
+                                             iterations_coarse=self%flail%iterations_coarse)
+            if (dq_max < self%flail%tolerance) exit
+         enddo
+         call mpih%print_message('FLAIL convergence for divB correction reached at iteration '//trim(str(iter,.true.)))
+         call self%compute_gradient(hs=hs,ivar=1,q=buffer(8:8,:,:,:,:),gradient=buffer(5:7,:,:,:,:))
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     do v=1, 3
+                        self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)
+                     enddo
                   enddo
                enddo
             enddo
          enddo
-      enddo
+      endif
    endif
    endassociate
    endsubroutine impose_ct_correction
@@ -1692,8 +1766,6 @@ contains
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
             nb=>self%nb, buffer=>self%divergence, hs=>self%fdv_half_stencil)
-   !call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(4,:,:,:,:))
-
    !Da valutare se usare buffer o farci i cazzi nostri. Per ora scelgo la seconda, vediamo se è un disastro a livello
    !di memoria. Si potrebbe pensare anche ad una deallocazione
 
@@ -1715,10 +1787,9 @@ contains
                  1:nb))
       phi (:,:,:,:,:) = 0._R8P
       dphi(:,:,:,:,:) = 0._R8P
-      f   (:,:,:,:,:) = 0._R8P
-      print *, size(f(:,1,1,1,1)), 'cazzo D'                
+      f   (:,:,:,:,:) = 0._R8P              
       ind            = size(self%q(:,1,1,1,1))
-      f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0
+      f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
       if (blocks_number>0) then
          do iter=1, self%flail%iterations
             call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,             &
@@ -1747,6 +1818,7 @@ contains
                enddo
             enddo
          enddo
+         !call self%impose_ct_correction(ivar = VAR_DX)
       endif
    elseif (ivar == VAR_BX) then
       allocate(phi(1:3,        &
@@ -1766,8 +1838,7 @@ contains
                  1:nb))
       phi (:,:,:,:,:) = 0._R8P
       dphi(:,:,:,:,:) = 0._R8P
-      f   (:,:,:,:,:) = 0._R8P
-      print *, size(f(:,1,1,1,1)), 'cazzo B'                
+      f   (:,:,:,:,:) = 0._R8P               
       f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
       if (blocks_number>0) then
          do iter=1, self%flail%iterations

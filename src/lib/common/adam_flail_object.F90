@@ -13,6 +13,7 @@ private
 public :: flail_object
 public :: compute_smoothing_interface
 public :: compute_smoothing_gauss_seidel
+public :: compute_smoothing_gauss_seidel_ct
 public :: compute_smoothing_multigrid
 public :: compute_smoothing_sor
 public :: compute_smoothing_sor_omp
@@ -240,6 +241,9 @@ contains
             laplacian = (q(v,i+1,j,  k  ,b) - 2._R8P * q(v,i,j,k,b) + q(v,i-1,j,  k  ,b)) / dx2 + &
                         (q(v,i,  j+1,k  ,b) - 2._R8P * q(v,i,j,k,b) + q(v,i,  j-1,k  ,b)) / dy2 + &
                         (q(v,i,  j,  k+1,b) - 2._R8P * q(v,i,j,k,b) + q(v,i,  j,  k-1,b)) / dz2
+            !laplacian = (q(v,i+2,j,  k  ,b) - 2._R8P * q(v,i,j,k,b) + q(v,i-2,j,  k  ,b)) / dx2 + &
+            !            (q(v,i,  j+2,k  ,b) - 2._R8P * q(v,i,j,k,b) + q(v,i,  j-2,k  ,b)) / dy2 + &
+            !            (q(v,i,  j,  k+2,b) - 2._R8P * q(v,i,j,k,b) + q(v,i,  j,  k-2,b)) / dz2
             dq(v,i,j,k,b) = f(v,i,j,k,b) - laplacian
          enddo
       enddo
@@ -345,10 +349,95 @@ contains
          enddo
          enddo
       enddo
-      print *, 'at the end of iter ', iter, 'dq_max = ', dq_max_
+      !print *, 'at the end of iter ', iter, 'dq_max = ', dq_max_
    enddo
    if (present(dq_max)) dq_max = dq_max_
    endsubroutine compute_smoothing_gauss_seidel
+
+   subroutine compute_smoothing_gauss_seidel_ct(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
+                                             iterations_init, iterations_fine, iterations_coarse)
+   !< Compute smoothing by Gauss-Seidel method using L = D(G), i.e. centered first derivative composed twice.
+   integer(I4P), intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
+   integer(I4P), intent(in)              :: nv                !< Number of q variables.
+   integer(I4P), intent(in)              :: blocks_number     !< Number of current blocks.
+   real(R8P),    intent(in)              :: dxyz(1:,1:)       !< Space steps.
+   real(R8P),    intent(in)              :: f(1:,    &
+                                              1-ngc:,&
+                                              1-ngc:,&
+                                              1-ngc:,&
+                                              1:)             !< Forcing distribution.
+   real(R8P),    intent(inout)           :: q(1:,    &
+                                              1-ngc:,&
+                                              1-ngc:,&
+                                              1-ngc:,&
+                                              1:)             !< Field variables.
+   real(R8P),    intent(inout), optional :: dq(1:,    &
+                                               1-ngc:,&
+                                               1-ngc:,&
+                                               1-ngc:,&
+                                               1:)            !< Residuals.
+   real(R8P),    intent(inout), optional :: dq_max            !< Maximum residual.
+   integer(I4P), intent(in),    optional :: iterations_init   !< Smoothing iterations to initialize guess.
+   integer(I4P), intent(in),    optional :: iterations_fine   !< Smoothing iterations for fine grid.
+   integer(I4P), intent(in),    optional :: iterations_coarse !< Smoothing iterations for coarse grid.
+   integer(I4P)                          :: iterations_       !< Smoothing iterations, local var.
+   real(R8P)                             :: dq_max_           !< Maximum residual, local var.
+   real(R8P)                             :: dx2,dy2,dz2       !< Square space steps.
+   real(R8P)                             :: idx2,idy2,idz2    !< Inverse modified square space steps.
+   real(R8P)                             :: q_old             !< Previous q.
+   real(R8P)                             :: factor            !< Relaxation factor.
+   integer(I4P)                          :: i,j,k,b,v,iter    !< Counter.
+
+   if (ngc < 2_I4P) error stop 'compute_smoothing_gauss_seidel: ngc must be >= 2 for L = D(G) stencil'
+
+   iterations_ = 1_I4P
+   if (present(iterations_fine)) iterations_ = iterations_fine
+
+   dq_max_ = 0._R8P
+
+   do iter=1, iterations_
+      dq_max_ = 0._R8P
+
+      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+
+      do b=1, blocks_number
+         dx2 = dxyz(1,b)*dxyz(1,b)
+         dy2 = dxyz(2,b)*dxyz(2,b)
+         dz2 = dxyz(3,b)*dxyz(3,b)
+
+         idx2 = 1._R8P / (4._R8P * dx2)
+         idy2 = 1._R8P / (4._R8P * dy2)
+         idz2 = 1._R8P / (4._R8P * dz2)
+
+         factor = 1._R8P / (2._R8P * (idx2 + idy2 + idz2))
+
+         do k = 1, nk
+         do j = 1, nj
+         do i = 1, ni
+            do v=1, nv
+               q_old = q(v,i,j,k,b)
+
+               q(v,i,j,k,b) = factor * (                                           &
+                                 idx2 * (q(v,i+2,j,  k  ,b) + q(v,i-2,j,  k  ,b)) + &
+                                 idy2 * (q(v,i,  j+2,k  ,b) + q(v,i,  j-2,k  ,b)) + &
+                                 idz2 * (q(v,i,  j,  k+2,b) + q(v,i,  j,  k-2,b)) - &
+                                 f(v,i,  j,  k  ,b) )
+
+               dq_max_ = max(dq_max_, abs(q(v,i,j,k,b) - q_old))
+
+               if (present(dq)) dq(v,i,j,k,b) = q(v,i,j,k,b) - q_old
+            enddo
+         enddo
+         enddo
+         enddo
+      enddo
+
+      print *, 'at the end of iter ', iter, 'dq_max = ', dq_max_
+   enddo
+
+   if (present(dq_max)) dq_max = dq_max_
+
+   endsubroutine compute_smoothing_gauss_seidel_ct
 
    subroutine compute_smoothing_multigrid(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                           iterations_init, iterations_fine, iterations_coarse)
