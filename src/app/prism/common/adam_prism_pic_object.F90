@@ -32,6 +32,11 @@ public :: SINGLE_PARTICLE_TYPE_PROBLEM
 !public :: ONED_FIELDS_WEIGHTING_MODEL
 public :: NUM_SCHEME_TIME_PIC_LEAPFROG
 public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
+public :: STANDARD_INITIALIZATION
+public :: COHERENT_INITIALIZATION
+public :: NEUMANN_BC
+public :: DIRICHLET_BC
+public :: ANALYTIC_BC
 !public :: CIC_charge_weighting
 !public :: NGP_charge_weighting
 !public :: TSC_charge_weighting
@@ -42,21 +47,21 @@ public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
 !public :: oneD_field_weighting
 
 character(len=3 ), parameter :: INI_SECTION_NAME                 = 'PIC'             !< INI file section name for PIC configuration.
-character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'
-                                                                                     !< Analyzing physical problem involving the
-                                                                                     !< presence of plasma
-character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle'
-                                                                                     !< Analyzing physical problem involving the
-                                                                                     !< presence of a single particle
+character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'          !< Analyzing physical problem involving the presence of plasma
+character(len=8 ), parameter :: STANDARD_INITIALIZATION          = 'standard'        !< Field initialization through elliptic solver wuth standard laplacian scheme (7-points)
+character(len=8 ), parameter :: COHERENT_INITIALIZATION          = 'coherent'        !< Field initialization through elliptic solver wuth laplacian scheme coherent with centerd difference scheme (implemented only for 6th order)
+character(len=7 ), parameter :: NEUMANN_BC                       = 'neumann'         !< Neumann boundary condition
+character(len=9 ), parameter :: DIRICHLET_BC                     = 'dirichlet'       !< Dirichlet boundary condition
+character(len=5 ), parameter :: ANALYTIC_BC                      = 'analytic'        !< Analytic boundary condition
+character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle' !< Analyzing physical problem involving the presence of a single particle
 character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'             !< NGP weighting model.
 character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'             !< CIC weighting model.
 character(len=3 ), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'             !< TSC weighting model.
+character(len=8 ), parameter :: GAUSSIAN_WEIGHTING_MODEL         = 'Gaussian'        !< Gaussian weighting model.
 character(len=2 ), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL     = '0D'              !< 0D field weighting.
 character(len=2 ), parameter :: ONED_FIELDS_WEIGHTING_MODEL      = '1D'              !< 1D field weighting.
 character(len=8 ), parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG'        !< Leapfrog numerical scheme for time operator.
-character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'
-                                                                                     !< Runge-Kutta numerical scheme for time
-                                                                                     !< operator.
+character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'     !< Runge-Kutta numerical scheme for time operator.
 
 ! PIC variables layout in q_pic array:
 !q_pic(1) = x
@@ -69,18 +74,23 @@ character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'
 !q_pic(8) = mass
 
 type :: prism_pic_object
-   real(R8P)                 :: plasma_density             !< Plasma density
-   real(R8P)                 :: neutral_fraction = 0.0_R8P !< Neutral fraction
-   integer(I4P)              :: particle_number  = 0_I4P   !< Total number of particles.
-	integer(I4P)				  :: n_ions = 0_I4P             !< Total ions number
-	integer(I4P)				  :: n_electrons = 0_I4P        !< Total electrons number
-	integer(I4P)				  :: n_neutrals = 0_I4P         !< Total neutrals number
-   integer(I4P), allocatable :: neighbour_list(:,:)        !< Particle grid positions array.
-   character(len=99)         :: problem_type               !< Type of problem analyzed
-   character(len=99)         :: particle_weighting_model   !< Particle weighting model.
-   character(len=99)         :: current_weighting_model    !< Current weighting model.
-   character(len=99)         :: field_weighting_model      !< Field weighting model.
-   character(len=99)         :: scheme_time                !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
+   real(R8P)                 :: plasma_density              !< Plasma density
+   real(R8P)                 :: neutral_fraction = 0.0_R8P  !< Neutral fraction
+   real(R8P)                 :: sigma = 0.0_R8P             !< Standard deviation for a gaussian weighting
+   integer(I4P)              :: particle_number  = 0_I4P    !< Total number of particles.
+	integer(I4P)				  :: n_ions = 0_I4P              !< Total ions number
+	integer(I4P)				  :: n_electrons = 0_I4P         !< Total electrons number
+	integer(I4P)				  :: n_neutrals = 0_I4P          !< Total neutrals number
+   integer(I4P), allocatable :: neighbour_list(:,:)         !< Particle grid positions array.
+   character(len=99)         :: problem_type                !< Type of problem analyzed
+   character(len=99)         :: initialization              !< field initialization solver
+   character(len=99)         :: bc_solver                   !< boundary conditions for the elliptic solver for initial conditions
+   logical                   :: elliptic_correction=.false. !< elliptic correction for the initial fields
+   character(len=99)         :: bc_correction               !< boundary conditions for the elliptic correction
+   character(len=99)         :: particle_weighting_model    !< Particle weighting model.
+   character(len=99)         :: current_weighting_model     !< Current weighting model.
+   character(len=99)         :: field_weighting_model       !< Field weighting model.
+   character(len=99)         :: scheme_time                 !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    !< Pointer (abstract) TBP.
    procedure(particle_weighting_interface), pass(self), pointer :: particle_weighting =>null() !< Particle weighting.
    procedure(current_weighting_interface),  pass(self), pointer :: current_weighting  =>null() !< Current weighting.
@@ -93,6 +103,7 @@ contains
    procedure, pass(self) :: CIC_charge_weighting          !< Cloud-in-Cell weighting of particle quantities to the grid.
    procedure, pass(self) :: NGP_charge_weighting          !< Nearest Grid Point weighting of particle quantities to the grid.
    procedure, pass(self) :: TSC_charge_weighting          !< Triangular Shaped Cloud weighting of particle quantities to the grid.
+   procedure, pass(self) :: Gaussian_charge_weighting     !< Triangular Shaped Cloud weighting of particle quantities to the grid.
    procedure, pass(self) :: CIC_current_weighting         !< Cloud-in-Cell weighting of particle quantities to the grid.
    procedure, pass(self) :: NGP_current_weighting         !< Nearest Grid Point weighting of particle quantities to the grid.
    procedure, pass(self) :: TSC_current_weighting         !< Triangular Shaped Cloud weighting of particle quantities to the grid.
@@ -103,45 +114,39 @@ endtype prism_pic_object
 interface
    subroutine particle_weighting_interface(self, field, grid, q, q_pic, nv)
    import :: prism_pic_object, grid_object, field_object, I4P, R8P
-   class(prism_pic_object), intent(inout) :: self                             !< External fields.
-   type(field_object),                  intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
-   real(R8P),                           intent(inout) :: q(1:,1-grid%ngc:,&
-                                                              1-grid%ngc:,&
-                                                              1-grid%ngc:,1:) !< Field variables.
-   real(R8P),                           intent(in)    :: q_pic(1:,1:)         !< PIC variables.
-   integer(I4P),                        intent(in)    :: nv                   !< Number of variables.
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),       intent(in)    :: grid                 !< The grid.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                               1-grid%ngc:,    &
+                                               1-grid%ngc:,1:)    !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
    endsubroutine particle_weighting_interface
 
    subroutine current_weighting_interface(self, field, grid, q, q_pic, nv)
    import :: prism_pic_object, grid_object, field_object, I4P, R8P
-   class(prism_pic_object), intent(inout) :: self                             !< External fields.
-   type(field_object),                  intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
-   real(R8P),                           intent(inout) :: q(1:,1-grid%ngc:,&
-                                                              1-grid%ngc:,&
-                                                              1-grid%ngc:,1:) !< Field variables.
-   real(R8P),                           intent(in)    :: q_pic(1:,1:)         !< PIC variables.
-   integer(I4P),                        intent(in)    :: nv                   !< Number of variables.
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),       intent(in)    :: grid                 !< The grid.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                               1-grid%ngc:,    &
+                                               1-grid%ngc:,1:)    !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
    endsubroutine current_weighting_interface
 
    subroutine field_weighting_interface(self, field, grid, pic_fields, q, q_pic, nv)
    import :: prism_pic_object, grid_object, field_object, I4P, R8P
-   class(prism_pic_object), intent(inout) :: self                             !< External fields.
-   type(field_object),                  intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
-   real(R8P),                           intent(inout) :: pic_fields(1:,1:)    !< Fields value at particle locations.
-   real(R8P),                           intent(in)    :: q(1:,1-grid%ngc:,&
-                                                              1-grid%ngc:,&
-                                                              1-grid%ngc:,1:) !< Field variables.
-   real(R8P),                           intent(in)    :: q_pic(1:,1:)         !< PIC variables.
-   integer(I4P),                        intent(in)    :: nv                   !< Number of variables.
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),       intent(in)    :: grid                 !< The grid.
+   real(R8P),               intent(inout) :: pic_fields(1:,1:)    !< Fields value at particle locations.
+   real(R8P),               intent(in)    :: q(1:,1-grid%ngc:, &
+                                               1-grid%ngc:,    &
+                                               1-grid%ngc:,1:)    !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
    endsubroutine field_weighting_interface
 endinterface
 
@@ -154,6 +159,12 @@ contains
 
    desc =            mpih%myrankstr//'PIC object description:'
    desc = desc//NL//mpih%myrankstr//'    Problem type: '//trim(self%problem_type)
+   desc = desc//NL//mpih%myrankstr//'    Initialization type: '//trim(self%initialization)
+   desc = desc//NL//mpih%myrankstr//'    Bc elliptic solver: '//trim(self%bc_solver)
+   desc = desc//NL//mpih%myrankstr//'    Elliptic correction: '//trim(str(self%elliptic_correction))
+   if (self%elliptic_correction) then
+      desc = desc//NL//mpih%myrankstr//'    Bc elliptic correction: '//trim(self%bc_correction)
+   endif
    if (self%problem_type == PLASMA_TYPE_PROBLEM) then
       desc = desc//NL//mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
       desc = desc//NL//mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
@@ -164,6 +175,10 @@ contains
    endif
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
+   if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
+         self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
+      desc = desc//NL//mpih%myrankstr//'   Sigma: '//trim(str(self%sigma))
+   endif
    desc = desc//NL//mpih%myrankstr//'    Field weighting model: '//trim(self%field_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
    endfunction description
@@ -172,9 +187,7 @@ contains
    !< Initialize PIC.
    class(prism_pic_object), intent(inout) :: self            !< Pic object.
    type(field_object),      intent(in)    :: field           !< Field (sibling realm component, threaded in).
-   type(grid_object),       intent(in)    :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
+   type(grid_object),       intent(in)    :: grid            !< Grid (sibling realm component, threaded in).
    type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
                                                              !< present at t0
@@ -210,6 +223,8 @@ contains
       self%particle_weighting => NGP_charge_weighting
    case(TSC_WEIGHTING_MODEL)
       self%particle_weighting => TSC_charge_weighting
+   case(GAUSSIAN_WEIGHTING_MODEL)
+      self%particle_weighting => Gaussian_charge_weighting
    case default
       call mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
    endselect
@@ -260,6 +275,8 @@ contains
 		self%particle_weighting_model = NGP_WEIGHTING_MODEL
 	case('TSC', 'tsc', 'Tsc')
 		self%particle_weighting_model = TSC_WEIGHTING_MODEL
+   case('GAUSSIAN', 'Gaussian', 'gaussian', 'GAUSS', 'gauss')
+      self%particle_weighting_model = GAUSSIAN_WEIGHTING_MODEL
 	case default
 		call mpih%error_stop(msg=': invalid particle weighting model ['//trim(adjustl(buff))//'] in  &
       ['//INI_SECTION_NAME//'].(particle_weighting_model)')
@@ -279,6 +296,14 @@ contains
 		call mpih%error_stop(msg=': invalid current weighting model ['//trim(adjustl(buff))//'] in  &
       ['//INI_SECTION_NAME//'].(current_weighting_model)')
 	endselect
+
+   if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
+         self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='sigma', &
+         val=self%sigma, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sigma)')
+   endif
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='field_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
@@ -310,6 +335,28 @@ contains
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
 
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='initialization', &
+   val=self%initialization, error=error)
+   if (.not.go_on_fail_.and.error>0) &
+   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(initialization)')
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bc_solver', &
+   val=self%bc_solver, error=error)
+   if (.not.go_on_fail_.and.error>0) &
+   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bc_solver)')
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='elliptic_correction', &
+   val=self%elliptic_correction, error=error)
+   if (.not.go_on_fail_.and.error>0) &
+   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(elliptic_correction)')
+
+   if (self%elliptic_correction) then
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bc_correction', &
+      val=self%bc_correction, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bc_correction)')
+   endif
+
    if(self%problem_type == PLASMA_TYPE_PROBLEM) then
 	   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &
       val=self%plasma_density, error=error)
@@ -338,7 +385,7 @@ contains
             emin => field%emin, emax => field%emax, neighbour_list => self%neighbour_list)
 
    !Di sicuro va considerata una parte relativa alle particelle che escono dal dominio
-   !Rivedi con Stefano, molto dipende se quei min max contano pure le gc. In tal caso a emin devi sommare ngc*dx o dx o dz
+   !Rivedi con Stefano, molto dipende se quei min max contano pure le gc. In tal caso a emin devi sommare ngc*dx o dx o dz (non dovrebbero contare)
    do n = 1, np
       do b = 1, blocks_number
          i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
@@ -363,9 +410,7 @@ contains
    !!< Nearest Grid Point weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
+   type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -402,11 +447,9 @@ contains
    !< Cloud-in-Cell weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
-   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
-                                                  1-grid%ngc:,&
+   type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_PIC(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
@@ -469,11 +512,9 @@ contains
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
-   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
-                                                  1-grid%ngc:,&
+   type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
@@ -531,13 +572,127 @@ contains
    endassociate
    endsubroutine TSC_charge_weighting
 
+   subroutine Gaussian_charge_weighting(self, field, grid, q, q_PIC, nv)
+   !< Gaussian weighting of particle charge density to the grid.
+   !<
+   !< The Gaussian standard deviations are set equal to the local grid spacings:
+   !<
+   !<    sigma_x = dx
+   !<    sigma_y = dy
+   !<    sigma_z = dz
+   !<
+   !< The Gaussian distribution is truncated at +/- 4 sigma along each direction.
+   !< The discrete weights are normalized particle by particle in order to preserve
+   !< the total deposited charge.
+   class(prism_pic_object), intent(inout) :: self                    !< PIC object.
+   type(field_object),      intent(inout) :: field                   !< The field.
+   type(grid_object),       intent(in)    :: grid                    !< Grid object.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                                   1-grid%ngc:, &
+                                                   1-grid%ngc:,1:)   !< Field variables.
+   real(R8P),               intent(in)    :: q_PIC(1:,1:)            !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                      !< Charge-density variable index.
+   real(R8P), parameter                   :: sigma_factor = 1._R8P   !< sigma/dxyz.
+   real(R8P), parameter                   :: cutoff_sigma = 4._R8P   !< Gaussian cutoff.
+   integer(I4P)                           :: n                       !< Particle counter.
+   integer(I4P)                           :: i,j,k                   !< Grid counters.
+   integer(I4P)                           :: i_p,j_p,k_p,b_p         !< Particle grid indices.
+   integer(I4P)                           :: i_min,i_max             !< Weighting bounds.
+   integer(I4P)                           :: j_min,j_max             !< Weighting bounds.
+   integer(I4P)                           :: k_min,k_max             !< Weighting bounds.
+   integer(I4P)                           :: ni_sigma                !< Support radius along x.
+   integer(I4P)                           :: nj_sigma                !< Support radius along y.
+   integer(I4P)                           :: nk_sigma                !< Support radius along z.
+   real(R8P)                              :: dx,dy,dz                !< Grid spacings.
+   real(R8P)                              :: sigma_x                 !< Gaussian standard deviation along x.
+   real(R8P)                              :: sigma_y                 !< Gaussian standard deviation along y.
+   real(R8P)                              :: sigma_z                 !< Gaussian standard deviation along z.
+   real(R8P)                              :: rx,ry,rz                !< Normalized particle-cell distances.
+   real(R8P)                              :: wx,wy,wz                !< One-dimensional Gaussian weights.
+   real(R8P)                              :: weight                  !< Three-dimensional Gaussian weight.
+   real(R8P)                              :: weight_sum              !< Discrete normalization factor.
+   real(R8P)                              :: inverse_cell_volume     !< Inverse cell volume.
+
+   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%sigma)
+
+   ! Reset the charge density before depositing the current particle distribution.
+   q(nv,:,:,:,:) = 0._R8P
+
+   do n=1, self%particle_number
+      ! Get particle block and grid indices.
+      b_p = self%neighbour_list(1,n)
+      i_p = self%neighbour_list(2,n)
+      j_p = self%neighbour_list(3,n)
+      k_p = self%neighbour_list(4,n)
+
+      dx = field%dxyz(1,b_p)
+      dy = field%dxyz(2,b_p)
+      dz = field%dxyz(3,b_p)
+
+      sigma_x = sigma
+      sigma_y = sigma
+      sigma_z = sigma
+
+      inverse_cell_volume = 1._R8P / (dx*dy*dz)
+
+      ! Number of cells required to cover the Gaussian cutoff.
+      ni_sigma = ceiling(cutoff_sigma*sigma_x/dx, kind=I4P)
+      nj_sigma = ceiling(cutoff_sigma*sigma_y/dy, kind=I4P)
+      nk_sigma = ceiling(cutoff_sigma*sigma_z/dz, kind=I4P)
+
+      ! Restrict the support to the locally available grid, including ghost cells.
+      i_min = max(i_p-ni_sigma, lbound(q,dim=2))
+      i_max = min(i_p+ni_sigma, ubound(q,dim=2))
+
+      j_min = max(j_p-nj_sigma, lbound(q,dim=3))
+      j_max = min(j_p+nj_sigma, ubound(q,dim=3))
+
+      k_min = max(k_p-nk_sigma, lbound(q,dim=4))
+      k_max = min(k_p+nk_sigma, ubound(q,dim=4))
+
+      ! Compute the discrete normalization factor over the effective support.
+      weight_sum = 0._R8P
+
+      do k=k_min, k_max
+         rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+         wz = exp(-0.5_R8P*rz*rz)
+         do j=j_min, j_max
+            ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+            wy = exp(-0.5_R8P*ry*ry)
+            do i=i_min, i_max
+               rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+               wx = exp(-0.5_R8P*rx*rx)
+               weight_sum = weight_sum + wx*wy*wz
+            enddo
+         enddo
+      enddo
+
+      ! Deposit the particle charge density.
+      if (weight_sum > tiny(1._R8P)) then
+         do k=k_min, k_max
+            rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+            wz = exp(-0.5_R8P*rz*rz)
+            do j=j_min, j_max
+               ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+               wy = exp(-0.5_R8P*ry*ry)
+               do i=i_min, i_max
+                  rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+                  wx = exp(-0.5_R8P*rx*rx)
+                  weight = wx*wy*wz/weight_sum
+                  q(nv,i,j,k,b_p) = q(nv,i,j,k,b_p) + q_PIC(7,n)*inverse_cell_volume*weight
+               enddo
+            enddo
+         enddo
+      endif
+   enddo
+   endassociate
+   endsubroutine Gaussian_charge_weighting
+
    subroutine NGP_current_weighting(self, field, grid, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
+   type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
                                                   1-grid%ngc:,1:) !< Field variables.
@@ -577,11 +732,9 @@ contains
    !< Cloud-in-Cell weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
-   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
-                                                  1-grid%ngc:,&
+   type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
@@ -646,11 +799,9 @@ contains
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
-   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,&
-                                                  1-grid%ngc:,&
+   type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
@@ -711,14 +862,13 @@ contains
    endsubroutine TSC_current_weighting
 
    subroutine zeroD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
+   !< 0D spatial interpolation for the fields
    class(prism_pic_object), intent(inout) :: self                                             !< External fields.
    type(field_object),      intent(inout) :: field                                            !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
+   type(grid_object),       intent(in)    :: grid                                             !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: pic_fields(1:,1:)                                !< Fields value at particle locations
-   real(R8P),               intent(in)    :: q(1:,1-grid%ngc:,&
-                                                  1-grid%ngc:,&
+   real(R8P),               intent(in)    :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
                                                   1-grid%ngc:,1:)                             !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)                                     !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                               !< Number of variables.
@@ -760,11 +910,10 @@ contains
    endsubroutine zeroD_field_weighting
 
    subroutine oneD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
+   !< 1D spatial interpolation for the fields
    class(prism_pic_object), intent(inout) :: self                                             !< External fields.
    type(field_object),      intent(inout) :: field                                            !< The field.
-   type(grid_object),                  intent(in)              :: grid
-                                                                                      !< Grid (sibling realm component, threaded
-                                                                                      !< in).
+   type(grid_object),       intent(in)    :: grid                                             !< Grid (sibling realm component, threaded in).
    real(R8P),               intent(inout) :: pic_fields(1:,1:)                                !< Fields value at particle locations
    real(R8P),               intent(in)    :: q(1:,1-grid%ngc:,&
                                                   1-grid%ngc:,&
@@ -776,12 +925,12 @@ contains
    real(R8P)                              :: x_p, y_p, z_p                                    !< Particle position scalar
    real(R8P)                              :: v_p(3), D_p(3), B_p(3), F_p(3), F_l(3), m_p, q_p !< Particle scalars
    real(R8P)                              :: dx, dy, dz                                       !< Grid spacing
-   real(R8P)                              :: dDx_dx, dDx_dy, dDx_dz
-   real(R8P)                              :: dDy_dx, dDy_dy, dDy_dz
-   real(R8P)                              :: dDz_dx, dDz_dy, dDz_dz
-   real(R8P)                              :: dBx_dx, dBx_dy, dBx_dz
-   real(R8P)                              :: dBy_dx, dBy_dy, dBy_dz
-   real(R8P)                              :: dBz_dx, dBz_dy, dBz_dz
+   real(R8P)                              :: dDx_dx, dDx_dy, dDx_dz                           !<
+   real(R8P)                              :: dDy_dx, dDy_dy, dDy_dz                           !<
+   real(R8P)                              :: dDz_dx, dDz_dy, dDz_dz                           !<
+   real(R8P)                              :: dBx_dx, dBx_dy, dBx_dz                           !<
+   real(R8P)                              :: dBy_dx, dBy_dy, dBy_dz                           !<
+   real(R8P)                              :: dBz_dx, dBz_dy, dBz_dz                           !<
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    do n = 1, self%particle_number

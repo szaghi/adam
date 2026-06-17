@@ -66,7 +66,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_energy_error         !< Compute energy error.
       procedure, pass(self) :: impose_div_free              !< Impose divergence-free property.
       procedure, pass(self) :: impose_ct_correction         !< Impose Constrained Transport correction on q(ivar:ivar+2).
-      procedure, pass(self) :: impose_pic_fields_time_zero
+      procedure, pass(self) :: impose_pic_fields_time_zero  !< Impose initial fields in presence of plasma/currents
       procedure, pass(self) :: simulate                     !< Perform the simulation.
 endtype prism_cpu_object
 
@@ -836,7 +836,6 @@ contains
                                        np=self%pic%particle_number)
    endif
 
-   !call field%compute_metrics !cazzo
    call self%initialize_coils
 
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -846,16 +845,16 @@ contains
                                     pic_fields=self%pic_fields, nv=self%nv)
    endif
    call self%compute_coils_current(q=self%q) !Solo per un test, qui è da vedere come implementare insieme J delle correnti di plasma e J delle spire
-   !Qui ci va la parte di inizializzazione dei campi con solutori ellittici.
+
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
                                  call self%impose_pic_fields_time_zero(ivar=VAR_DX)
    if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0.0_R8P) &
                                  call self%impose_pic_fields_time_zero(ivar=VAR_BX)
-
    call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), &
                                    divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_BX:VAR_BZ,:,:,:,:), &
                                    divergence=self%divergence(2,:,:,:,:))
+
    call mpih%print_message('Initial conditions setting completed')
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       call mpih%print_message('   max div(D) at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
@@ -972,9 +971,6 @@ contains
                                     trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
    endif
    call mpih%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
-
-   !call mpih%print_message('   max div(D) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
-   !call mpih%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
 
    call self%save_simulation_data
    call self%compute_energy
@@ -1349,7 +1345,7 @@ contains
    endif
    associate(hs => self%fdv_half_stencil)
    call self%save_simulation_data
-   call self%update_ghost(q=self%q) ! Aggiunto da FN
+   call self%update_ghost(q=self%q)
    call self%compute_energy
    !call self%save_energy_error
    call self%save_energy_history
@@ -1399,7 +1395,7 @@ contains
    !call mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
    !call mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call self%save_energy_history(is_to_close=.true.)
-   call self%update_ghost(q=self%q) ! Aggiunto da FN
+   call self%update_ghost(q=self%q)
    associate(hs => self%fdv_half_stencil)
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
@@ -1640,81 +1636,107 @@ contains
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
    !< Note that self%divergence memory is used as buffer, be careful.
-   class(prism_cpu_object), intent(inout) :: self          !< The equation.
-   integer(I4P),            intent(in)    :: ivar          !< Variable (start) index in q.
-   real(R8P)                              :: dq_max        !< Maximum residual.
-   integer(I4P)                           :: iter          !< Counter.
-   integer(I4P)                           :: i,j,k,b,v,ind !< Counter.
+   class(prism_cpu_object), intent(inout) :: self            !< The equation.
+   integer(I4P),            intent(in)    :: ivar            !< Variable (start) index in q.
+   real(R8P)                              :: dq_max          !< Maximum residual.
+   real(R8P),               allocatable   :: D0(:,:,:,:,:)   !< Buffer to monitor divergence evolution for the electric displacement
+   real(R8P),               allocatable   :: grad(:,:,:,:,:) !< Correction field for electric displacement
+   integer(I4P)                           :: iter            !< Counter.
+   integer(I4P)                           :: i,j,k,b,v,ind   !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence, &
-             hs=>self%fdv_half_stencil, physical_model=>self%physics%physical_model)
+             hs=>self%fdv_half_stencil, physical_model=>self%physics%physical_model, nb=>self%nb)
 
    buffer(5:9,:,:,:,:) = 0._R8P
+   allocate(D0(1:3,     &
+           1-ngc:ni+ngc, &
+           1-ngc:nj+ngc, &
+           1-ngc:nk+ngc, &
+           1:nb))
+   D0(:,:,:,:,:) = 0._R8P
+   allocate(grad(1:3,     &
+           1-ngc:ni+ngc, &
+           1-ngc:nj+ngc, &
+           1-ngc:nk+ngc, &
+           1:nb))
+   grad(:,:,:,:,:) = 0._R8P
 
    if (ivar == VAR_DX) then
-      if (physical_model==EM_PHYSICAL_MODEL .or. physical_model==ADIM_EM_PHYSICAL_MODEL) then
-         call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
-         if (blocks_number>0) then
-            do iter=1, self%flail%iterations
-               call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-                                                dxyz=self%adam%field%dxyz,                                      &
-                                                f=buffer(5:5,:,:,:,:),                                          &
-                                                q=buffer(8:8,:,:,:,:),                                          &
-                                                dq_max=dq_max,                                                  &
-                                                dq=buffer(6:6,:,:,:,:),                                         &
-                                                iterations_init=self%flail%iterations_init,                     &
-                                                iterations_fine=self%flail%iterations_fine,                     &
-                                                iterations_coarse=self%flail%iterations_coarse)
-               if (dq_max < self%flail%tolerance) exit
-            enddo
-            call mpih%print_message('FLAIL convergence for divD correction reached at iteration '//trim(str(iter,.true.)))
-            call self%compute_gradient(hs=hs,ivar=1,q=buffer(8:8,:,:,:,:),gradient=buffer(5:7,:,:,:,:))
-            do b=1, blocks_number
-               do k=1, nk
-                  do j=1, nj
-                     do i=1, ni
-                        do v=1, 3
-                           self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)
-                        enddo
-                     enddo
-                  enddo
-               enddo
-            enddo
-         endif
+      if (physical_model==EM_PHYSICAL_MODEL .or. physical_model==ADIM_EM_PHYSICAL_MODEL) then !Messo solo per completezza, ma di fatto mai utilizzato per definizione
+         !call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
+         !if (blocks_number>0) then
+         !   do iter=1, self%flail%iterations
+         !      call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+         !                                       dxyz=self%adam%field%dxyz,                                            &
+         !                                       f=buffer(5:5,:,:,:,:),                                                &
+         !                                       q=buffer(8:8,:,:,:,:),                                                &
+         !                                       dq_max=dq_max,                                                        &
+         !                                       dq=buffer(6:6,:,:,:,:),                                               &
+         !                                       iterations_init=self%flail%iterations_init,                           &
+         !                                       iterations_fine=self%flail%iterations_fine,                           &
+         !                                       iterations_coarse=self%flail%iterations_coarse,                       &
+         !                                       bc_type=self%pic%bc_correction)
+         !      if (dq_max < self%flail%tolerance) exit
+         !   enddo
+         !   call mpih%print_message('FLAIL convergence for divD correction reached at iteration '//trim(str(iter,.true.)))
+         !   call self%compute_gradient(hs=hs,ivar=1,q=buffer(8:8,:,:,:,:),gradient=buffer(5:7,:,:,:,:))
+         !   do b=1, blocks_number
+         !      do k=1, nk
+         !         do j=1, nj
+         !            do i=1, ni
+         !               do v=1, 3
+         !                  self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)
+         !               enddo
+         !            enddo
+         !         enddo
+         !      enddo
+         !   enddo
+         !endif
+         call mpih%print_message('There is no particle and so at t0 no electric field has to be initialized...there is a bug!')
       elseif (physical_model==PIC_PHYSICAL_MODEL) then
          ind = size(self%q(:,1,1,1,1))
          if (blocks_number>0) then
+            call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
+            buffer(5,:,:,:,:)   = buffer(5,:,:,:,:) - self%q(ind,:,:,:,:)
             do iter=1, self%flail%iterations
-               call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
-               buffer(5,:,:,:,:)   = buffer(5,:,:,:,:) - self%q(ind,:,:,:,:)
-               call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-                                                      dxyz=self%adam%field%dxyz,                                      &
-                                                      f=buffer(5:5,:,:,:,:),                                          &
-                                                      q=buffer(8:8,:,:,:,:),                                          &
-                                                      dq_max=dq_max,                                                  &
-                                                      dq=buffer(6:6,:,:,:,:),                                         &
-                                                      iterations_init=self%flail%iterations_init,                     &
-                                                      iterations_fine=self%flail%iterations_fine,                     &
-                                                      iterations_coarse=self%flail%iterations_coarse)
-            !if (dq_max < self%flail%tolerance) exit
-            !enddo
-            !call mpih%print_message('FLAIL convergence for divD-rho correction reached at iteration '//trim(str(iter,.true.)))
-               call self%compute_gradient(hs=hs,ivar=1,q=buffer(8:8,:,:,:,:),gradient=buffer(5:7,:,:,:,:))
+               call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+                                                      dxyz=self%adam%field%dxyz,                                       &
+                                                      f=buffer(5:5,:,:,:,:),                                           &
+                                                      q=buffer(8:8,:,:,:,:),                                           &
+                                                      dq_max=dq_max,                                                   &
+                                                      dq=buffer(6:6,:,:,:,:),                                          &
+                                                      iterations_init=self%flail%iterations_init,                      &
+                                                      iterations_fine=self%flail%iterations_fine,                      &
+                                                      iterations_coarse=self%flail%iterations_coarse,                  &
+                                                      bc_type=self%pic%bc_correction)
+               call self%compute_gradient(hs=hs,ivar=1,q=buffer(8:8,:,:,:,:),gradient=grad(:,:,:,:,:))
                do b=1, blocks_number
                   do k=1, nk
                      do j=1, nj
                         do i=1, ni
                            do v=1, 3
-                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)
+                              D0(v,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - grad(v,i,j,k,b)
                            enddo
                         enddo
                      enddo
                   enddo
                enddo
-               call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(9,:,:,:,:))
-               call mpih%print_message('Divergence maximum value: '//trim(str(maxval(abs(buffer(9,:,:,:,:)- &
+               call self%compute_divergence(hs=hs,ivar=ivar,q=D0,divergence=buffer(9,:,:,:,:))
+               call mpih%print_message('Divergence - rho maximum value: '//trim(str(maxval(abs(buffer(9,:,:,:,:)- &
                                                                            self%q(ind,:,:,:,:))),.true.)))
-               if (maxval(abs(buffer(9,:,:,:,:)- self%q(ind,:,:,:,:))) < 10.0E-12_R8P) exit
+               if (maxval(abs(buffer(9,:,:,:,:)- self%q(ind,:,:,:,:))) < 1.0E-12_R8P) exit
+            enddo
+            call mpih%print_message('FLAIL convergence for divD-rho correction reached at iteration '//trim(str(iter,.true.)))
+            do b=1, blocks_number
+               do k=1, nk
+                  do j=1, nj
+                     do i=1, ni
+                        do v=1, 3
+                           self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - grad(v,i,j,k,b)
+                        enddo
+                     enddo
+                  enddo
+               enddo
             enddo
          endif
       endif
@@ -1722,15 +1744,16 @@ contains
       call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
       if (blocks_number>0) then
          do iter=1, self%flail%iterations
-            call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-                                             dxyz=self%adam%field%dxyz,                                      &
-                                             f=buffer(5:5,:,:,:,:),                                          &
-                                             q=buffer(8:8,:,:,:,:),                                          &
-                                             dq_max=dq_max,                                                  &
-                                             dq=buffer(6:6,:,:,:,:),                                         &
-                                             iterations_init=self%flail%iterations_init,                     &
-                                             iterations_fine=self%flail%iterations_fine,                     &
-                                             iterations_coarse=self%flail%iterations_coarse)
+            call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+                                             dxyz=self%adam%field%dxyz,                                             &
+                                             f=buffer(5:5,:,:,:,:),                                                 &
+                                             q=buffer(8:8,:,:,:,:),                                                 &
+                                             dq_max=dq_max,                                                         &
+                                             dq=buffer(6:6,:,:,:,:),                                                &
+                                             iterations_init=self%flail%iterations_init,                            &
+                                             iterations_fine=self%flail%iterations_fine,                            &
+                                             iterations_coarse=self%flail%iterations_coarse,                        &
+                                             bc_type=self%pic%bc_correction)
             if (dq_max < self%flail%tolerance) exit
          enddo
          call mpih%print_message('FLAIL convergence for divB correction reached at iteration '//trim(str(iter,.true.)))
@@ -1752,123 +1775,337 @@ contains
    endsubroutine impose_ct_correction
 
    subroutine impose_pic_fields_time_zero(self, ivar)
-   !< 
-   !< 
-   class(prism_cpu_object), intent(inout) :: self      !< The equation.
-   integer(I4P),            intent(in)    :: ivar      !< Variable (start) index in q.
-   real(R8P)                              :: dphi_max  !< Maximum residual.
-   real(R8P),               allocatable   :: phi(:,:,:,:,:)
-   real(R8P),               allocatable   :: dphi(:,:,:,:,:)
-   real(R8P),               allocatable   :: f(:,:,:,:,:)
-   integer(I4P)                           :: ind       !< Rho index
-   integer(I4P)                           :: iter      !< Counter.
-   integer(I4P)                           :: i,j,k,b,v !< Counter.
+   !< Compute initial condition for the fields in presence of plasma 
+   class(prism_cpu_object), intent(inout) :: self            !< The equation.
+   integer(I4P),            intent(in)    :: ivar            !< Variable (start) index in q.
+   real(R8P)                              :: dphi_max        !< Maximum residual.
+   real(R8P),               allocatable   :: phi(:,:,:,:,:)  !< Potential computed
+   real(R8P),               allocatable   :: dphi(:,:,:,:,:) !< Potential variation
+   real(R8P),               allocatable   :: f(:,:,:,:,:)    !< Source term
+   integer(I4P)                           :: ind             !< Rho index
+   integer(I4P)                           :: iter            !< Counter.
+   integer(I4P)                           :: i,j,k,b,v       !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
             nb=>self%nb, buffer=>self%divergence, hs=>self%fdv_half_stencil)
-   !Da valutare se usare buffer o farci i cazzi nostri. Per ora scelgo la seconda, vediamo se è un disastro a livello
-   !di memoria. Si potrebbe pensare anche ad una deallocazione
-
-   if (ivar == VAR_DX) then
-      allocate(phi(1:1,        &
-                 1-ngc:ni+ngc, &
-                 1-ngc:nj+ngc, &
-                 1-ngc:nk+ngc, &
-                 1:nb))
-      allocate(dphi(1:1,       &
-                 1-ngc:ni+ngc, &
-                 1-ngc:nj+ngc, &
-                 1-ngc:nk+ngc, &
-                 1:nb))
-      allocate(f(1:1,          &
-                 1-ngc:ni+ngc, &
-                 1-ngc:nj+ngc, &
-                 1-ngc:nk+ngc, &
-                 1:nb))
-      phi (:,:,:,:,:) = 0._R8P
-      dphi(:,:,:,:,:) = 0._R8P
-      f   (:,:,:,:,:) = 0._R8P              
-      ind            = size(self%q(:,1,1,1,1))
-      f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
-      if (blocks_number>0) then
-         do iter=1, self%flail%iterations
-            call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,             &
-                                             blocks_number=blocks_number,                    &
-                                             dxyz=self%adam%field%dxyz,                      &
-                                             f=f,                                            &
-                                             q=phi,                                          &
-                                             dq_max=dphi_max,                                &
-                                             dq=dphi,                                        &
-                                             iterations_init=self%flail%iterations_init,     &
-                                             iterations_fine=self%flail%iterations_fine,     &
-                                             iterations_coarse=self%flail%iterations_coarse)
-            if (dphi_max < self%flail%tolerance) exit
-         enddo
-         call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
-                               reached at iteration '//trim(str(iter,.true.)))
-         call self%compute_gradient(hs=hs,ivar=1,q=phi,gradient=buffer(5:7,:,:,:,:)) !Calcolo E da phi, ma con il segno opposto
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     do v=1, 3
-                        self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*EPS0 !E quindi qui aggiungo un segno -
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if (self%pic%initialization == COHERENT_INITIALIZATION) then
+         if (ivar == VAR_DX) then
+            allocate(phi(1:1,        &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            allocate(dphi(1:1,       &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            allocate(f(1:1,          &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            phi (:,:,:,:,:) = 0._R8P
+            dphi(:,:,:,:,:) = 0._R8P
+            f   (:,:,:,:,:) = 0._R8P              
+            ind            = size(self%q(:,1,1,1,1))
+            f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
+            if (blocks_number>0) then
+               do iter=1, self%flail%iterations
+                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                   blocks_number=blocks_number,                     &
+                                                   dxyz=self%adam%field%dxyz,                       &
+                                                   f=f,                                             &
+                                                   q=phi,                                           &
+                                                   dq_max=dphi_max,                                 &
+                                                   dq=dphi,                                         &
+                                                   iterations_init=self%flail%iterations_init,      &
+                                                   iterations_fine=self%flail%iterations_fine,      &
+                                                   iterations_coarse=self%flail%iterations_coarse,  &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
+                  if (dphi_max < self%flail%tolerance) exit
+               enddo
+               call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
+                                     reached at iteration '//trim(str(iter,.true.)))
+               call self%compute_gradient_fd_extended(hs=hs,ivar=1,q=phi,gradient=buffer(5:7,:,:,:,:)) !Calcolo E da phi, ma con il segno opposto
+               do b=1, blocks_number
+                  do k=1-ngc/2, nk+ngc/2
+                     do j=1-ngc/2, nj+ngc/2
+                        do i=1-ngc/2, ni+ngc/2
+                           do v=1, 3
+                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*EPS0 !E quindi qui aggiungo un segno -
+                           enddo
+                        enddo
+                     enddo
+                  enddo
+               enddo
+               if (self%pic%elliptic_correction) call self%impose_ct_correction(ivar = VAR_DX)
+            endif
+         elseif (ivar == VAR_BX) then
+            allocate(phi(1:3,        &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            allocate(dphi(1:3,       &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            allocate(f(1:3,          &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            phi (:,:,:,:,:) = 0._R8P
+            dphi(:,:,:,:,:) = 0._R8P
+            f   (:,:,:,:,:) = 0._R8P               
+            f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+            if (blocks_number>0) then
+               do iter=1, self%flail%iterations
+                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,      &
+                                                   blocks_number=blocks_number,                    &
+                                                   dxyz=self%adam%field%dxyz,                      &
+                                                   f=f,                                            &
+                                                   q=phi,                                          &
+                                                   dq_max=dphi_max,                                &
+                                                   dq=dphi,                                        &
+                                                   iterations_init=self%flail%iterations_init,     &
+                                                   iterations_fine=self%flail%iterations_fine,     &
+                                                   iterations_coarse=self%flail%iterations_coarse, &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+                  if (dphi_max < self%flail%tolerance) exit
+               enddo
+               call mpih%print_message('FLAIL convergence for magnetic field at t0 &
+                                     reached at iteration '//trim(str(iter,.true.)))
+               call self%compute_curl_fd_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               do b=1, blocks_number
+                  do k=1-ngc/2, nk+ngc/2
+                     do j=1-ngc/2, nj+ngc/2
+                        do i=1-ngc/2, ni+ngc/2
+                           do v=1, 3
+                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
+                           enddo
+                        enddo
+                     enddo
+                  enddo
+               enddo
+            endif
+         endif
+      elseif (self%pic%initialization == STANDARD_INITIALIZATION) then
+         if (ivar == VAR_DX) then
+            allocate(phi(1:1,        &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            allocate(dphi(1:1,       &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            allocate(f(1:1,          &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            phi (:,:,:,:,:) = 0._R8P
+            dphi(:,:,:,:,:) = 0._R8P
+            f   (:,:,:,:,:) = 0._R8P              
+            ind            = size(self%q(:,1,1,1,1))
+            f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
+            if (blocks_number>0) then
+               do iter=1, self%flail%iterations
+                  call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,           &
+                                                   blocks_number=blocks_number,                     &
+                                                   dxyz=self%adam%field%dxyz,                       &
+                                                   f=f,                                             &
+                                                   q=phi,                                           &
+                                                   dq_max=dphi_max,                                 &
+                                                   dq=dphi,                                         &
+                                                   iterations_init=self%flail%iterations_init,      &
+                                                   iterations_fine=self%flail%iterations_fine,      &
+                                                   iterations_coarse=self%flail%iterations_coarse,  &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
+                  if (dphi_max < self%flail%tolerance) exit
+               enddo
+               call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
+                                     reached at iteration '//trim(str(iter,.true.)))
+               call self%compute_gradient(hs=hs,ivar=1,q=phi,gradient=buffer(5:7,:,:,:,:)) !Calcolo E da phi, ma con il segno opposto
+               do b=1, blocks_number
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
+                           do v=1, 3
+                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*EPS0 !E quindi qui aggiungo un segno -
+                           enddo
+                        enddo
+                     enddo
+                  enddo
+               enddo
+               if (self%pic%elliptic_correction) call self%impose_ct_correction(ivar = VAR_DX)
+            endif
+         elseif (ivar == VAR_BX) then
+            allocate(phi(1:3,        &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            allocate(dphi(1:3,       &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            allocate(f(1:3,          &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            phi (:,:,:,:,:) = 0._R8P
+            dphi(:,:,:,:,:) = 0._R8P
+            f   (:,:,:,:,:) = 0._R8P               
+            f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+            if (blocks_number>0) then
+               do iter=1, self%flail%iterations
+                  call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,           &
+                                                   blocks_number=blocks_number,                     &
+                                                   dxyz=self%adam%field%dxyz,                       &
+                                                   f=f,                                             &
+                                                   q=phi,                                           &
+                                                   dq_max=dphi_max,                                 &
+                                                   dq=dphi,                                         &
+                                                   iterations_init=self%flail%iterations_init,      &
+                                                   iterations_fine=self%flail%iterations_fine,      &
+                                                   iterations_coarse=self%flail%iterations_coarse,  &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+                  if (dphi_max < self%flail%tolerance) exit
+               enddo
+               call mpih%print_message('FLAIL convergence for magnetic field at t0 &
+                                     reached at iteration '//trim(str(iter,.true.)))
+               call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               do b=1, blocks_number
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
+                           do v=1, 3
+                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
+                           enddo
+                        enddo
+                     enddo
+                  enddo
+               enddo
+            endif
+         endif
+      endif
+   elseif (self%physics%physical_model == EM_PHYSICAL_MODEL) then
+      if (ivar == VAR_DX) then
+         call mpih%print_message('There is no particle and so at t0 no electric field has to be initialized...there is a bug!')
+      elseif (ivar == VAR_BX) then
+         allocate(phi(1:3,        &
+                    1-ngc:ni+ngc, &
+                    1-ngc:nj+ngc, &
+                    1-ngc:nk+ngc, &
+                    1:nb))
+         allocate(dphi(1:3,       &
+                    1-ngc:ni+ngc, &
+                    1-ngc:nj+ngc, &
+                    1-ngc:nk+ngc, &
+                    1:nb))
+         allocate(f(1:3,          &
+                    1-ngc:ni+ngc, &
+                    1-ngc:nj+ngc, &
+                    1-ngc:nk+ngc, &
+                    1:nb))
+         phi (:,:,:,:,:) = 0._R8P
+         dphi(:,:,:,:,:) = 0._R8P
+         f   (:,:,:,:,:) = 0._R8P               
+         f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+         if (blocks_number>0) then
+            do iter=1, self%flail%iterations
+               call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
+                                                blocks_number=blocks_number,                     &
+                                                dxyz=self%adam%field%dxyz,                       &
+                                                f=f,                                             &
+                                                q=phi,                                           &
+                                                dq_max=dphi_max,                                 &
+                                                dq=dphi,                                         &
+                                                iterations_init=self%flail%iterations_init,      &
+                                                iterations_fine=self%flail%iterations_fine,      &
+                                                iterations_coarse=self%flail%iterations_coarse,  &
+                                                bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+               if (dphi_max < self%flail%tolerance) exit
+            enddo
+            call mpih%print_message('FLAIL convergence for magnetic field at t0 &
+                                  reached at iteration '//trim(str(iter,.true.)))
+            call self%compute_curl_fd_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+            do b=1, blocks_number
+               do k=1-ngc/2, nk+ngc/2
+                  do j=1-ngc/2, nj+ngc/2
+                     do i=1-ngc/2, ni+ngc/2
+                        do v=1, 3
+                           self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
+                        enddo
                      enddo
                   enddo
                enddo
             enddo
-         enddo
-         !call self%impose_ct_correction(ivar = VAR_DX)
+         endif
       endif
-   elseif (ivar == VAR_BX) then
-      allocate(phi(1:3,        &
-                 1-ngc:ni+ngc, &
-                 1-ngc:nj+ngc, &
-                 1-ngc:nk+ngc, &
-                 1:nb))
-      allocate(dphi(1:3,       &
-                 1-ngc:ni+ngc, &
-                 1-ngc:nj+ngc, &
-                 1-ngc:nk+ngc, &
-                 1:nb))
-      allocate(f(1:3,          &
-                 1-ngc:ni+ngc, &
-                 1-ngc:nj+ngc, &
-                 1-ngc:nk+ngc, &
-                 1:nb))
-      phi (:,:,:,:,:) = 0._R8P
-      dphi(:,:,:,:,:) = 0._R8P
-      f   (:,:,:,:,:) = 0._R8P               
-      f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
-      if (blocks_number>0) then
-         do iter=1, self%flail%iterations
-            call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,             &
-                                             blocks_number=blocks_number,                    &
-                                             dxyz=self%adam%field%dxyz,                      &
-                                             f=f,                                            &
-                                             q=phi,                                          &
-                                             dq_max=dphi_max,                                &
-                                             dq=dphi,                                        &
-                                             iterations_init=self%flail%iterations_init,     &
-                                             iterations_fine=self%flail%iterations_fine,     &
-                                             iterations_coarse=self%flail%iterations_coarse)
-            if (dphi_max < self%flail%tolerance) exit
-         enddo
-         call mpih%print_message('FLAIL convergence for magnetic field at t0 &
-                               reached at iteration '//trim(str(iter,.true.)))
-         call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     do v=1, 3
-                        self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
+   elseif(self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      if (ivar == VAR_DX) then
+         call mpih%print_message('There is no particle and so at t0 no electric field has to be initialized...there is a bug!')
+      elseif (ivar == VAR_BX) then
+         allocate(phi(1:3,        &
+                    1-ngc:ni+ngc, &
+                    1-ngc:nj+ngc, &
+                    1-ngc:nk+ngc, &
+                    1:nb))
+         allocate(dphi(1:3,       &
+                    1-ngc:ni+ngc, &
+                    1-ngc:nj+ngc, &
+                    1-ngc:nk+ngc, &
+                    1:nb))
+         allocate(f(1:3,          &
+                    1-ngc:ni+ngc, &
+                    1-ngc:nj+ngc, &
+                    1-ngc:nk+ngc, &
+                    1:nb))
+         phi (:,:,:,:,:) = 0._R8P
+         dphi(:,:,:,:,:) = 0._R8P
+         f   (:,:,:,:,:) = 0._R8P               
+         f(:,:,:,:,:) = -1.0_R8P*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) !MU0 = 1
+         if (blocks_number>0) then
+            do iter=1, self%flail%iterations
+               call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,         &
+                                                blocks_number=blocks_number,                       &
+                                                dxyz=self%adam%field%dxyz,                         &
+                                                f=f,                                               &
+                                                q=phi,                                             &
+                                                dq_max=dphi_max,                                   &
+                                                dq=dphi,                                           &
+                                                iterations_init=self%flail%iterations_init,        &
+                                                iterations_fine=self%flail%iterations_fine,        &
+                                                iterations_coarse=self%flail%iterations_coarse,    &
+                                                bc_type=self%pic%bc_solver, ivar=ivar, mu=1.0_R8P, field=self%adam%field)
+               if (dphi_max < self%flail%tolerance) exit
+            enddo
+            call mpih%print_message('FLAIL convergence for magnetic field at t0 &
+                                  reached at iteration '//trim(str(iter,.true.)))
+            call self%compute_curl_fd_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+            do b=1, blocks_number
+               do k=1-ngc/2, nk+ngc/2
+                  do j=1-ngc/2, nj+ngc/2
+                     do i=1-ngc/2, ni+ngc/2
+                        do v=1, 3
+                           self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
+                        enddo
                      enddo
                   enddo
                enddo
             enddo
-         enddo
-      endif
+         endif
+      endif    
    endif
    endassociate
    endsubroutine impose_pic_fields_time_zero
@@ -2760,7 +2997,7 @@ contains
       else
          call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       endif
-      !call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s)) !Cazzo
+      !call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s)) !Spostato in update_ghost
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       !if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then

@@ -170,6 +170,9 @@ type :: realm_object
       procedure, pass(self) :: open_block_xh5f  !< Open block file XH5F.
       procedure, pass(self) :: open_file_xh5f   !< Open file XH5F.
       procedure, pass(self) :: save_q_xh5f      !< Save in XH5F (XDMF/HDF5) format.
+      ! public FDV operators
+      procedure, pass(self)  :: compute_curl_fd_extended         !< Compute curl of vector field, finite difference, even for half gcs.
+      procedure, pass(self)  :: compute_gradient_fd_extended     !< Compute gradient of scalar field, finite difference, even for half gcs.
       ! private FDV operators
       procedure, pass(self), private :: compute_block_total_variation_fd !< Return the max of block total variation for a given var.
       procedure, pass(self), private :: compute_curl_fd                  !< Compute curl of vector field, finite difference.
@@ -967,6 +970,29 @@ contains
    endassociate
    endsubroutine compute_curl_fd
 
+   subroutine compute_curl_fd_extended(self, hs, ivar, q, curl)
+   !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
+   class(realm_object), intent(in)    :: self                                            !< The equation.
+   integer(I4P),        intent(in)    :: hs                                              !< FDV half stencil length.
+   integer(I4P),        intent(in)    :: ivar                                            !< Start index of variable of q.
+   real(R8P),           intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),           intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
+   integer(I4P)                       :: i,j,k,b                                         !< Counter.
+
+   associate(dxyz=>self%adam%field%dxyz)
+      print *, self%ngc/2, self%ngc
+   do b=1, self%blocks_number
+   do k=1-self%ngc/2, self%nk+self%ngc/2
+   do j=1-self%ngc/2, self%nj+self%ngc/2
+   do i=1-self%ngc/2, self%ni+self%ngc/2
+      call compute_curl_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_curl_fd_extended
+
    subroutine compute_curl_fv(self, hs, ivar, q, curl)
    !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
    class(realm_object), intent(in)    :: self                                            !< The equation.
@@ -1287,6 +1313,29 @@ contains
    enddo
    endassociate
    endsubroutine compute_gradient_fd
+
+   subroutine compute_gradient_fd_extended(self, hs, ivar, q, gradient)
+   !< Compute gradient of scalar variable q(ivar), finite difference schemes.
+   class(realm_object), intent(in)    :: self                                               !< The equation.
+   integer(I4P),        intent(in)    :: hs                                                 !< FDV half stencil length.
+   integer(I4P),        intent(in)    :: ivar                                               !< Index of scalar variable of q.
+   real(R8P),           intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
+   real(R8P),           intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Gradient.
+   integer(I4P)                       :: i, j, k, b                                         !< Counter.
+
+   associate(dxyz=>self%adam%field%dxyz)
+   do b=1, self%blocks_number
+   do k=1-self%ngc/2, self%nk+self%ngc/2
+   do j=1-self%ngc/2, self%nj+self%ngc/2
+   do i=1-self%ngc/2, self%ni+self%ngc/2
+      call compute_gradient_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
+                                        gradient=gradient(1:3,i,j,k,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_gradient_fd_extended
 
    subroutine compute_gradient_fv(self, hs, ivar, q, gradient)
    !< Compute gradient of scalar variable q(ivar), finite volume schemes.

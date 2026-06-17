@@ -4,6 +4,7 @@ module adam_flail_object
 
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
+use :: adam_field_object
 ! third party modules
 use :: finer
 use :: penf
@@ -13,7 +14,7 @@ private
 public :: flail_object
 public :: compute_smoothing_interface
 public :: compute_smoothing_gauss_seidel
-public :: compute_smoothing_gauss_seidel_ct
+public :: compute_smoothing_gauss_seidel_6th
 public :: compute_smoothing_multigrid
 public :: compute_smoothing_sor
 public :: compute_smoothing_sor_omp
@@ -142,19 +143,154 @@ contains
                                     1-ngc:,&
                                     1-ngc:,&
                                     1:)         !< Field variables.
-   integer(I4P)                :: b             !< Counter.
+   integer(I4P)                :: b, gc         !< Counter.
 
    do b=1, blocks_number
-      q(:,0,:,:,b) = 0._R8P ; q(:,ni+1,:   ,:   ,b) = 0._R8P
-      q(:,:,0,:,b) = 0._R8P ; q(:,:   ,nj+1,:   ,b) = 0._R8P
-      q(:,:,:,0,b) = 0._R8P ; q(:,:   ,:   ,nk+1,b) = 0._R8P
+      do gc = 1, ngc
+      q(:,1-gc,:,:,b) = 0._R8P ; q(:,ni+gc,:   ,:   ,b) = 0._R8P
+      q(:,:,1-gc,:,b) = 0._R8P ; q(:,:   ,nj+gc,:   ,b) = 0._R8P
+      q(:,:,:,1-gc,b) = 0._R8P ; q(:,:   ,:   ,nk+gc,b) = 0._R8P
+      enddo
    enddo
    !do b=1, blocks_number
-   !   q(:,0,:,:,b) = q(:,1,:,:,b) ; q(:,ni+1,:   ,:   ,b) = q(:,ni,:   ,:   ,b) 
-   !   q(:,:,0,:,b) = q(:,:,1,:,b) ; q(:,:   ,nj+1,:   ,b) = q(:,:   ,nj,:   ,b)
-   !   q(:,:,:,0,b) = q(:,:,:,1,b) ; q(:,:   ,:   ,nk+1,b) = q(:,:   ,:   ,nk,b)
+   !   do gc = 1, ngc
+   !   q(:,1-gc,:,:,b) = -q(:,gc,:,:,b) ; q(:,ni+gc,:   ,:   ,b) = -q(:,ni-gc+1,:   ,:   ,b)
+   !   q(:,:,1-gc,:,b) = -q(:,:,gc,:,b) ; q(:,:   ,nj+gc,:   ,b) = -q(:,:   ,nj-gc+1,:   ,b)
+   !   q(:,:,:,1-gc,b) = -q(:,:,:,gc,b) ; q(:,:   ,:   ,nk+gc,b) = -q(:,:   ,:   ,nk-gc+1,b)
+   !   enddo
    !enddo
    endsubroutine apply_bc_dirichlet
+
+   subroutine apply_bc_neumann(ni, nj, nk, ngc, blocks_number, q)
+   integer(I4P), intent(in)    :: ni,nj,nk,ngc  !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number !< Number of current blocks.
+   real(R8P),    intent(inout) :: q(1:,    &
+                                    1-ngc:,&
+                                    1-ngc:,&
+                                    1-ngc:,&
+                                    1:)         !< Field variables.
+   integer(I4P)                :: b, gc         !< Counter.
+
+   do b=1, blocks_number
+      do gc = 1, ngc
+      q(:,1-gc,:,:,b) = q(:,gc,:,:,b) ; q(:,ni+gc,:   ,:   ,b) = q(:,ni-gc+1,:   ,:   ,b)
+      q(:,:,1-gc,:,b) = q(:,:,gc,:,b) ; q(:,:   ,nj+gc,:   ,b) = q(:,:   ,nj-gc+1,:   ,b)
+      q(:,:,:,1-gc,b) = q(:,:,:,gc,b) ; q(:,:   ,:   ,nk+gc,b) = q(:,:   ,:   ,nk-gc+1,b)
+      enddo
+   enddo
+   endsubroutine apply_bc_neumann
+
+   subroutine apply_bc_analytic(ni, nj, nk, ngc, blocks_number, ivar, mu, eps, field, rho, current, q)
+   integer(I4P),       intent(in)              :: ni,nj,nk,ngc                 !< Grid dimensions.
+   integer(I4P),       intent(in)              :: blocks_number                !< Number of current blocks.
+   integer(I4P),       intent(in)              :: ivar                         !< Variable (start) index in q.
+   real(R8P),          intent(in), optional    :: mu, eps
+   type(field_object), intent(in)              :: field                        !< Field (sibling realm component, threaded in).
+   real(R8P),          intent(in), optional    :: rho(1:,     &
+                                                      1-ngc:, &
+                                                      1-ngc:, &
+                                                      1-ngc:, &
+                                                      1:)                      !< Source term for scalar potential.
+   real(R8P),          intent(in), optional    :: current(1:, &
+                                                      1-ngc:, &
+                                                      1-ngc:, &
+                                                      1-ngc:, &
+                                                      1:)                      !< Source term for vector potential.
+   real(R8P),          intent(inout)           :: q(1:,       &
+                                                    1-ngc:,   &
+                                                    1-ngc:,   &
+                                                    1-ngc:,   &
+                                                    1:)                        !< Field variables.
+   integer(I4P)                                :: i,j,k,b,f                    !< Counter.
+   integer(I4P)                                :: i_f,j_f,k_f,b_f              !< Counter.
+   real(R8P)                                   :: gc_coord(3)                  !< Ghost cell coordinates
+   real(R8P)                                   :: cell_coord(3)                !< Cell coordinates
+   integer(I4P)                                :: i_dir_n, i_dir_a, i_dir_b    !< Normal and tangential directions indices for ghost cell reconstruction
+   integer(I4P), parameter                     :: n_faces = 6_I4P              !< Number of ghost-cell face slabs.
+   integer(I4P)                                :: i1_f(n_faces), i2_f(n_faces)
+   integer(I4P)                                :: j1_f(n_faces), j2_f(n_faces)
+   integer(I4P)                                :: k1_f(n_faces), k2_f(n_faces)
+
+   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, &
+               dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
+
+   i_dir_n = 1_I4P
+   i_dir_a = 2_I4P
+   i_dir_b = 3_I4P
+
+   ! Faccia -x
+   i1_f(1) = 1_I4P - ngc
+   i2_f(1) = 0_I4P
+   j1_f(1) = 1_I4P
+   j2_f(1) = nj
+   k1_f(1) = 1_I4P
+   k2_f(1) = nk
+
+   ! Faccia +x
+   i1_f(2) = ni    + 1_I4P
+   i2_f(2) = ni    + ngc
+   j1_f(2) = 1_I4P
+   j2_f(2) = nj
+   k1_f(2) = 1_I4P
+   k2_f(2) = nk
+
+   ! Faccia -y
+   i1_f(3) = 1_I4P
+   i2_f(3) = ni
+   j1_f(3) = 1_I4P - ngc
+   j2_f(3) = 0_I4P
+   k1_f(3) = 1_I4P
+   k2_f(3) = nk
+
+   ! Faccia +y
+   i1_f(4) = 1_I4P
+   i2_f(4) = ni
+   j1_f(4) = nj    + 1_I4P
+   j2_f(4) = nj    + ngc
+   k1_f(4) = 1_I4P
+   k2_f(4) = nk
+
+   ! Faccia -z
+   i1_f(5) = 1_I4P
+   i2_f(5) = ni
+   j1_f(5) = 1_I4P
+   j2_f(5) = nj
+   k1_f(5) = 1_I4P - ngc
+   k2_f(5) = 0_I4P
+
+   ! Faccia +z
+   i1_f(6) = 1_I4P
+   i2_f(6) = ni
+   j1_f(6) = 1_I4P
+   j2_f(6) = nj
+   k1_f(6) = nk    + 1_I4P
+   k2_f(6) = nk    + ngc
+  
+   do f = 1_I4P, n_faces
+      do b_f = 1, blocks_number
+         do k_f = k1_f(f), k2_f(f)
+            do j_f = j1_f(f), j2_f(f)
+               do i_f = i1_f(f), i2_f(f)
+                  gc_coord = [x_cell(i_f,b_f), y_cell(j_f,b_f), z_cell(k_f,b_f)]
+                  q(1, i_f, j_f, k_f, b_f) = 0.0_R8P
+                  do b=1, blocks_number
+                  do k = 1, nk
+                  do j = 1, nj
+                  do i = 1, ni
+                     cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                     q(1, i_f, j_f, k_f, b_f) = q(1, i_f, j_f, k_f, b_f) + 1/(4* acos(-1.0)*eps)*(rho(1,i,j,k,b)*(dx(b)*dy(b)*dz(b)))/ &
+                           sqrt((gc_coord(1)-cell_coord(1))**2 + (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
+                  enddo
+                  enddo
+                  enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine apply_bc_analytic
 
    subroutine compute_prolongation(ngc, nic, njc, nkc, nv, blocks_number, coarse, fine)
    !< Compute trilinear prolongation.
@@ -241,9 +377,6 @@ contains
             laplacian = (q(v,i+1,j,  k  ,b) - 2._R8P * q(v,i,j,k,b) + q(v,i-1,j,  k  ,b)) / dx2 + &
                         (q(v,i,  j+1,k  ,b) - 2._R8P * q(v,i,j,k,b) + q(v,i,  j-1,k  ,b)) / dy2 + &
                         (q(v,i,  j,  k+1,b) - 2._R8P * q(v,i,j,k,b) + q(v,i,  j,  k-1,b)) / dz2
-            !laplacian = (q(v,i+2,j,  k  ,b) - 2._R8P * q(v,i,j,k,b) + q(v,i-2,j,  k  ,b)) / dx2 + &
-            !            (q(v,i,  j+2,k  ,b) - 2._R8P * q(v,i,j,k,b) + q(v,i,  j-2,k  ,b)) / dy2 + &
-            !            (q(v,i,  j,  k+2,b) - 2._R8P * q(v,i,j,k,b) + q(v,i,  j,  k-2,b)) / dz2
             dq(v,i,j,k,b) = f(v,i,j,k,b) - laplacian
          enddo
       enddo
@@ -293,42 +426,65 @@ contains
    endsubroutine compute_restriction
 
    subroutine compute_smoothing_gauss_seidel(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                             iterations_init, iterations_fine, iterations_coarse)
+                                             iterations_init, iterations_fine, iterations_coarse, bc_type, mu, eps, ivar, field)
    !< Compute smoothing by Gauss-Seidel method.
-   integer(I4P), intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
-   integer(I4P), intent(in)              :: nv                !< Number of q variables.
-   integer(I4P), intent(in)              :: blocks_number     !< Number of current blocks.
-   real(R8P),    intent(in)              :: dxyz(1:,1:)       !< Space steps.
-   real(R8P),    intent(in)              :: f(1:,    &
-                                              1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:,&
-                                              1:)             !< Forcing distribution.
-   real(R8P),    intent(inout)           :: q(1:,    &
-                                              1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:,&
-                                              1:)             !< Field variables.
-   real(R8P),    intent(inout), optional :: dq(1:,    &
-                                               1-ngc:,&
-                                               1-ngc:,&
-                                               1-ngc:,&
-                                               1:)            !< Residuals.
-   real(R8P),    intent(inout), optional :: dq_max            !< Maximum residual.
-   integer(I4P), intent(in),    optional :: iterations_init   !< Smoothing iterations to initialize guess.
-   integer(I4P), intent(in),    optional :: iterations_fine   !< Smoothing iterations for fine grid.
-   integer(I4P), intent(in),    optional :: iterations_coarse !< Smoothing iterations for coarse grid.
-   integer(I4P)                          :: iterations_       !< Smoothing iterations, local var.
-   real(R8P)                             :: dq_max_           !< Maximum residual, local var.
-   real(R8P)                             :: dx2,dy2,dz2       !< Square space steps.
-   real(R8P)                             :: q_old             !< Previous q.
-   real(R8P)                             :: factor            !< Jacobi relaxation factor.
-   integer(I4P)                          :: i,j,k,b,v,iter    !< Counter.
+   integer(I4P),       intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
+   integer(I4P),       intent(in)              :: nv                !< Number of q variables.
+   integer(I4P),       intent(in)              :: blocks_number     !< Number of current blocks.
+   real(R8P),          intent(in)              :: dxyz(1:,1:)       !< Space steps.
+   real(R8P),          intent(in)              :: f(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)             !< Forcing distribution.
+   real(R8P),          intent(inout)           :: q(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)             !< Field variables.
+   real(R8P),          intent(inout), optional :: dq(1:,     &
+                                                     1-ngc:, &
+                                                     1-ngc:, &
+                                                     1-ngc:, &
+                                                     1:)            !< Residuals.
+   real(R8P),          intent(inout), optional :: dq_max            !< Maximum residual.
+   integer(I4P),       intent(in),    optional :: iterations_init   !< Smoothing iterations to initialize guess.
+   integer(I4P),       intent(in),    optional :: iterations_fine   !< Smoothing iterations for fine grid.
+   integer(I4P),       intent(in),    optional :: iterations_coarse !< Smoothing iterations for coarse grid.
+   character(len=*),   intent(in),    optional :: bc_type           !< Boundary condition type
+   real(R8P),          intent(in),    optional :: mu, eps           !< Constant of electromagnetism, =1 in adimensional case
+   integer(I4P),       intent(in),    optional :: ivar              !< Variable (start) index in q.
+   type(field_object), intent(in),    optional :: field             !< Field (sibling realm component, threaded in).
+   integer(I4P)                                :: iterations_       !< Smoothing iterations, local var.
+   real(R8P)                                   :: dq_max_           !< Maximum residual, local var.
+   real(R8P)                                   :: dx2,dy2,dz2       !< Square space steps.
+   real(R8P)                                   :: q_old             !< Previous q.
+   real(R8P)                                   :: factor            !< Jacobi relaxation factor.
+   integer(I4P)                                :: i,j,k,b,v,iter    !< Counter.
 
    iterations_ = 1 ; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
+   if (present(bc_type)) then
+      if (bc_type == 'analytic') then
+         if (ivar == 1_I4P) then
+         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
+                     ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
+         elseif (ivar == 3_I4P) then
+         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
+                     ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
+         endif
+      endif
+   endif
    do iter=1, iterations_
-      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+      if (present(bc_type)) then
+         if (bc_type == 'dirichlet') then
+            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+         elseif (bc_type == 'neumann') then
+            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+         endif
+      else
+         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+      endif
       do b=1, blocks_number
          dx2 = dxyz(1,b)*dxyz(1,b)
          dy2 = dxyz(2,b)*dxyz(2,b)
@@ -349,95 +505,140 @@ contains
          enddo
          enddo
       enddo
-      !print *, 'at the end of iter ', iter, 'dq_max = ', dq_max_
+      !if (present(bc_type)) then
+      !   if (bc_type == 'dirichlet') then
+      !      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+      !   elseif (bc_type == 'neumann') then
+      !      call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+      !   endif
+      !else
+      !   call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+      !endif
    enddo
+
    if (present(dq_max)) dq_max = dq_max_
    endsubroutine compute_smoothing_gauss_seidel
 
-   subroutine compute_smoothing_gauss_seidel_ct(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                             iterations_init, iterations_fine, iterations_coarse)
-   !< Compute smoothing by Gauss-Seidel method using L = D(G), i.e. centered first derivative composed twice.
-   integer(I4P), intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
-   integer(I4P), intent(in)              :: nv                !< Number of q variables.
-   integer(I4P), intent(in)              :: blocks_number     !< Number of current blocks.
-   real(R8P),    intent(in)              :: dxyz(1:,1:)       !< Space steps.
-   real(R8P),    intent(in)              :: f(1:,    &
-                                              1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:,&
-                                              1:)             !< Forcing distribution.
-   real(R8P),    intent(inout)           :: q(1:,    &
-                                              1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:,&
-                                              1:)             !< Field variables.
-   real(R8P),    intent(inout), optional :: dq(1:,    &
-                                               1-ngc:,&
-                                               1-ngc:,&
-                                               1-ngc:,&
-                                               1:)            !< Residuals.
-   real(R8P),    intent(inout), optional :: dq_max            !< Maximum residual.
-   integer(I4P), intent(in),    optional :: iterations_init   !< Smoothing iterations to initialize guess.
-   integer(I4P), intent(in),    optional :: iterations_fine   !< Smoothing iterations for fine grid.
-   integer(I4P), intent(in),    optional :: iterations_coarse !< Smoothing iterations for coarse grid.
-   integer(I4P)                          :: iterations_       !< Smoothing iterations, local var.
-   real(R8P)                             :: dq_max_           !< Maximum residual, local var.
-   real(R8P)                             :: dx2,dy2,dz2       !< Square space steps.
-   real(R8P)                             :: idx2,idy2,idz2    !< Inverse modified square space steps.
-   real(R8P)                             :: q_old             !< Previous q.
-   real(R8P)                             :: factor            !< Relaxation factor.
-   integer(I4P)                          :: i,j,k,b,v,iter    !< Counter.
+   subroutine compute_smoothing_gauss_seidel_6th(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
+                                             iterations_init, iterations_fine, iterations_coarse, bc_type, ivar, mu, eps, field)
+   !< Compute smoothing by Gauss-Seidel using L = D(G), with sixth-order
+   !< centered first-derivative operators.
+   integer(I4P),       intent(in)              :: ni,nj,nk,ngc               !< Grid dimensions.
+   integer(I4P),       intent(in)              :: nv                         !< Number of q variables.
+   integer(I4P),       intent(in)              :: blocks_number              !< Number of current blocks.
+   real(R8P),          intent(in)              :: dxyz(1:,1:)                !< Space steps.
+   real(R8P),          intent(in)              :: f(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)                      !< Forcing distribution.
+   real(R8P),          intent(inout)           :: q(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)                      !< Field variables.
+   real(R8P),          intent(inout), optional :: dq(1:,     &
+                                                     1-ngc:, &
+                                                     1-ngc:, &
+                                                     1-ngc:, &
+                                                     1:)                     !< Residuals.
+   real(R8P),          intent(inout), optional :: dq_max                     !< Maximum residual.
+   integer(I4P),       intent(in),    optional :: iterations_init            !< Smoothing iterations to initialize guess.
+   integer(I4P),       intent(in),    optional :: iterations_fine            !< Smoothing iterations for fine grid.
+   integer(I4P),       intent(in),    optional :: iterations_coarse          !< Smoothing iterations for coarse grid.
+   character(len=*),   intent(in),    optional :: bc_type                    !< Boundary condition type
+   real(R8P),          intent(in),    optional :: mu, eps                    !< Constant of electromagnetism, =1 in adimensional case
+   integer(I4P),       intent(in),    optional :: ivar                       !< Variable (start) index in q.
+   type(field_object), intent(in),    optional :: field                      !< Field (sibling realm component, threaded in).
+   real(R8P), parameter                        :: c1 =  23._R8P /  100._R8P  !< Constant for laplacian computation
+   real(R8P), parameter                        :: c2 =  43._R8P /   80._R8P  !< Constant for laplacian computation
+   real(R8P), parameter                        :: c3 =  -9._R8P /   40._R8P  !< Constant for laplacian computation
+   real(R8P), parameter                        :: c4 =  19._R8P /  400._R8P  !< Constant for laplacian computation
+   real(R8P), parameter                        :: c5 =  -1._R8P /  200._R8P  !< Constant for laplacian computation
+   real(R8P), parameter                        :: c6 =   1._R8P / 3600._R8P  !< Constant for laplacian computation
+   integer(I4P)                                :: iterations_                !< Smoothing iterations, local var.
+   real(R8P)                                   :: dq_max_                    !< Maximum residual, local var.
+   real(R8P)                                   :: dx2,dy2,dz2                !< Square space steps.
+   real(R8P)                                   :: idx2,idy2,idz2             !< Inverse square space steps.
+   real(R8P)                                   :: q_old                      !< Previous q.
+   real(R8P)                                   :: factor                     !< Relaxation factor.
+   integer(I4P)                                :: i,j,k,b,v,iter             !< Counter.
 
-   if (ngc < 2_I4P) error stop 'compute_smoothing_gauss_seidel: ngc must be >= 2 for L = D(G) stencil'
+   if (ngc < 6_I4P) error stop 'compute_smoothing_gauss_seidel_6th: ngc must be >= 6 for sixth-order D(G) stencil'
 
-   iterations_ = 1_I4P
-   if (present(iterations_fine)) iterations_ = iterations_fine
-
+   iterations_ = 1_I4P; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
-
+   if (present(bc_type)) then
+      if (bc_type == 'analytic') then
+         if (ivar == 1_I4P) then
+         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
+                     ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
+         elseif (ivar == 3_I4P) then
+         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
+                     ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
+         endif
+      endif
+   endif
    do iter=1, iterations_
-      dq_max_ = 0._R8P
-
-      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-
+      if (present(bc_type)) then
+         if (bc_type == 'dirichlet') then
+            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+         elseif (bc_type == 'neumann') then
+            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+         endif
+      else
+         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+      endif
       do b=1, blocks_number
          dx2 = dxyz(1,b)*dxyz(1,b)
          dy2 = dxyz(2,b)*dxyz(2,b)
          dz2 = dxyz(3,b)*dxyz(3,b)
-
-         idx2 = 1._R8P / (4._R8P * dx2)
-         idy2 = 1._R8P / (4._R8P * dy2)
-         idz2 = 1._R8P / (4._R8P * dz2)
-
-         factor = 1._R8P / (2._R8P * (idx2 + idy2 + idz2))
-
-         do k = 1, nk
-         do j = 1, nj
-         do i = 1, ni
+         idx2 = 1._R8P / dx2
+         idy2 = 1._R8P / dy2
+         idz2 = 1._R8P / dz2
+         factor = 1800._R8P / (2107._R8P * (idx2 + idy2 + idz2))
+         do k=1, nk
+         do j=1, nj
+         do i=1, ni
             do v=1, nv
                q_old = q(v,i,j,k,b)
-
-               q(v,i,j,k,b) = factor * (                                           &
-                                 idx2 * (q(v,i+2,j,  k  ,b) + q(v,i-2,j,  k  ,b)) + &
-                                 idy2 * (q(v,i,  j+2,k  ,b) + q(v,i,  j-2,k  ,b)) + &
-                                 idz2 * (q(v,i,  j,  k+2,b) + q(v,i,  j,  k-2,b)) - &
-                                 f(v,i,  j,  k  ,b) )
-
+               q(v,i,j,k,b) = factor * (idx2 * (c1 * (q(v,i+1,j,  k  ,b) + q(v,i-1,j,  k  ,b))  + &
+                                                c2 * (q(v,i+2,j,  k  ,b) + q(v,i-2,j,  k  ,b))  + &
+                                                c3 * (q(v,i+3,j,  k  ,b) + q(v,i-3,j,  k  ,b))  + &
+                                                c4 * (q(v,i+4,j,  k  ,b) + q(v,i-4,j,  k  ,b))  + &
+                                                c5 * (q(v,i+5,j,  k  ,b) + q(v,i-5,j,  k  ,b))  + &
+                                                c6 * (q(v,i+6,j,  k  ,b) + q(v,i-6,j,  k  ,b))) + &
+                                        idy2 * (c1 * (q(v,i,  j+1,k  ,b) + q(v,i,  j-1,k  ,b))  + &
+                                                c2 * (q(v,i,  j+2,k  ,b) + q(v,i,  j-2,k  ,b))  + &
+                                                c3 * (q(v,i,  j+3,k  ,b) + q(v,i,  j-3,k  ,b))  + &
+                                                c4 * (q(v,i,  j+4,k  ,b) + q(v,i,  j-4,k  ,b))  + &
+                                                c5 * (q(v,i,  j+5,k  ,b) + q(v,i,  j-5,k  ,b))  + &
+                                                c6 * (q(v,i,  j+6,k  ,b) + q(v,i,  j-6,k  ,b))) + &
+                                        idz2 * (c1 * (q(v,i,  j,  k+1,b) + q(v,i,  j,  k-1,b))  + &
+                                                c2 * (q(v,i,  j,  k+2,b) + q(v,i,  j,  k-2,b))  + &
+                                                c3 * (q(v,i,  j,  k+3,b) + q(v,i,  j,  k-3,b))  + &
+                                                c4 * (q(v,i,  j,  k+4,b) + q(v,i,  j,  k-4,b))  + &
+                                                c5 * (q(v,i,  j,  k+5,b) + q(v,i,  j,  k-5,b))  + &
+                                                c6 * (q(v,i,  j,  k+6,b) + q(v,i,  j,  k-6,b))) - f(v,i,j,k,b))      
                dq_max_ = max(dq_max_, abs(q(v,i,j,k,b) - q_old))
-
-               if (present(dq)) dq(v,i,j,k,b) = q(v,i,j,k,b) - q_old
             enddo
          enddo
          enddo
          enddo
       enddo
-
-      print *, 'at the end of iter ', iter, 'dq_max = ', dq_max_
+      if (present(bc_type)) then
+         if (bc_type == 'dirichlet') then
+            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+         elseif (bc_type == 'neumann') then
+            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+         endif
+      else
+         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+      endif
    enddo
 
    if (present(dq_max)) dq_max = dq_max_
-
-   endsubroutine compute_smoothing_gauss_seidel_ct
+   endsubroutine compute_smoothing_gauss_seidel_6th
 
    subroutine compute_smoothing_multigrid(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                           iterations_init, iterations_fine, iterations_coarse)
