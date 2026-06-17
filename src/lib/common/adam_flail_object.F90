@@ -278,8 +278,9 @@ contains
                   do j = 1, nj
                   do i = 1, ni
                      cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-                     q(1, i_f, j_f, k_f, b_f) = q(1, i_f, j_f, k_f, b_f) + 1/(4* acos(-1.0)*eps)*(rho(1,i,j,k,b)*(dx(b)*dy(b)*dz(b)))/ &
-                           sqrt((gc_coord(1)-cell_coord(1))**2 + (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
+                     q(1, i_f, j_f, k_f, b_f) = q(1, i_f, j_f, k_f, b_f) + 1/(4* acos(-1.0)*eps)*(rho(1,i,j,k,b)* &
+                                                (dx(b)*dy(b)*dz(b)))/sqrt((gc_coord(1)-cell_coord(1))**2 +        & 
+                                                (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
                   enddo
                   enddo
                   enddo
