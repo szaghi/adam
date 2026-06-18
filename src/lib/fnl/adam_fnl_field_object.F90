@@ -159,7 +159,7 @@ contains
 
    associate(blocks_number=>self%blocks_number,ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc)
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_t_gpu)
-   !$omp OMPLOOP DEVICEVAR(q_gpu, q_t_gpu)
+   !$omp OMPLOOP DEVICEPTR(q_gpu, q_t_gpu)
    do b=1, blocks_number
    do k=1-ngc, nk+ngc
    do j=1-ngc, nj+ngc
