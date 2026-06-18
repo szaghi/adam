@@ -2250,7 +2250,7 @@ contains
          associate(self_q_rk_gpu => self%rk_fnl%q_rk_gpu, peer_q_rk_gpu => peer%rk_fnl%q_rk_gpu)
          !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_rk_gpu) &
          !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s, peer_s)
-         !$omp OMPLOOP DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_rk_gpu) &
+         !$omp OMPLOOP DEVICEPTR(rows_gpu, self_q_rk_gpu, peer_q_rk_gpu) &
          !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s, peer_s)
          do c = 1, row_count
             do v = 1, nv_loc
@@ -2268,7 +2268,7 @@ contains
          associate(self_q_rk_gpu => self%rk_fnl%q_rk_gpu, peer_q_gpu => peer%q_gpu)
          !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_gpu) &
          !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s)
-         !$omp OMPLOOP DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_gpu) &
+         !$omp OMPLOOP DEVICEPTR(rows_gpu, self_q_rk_gpu, peer_q_gpu) &
          !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s)
          do c = 1, row_count
             do v = 1, nv_loc
@@ -2286,7 +2286,7 @@ contains
          associate(self_q_gpu => self%q_gpu, peer_q_rk_gpu => peer%rk_fnl%q_rk_gpu)
          !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_gpu, peer_q_rk_gpu) &
          !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count, peer_s)
-         !$omp OMPLOOP DEVICEVAR(rows_gpu, self_q_gpu, peer_q_rk_gpu) &
+         !$omp OMPLOOP DEVICEPTR(rows_gpu, self_q_gpu, peer_q_rk_gpu) &
          !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count, peer_s)
          do c = 1, row_count
             do v = 1, nv_loc
@@ -2304,7 +2304,7 @@ contains
          associate(self_q_gpu => self%q_gpu, peer_q_gpu => peer%q_gpu)
          !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_gpu, peer_q_gpu) &
          !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count)
-         !$omp OMPLOOP DEVICEVAR(rows_gpu, self_q_gpu, peer_q_gpu) &
+         !$omp OMPLOOP DEVICEPTR(rows_gpu, self_q_gpu, peer_q_gpu) &
          !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count)
          do c = 1, row_count
             do v = 1, nv_loc
