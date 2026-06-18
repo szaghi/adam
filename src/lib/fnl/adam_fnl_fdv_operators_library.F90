@@ -44,6 +44,7 @@ contains
    real(R8P)                 :: dqy_dx, dqy_dz !< Derivatives of qy.
    real(R8P)                 :: dqz_dx, dqz_dy !< Derivatives of qz.
    !$acc routine seq
+   !$omp declare target
    !$acc routine(compute_derivative1_fd_centered)
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy_x(1-s:1+s),dq_ds=dqx_dy)
@@ -68,6 +69,7 @@ contains
    real(R8P),    intent(out) :: divergence          !< Divergence of q.
    real(R8P)                 :: div_x, div_y, div_z !< Divergence components.
    !$acc routine seq
+   !$omp declare target
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=qsx(1-s:1+s),dq_ds=div_x)
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy(1-s:1+s),dq_ds=div_y)
@@ -84,6 +86,7 @@ contains
    real(R8P),    intent(in)  :: qsz(1-s:)         !< Z component of vector field over the z stencil.
    real(R8P),    intent(out) :: gradient(1:)      !< Gradient of q [1:3].
    !$acc routine seq
+   !$omp declare target
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=qsx(1-s:1+s),dq_ds=gradient(1))
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy(1-s:1+s),dq_ds=gradient(2))
@@ -98,6 +101,7 @@ contains
    real(R8P),    intent(out) :: laplacian               !< Laplacian of q.
    real(R8P)                 :: d2q_dx2,d2q_dy2,d2q_dz2 !< Laplacian parts.
    !$acc routine seq
+   !$omp declare target
 
    call compute_derivative2_fd_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),d2q_ds2=d2q_dx2)
    call compute_derivative2_fd_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),d2q_ds2=d2q_dy2)
@@ -112,6 +116,7 @@ contains
    real(R8P),    intent(out) :: qr                       !< Reconstruction at right interface of field.
    integer(I4P)              :: m                        !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -132,6 +137,7 @@ contains
    real(R8P)                 :: dqy_dx, dqy_dz       !< Derivatives of qy.
    real(R8P)                 :: dqz_dx, dqz_dy       !< Derivatives of qz.
    !$acc routine seq
+   !$omp declare target
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(1      ,1-s:1+s,1      ,1),dq_ds=dqx_dy)
    call compute_derivative1_fv_centered(s=s,ds=dxyz(3),q=q(1      ,1      ,1-s:1+s,1),dq_ds=dqx_dz)
@@ -156,6 +162,7 @@ contains
    real(R8P),    intent(out) :: divergence           !< Divergence of q.
    real(R8P)                 :: div_x, div_y, div_z  !< Divergence components.
    !$acc routine seq
+   !$omp declare target
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1,1),dq_ds=div_x)
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1,2),dq_ds=div_y)
@@ -170,6 +177,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: gradient(1:)      !< Gradient of q [1:3].
    !$acc routine seq
+   !$omp declare target
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),dq_ds=gradient(1))
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),dq_ds=gradient(2))
@@ -184,6 +192,7 @@ contains
    real(R8P),    intent(out) :: laplacian               !< Laplacian of q.
    real(R8P)                 :: d2q_dx2,d2q_dy2,d2q_dz2 !< Laplacian parts.
    !$acc routine seq
+   !$omp declare target
 
    call compute_derivative2_fv_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),d2q_ds2=d2q_dx2)
    call compute_derivative2_fv_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),d2q_ds2=d2q_dy2)

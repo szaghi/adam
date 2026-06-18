@@ -89,6 +89,8 @@ contains
       all_solids = ubound(phi_gpu, dim=5)
       !$acc parallel loop collapse(5) independent DEVICEVAR(phi_gpu, alph, q_rk_gpu)&
       !$acc& private(dq) firstprivate(dt) 
+      !$omp OMPLOOP collapse(5) DEVICEPTR(phi_gpu, alph, q_rk_gpu)&
+      !$omp& private(dq) firstprivate(dt)
       do v=1, nv
          do k=1, nk
             do j=1, nj
@@ -110,6 +112,8 @@ contains
    else
       !$acc parallel loop collapse(5) independent DEVICEVAR(alph, q_rk_gpu)&
       !$acc& private(dq) firstprivate(dt) 
+      !$omp OMPLOOP collapse(5) DEVICEPTR(alph, q_rk_gpu)&
+      !$omp& private(dq) firstprivate(dt)
       do v=1, nv
          do k=1, nk
             do j=1, nj
@@ -233,6 +237,8 @@ contains
 
       !$acc parallel loop collapse(5) independent DEVICEVAR(phi_gpu, beta, q_rk_gpu, q_gpu)&
       !$acc& private(dq) firstprivate(dt) 
+      !$omp OMPLOOP collapse(5) DEVICEPTR(phi_gpu, beta, q_rk_gpu, q_gpu)&
+      !$omp& private(dq) firstprivate(dt)
       do v=1, nv
          do k=1, nk
             do j=1, nj
@@ -256,6 +262,8 @@ contains
 
       !$acc parallel loop collapse(5) independent DEVICEVAR(beta, q_rk_gpu, q_gpu)&
       !$acc& private(dq) firstprivate(dt) 
+      !$omp OMPLOOP collapse(5) DEVICEPTR(beta, q_rk_gpu, q_gpu)&
+      !$omp& private(dq) firstprivate(dt)
       do v=1, nv
          do k=1, nk
             do j=1, nj
