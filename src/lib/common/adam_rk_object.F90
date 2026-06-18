@@ -522,8 +522,8 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
       if (present(dq)) dq = 0._R8P
+      !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
       do s=1, nrk
          do b=1, blocks_number
             do k=1, nk
