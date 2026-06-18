@@ -383,7 +383,7 @@ contains
    type(field_object),      intent(in)    :: field              !< The field.
    type(grid_object),       intent(in)    :: grid               !< Grid (sibling realm component, threaded in)
    real(R8P),               intent(in)    :: q_pic(1:,1:)       !< PIC variables.
-   real(R8P)                              :: n, b               !< Counters
+   integer(I4P)                           :: n, b               !< Counters
    integer(I4P)                           :: i_p, j_p, k_p, b_p !< Particle grid indices
 
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                                   &
@@ -398,7 +398,7 @@ contains
          i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
          j_p = ceiling((q_pic(2,n) - emin(2,b)) / dy(b))
          k_p = ceiling((q_pic(3,n) - emin(3,b)) / dz(b))
-         b_p = b 
+         b_p = b
          if (i_p >= 1_I4P .and. i_p <= ni .and. &
              j_p >= 1_I4P .and. j_p <= nj .and. &
              k_p >= 1_I4P .and. k_p <= nk) then
@@ -423,7 +423,7 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n, i, j, k ,b        !< Particle counter
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
    integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: dx, dy, dz           !< Cell dimensions
@@ -457,7 +457,7 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_PIC(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n, i, j, k ,b        !< Particle counter
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
    integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: dx, dy, dz           !< Grid spacing
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
@@ -518,8 +518,8 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
+   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: dx, dy, dz           !< Grid spacing
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: cell_coord(3)        !< Cell coordinates
@@ -696,8 +696,8 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
+   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: dx, dy, dz           !< Grid spacing
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: cell_coord(3)        !< Cell coordinates
@@ -736,8 +736,8 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
+   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: dx, dy, dz           !< Grid spacing
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: cell_coord(3)        !< Cell coordinates
@@ -803,8 +803,8 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
+   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: dx, dy, dz           !< Grid spacing
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: cell_coord(3)        !< Cell coordinates
@@ -870,8 +870,8 @@ contains
                                                   1-grid%ngc:,1:)                             !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)                                     !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                               !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                    !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, block_p                           !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b                                    !< Particle counters
+   integer(I4P)                           :: i_p, j_p, k_p, block_p                           !< Particle grid indices
    real(R8P)                              :: v_p(3), D_p(3), B_p(3), F_p(3), F_l(3), m_p, q_p !< Particle scalars
 
    do n = 1, self%particle_number
@@ -918,8 +918,8 @@ contains
                                                   1-grid%ngc:,1:)                             !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)                                     !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                               !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b                                    !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, block_p                           !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b                                    !< Particle counters
+   integer(I4P)                           :: i_p, j_p, k_p, block_p                           !< Particle grid indices
    real(R8P)                              :: x_p, y_p, z_p                                    !< Particle position scalar
    real(R8P)                              :: v_p(3), D_p(3), B_p(3), F_p(3), F_l(3), m_p, q_p !< Particle scalars
    real(R8P)                              :: dx, dy, dz                                       !< Grid spacing
