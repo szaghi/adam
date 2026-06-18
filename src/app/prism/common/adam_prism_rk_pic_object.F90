@@ -218,7 +218,7 @@ contains
    integer(I4P)                    				:: p, v, s 		 !< Counter.
 
    associate(particle_number => self%particle_number)
-   !$omp parallel do collapse(6) default(firstprivate) shared(q_pic,self)
+   !$omp parallel do collapse(3) default(firstprivate) shared(q_pic,self)
    do s=lbound(self%q_pic_rk,dim=3),ubound(self%q_pic_rk,dim=3)
       do p=1, particle_number
          do v=1, 8
@@ -375,7 +375,7 @@ contains
    !   enddo
    !   !$omp end parallel do
    !else
-   !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
+   !$omp parallel do collapse(3) default(firstprivate) shared(q_pic,self)
    do s=1, nrk
       do p=1, particle_number
          do v=1, 6

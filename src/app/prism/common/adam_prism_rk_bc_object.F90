@@ -237,7 +237,7 @@ contains
       enddo
    enddo
    !$omp end parallel do
-   !$omp parallel do collapse(6) default(firstprivate) shared(self)
+   !$omp parallel do collapse(5) default(firstprivate) shared(self)
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -326,7 +326,7 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c, blocks_number=>field%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,self)
+      !$omp parallel do collapse(5) default(firstprivate) shared(phi,self)
       do b=1, blocks_number
          do k=1-ngc, nk+ngc
             do j=1-ngc, nj+ngc
@@ -342,7 +342,7 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(5) default(firstprivate) shared(q,self)
+      !$omp parallel do collapse(5) default(firstprivate) shared(self)
       do b=1, blocks_number
          do k=1-ngc, nk+ngc
             do j=1-ngc, nj+ngc
