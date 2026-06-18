@@ -136,6 +136,10 @@ contains
       !$acc& DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu)                                              &
       !$acc& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude) &
       !$acc& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
+      !$omp OMPLOOP collapse(4) &
+      !$omp& DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu) &
+      !$omp& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude) &
+      !$omp& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
       do b = 1, blocks_number
       do k = 1, nk
       do j = 1, nj
@@ -224,6 +228,10 @@ contains
       !$acc& DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu)                                              &
       !$acc& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude) &
       !$acc& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
+      !$omp OMPLOOP collapse(4) &
+      !$omp& DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu) &
+      !$omp& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude) &
+      !$omp& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
       do b = 1, blocks_number
       do k = 1, nk
       do j = 1, nj
