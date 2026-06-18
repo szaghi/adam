@@ -1,5 +1,5 @@
 [modes]
-modes = prism-cpu-gnu prism-cpu-gnu-debug prism-fnl-nvf prism-fnl-nvf-debug
+modes = prism-cpu-gnu prism-cpu-gnu-debug prism-fnl-nvf prism-fnl-nvf-debug prism-cpu-amd prism-fnl-omp-amd prism-fnl-omp-amd-debug
 
 [prism-cpu-gnu]
 template = template-gnu
@@ -11,6 +11,16 @@ template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = adam_prism_cpu.F90
 
+[prism-cpu-amd]
+template = template-amd
+preproc  = -D_MPI_ -w
+target   = adam_prism_cpu.F90
+
+[prism-cpu-amd-debug]
+template = template-amd
+preproc  = -D_MPI_ -w
+target   = adam_prism_cpu.F90
+
 [prism-fnl-nvf]
 template = template-nvf
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
@@ -19,4 +29,14 @@ target   = adam_prism_fnl.F90
 [prism-fnl-nvf-debug]
 template = template-nvf-debug
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_prism_fnl.F90
+
+[prism-fnl-omp-amd]
+template = template-omp-amd
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+target   = adam_prism_fnl.F90
+
+[prism-fnl-omp-amd-debug]
+template = template-omp-amd-debug
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
 target   = adam_prism_fnl.F90
