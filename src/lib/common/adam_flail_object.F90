@@ -268,30 +268,65 @@ contains
    k1_f(6) = nk    + 1_I4P
    k2_f(6) = nk    + ngc
   
-   do f = 1_I4P, n_faces
-      do b_f = 1, blocks_number
-         do k_f = k1_f(f), k2_f(f)
-            do j_f = j1_f(f), j2_f(f)
-               do i_f = i1_f(f), i2_f(f)
-                  gc_coord = [x_cell(i_f,b_f), y_cell(j_f,b_f), z_cell(k_f,b_f)]
-                  q(1, i_f, j_f, k_f, b_f) = 0.0_R8P
-                  do b=1, blocks_number
-                  do k = 1, nk
-                  do j = 1, nj
-                  do i = 1, ni
-                     cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-                     q(1, i_f, j_f, k_f, b_f) = q(1, i_f, j_f, k_f, b_f) + 1/(4* acos(-1.0)*eps)*(rho(1,i,j,k,b)* &
-                                                (dx(b)*dy(b)*dz(b)))/sqrt((gc_coord(1)-cell_coord(1))**2 +        & 
-                                                (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
-                  enddo
-                  enddo
-                  enddo
+   if(ivar==1_I4P) then
+      do f = 1_I4P, n_faces
+         do b_f = 1, blocks_number
+            do k_f = k1_f(f), k2_f(f)
+               do j_f = j1_f(f), j2_f(f)
+                  do i_f = i1_f(f), i2_f(f)
+                     gc_coord = [x_cell(i_f,b_f), y_cell(j_f,b_f), z_cell(k_f,b_f)]
+                     q(1, i_f, j_f, k_f, b_f) = 0.0_R8P
+                     do b=1, blocks_number
+                     do k = 1, nk
+                     do j = 1, nj
+                     do i = 1, ni
+                        cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                        q(1, i_f, j_f, k_f, b_f) = q(1, i_f, j_f, k_f, b_f) + 1/(4* acos(-1.0)*eps)*(rho(1,i,j,k,b)* &
+                                                   (dx(b)*dy(b)*dz(b)))/sqrt((gc_coord(1)-cell_coord(1))**2 +        & 
+                                                   (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
+                     enddo
+                     enddo
+                     enddo
+                     enddo
                   enddo
                enddo
             enddo
          enddo
       enddo
-   enddo
+   elseif(ivar==4_I4P) then
+      do f = 1_I4P, n_faces
+         do b_f = 1, blocks_number
+            do k_f = k1_f(f), k2_f(f)
+               do j_f = j1_f(f), j2_f(f)
+                  do i_f = i1_f(f), i2_f(f)
+                     gc_coord = [x_cell(i_f,b_f), y_cell(j_f,b_f), z_cell(k_f,b_f)]
+                     q(1, i_f, j_f, k_f, b_f) = 0.0_R8P
+                     q(2, i_f, j_f, k_f, b_f) = 0.0_R8P
+                     q(3, i_f, j_f, k_f, b_f) = 0.0_R8P
+                     do b=1, blocks_number
+                     do k = 1, nk
+                     do j = 1, nj
+                     do i = 1, ni
+                        cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                        q(1, i_f, j_f, k_f, b_f) = q(1, i_f, j_f, k_f, b_f) + mu/(4* acos(-1.0))*current(1,i,j,k,b) * &
+                                                   (dy(b)*dz(b))*dx(b)/sqrt((gc_coord(1)-cell_coord(1))**2 +          & 
+                                                   (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
+                        q(2, i_f, j_f, k_f, b_f) = q(2, i_f, j_f, k_f, b_f) + mu/(4* acos(-1.0))*current(2,i,j,k,b) * &
+                                                   (dx(b)*dz(b))*dy(b)/sqrt((gc_coord(1)-cell_coord(1))**2 +          & 
+                                                   (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
+                        q(3, i_f, j_f, k_f, b_f) = q(3, i_f, j_f, k_f, b_f) + mu/(4* acos(-1.0))*current(3,i,j,k,b) * &
+                                                   (dx(b)*dy(b))*dz(b)/sqrt((gc_coord(1)-cell_coord(1))**2 +          & 
+                                                   (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
+                     enddo
+                     enddo
+                     enddo
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   endif
    endassociate
    endsubroutine apply_bc_analytic
 
@@ -472,7 +507,7 @@ contains
          if (ivar == 1_I4P) then
          call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                      ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
-         elseif (ivar == 3_I4P) then
+         elseif (ivar == 4_I4P) then
          call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                      ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
          endif
@@ -571,7 +606,7 @@ contains
          if (ivar == 1_I4P) then
          call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                      ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
-         elseif (ivar == 3_I4P) then
+         elseif (ivar == 4_I4P) then
          call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                      ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
          endif
@@ -675,7 +710,7 @@ contains
          if (ivar == 1_I4P) then
          call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                      ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
-         elseif (ivar == 3_I4P) then
+         elseif (ivar == 4_I4P) then
          call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                      ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
          endif
@@ -790,7 +825,7 @@ contains
          if (ivar == 1_I4P) then
          call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                      ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
-         elseif (ivar == 3_I4P) then
+         elseif (ivar == 4_I4P) then
          call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                      ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
          endif

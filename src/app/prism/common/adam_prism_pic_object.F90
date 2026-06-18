@@ -104,10 +104,11 @@ contains
    procedure, pass(self) :: CIC_charge_weighting          !< Cloud-in-Cell weighting of particle quantities to the grid.
    procedure, pass(self) :: NGP_charge_weighting          !< Nearest Grid Point weighting of particle quantities to the grid.
    procedure, pass(self) :: TSC_charge_weighting          !< Triangular Shaped Cloud weighting of particle quantities to the grid.
-   procedure, pass(self) :: Gaussian_charge_weighting     !< Triangular Shaped Cloud weighting of particle quantities to the grid.
+   procedure, pass(self) :: Gaussian_charge_weighting     !< Gaussian Shaped Cloud weighting of particle quantities to the grid.
    procedure, pass(self) :: CIC_current_weighting         !< Cloud-in-Cell weighting of particle quantities to the grid.
    procedure, pass(self) :: NGP_current_weighting         !< Nearest Grid Point weighting of particle quantities to the grid.
    procedure, pass(self) :: TSC_current_weighting         !< Triangular Shaped Cloud weighting of particle quantities to the grid.
+   procedure, pass(self) :: Gaussian_current_weighting    !< Gaussian Shaped Cloud weighting of particle quantities to the grid.
    procedure, pass(self) :: zeroD_field_weighting
    procedure, pass(self) :: oneD_field_weighting
 endtype prism_pic_object
@@ -238,6 +239,8 @@ contains
       self%current_weighting => NGP_current_weighting
    case(TSC_WEIGHTING_MODEL)
       self%current_weighting => TSC_current_weighting
+   case(GAUSSIAN_WEIGHTING_MODEL)
+      self%particle_weighting => Gaussian_current_weighting
    case default
       call mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
    endselect
@@ -574,16 +577,6 @@ contains
 
    subroutine Gaussian_charge_weighting(self, field, grid, q, q_PIC, nv)
    !< Gaussian weighting of particle charge density to the grid.
-   !<
-   !< The Gaussian standard deviations are set equal to the local grid spacings:
-   !<
-   !<    sigma_x = dx
-   !<    sigma_y = dy
-   !<    sigma_z = dz
-   !<
-   !< The Gaussian distribution is truncated at +/- 4 sigma along each direction.
-   !< The discrete weights are normalized particle by particle in order to preserve
-   !< the total deposited charge.
    class(prism_pic_object), intent(inout) :: self                    !< PIC object.
    type(field_object),      intent(inout) :: field                   !< The field.
    type(grid_object),       intent(in)    :: grid                    !< Grid object.
@@ -638,7 +631,7 @@ contains
       nj_sigma = ceiling(cutoff_sigma*sigma_y/dy, kind=I4P)
       nk_sigma = ceiling(cutoff_sigma*sigma_z/dz, kind=I4P)
 
-      ! Restrict the support to the locally available grid, including ghost cells.
+      ! Restrict the support to the locally available grid, including ghost cells. !Parte da rivedere, perchè alla frontiera hai una distribuzione asimmetrica, che taglia e riscala di conseguenza
       i_min = max(i_p-ni_sigma, lbound(q,dim=2))
       i_max = min(i_p+ni_sigma, ubound(q,dim=2))
 
@@ -736,8 +729,8 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counter
+   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: dx, dy, dz           !< Grid spacing
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: cell_coord(3)        !< Cell coordinates
@@ -780,12 +773,9 @@ contains
                else
                   Wz = 0.0_R8P
                end if
-               q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)* Wx * Wy * Wz
-               q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)* Wx * Wy * Wz
-               q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)* Wx * Wy * Wz
-
-               !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
-               !se scritta in questo modo
+               q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)* Wx * Wy * Wz
+               q(nv-2,i,j,k,b_p) = q(nv-2,i,j,k,b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)* Wx * Wy * Wz
+               q(nv-1,i,j,k,b_p) = q(nv-1,i,j,k,b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)* Wx * Wy * Wz
             enddo
          enddo
       enddo
@@ -858,6 +848,113 @@ contains
    enddo
    endassociate
    endsubroutine TSC_current_weighting
+
+   subroutine Gaussian_current_weighting(self, field, grid, q, q_PIC, nv)
+   !< Gaussian weighting of particle current density to the grid.
+   class(prism_pic_object), intent(inout) :: self                    !< PIC object.
+   type(field_object),      intent(inout) :: field                   !< The field.
+   type(grid_object),       intent(in)    :: grid                    !< Grid object.
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:,  &
+                                                   1-grid%ngc:, &
+                                                   1-grid%ngc:,1:)   !< Field variables.
+   real(R8P),               intent(in)    :: q_PIC(1:,1:)            !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                      !< Index following Jx, Jy, Jz.
+   integer(I4P)                           :: n                       !< Particle counter.
+   integer(I4P)                           :: i,j,k                   !< Grid counters.
+   integer(I4P)                           :: i_p,j_p,k_p,b_p         !< Particle grid indices.
+   integer(I4P)                           :: i_min,i_max             !< Weighting bounds.
+   integer(I4P)                           :: j_min,j_max             !< Weighting bounds.
+   integer(I4P)                           :: k_min,k_max             !< Weighting bounds.
+   integer(I4P)                           :: ni_sigma                !< Support radius along x.
+   integer(I4P)                           :: nj_sigma                !< Support radius along y.
+   integer(I4P)                           :: nk_sigma                !< Support radius along z.
+   real(R8P)                              :: dx,dy,dz                !< Grid spacings.
+   real(R8P)                              :: sigma_x                 !< Gaussian standard deviation along x.
+   real(R8P)                              :: sigma_y                 !< Gaussian standard deviation along y.
+   real(R8P)                              :: sigma_z                 !< Gaussian standard deviation along z.
+   real(R8P)                              :: rx,ry,rz                !< Normalized particle-cell distances.
+   real(R8P)                              :: wx,wy,wz                !< One-dimensional Gaussian weights.
+   real(R8P)                              :: weight                  !< Normalized three-dimensional weight.
+   real(R8P)                              :: weight_sum              !< Discrete normalization factor.
+   real(R8P)                              :: inverse_cell_volume     !< Inverse cell volume.
+   real(R8P)                              :: current_prefactor(3)    !< Qp*vp/volume.
+
+   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%sigma, cutoff_sigma=>self%cutoff_sigma)
+
+   ! Reset the current density before depositing the current particle distribution.
+   q(nv-3:nv-1,:,:,:,:) = 0._R8P
+
+   do n=1, self%particle_number
+      ! Get particle block and grid indices.
+      b_p = self%neighbour_list(1,n)
+      i_p = self%neighbour_list(2,n)
+      j_p = self%neighbour_list(3,n)
+      k_p = self%neighbour_list(4,n)
+      dx = field%dxyz(1,b_p)
+      dy = field%dxyz(2,b_p)
+      dz = field%dxyz(3,b_p)
+      sigma_x = sigma
+      sigma_y = sigma
+      sigma_z = sigma
+      inverse_cell_volume = 1._R8P/(dx*dy*dz)
+      current_prefactor(1) = q_PIC(7,n)*q_PIC(4,n)*inverse_cell_volume
+      current_prefactor(2) = q_PIC(7,n)*q_PIC(5,n)*inverse_cell_volume
+      current_prefactor(3) = q_PIC(7,n)*q_PIC(6,n)*inverse_cell_volume
+
+      ! Number of cells required to cover the Gaussian cutoff.
+      ni_sigma = ceiling(cutoff_sigma*sigma_x/dx, kind=I4P)
+      nj_sigma = ceiling(cutoff_sigma*sigma_y/dy, kind=I4P)
+      nk_sigma = ceiling(cutoff_sigma*sigma_z/dz, kind=I4P)
+
+      ! Restrict the support to the locally available grid, including ghost cells.
+      i_min = max(i_p-ni_sigma, lbound(q,dim=2))
+      i_max = min(i_p+ni_sigma, ubound(q,dim=2))
+      j_min = max(j_p-nj_sigma, lbound(q,dim=3))
+      j_max = min(j_p+nj_sigma, ubound(q,dim=3))
+      k_min = max(k_p-nk_sigma, lbound(q,dim=4))
+      k_max = min(k_p+nk_sigma, ubound(q,dim=4))
+
+      ! Compute the discrete normalization factor over the effective support.
+      weight_sum = 0._R8P
+      do k=k_min, k_max
+         rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+         wz = exp(-0.5_R8P*rz*rz)
+         do j=j_min, j_max
+            ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+            wy = exp(-0.5_R8P*ry*ry)
+            do i=i_min, i_max
+               rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+               wx = exp(-0.5_R8P*rx*rx)
+               weight_sum = weight_sum + wx*wy*wz
+            enddo
+         enddo
+      enddo
+
+      ! Deposit the particle current density.
+      if (weight_sum > tiny(1._R8P)) then
+         do k=k_min, k_max
+            rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+            wz = exp(-0.5_R8P*rz*rz)
+            do j=j_min, j_max
+               ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+               wy = exp(-0.5_R8P*ry*ry)
+               do i=i_min, i_max
+                  rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+                  wx = exp(-0.5_R8P*rx*rx)
+                  weight = wx*wy*wz/weight_sum
+                  q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + &
+                                       current_prefactor(1)*weight
+                  q(nv-2,i,j,k,b_p) = q(nv-2,i,j,k,b_p) + &
+                                       current_prefactor(2)*weight
+                  q(nv-1,i,j,k,b_p) = q(nv-1,i,j,k,b_p) + &
+                                       current_prefactor(3)*weight
+               enddo
+            enddo
+         enddo
+      endif
+   enddo
+   endassociate
+   end subroutine Gaussian_current_weighting
 
    subroutine zeroD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    !< 0D spatial interpolation for the fields

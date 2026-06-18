@@ -1893,7 +1893,7 @@ contains
             if (blocks_number>0) then
                do iter=1, self%flail%iterations
                   if (self%fdv_order == 2_I4P) then
-                     call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                     call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
                                                       blocks_number=blocks_number,                     &
                                                       dxyz=self%adam%field%dxyz,                       &
                                                       f=f,                                             &
@@ -1905,7 +1905,7 @@ contains
                                                       iterations_coarse=self%flail%iterations_coarse,  &
                                                       bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
                   elseif (self%fdv_order == 4_I4P) then
-                     call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                     call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
                                                       blocks_number=blocks_number,                     &
                                                       dxyz=self%adam%field%dxyz,                       &
                                                       f=f,                                             &
@@ -1917,7 +1917,7 @@ contains
                                                       iterations_coarse=self%flail%iterations_coarse,  &
                                                       bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
                   elseif (self%fdv_order == 6_I4P) then
-                     call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                     call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
                                                       blocks_number=blocks_number,                     &
                                                       dxyz=self%adam%field%dxyz,                       &
                                                       f=f,                                             &
@@ -2080,7 +2080,7 @@ contains
          if (blocks_number>0) then
             do iter=1, self%flail%iterations
                if (self%fdv_order == 2_I4P) then
-                  call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                  call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
                                                    blocks_number=blocks_number,                     &
                                                    dxyz=self%adam%field%dxyz,                       &
                                                    f=f,                                             &
@@ -2090,9 +2090,9 @@ contains
                                                    iterations_init=self%flail%iterations_init,      &
                                                    iterations_fine=self%flail%iterations_fine,      &
                                                    iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+                                                   bc_type='analytic', ivar=ivar, mu=MU0, field=self%adam%field)
                elseif (self%fdv_order == 4_I4P) then
-                  call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                  call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
                                                    blocks_number=blocks_number,                     &
                                                    dxyz=self%adam%field%dxyz,                       &
                                                    f=f,                                             &
@@ -2102,9 +2102,9 @@ contains
                                                    iterations_init=self%flail%iterations_init,      &
                                                    iterations_fine=self%flail%iterations_fine,      &
                                                    iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+                                                   bc_type='analytic', ivar=ivar, mu=MU0, field=self%adam%field)
                elseif (self%fdv_order == 6_I4P) then
-                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
                                                    blocks_number=blocks_number,                     &
                                                    dxyz=self%adam%field%dxyz,                       &
                                                    f=f,                                             &
@@ -2114,7 +2114,7 @@ contains
                                                    iterations_init=self%flail%iterations_init,      &
                                                    iterations_fine=self%flail%iterations_fine,      &
                                                    iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+                                                   bc_type='analytic', ivar=ivar, mu=MU0, field=self%adam%field)
                else
                   call mpih%print_message('Initialization not already implemented for this scheme order')                   
                endif
@@ -2162,7 +2162,7 @@ contains
          if (blocks_number>0) then
             do iter=1, self%flail%iterations
                if (self%fdv_order == 2_I4P) then
-                  call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                  call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
                                                    blocks_number=blocks_number,                     &
                                                    dxyz=self%adam%field%dxyz,                       &
                                                    f=f,                                             &
@@ -2172,9 +2172,9 @@ contains
                                                    iterations_init=self%flail%iterations_init,      &
                                                    iterations_fine=self%flail%iterations_fine,      &
                                                    iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=1.0_R8P, field=self%adam%field)
+                                                   bc_type='analytic', ivar=ivar, mu=1.0_R8P, field=self%adam%field)
                elseif (self%fdv_order == 4_I4P) then
-                  call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                  call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
                                                    blocks_number=blocks_number,                     &
                                                    dxyz=self%adam%field%dxyz,                       &
                                                    f=f,                                             &
@@ -2184,9 +2184,9 @@ contains
                                                    iterations_init=self%flail%iterations_init,      &
                                                    iterations_fine=self%flail%iterations_fine,      &
                                                    iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=1.0_R8P, field=self%adam%field)
+                                                   bc_type='analytic', ivar=ivar, mu=1.0_R8P, field=self%adam%field)
                elseif (self%fdv_order == 6_I4P) then
-                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
                                                    blocks_number=blocks_number,                     &
                                                    dxyz=self%adam%field%dxyz,                       &
                                                    f=f,                                             &
@@ -2196,7 +2196,7 @@ contains
                                                    iterations_init=self%flail%iterations_init,      &
                                                    iterations_fine=self%flail%iterations_fine,      &
                                                    iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=1.0_R8P, field=self%adam%field)
+                                                   bc_type='analytic', ivar=ivar, mu=1.0_R8P, field=self%adam%field)
                else
                   call mpih%print_message('Initialization not already implemented for this scheme order')                   
                endif
