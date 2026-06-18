@@ -77,6 +77,7 @@ type :: prism_pic_object
    real(R8P)                 :: plasma_density              !< Plasma density
    real(R8P)                 :: neutral_fraction = 0.0_R8P  !< Neutral fraction
    real(R8P)                 :: sigma = 0.0_R8P             !< Standard deviation for a gaussian weighting
+   real(R8P)                 :: cutoff_sigma = 0._R8P       !< Gaussian cutoff.
    integer(I4P)              :: particle_number  = 0_I4P    !< Total number of particles.
 	integer(I4P)				  :: n_ions = 0_I4P              !< Total ions number
 	integer(I4P)				  :: n_electrons = 0_I4P         !< Total electrons number
@@ -177,7 +178,8 @@ contains
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
    if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
          self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
-      desc = desc//NL//mpih%myrankstr//'   Sigma: '//trim(str(self%sigma))
+      desc = desc//NL//mpih%myrankstr//'    Sigma: '//trim(str(self%sigma))
+      desc = desc//NL//mpih%myrankstr//'    Cutoff_sigma: '//trim(str(self%cutoff_sigma))
    endif
    desc = desc//NL//mpih%myrankstr//'    Field weighting model: '//trim(self%field_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
@@ -303,6 +305,11 @@ contains
          val=self%sigma, error=error)
          if (.not.go_on_fail_.and.error>0) &
          call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sigma)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cutoff_sigma', &
+         val=self%cutoff_sigma, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cutoff_sigma)')
    endif
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='field_weighting_model', val=buff,error=error)
@@ -416,8 +423,8 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counter
+   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: dx, dy, dz           !< Cell dimensions
    real(R8P)                              :: cell_coord(3)        !< Cell coordinates
@@ -436,10 +443,7 @@ contains
       dy = field%dxyz(2,b_p)
       dz = field%dxyz(3,b_p)
 
-      !Qua ci va sicuramente un if per le celle di confine, altrimenti darà errore quando arrivo alla frontiera
       q(nv, i_p, j_p, k_p, b_p) = q(nv, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)
-      !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
-      !se scritta in questo modo
    enddo
    endsubroutine NGP_charge_weighting
 
@@ -453,15 +457,14 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_PIC(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counter
+   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: dx, dy, dz           !< Grid spacing
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
 
-   !Per iniziare, azzero tutte le cariche altrimenti vado a sommare le cariche del tempo precedente
    q(nv,:,:,:,:) = 0.0_R8P
 
    do n = 1, self%particle_number
@@ -471,12 +474,9 @@ contains
       j_p = self%neighbour_list(3,n)
       k_p = self%neighbour_list(4,n)
 
-      ! Qua va capito come gestire la questione dei blocchi multipli
       dx = field%dxyz(1,b_p)
       dy = field%dxyz(2,b_p)
       dz = field%dxyz(3,b_p)
-
-      !Qua ci va sicuramente un if per le celle di confine, altrimenti darà errore quando arrivo alla frontiera
 
       do i = i_p-1, i_p+1
          do j = j_p-1, j_p+1
@@ -592,8 +592,6 @@ contains
                                                    1-grid%ngc:,1:)   !< Field variables.
    real(R8P),               intent(in)    :: q_PIC(1:,1:)            !< PIC variables.
    integer(I4P),            intent(in)    :: nv                      !< Charge-density variable index.
-   real(R8P), parameter                   :: sigma_factor = 1._R8P   !< sigma/dxyz.
-   real(R8P), parameter                   :: cutoff_sigma = 4._R8P   !< Gaussian cutoff.
    integer(I4P)                           :: n                       !< Particle counter.
    integer(I4P)                           :: i,j,k                   !< Grid counters.
    integer(I4P)                           :: i_p,j_p,k_p,b_p         !< Particle grid indices.
@@ -613,7 +611,7 @@ contains
    real(R8P)                              :: weight_sum              !< Discrete normalization factor.
    real(R8P)                              :: inverse_cell_volume     !< Inverse cell volume.
 
-   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%sigma)
+   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%sigma, cutoff_sigma=>self%cutoff_sigma)
 
    ! Reset the charge density before depositing the current particle distribution.
    q(nv,:,:,:,:) = 0._R8P

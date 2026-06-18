@@ -1635,7 +1635,7 @@ contains
 
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
-   !< Note that self%divergence memory is used as buffer, be careful.
+   !< Note that self%divergence memory is used as buffer, be careful. THIS SUBROUTINE DOESN'T WORK BUT IT'S NOT USED AT THE MOMENT
    class(prism_cpu_object), intent(inout) :: self            !< The equation.
    integer(I4P),            intent(in)    :: ivar            !< Variable (start) index in q.
    real(R8P)                              :: dq_max          !< Maximum residual.
@@ -1813,17 +1813,45 @@ contains
             f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
             if (blocks_number>0) then
                do iter=1, self%flail%iterations
-                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
-                                                   blocks_number=blocks_number,                     &
-                                                   dxyz=self%adam%field%dxyz,                       &
-                                                   f=f,                                             &
-                                                   q=phi,                                           &
-                                                   dq_max=dphi_max,                                 &
-                                                   dq=dphi,                                         &
-                                                   iterations_init=self%flail%iterations_init,      &
-                                                   iterations_fine=self%flail%iterations_fine,      &
-                                                   iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
+                  if (self%fdv_order == 2_I4P) then
+                     call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                      blocks_number=blocks_number,                     &
+                                                      dxyz=self%adam%field%dxyz,                       &
+                                                      f=f,                                             &
+                                                      q=phi,                                           &
+                                                      dq_max=dphi_max,                                 &
+                                                      dq=dphi,                                         &
+                                                      iterations_init=self%flail%iterations_init,      &
+                                                      iterations_fine=self%flail%iterations_fine,      &
+                                                      iterations_coarse=self%flail%iterations_coarse,  &
+                                                      bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
+                  elseif (self%fdv_order == 4_I4P) then
+                     call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                      blocks_number=blocks_number,                     &
+                                                      dxyz=self%adam%field%dxyz,                       &
+                                                      f=f,                                             &
+                                                      q=phi,                                           &
+                                                      dq_max=dphi_max,                                 &
+                                                      dq=dphi,                                         &
+                                                      iterations_init=self%flail%iterations_init,      &
+                                                      iterations_fine=self%flail%iterations_fine,      &
+                                                      iterations_coarse=self%flail%iterations_coarse,  &
+                                                      bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
+                  elseif (self%fdv_order == 6_I4P) then
+                     call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                      blocks_number=blocks_number,                     &
+                                                      dxyz=self%adam%field%dxyz,                       &
+                                                      f=f,                                             &
+                                                      q=phi,                                           &
+                                                      dq_max=dphi_max,                                 &
+                                                      dq=dphi,                                         &
+                                                      iterations_init=self%flail%iterations_init,      &
+                                                      iterations_fine=self%flail%iterations_fine,      &
+                                                      iterations_coarse=self%flail%iterations_coarse,  &
+                                                      bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
+                  else
+                     call mpih%print_message('Initialization not already implemented for this scheme order')                   
+                  endif
                   if (dphi_max < self%flail%tolerance) exit
                enddo
                call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
@@ -1864,17 +1892,45 @@ contains
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             if (blocks_number>0) then
                do iter=1, self%flail%iterations
-                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,      &
-                                                   blocks_number=blocks_number,                    &
-                                                   dxyz=self%adam%field%dxyz,                      &
-                                                   f=f,                                            &
-                                                   q=phi,                                          &
-                                                   dq_max=dphi_max,                                &
-                                                   dq=dphi,                                        &
-                                                   iterations_init=self%flail%iterations_init,     &
-                                                   iterations_fine=self%flail%iterations_fine,     &
-                                                   iterations_coarse=self%flail%iterations_coarse, &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+                  if (self%fdv_order == 2_I4P) then
+                     call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                      blocks_number=blocks_number,                     &
+                                                      dxyz=self%adam%field%dxyz,                       &
+                                                      f=f,                                             &
+                                                      q=phi,                                           &
+                                                      dq_max=dphi_max,                                 &
+                                                      dq=dphi,                                         &
+                                                      iterations_init=self%flail%iterations_init,      &
+                                                      iterations_fine=self%flail%iterations_fine,      &
+                                                      iterations_coarse=self%flail%iterations_coarse,  &
+                                                      bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+                  elseif (self%fdv_order == 4_I4P) then
+                     call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                      blocks_number=blocks_number,                     &
+                                                      dxyz=self%adam%field%dxyz,                       &
+                                                      f=f,                                             &
+                                                      q=phi,                                           &
+                                                      dq_max=dphi_max,                                 &
+                                                      dq=dphi,                                         &
+                                                      iterations_init=self%flail%iterations_init,      &
+                                                      iterations_fine=self%flail%iterations_fine,      &
+                                                      iterations_coarse=self%flail%iterations_coarse,  &
+                                                      bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+                  elseif (self%fdv_order == 6_I4P) then
+                     call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                      blocks_number=blocks_number,                     &
+                                                      dxyz=self%adam%field%dxyz,                       &
+                                                      f=f,                                             &
+                                                      q=phi,                                           &
+                                                      dq_max=dphi_max,                                 &
+                                                      dq=dphi,                                         &
+                                                      iterations_init=self%flail%iterations_init,      &
+                                                      iterations_fine=self%flail%iterations_fine,      &
+                                                      iterations_coarse=self%flail%iterations_coarse,  &
+                                                      bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+                  else
+                     call mpih%print_message('Initialization not already implemented for this scheme order')                   
+                  endif
                   if (dphi_max < self%flail%tolerance) exit
                enddo
                call mpih%print_message('FLAIL convergence for magnetic field at t0 &
@@ -2023,17 +2079,45 @@ contains
          f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
          if (blocks_number>0) then
             do iter=1, self%flail%iterations
-               call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                blocks_number=blocks_number,                     &
-                                                dxyz=self%adam%field%dxyz,                       &
-                                                f=f,                                             &
-                                                q=phi,                                           &
-                                                dq_max=dphi_max,                                 &
-                                                dq=dphi,                                         &
-                                                iterations_init=self%flail%iterations_init,      &
-                                                iterations_fine=self%flail%iterations_fine,      &
-                                                iterations_coarse=self%flail%iterations_coarse,  &
-                                                bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+               if (self%fdv_order == 2_I4P) then
+                  call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                   blocks_number=blocks_number,                     &
+                                                   dxyz=self%adam%field%dxyz,                       &
+                                                   f=f,                                             &
+                                                   q=phi,                                           &
+                                                   dq_max=dphi_max,                                 &
+                                                   dq=dphi,                                         &
+                                                   iterations_init=self%flail%iterations_init,      &
+                                                   iterations_fine=self%flail%iterations_fine,      &
+                                                   iterations_coarse=self%flail%iterations_coarse,  &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+               elseif (self%fdv_order == 4_I4P) then
+                  call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                   blocks_number=blocks_number,                     &
+                                                   dxyz=self%adam%field%dxyz,                       &
+                                                   f=f,                                             &
+                                                   q=phi,                                           &
+                                                   dq_max=dphi_max,                                 &
+                                                   dq=dphi,                                         &
+                                                   iterations_init=self%flail%iterations_init,      &
+                                                   iterations_fine=self%flail%iterations_fine,      &
+                                                   iterations_coarse=self%flail%iterations_coarse,  &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+               elseif (self%fdv_order == 6_I4P) then
+                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                   blocks_number=blocks_number,                     &
+                                                   dxyz=self%adam%field%dxyz,                       &
+                                                   f=f,                                             &
+                                                   q=phi,                                           &
+                                                   dq_max=dphi_max,                                 &
+                                                   dq=dphi,                                         &
+                                                   iterations_init=self%flail%iterations_init,      &
+                                                   iterations_fine=self%flail%iterations_fine,      &
+                                                   iterations_coarse=self%flail%iterations_coarse,  &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
+               else
+                  call mpih%print_message('Initialization not already implemented for this scheme order')                   
+               endif
                if (dphi_max < self%flail%tolerance) exit
             enddo
             call mpih%print_message('FLAIL convergence for magnetic field at t0 &
@@ -2077,17 +2161,45 @@ contains
          f(:,:,:,:,:) = -1.0_R8P*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) !MU0 = 1
          if (blocks_number>0) then
             do iter=1, self%flail%iterations
-               call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,         &
-                                                blocks_number=blocks_number,                       &
-                                                dxyz=self%adam%field%dxyz,                         &
-                                                f=f,                                               &
-                                                q=phi,                                             &
-                                                dq_max=dphi_max,                                   &
-                                                dq=dphi,                                           &
-                                                iterations_init=self%flail%iterations_init,        &
-                                                iterations_fine=self%flail%iterations_fine,        &
-                                                iterations_coarse=self%flail%iterations_coarse,    &
-                                                bc_type=self%pic%bc_solver, ivar=ivar, mu=1.0_R8P, field=self%adam%field)
+               if (self%fdv_order == 2_I4P) then
+                  call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                   blocks_number=blocks_number,                     &
+                                                   dxyz=self%adam%field%dxyz,                       &
+                                                   f=f,                                             &
+                                                   q=phi,                                           &
+                                                   dq_max=dphi_max,                                 &
+                                                   dq=dphi,                                         &
+                                                   iterations_init=self%flail%iterations_init,      &
+                                                   iterations_fine=self%flail%iterations_fine,      &
+                                                   iterations_coarse=self%flail%iterations_coarse,  &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=1.0_R8P, field=self%adam%field)
+               elseif (self%fdv_order == 4_I4P) then
+                  call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                   blocks_number=blocks_number,                     &
+                                                   dxyz=self%adam%field%dxyz,                       &
+                                                   f=f,                                             &
+                                                   q=phi,                                           &
+                                                   dq_max=dphi_max,                                 &
+                                                   dq=dphi,                                         &
+                                                   iterations_init=self%flail%iterations_init,      &
+                                                   iterations_fine=self%flail%iterations_fine,      &
+                                                   iterations_coarse=self%flail%iterations_coarse,  &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=1.0_R8P, field=self%adam%field)
+               elseif (self%fdv_order == 6_I4P) then
+                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
+                                                   blocks_number=blocks_number,                     &
+                                                   dxyz=self%adam%field%dxyz,                       &
+                                                   f=f,                                             &
+                                                   q=phi,                                           &
+                                                   dq_max=dphi_max,                                 &
+                                                   dq=dphi,                                         &
+                                                   iterations_init=self%flail%iterations_init,      &
+                                                   iterations_fine=self%flail%iterations_fine,      &
+                                                   iterations_coarse=self%flail%iterations_coarse,  &
+                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=1.0_R8P, field=self%adam%field)
+               else
+                  call mpih%print_message('Initialization not already implemented for this scheme order')                   
+               endif
                if (dphi_max < self%flail%tolerance) exit
             enddo
             call mpih%print_message('FLAIL convergence for magnetic field at t0 &
