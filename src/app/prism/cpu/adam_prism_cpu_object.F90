@@ -39,10 +39,9 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       ! IC/BC/sources
       procedure, pass(self) :: apply_fWL_correction       !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current      !< Compute current coils sources.
-      procedure, pass(self) :: impose_div_coil_correction !< Impose coil divergence correction.
       procedure, pass(self) :: set_boundary_conditions    !< Set boundary conditions of equation.
-      procedure, pass(self) :: compute_residuals_BC
-      procedure, pass(self) :: update_q_BC
+      !procedure, pass(self) :: compute_residuals_BC
+      !procedure, pass(self) :: update_q_BC
       procedure, pass(self) :: set_initial_conditions     !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost               !< Update ghost cells and set boundary conditions.
       procedure, pass(self) :: compute_field_mean_value   !< Compute field mean value.
@@ -674,151 +673,153 @@ contains
        .or. self%bc%bc_type(5) == BC_radiative .or. self%bc%bc_type(6) == BC_radiative) then
                                                                                              !Al momento scritta per funzionare solo
                                                                                              !con un secondo ordine
-      if (present(s)) then
-         if (s==1_I4P) call self%rk_bc%initialize_stages(field=self%adam%field, q=q)
-         if (self%ib%solids_number>0) then !calcolo stadio per le BC
-            call self%rk_bc%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
-         else
-            call self%rk_bc%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
-         endif
-         !Calcolo i residui per l'integrazione temporale delle BC (in un futuro da allineare con operatore spaziale qualsiasi)
-         call self%compute_residuals_BC(s=s)
-         !Imponi effettivamente la BC su q: unico punto del ciclo in cui si "uniscono"
-         !Quindi basta cambiare gli indici di quel do per imporlo su una sola variabile, eventualmente
-         !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
-         if (allocated(self%adam%maps%local_map_bc_crown)) then
-            do crown=1, ngc
-               do c=1, size(local_map_bc_crown, dim=1)
-                  b = local_map_bc_crown(c, 1 ,crown)
-                  if (b>0) then
-                     i       = local_map_bc_crown(c, 2 ,crown)
-                     j       = local_map_bc_crown(c, 3 ,crown)
-                     k       = local_map_bc_crown(c, 4 ,crown)
-                     idelta  = local_map_bc_crown(c, 5 ,crown)
-                     jdelta  = local_map_bc_crown(c, 6 ,crown)
-                     kdelta  = local_map_bc_crown(c, 7 ,crown)
-                     bc_type = local_map_bc_crown(c, 8 ,crown)
-                     fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
-                     fec_1_6 = fec_1_6_array(fec)
-                     if (bc_type == BC_radiative) then
-                        do v=1, nv_c
-                           q(v,i,j,k,b) = 2*self%rk_bc%q_bc_rk(v,i,j,k,b,s)-q(v,i-idelta,j-jdelta,k-kdelta,b)
-                        enddo
-                     endif
-                  endif
-               enddo
-            enddo
-         endif
-         !Concludi assegnando lo stadio
-         if (self%ib%solids_number>0) then
-            call self%rk_bc%assign_stage(field=self%adam%field, s=s, phi=self%ib%phi)
-         else
-            call self%rk_bc%assign_stage(field=self%adam%field, s=s)
-         endif
-      else !Mi serve solo per il t0, tanto ic è il vuoto praticamente sempre
-         !q(v,i,j,k,b) = 0.0_R8P this is bugged, which are v,i,j,k,b? below the fix
-         if (allocated(self%adam%maps%local_map_bc_crown)) then
-            do crown=1, ngc
-               do c=1, size(local_map_bc_crown, dim=1)
-                  b = local_map_bc_crown(c, 1 ,crown)
-                  if (b>0) then
-                     i = local_map_bc_crown(c, 2, crown)
-                     j = local_map_bc_crown(c, 3, crown)
-                     k = local_map_bc_crown(c, 4, crown)
-                     do v=1, nv_c
-                        q(v,i,j,k,b) = 0.0_R8P
-                     enddo
-                  endif
-               enddo
-            enddo
-         endif
-      endif
+      call mpih%error_stop(msg='radiative BC not already implemented')
+      
+      !if (present(s)) then
+      !   if (s==1_I4P) call self%rk_bc%initialize_stages(field=self%adam%field, q=q)
+      !   if (self%ib%solids_number>0) then !calcolo stadio per le BC
+      !      call self%rk_bc%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
+      !   else
+      !      call self%rk_bc%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
+      !   endif
+      !   !Calcolo i residui per l'integrazione temporale delle BC (in un futuro da allineare con operatore spaziale qualsiasi)
+      !   call self%compute_residuals_BC(s=s)
+      !   !Imponi effettivamente la BC su q: unico punto del ciclo in cui si "uniscono"
+      !   !Quindi basta cambiare gli indici di quel do per imporlo su una sola variabile, eventualmente
+      !   !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
+      !   if (allocated(self%adam%maps%local_map_bc_crown)) then
+      !      do crown=1, ngc
+      !         do c=1, size(local_map_bc_crown, dim=1)
+      !            b = local_map_bc_crown(c, 1 ,crown)
+      !            if (b>0) then
+      !               i       = local_map_bc_crown(c, 2 ,crown)
+      !               j       = local_map_bc_crown(c, 3 ,crown)
+      !               k       = local_map_bc_crown(c, 4 ,crown)
+      !               idelta  = local_map_bc_crown(c, 5 ,crown)
+      !               jdelta  = local_map_bc_crown(c, 6 ,crown)
+      !               kdelta  = local_map_bc_crown(c, 7 ,crown)
+      !               bc_type = local_map_bc_crown(c, 8 ,crown)
+      !               fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
+      !               fec_1_6 = fec_1_6_array(fec)
+      !               if (bc_type == BC_radiative) then
+      !                  do v=1, nv_c
+      !                     q(v,i,j,k,b) = 2*self%rk_bc%q_bc_rk(v,i,j,k,b,s)-q(v,i-idelta,j-jdelta,k-kdelta,b)
+      !                  enddo
+      !               endif
+      !            endif
+      !         enddo
+      !      enddo
+      !   endif
+      !   !Concludi assegnando lo stadio
+      !   if (self%ib%solids_number>0) then
+      !      call self%rk_bc%assign_stage(field=self%adam%field, s=s, phi=self%ib%phi)
+      !   else
+      !      call self%rk_bc%assign_stage(field=self%adam%field, s=s)
+      !   endif
+      !else !Mi serve solo per il t0, tanto ic è il vuoto praticamente sempre
+      !   !q(v,i,j,k,b) = 0.0_R8P this is bugged, which are v,i,j,k,b? below the fix
+      !   if (allocated(self%adam%maps%local_map_bc_crown)) then
+      !      do crown=1, ngc
+      !         do c=1, size(local_map_bc_crown, dim=1)
+      !            b = local_map_bc_crown(c, 1 ,crown)
+      !            if (b>0) then
+      !               i = local_map_bc_crown(c, 2, crown)
+      !               j = local_map_bc_crown(c, 3, crown)
+      !               k = local_map_bc_crown(c, 4, crown)
+      !               do v=1, nv_c
+      !                  q(v,i,j,k,b) = 0.0_R8P
+      !               enddo
+      !            endif
+      !         enddo
+      !      enddo
+      !   endif
+      !endif
    endif
    endassociate
    endsubroutine set_boundary_conditions
 
-   subroutine compute_residuals_BC(self,s)
-   !< Compute residuals BCs.
-   !< La sua scrittura si lega all'ordine di interpolazione dell'operatore spaziale. Al momento
-   !< e' scritto per operatore di secondo ordine (1 punto ghost).
-   class(prism_cpu_object), intent(inout) :: self                    !< The equation.
-   integer(I4P),            intent(in)    :: s                       !< Stage counter.
-   real(R8P)                              :: ds                      !< Distanza tra le celle in x, y o z.
-   integer(I4P)                           :: i,j,k,b,c,v             !< Counter
-   integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
-   integer(I4P)                           :: bc_type                 !< Boundary condition type.
-   integer(I4P)                           :: crown                   !< Crown counter.
-   integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
-   integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
-   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                          &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), &
-             dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
-             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,                   &
-             constrained_transport_B=>self%numerics%constrained_transport_B,                                                 &
-             constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>self%rk%q_rk,                             &
-             q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
-   if (allocated(self%adam%maps%local_map_bc_crown)) then
-      do crown=1, ngc
-         do c=1, size(local_map_bc_crown, dim=1)
-            b = local_map_bc_crown(c, 1 ,crown)
-            if (b>0) then
-               bc_type = local_map_bc_crown(c, 8 ,crown)
-               i       = local_map_bc_crown(c, 2 ,crown)
-               j       = local_map_bc_crown(c, 3 ,crown)
-               k       = local_map_bc_crown(c, 4 ,crown)
-               idelta  = local_map_bc_crown(c, 5 ,crown)
-               jdelta  = local_map_bc_crown(c, 6 ,crown)
-               kdelta  = local_map_bc_crown(c, 7 ,crown)
-               fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
-               fec_1_6 = fec_1_6_array(fec)
-               if (fec <= 6) then
-                  select case(fec)
-                  case(1) !xmin
-                     ds = dx(b)
-                  case(2) !xmax
-                     ds = dx(b)
-                  case(3) !ymin
-                     ds = dy(b)
-                  case(4) !ymax
-                     ds = dy(b)
-                  case(5) !zmin
-                     ds = dz(b)
-                  case(6) !zmax
-                     ds = dz(b)
-                  end select
-                  do v = 1,6
-                     dq_bc_rk(v,i,j,k,b) = -C0*(q_bc_rk(v,i,j,k,b,s)-q_rk(v,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-                  enddo
-                  if (nv_cl == 1_I4P) then
-                     dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-                                                q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-                  elseif (nv_cl == 2_I4P) then
-                     dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
-                                                q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-                     dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-                                                q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-                  endif
-                  !if (div_corr_var == DIV_CORR_VAR_HYPER) then
-                  !   if (constrained_transport_D .and. .not.constrained_transport_B) &
-                  !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-                  !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-                  !   if (.not.constrained_transport_D .and. constrained_transport_B) &
-                  !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-                  !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-                  !   if (constrained_transport_D .and. constrained_transport_B) &
-                  !      dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
-                  !                                 q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-                  !   if (constrained_transport_D .and. constrained_transport_B) &
-                  !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-                  !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-                  !endif
-               endif
-            endif
-         enddo
-      enddo
-   endif
-   endassociate
-   endsubroutine compute_residuals_BC
+   !subroutine compute_residuals_BC(self,s)
+   !!< Compute residuals BCs.
+   !!< La sua scrittura si lega all'ordine di interpolazione dell'operatore spaziale. Al momento
+   !!< e' scritto per operatore di secondo ordine (1 punto ghost).
+   !class(prism_cpu_object), intent(inout) :: self                    !< The equation.
+   !integer(I4P),            intent(in)    :: s                       !< Stage counter.
+   !real(R8P)                              :: ds                      !< Distanza tra le celle in x, y o z.
+   !integer(I4P)                           :: i,j,k,b,c,v             !< Counter
+   !integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
+   !integer(I4P)                           :: bc_type                 !< Boundary condition type.
+   !integer(I4P)                           :: crown                   !< Crown counter.
+   !integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
+   !integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
+   !associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                          &
+   !          nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), &
+   !          dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
+   !          nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,                   &
+   !          constrained_transport_B=>self%numerics%constrained_transport_B,                                                 &
+   !          constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>self%rk%q_rk,                             &
+   !          q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
+   !if (allocated(self%adam%maps%local_map_bc_crown)) then
+   !   do crown=1, ngc
+   !      do c=1, size(local_map_bc_crown, dim=1)
+   !         b = local_map_bc_crown(c, 1 ,crown)
+   !         if (b>0) then
+   !            bc_type = local_map_bc_crown(c, 8 ,crown)
+   !            i       = local_map_bc_crown(c, 2 ,crown)
+   !            j       = local_map_bc_crown(c, 3 ,crown)
+   !            k       = local_map_bc_crown(c, 4 ,crown)
+   !            idelta  = local_map_bc_crown(c, 5 ,crown)
+   !            jdelta  = local_map_bc_crown(c, 6 ,crown)
+   !            kdelta  = local_map_bc_crown(c, 7 ,crown)
+   !            fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
+   !            fec_1_6 = fec_1_6_array(fec)
+   !            if (fec <= 6) then
+   !               select case(fec)
+   !               case(1) !xmin
+   !                  ds = dx(b)
+   !               case(2) !xmax
+   !                  ds = dx(b)
+   !               case(3) !ymin
+   !                  ds = dy(b)
+   !               case(4) !ymax
+   !                  ds = dy(b)
+   !               case(5) !zmin
+   !                  ds = dz(b)
+   !               case(6) !zmax
+   !                  ds = dz(b)
+   !               end select
+   !               do v = 1,6
+   !                  dq_bc_rk(v,i,j,k,b) = -C0*(q_bc_rk(v,i,j,k,b,s)-q_rk(v,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+   !               enddo
+   !               if (nv_cl == 1_I4P) then
+   !                  dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+   !                                             q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+   !               elseif (nv_cl == 2_I4P) then
+   !                  dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
+   !                                             q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+   !                  dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+   !                                             q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+   !               endif
+   !               !if (div_corr_var == DIV_CORR_VAR_HYPER) then
+   !               !   if (constrained_transport_D .and. .not.constrained_transport_B) &
+   !               !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+   !               !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+   !               !   if (.not.constrained_transport_D .and. constrained_transport_B) &
+   !               !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+   !               !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+   !               !   if (constrained_transport_D .and. constrained_transport_B) &
+   !               !      dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
+   !               !                                 q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+   !               !   if (constrained_transport_D .and. constrained_transport_B) &
+   !               !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+   !               !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+   !               !endif
+   !            endif
+   !         endif
+   !      enddo
+   !   enddo
+   !endif
+   !endassociate
+   !endsubroutine compute_residuals_BC
 
    subroutine set_initial_conditions(self, is_restart) !DA CORREGGERE CON NV_PIC QUANDO SERVE PER BC CARICA SE MODELLO PIC ATTIVO
    !< Set initial conditions and coils on field.
@@ -920,6 +921,10 @@ contains
    real(R8P),               intent(in),    optional :: memory_avail  !< Per-process memory budget override.
    integer(I4P),            intent(in),    optional :: nv            !< Number of field variables override.
    logical,                 intent(in),    optional :: verbose       !< Trigger verbose output.
+   real(R8P)                                        :: max_div_D     !< Maximum of divergence of D field.
+   real(R8P)                                        :: max_div_B     !< Maximum of divergence of B
+   real(R8P)                                        :: max_div_J     !< Maximum of divergence of J field.
+   integer(I4P)                                     :: r             !< Auxiliary variable to identify fWL presence
    real(R8P)                                        :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
    integer(I4P)                                     :: i, n, b, ind  !< Counters.
 
@@ -976,7 +981,17 @@ contains
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.)
-   call self%save_divergence_history(is_to_open=.true.)
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
+   r = nint(real(C)/(real(C)+1_I4P))
+   max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
+   endassociate
    call self%io%open_file_residuals(nv=self%nv)
 
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -1144,10 +1159,10 @@ contains
    end associate
    if (self%ib%solids_number>0) then
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
-      call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
+      !call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
-      call self%update_q_BC(dt=self%time%dt)
+      !call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
    call self%compute_coils_current(q=self%q)
@@ -1334,6 +1349,10 @@ contains
    logical,                 intent(in),    optional         :: do_save_restart   !< Save restart dump this step.
    logical,                 intent(in),    optional         :: do_amr            !< Run AMR update this step.
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
+   real(R8P)                                                :: max_div_D         !< Maximum of divergence of D field.
+   real(R8P)                                                :: max_div_B         !< Maximum of divergence of B
+   real(R8P)                                                :: max_div_J         !< Maximum of divergence of J field.
+   integer(I4P)                                             :: r                 !< Auxiliary variable to identify fWL presence
 
    if (self%io%save_memory_status) then
       call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
@@ -1352,7 +1371,16 @@ contains
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
-   call self%save_divergence_history
+   endassociate
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
+   r = nint(real(C)/(real(C)+1_I4P))
+   max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   call self%save_divergence_history(div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
    endassociate
    endsubroutine post_step_forest
 
@@ -1383,6 +1411,8 @@ contains
    !< Invoked by forest%finalize. v1 implementation is the verbatim post-
    !< loop block formerly inline in `simulate`. Behavior unchanged.
    class(prism_cpu_object), intent(inout) :: self !< The realm.
+   real(R8P)                              :: max_div_D, max_div_B, max_div_J
+   integer(I4P)                           :: r
 
    !call self%compute_energy_error
    call self%save_simulation_data
@@ -1401,7 +1431,18 @@ contains
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
-   call self%save_divergence_history(is_to_close=.true.)
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
+   r = nint(real(C)/(real(C)+1_I4P))
+   max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   call self%save_divergence_history(is_to_close=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
+   endassociate
+
    ! NB: MPI_FINALIZE is NOT called here — it is process-global and runs once via
    ! forest%finalize -> finalize_mpi_forest after ALL realms finish.
    endsubroutine finalize_forest
@@ -3120,10 +3161,10 @@ contains
    enddo
    if (self%ib%solids_number>0) then
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
-      call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
+      !call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
-      call self%update_q_BC(dt=self%time%dt)
+      !call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
    call self%compute_coils_current(q=self%q)
@@ -3177,10 +3218,10 @@ contains
    ! Completo l'integrazione temporale
    if (self%ib%solids_number>0) then
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
-      call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
+      !call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q)
-      call self%update_q_BC(dt=self%time%dt)
+      !call self%update_q_BC(dt=self%time%dt)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
@@ -3193,94 +3234,94 @@ contains
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
    endsubroutine integrate_rk_ssp_pic
 
-   subroutine update_q_BC(self, dt, phi)
-   !< Update RK q ghost cells.
-   class(prism_cpu_object), intent(inout) :: self             !< RK object.
-   real(R8P),        intent(in)           :: dt               !< Current time step.
-   real(R8P),        intent(in), optional :: phi(1:,          &
-                                                 1-self%ngc:, &
-                                                 1-self%ngc:, &
-                                                 1-self%ngc:, &
-                                                 1:)          !< IB distance.
-   integer(I4P)                           :: all_solids       !< Last phi index, all solids summary.
-   integer(I4P)                           :: i, j, k, b, v, s, c !< Counter.
-
-   integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
-   integer(I4P)                           :: bc_type                 !< Boundary condition type.
-   integer(I4P)                           :: crown                   !< Crown counter.
-   associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                             &
-                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), &
-                dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
-                nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                             &
-                constrained_transport_B=>self%numerics%constrained_transport_B,                                                 &
-                constrained_transport_D=>self%numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                            &
-                q_bc_rk=>self%rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>self%rk_bc%beta)
-
-   if (present(phi)) then
-      all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(6) default(firstprivate) shared(phi,self)
-      do s=1, nrk
-         do b=1, blocks_number
-            do k=1-ngc, nk+ngc
-               do j=1-ngc, nj+ngc
-                  do i=1-ngc, ni+ngc
-                     !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
-                     do v=1, nv_c
-                        if (phi(all_solids,i,j,k,b) < 0._R8P) then
-                           q_bc_rk(v,i,j,k,b,nrk+1) = q_bc_rk(v,i,j,k,b,nrk+1) + dt * beta(s) * q_bc_rk(1,i,j,k,b,s)
-                        endif
-                     enddo
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !$omp end parallel do
-   else
-      !$omp parallel do collapse(6) default(firstprivate) shared(self)
-      do s=1, nrk
-         do b=1, blocks_number
-            do k=1-ngc, nk+ngc
-               do j=1-ngc, nj+ngc
-                  do i=1-ngc, ni+ngc
-                     do v=1, nv_c
-                        q_bc_rk(v,i,j,k,b,nrk+1) = q_bc_rk(v,i,j,k,b,nrk+1) + dt * beta(s) * q_bc_rk(1,i,j,k,b,s)
-                     enddo
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !$omp end parallel do
-   endif
-   if (allocated(self%adam%maps%local_map_bc_crown)) then
-      do crown=1, ngc
-         do c=1, size(local_map_bc_crown, dim=1)
-            b = local_map_bc_crown(c, 1 ,crown)
-            if (b>0) then
-               bc_type = local_map_bc_crown(c, 8 ,crown)
-               if (bc_type == BC_radiative) then
-                  i       = local_map_bc_crown(c, 2 ,crown)
-                  j       = local_map_bc_crown(c, 3 ,crown)
-                  k       = local_map_bc_crown(c, 4 ,crown)
-                  idelta  = local_map_bc_crown(c, 5 ,crown)
-                  jdelta  = local_map_bc_crown(c, 6 ,crown)
-                  kdelta  = local_map_bc_crown(c, 7 ,crown)
-                  do v=1, nv_c
-                     ! this seems bugged, loop over v and using always nv_c or 1...
-                     ! self%q(nv_c,i,j,k,b) = 2*q_bc_rk(1,i,j,k,b,nrk+1)-self%q(nv_c,i-idelta,j-jdelta,k-kdelta,b)
-                     ! probable fix below
-                     self%q(v,i,j,k,b) = 2*q_bc_rk(v,i,j,k,b,nrk+1)-self%q(v,i-idelta,j-jdelta,k-kdelta,b)
-                  enddo
-                  !print *, 'Updating BC SM', b, ' cell (', i, ',', j, ',', k, ')'
-               endif
-            endif
-            !Qua ci aggiungi gli altri if a seconda elle variabili su cui vuoi implementare questa BC
-         enddo
-      enddo
-   endif
-   endassociate
-   endsubroutine update_q_BC
+   !subroutine update_q_BC(self, dt, phi)
+   !!< Update RK q ghost cells.
+   !class(prism_cpu_object), intent(inout) :: self             !< RK object.
+   !real(R8P),        intent(in)           :: dt               !< Current time step.
+   !real(R8P),        intent(in), optional :: phi(1:,          &
+   !                                              1-self%ngc:, &
+   !                                              1-self%ngc:, &
+   !                                              1-self%ngc:, &
+   !                                              1:)          !< IB distance.
+   !integer(I4P)                           :: all_solids       !< Last phi index, all solids summary.
+   !integer(I4P)                           :: i, j, k, b, v, s, c !< Counter.
+!
+   !integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
+   !integer(I4P)                           :: bc_type                 !< Boundary condition type.
+   !integer(I4P)                           :: crown                   !< Crown counter.
+   !associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                             &
+   !             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), &
+   !             dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
+   !             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                             &
+   !             constrained_transport_B=>self%numerics%constrained_transport_B,                                                 &
+   !             constrained_transport_D=>self%numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                            &
+   !             q_bc_rk=>self%rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>self%rk_bc%beta)
+!
+   !if (present(phi)) then
+   !   all_solids = ubound(phi, dim=1)
+   !   !$omp parallel do collapse(6) default(firstprivate) shared(phi,self)
+   !   do s=1, nrk
+   !      do b=1, blocks_number
+   !         do k=1-ngc, nk+ngc
+   !            do j=1-ngc, nj+ngc
+   !               do i=1-ngc, ni+ngc
+   !                  !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
+   !                  do v=1, nv_c
+   !                     if (phi(all_solids,i,j,k,b) < 0._R8P) then
+   !                        q_bc_rk(v,i,j,k,b,nrk+1) = q_bc_rk(v,i,j,k,b,nrk+1) + dt * beta(s) * q_bc_rk(1,i,j,k,b,s)
+   !                     endif
+   !                  enddo
+   !               enddo
+   !            enddo
+   !         enddo
+   !      enddo
+   !   enddo
+   !   !$omp end parallel do
+   !else
+   !   !$omp parallel do collapse(6) default(firstprivate) shared(self)
+   !   do s=1, nrk
+   !      do b=1, blocks_number
+   !         do k=1-ngc, nk+ngc
+   !            do j=1-ngc, nj+ngc
+   !               do i=1-ngc, ni+ngc
+   !                  do v=1, nv_c
+   !                     q_bc_rk(v,i,j,k,b,nrk+1) = q_bc_rk(v,i,j,k,b,nrk+1) + dt * beta(s) * q_bc_rk(1,i,j,k,b,s)
+   !                  enddo
+   !               enddo
+   !            enddo
+   !         enddo
+   !      enddo
+   !   enddo
+   !   !$omp end parallel do
+   !endif
+   !if (allocated(self%adam%maps%local_map_bc_crown)) then
+   !   do crown=1, ngc
+   !      do c=1, size(local_map_bc_crown, dim=1)
+   !         b = local_map_bc_crown(c, 1 ,crown)
+   !         if (b>0) then
+   !            bc_type = local_map_bc_crown(c, 8 ,crown)
+   !            if (bc_type == BC_radiative) then
+   !               i       = local_map_bc_crown(c, 2 ,crown)
+   !               j       = local_map_bc_crown(c, 3 ,crown)
+   !               k       = local_map_bc_crown(c, 4 ,crown)
+   !               idelta  = local_map_bc_crown(c, 5 ,crown)
+   !               jdelta  = local_map_bc_crown(c, 6 ,crown)
+   !               kdelta  = local_map_bc_crown(c, 7 ,crown)
+   !               do v=1, nv_c
+   !                  ! this seems bugged, loop over v and using always nv_c or 1...
+   !                  ! self%q(nv_c,i,j,k,b) = 2*q_bc_rk(1,i,j,k,b,nrk+1)-self%q(nv_c,i-idelta,j-jdelta,k-kdelta,b)
+   !                  ! probable fix below
+   !                  self%q(v,i,j,k,b) = 2*q_bc_rk(v,i,j,k,b,nrk+1)-self%q(v,i-idelta,j-jdelta,k-kdelta,b)
+   !               enddo
+   !               !print *, 'Updating BC SM', b, ' cell (', i, ',', j, ',', k, ')'
+   !            endif
+   !         endif
+   !         !Qua ci aggiungi gli altri if a seconda elle variabili su cui vuoi implementare questa BC
+   !      enddo
+   !   enddo
+   !endif
+   !endassociate
+   !endsubroutine update_q_BC
 
    subroutine integrate_rk_yoshida(self)
    !< Integrate equation, time operator, Yoshida RK scheme.
@@ -3502,93 +3543,6 @@ contains
       enddo
    enddo
    endsubroutine decompose_fluxes_convective
-
-   subroutine impose_div_coil_correction(self, ivar, q)
-   !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
-   !< Note that self%divergence memory is used as buffer, be careful.
-   class(prism_cpu_object), intent(inout) :: self                                         !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                         !< Variable (start) index in q.
-   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P)                              :: div_buff(1, 1-self%ngc:self%ni+self%ngc, &
-                                                         1-self%ngc:self%nj+self%ngc, &
-                                                         1-self%ngc:self%nk+self%ngc, &
-                                                         1:self%nb)                       !< Buffer for divergence computation.
-   real(R8P)                              :: q_buff(3,1-self%ngc:self%ni+self%ngc, &
-                                                      1-self%ngc:self%nj+self%ngc, &
-                                                      1-self%ngc:self%nk+self%ngc, &
-                                                      1:self%nb)                          !< Buffer for variables computation.
-   real(R8P)                              :: grad_buff(3,1-self%ngc:self%ni+self%ngc, &
-                                                         1-self%ngc:self%nj+self%ngc, &
-                                                         1-self%ngc:self%nk+self%ngc, &
-                                                         1:self%nb)                       !< Buffer for gradient computation.
-   real(R8P)                              :: dq_buff(1, 1-self%ngc:self%ni+self%ngc, &
-                                                        1-self%ngc:self%nj+self%ngc, &
-                                                        1-self%ngc:self%nk+self%ngc, &
-                                                        1:self%nb)                        !< Buffer for gradient computation.
-   real(R8P)                              :: phi_buff(1, 1-self%ngc:self%ni+self%ngc, &
-                                                         1-self%ngc:self%nj+self%ngc, &
-                                                         1-self%ngc:self%nk+self%ngc, &
-                                                         1:self%nb)                       !< Buffer for scalar potential.
-   real(R8P)                              :: dq_max                                       !< Maximum residual.
-   integer(I4P)                           :: iter                                         !< Counter.
-   integer(I4P)                           :: i,j,k,b,v                                    !< Counter.
-
-   !Lascia perdere low memory storage x ora
-   !buffer(4,:,:,:,:) è usato come buffer per la correzione di divergenza
-   !buffer(5,:,:,:,:) per dq
-   !buffer(7,:,:,:,:) per potenziale scalare
-   !buffer(4:6,:,:,:,:) è usato come buffer per il gradiente di q
-
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,&
-             hs=>self%fdv_half_stencil)
-   div_buff (:,:,:,:,:) = 0.0_R8P
-   grad_buff(:,:,:,:,:) = 0.0_R8P
-   dq_buff  (:,:,:,:,:) = 0.0_R8P
-   phi_buff (:,:,:,:,:) = 0.0_R8P
-   q_buff   (:,:,:,:,:) = q(:,:,:,:,:)
-
-   call self%compute_divergence(hs=hs,ivar=ivar,q=q_buff,divergence=div_buff(1,:,:,:,:))
-   print *, ' Max divergence buffered variables: ', maxval(abs(div_buff(:,:,:,:,:)))
-   !call self%compute_divergence(ivar=ivar,q=q_buff,divergence=buffer(4,:,:,:,:))
-   !print *, ' Max divergence buffered variables 2: ', maxval(abs(buffer(4,:,:,:,:)))
-   !buffer(4,:,:,:,:) = div_buff(:,:,:,:)
-   !print *, 'Max divergence buffered variables 3: ', maxval(abs(buffer(4,:,:,:,:)))
-   if (blocks_number>0) then
-      do iter=1, self%flail%iterations
-         call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-                                          dxyz=self%adam%field%dxyz,                                                &
-                                          f=-div_buff,                                                    &
-                                          q=phi_buff,                                                     &
-                                          dq_max=dq_max,                                                  &
-                                          dq=dq_buff,                                                     &
-                                          iterations_init=self%flail%iterations_init,                     &
-                                          iterations_fine=self%flail%iterations_fine,                     &
-                                          iterations_coarse=self%flail%iterations_coarse)
-         call self%compute_gradient(hs=hs,ivar=1,q=phi_buff,gradient=grad_buff)
-         !print *, 'valore massima correzione associata all''iterazione ', &
-         !         iter, ' - max correction: ', maxval(abs(grad_buff(:,:,:,:,:)))
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     do v=1, 3
-                        q_buff(v,i,j,k,b) = q_buff(v,i,j,k,b) + grad_buff(v,i,j,k,b)
-                     enddo
-                  enddo
-               enddo
-            enddo
-         enddo
-         call self%compute_divergence(hs=hs,ivar=ivar,q=q_buff,divergence=div_buff(1,:,:,:,:))
-         !print *, 'Coil divergence correction iteration ', iter, ' - max divergence: ', maxval(abs(div_buff(:,:,:,:,:)))
-         if (maxval(abs(div_buff(:,:,:,:,:))) < self%flail%tolerance) exit
-      enddo
-      call mpih%print_message('Coil divergence correction converged at iteration '//trim(str(iter,.true.)))
-      q(:,:,:,:,:) = q_buff(:,:,:,:,:)
-      call self%compute_divergence(hs=hs,ivar=ivar,q=q,divergence=div_buff(1,:,:,:,:))
-      print *, 'Coil - max divergence (end Poisson subroutine): ', maxval(abs(div_buff(:,:,:,:,:)))
-   endif
-   endassociate
-   endsubroutine impose_div_coil_correction
 
    subroutine write_current_behavior_tab(filename, current_density, time)
    character(len=1), parameter  :: TAB = achar(9)

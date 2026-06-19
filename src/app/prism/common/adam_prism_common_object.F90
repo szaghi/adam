@@ -16,7 +16,7 @@ use :: adam_prism_physics_object
 use :: adam_prism_pic_object
 use :: adam_prism_particle_injection_object
 use :: adam_prism_rk_pic_object
-use :: adam_prism_rk_bc_object
+!use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! third party modules
 use :: motion
@@ -66,7 +66,7 @@ type, extends(realm_object) :: prism_common_object
    type(prism_particle_injection_object) :: particle_injection !< Particle injection.
    type(prism_physics_object)            :: physics            !< Physics configuration.
    type(prism_pic_object)                :: pic                !< PIC state.
-   type(prism_rk_bc_object)              :: rk_bc              !< Runge-Kutta BC handler.
+   !type(prism_rk_bc_object)              :: rk_bc              !< Runge-Kutta BC handler.
    type(prism_rk_pic_object)             :: rk_pic             !< Runge-Kutta PIC handler.
    type(prism_time_object)               :: time               !< Time integration state.
    contains
@@ -219,9 +219,9 @@ contains
    call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, physics=self%physics)
    call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, physics=self%physics, file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-      call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
-                                 rk=self%rk, physics=self%physics)
+   !if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
+   !   call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
+   !                              rk=self%rk, physics=self%physics)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)
@@ -314,28 +314,19 @@ contains
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
 
-   subroutine save_divergence_history(self, is_to_open, is_to_close)
+   subroutine save_divergence_history(self, is_to_open, is_to_close, div_D, div_B, div_J)
    !< Save divergence history.
    class(prism_common_object), intent(inout)        :: self        !< The equation.
    logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
-   real(R8P)                                        :: max_div_D   !< Maximum of divergence of D field.
-   real(R8P)                                        :: max_div_B   !< Maximum of divergence of B
-   real(R8P)                                        :: max_div_J   !< Maximum of divergence of J field.
-   !real(R8P)                                        :: r           !< Auxiliary variable to identify fWL presence
+   real(R8P),                  intent(in)           :: div_D       !< Maximum of divergence of D field.
+   real(R8P),                  intent(in)           :: div_B       !< Maximum of divergence of B
+   real(R8P),                  intent(in)           :: div_J       !< Maximum of divergence of J field.
 
-   !associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
-   !r = nint(real(C)/(real(C)+1_I4P))
    if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
-      !max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-      !                                       1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      !max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-      !                                       1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      !max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-      !                                       1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                &
-                                           div_D=self%max_divergence_D,div_B=self%max_divergence_B,div_J=self%max_divergence_J, &
-                                           is_to_open=is_to_open,is_to_close=is_to_close)
+      call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
+                                           div_D=div_D,div_B=div_B,div_J=div_J,is_to_open=is_to_open,            &
+                                           is_to_close=is_to_close)
    endif
    !endassociate
    endsubroutine save_divergence_history
