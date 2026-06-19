@@ -9,7 +9,8 @@ use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 ! PRISM modules
 use :: adam_prism_parameters
-use :: adam_prism_pic_object, only : prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM
+use :: adam_prism_pic_object, only: prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM, &
+                              UNIFORM_DOMAIN, UNIFORM_CILINDER, UNIFORM_CELL
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
@@ -22,9 +23,10 @@ public :: write_initial_injection_tab
 
 character(len=18), parameter :: INI_SECTION_NAME = 'particle_injection'
 
-character(len=33), parameter :: UNIFORM_DOMAIN_SPACE_DISTRIBUTION            = 'Uniform_domain_space_distribution'
-character(len=32), parameter :: UNIFORM_BOX_SPACE_DISTRIBUTION               = 'Uniform_boxes_space_distribution'
-character(len=31), parameter :: UNIFORM_CELL_SPACE_DISTRIBUTION              = 'Uniform_cell_space_distribution'
+!character(len=33), parameter :: UNIFORM_DOMAIN_SPACE_DISTRIBUTION            = 'Uniform_domain_space_distribution'
+!character(len=35), parameter :: UNIFORM_CILINDER_SPACE_DISTRIBUTION          = 'Uniform_cilinder_space_distribution'
+!character(len=32), parameter :: UNIFORM_BOX_SPACE_DISTRIBUTION               = 'Uniform_boxes_space_distribution'
+!character(len=31), parameter :: UNIFORM_CELL_SPACE_DISTRIBUTION              = 'Uniform_cell_space_distribution'
 character(len=29), parameter :: SPACE_RANDOM_NUMBER_GENERATOR                = 'Space_random_number_generator'
 character(len=30), parameter :: SPACE_LAYERED_NUMBER_GENERATOR               = 'Space_layered_number_generator'
 character(len=18), parameter :: UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION     = 'Uniform_Maxwellian'
@@ -41,7 +43,7 @@ procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_
                                                                                                          !< generator interface
 
 type :: prism_particle_injection_object
-   character(len=99)  :: space_distribution				    !< Particle space distribution type.
+   !character(len=99)  :: space_distribution				    !< Particle space distribution type.
    character(len=99)  :: space_random_number_generator	 !< Type of random number generator for space distribution
    real(R8P)		    :: box_number = 0.0_R8P				 !< Number of boxes in which ensure charge neutrality
    logical			    :: space_pairing = .false.			 !< Enable space pairing of particles
@@ -92,6 +94,7 @@ contains
    procedure, pass(self) :: load_from_file !< Load config from file.
    procedure, pass(self) :: set_particle_initial_injection
    procedure, pass(self) :: uniform_domain_space_injection
+   procedure, pass(self) :: uniform_cilinder_space_injection
    procedure, pass(self) :: uniform_cell_space_injection
    procedure, pass(self) :: uniform_maxwellian_velocity_injection
    procedure, pass(self) :: non_uniform_maxwellian_velocity_injection
@@ -105,16 +108,16 @@ interface
    class(prism_particle_injection_object), intent(inout) :: self
    type(field_object),                     intent(in) 	 :: field
    type(grid_object),                      intent(in)  	 :: grid
-   type(prism_pic_object),				   intent(in)  	 :: pic
+   type(prism_pic_object),				       intent(in)  	 :: pic
    real(R8P),                              intent(inout) :: q_pic(1:,1:)
    endsubroutine particle_space_injection_interface
 
 	subroutine space_random_number_generator_interface(N, shuffled_list, i_numb, r_n)
 	import :: I4P, R8P
-	integer(I4P), intent(inout)  :: shuffled_list(1:,1:)
+	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
 	integer(I4P), intent(in) 	 :: i_numb
 	integer(I4P), intent(in) 	 :: N
-	real(R8P), intent(inout) 	 :: r_n(1:)
+	real(R8P),    intent(inout) :: r_n(1:)
 	endsubroutine space_random_number_generator_interface
 
 	subroutine electrons_velocity_injection_interface(self, field, grid, pic, q_pic, particle_type)
@@ -149,10 +152,10 @@ interface
 
 	subroutine velocity_random_number_generator_interface(N, shuffled_list, i_numb, r_n)
 	import :: I4P, R8P
-	integer(I4P), intent(inout)  :: shuffled_list(1:,1:)
+	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
 	integer(I4P), intent(in) 	 :: i_numb
 	integer(I4P), intent(in) 	 :: N
-	real(R8P), intent(inout) 	 :: r_n(1:)
+	real(R8P),    intent(inout) :: r_n(1:)
 	endsubroutine velocity_random_number_generator_interface
 endinterface
 
@@ -167,10 +170,10 @@ contains
    desc =       mpih%myrankstr//'Particle injection object description:'
 
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
-   	desc = desc//NL//mpih%myrankstr//'    	Space initial distribution: '//self%space_distribution
-		if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
-			desc = desc//NL//mpih%myrankstr//'    	Number of boxes: '//trim(str(self%box_number))
-		endif
+   	!desc = desc//NL//mpih%myrankstr//'    	Space initial distribution: '//self%space_distribution
+		!if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
+		!	desc = desc//NL//mpih%myrankstr//'    	Number of boxes: '//trim(str(self%box_number))
+		!endif
 		desc = desc//NL//mpih%myrankstr//'    	Space random number generator: '//self%space_random_number_generator
 		desc = desc//NL//mpih%myrankstr//'    	Space pairing: '//trim(str(self%space_pairing))
 		desc = desc//NL//mpih%myrankstr//'    	Ions velocity initial distribution: '//trim(self%ions_velocity_distribution)
@@ -267,13 +270,15 @@ contains
    print '(A)', self%description(pic = pic)
 
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
-		select case(self%space_distribution)
-   	case(UNIFORM_CELL_SPACE_DISTRIBUTION)
+		select case(pic%plasma_domain)
+      case(UNIFORM_DOMAIN)
+   	   self%particle_space_injection => uniform_domain_space_injection
+      case(UNIFORM_CILINDER)
+   	   self%particle_space_injection => uniform_cilinder_space_injection
+   	case(UNIFORM_CELL)
    	   self%particle_space_injection => uniform_cell_space_injection
    	!case(UNIFORM_BOX_SPACE_DISTRIBUTION)
    	!   self%particle_space_injection => uniform_box_space_injection
-   	case(UNIFORM_DOMAIN_SPACE_DISTRIBUTION)
-   	   self%particle_space_injection => uniform_domain_space_injection
    	case default
    	   call mpih%error_stop &
 			(msg=': invalid particle space injection model in prism_particle_injection_object%initialize')
@@ -342,20 +347,20 @@ contains
 
 	go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_distribution', val=buff,error=error)
-   	if (.not.go_on_fail_.and.error>0) &
-   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_distribution) from file')
-   	select case(trim(adjustl(buff)))
-   	case('Domain_uniform', 'domain_uniform', 'domain_Uniform')
-   	   self%space_distribution = UNIFORM_DOMAIN_SPACE_DISTRIBUTION
-   	case('Box_uniform', 'box_uniform', 'box_Uniform')
-   	   self%space_distribution = UNIFORM_BOX_SPACE_DISTRIBUTION
-		case('Cell_uniform', 'cell_uniform', 'cell_Uniform')
-   	   self%space_distribution = UNIFORM_CELL_SPACE_DISTRIBUTION
-		case default
-			call mpih%error_stop(msg=': invalid particle space distribution ['//trim(adjustl(buff))//'] in  &
-   	   ['//INI_SECTION_NAME//'].(space_distribution)')
-		endselect
+		!call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_distribution', val=buff,error=error)
+   	!if (.not.go_on_fail_.and.error>0) &
+   	!   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_distribution) from file')
+   	!select case(trim(adjustl(buff)))
+   	!case('Domain_uniform', 'domain_uniform', 'domain_Uniform')
+   	!   self%space_distribution = UNIFORM_DOMAIN_SPACE_DISTRIBUTION
+   	!case('Box_uniform', 'box_uniform', 'box_Uniform')
+   	!   self%space_distribution = UNIFORM_BOX_SPACE_DISTRIBUTION
+		!case('Cell_uniform', 'cell_uniform', 'cell_Uniform')
+   	!   self%space_distribution = UNIFORM_CELL_SPACE_DISTRIBUTION
+		!case default
+		!	call mpih%error_stop(msg=': invalid particle space distribution ['//trim(adjustl(buff))//'] in  &
+   	!   ['//INI_SECTION_NAME//'].(space_distribution)')
+		!endselect
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, &
 										 option_name='space_random_number_generator', val=buff,error=error)
@@ -372,12 +377,12 @@ contains
    	   ['//INI_SECTION_NAME//'].(space_random_number_generator)')
 		endselect
 
-		if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
-			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_number', &
-   		val=self%box_number, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
-   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_number)')
-		endif
+		!if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
+		!	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_number', &
+   	!	val=self%box_number, error=error)
+   	!	if (.not.go_on_fail_.and.error>0) &
+   	!	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_number)')
+		!endif
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_pairing', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
@@ -682,12 +687,12 @@ contains
    subroutine uniform_domain_space_injection(self, field, grid, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self
 	type(field_object),                  	 intent(in) 	:: field
-	type(grid_object),                       intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
+	type(grid_object),                      intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
 	type(prism_pic_object),					 	 intent(in)		:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 	real(R8P)															:: r_n(3)
-	real(R8P)															:: domain_volume
 	real(R8P)															:: x_p, y_p, z_p
+   real(R8P)                                             :: domain_volume
 	integer(I4P)														:: i
 	integer(I4P), allocatable										:: shuffled_list_ions(:,:)
 	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
@@ -719,8 +724,6 @@ contains
 			q_pic(3,i) = z_p
 			q_pic(7,i) = -E_CHARGE
 			q_pic(8,i) = E_MASS
-			!Z0 = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
-			!Z1 = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 		enddo
 		do i = 1, n_electrons
 			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
@@ -744,11 +747,8 @@ contains
 			q_pic(7,i+n_ions+n_electrons) = 0.0_R8P
 			q_pic(8,i+n_ions+n_electrons) = E_MASS
 		enddo
-	!else
 
-	!endif
-
-	domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
+      domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
 
 	desc =       mpih%myrankstr//'Injected particles:'
    desc = desc//NL//mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
@@ -758,6 +758,116 @@ contains
 	print '(A)', desc
 	endassociate
 	endsubroutine uniform_domain_space_injection
+
+   subroutine uniform_cilinder_space_injection(self, field, grid, pic, q_pic)
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                      intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
+	type(prism_pic_object),					 	 intent(in)		:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+   real(R8P)                                             :: domain_volume
+   real(R8P)															:: r_n(3)
+   real(R8P)															:: r_p, theta_p, axial_p
+	real(R8P)															:: x_p, y_p, z_p
+	integer(I4P)														:: i
+	integer(I4P), allocatable										:: shuffled_list_ions(:,:)
+	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
+	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
+	character(len=:), allocatable		                   	:: desc
+   character(len=1), parameter  		                   	:: NL=new_line('a')
+
+
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk,               &
+      		ngc=>grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),             &
+      		np=>pic%particle_number, xyz_c=>pic%cilinder_center, Radius=>pic%cilinder_radius,         &
+				neutral_fraction=>pic%neutral_fraction, n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, &
+				n_neutrals=>pic%n_neutrals, length=>pic%cilinder_length, axis=>pic%cilinder_axis)
+
+	allocate(shuffled_list_ions	  (1:3,1:n_ions))
+	allocate(shuffled_list_electrons(1:3,1:n_electrons))
+	allocate(shuffled_list_neutrals (1:3,1:n_neutrals))
+	shuffled_list_ions(:,:) 	  = 0_I4P
+	shuffled_list_electrons(:,:) = 0_I4P
+	shuffled_list_neutrals(:,:)  = 0_I4P
+
+	!if(.not.space_pairing) then
+		do i = 1, n_ions
+			call space_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
+			r_p     = r_n(1)*(Radius)
+			theta_p = r_n(2)*(2*PI)
+			axial_p = -length/2+r_n(3)*(length)
+         call cylindrical_to_cartesian(r=r_p, theta=theta_p, axial=axial_p, x_c=xyz_c(1), y_c=xyz_c(2), &
+         z_c=xyz_c(3), normal=axis, x=x_p, y=y_p, z=z_p)
+			q_pic(1,i) = x_p
+			q_pic(2,i) = y_p
+			q_pic(3,i) = z_p
+			q_pic(7,i) = -E_CHARGE
+			q_pic(8,i) = E_MASS
+		enddo
+		do i = 1, n_electrons
+			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
+			r_p     = r_n(1)*(Radius)
+			theta_p = r_n(2)*(2*PI)
+			axial_p = -length/2+r_n(3)*(length)
+         call cylindrical_to_cartesian(r=r_p, theta=theta_p, axial=axial_p, x_c=xyz_c(1), y_c=xyz_c(2), &
+         z_c=xyz_c(3), normal=axis, x=x_p, y=y_p, z=z_p)
+			q_pic(1,i+n_ions) = x_p
+			q_pic(2,i+n_ions) = y_p
+			q_pic(3,i+n_ions) = z_p
+			q_pic(7,i+n_ions) = E_CHARGE
+			q_pic(8,i+n_ions) = E_MASS
+		enddo
+		do i = 1, n_neutrals
+			call space_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
+			r_p     = r_n(1)*(Radius)
+			theta_p = r_n(2)*(2*PI)
+			axial_p = -length/2+r_n(3)*(length)
+         call cylindrical_to_cartesian(r=r_p, theta=theta_p, axial=axial_p, x_c=xyz_c(1), y_c=xyz_c(2), &
+         z_c=xyz_c(3), normal=axis, x=x_p, y=y_p, z=z_p)
+			q_pic(1,i+n_ions+n_electrons) = x_p
+			q_pic(2,i+n_ions+n_electrons) = y_p
+			q_pic(3,i+n_ions+n_electrons) = z_p
+			q_pic(7,i+n_ions+n_electrons) = 0.0_R8P
+			q_pic(8,i+n_ions+n_electrons) = E_MASS
+		enddo
+
+      domain_volume = PI*Radius**2*length
+
+	desc =       mpih%myrankstr//'Injected particles:'
+   desc = desc//NL//mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
+	desc = desc//NL//mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
+	desc = desc//NL//mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
+	desc = desc//NL//mpih%myrankstr//'    	Effective plasma density: '//trim(str(real(np)/domain_volume))
+	print '(A)', desc
+	endassociate
+   endsubroutine uniform_cilinder_space_injection
+
+   pure subroutine cylindrical_to_cartesian(r, theta, axial, x_c, y_c, z_c, normal, x, y, z)
+   !< Convert cylindrical coordinates to cartesian coordinates with respect to the coil center and normal direction.
+   real(R8P),         intent(in)  :: r, theta, axial
+   real(R8P),         intent(in)  :: x_c, y_c, z_c
+   character(len=1 ), intent(in)  :: normal
+   real(R8P),         intent(out) :: x, y, z
+
+   select case (normal)
+
+   case ('x')
+      x = x_c + axial
+      y = y_c + r*cos(theta)
+      z = z_c + r*sin(theta)
+
+   case ('y')
+      x = x_c + r*sin(theta)
+      y = y_c + axial
+      z = z_c + r*cos(theta)
+
+   case ('z')
+      x = x_c + r*cos(theta)
+      y = y_c + r*sin(theta)
+      z = z_c + axial
+
+   endselect
+   endsubroutine cylindrical_to_cartesian
 
 	!subroutine uniform_box_space_injection(self, field, pic, q_pic)
 

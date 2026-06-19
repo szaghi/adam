@@ -25,6 +25,9 @@ public :: prism_pic_object
 !public :: field_weighting
 public :: PLASMA_TYPE_PROBLEM
 public :: SINGLE_PARTICLE_TYPE_PROBLEM
+public :: UNIFORM_DOMAIN
+public :: UNIFORM_CILINDER
+public :: UNIFORM_CELL
 !public :: CIC_WEIGHTING_MODEL
 !public :: NGP_WEIGHTING_MODEL
 !public :: TSC_WEIGHTING_MODEL
@@ -46,22 +49,27 @@ public :: ANALYTIC_BC
 !public :: zeroD_field_weighting
 !public :: oneD_field_weighting
 
-character(len=3 ), parameter :: INI_SECTION_NAME                 = 'PIC'             !< INI file section name for PIC configuration.
-character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'          !< Analyzing physical problem involving the presence of plasma
-character(len=8 ), parameter :: STANDARD_INITIALIZATION          = 'standard'        !< Field initialization through elliptic solver wuth standard laplacian scheme (7-points)
-character(len=8 ), parameter :: COHERENT_INITIALIZATION          = 'coherent'        !< Field initialization through elliptic solver wuth laplacian scheme coherent with centerd difference scheme (implemented only for 6th order)
-character(len=7 ), parameter :: NEUMANN_BC                       = 'neumann'         !< Neumann boundary condition
-character(len=9 ), parameter :: DIRICHLET_BC                     = 'dirichlet'       !< Dirichlet boundary condition
-character(len=5 ), parameter :: ANALYTIC_BC                      = 'analytic'        !< Analytic boundary condition
-character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle' !< Analyzing physical problem involving the presence of a single particle
-character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'             !< NGP weighting model.
-character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'             !< CIC weighting model.
-character(len=3 ), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'             !< TSC weighting model.
-character(len=8 ), parameter :: GAUSSIAN_WEIGHTING_MODEL         = 'Gaussian'        !< Gaussian weighting model.
-character(len=2 ), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL     = '0D'              !< 0D field weighting.
-character(len=2 ), parameter :: ONED_FIELDS_WEIGHTING_MODEL      = '1D'              !< 1D field weighting.
-character(len=8 ), parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG'        !< Leapfrog numerical scheme for time operator.
-character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'     !< Runge-Kutta numerical scheme for time operator.
+character(len=3 ), parameter :: INI_SECTION_NAME                 = 'PIC'              !< INI file section name for PIC configuration.
+character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'           !< Analyzing physical problem involving the presence of plasma
+character(len=8 ), parameter :: STANDARD_INITIALIZATION          = 'standard'         !< Field initialization through elliptic solver wuth standard laplacian scheme (7-points)
+character(len=8 ), parameter :: COHERENT_INITIALIZATION          = 'coherent'         !< Field initialization through elliptic solver wuth laplacian scheme coherent with centerd difference scheme (implemented only for 6th order)
+character(len=7 ), parameter :: NEUMANN_BC                       = 'neumann'          !< Neumann boundary condition
+character(len=9 ), parameter :: DIRICHLET_BC                     = 'dirichlet'        !< Dirichlet boundary condition
+character(len=5 ), parameter :: ANALYTIC_BC                      = 'analytic'         !< Analytic boundary condition
+character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle'  !< Analyzing physical problem involving the presence of a single particle
+character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'              !< NGP weighting model.
+character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'              !< CIC weighting model.
+character(len=3 ), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'              !< TSC weighting model.
+character(len=8 ), parameter :: GAUSSIAN_WEIGHTING_MODEL         = 'Gaussian'         !< Gaussian weighting model.
+character(len=2 ), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL     = '0D'               !< 0D field weighting.
+character(len=2 ), parameter :: ONED_FIELDS_WEIGHTING_MODEL      = '1D'               !< 1D field weighting.
+character(len=8 ), parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG'         !< Leapfrog numerical scheme for time operator.
+character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'      !< Runge-Kutta numerical scheme for time operator.
+character(len=14), parameter :: UNIFORM_DOMAIN                   = 'Uniform_domain'   !<
+character(len=16), parameter :: UNIFORM_CILINDER                 = 'Uniform_cilinder' !<
+character(len=12), parameter :: UNIFORM_CELL                     = 'Uniform_cell'     !<
+!character(len=32), parameter :: UNIFORM_BOX_SPACE_DISTRIBUTION   = 'Uniform_boxes_space_distribution'
+!character(len=31), parameter :: UNIFORM_CELL_SPACE_DISTRIBUTION  = 'Uniform_cell_space_distribution'
 
 ! PIC variables layout in q_pic array:
 !q_pic(1) = x
@@ -76,6 +84,10 @@ character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'
 type :: prism_pic_object
    real(R8P)                 :: plasma_density              !< Plasma density
    real(R8P)                 :: neutral_fraction = 0.0_R8P  !< Neutral fraction
+   real(R8P)		           :: cilinder_length = 0.0_R8P   !< 
+   real(R8P)		           :: cilinder_radius = 0.0_R8P   !< 
+   real(R8P)                 :: cilinder_center(3)          !<
+   character(len=1)          :: cilinder_axis               !<
    real(R8P)                 :: sigma = 0.0_R8P             !< Standard deviation for a gaussian weighting
    real(R8P)                 :: cutoff_sigma = 0._R8P       !< Gaussian cutoff.
    integer(I4P)              :: particle_number  = 0_I4P    !< Total number of particles.
@@ -84,6 +96,7 @@ type :: prism_pic_object
 	integer(I4P)				  :: n_neutrals = 0_I4P          !< Total neutrals number
    integer(I4P), allocatable :: neighbour_list(:,:)         !< Particle grid positions array.
    character(len=99)         :: problem_type                !< Type of problem analyzed
+   character(len=99)         :: plasma_domain               !< Domain of plasma at t0
    character(len=99)         :: initialization              !< field initialization solver
    character(len=99)         :: bc_solver                   !< boundary conditions for the elliptic solver for initial conditions
    logical                   :: elliptic_correction=.false. !< elliptic correction for the initial fields
@@ -161,19 +174,28 @@ contains
 
    desc =            mpih%myrankstr//'PIC object description:'
    desc = desc//NL//mpih%myrankstr//'    Problem type: '//trim(self%problem_type)
+   desc = desc//NL//mpih%myrankstr//'    Plasma initial domain: '//trim(self%plasma_domain)
+   if (self%problem_type == PLASMA_TYPE_PROBLEM) then
+      desc = desc//NL//mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
+      desc = desc//NL//mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
+      if (self%plasma_domain == UNIFORM_CILINDER) then
+			desc = desc//NL//mpih%myrankstr//'    	Cilinder radius: '//trim(str(self%cilinder_radius))
+         desc = desc//NL//mpih%myrankstr//'    	Cilinder length: '//trim(str(self%cilinder_length))
+         desc = desc//NL//mpih%myrankstr//'    	Cilinder x centre: '//trim(str(self%cilinder_center(1)))
+         desc = desc//NL//mpih%myrankstr//'    	Cilinder y centre: '//trim(str(self%cilinder_center(2)))
+         desc = desc//NL//mpih%myrankstr//'    	Cilinder z centre: '//trim(str(self%cilinder_center(3)))
+         desc = desc//NL//mpih%myrankstr//'    	Cilinder axis: '//trim(self%cilinder_axis)
+		endif
+      !desc = desc//NL//mpih%myrankstr//'    Total number of particles: '//trim(str(self%particle_number))
+      !desc = desc//NL//mpih%myrankstr//'    of which ions: '//trim(str(self%n_ions))
+      !desc = desc//NL//mpih%myrankstr//'    of which electrons: '//trim(str(self%n_electrons))
+      !desc = desc//NL//mpih%myrankstr//'    of which neutrals: '//trim(str(self%n_neutrals))
+   endif
    desc = desc//NL//mpih%myrankstr//'    Initialization type: '//trim(self%initialization)
    desc = desc//NL//mpih%myrankstr//'    Bc elliptic solver: '//trim(self%bc_solver)
    desc = desc//NL//mpih%myrankstr//'    Elliptic correction: '//trim(str(self%elliptic_correction))
    if (self%elliptic_correction) then
       desc = desc//NL//mpih%myrankstr//'    Bc elliptic correction: '//trim(self%bc_correction)
-   endif
-   if (self%problem_type == PLASMA_TYPE_PROBLEM) then
-      desc = desc//NL//mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
-      desc = desc//NL//mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
-      !desc = desc//NL//mpih%myrankstr//'    Total number of particles: '//trim(str(self%particle_number))
-      !desc = desc//NL//mpih%myrankstr//'    of which ions: '//trim(str(self%n_ions))
-      !desc = desc//NL//mpih%myrankstr//'    of which electrons: '//trim(str(self%n_electrons))
-      !desc = desc//NL//mpih%myrankstr//'    of which neutrals: '//trim(str(self%n_neutrals))
    endif
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
@@ -204,7 +226,13 @@ contains
                emin=>grid%domain_emin, emax=>grid%domain_emax)
 
    if (self%problem_type == PLASMA_TYPE_PROBLEM) then
-      domain_volume = (emax(1)-emin(1))*(emax(2)-emin(2))*(emax(3)-emin(3))
+      if (self%plasma_domain==UNIFORM_DOMAIN) then
+         domain_volume = (emax(1)-emin(1))*(emax(2)-emin(2))*(emax(3)-emin(3))
+      elseif (self%plasma_domain==UNIFORM_CILINDER) then
+         domain_volume = PI*self%cilinder_radius**2*self%cilinder_length
+      else
+         call mpih%error_stop(msg=': invalid plasma_domain for particle number computation')
+      endif
       self%particle_number = nint(self%plasma_density*domain_volume)
       self%n_neutrals = nint(self%neutral_fraction*real(self%particle_number,R8P))
 	   self%n_ions = nint(real(self%particle_number-self%n_neutrals, R8P)/2.0_R8P)
@@ -269,6 +297,93 @@ contains
    character(99)                                    :: buff       		!< Option character buffer.
 
 	go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='problem_type', &
+   val=self%problem_type, error=error)
+   if (.not.go_on_fail_.and.error>0) &
+   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
+
+   if(self%problem_type == PLASMA_TYPE_PROBLEM) then
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_domain', &
+      val=buff, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_domain)')
+
+      select case(trim(adjustl(buff)))
+      case('uniform', 'Uniform', 'UNIFORM', 'uniform_domain', 'all', 'full', 'Full', 'FULL')
+         self%plasma_domain = UNIFORM_DOMAIN
+      case('Cilinder', 'cilinder', 'CILINDER', 'uniform_cilinder', 'UNIFORM_CILINDER')
+         self%plasma_domain = UNIFORM_CILINDER
+      case default
+         call mpih%error_stop(msg=': invalid initial domain for the plasma ['//trim(adjustl(buff))//'] in  &
+         ['//INI_SECTION_NAME//'].(plasma_domain)')
+      endselect
+
+      if (self%plasma_domain == UNIFORM_CILINDER) then
+	      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_radius', &
+         val=self%cilinder_radius, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_radius)')
+
+	      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_length', &
+         val=self%cilinder_length, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_length)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_x_center', &
+         val=self%cilinder_center(1), error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_x_center)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_y_center', &
+         val=self%cilinder_center(2), error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_y_center)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_z_center', &
+         val=self%cilinder_center(3), error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_z_center)')
+
+	      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_axis', &
+         val=self%cilinder_axis, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_axis)')
+      endif
+
+	   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &
+      val=self%plasma_density, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_density)')
+
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
+      val=self%neutral_fraction, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
+   endif
+
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='initialization', &
+   val=self%initialization, error=error)
+   if (.not.go_on_fail_.and.error>0) &
+   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(initialization)')
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bc_solver', &
+   val=self%bc_solver, error=error)
+   if (.not.go_on_fail_.and.error>0) &
+   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bc_solver)')
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='elliptic_correction', &
+   val=self%elliptic_correction, error=error)
+   if (.not.go_on_fail_.and.error>0) &
+   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(elliptic_correction)')
+
+   if (self%elliptic_correction) then
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bc_correction', &
+      val=self%bc_correction, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bc_correction)')
+   endif
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
@@ -339,45 +454,6 @@ contains
       call mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to RK scheme')
       self%scheme_time = NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
    endselect
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='problem_type', &
-   val=self%problem_type, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='initialization', &
-   val=self%initialization, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(initialization)')
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bc_solver', &
-   val=self%bc_solver, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bc_solver)')
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='elliptic_correction', &
-   val=self%elliptic_correction, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(elliptic_correction)')
-
-   if (self%elliptic_correction) then
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bc_correction', &
-      val=self%bc_correction, error=error)
-      if (.not.go_on_fail_.and.error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bc_correction)')
-   endif
-
-   if(self%problem_type == PLASMA_TYPE_PROBLEM) then
-	   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &
-      val=self%plasma_density, error=error)
-      if (.not.go_on_fail_.and.error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_density)')
-
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
-      val=self%neutral_fraction, error=error)
-      if (.not.go_on_fail_.and.error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
-   endif
    endsubroutine load_from_file
 
    subroutine particle_cartesian_grid_index(self, field, grid, q_pic)
