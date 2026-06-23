@@ -980,7 +980,6 @@ contains
    integer(I4P)                       :: i,j,k,b                                         !< Counter.
 
    associate(dxyz=>self%adam%field%dxyz)
-      print *, self%ngc/2, self%ngc
    do b=1, self%blocks_number
    do k=1-self%ngc/2, self%nk+self%ngc/2
    do j=1-self%ngc/2, self%nj+self%ngc/2

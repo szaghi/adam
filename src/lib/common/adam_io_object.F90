@@ -212,7 +212,7 @@ contains
    logical                                :: is_to_open_       !< Flag to open  file before first saving, local var.
    logical                                :: is_to_close_      !< Flag to close file after last saving, local var.
 
-   if (mpih%myrank==0.and.it>0) then
+   if (mpih%myrank==0.and.it>=0) then !>= aggiunto da FN, era solo >
       is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
       is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
       if (is_to_open_) then
@@ -220,13 +220,15 @@ contains
          write(self%energy_history_unit,'(A)')&
                '%VARIABLES="it" "blocks_number" "time" "D_energy [J]" "B_energy [J]" "coil_power [W]" "Poynting_flux [W]"'
       endif
-      write(self%energy_history_unit, '(A)') trim(str(it               ))//' '//&
-                                             trim(str(blocks_number    ))//' '//&
-                                             trim(str(time             ))//' '//&
-                                             trim(str(energy_D(it)     ))//' '//&
-                                             trim(str(energy_B(it)     ))//' '//&
-                                             trim(str(coil_power(it)   ))//' '//&
-                                             trim(str(Poynting_flux(it)))
+      if (it > 0) then
+         write(self%energy_history_unit, '(A)') trim(str(it               ))//' '//&
+                                                trim(str(blocks_number    ))//' '//&
+                                                trim(str(time             ))//' '//&
+                                                trim(str(energy_D(it)     ))//' '//&
+                                                trim(str(energy_B(it)     ))//' '//&
+                                                trim(str(coil_power(it)   ))//' '//&
+                                                trim(str(Poynting_flux(it)))
+      endif
       if (is_to_close_) close(self%energy_history_unit)
    endif
    endsubroutine save_energy_history
@@ -245,7 +247,7 @@ contains
    logical                                :: is_to_open_       !< Flag to open  file before first saving, local var.
    logical                                :: is_to_close_      !< Flag to close file after last saving, local var.
 
-   if (mpih%myrank==0.and.it>0) then
+   if (mpih%myrank==0.and.it>=0) then !>= aggiunto da FN, era solo >
       is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
       is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
       if (is_to_open_) then
@@ -253,12 +255,14 @@ contains
          write(self%divergence_history_unit,'(A)')&
                '%VARIABLES="it" "blocks_number" "time" "D_divergence" "B_divergence" "J_divergence"'
       endif
-      write(self%divergence_history_unit, '(A)') trim(str(it               ))//' '//&
-                                                 trim(str(blocks_number    ))//' '//&
-                                                 trim(str(time             ))//' '//&
-                                                 trim(str(div_D            ))//' '//&
-                                                 trim(str(div_B            ))//' '//&
-                                                 trim(str(div_J            ))
+      if (it>0) then
+         write(self%divergence_history_unit, '(A)') trim(str(it               ))//' '//&
+                                                    trim(str(blocks_number    ))//' '//&
+                                                    trim(str(time             ))//' '//&
+                                                    trim(str(div_D            ))//' '//&
+                                                    trim(str(div_B            ))//' '//&
+                                                    trim(str(div_J            ))
+      endif
       if (is_to_close_) close(self%divergence_history_unit)
    endif
    endsubroutine save_divergence_history
