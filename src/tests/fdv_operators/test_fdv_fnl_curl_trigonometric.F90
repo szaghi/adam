@@ -106,6 +106,28 @@ do o=2, 10, 2
    print '(A)', '  Order '//trim(strz(o,2))//': Error L0 '//trim(str(maxval(error)))//', Error L2 '//trim(str(errorL2))
 enddo
 
+! test FV curl on device (rebuilt finite-volume centered scheme via gathered buffers)
+print '(A)', 'FV schemes (FNL device backend)'
+do o=2, 10, 2
+   s = o/2
+   call compute_curl_fv_dev_kernel(s=s, ni=n, gc_=gc, q_dev=q_dev, curl_dev=curl_dev)
+   call dev_memcpy_from_device(dst=curl_t, src=curl_dev)
+   do k=1, n
+      do j=1, n
+         do i=1, n
+            curl(1:3,i,j,k) = curl_t(i,j,k,1:3)
+         enddo
+      enddo
+   enddo
+   error = abs(curl - exact)
+   errorL2 = 0._R8P
+   do k=1, n ; do j=1, n ; do i=1, n ; do d=1, 3
+      errorL2 = errorL2 + error(d,i,j,k)*error(d,i,j,k)
+   enddo ; enddo ; enddo ; enddo
+   errorL2 = sqrt(errorL2*h*h)
+   print '(A)', '  Order '//trim(strz(o,2))//': Error L0 '//trim(str(maxval(error)))//', Error L2 '//trim(str(errorL2))
+enddo
+
 ! free device arrays
 call dev_free(q_dev,    mydev)
 call dev_free(curl_dev, mydev)
@@ -159,4 +181,51 @@ contains
    enddo
    enddo
    endsubroutine compute_curl_fd_dev_kernel
+
+   subroutine compute_curl_fv_dev_kernel(s, ni, gc_, q_dev, curl_dev)
+   !< Compute curl on device using the rebuilt FNL centered FV scheme.
+   !< Same gather as the FD kernel (six contiguous directional stencils); calls compute_curl_fv_centered_dev.
+   integer(I4P), intent(in)    :: s                                    !< Half stencil length (order = 2*s).
+   integer(I4P), intent(in)    :: ni                                   !< Number of interior cells per direction.
+   integer(I4P), intent(in)    :: gc_                                  !< Number of ghost cells.
+   real(R8P),    intent(in)    :: q_dev(   1-gc_:, 1-gc_:, 1-gc_:, 1:) !< Device field, FNL layout (i,j,k,nv).
+   real(R8P),    intent(inout) :: curl_dev(1:,     1:,     1:,     1:) !< Device curl result (i,j,k,nv).
+   integer(I4P) :: i, j, k, ist
+   real(R8P) :: qsx_y(1-s:1+s) !< Y component over x stencil.
+   real(R8P) :: qsx_z(1-s:1+s) !< Z component over x stencil.
+   real(R8P) :: qsy_x(1-s:1+s) !< X component over y stencil.
+   real(R8P) :: qsy_z(1-s:1+s) !< Z component over y stencil.
+   real(R8P) :: qsz_x(1-s:1+s) !< X component over z stencil.
+   real(R8P) :: qsz_y(1-s:1+s) !< Y component over z stencil.
+   real(R8P) :: dxyz(3) = [h,h,h]
+   real(R8P) :: curl_(3)
+
+   !$acc parallel loop independent collapse(3) gang vector &
+   !$acc& DEVICEVAR(q_dev, curl_dev)                       &
+   !$acc& firstprivate(s, ni, dxyz)                        &
+   !$acc& private(qsx_y, qsx_z, qsy_x, qsy_z, qsz_x, qsz_y, curl_)
+   do k=1, ni
+   do j=1, ni
+   do i=1, ni
+      !$acc loop seq
+      do ist=1-s, 1+s
+         qsx_y(ist) = q_dev(i+ist-1, j,       k,       2)
+         qsx_z(ist) = q_dev(i+ist-1, j,       k,       3)
+         qsy_x(ist) = q_dev(i,       j+ist-1, k,       1)
+         qsy_z(ist) = q_dev(i,       j+ist-1, k,       3)
+         qsz_x(ist) = q_dev(i,       j,       k+ist-1, 1)
+         qsz_y(ist) = q_dev(i,       j,       k+ist-1, 2)
+      enddo
+      call compute_curl_fv_centered_dev(s=s, dxyz=dxyz,          &
+                                        qsx_y=qsx_y, qsx_z=qsx_z,&
+                                        qsy_x=qsy_x, qsy_z=qsy_z,&
+                                        qsz_x=qsz_x, qsz_y=qsz_y,&
+                                        curl=curl_)
+      curl_dev(i,j,k,1) = curl_(1)
+      curl_dev(i,j,k,2) = curl_(2)
+      curl_dev(i,j,k,3) = curl_(3)
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_curl_fv_dev_kernel
 endprogram test_fdv_fnl_curl_trigonometric
