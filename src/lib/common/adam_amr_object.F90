@@ -16,6 +16,9 @@ public :: amr_marker_object
 public :: AMR_GEO
 public :: AMR_GRAD
 public :: AMR_TV
+public :: AMR_GEO_SOLID
+public :: AMR_GEO_PRIMITIVE_BOX
+public :: AMR_GEO_STL
 public :: AMR_DELTA_T_X
 public :: AMR_DELTA_T_Y
 public :: AMR_DELTA_T_Z
@@ -23,24 +26,34 @@ public :: AMR_DELTA_T_MAX
 
 character(len=3), parameter :: INI_SECTION_NAME="amr" !< INI (config) file section name containing AMR markers configs.
 
-integer(I4P), parameter :: AMR_GEO         = 1_I4P !< Geometrical marker.
-integer(I4P), parameter :: AMR_GRAD        = 2_I4P !< Field gradient marker.
-integer(I4P), parameter :: AMR_TV          = 3_I4P !< Field total variation marker.
-character(1), parameter :: AMR_DELTA_T_X   = 'x'   !< Delta criterion type, dx.
-character(1), parameter :: AMR_DELTA_T_Y   = 'y'   !< Delta criterion type, dy.
-character(1), parameter :: AMR_DELTA_T_Z   = 'z'   !< Delta criterion type, dz.
-character(3), parameter :: AMR_DELTA_T_MAX = 'max' !< Delta criterion type, max(dx,dy,dz).
+! AMR_GEO geometry kinds. Offset to 100+ so they never numerically collide with the marker
+! modes (AMR_GEO/AMR_GRAD/AMR_TV = 1/2/3) — the two enums occupy distinct integer ranges.
+integer(I4P), parameter :: AMR_GEO               = 1_I4P   !< Geometrical marker.
+integer(I4P), parameter :: AMR_GRAD              = 2_I4P   !< Field gradient marker.
+integer(I4P), parameter :: AMR_TV                = 3_I4P   !< Field total variation marker.
+integer(I4P), parameter :: AMR_GEO_SOLID         = 101_I4P !< AMR_GEO geometry kind: solid/IB index (legacy default).
+integer(I4P), parameter :: AMR_GEO_PRIMITIVE_BOX = 102_I4P !< AMR_GEO geometry kind: primitive axis-aligned box.
+integer(I4P), parameter :: AMR_GEO_STL           = 103_I4P !< AMR_GEO geometry kind: STL surface file.
+character(1), parameter :: AMR_DELTA_T_X         = 'x'     !< Delta criterion type, dx.
+character(1), parameter :: AMR_DELTA_T_Y         = 'y'     !< Delta criterion type, dy.
+character(1), parameter :: AMR_DELTA_T_Z         = 'z'     !< Delta criterion type, dz.
+character(3), parameter :: AMR_DELTA_T_MAX       = 'max'   !< Delta criterion type, max(dx,dy,dz).
 
 type :: amr_marker_object
    !< AMR marker object.
-   integer(I4P)              :: mode=AMR_GRAD !< Marker mode.
-   character(:), allocatable :: delta_type    !< Type of delta criterion: 'x','y','z','max' (max=> max(x,y,z)).
-   real(R8P)                 :: delta_fine    !< Fine cell space step.
-   real(R8P)                 :: delta_coarse  !< Coarse cell space step.
-   integer(I4P)              :: field=1_I4P   !< Field array containing the marker variable, 1=q, 2=q_aux.
-   integer(I4P)              :: ivar=1_I4P    !< Array index of variable used by refinement criterion.
-   real(R8P)                 :: tol=0.5_R8P   !< Tolerance.
-   integer(I4P)              :: solid=1_I4P   !< Solid number.
+   integer(I4P)              :: mode=AMR_GRAD          !< Marker mode.
+   character(:), allocatable :: delta_type             !< Type of delta criterion: 'x','y','z','max' (max=> max(x,y,z)).
+   real(R8P)                 :: delta_fine             !< Fine cell space step.
+   real(R8P)                 :: delta_coarse           !< Coarse cell space step.
+   integer(I4P)              :: field=1_I4P            !< Field array containing the marker variable, 1=q, 2=q_aux.
+   integer(I4P)              :: ivar=1_I4P             !< Array index of variable used by refinement criterion.
+   real(R8P)                 :: tol=0.5_R8P            !< Tolerance.
+   integer(I4P)              :: solid=1_I4P            !< Solid number (AMR_GEO + AMR_GEO_SOLID).
+   integer(I4P)              :: geo_type=AMR_GEO_SOLID !< AMR_GEO geometry kind: solid|primitive|stl (default solid => legacy).
+   real(R8P)                 :: box_emin(3)=0._R8P     !< Primitive box minimum corner (AMR_GEO + AMR_GEO_PRIMITIVE_BOX).
+   real(R8P)                 :: box_emax(3)=0._R8P     !< Primitive box maximum corner (AMR_GEO + AMR_GEO_PRIMITIVE_BOX).
+   integer(I4P)              :: target_level=1_I4P     !< Refine blocks below this level (AMR_GEO + AMR_GEO_PRIMITIVE_BOX).
+   character(:), allocatable :: stl_filename           !< STL surface file (AMR_GEO + AMR_GEO_STL).
 endtype amr_marker_object
 
 type :: amr_object
@@ -77,6 +90,7 @@ contains
    desc = desc//NL//mpih%myrankstr//'    ivar:            '//trim(str(self%markers(m)%ivar        ))
    desc = desc//NL//mpih%myrankstr//'    tol:             '//trim(str(self%markers(m)%tol         ))
    desc = desc//NL//mpih%myrankstr//'    solid:           '//trim(str(self%markers(m)%solid       ))
+   desc = desc//NL//mpih%myrankstr//'    geo_type:        '//trim(str(self%markers(m)%geo_type    ))
    enddo
    endif
    endfunction description
@@ -125,8 +139,47 @@ contains
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_coarse)')
       select case(self%markers(i_marker)%mode)
       case(AMR_GEO)
-         call file_parameters%get(section_name=sname, option_name='solid', val=self%markers(i_marker)%solid, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(solid)')
+         call file_parameters%get(section_name=sname, option_name='geo_type', val=buff_c, error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(geo_type)')
+         select case(trim(adjustl(buff_c)))
+         case('solid')         ; self%markers(i_marker)%geo_type = AMR_GEO_SOLID
+         case('primitive-box') ; self%markers(i_marker)%geo_type = AMR_GEO_PRIMITIVE_BOX
+         case('stl')           ; self%markers(i_marker)%geo_type = AMR_GEO_STL
+         case default
+            call mpih%error_stop(msg=': unknown AMR_GEO geo_type "'//trim(adjustl(buff_c))// &
+                                     '" in ['//sname//'] (expected: solid | primitive-box | stl)')
+         endselect
+         select case(self%markers(i_marker)%geo_type)
+         case(AMR_GEO_SOLID)
+            call file_parameters%get(section_name=sname, option_name='solid', val=self%markers(i_marker)%solid, error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(solid)')
+         case(AMR_GEO_PRIMITIVE_BOX)
+            call file_parameters%get(section_name=sname, option_name='box_xmin', &
+                                     val=self%markers(i_marker)%box_emin(1), error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_xmin)')
+            call file_parameters%get(section_name=sname, option_name='box_ymin', &
+                                     val=self%markers(i_marker)%box_emin(2), error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_ymin)')
+            call file_parameters%get(section_name=sname, option_name='box_zmin', &
+                                     val=self%markers(i_marker)%box_emin(3), error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_zmin)')
+            call file_parameters%get(section_name=sname, option_name='box_xmax', &
+                                     val=self%markers(i_marker)%box_emax(1), error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_xmax)')
+            call file_parameters%get(section_name=sname, option_name='box_ymax', &
+                                     val=self%markers(i_marker)%box_emax(2), error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_ymax)')
+            call file_parameters%get(section_name=sname, option_name='box_zmax', &
+                                     val=self%markers(i_marker)%box_emax(3), error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_zmax)')
+            call file_parameters%get(section_name=sname, option_name='target_level', &
+                                     val=self%markers(i_marker)%target_level, error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(target_level)')
+         case(AMR_GEO_STL)
+            call file_parameters%get(section_name=sname, option_name='stl_filename', val=buff_c, error=error)
+            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(stl_filename)')
+            self%markers(i_marker)%stl_filename = trim(adjustl(buff_c))
+         endselect
       case(AMR_GRAD,AMR_TV)
          call file_parameters%get(section_name=sname, option_name='field', val=self%markers(i_marker)%field, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')

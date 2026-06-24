@@ -32,6 +32,7 @@ paths =  fobos.d/templates.fobos
         ?fobos.d/patch.fobos
         ?fobos.d/nasto.fobos
         ?fobos.d/tests_fdv.fobos
+        ?fobos.d/tests_amr.fobos
 
 [varsets]
 default = local_gnu
