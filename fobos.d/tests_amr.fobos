@@ -1,0 +1,12 @@
+[modes]
+modes = test-amr-geo-box-gnu                          test-amr-geo-box-gnu-debug
+
+[test-amr-geo-box-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_amr_geo_box.F90
+
+[test-amr-geo-box-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_amr_geo_box.F90

@@ -1179,7 +1179,7 @@ contains
       real(R8P) :: qsx_x(1-FDV_S_MAX:1+FDV_S_MAX) !< X component of vector field over the x stencil.
       real(R8P) :: qsy_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the y stencil.
       real(R8P) :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the z stencil.
-      
+
       if (self%physics%physical_model == EM_PHYSICAL_MODEL .or.  self%physics%physical_model == PIC_PHYSICAL_MODEL) then
 		   if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
             self%numerics%constrained_transport_D .and. &
@@ -2021,6 +2021,9 @@ contains
    real(R8P),               intent(in),    optional :: memory_avail  !< Per-process memory budget override.
    integer(I4P),            intent(in),    optional :: nv            !< Number of field variables override.
    logical,                 intent(in),    optional :: verbose       !< Trigger verbose output.
+   real(R8P)                                        :: max_div_D     !< Maximum of divergence of D field.
+   real(R8P)                                        :: max_div_B     !< Maximum of divergence of B
+   real(R8P)                                        :: max_div_J     !< Maximum of divergence of J field.
    integer(I4P)                                     :: i             !< Counter.
    integer(I4P)                                     :: n             !< Coil counter.
    integer(I4P)                                     :: b             !< Block counter.
@@ -2069,7 +2072,7 @@ contains
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.) !Cazzo
    call self%compute_max_divergence
-   call self%save_divergence_history(is_to_open=.true.) !Cazzo
+   call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J) !Cazzo
    call self%io%open_file_residuals(nv=self%nv)
 
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
@@ -2450,6 +2453,9 @@ contains
    logical,                 intent(in),    optional         :: do_save_restart   !< Save restart dump this step.
    logical,                 intent(in),    optional         :: do_amr            !< Run AMR update this step.
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms for inter-realm halo refresh.
+   real(R8P)                                                :: max_div_D         !< Maximum of divergence of D field.
+   real(R8P)                                                :: max_div_B         !< Maximum of divergence of B
+   real(R8P)                                                :: max_div_J         !< Maximum of divergence of J field.
 
    if (self%io%save_memory_status) then
       call save_memory_status_cpu(file_name='memory_cpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
@@ -2466,7 +2472,7 @@ contains
    !call self%save_energy_error !Cazzo
    call self%save_energy_history !Cazzo
    call self%compute_max_divergence
-   call self%save_divergence_history !Cazzo
+   call self%save_divergence_history(div_D=max_div_D, div_B=max_div_B, div_J=max_div_J) !Cazzo
    endsubroutine post_step_forest
 
    ! numerical methods

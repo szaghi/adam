@@ -90,31 +90,31 @@ do o=2, 10, 2
       if (s_d(6,o,2)<=gc) &
       call compute_derivative6_fv_centered(s=s_d(6,o,2),ds=dx,q=sin0(i-s_d(6,o,2):i+s_d(6,o,2)),d6q_ds6=sind(i,6,o,2))
 
+      ! right-upwind: d1 keeps the legacy m=0 flux-difference window [i:i+s]; rebuilt d2..d5 use the
+      ! one-sided window reaching cells i-s..i (q(1-s:1) convention). d6 unsupported at S_MAX=5.
       if (s_d(1,o,3)<=gc) &
       call compute_derivative1_fv_rupwind( s=s_d(1,o,3),ds=dx,q=sin0(i           :i+s_d(1,o,3)),dq_ds  =sind(i,1,o,3))
       if (s_d(2,o,3)<=gc) &
-      call compute_derivative2_fv_rupwind( s=s_d(2,o,3),ds=dx,q=sin0(i           :i+s_d(2,o,3)),d2q_ds2=sind(i,2,o,3))
+      call compute_derivative2_fv_rupwind( s=s_d(2,o,3),ds=dx,q=sin0(i-s_d(2,o,3):i           ),d2q_ds2=sind(i,2,o,3))
       if (s_d(3,o,3)<=gc) &
-      call compute_derivative3_fv_rupwind( s=s_d(3,o,3),ds=dx,q=sin0(i           :i+s_d(3,o,3)),d3q_ds3=sind(i,3,o,3))
+      call compute_derivative3_fv_rupwind( s=s_d(3,o,3),ds=dx,q=sin0(i-s_d(3,o,3):i           ),d3q_ds3=sind(i,3,o,3))
       if (s_d(4,o,3)<=gc) &
-      call compute_derivative4_fv_rupwind( s=s_d(4,o,3),ds=dx,q=sin0(i           :i+s_d(4,o,3)),d4q_ds4=sind(i,4,o,3))
+      call compute_derivative4_fv_rupwind( s=s_d(4,o,3),ds=dx,q=sin0(i-s_d(4,o,3):i           ),d4q_ds4=sind(i,4,o,3))
       if (s_d(5,o,3)<=gc) &
-      call compute_derivative5_fv_rupwind( s=s_d(5,o,3),ds=dx,q=sin0(i           :i+s_d(5,o,3)),d5q_ds5=sind(i,5,o,3))
-      if (s_d(6,o,3)<=gc) &
-      call compute_derivative6_fv_rupwind( s=s_d(6,o,3),ds=dx,q=sin0(i           :i+s_d(6,o,3)),d6q_ds6=sind(i,6,o,3))
+      call compute_derivative5_fv_rupwind( s=s_d(5,o,3),ds=dx,q=sin0(i-s_d(5,o,3):i           ),d5q_ds5=sind(i,5,o,3))
 
+      ! left-upwind: d1 keeps legacy window [i-s:i]; rebuilt d2..d5 use the one-sided window reaching
+      ! cells i..i+s (q(0:s) convention). d6 unsupported at S_MAX=5.
       if (s_d(1,o,4)<=gc) &
       call compute_derivative1_fv_lupwind( s=s_d(1,o,4),ds=dx,q=sin0(i-s_d(1,o,4):i           ),dq_ds  =sind(i,1,o,4))
       if (s_d(2,o,4)<=gc) &
-      call compute_derivative2_fv_lupwind( s=s_d(2,o,4),ds=dx,q=sin0(i-s_d(2,o,4):i           ),d2q_ds2=sind(i,2,o,4))
+      call compute_derivative2_fv_lupwind( s=s_d(2,o,4),ds=dx,q=sin0(i           :i+s_d(2,o,4)),d2q_ds2=sind(i,2,o,4))
       if (s_d(3,o,4)<=gc) &
-      call compute_derivative3_fv_lupwind( s=s_d(3,o,4),ds=dx,q=sin0(i-s_d(3,o,4):i           ),d3q_ds3=sind(i,3,o,4))
+      call compute_derivative3_fv_lupwind( s=s_d(3,o,4),ds=dx,q=sin0(i           :i+s_d(3,o,4)),d3q_ds3=sind(i,3,o,4))
       if (s_d(4,o,4)<=gc) &
-      call compute_derivative4_fv_lupwind( s=s_d(4,o,4),ds=dx,q=sin0(i-s_d(4,o,4):i           ),d4q_ds4=sind(i,4,o,4))
+      call compute_derivative4_fv_lupwind( s=s_d(4,o,4),ds=dx,q=sin0(i           :i+s_d(4,o,4)),d4q_ds4=sind(i,4,o,4))
       if (s_d(5,o,4)<=gc) &
-      call compute_derivative5_fv_lupwind( s=s_d(5,o,4),ds=dx,q=sin0(i-s_d(5,o,4):i           ),d5q_ds5=sind(i,5,o,4))
-      if (s_d(6,o,4)<=gc) &
-      call compute_derivative6_fv_lupwind( s=s_d(6,o,4),ds=dx,q=sin0(i-s_d(6,o,4):i           ),d6q_ds6=sind(i,6,o,4))
+      call compute_derivative5_fv_lupwind( s=s_d(5,o,4),ds=dx,q=sin0(i           :i+s_d(5,o,4)),d5q_ds5=sind(i,5,o,4))
    enddo
    do s=1, 4
       do d=1, 6

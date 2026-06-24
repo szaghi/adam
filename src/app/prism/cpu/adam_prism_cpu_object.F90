@@ -30,6 +30,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       ! AMR methods
       procedure, pass(self) :: amr_update                    !< Do AMR update.
       procedure, pass(self) :: mark_by_j_vec_total_variation !< Mark blocks to be refined/derefined by j_vec total variation.
+      procedure, pass(self) :: mark_by_geometry              !< Mark blocks to be refined by a primitive geometric box.
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu     !< Allocate CPU data.
       procedure, pass(self) :: initialize_prism !< Initialize PRSIM equation.
@@ -59,6 +60,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: finalize_forest              !< Invoked by forest%finalize per realm at shutdown.
       procedure, pass(self) :: fill_seam_from_peer_forest   !< Copy peer's interior into self's ghosts for peer slot p_idx.
       procedure, pass(self) :: apply_reflux_to_stage_forest !< Apply Berger-Colella reflux to self's RK stage buffer.
+      procedure, pass(self) :: apply_induction_flux_sharing_forest !< Replace seam B-flux with shared canonical value (#13 Phase B).
       ! numerical methods
       procedure, pass(self) :: compute_dt                   !< Compute time step.
       procedure, pass(self) :: compute_energy               !< Compute energy.
@@ -116,6 +118,14 @@ contains
          amr_marker = self%amr%markers(i_marker)
          select case(amr_marker%mode)
          case(AMR_GEO)
+            select case(amr_marker%geo_type)
+            case(AMR_GEO_PRIMITIVE_BOX)
+               call self%mark_by_geometry(box_emin=amr_marker%box_emin, box_emax=amr_marker%box_emax, &
+                                          target_level=amr_marker%target_level)
+            case(AMR_GEO_STL)
+               call mpih%error_stop(msg='prism_cpu_object%amr_update: AMR_GEO_STL not yet implemented')
+            case default ! AMR_GEO_SOLID: legacy IB-driven path, not yet implemented as a marker (no-op).
+            endselect
          case(AMR_GRAD)
          case(AMR_TV)
                call self%mark_by_j_vec_total_variation(tv_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
@@ -200,6 +210,40 @@ contains
       endfunction max_cell_delta_tv
    endsubroutine mark_by_j_vec_total_variation
 
+   subroutine mark_by_geometry(self, box_emin, box_emax, target_level, do_init)
+   !< Mark blocks to be refined by a primitive axis-aligned box (deterministic, solution-independent).
+   !<
+   !< A block is flagged `TO_BE_REFINED` iff its centroid lies inside `[box_emin, box_emax]` AND its
+   !< current refinement level is below `target_level`. This is the AMR_GEO + AMR_GEO_PRIMITIVE_BOX marker:
+   !< it produces a deterministic 2:1 coarse-fine jump at known coordinates, decoupled from the IB/solid
+   !< geometry, for the issue #13 intra-realm AMR seam test fixture (#13 §7.5, M0).
+   class(prism_cpu_object), intent(inout)        :: self         !< The equation.
+   real(R8P),               intent(in)           :: box_emin(3)  !< Box minimum corner.
+   real(R8P),               intent(in)           :: box_emax(3)  !< Box maximum corner.
+   integer(I4P),            intent(in)           :: target_level !< Refine blocks below this level.
+   logical,                 intent(in), optional :: do_init      !< Re-initialize refinements queries.
+   logical                                       :: do_init_     !< Re-initialize refinements queries, local var.
+   real(R8P)                                     :: centroid(3)  !< Block centroid.
+   integer(I4P)                                  :: b            !< Counter.
+
+   ! A geometric refine-region marker is *additive*: it refines blocks inside the box and
+   ! leaves every other block untouched (TO_NOT_TOUCH), so it does not fight other markers by
+   ! forcing coarsening outside the region. Hence do_init seeds TO_NOT_TOUCH, not TO_BE_DEREFINED
+   ! (the latter is the total-variation marker's aggressive-coarsening policy, not this one's).
+   do_init_ = .true. ; if (present(do_init)) do_init_ = do_init
+   if (do_init_) self%adam%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%blocks_number)]
+   associate (emin=>self%adam%field%emin, emax=>self%adam%field%emax, code=>self%adam%field%code, &
+              tree=>self%adam%tree, refinements_needed=>self%adam%field%refinements_needed)
+      do b=1, self%blocks_number
+         centroid = 0.5_R8P * (emin(:,b) + emax(:,b))
+         if (all(centroid >= box_emin) .and. all(centroid <= box_emax) .and. &
+             tree%level(code(b)) < target_level) then
+            refinements_needed(b) = TO_BE_REFINED
+         endif
+      enddo
+   endassociate
+   endsubroutine mark_by_geometry
+
    ! auxiliary methods
    subroutine allocate_cpu(self)
    !< Allocate CPU data.
@@ -245,7 +289,7 @@ contains
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
-   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. & 
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. &
          self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)        ; self%integrate => integrate_blanesmoan
@@ -674,7 +718,7 @@ contains
                                                                                              !Al momento scritta per funzionare solo
                                                                                              !con un secondo ordine
       call mpih%error_stop(msg='radiative BC not already implemented')
-      
+
       !if (present(s)) then
       !   if (s==1_I4P) call self%rk_bc%initialize_stages(field=self%adam%field, q=q)
       !   if (self%ib%solids_number>0) then !calcolo stadio per le BC
@@ -1268,14 +1312,14 @@ contains
    integer(I4P)                               :: ni_, nj_, nk_
    real(R8P)                                  :: dx_coarse, weight, scale_
 
-   if (.not. flux_register%is_initialized_) return
-   if (flux_register%nfaces == 0_I4P)        return
-   if (.not. allocated(flux_register%face))  return
+   if (.not. flux_register%is_initialized_)    return
+   if (flux_register%nfaces == 0_I4P)          return
+   if (.not. allocated(flux_register%face))    return
    if (stage < 1_I4P .or. stage > self%rk%nrk) return
    ! α.r1 end-of-step gate: reflux fires once per realm per step at the
    ! realm's own final RK substage. Earlier stages no-op.
-   if (stage /= self%rk%nrk)                 return
-   if (.not. allocated(self%rk%ark))         return
+   if (stage /= self%rk%nrk)         return
+   if (.not. allocated(self%rk%ark)) return
    weight = self%rk%ark(stage)
 
    ni_ = self%adam%grid%ni
@@ -1322,6 +1366,109 @@ contains
       end associate
    enddo
    endsubroutine apply_reflux_to_stage_forest
+
+   subroutine apply_induction_flux_sharing_forest(self, stage, flux_register)
+   !< PRISM-CPU shared-induction-flux correction for algebraic ∇·B at a seam
+   !< (issue #13 Phase B).
+   !<
+   !< **The cell-centered analogue of constrained-transport edge-E sharing.**
+   !< PRISM stores no edge-centered electric field; its induction update is a
+   !< finite-volume flux divergence of the face-centered Maxwell flux
+   !< (`dq(B) = -(flx_f(i) - flx_f(i-1))/dx - ...`). The seam's discrete ∇·B
+   !< telescopes to zero iff the magnetic-field face flux is the *same canonical
+   !< value* on both sides of the seam — exactly the property a shared edge-E
+   !< would give in a face-staggered code. This routine writes that shared value
+   !< back into the realm's own seam face flux (the induction rows
+   !< VAR_BX/VAR_BY/VAR_BZ only) before the conservative-difference loop in
+   !< `compute_residuals_fv_centered` consumes it.
+   !<
+   !< The canonical value is the mean of the two sides' accumulated B-flux,
+   !<     `flx_f(VAR_B*, seam) := 1/2 (F_coarse(VAR_B*) + F_fine_sum(VAR_B*))`,
+   !< read from the same `flux_register` Phase A's reflux uses — the B rows are
+   !< already packed there by `accumulate_seam_fluxes_fv`. For a 2:1 AMR jump the
+   !< fine side stores its area-summed flux, so the mean is the conservative
+   !< coarse-edge average (Olivares 2019 §4.2.1 restriction); for the
+   !< same-resolution mirror seam the two sides are equal and the write-back is a
+   !< round-off no-op against the bit-exact regression.
+   !<
+   !< **α.r1 cadence.** Like the reflux TBP this fires once per realm per step at
+   !< the realm's final RK substage (`stage == self%rk%nrk`); the register's third
+   !< axis is collapsed to 1. It must run AFTER both sides have accumulated their
+   !< end-of-step B flux — the forest orchestrates that ordering (the call sits in
+   !< the same end-of-step phase as `apply_reflux_corrections`).
+   !<
+   !< Only faces with `face%coarse_realm == self%realm_index` are touched; the
+   !< pack/unpack tangential-cell convention matches `accumulate_seam_fluxes_fv`
+   !< so the per-cell index `c` addresses the same physical cell on both sides.
+   class(prism_cpu_object),     intent(inout) :: self          !< The realm.
+   integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
+   class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register (B rows carry the seam flux).
+   integer(I4P)                               :: f, c, c0      !< Face / seam-cell counters.
+   integer(I4P)                               :: axis, sgn     !< Decoded seam-face axis/sign.
+   integer(I4P)                               :: i_s, j_s, k_s !< Seam cell index.
+   integer(I4P)                               :: ni_, nj_, nk_ !< Interior cell counts.
+   integer(I4P)                               :: vb            !< B-row counter.
+   real(R8P)                                  :: canon         !< Canonical (shared) B flux for one cell/row.
+   integer(I4P), parameter                    :: bvar(3) = [VAR_BX, VAR_BY, VAR_BZ] !< Induction rows.
+
+   if (.not. flux_register%is_initialized_)    return
+   if (flux_register%nfaces == 0_I4P)          return
+   if (.not. allocated(flux_register%face))    return
+   if (stage < 1_I4P .or. stage > self%rk%nrk) return
+   if (stage /= self%rk%nrk)                   return  ! α.r1 end-of-step gate (mirrors reflux).
+
+   ni_ = self%adam%grid%ni
+   nj_ = self%adam%grid%nj
+   nk_ = self%adam%grid%nk
+
+   do f = 1_I4P, flux_register%nfaces
+      associate(face_f => flux_register%face(f))
+      if (face_f%coarse_realm /= self%realm_index) cycle
+      if (.not. allocated(face_f%F_coarse))        cycle
+      if (.not. allocated(face_f%F_fine_sum))      cycle
+
+      call face_axis_sign(face_f%coarse_face, axis, sgn)
+      if (axis == 0_I4P) cycle
+
+      do c = 1_I4P, face_f%nface_cells
+         c0 = c - 1_I4P
+         ! Seam-cell index + the canonical write-back, per induction row. The
+         ! tangential walk matches accumulate_seam_fluxes_fv: x-normal walks
+         ! (j outer? no — j inner, k outer): c = (k-1)*nj + j there, i.e.
+         ! j = 1+mod(c0,nj), k = 1+c0/nj. y-normal: i inner, k outer. z-normal:
+         ! i inner, j outer.
+         select case (axis)
+         case (1_I4P)  ! x-normal: write into flx_f at i = {0,ni}.
+            i_s = merge(ni_, 0_I4P, sgn > 0_I4P)
+            j_s = 1_I4P + mod(c0, nj_)
+            k_s = 1_I4P + c0 / nj_
+            do vb = 1_I4P, 3_I4P
+               canon = 0.5_R8P * (face_f%F_coarse(bvar(vb), c, 1) + face_f%F_fine_sum(bvar(vb), c, 1))
+               self%flx_f(bvar(vb), i_s, j_s, k_s, face_f%coarse_block) = canon
+            enddo
+         case (2_I4P)  ! y-normal: write into fly_f at j = {0,nj}.
+            i_s = 1_I4P + mod(c0, ni_)
+            j_s = merge(nj_, 0_I4P, sgn > 0_I4P)
+            k_s = 1_I4P + c0 / ni_
+            do vb = 1_I4P, 3_I4P
+               canon = 0.5_R8P * (face_f%F_coarse(bvar(vb), c, 1) + face_f%F_fine_sum(bvar(vb), c, 1))
+               self%fly_f(bvar(vb), i_s, j_s, k_s, face_f%coarse_block) = canon
+            enddo
+         case (3_I4P)  ! z-normal: write into flz_f at k = {0,nk}.
+            i_s = 1_I4P + mod(c0, ni_)
+            j_s = 1_I4P + c0 / ni_
+            k_s = merge(nk_, 0_I4P, sgn > 0_I4P)
+            do vb = 1_I4P, 3_I4P
+               canon = 0.5_R8P * (face_f%F_coarse(bvar(vb), c, 1) + face_f%F_fine_sum(bvar(vb), c, 1))
+               self%flz_f(bvar(vb), i_s, j_s, k_s, face_f%coarse_block) = canon
+            enddo
+         case default
+            cycle
+         end select
+      enddo
+      end associate
+   enddo
+   endsubroutine apply_induction_flux_sharing_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run PRISM-CPU's per-timestep post-step work: state IO, energy
@@ -1816,7 +1963,7 @@ contains
    endsubroutine impose_ct_correction
 
    subroutine impose_pic_fields_time_zero(self, ivar)
-   !< Compute initial condition for the fields in presence of plasma 
+   !< Compute initial condition for the fields in presence of plasma
    class(prism_cpu_object), intent(inout) :: self            !< The equation.
    integer(I4P),            intent(in)    :: ivar            !< Variable (start) index in q.
    real(R8P)                              :: dphi_max        !< Maximum residual.
@@ -1849,7 +1996,7 @@ contains
                        1:nb))
             phi (:,:,:,:,:) = 0._R8P
             dphi(:,:,:,:,:) = 0._R8P
-            f   (:,:,:,:,:) = 0._R8P              
+            f   (:,:,:,:,:) = 0._R8P
             ind            = size(self%q(:,1,1,1,1))
             f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
             if (blocks_number>0) then
@@ -1891,7 +2038,7 @@ contains
                                                       iterations_coarse=self%flail%iterations_coarse,  &
                                                       bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
                   else
-                     call mpih%print_message('Initialization not already implemented for this scheme order')                   
+                     call mpih%print_message('Initialization not already implemented for this scheme order')
                   endif
                   if (dphi_max < self%flail%tolerance) exit
                enddo
@@ -1929,7 +2076,7 @@ contains
                        1:nb))
             phi (:,:,:,:,:) = 0._R8P
             dphi(:,:,:,:,:) = 0._R8P
-            f   (:,:,:,:,:) = 0._R8P               
+            f   (:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             if (blocks_number>0) then
                do iter=1, self%flail%iterations
@@ -1970,7 +2117,7 @@ contains
                                                       iterations_coarse=self%flail%iterations_coarse,  &
                                                       bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
                   else
-                     call mpih%print_message('Initialization not already implemented for this scheme order')                   
+                     call mpih%print_message('Initialization not already implemented for this scheme order')
                   endif
                   if (dphi_max < self%flail%tolerance) exit
                enddo
@@ -2009,7 +2156,7 @@ contains
                        1:nb))
             phi (:,:,:,:,:) = 0._R8P
             dphi(:,:,:,:,:) = 0._R8P
-            f   (:,:,:,:,:) = 0._R8P              
+            f   (:,:,:,:,:) = 0._R8P
             ind            = size(self%q(:,1,1,1,1))
             f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
             if (blocks_number>0) then
@@ -2061,7 +2208,7 @@ contains
                        1:nb))
             phi (:,:,:,:,:) = 0._R8P
             dphi(:,:,:,:,:) = 0._R8P
-            f   (:,:,:,:,:) = 0._R8P               
+            f   (:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             if (blocks_number>0) then
                do iter=1, self%flail%iterations
@@ -2116,7 +2263,7 @@ contains
                     1:nb))
          phi (:,:,:,:,:) = 0._R8P
          dphi(:,:,:,:,:) = 0._R8P
-         f   (:,:,:,:,:) = 0._R8P               
+         f   (:,:,:,:,:) = 0._R8P
          f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
          if (blocks_number>0) then
             do iter=1, self%flail%iterations
@@ -2157,7 +2304,7 @@ contains
                                                    iterations_coarse=self%flail%iterations_coarse,  &
                                                    bc_type='analytic', ivar=ivar, mu=MU0, field=self%adam%field)
                else
-                  call mpih%print_message('Initialization not already implemented for this scheme order')                   
+                  call mpih%print_message('Initialization not already implemented for this scheme order')
                endif
                if (dphi_max < self%flail%tolerance) exit
             enddo
@@ -2198,7 +2345,7 @@ contains
                     1:nb))
          phi (:,:,:,:,:) = 0._R8P
          dphi(:,:,:,:,:) = 0._R8P
-         f   (:,:,:,:,:) = 0._R8P               
+         f   (:,:,:,:,:) = 0._R8P
          f(:,:,:,:,:) = -1.0_R8P*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) !MU0 = 1
          if (blocks_number>0) then
             do iter=1, self%flail%iterations
@@ -2239,7 +2386,7 @@ contains
                                                    iterations_coarse=self%flail%iterations_coarse,  &
                                                    bc_type='analytic', ivar=ivar, mu=1.0_R8P, field=self%adam%field)
                else
-                  call mpih%print_message('Initialization not already implemented for this scheme order')                   
+                  call mpih%print_message('Initialization not already implemented for this scheme order')
                endif
                if (dphi_max < self%flail%tolerance) exit
             enddo
@@ -2258,7 +2405,7 @@ contains
                enddo
             enddo
          endif
-      endif    
+      endif
    endif
    endassociate
    endsubroutine impose_pic_fields_time_zero
