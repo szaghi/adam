@@ -77,6 +77,14 @@ echo ">> [rmf-amr] registered intra-realm AMR seam faces (marker active): ${amr_
 if [[ -z "$amr_faces" || "$amr_faces" -le 0 ]]; then
    echo "FAIL [rmf-amr] M2 registration pass registered no intra-realm AMR seam faces"; fail=1
 fi
+# M3: the Berger-Colella reflux must fire with a NON-ZERO coarse/fine flux
+# mismatch (the 2:1 jump makes F_coarse != F_fine_sum). A same-resolution mirror
+# seam would stay round-off zero and emit nothing.
+reflux_delta="$(grep -oE 'reflux max\|F_coarse-F_fine_sum\| = [0-9.E+-]+' "$WORK/run.log" | grep -oE '[0-9.E+-]+$' | tail -1)"
+echo ">> [rmf-amr] reflux max|F_coarse-F_fine_sum| (marker active): ${reflux_delta:-none}"
+if [[ -z "$reflux_delta" ]] || ! awk "BEGIN{exit !(${reflux_delta:-0} > 0)}"; then
+   echo "FAIL [rmf-amr] M3 reflux did not fire a non-zero correction across the 2:1 seam"; fail=1
+fi
 
 # --- Control run: marker disabled. Proves the box (not iu_ref_levels) makes the jump. ---
 CTRL="$CASE_DIR/work-cpu-ctrl"
@@ -92,6 +100,10 @@ ctrl_faces="$(grep -oE 'registered intra-realm AMR seam faces: \+?[0-9]+' "$CTRL
 echo ">> [rmf-amr] registered intra-realm AMR seam faces (marker off):   ${ctrl_faces:-none}"
 if [[ "${ctrl_faces:-0}" -ne 0 ]]; then
    echo "FAIL [rmf-amr] control registered AMR seam faces without a coarse-fine jump"; fail=1
+fi
+# M3: with no jump, the reflux diagnostic must be silent (no non-zero correction).
+if grep -q 'reflux max|F_coarse-F_fine_sum|' "$CTRL/run.log"; then
+   echo "FAIL [rmf-amr] control fired a reflux correction without a coarse-fine jump"; fail=1
 fi
 
 if [[ $fail -eq 0 ]]; then

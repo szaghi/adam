@@ -1,5 +1,6 @@
 [modes]
 modes = test-amr-geo-box-gnu                          test-amr-geo-box-gnu-debug
+        test-amr-reflux-restrict-gnu                   test-amr-reflux-restrict-gnu-debug
 
 [test-amr-geo-box-gnu]
 template = template-gnu
@@ -10,3 +11,13 @@ target   = test_amr_geo_box.F90
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = test_amr_geo_box.F90
+
+[test-amr-reflux-restrict-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_amr_reflux_restrict.F90
+
+[test-amr-reflux-restrict-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_amr_reflux_restrict.F90

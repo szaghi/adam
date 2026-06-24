@@ -258,7 +258,14 @@ contains
 
    call self%flux_register%reset
    call self%compute_global_dt(realm=realm, dt=dt)
-   if (int(size(realm), I4P) == 1_I4P) then
+   ! N=1 fast path: a single realm with NO coarse-fine seam faces owns its whole
+   ! step via the fused `advance_one_step_forest` (= self%integrate). A single
+   ! realm that DOES carry intra-realm AMR seam faces must go through the staged
+   ! loop below instead, so the FV residual accumulates seam fluxes into the
+   ! register (end_stage_forest threads it in) and the end-of-step reflux fires
+   ! (apply_reflux_corrections). The `flux_register%nfaces > 0` test keeps every
+   ! existing non-AMR single-realm case on the bit-identical fast path. #13 §7.5 M3.
+   if (int(size(realm), I4P) == 1_I4P .and. self%flux_register%nfaces == 0_I4P) then
       call realm(1)%advance_one_step_forest(dt=dt)
    else
       do is = 1_I4P, int(size(realm), I4P)
@@ -1539,27 +1546,23 @@ contains
                                                   nface_cells=nface_cells,                      &
                                                   nv=int(realm(is)%adam%field%nv, I4P),         &
                                                   n_stages=realm(is)%stages_per_step_forest())
-            ! Signed lookup: +cursor on the coarse (block, bc_fec); -cursor on
-            ! each fine neighbor's opposite face. `neighbor(fec)%bc_fec` is the
-            ! coarse block's BC fec for this face; the fine side sits on the
-            ! opposite face, whose bc_fec pairs MAX↔MIN within the axis.
-            if (node_ptr%neighbor(fec)%bc_fec >= 1_I4P .and. node_ptr%neighbor(fec)%bc_fec <= 6_I4P) &
-               realm(is)%adam%maps%inter_realm_face_register_index(int(node_ptr%block_index, I4P), &
-                                                                   node_ptr%neighbor(fec)%bc_fec) = +cursor
+            ! Signed lookup, keyed by the TREE fec (1=-x,2=+x,3=-y,4=+y,5=-z,6=+z)
+            ! — the SAME numbering `accumulate_seam_fluxes_fv`'s `select case (fec)`
+            ! uses to pack the face skin. (The node's `%bc_fec` field is populated
+            ! only for boundary-condition neighbors, not interior AMR neighbors, so
+            ! it is unusable here.) +cursor on the coarse (block, fec); -cursor on
+            ! each fine neighbor's opposite face (fec 1↔2, 3↔4, 5↔6).
+            realm(is)%adam%maps%inter_realm_face_register_index(int(node_ptr%block_index, I4P), fec) = +cursor
             do kf = 1_I4P, n_fine
                fine_ptr => realm(is)%adam%tree%node(code=node_ptr%neighbor(fec)%codes(kf))
-               block
-                  integer(I4P) :: opp_bc_fec
-                  opp_bc_fec = opposite_bc_fec(node_ptr%neighbor(fec)%bc_fec)
-                  if (opp_bc_fec >= 1_I4P .and. opp_bc_fec <= 6_I4P) &
-                     realm(is)%adam%maps%inter_realm_face_register_index(int(fine_ptr%block_index, I4P), &
-                                                                         opp_bc_fec) = -cursor
-               endblock
+               realm(is)%adam%maps%inter_realm_face_register_index(int(fine_ptr%block_index, I4P), &
+                                                                   opposite_fec(fec)) = -cursor
             enddo
          enddo
       enddo
    enddo
    if (allocated(fine_blocks)) deallocate(fine_blocks)
+
 
    contains
       pure function tangential_cells(this_realm, axis) result(n)
@@ -1578,12 +1581,12 @@ contains
       endassociate
       endfunction tangential_cells
 
-      pure function opposite_bc_fec(bc_fec) result(opp)
-      !< Opposite BC fec within the same axis (1↔2, 3↔4, 5↔6).
-      integer(I4P), intent(in) :: bc_fec !< BC fec (1..6).
-      integer(I4P)             :: opp    !< Opposite BC fec.
+      pure function opposite_fec(fec) result(opp)
+      !< Opposite tree fec within the same axis (1↔2, 3↔4, 5↔6).
+      integer(I4P), intent(in) :: fec !< Tree fec (1..6).
+      integer(I4P)             :: opp !< Opposite tree fec.
 
-      select case (bc_fec)
+      select case (fec)
       case (1_I4P); opp = 2_I4P
       case (2_I4P); opp = 1_I4P
       case (3_I4P); opp = 4_I4P
@@ -1592,7 +1595,7 @@ contains
       case (6_I4P); opp = 5_I4P
       case default; opp = 0_I4P
       endselect
-      endfunction opposite_bc_fec
+      endfunction opposite_fec
    endsubroutine register_intra_realm_amr_seams
 
    subroutine apply_reflux_corrections(self, realm, stage, dt)
@@ -1626,6 +1629,24 @@ contains
    if (.not. self%flux_register%is_initialized_) return
    if (self%flux_register%nfaces == 0_I4P)        return
    if (.not. allocated(self%flux_register%face))  return
+
+   ! Diagnostic: report the seam-flux mismatch the reflux is about to correct.
+   ! For a same-resolution mirror seam this is round-off zero (no-op correction);
+   ! for a true 2:1 AMR jump it is the non-trivial Berger-Colella delta. Emitted
+   ! only when non-zero, so non-AMR runs stay silent. #13 §7.5 M3.
+   block
+      integer(I4P) :: ff
+      real(R8P)    :: dmax
+      dmax = 0._R8P
+      do ff = 1_I4P, self%flux_register%nfaces
+         if (allocated(self%flux_register%face(ff)%F_coarse) .and. &
+             allocated(self%flux_register%face(ff)%F_fine_sum)) &
+            dmax = max(dmax, maxval(abs(self%flux_register%face(ff)%F_coarse - &
+                                        self%flux_register%face(ff)%F_fine_sum)))
+      enddo
+      if (dmax > 0._R8P) &
+         call mpih%print_message('forest: reflux max|F_coarse-F_fine_sum| = '//trim(str(dmax)))
+   endblock
 
    do is = 1_I4P, int(size(realm), I4P)
       call realm(is)%apply_reflux_to_stage_forest(stage=stage, dt=dt, &
