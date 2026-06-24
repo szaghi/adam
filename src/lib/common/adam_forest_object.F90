@@ -345,15 +345,21 @@ contains
             end associate
          enddo
 
-         ! Reflux corrections — invoked every stage; under α.r1 the realm-side
-         ! body is gated on `stage == rk%nrk` so real work happens only at each
-         ! realm's own end-of-step.
-         call self%flux_register%reduce_fine_sums
-         call self%apply_reflux_corrections(realm=realm, stage=k, dt=dt)
       enddo
+      ! Cross-rank reduce of the fine-side accumulators (after the final stage's
+      ! accumulation, which happened inside compute_residuals at k = nrk).
+      call self%flux_register%reduce_fine_sums
       do is = 1_I4P, int(size(realm), I4P)
          call realm(is)%close_step_forest(dt=dt)
       enddo
+      ! α.r1 reflux: applied AFTER close_step_forest's update_q has committed the
+      ! step's q. The realm-side body writes the end-of-step Berger-Colella
+      ! correction directly into self%q (full dt/dx weight, no stage RK
+      ! coefficient), gated to each realm's final stage. Running it post-update_q
+      ! is required: the correction is to the committed solution, not to a stage
+      ! residual buffer (the pre-update_q q_rk path silently no-op'd for SSP and
+      ! entangled the stage beta weight — see apply_reflux_to_stage_forest).
+      call self%apply_reflux_corrections(realm=realm, dt=dt)
 
       ! Phase 5 — end-of-step inter-realm seam fill (α coherence barrier).
       !
@@ -1598,31 +1604,28 @@ contains
       endfunction opposite_fec
    endsubroutine register_intra_realm_amr_seams
 
-   subroutine apply_reflux_corrections(self, realm, stage, dt)
+   subroutine apply_reflux_corrections(self, realm, dt)
    !< Dispatch the Berger-Colella reflux correction to every realm.
    !<
-   !< The forest's role here is purely an orchestrator: it iterates the
-   !< realm array and invokes each realm's `apply_reflux_to_stage_forest`
-   !< TBP. The realm-side body filters `flux_register%face(:)` by
-   !< `face%coarse_realm == self%realm_index` (read from the realm's own
-   !< component, set by the forest at initialize-time) and writes the
-   !< per-cell correction into its OWN integrator-private stage buffer
-   !< (for RK realms: `self%rk%q_rk(:, ..., stage)`, weighted by
-   !< `self%rk%ark(stage)`).
+   !< Called once per step AFTER close_step_forest's update_q. The forest's
+   !< role is purely orchestration: it iterates the realm array and invokes
+   !< each realm's `apply_reflux_to_stage_forest` TBP, passing that realm's
+   !< OWN final stage (`stages_per_step_forest()`) so the realm-side
+   !< end-of-step gate (`stage == self%rk%nrk`) fires for every realm,
+   !< asymmetric-K included. The realm-side body filters `flux_register%face(:)`
+   !< by `face%coarse_realm == self%realm_index` and adds the per-cell
+   !< end-of-step correction directly into its committed `self%q` (full
+   !< `dt/dx` weight, no stage RK coefficient — AMReX Berger-Colella cadence).
    !<
-   !< The forest never reaches `realm%rk` directly: the integrator-specific
-   !< weight pickup, the buffer name, and the per-cell write all live
-   !< realm-side. This is the integrator-agnostic split — see
+   !< The forest never reaches `realm%rk`/`realm%q` directly: the per-cell
+   !< write lives realm-side. This is the integrator-agnostic split — see
    !< [[realm_object]]%`apply_reflux_to_stage_forest` for the contract,
    !< and [[prism_cpu_object]] for the RK-specific override.
    !<
-   !< Empty register fast path: when the register has no faces (single-
-   !< realm forest, no seams declared) the per-realm calls each short-
-   !< circuit on `flux_register%nfaces == 0` and the dispatch is a true
-   !< no-op for the N=1 path.
+   !< Empty register fast path: when the register has no faces the per-realm
+   !< calls each short-circuit on `flux_register%nfaces == 0`.
    class(forest_object), intent(in)    :: self     !< The forest (holds the flux register).
    class(realm_object),  intent(inout) :: realm(:) !< Realms; each realm's reflux TBP fires once.
-   integer(I4P),         intent(in)    :: stage    !< Integrator stage 1..K_total.
    real(R8P),            intent(in)    :: dt       !< Time step.
    integer(I4P)                        :: is       !< Realm index.
 
@@ -1649,7 +1652,7 @@ contains
    endblock
 
    do is = 1_I4P, int(size(realm), I4P)
-      call realm(is)%apply_reflux_to_stage_forest(stage=stage, dt=dt, &
+      call realm(is)%apply_reflux_to_stage_forest(stage=realm(is)%stages_per_step_forest(), dt=dt, &
                                                   flux_register=self%flux_register)
    enddo
    endsubroutine apply_reflux_corrections

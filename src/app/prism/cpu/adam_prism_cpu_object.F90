@@ -60,8 +60,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: is_done_forest               !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest              !< Invoked by forest%finalize per realm at shutdown.
       procedure, pass(self) :: fill_seam_from_peer_forest   !< Copy peer's interior into self's ghosts for peer slot p_idx.
-      procedure, pass(self) :: apply_reflux_to_stage_forest !< Apply Berger-Colella reflux to self's RK stage buffer.
-      procedure, pass(self) :: apply_induction_flux_sharing_forest !< Replace seam B-flux with shared canonical value (#13 Phase B).
+      procedure, pass(self) :: apply_reflux_to_stage_forest !< Apply end-of-step Berger-Colella reflux to self's committed q.
       ! numerical methods
       procedure, pass(self) :: compute_dt                   !< Compute time step.
       procedure, pass(self) :: compute_energy               !< Compute energy.
@@ -1355,7 +1354,7 @@ contains
    integer(I4P)                               :: axis, sgn
    integer(I4P)                               :: i_coarse, j_coarse, k_coarse
    integer(I4P)                               :: ni_, nj_, nk_
-   real(R8P)                                  :: dx_coarse, weight, scale_
+   real(R8P)                                  :: dx_coarse, scale_
 
    if (.not. flux_register%is_initialized_)    return
    if (flux_register%nfaces == 0_I4P)          return
@@ -1364,8 +1363,6 @@ contains
    ! α.r1 end-of-step gate: reflux fires once per realm per step at the
    ! realm's own final RK substage. Earlier stages no-op.
    if (stage /= self%rk%nrk)         return
-   if (.not. allocated(self%rk%ark)) return
-   weight = self%rk%ark(stage)
 
    ni_ = self%adam%grid%ni
    nj_ = self%adam%grid%nj
@@ -1382,7 +1379,17 @@ contains
 
       dx_coarse = self%adam%field%dxyz(axis, face_f%coarse_block)
       if (dx_coarse <= 0._R8P) cycle  ! defensive (uninitialised block geometry)
-      scale_ = real(sgn, R8P) * weight * dt / dx_coarse
+      ! α.r1 end-of-step Berger-Colella correction applied DIRECTLY to the
+      ! committed solution `self%q` (this TBP runs AFTER close_step_forest's
+      ! update_q). The full step weight is `dt/dx_coarse` — NOT a stage RK
+      ! coefficient: the AMReX convention reflux corrects the committed q once
+      ! per step with the end-of-step flux mismatch, decoupled from the stage
+      ! integration. (The earlier `ark(stage)*dt/dx` form was wrong on two
+      ! counts: `ark` is allocated only for the low-storage RK family, never for
+      ! the SSP family the staged forest path uses — so it silently no-op'd for
+      ! every SSP run — and writing q_rk(stage) pre-update_q would entangle the
+      ! correction with the stage beta weight.)
+      scale_ = real(sgn, R8P) * dt / dx_coarse
 
       do c = 1_I4P, face_f%nface_cells
          c0 = c - 1_I4P
@@ -1404,116 +1411,13 @@ contains
          end select
 
          ! α.r1: third axis hardcoded to 1 (register collapsed by M2).
-         self%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) = &
-            self%rk%q_rk(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block, stage) &
+         self%q(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block) = &
+            self%q(:, i_coarse, j_coarse, k_coarse, face_f%coarse_block) &
             + scale_ * (face_f%F_coarse(:, c, 1) - face_f%F_fine_sum(:, c, 1))
       enddo
       end associate
    enddo
    endsubroutine apply_reflux_to_stage_forest
-
-   subroutine apply_induction_flux_sharing_forest(self, stage, flux_register)
-   !< PRISM-CPU shared-induction-flux correction for algebraic ∇·B at a seam
-   !< (issue #13 Phase B).
-   !<
-   !< **The cell-centered analogue of constrained-transport edge-E sharing.**
-   !< PRISM stores no edge-centered electric field; its induction update is a
-   !< finite-volume flux divergence of the face-centered Maxwell flux
-   !< (`dq(B) = -(flx_f(i) - flx_f(i-1))/dx - ...`). The seam's discrete ∇·B
-   !< telescopes to zero iff the magnetic-field face flux is the *same canonical
-   !< value* on both sides of the seam — exactly the property a shared edge-E
-   !< would give in a face-staggered code. This routine writes that shared value
-   !< back into the realm's own seam face flux (the induction rows
-   !< VAR_BX/VAR_BY/VAR_BZ only) before the conservative-difference loop in
-   !< `compute_residuals_fv_centered` consumes it.
-   !<
-   !< The canonical value is the mean of the two sides' accumulated B-flux,
-   !<     `flx_f(VAR_B*, seam) := 1/2 (F_coarse(VAR_B*) + F_fine_sum(VAR_B*))`,
-   !< read from the same `flux_register` Phase A's reflux uses — the B rows are
-   !< already packed there by `accumulate_seam_fluxes_fv`. For a 2:1 AMR jump the
-   !< fine side stores its area-summed flux, so the mean is the conservative
-   !< coarse-edge average (Olivares 2019 §4.2.1 restriction); for the
-   !< same-resolution mirror seam the two sides are equal and the write-back is a
-   !< round-off no-op against the bit-exact regression.
-   !<
-   !< **α.r1 cadence.** Like the reflux TBP this fires once per realm per step at
-   !< the realm's final RK substage (`stage == self%rk%nrk`); the register's third
-   !< axis is collapsed to 1. It must run AFTER both sides have accumulated their
-   !< end-of-step B flux — the forest orchestrates that ordering (the call sits in
-   !< the same end-of-step phase as `apply_reflux_corrections`).
-   !<
-   !< Only faces with `face%coarse_realm == self%realm_index` are touched; the
-   !< pack/unpack tangential-cell convention matches `accumulate_seam_fluxes_fv`
-   !< so the per-cell index `c` addresses the same physical cell on both sides.
-   class(prism_cpu_object),     intent(inout) :: self          !< The realm.
-   integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
-   class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register (B rows carry the seam flux).
-   integer(I4P)                               :: f, c, c0      !< Face / seam-cell counters.
-   integer(I4P)                               :: axis, sgn     !< Decoded seam-face axis/sign.
-   integer(I4P)                               :: i_s, j_s, k_s !< Seam cell index.
-   integer(I4P)                               :: ni_, nj_, nk_ !< Interior cell counts.
-   integer(I4P)                               :: vb            !< B-row counter.
-   real(R8P)                                  :: canon         !< Canonical (shared) B flux for one cell/row.
-   integer(I4P), parameter                    :: bvar(3) = [VAR_BX, VAR_BY, VAR_BZ] !< Induction rows.
-
-   if (.not. flux_register%is_initialized_)    return
-   if (flux_register%nfaces == 0_I4P)          return
-   if (.not. allocated(flux_register%face))    return
-   if (stage < 1_I4P .or. stage > self%rk%nrk) return
-   if (stage /= self%rk%nrk)                   return  ! α.r1 end-of-step gate (mirrors reflux).
-
-   ni_ = self%adam%grid%ni
-   nj_ = self%adam%grid%nj
-   nk_ = self%adam%grid%nk
-
-   do f = 1_I4P, flux_register%nfaces
-      associate(face_f => flux_register%face(f))
-      if (face_f%coarse_realm /= self%realm_index) cycle
-      if (.not. allocated(face_f%F_coarse))        cycle
-      if (.not. allocated(face_f%F_fine_sum))      cycle
-
-      call face_axis_sign(face_f%coarse_face, axis, sgn)
-      if (axis == 0_I4P) cycle
-
-      do c = 1_I4P, face_f%nface_cells
-         c0 = c - 1_I4P
-         ! Seam-cell index + the canonical write-back, per induction row. The
-         ! tangential walk matches accumulate_seam_fluxes_fv: x-normal walks
-         ! (j outer? no — j inner, k outer): c = (k-1)*nj + j there, i.e.
-         ! j = 1+mod(c0,nj), k = 1+c0/nj. y-normal: i inner, k outer. z-normal:
-         ! i inner, j outer.
-         select case (axis)
-         case (1_I4P)  ! x-normal: write into flx_f at i = {0,ni}.
-            i_s = merge(ni_, 0_I4P, sgn > 0_I4P)
-            j_s = 1_I4P + mod(c0, nj_)
-            k_s = 1_I4P + c0 / nj_
-            do vb = 1_I4P, 3_I4P
-               canon = 0.5_R8P * (face_f%F_coarse(bvar(vb), c, 1) + face_f%F_fine_sum(bvar(vb), c, 1))
-               self%flx_f(bvar(vb), i_s, j_s, k_s, face_f%coarse_block) = canon
-            enddo
-         case (2_I4P)  ! y-normal: write into fly_f at j = {0,nj}.
-            i_s = 1_I4P + mod(c0, ni_)
-            j_s = merge(nj_, 0_I4P, sgn > 0_I4P)
-            k_s = 1_I4P + c0 / ni_
-            do vb = 1_I4P, 3_I4P
-               canon = 0.5_R8P * (face_f%F_coarse(bvar(vb), c, 1) + face_f%F_fine_sum(bvar(vb), c, 1))
-               self%fly_f(bvar(vb), i_s, j_s, k_s, face_f%coarse_block) = canon
-            enddo
-         case (3_I4P)  ! z-normal: write into flz_f at k = {0,nk}.
-            i_s = 1_I4P + mod(c0, ni_)
-            j_s = 1_I4P + c0 / ni_
-            k_s = merge(nk_, 0_I4P, sgn > 0_I4P)
-            do vb = 1_I4P, 3_I4P
-               canon = 0.5_R8P * (face_f%F_coarse(bvar(vb), c, 1) + face_f%F_fine_sum(bvar(vb), c, 1))
-               self%flz_f(bvar(vb), i_s, j_s, k_s, face_f%coarse_block) = canon
-            enddo
-         case default
-            cycle
-         end select
-      enddo
-      end associate
-   enddo
-   endsubroutine apply_induction_flux_sharing_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Run PRISM-CPU's per-timestep post-step work: state IO, energy
