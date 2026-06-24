@@ -54,3 +54,7 @@ $HDF5_PREFIX = lib/hdf5/develop/iac/gnu/12.2.1/openmpi-4.1.6
 [varset:iac_nvf]
 $HDF5_PREFIX = lib/hdf5/develop/iac/nvf/25.5
 $NVF_CC      = cc80
+
+[varset:spacehpc]
+$HDF5_PREFIX = /opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3
+$NVF_CC      = cc90

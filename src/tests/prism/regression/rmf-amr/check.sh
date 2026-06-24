@@ -13,6 +13,9 @@
 #   3. BOTH a coarse level and a finer level are present (a 2:1 jump exists),
 #      and a control run with the marker disabled produces NO such jump — so the
 #      box marker, not the uniform iu_ref_levels, is what creates the seam.
+#   4. (M2) the forest registers > 0 intra-realm AMR seam faces with the marker
+#      active, and exactly 0 in the marker-disabled control — proving the
+#      registration pass keys off the real coarse-fine tree adjacency.
 #
 # Usage: ./check.sh            (expects exe/adam_prism_cpu already built)
 #        ./check.sh --build    (build prism-cpu-gnu first)
@@ -68,6 +71,12 @@ echo ">> [rmf-amr] refinement levels present (marker active): $main_levels"
 if [[ "$main_levels" != *"1"* || "$main_levels" != *"2"* ]]; then
    echo "FAIL [rmf-amr] no coarse-fine jump: expected both level 1 and level 2"; fail=1
 fi
+# M2: intra-realm AMR seam faces must be registered (> 0).
+amr_faces="$(grep -oE 'registered intra-realm AMR seam faces: \+?[0-9]+' "$WORK/run.log" | grep -oE '[0-9]+' | tail -1)"
+echo ">> [rmf-amr] registered intra-realm AMR seam faces (marker active): ${amr_faces:-none}"
+if [[ -z "$amr_faces" || "$amr_faces" -le 0 ]]; then
+   echo "FAIL [rmf-amr] M2 registration pass registered no intra-realm AMR seam faces"; fail=1
+fi
 
 # --- Control run: marker disabled. Proves the box (not iu_ref_levels) makes the jump. ---
 CTRL="$CASE_DIR/work-cpu-ctrl"
@@ -77,6 +86,12 @@ ctrl_levels="$(levels_present "$CTRL/run.log")"
 echo ">> [rmf-amr] refinement levels present (marker off):   $ctrl_levels"
 if [[ "$ctrl_levels" == *"2"* ]]; then
    echo "FAIL [rmf-amr] control produced a level-2 jump without the marker — fixture not isolating the box"; fail=1
+fi
+# M2: with no coarse-fine jump, the registration pass must register exactly 0 faces.
+ctrl_faces="$(grep -oE 'registered intra-realm AMR seam faces: \+?[0-9]+' "$CTRL/run.log" | grep -oE '[0-9]+' | tail -1)"
+echo ">> [rmf-amr] registered intra-realm AMR seam faces (marker off):   ${ctrl_faces:-none}"
+if [[ "${ctrl_faces:-0}" -ne 0 ]]; then
+   echo "FAIL [rmf-amr] control registered AMR seam faces without a coarse-fine jump"; fail=1
 fi
 
 if [[ $fail -eq 0 ]]; then
