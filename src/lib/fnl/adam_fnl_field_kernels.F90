@@ -37,7 +37,7 @@ contains
 
    gradient = 0._R8P
    !$acc parallel loop independent DEVICEVAR(q_gpu) reduction(max:gradient)
-   !$omp OMPLOOP DEVICEPTR(q_gpu) reduction(max:gradient)
+   !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu) reduction(max:gradient)
    do k=1, nk
       do j=1, nj
          do i=1, ni
@@ -67,7 +67,7 @@ contains
    do v=1, nv
       norm_gpu = 0._R8P
       !$acc parallel loop independent DEVICEVAR(dq_gpu) reduction(+:norm_gpu)
-      !$omp OMPLOOP DEVICEPTR(dq_gpu) reduction(+:norm_gpu)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dq_gpu) reduction(+:norm_gpu)
       do k=1, nk
          do j=1, nj
             do i=1, ni
@@ -171,7 +171,7 @@ contains
 
    if (.not.associated(l_map_ghost_cell_gpu)) return
    !$acc parallel loop independent DEVICEVAR(l_map_ghost_cell_gpu, q_gpu)
-   !$omp OMPLOOP DEVICEPTR(l_map_ghost_cell_gpu, q_gpu)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(l_map_ghost_cell_gpu, q_gpu)
    do v=1, size(q_gpu, dim=5)
       do mf=1, size(l_map_ghost_cell_gpu, dim=1)
          b_send       = l_map_ghost_cell_gpu(mf,1)

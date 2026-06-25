@@ -37,7 +37,7 @@ contains
    if (present(phi_gpu)) then
       all_solids = ubound(phi_gpu, dim=5)
       !$acc parallel loop independent DEVICEVAR(phi_gpu, q_gpu, q_rk_gpu)
-      !$omp OMPLOOP DEVICEPTR(phi_gpu, q_gpu, q_rk_gpu)
+      !$omp OMPLOOP collapse(5) DEVICEPTR(phi_gpu, q_gpu, q_rk_gpu)
       do v=1, nv
          do k=1, nk
             do j=1, nj
@@ -53,7 +53,7 @@ contains
       enddo
    else
       !$acc parallel loop independent DEVICEVAR(q_gpu, q_rk_gpu)
-      !$omp OMPLOOP DEVICEPTR(q_gpu, q_rk_gpu)
+      !$omp OMPLOOP collapse(5) DEVICEPTR(q_gpu, q_rk_gpu)
       do v=1, nv
          do k=1, nk
             do j=1, nj
@@ -153,7 +153,7 @@ contains
    if (present(phi_gpu)) then
       all_solids = ubound(phi_gpu, dim=5)
       !$acc parallel loop independent DEVICEVAR(phi_gpu, q_n_gpu, dq_gpu, q_rk_gpu)
-      !$omp OMPLOOP DEVICEPTR(phi_gpu, q_n_gpu, dq_gpu, q_rk_gpu)
+      !$omp OMPLOOP collapse(5) DEVICEPTR(phi_gpu, q_n_gpu, dq_gpu, q_rk_gpu)
       do v=1, nv
          do k=1, nk
             do j=1, nj
@@ -169,7 +169,7 @@ contains
       enddo
    else
       !$acc parallel loop independent DEVICEVAR(q_n_gpu, dq_gpu, q_rk_gpu)
-      !$omp OMPLOOP DEVICEPTR(q_n_gpu, dq_gpu, q_rk_gpu)
+      !$omp OMPLOOP collapse(5) DEVICEPTR(q_n_gpu, dq_gpu, q_rk_gpu)
       do v=1, nv
          do k=1, nk
             do j=1, nj
@@ -197,7 +197,7 @@ contains
    integer(I4P)                :: i, j, k, b, v,s                         !< Counter.
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_rk_gpu)
-   !$omp OMPLOOP DEVICEPTR(q_gpu, q_rk_gpu)
+   !$omp OMPLOOP collapse(6) DEVICEPTR(q_gpu, q_rk_gpu)
    do s=lbound(q_rk_gpu,dim=6),ubound(q_rk_gpu,dim=6)
       do v=1, nv
          do k=1, nk
