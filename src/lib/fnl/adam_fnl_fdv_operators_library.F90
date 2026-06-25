@@ -46,6 +46,7 @@ contains
    !$acc routine seq
    !$omp declare target
    !$acc routine(compute_derivative1_fd_centered)
+   !$omp declare target(compute_derivative1_fd_centered)
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=qsy_x(1-s:1+s),dq_ds=dqx_dy)
    call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=qsz_x(1-s:1+s),dq_ds=dqx_dz)

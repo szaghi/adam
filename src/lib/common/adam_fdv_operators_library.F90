@@ -1020,6 +1020,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d1 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1034,6 +1035,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d2 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1048,6 +1050,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d3 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1062,6 +1065,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d4 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1076,6 +1080,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d5 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1092,6 +1097,7 @@ contains
    real(R8P),    intent(out) :: qp      !< Cell-center point value at cell i.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qp = DECONV_A2P(1,s)*q(1)
    do m=1, s
@@ -1107,6 +1113,7 @@ contains
    real(R8P),    intent(out) :: qa      !< Cell average at cell i.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qa = DECONV_P2A(1,s)*q(1)
    do m=1, s
@@ -1232,6 +1239,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d1 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1246,6 +1254,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d2 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1260,6 +1269,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d3 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1274,6 +1284,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d4 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1397,6 +1408,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d1 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1411,6 +1423,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d2 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1425,6 +1438,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d3 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1439,6 +1453,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d4 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
