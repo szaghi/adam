@@ -1,5 +1,5 @@
 [modes]
-modes = adam-com-gnu adam-com-gnu-debug adam-com-nvf adam-com-nvf-debug
+modes = adam-com-gnu adam-com-gnu-debug adam-com-nvf adam-com-nvf-debug adam-com-omp-amd adam-com-omp-amd-debug
 
 [adam-com-gnu]
 template = template-gnu
@@ -26,5 +26,19 @@ preproc  = -D_MPI_
 template = template-nvf-debug
 target   = adam_common_library.F90
 output   = libadamcommon_nvf.a
+mklib    = static
+preproc  = -D_MPI_
+
+[adam-com-omp-amd]
+template = template-omp-amd
+target   = adam_common_library.F90
+output   = libadamcommon_amd.a
+mklib    = static
+preproc  = -D_MPI_
+
+[adam-com-omp-amd-debug]
+template = template-omp-amd-debug
+target   = adam_common_library.F90
+output   = libadamcommon_amd.a
 mklib    = static
 preproc  = -D_MPI_

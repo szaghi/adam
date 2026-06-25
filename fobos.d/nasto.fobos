@@ -1,5 +1,5 @@
 [modes]
-modes = nasto-cpu-gnu nasto-cpu-gnu-debug nasto-fnl-nvf nasto-fnl-nvf-debug nasto-cpu-amd nasto-fnl-omp-amd
+modes = nasto-cpu-gnu nasto-cpu-gnu-debug nasto-fnl-nvf nasto-fnl-nvf-debug nasto-cpu-amd nasto-fnl-omp-amd nasto-fnl-omp-amd-debug
 
 [nasto-cpu-gnu]
 template = template-gnu
@@ -28,5 +28,10 @@ target   = adam_nasto_cpu.F90
 
 [nasto-fnl-omp-amd]
 template = template-omp-amd
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+target   = adam_nasto_fnl.F90
+
+[nasto-fnl-omp-amd-debug]
+template = template-omp-amd-debug
 preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
 target   = adam_nasto_fnl.F90
