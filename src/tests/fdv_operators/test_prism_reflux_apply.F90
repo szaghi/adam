@@ -15,16 +15,19 @@ program test_prism_reflux_apply
 !<
 !< **What it pins** (verbatim from `apply_reflux_to_stage_forest`):
 !<```
-!< q_rk(:, i_c, j_c, k_c, coarse_block, stage) +=
-!<     sgn * ark(stage) * (dt / dxyz(axis, coarse_block)) * (F_coarse(:,c,1) - F_fine_sum(:,c,1))
+!< q(:, i_c, j_c, k_c, coarse_block) +=
+!<     sgn * (dt / dxyz(axis, coarse_block)) * (F_coarse(:,c,1) - F_fine_sum(:,c,1))
 !<```
-!< with `(axis, sgn)` from `face_axis_sign(coarse_face)`, the end-of-step gate
-!< `stage == rk%nrk`, and the seam slice at the normal-axis extreme cell
-!< (`i = ni` for X_MAX). It also asserts the interior is untouched and that an
-!< earlier (non-final) stage is a no-op.
+!< The correction is applied to the COMMITTED solution `self%q` with the full
+!< end-of-step weight `dt/dx` — NOT a stage RK coefficient (the TBP runs after
+!< update_q; the AMReX Berger-Colella cadence corrects q once per step, decoupled
+!< from the stage integration). `(axis, sgn)` come from `face_axis_sign(coarse_face)`,
+!< the end-of-step gate is `stage == rk%nrk`, and the seam slice is the normal-axis
+!< extreme cell (`i = ni` for X_MAX). It also asserts the interior is untouched and
+!< that an earlier (non-final) stage is a no-op.
 !<
 !< This is a pure-arithmetic check: no INI, no solve, no IO — the realm's
-!< `rk`/`grid`/`field` members are populated by hand to the minimum the TBP
+!< `rk`/`grid`/`field`/`q` members are populated by hand to the minimum the TBP
 !< reads.
 
 use adam_prism_cpu_object, only : prism_cpu_object
@@ -42,16 +45,16 @@ integer(I4P), parameter     :: ni = 4_I4P   !< Cells, i.
 integer(I4P), parameter     :: nj = 3_I4P   !< Cells, j.
 integer(I4P), parameter     :: nk = 2_I4P   !< Cells, k.
 integer(I4P), parameter     :: nb = 1_I4P   !< Blocks.
+integer(I4P), parameter     :: ngc = 3_I4P  !< Ghost cell width.
 integer(I4P), parameter     :: nrk = 3_I4P  !< RK stages.
 integer(I4P), parameter     :: cblk = 1_I4P !< Coarse block index.
 real(R8P),    parameter     :: dt = 0.25_R8P                  !< Time step.
 real(R8P),    parameter     :: dx = 0.05_R8P                  !< Coarse-side dx on the seam-normal axis.
-real(R8P),    parameter     :: ark_final = 0.6_R8P            !< ark(nrk): the end-of-step accumulation weight.
 real(R8P),    parameter     :: tol = 1.0e-14_R8P              !< Round-off comparison tolerance.
 integer(I4P)                :: nface_cells                   !< Coarse cells on the seam face (= nj*nk for x-normal).
 integer(I4P)                :: axis, sgn                      !< Decoded seam-face axis/sign.
 integer(I4P)                :: i, j, k, v, c, c0              !< Counters.
-real(R8P), allocatable      :: q_before(:,:,:,:,:,:)          !< Snapshot of q_rk(final stage) before the correction.
+real(R8P), allocatable      :: q_before(:,:,:,:,:)           !< Snapshot of q before the correction.
 real(R8P), allocatable      :: expected(:)                    !< Expected per-(v,c) delta.
 real(R8P)                   :: delta, got, want               !< Scratch for the assertions.
 logical                     :: test_passed                    !< Aggregate pass flag.
@@ -60,10 +63,13 @@ test_passed = .true.
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
 
 ! --- Build the realm's minimal state by hand (only what the TBP reads). ---
+! The reflux TBP applies the end-of-step Berger-Colella correction directly to
+! the committed solution `self%q` with the full `dt/dx` weight (no RK stage
+! coefficient): it runs AFTER update_q, decoupled from the stage integration.
+! It needs only `rk%nrk` (for the end-of-step gate), `grid%ni/nj/nk`,
+! `field%dxyz`, and `q`.
 realm%realm_index = 1_I4P
 realm%rk%nrk = nrk
-allocate(realm%rk%ark(1:nrk))
-realm%rk%ark = [0.3_R8P, 0.45_R8P, ark_final]            ! arbitrary; only ark(nrk) is used by the end-of-step gate
 realm%adam%grid%ni = ni
 realm%adam%grid%nj = nj
 realm%adam%grid%nk = nk
@@ -71,10 +77,11 @@ allocate(realm%adam%field%dxyz(1:3, 1:nb))
 realm%adam%field%dxyz = -1.0_R8P                          ! poison: any axis but the seam-normal must be irrelevant
 realm%adam%field%dxyz(1, cblk) = dx                       ! x-normal seam → axis 1 is the one read
 
-! q_rk shape (nv, i, j, k, b, stage); the TBP writes interior cells (no ghosts needed for the seam slice).
-allocate(realm%rk%q_rk(1:nv, 1:ni, 1:nj, 1:nk, 1:nb, 1:nrk))
-call seed_q_rk(realm%rk%q_rk)
-q_before = realm%rk%q_rk
+! q shape (nv, 1-ngc:ni+ngc, ..., b); the TBP writes only the one-cell-thick seam
+! slice of the interior. A few ghost layers are allocated to mirror production.
+allocate(realm%q(1:nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+call seed_q(realm%q)
+q_before = realm%q
 
 ! --- Register one X_MAX seam face on the coarse realm, with asymmetric fluxes. ---
 call face_axis_sign(FACE_X_MAX, axis, sgn)               ! → axis=1, sgn=+1
@@ -90,8 +97,8 @@ call feed_asymmetric_fluxes(reg, expected)
 
 ! --- Gate check: a non-final stage must be a no-op. ---
 call realm%apply_reflux_to_stage_forest(stage=1_I4P, dt=dt, flux_register=reg)
-if (maxval(abs(realm%rk%q_rk - q_before)) > tol) then
-   write(*,'(A)') 'FAIL: non-final stage (1) modified q_rk — end-of-step gate broken'
+if (maxval(abs(realm%q - q_before)) > tol) then
+   write(*,'(A)') 'FAIL: non-final stage (1) modified q — end-of-step gate broken'
    test_passed = .false.
 else
    write(*,'(A)') 'PASS: non-final stage is a no-op (end-of-step gate holds)'
@@ -105,51 +112,37 @@ block
    real(R8P) :: scale_
    logical   :: seam_ok
    seam_ok = .true.
-   scale_ = real(sgn, R8P) * ark_final * dt / dx
+   scale_ = real(sgn, R8P) * dt / dx          ! full end-of-step weight: no RK stage coefficient.
    do c = 1_I4P, nface_cells
       c0 = c - 1_I4P
       j = 1_I4P + mod(c0, nj)
       k = 1_I4P + c0 / nj
       do v = 1_I4P, nv
-         want = q_before(v, ni, j, k, cblk, nrk) + scale_ * expected((c-1)*nv + v)
-         got  = realm%rk%q_rk(v, ni, j, k, cblk, nrk)
+         want = q_before(v, ni, j, k, cblk) + scale_ * expected((c-1)*nv + v)
+         got  = realm%q(v, ni, j, k, cblk)
          if (abs(got - want) > tol * max(1.0_R8P, abs(want))) seam_ok = .false.
       enddo
    enddo
    if (seam_ok) then
-      write(*,'(A)') 'PASS: seam-cell correction matches sgn*ark*dt/dx*(F_coarse - F_fine_sum)'
+      write(*,'(A)') 'PASS: seam-cell correction matches sgn*dt/dx*(F_coarse - F_fine_sum)'
    else
       write(*,'(A)') 'FAIL: seam-cell correction does not match the Berger-Colella formula'
       test_passed = .false.
    endif
 endblock
 
-! --- Assertion 2: every interior cell (i /= ni) is untouched at the final stage. ---
+! --- Assertion 2: every interior cell (i /= ni) is untouched. ---
 block
    logical :: interior_ok
    interior_ok = .true.
    do k = 1_I4P, nk ; do j = 1_I4P, nj ; do i = 1_I4P, ni-1_I4P ; do v = 1_I4P, nv
-      delta = abs(realm%rk%q_rk(v, i, j, k, cblk, nrk) - q_before(v, i, j, k, cblk, nrk))
+      delta = abs(realm%q(v, i, j, k, cblk) - q_before(v, i, j, k, cblk))
       if (delta > tol) interior_ok = .false.
    enddo ; enddo ; enddo ; enddo
    if (interior_ok) then
       write(*,'(A)') 'PASS: interior cells (i /= ni) untouched by the seam correction'
    else
       write(*,'(A)') 'FAIL: interior cells were modified — seam slice addressing is wrong'
-      test_passed = .false.
-   endif
-endblock
-
-! --- Assertion 3: other RK stages (1, 2) untouched (write target was stage=nrk only). ---
-block
-   logical :: stages_ok
-   stages_ok = .true.
-   if (maxval(abs(realm%rk%q_rk(:,:,:,:,:,1) - q_before(:,:,:,:,:,1))) > tol) stages_ok = .false.
-   if (maxval(abs(realm%rk%q_rk(:,:,:,:,:,2) - q_before(:,:,:,:,:,2))) > tol) stages_ok = .false.
-   if (stages_ok) then
-      write(*,'(A)') 'PASS: non-target RK stages (1,2) untouched'
-   else
-      write(*,'(A)') 'FAIL: a non-target RK stage was modified'
       test_passed = .false.
    endif
 endblock
@@ -165,18 +158,19 @@ call mpih%finalize
 if (.not. test_passed) error stop 1
 
 contains
-   subroutine seed_q_rk(q)
-   !< Seed q_rk with a deterministic, cell-distinct pattern so any spurious
-   !< write (wrong stage, wrong cell, wrong component) is detectable.
-   real(R8P), intent(out) :: q(:,:,:,:,:,:) !< RK stage buffer (nv,i,j,k,b,stage).
-   integer(I4P)           :: vv, ii, jj, kk, bb, ss !< Counters.
+   subroutine seed_q(q)
+   !< Seed q with a deterministic, cell-distinct pattern so any spurious write
+   !< (wrong cell, wrong component) is detectable. Index-based, not coordinate-
+   !< based, so it is independent of the ghost lower bound.
+   real(R8P), intent(out) :: q(:,:,:,:,:) !< Solution buffer (nv,i,j,k,b) with ghost extents.
+   integer(I4P)           :: vv, ii, jj, kk, bb !< Counters.
 
-   do ss = 1, size(q,6) ; do bb = 1, size(q,5) ; do kk = 1, size(q,4)
-      do jj = 1, size(q,3) ; do ii = 1, size(q,2) ; do vv = 1, size(q,1)
-         q(vv,ii,jj,kk,bb,ss) = real(vv,R8P) + 0.1_R8P*ii + 0.01_R8P*jj + 0.001_R8P*kk + 10.0_R8P*ss
-      enddo ; enddo ; enddo
+   do bb = 1, size(q,5) ; do kk = 1, size(q,4) ; do jj = 1, size(q,3)
+      do ii = 1, size(q,2) ; do vv = 1, size(q,1)
+         q(vv,ii,jj,kk,bb) = real(vv,R8P) + 0.1_R8P*ii + 0.01_R8P*jj + 0.001_R8P*kk + 10.0_R8P*bb
+      enddo ; enddo
    enddo ; enddo ; enddo
-   endsubroutine seed_q_rk
+   endsubroutine seed_q
 
    subroutine feed_asymmetric_fluxes(register, exp_delta)
    !< Push distinct coarse and fine fluxes into the one registered face so that

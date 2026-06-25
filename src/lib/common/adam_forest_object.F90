@@ -34,8 +34,10 @@ use :: adam_maps_object,          only : inter_realm_neighbor_t,                
                                          FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
                                          CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT,                          &
                                          face_axis_sign
+use :: adam_tree_object,          only : tree_iterator_object, NODE_MORE_REFINED, NODE_LESS_REFINED
+use :: adam_tree_node_object,     only : tree_node_object
 use :: adam_forest_manifest,      only : forest_manifest_t, forest_face_pair_t
-use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM
+use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_globals,              only : mpih
 use :: mpi
@@ -65,8 +67,9 @@ type :: forest_object
       procedure, pass(self) :: simulate               !< Main entry point (single shared INI): drive the full simulation.
       procedure, pass(self) :: simulate_from_manifest !< Main entry point (per-realm INIs via forest manifest).
       ! private methods
-      procedure, pass(self), private :: populate_inter_realm_topology !< Translate manifest face-pairs into maps of neighbors.
-      procedure, pass(self), private :: apply_reflux_corrections      !< Apply Berger-Colella reflux to coarse-side.
+      procedure, pass(self), private :: populate_inter_realm_topology   !< Translate manifest face-pairs into maps of neighbors.
+      procedure, pass(self), private :: register_intra_realm_amr_seams  !< Register intra-realm AMR coarse-fine faces in the flux register.
+      procedure, pass(self), private :: apply_reflux_corrections        !< Apply Berger-Colella reflux to coarse-side.
 endtype forest_object
 
 contains
@@ -91,6 +94,11 @@ contains
       realm(is)%realm_index = is
       call realm(is)%initialize_forest(filename=filename, realms_number=self%n)
    enddo
+   ! Register intra-realm AMR coarse-fine faces. In the manifest-less (N=1) path
+   ! there is no inter-realm seam pass, so this also owns the flux-register
+   ! initialization (sizing it to the intra-realm AMR face count, or to zero when
+   ! the realm has no coarse-fine jumps). Issue #13 §7.5 M2.
+   call self%register_intra_realm_amr_seams(realm=realm)
    endsubroutine initialize
 
    subroutine initialize_from_manifest(self, realm, manifest)
@@ -250,7 +258,14 @@ contains
 
    call self%flux_register%reset
    call self%compute_global_dt(realm=realm, dt=dt)
-   if (int(size(realm), I4P) == 1_I4P) then
+   ! N=1 fast path: a single realm with NO coarse-fine seam faces owns its whole
+   ! step via the fused `advance_one_step_forest` (= self%integrate). A single
+   ! realm that DOES carry intra-realm AMR seam faces must go through the staged
+   ! loop below instead, so the FV residual accumulates seam fluxes into the
+   ! register (end_stage_forest threads it in) and the end-of-step reflux fires
+   ! (apply_reflux_corrections). The `flux_register%nfaces > 0` test keeps every
+   ! existing non-AMR single-realm case on the bit-identical fast path. #13 §7.5 M3.
+   if (int(size(realm), I4P) == 1_I4P .and. self%flux_register%nfaces == 0_I4P) then
       call realm(1)%advance_one_step_forest(dt=dt)
    else
       do is = 1_I4P, int(size(realm), I4P)
@@ -330,15 +345,21 @@ contains
             end associate
          enddo
 
-         ! Reflux corrections — invoked every stage; under α.r1 the realm-side
-         ! body is gated on `stage == rk%nrk` so real work happens only at each
-         ! realm's own end-of-step.
-         call self%flux_register%reduce_fine_sums
-         call self%apply_reflux_corrections(realm=realm, stage=k, dt=dt)
       enddo
+      ! Cross-rank reduce of the fine-side accumulators (after the final stage's
+      ! accumulation, which happened inside compute_residuals at k = nrk).
+      call self%flux_register%reduce_fine_sums
       do is = 1_I4P, int(size(realm), I4P)
          call realm(is)%close_step_forest(dt=dt)
       enddo
+      ! α.r1 reflux: applied AFTER close_step_forest's update_q has committed the
+      ! step's q. The realm-side body writes the end-of-step Berger-Colella
+      ! correction directly into self%q (full dt/dx weight, no stage RK
+      ! coefficient), gated to each realm's final stage. Running it post-update_q
+      ! is required: the correction is to the committed solution, not to a stage
+      ! residual buffer (the pre-update_q q_rk path silently no-op'd for SSP and
+      ! entangled the stage beta weight — see apply_reflux_to_stage_forest).
+      call self%apply_reflux_corrections(realm=realm, dt=dt)
 
       ! Phase 5 — end-of-step inter-realm seam fill (α coherence barrier).
       !
@@ -1425,31 +1446,186 @@ contains
       endsubroutine find_peer_cell
    endsubroutine populate_inter_realm_topology
 
-   subroutine apply_reflux_corrections(self, realm, stage, dt)
+   subroutine register_intra_realm_amr_seams(self, realm)
+   !< Register every intra-realm AMR coarse-fine face in the forest flux register.
+   !<
+   !< Walks each realm's tree node neighborhood (already built by
+   !< `make_neighborhood` at realm init) and, for every block whose face neighbor
+   !< is MORE refined (`NODE_MORE_REFINED` — this block is the COARSE side of a
+   !< 2:1 jump), adds one register entry. The fine-side blocks (the `ratio/2`
+   !< finer neighbors covering that coarse face) are recorded in `fine_block(:)`.
+   !<
+   !< Only the 6 faces (`fec = 1..6`) are registered — reflux is a face-flux
+   !< correction; edge/corner adjacencies (`fec = 7..26`) carry no conserved
+   !< face flux and are skipped.
+   !<
+   !< Two-pass, mirroring `register_inter_realm_seams`:
+   !<   * Pass 1 counts coarse-side faces across all realms → register size.
+   !<   * Pass 2 calls `register_face(seam_kind = SEAM_KIND_INTRA_REALM_AMR, ...)`
+   !<     and fills the signed `inter_realm_face_register_index` lookup: `+cursor`
+   !<     on the coarse (block, bc_fec), `-cursor` on each fine neighbor block's
+   !<     opposite face. For intra-realm jumps coarse and fine are the SAME realm,
+   !<     so `coarse_realm = fine_realm = is`.
+   !<
+   !< **Register ownership.** In the manifest-less (N=1) path this routine is the
+   !< sole initializer of the flux register: it calls `flux_register%initialize`
+   !< with the intra-realm face count (possibly 0, which still flips the
+   !< register's `is_initialized_` so the per-step `reset`/reflux hooks are safe
+   !< no-ops). Composing intra-realm AMR faces with inter-realm seam faces in a
+   !< single multi-realm forest is a follow-up (#13 §7.5 deferred): it requires
+   !< counting both before the one-shot `initialize`, which the manifest path's
+   !< `register_inter_realm_seams` would absorb. No current case exercises both.
+   class(forest_object), intent(inout) :: self      !< The forest.
+   class(realm_object),  intent(inout) :: realm(:)  !< Initialized realms whose trees are walked.
+   integer(I4P)                        :: is        !< Realm index.
+   integer(I4P)                        :: fec       !< Face/edge/corner direction (only 1..6 used).
+   integer(I4P)                        :: nfaces_total !< Total coarse-side AMR faces across the forest.
+   integer(I4P)                        :: cursor    !< Write cursor into the register.
+   integer(I4P)                        :: axis      !< Coarse-face axis (1=x,2=y,3=z) from the tree fec.
+   integer(I4P)                        :: nface_cells !< Coarse-face skin cell count for one block.
+   integer(I4P)                        :: n_fine    !< Number of fine neighbor blocks on a coarse face.
+   integer(I4P)                        :: kf        !< Fine-neighbor counter.
+   type(tree_iterator_object)          :: iter      !< Tree traversal cursor.
+   type(tree_node_object), pointer     :: node_ptr  !< Current node.
+   type(tree_node_object), pointer     :: fine_ptr  !< Fine neighbor node.
+   integer(I4P), allocatable           :: fine_blocks(:) !< Fine-side block indices on a coarse face.
+
+   ! Pass 1: count coarse-side AMR faces.
+   nfaces_total = 0_I4P
+   do is = 1_I4P, int(size(realm), I4P)
+      iter%b = 1_I4P ; iter%p => null()
+      do while (realm(is)%adam%tree%loop(iter, node_ptr=node_ptr))
+         do fec = 1_I4P, 6_I4P
+            if (.not. allocated(node_ptr%neighbor(fec)%codes)) cycle
+            if (node_ptr%neighbor(fec)%ntype == NODE_MORE_REFINED) nfaces_total = nfaces_total + 1_I4P
+         enddo
+      enddo
+   enddo
+
+   call self%flux_register%initialize(nfaces=nfaces_total)
+   call mpih%print_message('forest: registered intra-realm AMR seam faces: '//trim(str(nfaces_total)))
+
+   ! Allocate the per-realm (block, bc_fec) → signed register-index lookup. Same
+   ! array the inter-realm pass uses and the FV reflux hook consumes; here it
+   ! carries intra-realm AMR seam faces. Zero = not a seam face.
+   do is = 1_I4P, int(size(realm), I4P)
+      block
+         integer(I4P) :: nb_realm
+         nb_realm = int(realm(is)%adam%field%blocks_number, I4P)
+         if (allocated(realm(is)%adam%maps%inter_realm_face_register_index)) &
+            deallocate(realm(is)%adam%maps%inter_realm_face_register_index)
+         if (nb_realm > 0_I4P) then
+            allocate(realm(is)%adam%maps%inter_realm_face_register_index(1:nb_realm, 1:6))
+            realm(is)%adam%maps%inter_realm_face_register_index = 0_I4P
+         endif
+      endblock
+   enddo
+   if (nfaces_total == 0_I4P) return
+
+   ! Pass 2: register each coarse-side AMR face and fill the signed lookup.
+   cursor = 0_I4P
+   do is = 1_I4P, int(size(realm), I4P)
+      iter%b = 1_I4P ; iter%p => null()
+      do while (realm(is)%adam%tree%loop(iter, node_ptr=node_ptr))
+         do fec = 1_I4P, 6_I4P
+            if (.not. allocated(node_ptr%neighbor(fec)%codes)) cycle
+            if (node_ptr%neighbor(fec)%ntype /= NODE_MORE_REFINED) cycle
+            cursor = cursor + 1_I4P
+            ! Tree fec 1..6 are faces ±x,±y,±z in order (FEC_TO_DELTA): axis = (fec+1)/2.
+            axis = (fec + 1_I4P) / 2_I4P
+            nface_cells = tangential_cells(realm(is), axis)
+            ! Resolve the fine-side block indices (the ratio/2 finer neighbors).
+            n_fine = int(size(node_ptr%neighbor(fec)%codes), I4P)
+            if (allocated(fine_blocks)) deallocate(fine_blocks)
+            allocate(fine_blocks(1:n_fine))
+            do kf = 1_I4P, n_fine
+               fine_ptr => realm(is)%adam%tree%node(code=node_ptr%neighbor(fec)%codes(kf))
+               fine_blocks(kf) = int(fine_ptr%block_index, I4P)
+            enddo
+            call self%flux_register%register_face(face_index=cursor,                            &
+                                                  seam_kind=SEAM_KIND_INTRA_REALM_AMR,          &
+                                                  coarse_realm=is,                              &
+                                                  coarse_block=int(node_ptr%block_index, I4P),  &
+                                                  coarse_face=fec,                              &
+                                                  fine_realm=is,                                &
+                                                  fine_block=fine_blocks,                       &
+                                                  nface_cells=nface_cells,                      &
+                                                  nv=int(realm(is)%adam%field%nv, I4P),         &
+                                                  n_stages=realm(is)%stages_per_step_forest())
+            ! Signed lookup, keyed by the TREE fec (1=-x,2=+x,3=-y,4=+y,5=-z,6=+z)
+            ! — the SAME numbering `accumulate_seam_fluxes_fv`'s `select case (fec)`
+            ! uses to pack the face skin. (The node's `%bc_fec` field is populated
+            ! only for boundary-condition neighbors, not interior AMR neighbors, so
+            ! it is unusable here.) +cursor on the coarse (block, fec); -cursor on
+            ! each fine neighbor's opposite face (fec 1↔2, 3↔4, 5↔6).
+            realm(is)%adam%maps%inter_realm_face_register_index(int(node_ptr%block_index, I4P), fec) = +cursor
+            do kf = 1_I4P, n_fine
+               fine_ptr => realm(is)%adam%tree%node(code=node_ptr%neighbor(fec)%codes(kf))
+               realm(is)%adam%maps%inter_realm_face_register_index(int(fine_ptr%block_index, I4P), &
+                                                                   opposite_fec(fec)) = -cursor
+            enddo
+         enddo
+      enddo
+   enddo
+   if (allocated(fine_blocks)) deallocate(fine_blocks)
+
+
+   contains
+      pure function tangential_cells(this_realm, axis) result(n)
+      !< Single-block face-skin cell count tangential to `axis` (nj*nk, ni*nk, ni*nj).
+      class(realm_object), intent(in) :: this_realm !< Realm to query.
+      integer(I4P),        intent(in) :: axis       !< 1=x, 2=y, 3=z.
+      integer(I4P)                    :: n          !< Cell count.
+
+      associate(g => this_realm%adam%grid)
+         select case (axis)
+         case (1_I4P); n = g%nj * g%nk
+         case (2_I4P); n = g%ni * g%nk
+         case (3_I4P); n = g%ni * g%nj
+         case default; n = 0_I4P
+         endselect
+      endassociate
+      endfunction tangential_cells
+
+      pure function opposite_fec(fec) result(opp)
+      !< Opposite tree fec within the same axis (1↔2, 3↔4, 5↔6).
+      integer(I4P), intent(in) :: fec !< Tree fec (1..6).
+      integer(I4P)             :: opp !< Opposite tree fec.
+
+      select case (fec)
+      case (1_I4P); opp = 2_I4P
+      case (2_I4P); opp = 1_I4P
+      case (3_I4P); opp = 4_I4P
+      case (4_I4P); opp = 3_I4P
+      case (5_I4P); opp = 6_I4P
+      case (6_I4P); opp = 5_I4P
+      case default; opp = 0_I4P
+      endselect
+      endfunction opposite_fec
+   endsubroutine register_intra_realm_amr_seams
+
+   subroutine apply_reflux_corrections(self, realm, dt)
    !< Dispatch the Berger-Colella reflux correction to every realm.
    !<
-   !< The forest's role here is purely an orchestrator: it iterates the
-   !< realm array and invokes each realm's `apply_reflux_to_stage_forest`
-   !< TBP. The realm-side body filters `flux_register%face(:)` by
-   !< `face%coarse_realm == self%realm_index` (read from the realm's own
-   !< component, set by the forest at initialize-time) and writes the
-   !< per-cell correction into its OWN integrator-private stage buffer
-   !< (for RK realms: `self%rk%q_rk(:, ..., stage)`, weighted by
-   !< `self%rk%ark(stage)`).
+   !< Called once per step AFTER close_step_forest's update_q. The forest's
+   !< role is purely orchestration: it iterates the realm array and invokes
+   !< each realm's `apply_reflux_to_stage_forest` TBP, passing that realm's
+   !< OWN final stage (`stages_per_step_forest()`) so the realm-side
+   !< end-of-step gate (`stage == self%rk%nrk`) fires for every realm,
+   !< asymmetric-K included. The realm-side body filters `flux_register%face(:)`
+   !< by `face%coarse_realm == self%realm_index` and adds the per-cell
+   !< end-of-step correction directly into its committed `self%q` (full
+   !< `dt/dx` weight, no stage RK coefficient — AMReX Berger-Colella cadence).
    !<
-   !< The forest never reaches `realm%rk` directly: the integrator-specific
-   !< weight pickup, the buffer name, and the per-cell write all live
-   !< realm-side. This is the integrator-agnostic split — see
+   !< The forest never reaches `realm%rk`/`realm%q` directly: the per-cell
+   !< write lives realm-side. This is the integrator-agnostic split — see
    !< [[realm_object]]%`apply_reflux_to_stage_forest` for the contract,
    !< and [[prism_cpu_object]] for the RK-specific override.
    !<
-   !< Empty register fast path: when the register has no faces (single-
-   !< realm forest, no seams declared) the per-realm calls each short-
-   !< circuit on `flux_register%nfaces == 0` and the dispatch is a true
-   !< no-op for the N=1 path.
+   !< Empty register fast path: when the register has no faces the per-realm
+   !< calls each short-circuit on `flux_register%nfaces == 0`.
    class(forest_object), intent(in)    :: self     !< The forest (holds the flux register).
    class(realm_object),  intent(inout) :: realm(:) !< Realms; each realm's reflux TBP fires once.
-   integer(I4P),         intent(in)    :: stage    !< Integrator stage 1..K_total.
    real(R8P),            intent(in)    :: dt       !< Time step.
    integer(I4P)                        :: is       !< Realm index.
 
@@ -1457,8 +1633,26 @@ contains
    if (self%flux_register%nfaces == 0_I4P)        return
    if (.not. allocated(self%flux_register%face))  return
 
+   ! Diagnostic: report the seam-flux mismatch the reflux is about to correct.
+   ! For a same-resolution mirror seam this is round-off zero (no-op correction);
+   ! for a true 2:1 AMR jump it is the non-trivial Berger-Colella delta. Emitted
+   ! only when non-zero, so non-AMR runs stay silent. #13 §7.5 M3.
+   block
+      integer(I4P) :: ff
+      real(R8P)    :: dmax
+      dmax = 0._R8P
+      do ff = 1_I4P, self%flux_register%nfaces
+         if (allocated(self%flux_register%face(ff)%F_coarse) .and. &
+             allocated(self%flux_register%face(ff)%F_fine_sum)) &
+            dmax = max(dmax, maxval(abs(self%flux_register%face(ff)%F_coarse - &
+                                        self%flux_register%face(ff)%F_fine_sum)))
+      enddo
+      if (dmax > 0._R8P) &
+         call mpih%print_message('forest: reflux max|F_coarse-F_fine_sum| = '//trim(str(dmax)))
+   endblock
+
    do is = 1_I4P, int(size(realm), I4P)
-      call realm(is)%apply_reflux_to_stage_forest(stage=stage, dt=dt, &
+      call realm(is)%apply_reflux_to_stage_forest(stage=realm(is)%stages_per_step_forest(), dt=dt, &
                                                   flux_register=self%flux_register)
    enddo
    endsubroutine apply_reflux_corrections
