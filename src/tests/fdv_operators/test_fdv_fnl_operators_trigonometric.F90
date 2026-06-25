@@ -153,6 +153,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -175,6 +179,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -197,6 +205,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -219,6 +231,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -241,6 +257,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -263,6 +283,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -285,6 +309,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -307,6 +335,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -329,6 +361,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -351,6 +387,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -373,6 +413,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_, dx_)                &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_, dx_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_
@@ -394,6 +438,10 @@ contains
    !$acc& DEVICEVAR(sin0_dev, dsin_dev)        &
    !$acc& firstprivate(s_)                     &
    !$acc& private(qs)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sin0_dev, dsin_dev) &
+   !$omp& firstprivate(s_) &
+   !$omp& private(qs)
    do i=1, n_
       !$acc loop seq
       do ist=1-s_, 1+s_

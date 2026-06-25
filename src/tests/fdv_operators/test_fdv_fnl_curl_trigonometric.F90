@@ -157,6 +157,10 @@ contains
    !$acc& DEVICEVAR(q_dev, curl_dev)                       &
    !$acc& firstprivate(s, ni, dxyz)                        &
    !$acc& private(qsx_y, qsx_z, qsy_x, qsy_z, qsz_x, qsz_y, curl_)
+   !$omp OMPLOOP collapse(3) &
+   !$omp& DEVICEPTR(q_dev, curl_dev) &
+   !$omp& firstprivate(s, ni, dxyz) &
+   !$omp& private(qsx_y, qsx_z, qsy_x, qsy_z, qsz_x, qsz_y, curl_)
    do k=1, ni
    do j=1, ni
    do i=1, ni
@@ -204,6 +208,10 @@ contains
    !$acc& DEVICEVAR(q_dev, curl_dev)                       &
    !$acc& firstprivate(s, ni, dxyz)                        &
    !$acc& private(qsx_y, qsx_z, qsy_x, qsy_z, qsz_x, qsz_y, curl_)
+   !$omp OMPLOOP collapse(3) &
+   !$omp& DEVICEPTR(q_dev, curl_dev) &
+   !$omp& firstprivate(s, ni, dxyz) &
+   !$omp& private(qsx_y, qsx_z, qsy_x, qsy_z, qsz_x, qsz_y, curl_)
    do k=1, ni
    do j=1, ni
    do i=1, ni

@@ -148,6 +148,10 @@ contains
    !$acc& DEVICEVAR(f_dev, grad_dev)                        &
    !$acc& firstprivate(s, ni, dxyz)                         &
    !$acc& private(qsx, qsy, qsz, grad_)
+   !$omp OMPLOOP collapse(3) &
+   !$omp& DEVICEPTR(f_dev, grad_dev) &
+   !$omp& firstprivate(s, ni, dxyz) &
+   !$omp& private(qsx, qsy, qsz, grad_)
    do k=1, ni
    do j=1, ni
    do i=1, ni
@@ -181,6 +185,10 @@ contains
    !$acc& DEVICEVAR(v_dev, div_dev)                         &
    !$acc& firstprivate(s, ni, dxyz)                         &
    !$acc& private(qsx, qsy, qsz)
+   !$omp OMPLOOP collapse(3) &
+   !$omp& DEVICEPTR(v_dev, div_dev) &
+   !$omp& firstprivate(s, ni, dxyz) &
+   !$omp& private(qsx, qsy, qsz)
    do k=1, ni
    do j=1, ni
    do i=1, ni
@@ -212,6 +220,10 @@ contains
    !$acc& DEVICEVAR(f_dev, lap_dev)                         &
    !$acc& firstprivate(s, ni, dxyz)                         &
    !$acc& private(qsx, qsy, qsz)
+   !$omp OMPLOOP collapse(3) &
+   !$omp& DEVICEPTR(f_dev, lap_dev) &
+   !$omp& firstprivate(s, ni, dxyz) &
+   !$omp& private(qsx, qsy, qsz)
    do k=1, ni
    do j=1, ni
    do i=1, ni
