@@ -131,7 +131,7 @@ contains
    real(R8P)                 :: rho, uuu, vvv, www, rhe, tem          !< State variables.
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_aux_gpu)
-   !$omp OMPLOOP DEVICEVAR(q_gpu, q_aux_gpu)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu, q_aux_gpu)
    do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
          do i=1-ngc, ni+ngc
