@@ -31,6 +31,7 @@ character(len=10), parameter :: IC_TYPE_RMF="rmf_field"                   !< Rot
 character(len=15), parameter :: IC_TYPE_MAGNETIC_NOZZLE="magnetic_nozzle" !< Nozzle IC TYPE parameter.
 character(len=15), parameter :: IC_TYPE_RMF_NOZZLE="rmf_magnetic_nozzle"  !< Rotating Magnetic Field Nozzle IC TYPE parameter.
 character(len=13), parameter :: IC_TYPE_UNIFORM_FIELD="uniform_field"     !< Uniform field IC type parameter
+character(len=14), parameter :: IC_TYPE_GAUSSIAN_PULSE="gaussian_pulse"   !< 
 
 type :: prism_ic_object
    !< Initial Conditions class definition, CPU backend.
@@ -43,7 +44,7 @@ type :: prism_ic_object
    real(R8P)                 :: ky=0.0_R8P           !< Plane wave number in y direction.
    real(R8P)                 :: kz=0.0_R8P           !< Plane wave number in z direction.
    real(R8P)                 :: lambda=0.0_R8P       !< Plane wave wavelength.
-   real(R8P)                 :: B0=0.0_R8P           !< Plane wave background magnetic field amplitude.
+   real(R8P)                 :: B0=0.0_R8P           !< Plane wave/Gaussian pulse background magnetic field amplitude.
    real(R8P)                 :: B_x=0.0_R8P          !< Unifom field value
    real(R8P)                 :: B_y=0.0_R8P          !< Unifom field value
    real(R8P)                 :: B_z=0.0_R8P          !< Unifom field value
@@ -56,6 +57,10 @@ type :: prism_ic_object
 	integer(I4P)              :: alpha                !< RMF rotation axis coordinate 1
 	integer(I4P)              :: beta                 !< RMF rotation axis coordinate 2
 	integer(I4P)              :: gamma                !< RMF rotation axis coordinate 3
+   character(len=2)          :: pulse_direction  	  !< 
+   real(R8P)                 :: r0                   !< reference point for gaussian pulse at t0
+   real(R8P)                 :: k0                   !< wave number for the gaussian pulse
+   real(R8P)                 :: sigma                !< standard deviation for the gaussian pulse
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -85,6 +90,13 @@ contains
             desc = desc//NL//mpih%myrankstr//'    emin: '//trim(str(self%emin(:,r)))
             desc = desc//NL//mpih%myrankstr//'    emax: '//trim(str(self%emax(:,r)))
       enddo
+   endif
+   if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE) then
+      desc = desc//NL//mpih%myrankstr//'  B0: '//trim(str(self%B0))
+      desc = desc//NL//mpih%myrankstr//'  r0: '//trim(str(self%r0))
+      desc = desc//NL//mpih%myrankstr//'  k0: '//trim(str(self%k0))
+      desc = desc//NL//mpih%myrankstr//'  pulse_direction: '//(self%pulse_direction)
+      desc = desc//NL//mpih%myrankstr//'  sigma of the pulse: '//trim(str(self%sigma))
    endif
    endfunction description
 
@@ -173,6 +185,22 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
    endif
+   if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE) then
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='k0', val=self%k0, error=error)
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(k0)')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='r0', val=self%r0, error=error)
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(r0)')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='pulse_direction', &
+                           val=buff_char, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(pulse_direction)')
+      self%pulse_direction = trim(buff_char)
+      self%pulse_direction = trim(self%pulse_direction)   
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='sigma', val=self%sigma, error=error)
+      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sigma)')
+   endif
    if (self%ic_type == IC_TYPE_RMF) then
       call file_parameters%get(section_name='external_fields', option_name='RMF_frequency', val=self%RMF_frequency, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
@@ -221,24 +249,24 @@ contains
 
    subroutine set_initial_conditions(self, physics, field, grid, q)
       !< Set initial conditions on PRISM fields.
-      class(prism_ic_object),     intent(in)    :: self                 !< IC.
-      type(prism_physics_object), intent(in)    :: physics              !< Fluids physiscs.
-      type(field_object),         intent(in)    :: field                !< Field object.
-      type(grid_object),          intent(in), target :: grid                 !< Grid (sibling realm component, threaded in).
-      real(R8P),                  intent(inout) :: q(1:,        &
-                                                   1-grid%ngc:,&
-                                                   1-grid%ngc:,&
-                                                   1-grid%ngc:,&
-                                                   1:)                  !< Field cell centered variables.
-      real(R8P)                                 :: x_cell(1-grid%ngc:grid%ni+grid%ngc), &
-                                                   y_cell(1-grid%ngc:grid%nj+grid%ngc), &
-                                                   z_cell(1-grid%ngc:grid%nk+grid%ngc)
-                                                                        !< Vettori posizione centro celle del blocco b
-      integer(I4P)                              :: b, i, j, k, ri, var  !< Counter.
-	   real(R8P) 										   :: B_r, B_theta 			!< Radial and azimuthal components of the rotating magnetic field
-	   real(R8P)										   :: theta                !< Angles in cylindrical coordinates
-	   real(R8P)										   :: cell_coord(3)
-      real(R8P)                                 :: x, y, r, omega, phase, c, s
+      class(prism_ic_object),     intent(in)         :: self                                    !< IC.
+      type(prism_physics_object), intent(in)         :: physics                                 !< Fluids physiscs.
+      type(field_object),         intent(in)         :: field                                   !< Field object.
+      type(grid_object),          intent(in), target :: grid                                    !< Grid (sibling realm component, threaded in).
+      real(R8P),                  intent(inout)      :: q(1:,          &
+                                                          1-grid%ngc:, &
+                                                          1-grid%ngc:, &
+                                                          1-grid%ngc:, &
+                                                          1:)                                   !< Field cell centered variables.
+      real(R8P)                                      :: x_cell(1-grid%ngc:grid%ni+grid%ngc), &
+                                                        y_cell(1-grid%ngc:grid%nj+grid%ngc), &
+                                                        z_cell(1-grid%ngc:grid%nk+grid%ngc)     !< Vettori posizione centro celle del blocco b
+      integer(I4P)                                   :: b, i, j, k, ri, var                     !< Counter.
+	   real(R8P) 										        :: B_r, B_theta 			                  !< Radial and azimuthal components of the rotating magnetic field
+	   real(R8P)										        :: theta                                   !< Angles in cylindrical coordinates
+	   real(R8P)										        :: cell_coord(3)
+      integer(I4P)                                   :: i_dir
+      real(R8P)                                      :: x, y, r, omega, phase, c, s
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, &
              nv=>physics%nv, nv_c=>physics%nv_c, nv_cl=>physics%nv_cl)
    select case(self%ic_type)
@@ -277,6 +305,38 @@ contains
                   do var= (nv_c-nv_cl+1), nv
                      q(var,i,j,k,b) = 0.0_R8P
                   enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_TYPE_GAUSSIAN_PULSE)
+      if (self%pulse_direction == '+x') then
+         i_dir = 1_I4P
+      elseif (self%pulse_direction == '-x') then
+         i_dir = -1_I4P
+      elseif (self%pulse_direction == '+y') then
+         i_dir = 2_I4P
+      elseif (self%pulse_direction == '-y') then
+         i_dir = -2_I4P
+      elseif (self%pulse_direction == '+z') then
+         i_dir = 3_I4P
+      elseif (self%pulse_direction == '-z') then
+         i_dir = -3_I4P
+      endif
+      do b=1, blocks_number
+         call grid%cell_xyz(coordinates = field%coordinates(:,b), &
+               x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  call set_gaussian_wave_pulse(x=cell_coord,     &
+                                               i_dir=i_dir,      &
+                                               k0=self%k0,       &
+                                               x0=self%r0,       &
+                                               B0=self%B0,       &
+                                               sigma=self%sigma, &
+                                               q=q(1:6,i,j,k,b))
                enddo
             enddo
          enddo
@@ -327,4 +387,39 @@ contains
    endselect
    endassociate
    endsubroutine set_initial_conditions
+
+   subroutine set_gaussian_wave_pulse(x, i_dir, k0, x0, B0, sigma, q)
+   !< Set a linearly polarized Gaussian-modulated electromagnetic wave packet.
+   real(R8P),    intent(in)    :: x(3)            !< Spatial coordinates.
+   integer(I4P), intent(in)    :: i_dir           !< Propagation direction: +/-1, +/-2, +/-3.
+   real(R8P),    intent(in)    :: k0              !< Central wave number.
+   real(R8P),    intent(in)    :: x0              !< Initial packet center along propagation direction.
+   real(R8P),    intent(in)    :: B0              !< Magnetic-field amplitude.
+   real(R8P),    intent(in)    :: sigma           !< Gaussian standard deviation.
+   real(R8P),    intent(inout) :: q(6)            !< Electromagnetic state: D(1:3), B(1:3).
+   integer(I4P)                :: i_axis          !< Propagation axis.
+   real(R8P)                   :: verse           !< Propagation orientation.
+   real(R8P)                   :: s               !< Coordinate relative to packet center.
+   real(R8P)                   :: E_wave, n_sigma !< Electric-field profile and tolerance value
+
+   n_sigma = 5.0_R8P
+   i_axis = abs(i_dir)
+   verse  = sign(1.0_R8P, real(i_dir, R8P))
+   s = x(i_axis) - x0
+   E_wave = B0*C0*exp(-0.5_R8P*(s/sigma)**2)*cos(k0*s)
+   if (abs(s/sigma) > n_sigma) then
+      E_wave = 0.0_R8P
+   endif
+   select case(i_axis)
+   case(1) !< Propagation along +/-x: E_y, B_z.
+      q(2) = EPS0*E_wave
+      q(6) = verse*E_wave/C0
+   case(2) !< Propagation along +/-y: E_z, B_x.
+      q(3) = EPS0*E_wave
+      q(4) = verse*E_wave/C0
+   case(3) !< Propagation along +/-z: E_x, B_y.
+      q(1) = EPS0*E_wave
+      q(5) = verse*E_wave/C0
+   end select
+   endsubroutine set_gaussian_wave_pulse
 endmodule adam_prism_ic_object
