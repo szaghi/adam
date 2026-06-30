@@ -3283,8 +3283,6 @@ contains
    !< Integrate equation, time operator, SSP RK schemes.
    !< SSP RK working on q_rk as stages.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
-   character(len=32)                      :: delta_B_str
-   character(len=32)                      :: delta_D_str
    integer(I4P)                           :: s    !< Counter.
 
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
