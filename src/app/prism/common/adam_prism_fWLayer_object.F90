@@ -104,19 +104,41 @@ contains
    C_r = real(C, R8P)
 
    if (C >0) then
-      ni_fWL(1,1)=1_I4P; ni_fWL(1,2)=ni-C+1_I4P; ni_fWL(1,3)=1_I4P; ni_fWL(1,4)=1_I4P     ; ni_fWL(1,5)=1_I4P; ni_fWL(1,6)=1_I4P
-      ni_fWL(2,1)=C    ; ni_fWL(2,2)=ni        ; ni_fWL(2,3)=ni   ; ni_fWL(2,4)=ni        ; ni_fWL(2,5)=ni   ; ni_fWL(2,6)=ni
-      nj_fWL(1,1)=1_I4P; nj_fWL(1,2)=1_I4P     ; nj_fWL(1,3)=1_I4P; nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
-      nj_fWL(2,1)=nj   ; nj_fWL(2,2)=nj        ; nj_fWL(2,3)=C    ; nj_fWL(2,4)=nj        ; nj_fWL(2,5)=nj   ; nj_fWL(2,6)=nj
-      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P     ; nk_fWL(1,3)=1_I4P; nk_fWL(1,4)=1_I4P     ; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P
-      nk_fWL(2,1)=nk   ; nk_fWL(2,2)=nk        ; nk_fWL(2,3)=nk   ; nk_fWL(2,4)=nk        ; nk_fWL(2,5)=C    ; nk_fWL(2,6)=nk
+      ni_fWL(1,1)=1_I4P; ni_fWL(1,2)=ni-C+1_I4P; ni_fWL(1,3)=1_I4P; &
+      ni_fWL(1,4)=1_I4P; ni_fWL(1,5)=1_I4P     ; ni_fWL(1,6)=1_I4P  
 
-      n(1)      =1_I4P  ; n(2)      =1_I4P   ; n(3)      =2_I4P  ; n(4)      =2_I4P   ; n(5)      =3_I4P  ; n(6)      =3_I4P
-      s2(1)     =1.0_R8P; s2(2)     =-1.0_R8P; s2(3)     =1.0_R8P; s2(4)     =-1.0_R8P; s2(5)     =1.0_R8P; s2(6)     =-1.0_R8P
-      alfa_D(1) =2_I4P  ; alfa_D(2) =2_I4P   ; alfa_D(3) =3_I4P  ; alfa_D(4) =3_I4P   ; alfa_D(5) =1_I4P  ; alfa_D(6) =1_I4P
-      beta_D(1) =3_I4P  ; beta_D(2) =3_I4P   ; beta_D(3) =1_I4P  ; beta_D(4) =1_I4P   ; beta_D(5) =2_I4P  ; beta_D(6) =2_I4P
-      alfa_B(1) =5_I4P  ; alfa_B(2) =5_I4P   ; alfa_B(3) =6_I4P  ; alfa_B(4) =6_I4P   ; alfa_B(5) =4_I4P  ; alfa_B(6) =4_I4P
-      beta_B(1) =6_I4P  ; beta_B(2) =6_I4P   ; beta_B(3) =4_I4P  ; beta_B(4) =4_I4P   ; beta_B(5) =5_I4P  ; beta_B(6) =5_I4P
+      ni_fWL(2,1)=C ; ni_fWL(2,2)=ni; ni_fWL(2,3)=ni; &
+      ni_fWL(2,4)=ni; ni_fWL(2,5)=ni; ni_fWL(2,6)=ni
+
+      nj_fWL(1,1)=1_I4P     ; nj_fWL(1,2)=1_I4P; nj_fWL(1,3)=1_I4P; &
+      nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
+
+      nj_fWL(2,1)=nj; nj_fWL(2,2)=nj; nj_fWL(2,3)=C ; &
+      nj_fWL(2,4)=nj; nj_fWL(2,5)=nj; nj_fWL(2,6)=nj
+
+      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P; nk_fWL(1,3)=1_I4P;     &
+      nk_fWL(1,4)=1_I4P; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P
+
+      nk_fWL(2,1)=nk; nk_fWL(2,2)=nk; nk_fWL(2,3)=nk; &
+      nk_fWL(2,4)=nk; nk_fWL(2,5)=C ; nk_fWL(2,6)=nk
+
+      n(1) =1_I4P; n(2)=1_I4P; n(3)=2_I4P; &
+      n(4) =2_I4P; n(5)=3_I4P; n(6)=3_I4P
+
+      s2(1)= 1.0_R8P; s2(2)=-1.0_R8P; s2(3)= 1.0_R8P; &
+      s2(4)=-1.0_R8P; s2(5)= 1.0_R8P; s2(6)=-1.0_R8P
+
+      alfa_D(1)=2_I4P; alfa_D(2)=2_I4P; alfa_D(3)=3_I4P; &
+      alfa_D(4)=3_I4P; alfa_D(5)=1_I4P; alfa_D(6)=1_I4P
+
+      beta_D(1)=3_I4P; beta_D(2)=3_I4P; beta_D(3)=1_I4P; &
+      beta_D(4)=1_I4P; beta_D(5)=2_I4P; beta_D(6)=2_I4P
+
+      alfa_B(1)=5_I4P; alfa_B(2)=5_I4P; alfa_B(3)=6_I4P; &
+      alfa_B(4)=6_I4P; alfa_B(5)=4_I4P; alfa_B(6)=4_I4P
+
+      beta_B(1)=6_I4P; beta_B(2)=6_I4P; beta_B(3)=4_I4P; &
+      beta_B(4)=4_I4P; beta_B(5)=5_I4P; beta_B(6)=5_I4P
 
       if (C < 40_I4P) then
          fi = 1/150._R8P*(-7.0_R8P*C_r**2 + 255._R8P*C_r + 250._R8P)
