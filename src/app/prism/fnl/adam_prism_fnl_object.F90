@@ -453,48 +453,71 @@ contains
    ! IC/BC/sources
    subroutine apply_fwl_correction(self, q_gpu)
    !< Apply correction if a fWL is present.
-   class(prism_fnl_object), intent(inout) :: self                    !< The equation.
+   class(prism_fnl_object), intent(inout) :: self                                !< The equation.
    real(R8P),               intent(inout) :: q_gpu(1:,         &
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
-                                                   1:)               !< Conservative variables.
-   integer(I4P)                           :: ni(2,6),nj(2,6),nk(2,6) !< Dimensions of FWL domain.
-   real(R8P)                              :: s2(6)                   !< Side coefficient.
-   integer(I4P)                           :: n(6)                    !< FWL f function index.
-   integer(I4P)                           :: alfa_D(6), beta_D(6)    !< Corrected var index of D (Barbas' notation).
-   integer(I4P)                           :: alfa_B(6), beta_B(6)    !< Corrected var index of D (Barbas' notation).
-   integer(I4P)                           :: face                    !< Counter.
+                                                   1:)                           !< Conservative variables.
+   integer(I4P)                           :: ni_fWL(2,6),nj_fWL(2,6),nk_fWL(2,6) !< Dimensions of FWL domain.
+   real(R8P)                              :: s2(6)                               !< Side coefficient.
+   integer(I4P)                           :: n(6)                                !< FWL f function index.
+   integer(I4P)                           :: alfa_D(6), beta_D(6)                !< Corrected var index of D (Barbas' notation).
+   integer(I4P)                           :: alfa_B(6), beta_B(6)                !< Corrected var index of D (Barbas' notation).
+   integer(I4P)                           :: face                                !< Counter.
 
-   associate(C=>self%fWLayer%C, layer=>self%fWLayer%layer)
+   associate(C=>self%fWLayer%C, layer=>self%fWLayer%layer, & 
+            ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number)
    if (C>0) then
-      ! below arrays should be initialized elsewhere...
-        ni(1,1)=1_I4P   ;   ni(1,2)=self%ni-C ;   ni(1,3)=1_I4P   ;   ni(1,4)=1_I4P     ;   ni(1,5)=1_I4P   ;   ni(1,6)=1_I4P
-        ni(2,1)=C       ;   ni(2,2)=self%ni   ;   ni(2,3)=self%ni ;   ni(2,4)=self%ni   ;   ni(2,5)=self%ni ;   ni(2,6)=self%ni
-        nj(1,1)=1_I4P   ;   nj(1,2)=1_I4P     ;   nj(1,3)=1_I4P   ;   nj(1,4)=self%nj-C ;   nj(1,5)=1_I4P   ;   nj(1,6)=1_I4P
-        nj(2,1)=self%nj ;   nj(2,2)=self%nj   ;   nj(2,3)=C       ;   nj(2,4)=self%nj   ;   nj(2,5)=self%nj ;   nj(2,6)=self%nj
-        nk(1,1)=1_I4P   ;   nk(1,2)=1_I4P     ;   nk(1,3)=1_I4P   ;   nk(1,4)=1_I4P     ;   nk(1,5)=1_I4P   ;   nk(1,6)=self%nk-C
-        nk(2,1)=self%nk ;   nk(2,2)=self%nk   ;   nk(2,3)=self%nk ;   nk(2,4)=self%nk   ;   nk(2,5)=C       ;   nk(2,6)=self%nk
-           n(1)=1_I4P   ;      n(2)= 1_I4P    ;      n(3)=2_I4P   ;      n(4)= 2_I4P    ;      n(5)=3_I4P   ;      n(6)= 3_I4P
-          s2(1)=1.0_R8P ;     s2(2)=-1.0_R8P  ;     s2(3)=1.0_R8P ;     s2(4)=-1.0_R8P  ;     s2(5)=1.0_R8P ;     s2(6)=-1.0_R8P
-      alfa_D(1)=2_I4P   ; alfa_D(2)= 2_I4P    ; alfa_D(3)=3_I4P   ; alfa_D(4)= 3_I4P    ; alfa_D(5)=1_I4P   ; alfa_D(6)= 1_I4P
-      beta_D(1)=3_I4P   ; beta_D(2)= 3_I4P    ; beta_D(3)=1_I4P   ; beta_D(4)= 1_I4P    ; beta_D(5)=2_I4P   ; beta_D(6)= 2_I4P
-      alfa_B(1)=5_I4P   ; alfa_B(2)= 5_I4P    ; alfa_B(3)=6_I4P   ; alfa_B(4)= 6_I4P    ; alfa_B(5)=4_I4P   ; alfa_B(6)= 4_I4P
-      beta_B(1)=6_I4P   ; beta_B(2)= 6_I4P    ; beta_B(3)=4_I4P   ; beta_B(4)= 4_I4P    ; beta_B(5)=5_I4P   ; beta_B(6)= 5_I4P
+      ni_fWL(1,1)=1_I4P; ni_fWL(1,2)=ni-C+1_I4P; ni_fWL(1,3)=1_I4P; &
+      ni_fWL(1,4)=1_I4P; ni_fWL(1,5)=1_I4P     ; ni_fWL(1,6)=1_I4P  
+
+      ni_fWL(2,1)=C ; ni_fWL(2,2)=ni; ni_fWL(2,3)=ni; &
+      ni_fWL(2,4)=ni; ni_fWL(2,5)=ni; ni_fWL(2,6)=ni
+
+      nj_fWL(1,1)=1_I4P     ; nj_fWL(1,2)=1_I4P; nj_fWL(1,3)=1_I4P; &
+      nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
+
+      nj_fWL(2,1)=nj; nj_fWL(2,2)=nj; nj_fWL(2,3)=C ; &
+      nj_fWL(2,4)=nj; nj_fWL(2,5)=nj; nj_fWL(2,6)=nj
+
+      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P; nk_fWL(1,3)=1_I4P;     &
+      nk_fWL(1,4)=1_I4P; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P
+
+      nk_fWL(2,1)=nk; nk_fWL(2,2)=nk; nk_fWL(2,3)=nk; &
+      nk_fWL(2,4)=nk; nk_fWL(2,5)=C ; nk_fWL(2,6)=nk
+
+      n(1) =1_I4P; n(2)=1_I4P; n(3)=2_I4P; &
+      n(4) =2_I4P; n(5)=3_I4P; n(6)=3_I4P
+
+      s2(1)= 1.0_R8P; s2(2)=-1.0_R8P; s2(3)= 1.0_R8P; &
+      s2(4)=-1.0_R8P; s2(5)= 1.0_R8P; s2(6)=-1.0_R8P
+
+      alfa_D(1)=2_I4P; alfa_D(2)=2_I4P; alfa_D(3)=3_I4P; &
+      alfa_D(4)=3_I4P; alfa_D(5)=1_I4P; alfa_D(6)=1_I4P
+
+      beta_D(1)=3_I4P; beta_D(2)=3_I4P; beta_D(3)=1_I4P; &
+      beta_D(4)=1_I4P; beta_D(5)=2_I4P; beta_D(6)=2_I4P
+
+      alfa_B(1)=5_I4P; alfa_B(2)=5_I4P; alfa_B(3)=6_I4P; &
+      alfa_B(4)=6_I4P; alfa_B(5)=4_I4P; alfa_B(6)=4_I4P
+
+      beta_B(1)=6_I4P; beta_B(2)=6_I4P; beta_B(3)=4_I4P; &
+      beta_B(4)=4_I4P; beta_B(5)=5_I4P; beta_B(6)=5_I4P
       do face=1, 6
          if (layer(face)) call apply_fwl_correction_dev_kernel(blocks_number=self%blocks_number,ngc=self%ngc,&
-                                                               ni1   =  ni(1,face),                          &
-                                                               ni2   =  ni(2,face),                          &
-                                                               nj1   =  nj(1,face),                          &
-                                                               nj2   =  nj(2,face),                          &
-                                                               nk1   =  nk(1,face),                          &
-                                                               nk2   =  nk(2,face),                          &
-                                                               n     =     n(face),                          &
-                                                               s2    =    s2(face),                          &
-                                                               alfa_D=alfa_D(face),                          &
-                                                               beta_D=beta_D(face),                          &
-                                                               alfa_B=alfa_B(face),                          &
-                                                               beta_B=beta_B(face),                          &
+                                                               ni1   = ni_fWL(1,face),                       &
+                                                               ni2   = ni_fWL(2,face),                       &
+                                                               nj1   = nj_fWL(1,face),                       &
+                                                               nj2   = nj_fWL(2,face),                       &
+                                                               nk1   = nk_fWL(1,face),                       &
+                                                               nk2   = nk_fWL(2,face),                       &
+                                                               n     =      n(face)  ,                       &
+                                                               s2    =     s2(face)  ,                       &
+                                                               alfa_D= alfa_D(face)  ,                       &
+                                                               beta_D= beta_D(face)  ,                       &
+                                                               alfa_B= alfa_B(face)  ,                       &
+                                                               beta_B= beta_B(face)  ,                       &
                                                                f_gpu=self%fwlayer_fnl%f_gpu,q_gpu=q_gpu)
       enddo
    endif
@@ -542,7 +565,7 @@ contains
                                      q_gpu         = q_gpu)
 
       ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
-      s = 1._R8P ; if (td > 0._R8P) s = time_s / td ; s = max(0._R8P, min(1._R8P, s))
+      s = 1._R8P ; if (td > 0._R8P) s = time_s / td 
       g = 10._R8P*s**3 - 15._R8P*s**4 + 6._R8P*s**5
 
       do n=1, self%coil%total_coils_number
@@ -717,6 +740,8 @@ contains
 
    call self%initialize_coils
 
+   
+
    ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
    !    call self%pic%current_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    !    call self%pic%particle_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
@@ -724,6 +749,9 @@ contains
    ! endif
 
    call self%copy_cpu_gpu
+
+   call self%compute_coils_current(q_gpu=self%q_gpu)
+   call self%apply_fWL_correction(q_gpu=self%q_gpu)
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q_gpu, step, s)
@@ -764,6 +792,11 @@ contains
                                                                  comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
                                                                  q_gpu=q_gpu, step=step)
    if (do_set_bc) call self%set_boundary_conditions(q_gpu=q_gpu)
+   if (present(s)) then
+      call self%compute_coils_current(q_gpu=q_gpu, gamm=self%rk%gamm(s))
+   else
+      call self%compute_coils_current(q_gpu=q_gpu)
+   endif
    endsubroutine update_ghost
 
    subroutine update_rk_ghost(self, dt, phi_gpu)
@@ -1120,7 +1153,7 @@ contains
    integer(I4P),            intent(in),    optional      :: s          !< Stage counter.
 
    if (self%blocks_number > 0) then
-      call self%apply_fwl_correction(q_gpu=q_gpu)
+      !call self%apply_fwl_correction(q_gpu=q_gpu)
       call self%update_ghost(q_gpu=q_gpu, s=s)
       call compute_residuals_fd_centered_dev_kernel(ni            = self%ni                  ,&
                                                     nj            = self%nj                  ,&
@@ -1836,7 +1869,6 @@ contains
       endif
    enddo
    call self%impose_div_free
-   call self%apply_fwl_correction(q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ls_dev
 
    subroutine integrate_rk_ssp_dev(self)
@@ -1856,7 +1888,7 @@ contains
       else
          call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
       endif
-      call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
+      !call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       ! if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
@@ -1875,9 +1907,9 @@ contains
       ! call self%update_rk_ghost(dt=self%time%dt)
       call self%save_residuals
    endif
+   call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
-   ! call self%apply_fwl_correction  ! to be removed, probably
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)

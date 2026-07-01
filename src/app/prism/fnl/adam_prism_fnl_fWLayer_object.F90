@@ -116,6 +116,8 @@ contains
    integer(I4P), intent(in)    :: alfa_B, beta_B                    !< Corrected var index of D (Barbas' notation).
    real(R8P),    intent(in)    :: f_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< fWLayer function values.
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
+   real(R8P)                   :: D_alfa, D_beta                    !< components of tangential fields before correction
+   real(R8P)                   :: B_alfa, B_beta                    !< components of tangential fields before correction
    real(R8P)                   :: fm1, fp1                          !< fWLayer function values in -+ cell.
    integer(I4P)                :: b,i,j,k                           !< Counter.
 
@@ -128,10 +130,14 @@ contains
    do i=ni1, ni2
       fm1 = f_gpu(b,i,j,k,n) - 1._R8P
       fp1 = f_gpu(b,i,j,k,n) + 1._R8P
-      q_gpu(b,i,j,k,alfa_D) = MU0_SQ_I2  * ( s2*fm1*q_gpu(b,i,j,k,beta_B)*EPS0_SQ +    fp1*q_gpu(b,i,j,k,alfa_D)*MU0_SQ)
-      q_gpu(b,i,j,k,beta_D) = MU0_SQ_I2  * (-s2*fm1*q_gpu(b,i,j,k,alfa_B)*EPS0_SQ +    fp1*q_gpu(b,i,j,k,beta_D)*MU0_SQ)
-      q_gpu(b,i,j,k,alfa_B) = EPS0_SQ_I2 * (    fp1*q_gpu(b,i,j,k,alfa_B)*EPS0_SQ - s2*fm1*q_gpu(b,i,j,k,beta_D)*MU0_SQ)
-      q_gpu(b,i,j,k,beta_B) = EPS0_SQ_I2 * (    fp1*q_gpu(b,i,j,k,beta_B)*EPS0_SQ + s2*fm1*q_gpu(b,i,j,k,alfa_D)*MU0_SQ)
+      D_alfa = q_gpu(b,i,j,k,alfa_D)
+      D_beta = q_gpu(b,i,j,k,beta_D)
+      B_alfa = q_gpu(b,i,j,k,alfa_B)
+      B_beta = q_gpu(b,i,j,k,beta_B)
+      q_gpu(b,i,j,k,alfa_D) = MU0_SQ_I2  * ( s2*fm1*B_beta*EPS0_SQ +    fp1*D_alfa*MU0_SQ)
+      q_gpu(b,i,j,k,beta_D) = MU0_SQ_I2  * (-s2*fm1*B_alfa*EPS0_SQ +    fp1*D_beta*MU0_SQ)
+      q_gpu(b,i,j,k,alfa_B) = EPS0_SQ_I2 * (    fp1*B_alfa*EPS0_SQ - s2*fm1*D_beta*MU0_SQ)
+      q_gpu(b,i,j,k,beta_B) = EPS0_SQ_I2 * (    fp1*B_beta*EPS0_SQ + s2*fm1*D_alfa*MU0_SQ)
    enddo
    enddo
    enddo
