@@ -122,7 +122,7 @@ contains
    integer(I4P)                :: b,i,j,k                           !< Counter.
 
    !$acc parallel loop independent gang vector collapse(4) &
-   !$acc& DEVICEVAR(f_gpu,q_gpu) private(fm1,fp1)          &
+   !$acc& DEVICEVAR(f_gpu,q_gpu) private(fm1,fp1,D_alfa,D_beta,B_alfa,B_beta)          &
    !$acc& firstprivate(ni1,ni2,nj1,nj2,nk1,nk2,blocks_number,n,s2,alfa_D,beta_D,alfa_B,beta_B)
    do b=1,blocks_number
    do k=nk1, nk2
