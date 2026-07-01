@@ -73,21 +73,21 @@ contains
    subroutine initialize(self, field, grid, file_parameters, physics)
    !< Initialize the fWLayer.
    class(prism_fWLayer_object), intent(inout) :: self            !< fWLayer.
-   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
-   type(grid_object),           intent(in), target :: grid !< Grid (sibling realm component, threaded in).
+   type(field_object), intent(in)             :: field !< Field (sibling realm component, threaded in).
+   type(grid_object),           intent(in)    :: grid !< Grid (sibling realm component, threaded in).
    type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(prism_physics_object),  intent(in)    :: physics         !< Physics.
    integer(I4P)                               :: i,j,k,b         !< Counters.
    real(R8P)                                  :: fi              !< Cell function
    real(R8P)                                  :: distance        !< Distance between cell and physical boundary
-   real(R8P)                                  :: C_r             !< Number (real) of ghost cells in the layer
+   real(R8P)                                  :: C_r             !< Number of cells of the layer
    real(R8P)                                  :: i_r, j_r, k_r   !< (Real) counters
    real(R8P)                                  :: ds              !< Cells distance in x, y or z.
 
    print '(A)', mpih%myrankstr//'prism_fWLayer_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
-   if (self%C == 0_I4P) return
+   if (self%C <= 0_I4P) return
 
    !Inizializzo funzione f nelle celle dello strato
    associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, blocks_number=>field%blocks_number,          &
@@ -104,19 +104,41 @@ contains
    C_r = real(C, R8P)
 
    if (C >0) then
-      ni_fWL(1,1)=1_I4P; ni_fWL(1,2)=ni-C+1_I4P; ni_fWL(1,3)=1_I4P; ni_fWL(1,4)=1_I4P     ; ni_fWL(1,5)=1_I4P; ni_fWL(1,6)=1_I4P
-      ni_fWL(2,1)=C    ; ni_fWL(2,2)=ni        ; ni_fWL(2,3)=ni   ; ni_fWL(2,4)=ni        ; ni_fWL(2,5)=ni   ; ni_fWL(2,6)=ni
-      nj_fWL(1,1)=1_I4P; nj_fWL(1,2)=1_I4P     ; nj_fWL(1,3)=1_I4P; nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
-      nj_fWL(2,1)=nj   ; nj_fWL(2,2)=nj        ; nj_fWL(2,3)=C    ; nj_fWL(2,4)=nj        ; nj_fWL(2,5)=nj   ; nj_fWL(2,6)=nj
-      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P ; nk_fWL(1,3)=1_I4P; nk_fWL(1,4)=1_I4P     ; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P
-      nk_fWL(2,1)=nk   ; nk_fWL(2,2)=nk        ; nk_fWL(2,3)=nk   ; nk_fWL(2,4)=nk        ; nk_fWL(2,5)=C    ; nk_fWL(2,6)=nk
+      ni_fWL(1,1)=1_I4P; ni_fWL(1,2)=ni-C+1_I4P; ni_fWL(1,3)=1_I4P; &
+      ni_fWL(1,4)=1_I4P; ni_fWL(1,5)=1_I4P     ; ni_fWL(1,6)=1_I4P  
 
-      n(1)      =1_I4P  ; n(2)      =1_I4P   ; n(3)      =2_I4P  ; n(4)      =2_I4P   ; n(5)      =3_I4P  ; n(6)      =3_I4P
-      s2(1)     =1.0_R8P; s2(2)     =-1.0_R8P; s2(3)     =1.0_R8P; s2(4)     =-1.0_R8P; s2(5)     =1.0_R8P; s2(6)     =-1.0_R8P
-      alfa_D(1) =2_I4P  ; alfa_D(2) =2_I4P   ; alfa_D(3) =3_I4P  ; alfa_D(4) =3_I4P   ; alfa_D(5) =1_I4P  ; alfa_D(6) =1_I4P
-      beta_D(1) =3_I4P  ; beta_D(2) =3_I4P   ; beta_D(3) =1_I4P  ; beta_D(4) =1_I4P   ; beta_D(5) =2_I4P  ; beta_D(6) =2_I4P
-      alfa_B(1) =5_I4P  ; alfa_B(2) =5_I4P   ; alfa_B(3) =6_I4P  ; alfa_B(4) =6_I4P   ; alfa_B(5) =4_I4P  ; alfa_B(6) =4_I4P
-      beta_B(1) =6_I4P  ; beta_B(2) =6_I4P   ; beta_B(3) =4_I4P  ; beta_B(4) =4_I4P   ; beta_B(5) =5_I4P  ; beta_B(6) =5_I4P
+      ni_fWL(2,1)=C ; ni_fWL(2,2)=ni; ni_fWL(2,3)=ni; &
+      ni_fWL(2,4)=ni; ni_fWL(2,5)=ni; ni_fWL(2,6)=ni
+
+      nj_fWL(1,1)=1_I4P     ; nj_fWL(1,2)=1_I4P; nj_fWL(1,3)=1_I4P; &
+      nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
+
+      nj_fWL(2,1)=nj; nj_fWL(2,2)=nj; nj_fWL(2,3)=C ; &
+      nj_fWL(2,4)=nj; nj_fWL(2,5)=nj; nj_fWL(2,6)=nj
+
+      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P; nk_fWL(1,3)=1_I4P;     &
+      nk_fWL(1,4)=1_I4P; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P
+
+      nk_fWL(2,1)=nk; nk_fWL(2,2)=nk; nk_fWL(2,3)=nk; &
+      nk_fWL(2,4)=nk; nk_fWL(2,5)=C ; nk_fWL(2,6)=nk
+
+      n(1) =1_I4P; n(2)=1_I4P; n(3)=2_I4P; &
+      n(4) =2_I4P; n(5)=3_I4P; n(6)=3_I4P
+
+      s2(1)= 1.0_R8P; s2(2)=-1.0_R8P; s2(3)= 1.0_R8P; &
+      s2(4)=-1.0_R8P; s2(5)= 1.0_R8P; s2(6)=-1.0_R8P
+
+      alfa_D(1)=2_I4P; alfa_D(2)=2_I4P; alfa_D(3)=3_I4P; &
+      alfa_D(4)=3_I4P; alfa_D(5)=1_I4P; alfa_D(6)=1_I4P
+
+      beta_D(1)=3_I4P; beta_D(2)=3_I4P; beta_D(3)=1_I4P; &
+      beta_D(4)=1_I4P; beta_D(5)=2_I4P; beta_D(6)=2_I4P
+
+      alfa_B(1)=5_I4P; alfa_B(2)=5_I4P; alfa_B(3)=6_I4P; &
+      alfa_B(4)=6_I4P; alfa_B(5)=4_I4P; alfa_B(6)=4_I4P
+
+      beta_B(1)=6_I4P; beta_B(2)=6_I4P; beta_B(3)=4_I4P; &
+      beta_B(4)=4_I4P; beta_B(5)=5_I4P; beta_B(6)=5_I4P
 
       if (C < 40_I4P) then
          fi = 1/150._R8P*(-7.0_R8P*C_r**2 + 255._R8P*C_r + 250._R8P)
@@ -131,7 +153,7 @@ contains
                do j=1, nj
                   do i=1, C
                      i_r = real(i, R8P)
-                     distance = i_r*ds-ds/2
+                     distance = i_r*ds-ds!/2
                      self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
@@ -144,7 +166,7 @@ contains
                do j=1, nj
                   do i=ni-C+1_I4P, ni
                      i_r = real(i, R8P)
-                     distance = (ni-i_r)*ds+ds/2
+                     distance = (ni-i_r)*ds!+ds/2
                      self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
@@ -157,7 +179,7 @@ contains
                do i=1, ni
                   do j=1, C
                      j_r = real(j, R8P)
-                     distance = j_r*ds-ds/2
+                     distance = j_r*ds-ds!/2
                      self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
@@ -170,7 +192,7 @@ contains
                do i=1, ni
                   do j=nj-C+1_I4P, nj
                      j_r = real(j, R8P)
-                     distance = (nj-j_r)*ds+ds/2
+                     distance = (nj-j_r)*ds!+ds/2
                      self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
@@ -183,7 +205,7 @@ contains
                do j=1, nj
                   do k=1, C
                      k_r = real(k, R8P)
-                     distance = k_r*ds-ds/2
+                     distance = k_r*ds-ds!/2
                      self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
@@ -196,7 +218,7 @@ contains
                do j=1, nj
                   do k=nk-C+1_I4P, nk
                      k_r = real(k, R8P)
-                     distance = (nk-k_r)*ds+ds/2
+                     distance = (nk-k_r)*ds!+ds/2
                      self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
@@ -301,6 +323,8 @@ contains
    real(R8P),    intent(in)    :: f(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< fWLayer function values.
    real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Field variables.
    real(R8P)                   :: fm1, fp1                          !< fWLayer function values in -+ cell.
+   real(R8P)                   :: D_alfa, D_beta                    !< components of tangential fields before correction
+   real(R8P)                   :: B_alfa, B_beta                    !< components of tangential fields before correction
    integer(I4P)                :: b,i,j,k                           !< Counter.
 
    do b=1,blocks_number
@@ -309,22 +333,14 @@ contains
             do i=ni1, ni2
                fm1 = f(n,i,j,k,b) - 1._R8P
                fp1 = f(n,i,j,k,b) + 1._R8P
-               q(alfa_D,i,j,k,b) = MU0_SQ_I2  * ( s2*fm1*q(beta_B,i,j,k,b)*EPS0_SQ +    fp1*q(alfa_D,i,j,k,b)*MU0_SQ)
-               q(beta_D,i,j,k,b) = MU0_SQ_I2  * (-s2*fm1*q(alfa_B,i,j,k,b)*EPS0_SQ +    fp1*q(beta_D,i,j,k,b)*MU0_SQ)
-               q(alfa_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*q(alfa_B,i,j,k,b)*EPS0_SQ - s2*fm1*q(beta_D,i,j,k,b)*MU0_SQ)
-               q(beta_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*q(beta_B,i,j,k,b)*EPS0_SQ + s2*fm1*q(alfa_D,i,j,k,b)*MU0_SQ)
-
-   !                  q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
-   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
-!
-   !                  q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
-   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
-!
-   !                  q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
-   !                  *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
-!
-   !                  q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
-   !                  *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+               D_alfa = q(alfa_D,i,j,k,b)
+               D_beta = q(beta_D,i,j,k,b)
+               B_alfa = q(alfa_B,i,j,k,b)
+               B_beta = q(beta_B,i,j,k,b)
+               q(alfa_D,i,j,k,b) = MU0_SQ_I2  * ( s2*fm1*B_beta*EPS0_SQ +    fp1*D_alfa*MU0_SQ)
+               q(beta_D,i,j,k,b) = MU0_SQ_I2  * (-s2*fm1*B_alfa*EPS0_SQ +    fp1*D_beta*MU0_SQ)
+               q(alfa_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*B_alfa*EPS0_SQ - s2*fm1*D_beta*MU0_SQ)
+               q(beta_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*B_beta*EPS0_SQ + s2*fm1*D_alfa*MU0_SQ)
             enddo
          enddo
       enddo

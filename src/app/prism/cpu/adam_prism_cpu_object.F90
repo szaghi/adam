@@ -939,11 +939,13 @@ contains
                                  call self%impose_pic_fields_time_zero(ivar=VAR_DX)
    if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0.0_R8P) &
                                  call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+
+   call self%apply_fWL_correction(q=self%q)
+
    call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), &
                                    divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_BX:VAR_BZ,:,:,:,:), &
                                    divergence=self%divergence(2,:,:,:,:))
-
    call mpih%print_message('Initial conditions setting completed')
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       call mpih%print_message('   max div(D) at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
@@ -2409,7 +2411,7 @@ contains
    min_curlD =  huge(1._R8P)
    max_curlD = -huge(1._R8P)
 
-   call self%apply_fWL_correction(q=q)
+   !call self%apply_fWL_correction(q=q)
    call self%update_ghost(q=q, s=s)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%adam%field%dxyz,                                                                              &
@@ -3310,6 +3312,7 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
+   call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
