@@ -216,7 +216,6 @@ contains
       call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
-   call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, physics=self%physics)
    call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, physics=self%physics, file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    !if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
@@ -234,6 +233,8 @@ contains
       call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
                                do_blocks_reorder=.false., q=self%q)
    endif
+   call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, &
+                  tree=self%adam%tree, file_parameters=file_parameters, physics=self%physics)
    call io_initialize
    endassociate
    if (verbose_) call mpih%print_message('prism_common_object%initialize finish')
