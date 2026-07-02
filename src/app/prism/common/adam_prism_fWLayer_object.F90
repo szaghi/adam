@@ -12,9 +12,11 @@ module adam_prism_fWLayer_object
     !dello strato e a quali (in ogni elemento + o -1)
 
 ! ADAM singleton objects
-use :: adam_mpih_global,  only : mpih
-use :: adam_grid_object,  only : grid_object
-use :: adam_field_object, only : field_object
+use :: adam_mpih_global,       only : mpih
+use :: adam_grid_object,       only : grid_object
+use :: adam_field_object,      only : field_object
+use :: adam_tree_object,       only : tree_object, NODE_BOUNDARY_CONDITION
+use :: adam_tree_node_object,  only : tree_node_object
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_physics_object, only : prism_physics_object
@@ -70,14 +72,17 @@ contains
     endif
    endfunction description
 
-   subroutine initialize(self, field, grid, file_parameters, physics)
+   subroutine initialize(self, field, grid, tree, file_parameters, physics)
    !< Initialize the fWLayer.
    class(prism_fWLayer_object), intent(inout) :: self            !< fWLayer.
-   type(field_object), intent(in)             :: field !< Field (sibling realm component, threaded in).
-   type(grid_object),           intent(in)    :: grid !< Grid (sibling realm component, threaded in).
+   type(field_object), intent(in)             :: field           !< Field (sibling realm component, threaded in).
+   type(grid_object),           intent(in)    :: grid            !< Grid (sibling realm component, threaded in).
+   type(tree_object),           intent(in)    :: tree            !< Tree (sibling realm component, threaded in).
    type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(prism_physics_object),  intent(in)    :: physics         !< Physics.
-   integer(I4P)                               :: i,j,k,b         !< Counters.
+   type(tree_node_object),      pointer       :: node_ptr        !< Pointer to current node.
+   integer(I4P)                               :: i,j,k,b,fec     !< Counters.
+   integer(I4P)                               :: neighbor_type   !< Neighbors type.
    real(R8P)                                  :: fi              !< Cell function
    real(R8P)                                  :: distance        !< Distance between cell and physical boundary
    real(R8P)                                  :: C_r             !< Number of cells of the layer
@@ -145,85 +150,92 @@ contains
       else
          fi = 25.0_R8P
       endif
+
       do b=1, blocks_number
-         !x- side
-         if (self%layer(1)) then
-            ds = dx(b)
-            do k=1,nk
-               do j=1, nj
-                  do i=1, C
-                     i_r = real(i, R8P)
-                     distance = i_r*ds-ds!/2
-                     self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+         node_ptr => tree%node(code=field%code(b))
+         do fec=1, 6
+            neighbor_type = node_ptr%neighbor(fec)%ntype                  
+            if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+               !x- side
+               if (self%layer(1) .and. fec == 1) then
+                  ds = dx(b)
+                  do k=1,nk
+                     do j=1, nj
+                        do i=1, C
+                           i_r = real(i, R8P)
+                           distance = i_r*ds-ds!/2
+                           self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+                        enddo
+                     enddo
                   enddo
-               enddo
-            enddo
-         endif
-         !x+ side
-         if (self%layer(2)) then
-            ds = dx(b)
-            do k=1,nk
-               do j=1, nj
-                  do i=ni-C+1_I4P, ni
-                     i_r = real(i, R8P)
-                     distance = (ni-i_r)*ds!+ds/2
-                     self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+               endif
+               !x+ side
+               if (self%layer(2) .and. fec == 2) then
+                  ds = dx(b)
+                  do k=1,nk
+                     do j=1, nj
+                        do i=ni-C+1_I4P, ni
+                           i_r = real(i, R8P)
+                           distance = (ni-i_r)*ds!+ds/2
+                           self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+                        enddo
+                     enddo
                   enddo
-               enddo
-            enddo
-         endif
-         !y- side
-         if (self%layer(3)) then
-            ds = dy(b)
-            do k=1,nk
-               do i=1, ni
-                  do j=1, C
-                     j_r = real(j, R8P)
-                     distance = j_r*ds-ds!/2
-                     self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+               endif
+               !y- side
+               if (self%layer(3) .and. fec == 3) then
+                  ds = dy(b)
+                  do k=1,nk
+                     do i=1, ni
+                        do j=1, C
+                           j_r = real(j, R8P)
+                           distance = j_r*ds-ds!/2
+                           self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+                        enddo
+                     enddo
                   enddo
-               enddo
-            enddo
-         endif
-         !y+ side
-         if (self%layer(4)) then
-            ds = dy(b)
-            do k=1,nk
-               do i=1, ni
-                  do j=nj-C+1_I4P, nj
-                     j_r = real(j, R8P)
-                     distance = (nj-j_r)*ds!+ds/2
-                     self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+               endif
+               !y+ side
+               if (self%layer(4) .and. fec == 4) then
+                  ds = dy(b)
+                  do k=1,nk
+                     do i=1, ni
+                        do j=nj-C+1_I4P, nj
+                           j_r = real(j, R8P)
+                           distance = (nj-j_r)*ds!+ds/2
+                           self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+                        enddo
+                     enddo
                   enddo
-               enddo
-            enddo
-         endif
-            !z- side
-         if(self%layer(5)) then
-            ds = dz(b)
-            do i=1,ni
-               do j=1, nj
-                  do k=1, C
-                     k_r = real(k, R8P)
-                     distance = k_r*ds-ds!/2
-                     self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+               endif
+               !z- side
+               if(self%layer(5) .and. fec == 5) then
+                  ds = dz(b)
+                  do i=1,ni
+                     do j=1, nj
+                        do k=1, C
+                           k_r = real(k, R8P)
+                           distance = k_r*ds-ds!/2
+                           self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+                        enddo
+                     enddo
                   enddo
-               enddo
-            enddo
-         endif
-         !x+ side
-         if (self%layer(6)) then
-            ds = dz(b)
-            do i=1,ni
-               do j=1, nj
-                  do k=nk-C+1_I4P, nk
-                     k_r = real(k, R8P)
-                     distance = (nk-k_r)*ds!+ds/2
-                     self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+               endif
+               !z+ side
+               if (self%layer(6) .and. fec == 6) then
+                  ds = dz(b)
+                  do i=1,ni
+                     do j=1, nj
+                        do k=nk-C+1_I4P, nk
+                           k_r = real(k, R8P)
+                           distance = (nk-k_r)*ds!+ds/2
+                           self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
+                        enddo
+                     enddo
                   enddo
-               enddo
-            enddo
-         endif
+               endif
+            endif
+         enddo
       enddo
    endif
    endassociate
