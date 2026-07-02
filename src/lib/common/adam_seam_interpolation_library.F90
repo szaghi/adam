@@ -38,6 +38,7 @@ public :: SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC
 public :: SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, SEAM_W_QUADRATIC
 public :: seam_tricubic_centered_pos, seam_compatible_centered_pos
 public :: seam_interpolate_tricubic, seam_interpolate_compatible, seam_interpolate_quadratic
+public :: seam_shift_anchor_pos, seam_meta_pack, seam_meta_unpack
 
 integer(I4P), parameter :: SEAM_FILL_INJECTION  = 0_I4P !< Regime: 0th-order injection (legacy behavior).
 integer(I4P), parameter :: SEAM_FILL_COMPATIBLE = 1_I4P !< Regime: restriction-compatible fill, q=2 (diagnostic arm).
@@ -144,6 +145,55 @@ contains
       enddo
    enddo
    endfunction seam_interpolate_compatible
+
+   pure function seam_shift_anchor_pos(anchor, n_cells, p_centered, footprint_n) result(p)
+   !< Anchor position after the G3 shift-inward rule: clamp the centered
+   !< position so the footprint node offsets `([1..footprint_n] - p)` around
+   !< `anchor` stay inside the donor block's REAL cells `[1..n_cells]`.
+   !< Valid for `n_cells >= footprint_n` and `anchor` in `[1..n_cells]`
+   !< (both guaranteed at maps-build; the maps pass asserts `n_cells >= 4`).
+   integer(I4P), intent(in) :: anchor      !< Donor anchor cell index (interior, 1-based).
+   integer(I4P), intent(in) :: n_cells     !< Donor block interior cell count in this direction.
+   integer(I4P), intent(in) :: p_centered  !< Centered anchor position for the active sub-position.
+   integer(I4P), intent(in) :: footprint_n !< Footprint width (4 tricubic, 3 compatible).
+   integer(I4P)             :: p           !< Shifted anchor position (1..footprint_n).
+
+   p = min(max(p_centered, anchor + footprint_n - n_cells), anchor)
+   endfunction seam_shift_anchor_pos
+
+   pure function seam_meta_pack(sub, p4, p3) result(meta)
+   !< Pack the per-fine-ghost interpolation metadata into one integer
+   !< (map-row payload, G4): bits 0-2 = octant (sub-1 per direction),
+   !< bits 3-8 = tricubic anchor positions - 1 (2 bits each),
+   !< bits 9-14 = compatible anchor positions - 1 (2 bits each).
+   !< Regime-independent: the kernel unpacks the field matching the active
+   !< fill regime. NOTE: 0 is a VALID packed value — consumers must gate on
+   !< the map's flag column, never on `meta /= 0`.
+   integer(I4P), intent(in) :: sub(1:3) !< Octant sub-position per direction (1|2).
+   integer(I4P), intent(in) :: p4(1:3)  !< Tricubic anchor position per direction (1..4).
+   integer(I4P), intent(in) :: p3(1:3)  !< Compatible anchor position per direction (1..3).
+   integer(I4P)             :: meta     !< Packed metadata.
+
+   meta = (sub(1) - 1) + 2_I4P*(sub(2) - 1) + 4_I4P*(sub(3) - 1) + &
+          ishft(p4(1) - 1,  3) + ishft(p4(2) - 1,  5) + ishft(p4(3) - 1,  7) + &
+          ishft(p3(1) - 1,  9) + ishft(p3(2) - 1, 11) + ishft(p3(3) - 1, 13)
+   endfunction seam_meta_pack
+
+   pure subroutine seam_meta_unpack(meta, sub, p4, p3)
+   !< Unpack the per-fine-ghost interpolation metadata (inverse of
+   !< `seam_meta_pack`).
+   integer(I4P), intent(in)  :: meta     !< Packed metadata.
+   integer(I4P), intent(out) :: sub(1:3) !< Octant sub-position per direction (1|2).
+   integer(I4P), intent(out) :: p4(1:3)  !< Tricubic anchor position per direction (1..4).
+   integer(I4P), intent(out) :: p3(1:3)  !< Compatible anchor position per direction (1..3).
+   integer(I4P)              :: d        !< Direction counter.
+
+   do d=1, 3
+      sub(d) = 1_I4P + ibits(meta, d - 1,      1)
+      p4(d)  = 1_I4P + ibits(meta, 3 + 2*(d-1), 2)
+      p3(d)  = 1_I4P + ibits(meta, 9 + 2*(d-1), 2)
+   enddo
+   endsubroutine seam_meta_unpack
 
    pure function seam_interpolate_quadratic(footprint, sub) result(value_)
    !< Tensor centered quadratic interpolation on a 3x3x3 coarse footprint

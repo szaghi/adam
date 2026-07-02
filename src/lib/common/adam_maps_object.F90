@@ -10,6 +10,8 @@ use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
+use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, &
+                                               seam_tricubic_centered_pos, seam_compatible_centered_pos
 ! third party modules
 use :: penf
 ! sdk modules
@@ -538,9 +540,9 @@ contains
    call mpih%print_message('maps_object%make_comm_local_maps_ghost start')
    call self%alloc_comm_local_maps_ghost(tree=tree, grid=grid, nv=nv)
    call self%populate_comm_local_maps_ghost(tree=tree, grid=grid)
-   call self%make_local_map_ghost_cell
+   call self%make_local_map_ghost_cell(nijk=[grid%ni, grid%nj, grid%nk])
    call self%make_comm_map_recv_ghost_cell(nv=nv)
-   call self%make_comm_map_send_ghost_cell(nv=nv)
+   call self%make_comm_map_send_ghost_cell(nv=nv, nijk=[grid%ni, grid%nj, grid%nk])
    call mpih%print_message('maps_object%make_comm_local_maps_ghost finish')
    endsubroutine make_comm_local_maps_ghost
 
@@ -953,13 +955,26 @@ contains
    endif
    endsubroutine make_comm_map_recv_ghost_cell
 
-   subroutine make_comm_map_send_ghost_cell(self, nv)
+   subroutine make_comm_map_send_ghost_cell(self, nv, nijk)
    !< Make communication send map of ghost cells in cell order.
+   !<
+   !< Column 8 (issue #21 N1) carries the packed coarse->fine interpolation
+   !< metadata (octant sub-position + shifted anchor positions, see
+   !< `seam_meta_pack`) on "sending to finer" rows; 0 elsewhere. Pack-side
+   !< interpolation (G5): the donor rank owns footprint and metadata; the
+   !< recv map stays a plain buffer unpack. Consumers gate on the flag
+   !< column (7), never on the metadata value.
    class(maps_object), intent(inout) :: self                !< The maps.
    integer(I4P),       intent(in)    :: nv                  !< Number of field variables.
+   integer(I4P),       intent(in)    :: nijk(1:3)           !< Block interior cell counts [ni,nj,nk].
    integer(I4P)                      :: i, j, k, c, f, v, n !< Counter.
    integer(I4P)                      :: iii, jjj, kkk       !< Counter.
    integer(I4P)                      :: ic, jc, kc          !< Counter.
+   integer(I4P)                      :: sub(1:3)            !< Octant sub-position per direction.
+   integer(I4P)                      :: p4(1:3)             !< Tricubic anchor position per direction.
+   integer(I4P)                      :: p3(1:3)             !< Compatible anchor position per direction.
+   integer(I4P)                      :: d, meta             !< Direction counter, packed metadata.
+   integer(I4P)                      :: anchor(1:3)         !< Donor anchor cell per direction.
    integer(I4P)                      :: portion             !< Portion of fec updated (0=>whole fec).
    integer(I4P)                      :: b_send              !< Index of sending block.
    integer(I4P)                      :: imin                !< Lower limit of i indexes.
@@ -1009,7 +1024,7 @@ contains
          endif
       enddo
       ! Nv variables map
-      allocate(self%comm_map_send_ghost_cell(1:c*nv,1:7))
+      allocate(self%comm_map_send_ghost_cell(1:c*nv,1:8))
       c = 1
       do f=1, size(self%comm_map_send_ghost, dim=1)
          b_send    = self%comm_map_send_ghost(f, 2 )
@@ -1035,6 +1050,7 @@ contains
                         self%comm_map_send_ghost_cell(c,  5 ) = v
                         self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
                         self%comm_map_send_ghost_cell(c,  7 ) = 1
+                        self%comm_map_send_ghost_cell(c,  8 ) = 0
                         send_ctr = send_ctr + 1
                         c = c + 1
                      enddo
@@ -1043,16 +1059,32 @@ contains
             enddo
          elseif (portion<0_I4P) then ! Beware! This is < 0 because the reference is the receiver
             ! sending to a block finer than me
+            if (any(nijk < 4_I4P)) call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 '// &
+                                                            '(coarse->fine footprint cannot fit the donor block)')
             send_ctr = 1
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
+                     anchor = [i, j, k]
                      do n=1,8
+                        ! octant order must match the recv-side unpack loops (kc,jc,ic with ic fastest)
+                        ic = mod(n - 1, 2)
+                        jc = mod((n - 1) / 2, 2)
+                        kc = (n - 1) / 4
+                        sub = [ic, jc, kc] + 1_I4P
+                        do d=1, 3
+                           p4(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
+                           p3(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_compatible_centered_pos(sub(d)), footprint_n=3_I4P)
+                        enddo
+                        meta = seam_meta_pack(sub=sub, p4=p4, p3=p3)
                         do v=1, nv
                            self%comm_map_send_ghost_cell(c, 1:4) = [b_send,i,j,k]
                            self%comm_map_send_ghost_cell(c,  5 ) = v
                            self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
                            self%comm_map_send_ghost_cell(c,  7 ) = 1
+                           self%comm_map_send_ghost_cell(c,  8 ) = meta
                            send_ctr = send_ctr + 1
                            c = c + 1
                         enddo
@@ -1074,6 +1106,7 @@ contains
                         self%comm_map_send_ghost_cell(c,  5 ) = v
                         self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
                         self%comm_map_send_ghost_cell(c,  7 ) = 8
+                        self%comm_map_send_ghost_cell(c,  8 ) = 0
                         send_ctr = send_ctr + 1
                         c = c + 1
                      enddo
@@ -1085,12 +1118,23 @@ contains
    endif
    endsubroutine make_comm_map_send_ghost_cell
 
-   subroutine make_local_map_ghost_cell(self)
+   subroutine make_local_map_ghost_cell(self, nijk)
    !< Make local map of ghost cells in cell order.
+   !<
+   !< Column 10 (issue #21 N1) carries the packed coarse->fine interpolation
+   !< metadata (octant sub-position + shifted anchor positions, see
+   !< `seam_meta_pack`) on "receiving from coarser" rows; 0 elsewhere.
+   !< Consumers gate on the flag column (9), never on the metadata value.
    class(maps_object), intent(inout) :: self          !< The maps.
+   integer(I4P),       intent(in)    :: nijk(1:3)     !< Block interior cell counts [ni,nj,nk].
    integer(I4P)                      :: i, j, k, c, f !< Counter.
    integer(I4P)                      :: iii, jjj, kkk !< Counter.
    integer(I4P)                      :: ic, jc, kc    !< Counter.
+   integer(I4P)                      :: sub(1:3)      !< Octant sub-position per direction.
+   integer(I4P)                      :: p4(1:3)       !< Tricubic anchor position per direction.
+   integer(I4P)                      :: p3(1:3)       !< Compatible anchor position per direction.
+   integer(I4P)                      :: d             !< Direction counter.
+   integer(I4P)                      :: anchor(1:3)   !< Donor anchor cell per direction.
    integer(I4P)                      :: portion       !< Portion of fec updated (0=>whole fec).
    integer(I4P)                      :: b_recv        !< Index of receiving block.
    integer(I4P)                      :: b_send        !< Index of sending block.
@@ -1137,7 +1181,7 @@ contains
             enddo
          endif
       enddo
-      allocate(self%local_map_ghost_cell(1:c,1:9))
+      allocate(self%local_map_ghost_cell(1:c,1:10))
       c = 1
       do f=1, size(self%local_map_ghost, dim=1)
          b_recv  = self%local_map_ghost(f, 1 )
@@ -1161,6 +1205,7 @@ contains
                      self%local_map_ghost_cell(c,3:5) = [i+idelta, j+jdelta, k+kdelta]
                      self%local_map_ghost_cell(c,6:8) = [i, j, k]
                      self%local_map_ghost_cell(c, 9 ) = 1
+                     self%local_map_ghost_cell(c, 10) = 0
                      c = c + 1
                   enddo
                enddo
@@ -1177,23 +1222,35 @@ contains
                      self%local_map_ghost_cell(c,3:5) = [iii, jjj, kkk]
                      self%local_map_ghost_cell(c,6:8) = [i, j, k]
                      self%local_map_ghost_cell(c, 9 ) = 8
+                     self%local_map_ghost_cell(c, 10) = 0
                      c = c + 1
                   enddo
                enddo
             enddo
          else
             ! receiving from a block coarser than me
+            if (any(nijk < 4_I4P)) call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 '// &
+                                                            '(coarse->fine footprint cannot fit the donor block)')
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
                      kkk = 2 * k + kdelta
                      jjj = 2 * j + jdelta
                      iii = 2 * i + idelta
+                     anchor = [i, j, k]
                      do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        sub = [ic, jc, kc] + 1_I4P
+                        do d=1, 3
+                           p4(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
+                           p3(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_compatible_centered_pos(sub(d)), footprint_n=3_I4P)
+                        enddo
                         self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
                         self%local_map_ghost_cell(c,3:5) = [i, j, k]
                         self%local_map_ghost_cell(c,6:8) = [iii+ic,  jjj+jc, kkk+kc]
                         self%local_map_ghost_cell(c, 9 ) = 1
+                        self%local_map_ghost_cell(c, 10) = seam_meta_pack(sub=sub, p4=p4, p3=p3)
                         c = c + 1
                      enddo ; enddo ; enddo
                   enddo

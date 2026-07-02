@@ -26,7 +26,8 @@ program test_seam_interpolation
 use adam_seam_interpolation_library, only : SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, SEAM_W_QUADRATIC, &
                                             seam_interpolate_tricubic, seam_interpolate_compatible, &
                                             seam_interpolate_quadratic, &
-                                            seam_tricubic_centered_pos, seam_compatible_centered_pos
+                                            seam_tricubic_centered_pos, seam_compatible_centered_pos, &
+                                            seam_shift_anchor_pos, seam_meta_pack, seam_meta_unpack
 use penf, only : I4P, R8P
 
 implicit none
@@ -206,6 +207,62 @@ quadratic_safety: block
       test_passed = .false.
    endif
 endblock quadratic_safety
+
+metadata_round_trip: block
+   integer(I4P) :: sub(1:3), p4(1:3), p3(1:3)
+   integer(I4P) :: usub(1:3), up4(1:3), up3(1:3)
+   integer(I4P) :: s1, s2, s3, a1, a2, a3, b1, b2, b3, meta
+   logical      :: ok
+
+   ok = .true.
+   do s3=1,2 ; do s2=1,2 ; do s1=1,2
+      do a3=1,4 ; do a2=1,4 ; do a1=1,4
+         do b3=1,3 ; do b2=1,3 ; do b1=1,3
+            sub = [s1,s2,s3] ; p4 = [a1,a2,a3] ; p3 = [b1,b2,b3]
+            meta = seam_meta_pack(sub=sub, p4=p4, p3=p3)
+            call seam_meta_unpack(meta=meta, sub=usub, p4=up4, p3=up3)
+            if (any(usub /= sub) .or. any(up4 /= p4) .or. any(up3 /= p3)) ok = .false.
+         enddo ; enddo ; enddo
+      enddo ; enddo ; enddo
+   enddo ; enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: metadata pack/unpack round trip over all sub x p4 x p3 combinations'
+   else
+      write(*,'(A)') 'FAIL: metadata pack/unpack round trip corrupted a field'
+      test_passed = .false.
+   endif
+endblock metadata_round_trip
+
+shift_clamp: block
+   integer(I4P) :: a, n, sub, p, pc
+   logical      :: ok
+
+   ok = .true.
+   do n=4,16,12 ! smallest legal block and the E0 block size
+      do a=1,n
+         do sub=1,2
+            ! tricubic footprint (4 nodes)
+            pc = seam_tricubic_centered_pos(sub)
+            p  = seam_shift_anchor_pos(anchor=a, n_cells=n, p_centered=pc, footprint_n=4_I4P)
+            if (p < 1 .or. p > 4) ok = .false.
+            if (a + 1 - p < 1 .or. a + 4 - p > n) ok = .false.               ! footprint inside real cells
+            if (a + 1 - pc >= 1 .and. a + 4 - pc <= n .and. p /= pc) ok = .false. ! centered when it fits
+            ! compatible footprint (3 nodes)
+            pc = seam_compatible_centered_pos(sub)
+            p  = seam_shift_anchor_pos(anchor=a, n_cells=n, p_centered=pc, footprint_n=3_I4P)
+            if (p < 1 .or. p > 3) ok = .false.
+            if (a + 1 - p < 1 .or. a + 3 - p > n) ok = .false.
+            if (a + 1 - pc >= 1 .and. a + 3 - pc <= n .and. p /= pc) ok = .false.
+         enddo
+      enddo
+   enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: shift-inward clamp keeps every footprint inside real cells and stays centered when possible'
+   else
+      write(*,'(A)') 'FAIL: shift-inward clamp produced an out-of-block footprint or shifted needlessly'
+      test_passed = .false.
+   endif
+endblock shift_clamp
 
 if (test_passed) then
    write(*,'(A)') 'TEST PASSED: seam interpolation weight tables'
