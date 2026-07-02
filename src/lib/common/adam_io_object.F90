@@ -146,6 +146,10 @@ contains
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_save)')
       call file_parameters%get(section_name=ISN, option_name='residuals_save', val=self%residuals_save, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(residuals_save)')
+      ! Optional: divergence-history save cadence. Absent in legacy INIs -> keep the
+      ! default (10). Never error_stop on absence so existing inputs stay valid.
+      call file_parameters%get(section_name=ISN, option_name='divergence_history_save', &
+                               val=self%divergence_history_save, error=error)
       call file_parameters%get(section_name=ISN,option_name='save_memory_status',val=self%save_memory_status,error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_memory_status)')
       call file_parameters%get(section_name=ISN,option_name='save_residual_fields',val=self%save_residual_fields,error=error)
