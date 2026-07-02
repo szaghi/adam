@@ -565,7 +565,7 @@ contains
                                      q_gpu         = q_gpu)
 
       ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
-      s = 1._R8P ; if (td > 0._R8P) s = time_s / td 
+      s = 1._R8P ; if (td > 0._R8P) s = time_s / td ; s = max(0._R8P, min(1._R8P, s))
       g = 10._R8P*s**3 - 15._R8P*s**4 + 6._R8P*s**5
 
       do n=1, self%coil%total_coils_number
@@ -800,11 +800,6 @@ contains
                                                                  comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
                                                                  q_gpu=q_gpu, step=step)
    if (do_set_bc) call self%set_boundary_conditions(q_gpu=q_gpu)
-   if (present(s)) then
-      call self%compute_coils_current(q_gpu=q_gpu, gamm=self%rk%gamm(s))
-   else
-      call self%compute_coils_current(q_gpu=q_gpu)
-   endif
    endsubroutine update_ghost
 
    subroutine update_rk_ghost(self, dt, phi_gpu)
@@ -1932,7 +1927,7 @@ contains
       else
          call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
       endif
-      !call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
+      call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       ! if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
