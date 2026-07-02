@@ -6,6 +6,7 @@ module adam_adam_object
 use :: adam_field_object,           only : field_object
 use :: adam_grid_object,            only : grid_object
 use :: adam_maps_object,            only : maps_object
+use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC
 use :: adam_refinement_plan_object, only : refinement_plan_object
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
@@ -205,6 +206,8 @@ contains
    logical                                      :: verbose_        !< Trigger verbose output, local variable.
    integer(I8P)                                 :: nodes_number    !< Nodes number to be stored in the tree.
    integer(I4P)                                 :: nb              !< Number of all blocks that can be stored in field.
+   character(99)                                :: buff            !< Character buffer.
+   integer(I4P)                                 :: error           !< Error status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('adam_object%initialize start')
@@ -223,6 +226,29 @@ contains
                              add_adam=add_adam,              &
                              verbose=verbose_)
    call self%maps%initialize(tree=self%tree, verbose=verbose_)
+   ! Coarse->fine seam ghost-fill regime (issue #21 N2, plan amendment v2 G6):
+   ! optional `[amr] seam_ghost_fill` key, read here (the only spot that has
+   ! both the INI handler and the maps object) BEFORE any ghost-map build.
+   ! Absent key defaults to tricubic (the grilled default candidate); an
+   ! unknown value is a hard error, never a silent fallback.
+   call file_parameters%get(section_name='amr', option_name='seam_ghost_fill', val=buff, error=error)
+   if (error > 0) then
+      self%maps%seam_ghost_fill = SEAM_FILL_TRICUBIC
+   else
+      select case(trim(adjustl(buff)))
+      case('injection')
+         self%maps%seam_ghost_fill = SEAM_FILL_INJECTION
+      case('restriction-compatible')
+         self%maps%seam_ghost_fill = SEAM_FILL_COMPATIBLE
+      case('tricubic')
+         self%maps%seam_ghost_fill = SEAM_FILL_TRICUBIC
+      case default
+         call mpih%error_stop(msg=': unknown [amr].(seam_ghost_fill) value "'//trim(adjustl(buff))// &
+                                  '" — expected injection|restriction-compatible|tricubic')
+      endselect
+   endif
+   if (verbose_) call mpih%print_message('seam ghost fill regime: '//trim(str(self%maps%seam_ghost_fill))// &
+                                         ' (0=injection, 1=restriction-compatible, 2=tricubic)')
    call self%field%initialize(grid=self%grid, maps=self%maps, tree=self%tree, &
                               file_parameters=file_parameters,&
                               nb=nb,                          &

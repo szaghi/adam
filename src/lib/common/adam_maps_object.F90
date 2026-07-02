@@ -11,7 +11,8 @@ use :: adam_parameters
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, &
-                                               seam_tricubic_centered_pos, seam_compatible_centered_pos
+                                               seam_tricubic_centered_pos, seam_compatible_centered_pos, &
+                                               SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC
 ! third party modules
 use :: penf
 ! sdk modules
@@ -90,6 +91,12 @@ endtype inter_realm_neighbor_t
 type :: maps_object
    !< Maps class definition
    logical :: is_initialized_=.false. !< Flag: maps have been initialized.
+   integer(I4P) :: seam_ghost_fill = SEAM_FILL_INJECTION !< Coarse->fine seam ghost-fill regime (issue #21 N2): selects the
+                                                         !< flag emitted on coarse->fine map rows (1 = injection legacy copy,
+                                                         !< 4 = interpolate per the packed metadata column). Set from the
+                                                         !< `[amr] seam_ghost_fill` INI key by `adam_object%initialize`
+                                                         !< BEFORE any ghost-map build; default injection so that map builds
+                                                         !< predating the parse (or tests bypassing it) keep legacy behavior.
    ! local maps
    integer(I8P), allocatable :: local_map(:,:)            !< Local map, list block index changes of my nodes.
    integer(I8P), allocatable :: local_map_ghost(:,:)      !< Local map for ghost cells updating [fec_number, 4].
@@ -1083,7 +1090,11 @@ contains
                            self%comm_map_send_ghost_cell(c, 1:4) = [b_send,i,j,k]
                            self%comm_map_send_ghost_cell(c,  5 ) = v
                            self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
-                           self%comm_map_send_ghost_cell(c,  7 ) = 1
+                           if (self%seam_ghost_fill == SEAM_FILL_INJECTION) then
+                              self%comm_map_send_ghost_cell(c, 7) = 1
+                           else
+                              self%comm_map_send_ghost_cell(c, 7) = 4
+                           endif
                            self%comm_map_send_ghost_cell(c,  8 ) = meta
                            send_ctr = send_ctr + 1
                            c = c + 1
@@ -1249,7 +1260,11 @@ contains
                         self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
                         self%local_map_ghost_cell(c,3:5) = [i, j, k]
                         self%local_map_ghost_cell(c,6:8) = [iii+ic,  jjj+jc, kkk+kc]
-                        self%local_map_ghost_cell(c, 9 ) = 1
+                        if (self%seam_ghost_fill == SEAM_FILL_INJECTION) then
+                           self%local_map_ghost_cell(c, 9) = 1
+                        else
+                           self%local_map_ghost_cell(c, 9) = 4
+                        endif
                         self%local_map_ghost_cell(c, 10) = seam_meta_pack(sub=sub, p4=p4, p3=p3)
                         c = c + 1
                      enddo ; enddo ; enddo

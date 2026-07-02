@@ -71,6 +71,8 @@ use :: adam_grid_object, only : grid_object
 use :: adam_tree_object, only : tree_object
 use :: adam_maps_object, only : maps_object
 use :: adam_mpih_global, only : mpih
+use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, seam_meta_unpack, &
+                                               seam_interpolate_tricubic, seam_interpolate_compatible
 ! third party modules
 use :: finer, only : file_ini
 use :: penf
@@ -882,6 +884,13 @@ contains
          one_or_eight = local_map_ghost_cell(mf,9)
          if (one_or_eight==1) then
             q(v,i_recv,j_recv,k_recv,b_recv) = q(v,i_send,j_send,k_send,b_send)
+         elseif (one_or_eight==4) then
+            ! coarse->fine seam interpolation (issue #21 N2); metadata in column 10
+            q(v,i_recv,j_recv,k_recv,b_recv) = interp_seam_ghost(regime=maps%seam_ghost_fill,                   &
+                                                                 meta=int(local_map_ghost_cell(mf,10), I4P),    &
+                                                                 ngc=grid%ngc, q=q, v=v,                        &
+                                                                 i_send=i_send, j_send=j_send, k_send=k_send,   &
+                                                                 b_send=b_send)
          else
             q(v,i_recv,j_recv,k_recv,b_recv) = 0._R8P
             do kc=0,1 ; do jc=0,1 ; do ic=0,1
@@ -894,6 +903,51 @@ contains
    enddo
    endassociate
    endsubroutine update_ghost_local
+
+   pure function interp_seam_ghost(regime, meta, ngc, q, v, i_send, j_send, k_send, b_send) result(value_)
+   !< Evaluate the coarse->fine seam ghost interpolant for one (variable, fine
+   !< ghost) pair (issue #21 N2): gather the donor footprint around the anchor
+   !< `(i_send,j_send,k_send)` of block `b_send` and compose the 1D weights of
+   !< the active regime. The anchor and the shift-clamped positions in `meta`
+   !< guarantee the footprint reads REAL donor cells only (G3).
+   integer(I4P), intent(in) :: regime          !< Active fill regime (SEAM_FILL_COMPATIBLE | SEAM_FILL_TRICUBIC).
+   integer(I4P), intent(in) :: meta            !< Packed interpolation metadata (see seam_meta_pack).
+   integer(I4P), intent(in) :: ngc             !< Ghost cells number (bounds of q).
+   real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
+   integer(I4P), intent(in) :: v               !< Variable index.
+   integer(I4P), intent(in) :: i_send          !< Anchor donor cell, i.
+   integer(I4P), intent(in) :: j_send          !< Anchor donor cell, j.
+   integer(I4P), intent(in) :: k_send          !< Anchor donor cell, k.
+   integer(I4P), intent(in) :: b_send          !< Donor block index.
+   real(R8P)                :: value_          !< Interpolated fine-ghost value.
+   real(R8P)                :: fp4(1:4,1:4,1:4) !< Tricubic donor footprint.
+   real(R8P)                :: fp3(1:3,1:3,1:3) !< Compatible donor footprint.
+   integer(I4P)             :: sub(1:3)        !< Octant sub-position per direction.
+   integer(I4P)             :: p4(1:3)         !< Tricubic anchor position per direction.
+   integer(I4P)             :: p3(1:3)         !< Compatible anchor position per direction.
+   integer(I4P)             :: ii, jj, kk      !< Footprint counters.
+
+   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3)
+   if (regime == SEAM_FILL_COMPATIBLE) then
+      do kk=1, 3
+         do jj=1, 3
+            do ii=1, 3
+               fp3(ii,jj,kk) = q(v, i_send+ii-p3(1), j_send+jj-p3(2), k_send+kk-p3(3), b_send)
+            enddo
+         enddo
+      enddo
+      value_ = seam_interpolate_compatible(footprint=fp3, sub=sub, anchor_pos=p3)
+   else
+      do kk=1, 4
+         do jj=1, 4
+            do ii=1, 4
+               fp4(ii,jj,kk) = q(v, i_send+ii-p4(1), j_send+jj-p4(2), k_send+kk-p4(3), b_send)
+            enddo
+         enddo
+      enddo
+      value_ = seam_interpolate_tricubic(footprint=fp4, sub=sub, anchor_pos=p4)
+   endif
+   endfunction interp_seam_ghost
 
    subroutine update_ghost_mpi(self, grid, maps, q, step)
    !< Update ghost cells within other processes.
@@ -945,6 +999,13 @@ contains
             one_or_eight = maps%comm_map_send_ghost_cell(sf,7)
             if (one_or_eight==1) then
                send_buffer_ghost(c_recv) = q(v_send,i_send,j_send,k_send,b_send)
+            elseif (one_or_eight==4) then
+               ! coarse->fine seam interpolation, pack-side (issue #21 N2, G5); metadata in column 8
+               send_buffer_ghost(c_recv) = interp_seam_ghost(regime=maps%seam_ghost_fill,                        &
+                                                             meta=int(maps%comm_map_send_ghost_cell(sf,8), I4P), &
+                                                             ngc=ngc, q=q, v=v_send,                             &
+                                                             i_send=i_send, j_send=j_send, k_send=k_send,        &
+                                                             b_send=b_send)
             else
                send_buffer_ghost(c_recv) = 0._R8P
                do kc=0,1 ; do jc=0,1 ; do ic=0,1

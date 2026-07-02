@@ -68,13 +68,28 @@ contains
    ! `intent(in)` `src` of dev_assign_to_device is illegal Fortran. Guard
    ! every copy with allocated(): an empty CPU map leaves the GPU pointer
    ! null, the correct device-side state for "nothing to exchange".
+   ! PARITY DEBT (issue #21 N2, amendment v2 G7): the coarse->fine seam
+   ! ghost INTERPOLATION kernels (map flag 4 + metadata column, see
+   ! adam_seam_interpolation_library) are CPU-only — the FNL twins in
+   ! adam_fnl_field_kernels.F90 still implement injection/restriction only
+   ! and would silently 8-average garbage on a flag-4 row. Until the FNL
+   ! intra-realm-AMR epic ports them, refuse to copy a map carrying flag-4
+   ! rows instead of corrupting ghosts on device.
    if (allocated(maps%local_map_ghost_cell)) then
+      if (any(maps%local_map_ghost_cell(:,9) == 4_I8P)) then
+         call mpih_fnl%error_stop(msg=': seam ghost interpolation (flag-4 map rows) is not ported to FNL — '// &
+                                      'run this AMR case on the CPU backend or set [amr] seam_ghost_fill = injection')
+      endif
       call dev_assign_to_device(dst=self%local_map_ghost_cell_gpu, src=maps%local_map_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy local_map_ghost_cell_gpu done')
    else if (verbose_) then
       call mpih_fnl%print_message('skip local_map_ghost_cell_gpu (CPU map not allocated)')
    endif
    if (allocated(maps%comm_map_send_ghost_cell)) then
+      if (any(maps%comm_map_send_ghost_cell(:,7) == 4_I8P)) then
+         call mpih_fnl%error_stop(msg=': seam ghost interpolation (flag-4 map rows) is not ported to FNL — '// &
+                                      'run this AMR case on the CPU backend or set [amr] seam_ghost_fill = injection')
+      endif
       call dev_assign_to_device(dst=self%comm_map_send_ghost_cell_gpu, src=maps%comm_map_send_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy comm_map_send_ghost_cell done')
    else if (verbose_) then
