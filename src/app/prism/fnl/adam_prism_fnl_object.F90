@@ -565,7 +565,7 @@ contains
                                      q_gpu         = q_gpu)
 
       ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
-      s = 1._R8P ; if (td > 0._R8P) s = time_s / td 
+      s = 1._R8P ; if (td > 0._R8P) s = time_s / td ; s = max(0._R8P, min(1._R8P, s))
       g = 10._R8P*s**3 - 15._R8P*s**4 + 6._R8P*s**5
 
       do n=1, self%coil%total_coils_number
