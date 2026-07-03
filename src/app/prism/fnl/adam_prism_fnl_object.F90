@@ -1182,6 +1182,7 @@ contains
       real(R8P)                   :: curlD(3), curlB(3)                 !< Residuals components.
       real(R8P)                   :: divergenceD, divergenceB           !< Divergence for hyperbolic correction.
       real(R8P)   			   	 :: gradphi(3), gradpsi(3) 	         !< Gradient for hyperbolic correction.
+      real(R8P)   			   	 :: dxyz_b(3) 	                     !< Per-block deltas, PRIVATE copy (no strided-section temp).
       ! rank 1D stencil for curl computations on device that contiguos memory is mandatory
       real(R8P) :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the x stencil.
       real(R8P) :: qsx_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the x stencil.
@@ -1432,11 +1433,16 @@ contains
             ! dB/dt = -curl(D/EPS0)
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
             !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                             &
-            !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)
+            !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,dxyz_b)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
             do i=1,ni
+               ! hoist per-block deltas into a PRIVATE vector (issue #22 F1-bis): passing the
+               ! strided section dxyz_gpu(b,1:3) materializes a compiler temporary that is NOT
+               ! privatized -- threads race on it; benign on uniform grids (equal values),
+               ! live at 2:1 level mixes.
+               dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
                !$acc loop seq
                do s=1-s1, 1+s1
                   qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
@@ -1446,7 +1452,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                                      &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlD)
@@ -1459,7 +1465,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                                      &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlB)
