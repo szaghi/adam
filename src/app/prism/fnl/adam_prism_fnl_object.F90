@@ -842,14 +842,23 @@ contains
       real(R8P) :: qsy_z(1-s1:1+s1) !< Z component of vector field over the y stencil.
       real(R8P) :: qsz_x(1-s1:1+s1) !< X component of vector field over the z stencil.
       real(R8P) :: qsz_y(1-s1:1+s1) !< Y component of vector field over the z stencil.
+      real(R8P) :: dxyz_b(3)        !< Per-block deltas, PRIVATE copy (no strided-section temp: issue #26 G1.b).
+      real(R8P) :: curl_(3)         !< Curl, PRIVATE result buffer (no strided-section OUT temp: issue #26 G1.b).
 
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,curl_gpu) &
       !$acc& firstprivate(ni,nj,nk,blocks_number,ivar,s1)                                        &
-      !$acc& private(qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)
+      !$acc& private(qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,dxyz_b,curl_)
       do b=1,blocks_number
       do k=1,nk
       do j=1,nj
       do i=1,ni
+         ! hoist per-block deltas into a PRIVATE vector and return the curl through a PRIVATE
+         ! buffer (issue #26 G1.b, rule from #22 F1-bis): both the strided IN section
+         ! dxyz_gpu(b,1:3) and the strided OUT section curl_gpu(b,i,j,k,ivar:) materialize
+         ! compiler temporaries that are NOT privatized -- threads race on them; benign on
+         ! uniform grids, live at 2:1 level mixes. This kernel runs on mixed-level AMR
+         ! topologies (curl field saves, coil diagnostics).
+         dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
          !$acc loop seq
          do s=1-s1, 1+s1
             qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,ivar+1)
@@ -859,10 +868,13 @@ contains
             qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,ivar+0)
             qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,ivar+1)
          enddo
-         call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
+         call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                   &
                                            qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
                                            qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
-                                           curl=curl_gpu(b,i,j,k,ivar:))
+                                           curl=curl_)
+         curl_gpu(b,i,j,k,ivar+0) = curl_(1)
+         curl_gpu(b,i,j,k,ivar+1) = curl_(2)
+         curl_gpu(b,i,j,k,ivar+2) = curl_(3)
       enddo
       enddo
       enddo
@@ -1015,24 +1027,31 @@ contains
       real(R8P) :: qsx(1-s1:1+s1) !< X component of vector field over the x stencil.
       real(R8P) :: qsy(1-s1:1+s1) !< Y component of vector field over the y stencil.
       real(R8P) :: qsz(1-s1:1+s1) !< Z component of vector field over the z stencil.
+      real(R8P) :: dxyz_b(3)      !< Per-block deltas, PRIVATE copy (no strided-section temp: issue #26 G1.b).
       real(R8P) :: maxdiv_
 
       maxdiv_ = -huge(1._R8P)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,divergence_gpu) &
       !$acc& firstprivate(ivar,ovar,s1)                                                                &
-      !$acc& private(qsx,qsy,qsz) reduction(max: maxdiv_)
+      !$acc& private(qsx,qsy,qsz,dxyz_b) reduction(max: maxdiv_)
       do b=1,blocks_number
       do k=1,nk
       do j=1,nj
       do i=1,ni
+         ! hoist per-block deltas into a PRIVATE vector (issue #26 G1.b, rule from #22 F1-bis):
+         ! passing the strided section dxyz_gpu(b,1:3) materializes a compiler temporary that
+         ! is NOT privatized -- threads race on it; benign on uniform grids (equal values),
+         ! live at 2:1 level mixes. This kernel runs on mixed-level AMR topologies (div(J)
+         ! diagnostics, divergence field saves).
+         dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
          !$acc loop seq
          do s=1-s1, 1+s1
             qsx(s) = q_gpu(b,i+s-1,j    ,k    ,ivar+0)
             qsy(s) = q_gpu(b,i    ,j+s-1,k    ,ivar+1)
             qsz(s) = q_gpu(b,i    ,j    ,k+s-1,ivar+2)
          enddo
-         call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3), &
-                                                 qsx=qsx,qsy=qsy,qsz=qsz,   &
+         call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,        &
+                                                 qsx=qsx,qsy=qsy,qsz=qsz, &
                                                  divergence=divergence_gpu(b,i,j,k,ovar))
          maxdiv_ = max(maxdiv_, abs(divergence_gpu(b,i,j,k,ovar)))
       enddo

@@ -24,6 +24,13 @@
 #
 # Usage: ./check.sh            (expects exe/adam_prism_cpu already built)
 #        ./check.sh --build    (build prism-cpu-gnu first)
+#        ./check.sh --divj     (also assert seam max|div(J)| on its pinned baseline)
+#
+# --divj (issue #26 G1.a): cross-backend div(J) TRUTHFULNESS gate. The coil
+# J_vec ghost content diverged between backends (#22 backlog: FNL 2.35E+01 vs
+# CPU 3.218E-05 at G1.a capture, deterministic on both); the baseline below is
+# CPU-pinned, so this leg is GREEN on CPU and RED on FNL until #26 G1.b/G2
+# land. Opt-in until it is green on both backends, then promoted to default-on.
 #
 # mpirun and the GNU MPI toolchain must be on PATH (see rmf-amr/run.sh header).
 #
@@ -43,8 +50,18 @@ EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_cpu}"
 DIVB_TOL="1.0E-13"           # control: round-off ceiling for the interior identity
 SEAM_BASELINE="1.555802E-07" # pinned seam max|div(B)| (see provenance above)
 SEAM_RTOL="0.05"             # 5% relative band around the baseline
+SEAM_J_BASELINE="3.217958E-05" # pinned seam max|div(J)| (--divj leg; CPU N5-era binary,
+                               # captured 2026-07-04 at #26 G1.a: ni=16, it_max=5, -np 1)
 
-if [[ "${1:-}" == "--build" ]]; then
+do_build=0 ; do_divj=0
+for arg in "$@"; do
+   case "$arg" in
+      --build) do_build=1 ;;
+      --divj)  do_divj=1 ;;
+      *) echo "ERROR: unknown flag $arg (use --build / --divj)" >&2; exit 2 ;;
+   esac
+done
+if [[ $do_build -eq 1 ]]; then
    echo ">> building prism-cpu-gnu"
    (cd "$REPO_ROOT" && fobis build --mode prism-cpu-gnu)
 fi
@@ -53,6 +70,8 @@ command -v mpirun >/dev/null 2>&1 || { echo "ERROR: mpirun not on PATH" >&2; exi
 
 # Largest B_divergence (column 5) over all rows of a divergence_history file.
 max_div_b() { grep '^+' "$1" | awk '{v=$5; if(v<0)v=-v; if(v>m)m=v} END{printf "%.6E", m+0}'; }
+# Largest J_divergence (column 6) over all rows of a divergence_history file.
+max_div_j() { grep '^+' "$1" | awk '{v=$6; if(v<0)v=-v; if(v>m)m=v} END{printf "%.6E", m+0}'; }
 
 run_in() { # workdir, ini-transform-sed
    local wd="$1" sed_expr="$2"
@@ -96,6 +115,17 @@ if ! awk "BEGIN{d=($seam_divb-$SEAM_BASELINE)/$SEAM_BASELINE; if(d<0)d=-d; exit 
    echo "                  (a DROP means an improvement landed — rebaseline deliberately;"
    echo "                   a RISE means the seam fill or the exchange regressed)"
    fail=1
+fi
+
+if [[ $do_divj -eq 1 ]]; then
+   seam_divj="$(max_div_j "$WORK/$HIST")"
+   echo ">> [rmf-amr-fd] seam   max|div(J)| = $seam_divj (baseline $SEAM_J_BASELINE, rtol $SEAM_RTOL)"
+   if ! awk "BEGIN{d=($seam_divj-$SEAM_J_BASELINE)/$SEAM_J_BASELINE; if(d<0)d=-d; exit !(d<=$SEAM_RTOL)}"; then
+      echo "FAIL [rmf-amr-fd] seam max|div(J)| off the CPU-pinned baseline — the div(J)"
+      echo "                  diagnostic is not truthful on this backend (J_vec ghost content"
+      echo "                  or the divergence operator kernel differs; see issue #26)"
+      fail=1
+   fi
 fi
 
 if [[ $fail -eq 0 ]]; then
