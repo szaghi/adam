@@ -3,7 +3,8 @@ module adam_fnl_maps_object
 !< ADAM, maps class definition, FNL backend.
 
 ! ADAM objects
-use :: adam_maps_object,     only : maps_object
+use :: adam_maps_object,              only : maps_object
+use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION
 ! ADAM FNL singleton objects
 use :: adam_fnl_mpih_global, only : mpih_fnl
 ! third party modules
@@ -45,6 +46,11 @@ type :: maps_fnl_object
    integer(I4P), pointer :: seam_comm_map_recv_ghost_cell_gpu(:,:) => null()
    real(R8P),    pointer :: seam_mpi_send_buf_gpu(:)               => null()
    real(R8P),    pointer :: seam_mpi_recv_buf_gpu(:)               => null()
+   ! Intra-realm coarse->fine seam ghost fill (issue #21 N2 / #22 F3): host-side
+   ! mirror of `maps_object%seam_ghost_fill`, the active fill regime consumed by
+   ! the flag-4 branches of the ghost kernels (passed as a scalar kernel
+   ! argument, not device-resident). Refreshed on every `copy_cpu_gpu`.
+   integer(I4P)          :: seam_ghost_fill = SEAM_FILL_INJECTION             !< Active seam ghost-fill regime (host mirror).
    contains
       procedure, pass(self) :: copy_cpu_gpu !< Copy data from (maps global singleton) CPU to (maps_fnl_object) GPU.
       procedure, pass(self) :: initialize   !< Initialize MPI handler data.
@@ -68,30 +74,22 @@ contains
    ! `intent(in)` `src` of dev_assign_to_device is illegal Fortran. Guard
    ! every copy with allocated(): an empty CPU map leaves the GPU pointer
    ! null, the correct device-side state for "nothing to exchange".
-   ! PARITY DEBT (issue #21 N2, amendment v2 G7): the coarse->fine seam
-   ! ghost INTERPOLATION kernels (map flag 4 + metadata column, see
-   ! adam_seam_interpolation_library) are CPU-only — the FNL twins in
-   ! adam_fnl_field_kernels.F90 still implement injection/restriction only
-   ! and would silently 8-average garbage on a flag-4 row. Until the FNL
-   ! intra-realm-AMR epic ports them, refuse to copy a map carrying flag-4
-   ! rows instead of corrupting ghosts on device.
+   ! Intra-realm seam ghost fill (issue #22 F3): flag-4 map rows (coarse->fine
+   ! seam interpolation, metadata column included in the verbatim map copy) are
+   ! handled on device by the flag-4 branches of adam_fnl_field_kernels; the
+   ! active regime is mirrored here for the kernel callers.
+   self%seam_ghost_fill = maps%seam_ghost_fill
    if (allocated(maps%local_map_ghost_cell)) then
-      if (any(maps%local_map_ghost_cell(:,9) == 4_I8P)) then
-         call mpih_fnl%error_stop(msg=': seam ghost interpolation (flag-4 map rows) is not ported to FNL — '// &
-                                      'run this AMR case on the CPU backend or set [amr] seam_ghost_fill = injection')
-      endif
       call dev_assign_to_device(dst=self%local_map_ghost_cell_gpu, src=maps%local_map_ghost_cell)
-      if (verbose_) call mpih_fnl%print_message('copy local_map_ghost_cell_gpu done')
+      if (verbose_) call mpih_fnl%print_message('copy local_map_ghost_cell_gpu done ('// &
+         trim(str(count(maps%local_map_ghost_cell(:,9) == 4_I8P)))//' seam flag-4 rows)')
    else if (verbose_) then
       call mpih_fnl%print_message('skip local_map_ghost_cell_gpu (CPU map not allocated)')
    endif
    if (allocated(maps%comm_map_send_ghost_cell)) then
-      if (any(maps%comm_map_send_ghost_cell(:,7) == 4_I8P)) then
-         call mpih_fnl%error_stop(msg=': seam ghost interpolation (flag-4 map rows) is not ported to FNL — '// &
-                                      'run this AMR case on the CPU backend or set [amr] seam_ghost_fill = injection')
-      endif
       call dev_assign_to_device(dst=self%comm_map_send_ghost_cell_gpu, src=maps%comm_map_send_ghost_cell)
-      if (verbose_) call mpih_fnl%print_message('copy comm_map_send_ghost_cell done')
+      if (verbose_) call mpih_fnl%print_message('copy comm_map_send_ghost_cell done ('// &
+         trim(str(count(maps%comm_map_send_ghost_cell(:,7) == 4_I8P)))//' seam flag-4 rows)')
    else if (verbose_) then
       call mpih_fnl%print_message('skip comm_map_send_ghost_cell_gpu (CPU map not allocated)')
    endif

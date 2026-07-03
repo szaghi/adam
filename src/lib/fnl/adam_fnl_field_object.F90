@@ -221,7 +221,8 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1:) !< Field component to be updated.
-   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%ngc,q_gpu=q_gpu)
+   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%ngc,&
+                                   seam_ghost_fill=self%maps%seam_ghost_fill,q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
 
    subroutine update_ghost_mpi_gpu(self, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu, step)
@@ -265,7 +266,7 @@ contains
    if (do_step(1)) req_send_recv = MPI_REQUEST_NULL
 
    if (do_step(1)) then
-      call populate_send_buffer_ghost_gpu_dev(ngc=ngc,                                                             &
+      call populate_send_buffer_ghost_gpu_dev(ngc=ngc, seam_ghost_fill=self%maps%seam_ghost_fill,                  &
                                               comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
                                               send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu,               &
                                               q_gpu=q_gpu)

@@ -2033,7 +2033,9 @@ contains
       ! make_comm_local_maps_ghost_bc above rebuilt the ghost maps AFTER the last set_initial_conditions'
       ! copy_cpu_gpu push — re-push everything (q, coils, fWL, field coords/dxyz AND the maps) so the
       ! device sees the final refined topology. Idempotent (dev_assign_to_device reallocates dst).
-      call self%copy_cpu_gpu
+      ! Verbose: this is the copy that establishes the FINAL device topology — the printed map row
+      ! counts (incl. seam flag-4 rows, issue #22 F3) are the record of what the kernels will consume.
+      call self%copy_cpu_gpu(verbose=.true.)
       self%time%time = 0._R8P
       self%time%it = 0
       call mpih_fnl%print_message('impose initial conditions finish')

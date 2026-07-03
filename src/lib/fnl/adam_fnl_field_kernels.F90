@@ -5,6 +5,9 @@
 module adam_fnl_field_kernels
 !< ADAM, field class FNL kernels (FNL backend of [[field_object]]).
 
+! ADAM objects
+use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, seam_meta_unpack, &
+                                               seam_interpolate_compatible, seam_interpolate_tricubic
 ! third party modules
 use :: fundal
 use :: penf, only : I8P, I4P, R8P
@@ -81,9 +84,11 @@ contains
    enddo
    endsubroutine compute_normL2_residuals_dev
 
-   subroutine populate_send_buffer_ghost_gpu_dev(ngc, comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu)
+   subroutine populate_send_buffer_ghost_gpu_dev(ngc, seam_ghost_fill, comm_map_send_ghost_cell_gpu, &
+                                                 send_buffer_ghost_gpu, q_gpu)
    !< Polulate send buffer ghost GPU.
    integer(I4P),          intent(in)    :: ngc                                    !< Ghost cells number.
+   integer(I4P),          intent(in)    :: seam_ghost_fill                        !< Seam ghost-fill regime (flag-4 rows).
    integer(I8P), pointer, intent(in)    :: comm_map_send_ghost_cell_gpu(:,:)      !< Comm map, cell information.
    real(R8P),    pointer, intent(inout) :: send_buffer_ghost_gpu(:)               !< Send buffer of ghost cells.
    real(R8P),             intent(inout) :: q_gpu(1:,    &
@@ -109,6 +114,12 @@ contains
          one_or_eight = comm_map_send_ghost_cell_gpu(sf,7)
          if (one_or_eight==1) then
             send_buffer_ghost_gpu(c_recv) = q_gpu(b_send,i_send,j_send,k_send,v_send)
+         elseif (one_or_eight==4) then
+            ! coarse->fine seam interpolation, pack-side (issue #21 N2, ported #22 F3); metadata in column 8
+            send_buffer_ghost_gpu(c_recv) = interp_seam_ghost_gpu_dev(regime=seam_ghost_fill,                          &
+                                                                      meta=int(comm_map_send_ghost_cell_gpu(sf,8), I4P), &
+                                                                      ngc=ngc, q_gpu=q_gpu, v=v_send, b_send=b_send,   &
+                                                                      i_send=i_send, j_send=j_send, k_send=k_send)
          else
             send_buffer_ghost_gpu(c_recv) = 0._R8P
             do kc=0,1 ; do jc=0,1 ; do ic=0,1
@@ -150,9 +161,10 @@ contains
    endif
    endsubroutine receive_recv_buffer_ghost_gpu_dev
 
-   subroutine update_ghost_local_gpu_dev(ngc, l_map_ghost_cell_gpu, q_gpu)
+   subroutine update_ghost_local_gpu_dev(ngc, seam_ghost_fill, l_map_ghost_cell_gpu, q_gpu)
    !< Update (local) ghost cells.
    integer(I4P), intent(in)          :: ngc                       !< Ghost cells number.
+   integer(I4P), intent(in)          :: seam_ghost_fill           !< Seam ghost-fill regime (flag-4 rows).
    integer(I8P), intent(in), pointer :: l_map_ghost_cell_gpu(:,:) !< Local map of ghost cells.
    real(R8P),    intent(inout)       :: q_gpu(1:,    &
                                               1-ngc:,&
@@ -185,6 +197,13 @@ contains
          one_or_eight = l_map_ghost_cell_gpu(mf,9)
          if (one_or_eight==1) then
             q_gpu(b_recv,i_recv, j_recv, k_recv,v) = q_gpu(b_send, i_send,j_send,k_send,v)
+         elseif (one_or_eight==4) then
+            ! coarse->fine seam interpolation (issue #21 N2, ported #22 F3); metadata in column 10
+            q_gpu(b_recv,i_recv,j_recv,k_recv,v) = interp_seam_ghost_gpu_dev(regime=seam_ghost_fill,                &
+                                                                             meta=int(l_map_ghost_cell_gpu(mf,10), I4P), &
+                                                                             ngc=ngc, q_gpu=q_gpu, v=v,             &
+                                                                             b_send=b_send, i_send=i_send,          &
+                                                                             j_send=j_send, k_send=k_send)
          else
             q_gpu(b_recv,i_recv,j_recv,k_recv,v) = 0._R8P
             do kc=0,1 ; do jc=0,1 ; do ic=0,1
@@ -196,4 +215,59 @@ contains
       enddo
    enddo
    endsubroutine update_ghost_local_gpu_dev
+
+   ! private procedures
+   pure function interp_seam_ghost_gpu_dev(regime, meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send) result(value_)
+   !< Device twin of `field_object%interp_seam_ghost` (issue #22 F3): evaluate
+   !< the coarse->fine seam ghost interpolant for one (variable, fine ghost)
+   !< pair on the FNL layout `q_gpu(b,i,j,k,v)`, calling the single-source
+   !< evaluators of `adam_seam_interpolation_library` (device-pinned by
+   !< `test_seam_interpolation_fnl`, #22 F2).
+   !<
+   !< Race discipline (CLAUDE-gpu, #22 F1-bis/F2): the footprint gather
+   !< buffers are CONSTANT-BOUND locals of this `acc routine seq` — per-thread
+   !< stack storage, the WENO device-kernels precedent — never `private()`
+   !< clauses of a contained kernel nor array-section actuals (both are
+   !< nvfortran race shapes). The anchor and the shift-clamped positions in
+   !< `meta` guarantee the footprint reads REAL donor cells only (G3), so the
+   !< gather never sees ghost cells written concurrently by other map rows.
+   integer(I4P), intent(in) :: regime           !< Active fill regime (SEAM_FILL_COMPATIBLE | SEAM_FILL_TRICUBIC).
+   integer(I4P), intent(in) :: meta             !< Packed interpolation metadata (see seam_meta_pack).
+   integer(I4P), intent(in) :: ngc              !< Ghost cells number (bounds of q_gpu).
+   real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables, FNL layout (b,i,j,k,v).
+   integer(I4P), intent(in) :: v                !< Variable index.
+   integer(I4P), intent(in) :: b_send           !< Donor block index.
+   integer(I4P), intent(in) :: i_send           !< Anchor donor cell, i.
+   integer(I4P), intent(in) :: j_send           !< Anchor donor cell, j.
+   integer(I4P), intent(in) :: k_send           !< Anchor donor cell, k.
+   real(R8P)                :: value_           !< Interpolated fine-ghost value.
+   real(R8P)                :: fp4(1:4,1:4,1:4) !< Tricubic donor footprint.
+   real(R8P)                :: fp3(1:3,1:3,1:3) !< Compatible donor footprint.
+   integer(I4P)             :: sub(1:3)         !< Octant sub-position per direction.
+   integer(I4P)             :: p4(1:3)          !< Tricubic anchor position per direction.
+   integer(I4P)             :: p3(1:3)          !< Compatible anchor position per direction.
+   integer(I4P)             :: ii, jj, kk       !< Footprint counters.
+   !$acc routine seq
+
+   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3)
+   if (regime == SEAM_FILL_COMPATIBLE) then
+      do kk=1, 3
+         do jj=1, 3
+            do ii=1, 3
+               fp3(ii,jj,kk) = q_gpu(b_send, i_send+ii-p3(1), j_send+jj-p3(2), k_send+kk-p3(3), v)
+            enddo
+         enddo
+      enddo
+      value_ = seam_interpolate_compatible(footprint=fp3, sub=sub, anchor_pos=p3)
+   else
+      do kk=1, 4
+         do jj=1, 4
+            do ii=1, 4
+               fp4(ii,jj,kk) = q_gpu(b_send, i_send+ii-p4(1), j_send+jj-p4(2), k_send+kk-p4(3), v)
+            enddo
+         enddo
+      enddo
+      value_ = seam_interpolate_tricubic(footprint=fp4, sub=sub, anchor_pos=p4)
+   endif
+   endfunction interp_seam_ghost_gpu_dev
 endmodule adam_fnl_field_kernels
