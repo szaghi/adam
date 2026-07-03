@@ -1,32 +1,26 @@
 #!/usr/bin/env bash
-# rmf-amr-fd Phase-B seam div(B) check (issue #13 Phase B).
+# rmf-amr-fd seam div(B) regression check (issue #21, N4 acceptance).
 #
-# This is the fail-before / pass-after oracle for Phase B. It runs the
-# fd_centered single-realm case with a static intra-realm 2:1 AMR jump and
-# measures max|div_h(B)| over the domain per step:
+# The fd_centered single-realm case with a static intra-realm 2:1 AMR jump.
+# On a uniform grid the matched-stencil identity div_h(curl_h D) = 0 holds to
+# round-off (control run). At the seam, coarse<->fine ghosts are filled by the
+# tricubic seam interpolation ([amr] seam_ghost_fill, default tricubic; #21
+# N2) over the full ghost slab (#21 N3.5), so the residual seam div(B) is a
+# TRUNCATION-ORDER quantity, not a defect.
 #
-#   - In the FD-centered scheme the B-update is dq(B) = -curl_h(D) and the div(B)
-#     diagnostic is div_h(B); both use the SAME centered stencil
-#     (compute_derivative1_fd_centered / FD1_CC), so div_h(curl_h D) = 0 to
-#     round-off on a uniform grid and div(B) is conserved exactly by the interior
-#     scheme. The marker-OFF control confirms this: div(B) stays at round-off.
+# ACCEPTANCE (redefined per #21 — the historical "seam div(B) <= 1e-13"
+# pointwise criterion is RETIRED, see the regression README and #21 §1):
+#   1. control (marker OFF) max|div(B)| <= DIVB_TOL  — the interior identity;
+#   2. seam (marker ON) max|div(B)| within RTOL of the pinned baseline
+#      (golden-style: catches regressions AND silent improvements).
 #
-#   - With the 2:1 seam present (marker ON), the coarse and fine curl_h(D) read
-#     each other's ghosts via 0th-order injection -> the two one-sided stencils
-#     are not the same operator -> a dt-rate div(B) source is injected at seam
-#     cells and div(B) grows. Phase A reflux does NOT fix this (different
-#     operator; verified empirically at M4).
+# CONVERGENCE of the seam leak under refinement is asserted by
+# rmf-amr-fd-pulse/check.sh --convergence, NOT here: the coil filament makes
+# div(J) scale ~ h^-2, so matched-time seam metrics on THIS case are
+# contaminated by the source and are not a valid order measurement (#21 N3).
 #
-# Phase B shares a canonical D across the seam so curl_h(D) is single-valued
-# there and the cancellation is restored. ACCEPTANCE: seam-case max|div(B)| drops
-# to round-off (<= DIVB_TOL) across the run.
-#
-# Status of THIS check:
-#   - BEFORE Phase B: FAILS (seam div(B) ~ 1e-6, far above tol) — this is the
-#     intended fail-before state proving the leak is real and reflux-immune.
-#   - AFTER  Phase B: PASSES (seam div(B) <= tol).
-# A control run (marker OFF) must ALWAYS pass — it proves the leak is the seam,
-# not the fd_centered scheme itself.
+# Baseline provenance: N3.5 binary (stale-ghost-layer fix), default tricubic
+# fill, ni=16, it_max=5, -np 1 — max over the divergence history (= step 5).
 #
 # Usage: ./check.sh            (expects exe/adam_prism_cpu already built)
 #        ./check.sh --build    (build prism-cpu-gnu first)
@@ -39,10 +33,9 @@ CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="$REPO_ROOT/exe/adam_prism_cpu"
 
-# Phase-B acceptance tolerance on seam max|div(B)|. The interior scheme holds
-# div(B) at round-off (~1e-18 in the control); 1e-13 is a generous round-off
-# ceiling that the seam leak (~1e-6) violates by 7 orders of magnitude today.
-DIVB_TOL="1.0E-13"
+DIVB_TOL="1.0E-13"           # control: round-off ceiling for the interior identity
+SEAM_BASELINE="1.555802E-07" # pinned seam max|div(B)| (see provenance above)
+SEAM_RTOL="0.05"             # 5% relative band around the baseline
 
 if [[ "${1:-}" == "--build" ]]; then
    echo ">> building prism-cpu-gnu"
@@ -59,6 +52,8 @@ run_in() { # workdir, ini-transform-sed
    rm -rf "$wd" && mkdir -p "$wd"
    sed "$sed_expr" "$CASE_DIR/input.ini" > "$wd/input.ini"
    ( cd "$wd" && timeout 300 mpirun -np 1 "$EXE" > run.log 2>&1 )
+   # keep the small .dat/.log evidence, drop the heavy field dumps
+   find "$wd" -type f \( -name '*.h5' -o -name '*.fbd' -o -name '*.xdmf' \) -delete
 }
 
 fail=0
@@ -88,21 +83,18 @@ if ! grep -qE 'progress:[[:space:]]*100%' "$WORK/run.log"; then
    echo "FAIL [rmf-amr-fd] fd_centered time loop did not reach 100%"; fail=1
 fi
 seam_divb="$(max_div_b "$WORK/$HIST")"
-echo ">> [rmf-amr-fd] seam   max|div(B)| = $seam_divb (Phase-B acceptance: <= $DIVB_TOL)"
-
-# Phase-B acceptance: seam div(B) at round-off. FAILS before Phase B (the leak),
-# PASSES after the canonical-D seam sharing lands.
-if ! awk "BEGIN{exit !($seam_divb <= $DIVB_TOL)}"; then
-   echo "FAIL [rmf-amr-fd] PHASE-B NOT MET: seam max|div(B)| = $seam_divb > $DIVB_TOL"
-   echo "                  (this is the intended fail-before state until the canonical-D"
-   echo "                   seam sharing restores div_h(curl_h D) = 0 across the 2:1 jump)"
+echo ">> [rmf-amr-fd] seam   max|div(B)| = $seam_divb (baseline $SEAM_BASELINE, rtol $SEAM_RTOL)"
+if ! awk "BEGIN{d=($seam_divb-$SEAM_BASELINE)/$SEAM_BASELINE; if(d<0)d=-d; exit !(d<=$SEAM_RTOL)}"; then
+   echo "FAIL [rmf-amr-fd] seam max|div(B)| moved off the pinned baseline"
+   echo "                  (a DROP means an improvement landed — rebaseline deliberately;"
+   echo "                   a RISE means the seam fill or the exchange regressed)"
    fail=1
 fi
 
 if [[ $fail -eq 0 ]]; then
-   echo "PASS [rmf-amr-fd] Phase B: seam max|div(B)| at round-off across the 2:1 AMR jump"
+   echo "PASS [rmf-amr-fd] control at round-off, seam div(B) on the pinned truncation baseline"
    exit 0
 else
-   echo "FAIL [rmf-amr-fd] Phase B seam div(B) check failed"
+   echo "FAIL [rmf-amr-fd] seam div(B) regression check failed"
    exit 1
 fi
