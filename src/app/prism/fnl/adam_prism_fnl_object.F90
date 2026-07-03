@@ -2022,10 +2022,15 @@ contains
       do i=1, self%ic%amr_iterations
          call mpih_fnl%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions(is_restart=self%io%restart)
-         !call self%amr_update
+         call self%amr_update ! host-side (promoted to prism_common, issue #22 F0); device resync below
       enddo
       call self%set_initial_conditions(is_restart=self%io%restart)
       call self%adam%make_comm_local_maps_ghost_bc
+      ! Device topology resync (issue #22 F0/GA2): amr_update rebuilt the host tree/field/maps and
+      ! make_comm_local_maps_ghost_bc above rebuilt the ghost maps AFTER the last set_initial_conditions'
+      ! copy_cpu_gpu push — re-push everything (q, coils, fWL, field coords/dxyz AND the maps) so the
+      ! device sees the final refined topology. Idempotent (dev_assign_to_device reallocates dst).
+      call self%copy_cpu_gpu
       self%time%time = 0._R8P
       self%time%it = 0
       call mpih_fnl%print_message('impose initial conditions finish')
@@ -2071,6 +2076,10 @@ contains
          ! to be implemented
       endif
    endif
+
+   ! Lock AMR (issue #22 GA6): the FNL device state cannot follow a regrid past this point —
+   ! any later amr_update call error_stops instead of computing on stale device maps.
+   self%amr_locked_ = .true.
    endsubroutine initialize_forest
 
    subroutine compute_local_dt_forest(self, dt_local)

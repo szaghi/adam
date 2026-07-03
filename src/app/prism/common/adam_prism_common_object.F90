@@ -29,6 +29,9 @@ public :: prism_common_object
 
 type, extends(realm_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
+   logical :: amr_locked_ = .false. !< AMR regrid lock (issue #22 GA6): set .true. by backends whose device/topology
+                                    !< state cannot follow a regrid after initialization (FNL sets it at the end of
+                                    !< initialize_forest); `amr_update` error_stops when locked. CPU never sets it.
    ! physics data replica for easy handling
    integer(I4P), pointer :: nv_c=>null()  !< Number of conservative variables in q vector.
    integer(I4P), pointer :: nv_s=>null()  !< Number of source variables in q vector.
@@ -70,6 +73,12 @@ type, extends(realm_object) :: prism_common_object
    type(prism_rk_pic_object)             :: rk_pic             !< Runge-Kutta PIC handler.
    type(prism_time_object)               :: time               !< Time integration state.
    contains
+      ! AMR methods (issue #22 F0: promoted from prism_cpu_object — host-side, backend-agnostic)
+      procedure, pass(self) :: amr_update                    !< Do AMR update (init-time only where amr_locked_).
+      procedure, pass(self) :: mark_by_geometry              !< Mark blocks to be refined by a primitive geometric box.
+      procedure, pass(self) :: mark_by_j_vec_total_variation !< Mark by j_vec total variation (backend override; common
+                                                             !< default error_stops — the marker needs backend ghost/coil
+                                                             !< machinery that only the CPU override provides today).
       ! public methods
       procedure, pass(self) :: allocate_common          !< Allocate common data.
       procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
@@ -97,6 +106,104 @@ type, extends(realm_object) :: prism_common_object
 endtype prism_common_object
 
 contains
+   ! AMR methods (issue #22 F0: promoted verbatim from prism_cpu_object; host-side only —
+   ! marker registration + adam%amr_update on the host q. Backends with device state must
+   ! resync topology after calling this (FNL: copy_cpu_gpu after the IC loop) and set
+   ! amr_locked_ once initialization completes.)
+   subroutine amr_update(self)
+   !< Do AMR update.
+   class(prism_common_object), intent(inout) :: self                !< The equation.
+   logical                                   :: is_grid_changed     !< Flag to check grid changes for each marker.
+   logical                                   :: is_grid_changed_all !< Flag to check grid changes for each iter.
+   integer(I4P)                              :: i, i_marker         !< Counter.
+   type(amr_marker_object)                   :: amr_marker          !< Current amr marker.
+
+   if (self%amr_locked_) then
+      call mpih%error_stop(msg=': runtime AMR regrid is not supported on this backend — device/topology resync '// &
+                               'past initialization is not implemented (issue #22 GA6); AMR is init-time only here')
+   endif
+   amr: do i=1, self%amr%iters
+      is_grid_changed_all = .false.
+      do i_marker=1, self%amr%markers_number
+         amr_marker = self%amr%markers(i_marker)
+         select case(amr_marker%mode)
+         case(AMR_GEO)
+            select case(amr_marker%geo_type)
+            case(AMR_GEO_PRIMITIVE_BOX)
+               call self%mark_by_geometry(box_emin=amr_marker%box_emin, box_emax=amr_marker%box_emax, &
+                                          target_level=amr_marker%target_level)
+            case(AMR_GEO_STL)
+               call mpih%error_stop(msg='prism_common_object%amr_update: AMR_GEO_STL not yet implemented')
+            case default ! AMR_GEO_SOLID: legacy IB-driven path, not yet implemented as a marker (no-op).
+            endselect
+         case(AMR_GRAD)
+         case(AMR_TV)
+               call self%mark_by_j_vec_total_variation(tv_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
+                                                       delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
+         endselect
+         call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
+         is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
+      enddo
+      if (.not.is_grid_changed_all) then
+          call mpih%print_message('AMR Grid stabilized after : '//trim(str(i))//' AMR iterations')
+          exit amr
+       elseif (i==self%amr%iters) then
+          call mpih%print_message('AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations')
+      endif
+   enddo amr
+   endsubroutine amr_update
+
+   subroutine mark_by_geometry(self, box_emin, box_emax, target_level, do_init)
+   !< Mark blocks to be refined by a primitive axis-aligned box (deterministic, solution-independent).
+   !<
+   !< A block is flagged `TO_BE_REFINED` iff its centroid lies inside `[box_emin, box_emax]` AND its
+   !< current refinement level is below `target_level`. This is the AMR_GEO + AMR_GEO_PRIMITIVE_BOX marker:
+   !< it produces a deterministic 2:1 coarse-fine jump at known coordinates, decoupled from the IB/solid
+   !< geometry, for the issue #13 intra-realm AMR seam test fixture (#13 §7.5, M0).
+   class(prism_common_object), intent(inout)     :: self         !< The equation.
+   real(R8P),               intent(in)           :: box_emin(3)  !< Box minimum corner.
+   real(R8P),               intent(in)           :: box_emax(3)  !< Box maximum corner.
+   integer(I4P),            intent(in)           :: target_level !< Refine blocks below this level.
+   logical,                 intent(in), optional :: do_init      !< Re-initialize refinements queries.
+   logical                                       :: do_init_     !< Re-initialize refinements queries, local var.
+   real(R8P)                                     :: centroid(3)  !< Block centroid.
+   integer(I4P)                                  :: b            !< Counter.
+
+   ! A geometric refine-region marker is *additive*: it refines blocks inside the box and
+   ! leaves every other block untouched (TO_NOT_TOUCH), so it does not fight other markers by
+   ! forcing coarsening outside the region. Hence do_init seeds TO_NOT_TOUCH, not TO_BE_DEREFINED
+   ! (the latter is the total-variation marker's aggressive-coarsening policy, not this one's).
+   do_init_ = .true. ; if (present(do_init)) do_init_ = do_init
+   if (do_init_) self%adam%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%blocks_number)]
+   associate (emin=>self%adam%field%emin, emax=>self%adam%field%emax, code=>self%adam%field%code, &
+              tree=>self%adam%tree, refinements_needed=>self%adam%field%refinements_needed)
+      do b=1, self%blocks_number
+         centroid = 0.5_R8P * (emin(:,b) + emax(:,b))
+         if (all(centroid >= box_emin) .and. all(centroid <= box_emax) .and. &
+             tree%level(code(b)) < target_level) then
+            refinements_needed(b) = TO_BE_REFINED
+         endif
+      enddo
+   endassociate
+   endsubroutine mark_by_geometry
+
+   subroutine mark_by_j_vec_total_variation(self, tv_tol, delta_type, delta_fine, delta_coarse, threshold, do_init)
+   !< Mark blocks by j_vec total variation — common DEFAULT: unavailable. The real marker needs
+   !< backend-specific ghost updates and coil initialization; prism_cpu_object overrides this with
+   !< the working host implementation. Backends without an override stop loudly instead of
+   !< marking from stale data (issue #22 F0).
+   class(prism_common_object), intent(inout)     :: self         !< The equation.
+   real(R8P),               intent(in)           :: tv_tol       !< Total variation tolerance value.
+   character(*),            intent(in)           :: delta_type   !< Delta criterion type.
+   real(R8P),               intent(in)           :: delta_fine   !< Maximum cell delta in fine grids.
+   real(R8P),               intent(in)           :: delta_coarse !< Minimum cell delta in coarse grids.
+   real(R8P),               intent(in), optional :: threshold    !< Threshold for sphere proximity.
+   logical,                 intent(in), optional :: do_init      !< Re-initialize refinements queries.
+
+   call mpih%error_stop(msg=': AMR_TV marker is not available on this backend (only the CPU backend '// &
+                            'implements mark_by_j_vec_total_variation); use an AMR_GEO marker or run on CPU')
+   endsubroutine mark_by_j_vec_total_variation
+
    ! public methods
    subroutine allocate_common(self)
    !< Allocate common data.
