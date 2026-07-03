@@ -52,6 +52,10 @@ contains
    integer(I4P)                                          :: hb6(2,6)     !< Host   data bounds, rank 6.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   ! Zero-coil case (issue #22 F1): the host coil arrays are unallocated and the device
+   ! twins are zero-size — any memcpy would fault (SIGSEGV in cuMemcpy on the first
+   ! source-free case ever run on FNL, rmf-amr-fd-pulse). Nothing to move: return.
+   if (coil%total_coils_number == 0) return
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_cpu_gpu start')
    call dev_memcpy_to_device(src=coil%coil_amplitude    ,dst=self%A_gpu    )
    call dev_memcpy_to_device(src=coil%f                 ,dst=self%f_gpu    )
@@ -85,6 +89,9 @@ contains
    integer(I4P)                                          :: hb6(2,6)     !< Host   data bounds, rank 6.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   ! Zero-coil case (issue #22 F1): see copy_cpu_gpu — nothing to move, and the
+   ! host destinations are unallocated. Return before any device memcpy.
+   if (coil%total_coils_number == 0) return
    if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_gpu_cpu start')
    call dev_memcpy_from_device(src=self%A_gpu    ,dst=coil%coil_amplitude)
    call dev_memcpy_from_device(src=self%f_gpu    ,dst=coil%f             )
@@ -111,6 +118,13 @@ contains
 
    associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nb=>field%nb, nc=>coil%total_coils_number)
    print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize start'
+   ! Zero-coil case (issue #22 F1): host j_vec is unallocated (size() on it is illegal)
+   ! and every device twin would be zero-size. Leave the device pointers null; all the
+   ! copy paths return early on total_coils_number == 0.
+   if (nc == 0) then
+      print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize finish (no coils: nothing on device)'
+      return
+   endif
    nv = size(coil%j_vec,dim=1)
    call dev_alloc(fptr_dev=self%A_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
    call dev_alloc(fptr_dev=self%f_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)

@@ -2004,9 +2004,6 @@ contains
    real(R8P),               intent(in),    optional :: memory_avail  !< Per-process memory budget override.
    integer(I4P),            intent(in),    optional :: nv            !< Number of field variables override.
    logical,                 intent(in),    optional :: verbose       !< Trigger verbose output.
-   real(R8P)                                        :: max_div_D     !< Maximum of divergence of D field.
-   real(R8P)                                        :: max_div_B     !< Maximum of divergence of B
-   real(R8P)                                        :: max_div_J     !< Maximum of divergence of J field.
    integer(I4P)                                     :: i             !< Counter.
    integer(I4P)                                     :: n             !< Coil counter.
    integer(I4P)                                     :: b             !< Block counter.
@@ -2060,7 +2057,9 @@ contains
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.) !Cazzo
    call self%compute_max_divergence
-   call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J) !Cazzo
+   ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
+   call self%save_divergence_history(is_to_open=.true., div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
+                                     div_J=self%max_divergence_J)
    call self%io%open_file_residuals(nv=self%nv)
 
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
@@ -2444,9 +2443,6 @@ contains
    logical,                 intent(in),    optional         :: do_save_restart   !< Save restart dump this step.
    logical,                 intent(in),    optional         :: do_amr            !< Run AMR update this step.
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms for inter-realm halo refresh.
-   real(R8P)                                                :: max_div_D         !< Maximum of divergence of D field.
-   real(R8P)                                                :: max_div_B         !< Maximum of divergence of B
-   real(R8P)                                                :: max_div_J         !< Maximum of divergence of J field.
 
    if (self%io%save_memory_status) then
       call save_memory_status_cpu(file_name='memory_cpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
@@ -2463,7 +2459,9 @@ contains
    !call self%save_energy_error !Cazzo
    call self%save_energy_history !Cazzo
    call self%compute_max_divergence
-   call self%save_divergence_history(div_D=max_div_D, div_B=max_div_B, div_J=max_div_J) !Cazzo
+   ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
+   call self%save_divergence_history(div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
+                                     div_J=self%max_divergence_J)
    endsubroutine post_step_forest
 
    ! numerical methods
@@ -2753,9 +2751,14 @@ contains
 			real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Delta cells GPU [nb,3].
 			real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
 			real(R8P),    intent(out) :: max_div(3)                            !< Maximum divergence of D, B and J fields.
-			real(R8P)                 :: qsx_x(1-s1:1+s1)                      !< Buffer for x-derivative in x direction (for divergence).
-			real(R8P)                 :: qsy_y(1-s1:1+s1)                      !< Buffer for y-derivative in y direction (for divergence).
-			real(R8P)                 :: qsz_z(1-s1:1+s1)                      !< Buffer for z-derivative in z direction (for divergence).
+			! Stencil buffers MUST have compile-time-constant bounds (FDV_S_MAX), like the
+			! residual kernels: runtime-sized (automatic) private arrays inside the acc
+			! collapse(4) region are mis-privatized by nvfortran -- scheduling-dependent
+			! garbage that grows with gang count (issue #22 F1: the divergence history read
+			! O(1e3) on a bit-perfect solution, nondeterministically, above ~32 blocks).
+			real(R8P)                 :: qsx_x(1-FDV_S_MAX:1+FDV_S_MAX)        !< Buffer for x-derivative in x direction (for divergence).
+			real(R8P)                 :: qsy_y(1-FDV_S_MAX:1+FDV_S_MAX)        !< Buffer for y-derivative in y direction (for divergence).
+			real(R8P)                 :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX)        !< Buffer for z-derivative in z direction (for divergence).
 			real(R8P)                 :: divergenceD, divergenceB, divergenceJ !< Divergence of D, B and J fields.
 			real(R8P)                 :: max_divD, max_divB, max_divJ			 !< Maximum divergence of D, B and J fields.
 			integer(I4P)              :: i,j,k,b,s                             !< Counter.

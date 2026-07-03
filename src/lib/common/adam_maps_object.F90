@@ -978,6 +978,10 @@ contains
             enddo
          endif
       enddo
+      ! Issue #22 F1: last-writer-wins made explicit (see make_local_map_ghost_cell);
+      ! superseded rows simply leave their buffer slots unread — the sender-side
+      ! packing and buffer layout are untouched, so cross-rank lockstep is preserved.
+      call dedupe_last_writer(map=self%comm_map_recv_ghost_cell, cb=2, ci=3, cj=4, ck=5, stride=nv, ngc=ngc)
    endif
    endsubroutine make_comm_map_recv_ghost_cell
 
@@ -1334,6 +1338,9 @@ contains
             enddo
          endif
       enddo
+      ! Issue #22 F1: make the sequential last-writer-wins semantics explicit so the
+      ! GPU consumers (acc parallel loop over rows) cannot race on duplicate receivers.
+      call dedupe_last_writer(map=self%local_map_ghost_cell, cb=2, ci=6, cj=7, ck=8, stride=1, ngc=ngc)
    endif
    endsubroutine make_local_map_ghost_cell
 
@@ -1372,6 +1379,69 @@ contains
    ijk_min_max_delta = [ijkmin, ijkmax, ijkdelta_global]
    endassociate
    endfunction ijk_mmd
+
+   subroutine dedupe_last_writer(map, cb, ci, cj, ck, stride, ngc)
+   !< Remove duplicate-receiver rows from a ghost-cell map, keeping the LAST row per
+   !< receiver cell (issue #22 F1).
+   !<
+   !< Ghost-cell maps can carry several rows writing the SAME ghost cell (overlapping
+   !< face/edge/corner fec regions). The CPU consumers process rows sequentially, so
+   !< the last writer wins deterministically; the GPU consumers execute rows under
+   !< `!$acc parallel loop independent`, so duplicate writers RACE. On uniform grids
+   !< the duplicates agree in value (benign); at a 2:1 coarse-fine seam they disagree
+   !< (different donors/levels) — observed as run-to-run nondeterministic seam
+   !< divergences on FNL. Making last-writer-wins explicit at build time removes the
+   !< race structurally: CPU results are bit-identical (that row was winning anyway),
+   !< GPU becomes deterministic and CPU-equal, and both backends do less work.
+   !< Rows for one receiver cell always appear as CONTIGUOUS runs of `stride` rows
+   !< (stride = 1 for the cell-level local map, nv for the per-variable MPI recv map,
+   !< whose `do v=1,nv` loop is innermost in every build branch) — so the survivor
+   !< test is `last_row(cell) - row < stride`, and the winner table is keyed on the
+   !< CELL only (no nv factor in its size).
+   integer(I8P), allocatable, intent(inout) :: map(:,:) !< Ghost-cell map (rows compacted in place).
+   integer(I4P),              intent(in)    :: cb       !< Column of the receiver block index.
+   integer(I4P),              intent(in)    :: ci       !< Column of the receiver i index.
+   integer(I4P),              intent(in)    :: cj       !< Column of the receiver j index.
+   integer(I4P),              intent(in)    :: ck       !< Column of the receiver k index.
+   integer(I4P),              intent(in)    :: stride   !< Rows per receiver cell (1 = cell-level map, nv = per-variable map).
+   integer(I4P),              intent(in)    :: ngc      !< Ghost cells number (index offset for the key).
+   integer(I8P), allocatable                :: compact(:,:) !< Deduplicated rows.
+   integer(I4P), allocatable                :: winner(:)    !< Last row index per receiver cell key.
+   integer(I8P), allocatable                :: key(:)       !< Linearized receiver cell key per row.
+   integer(I8P)                             :: si, sj, sk   !< Key spans.
+   integer(I4P)                             :: n, m, r      !< Counters.
+
+   if (.not.allocated(map)) return
+   n = size(map, dim=1)
+   if (n == 0) return
+   si = maxval(map(:,ci)) + ngc
+   sj = maxval(map(:,cj)) + ngc
+   sk = maxval(map(:,ck)) + ngc
+   allocate(key(1:n))
+   do r=1, n
+      key(r) = (((map(r,cb) - 1)*sk + (map(r,ck) + ngc - 1))*sj + (map(r,cj) + ngc - 1))*si + &
+               (map(r,ci) + ngc - 1) + 1
+   enddo
+   allocate(winner(1:int(maxval(key), I8P))) ; winner = 0
+   do r=1, n
+      winner(key(r)) = r
+   enddo
+   m = 0
+   do r=1, n
+      if (winner(key(r)) - r < stride) m = m + 1
+   enddo
+   if (m == n) return ! no duplicate receivers
+   call mpih%print_message('ghost-map dedupe: kept '//trim(str(m))//' of '//trim(str(n))//' rows (last-writer-wins)')
+   allocate(compact(1:m, 1:size(map, dim=2)))
+   m = 0
+   do r=1, n
+      if (winner(key(r)) - r < stride) then
+         m = m + 1
+         compact(m,:) = map(r,:)
+      endif
+   enddo
+   call move_alloc(from=compact, to=map)
+   endsubroutine dedupe_last_writer
 
    function ijk_mmd_ghost(self, grid, fec, portion) result(ijk_min_max_delta)
    !< Return IJK min/max/delta, ghost maps.
