@@ -28,10 +28,8 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    procedure(compute_residuals_interface), pass(self),pointer :: compute_residuals=>null()!< Compute residuals, space operator.
    procedure(integrate_interface),         pass(self),pointer :: integrate        =>null()!< Integrate, time operator.
    contains
-      ! AMR methods
-      procedure, pass(self) :: amr_update                    !< Do AMR update.
-      procedure, pass(self) :: mark_by_j_vec_total_variation !< Mark blocks to be refined/derefined by j_vec total variation.
-      procedure, pass(self) :: mark_by_geometry              !< Mark blocks to be refined by a primitive geometric box.
+      ! AMR methods (amr_update + mark_by_geometry promoted to prism_common_object, issue #22 F0)
+      procedure, pass(self) :: mark_by_j_vec_total_variation !< Override: the working host TV marker (common default stops).
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu     !< Allocate CPU data.
       procedure, pass(self) :: initialize_prism !< Initialize PRSIM equation.
@@ -147,46 +145,7 @@ contains
    enddo
    endsubroutine restrict_fine_face_to_quadrant
 
-   ! AMR methods
-   subroutine amr_update(self)
-   !< Do AMR update.
-   class(prism_cpu_object), intent(inout) :: self                !< The equation.
-   logical                                :: is_grid_changed     !< Flag to check grid changes for each marker.
-   logical                                :: is_grid_changed_all !< Flag to check grid changes for each iter.
-   integer(I4P)                           :: i, i_marker         !< Counter.
-   type(amr_marker_object)                :: amr_marker          !< Current amr marker.
-
-   amr: do i=1, self%amr%iters
-      is_grid_changed_all = .false.
-      do i_marker=1, self%amr%markers_number
-         amr_marker = self%amr%markers(i_marker)
-         select case(amr_marker%mode)
-         case(AMR_GEO)
-            select case(amr_marker%geo_type)
-            case(AMR_GEO_PRIMITIVE_BOX)
-               call self%mark_by_geometry(box_emin=amr_marker%box_emin, box_emax=amr_marker%box_emax, &
-                                          target_level=amr_marker%target_level)
-            case(AMR_GEO_STL)
-               call mpih%error_stop(msg='prism_cpu_object%amr_update: AMR_GEO_STL not yet implemented')
-            case default ! AMR_GEO_SOLID: legacy IB-driven path, not yet implemented as a marker (no-op).
-            endselect
-         case(AMR_GRAD)
-         case(AMR_TV)
-               call self%mark_by_j_vec_total_variation(tv_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
-                                                       delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
-         endselect
-         call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
-         is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
-      enddo
-      if (.not.is_grid_changed_all) then
-          call mpih%print_message('AMR Grid stabilized after : '//trim(str(i))//' AMR iterations')
-          exit amr
-       elseif (i==self%amr%iters) then
-          call mpih%print_message('AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations')
-      endif
-   enddo amr
-   endsubroutine amr_update
-
+   ! AMR methods (amr_update + mark_by_geometry live on prism_common_object since issue #22 F0)
    subroutine mark_by_j_vec_total_variation(self, tv_tol, delta_type, delta_fine, delta_coarse, threshold, do_init)
    !< Mark blocks to be refined/derefined by the value of total variation of j_vec.
    class(prism_cpu_object), intent(inout)        :: self                     !< The equation.
@@ -253,40 +212,6 @@ contains
       endif
       endfunction max_cell_delta_tv
    endsubroutine mark_by_j_vec_total_variation
-
-   subroutine mark_by_geometry(self, box_emin, box_emax, target_level, do_init)
-   !< Mark blocks to be refined by a primitive axis-aligned box (deterministic, solution-independent).
-   !<
-   !< A block is flagged `TO_BE_REFINED` iff its centroid lies inside `[box_emin, box_emax]` AND its
-   !< current refinement level is below `target_level`. This is the AMR_GEO + AMR_GEO_PRIMITIVE_BOX marker:
-   !< it produces a deterministic 2:1 coarse-fine jump at known coordinates, decoupled from the IB/solid
-   !< geometry, for the issue #13 intra-realm AMR seam test fixture (#13 §7.5, M0).
-   class(prism_cpu_object), intent(inout)        :: self         !< The equation.
-   real(R8P),               intent(in)           :: box_emin(3)  !< Box minimum corner.
-   real(R8P),               intent(in)           :: box_emax(3)  !< Box maximum corner.
-   integer(I4P),            intent(in)           :: target_level !< Refine blocks below this level.
-   logical,                 intent(in), optional :: do_init      !< Re-initialize refinements queries.
-   logical                                       :: do_init_     !< Re-initialize refinements queries, local var.
-   real(R8P)                                     :: centroid(3)  !< Block centroid.
-   integer(I4P)                                  :: b            !< Counter.
-
-   ! A geometric refine-region marker is *additive*: it refines blocks inside the box and
-   ! leaves every other block untouched (TO_NOT_TOUCH), so it does not fight other markers by
-   ! forcing coarsening outside the region. Hence do_init seeds TO_NOT_TOUCH, not TO_BE_DEREFINED
-   ! (the latter is the total-variation marker's aggressive-coarsening policy, not this one's).
-   do_init_ = .true. ; if (present(do_init)) do_init_ = do_init
-   if (do_init_) self%adam%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%blocks_number)]
-   associate (emin=>self%adam%field%emin, emax=>self%adam%field%emax, code=>self%adam%field%code, &
-              tree=>self%adam%tree, refinements_needed=>self%adam%field%refinements_needed)
-      do b=1, self%blocks_number
-         centroid = 0.5_R8P * (emin(:,b) + emax(:,b))
-         if (all(centroid >= box_emin) .and. all(centroid <= box_emax) .and. &
-             tree%level(code(b)) < target_level) then
-            refinements_needed(b) = TO_BE_REFINED
-         endif
-      enddo
-   endassociate
-   endsubroutine mark_by_geometry
 
    ! auxiliary methods
    subroutine allocate_cpu(self)

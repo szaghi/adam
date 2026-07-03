@@ -10,6 +10,9 @@ use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
+use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, &
+                                               seam_tricubic_centered_pos, seam_compatible_centered_pos, &
+                                               SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC
 ! third party modules
 use :: penf
 ! sdk modules
@@ -88,6 +91,12 @@ endtype inter_realm_neighbor_t
 type :: maps_object
    !< Maps class definition
    logical :: is_initialized_=.false. !< Flag: maps have been initialized.
+   integer(I4P) :: seam_ghost_fill = SEAM_FILL_INJECTION !< Coarse->fine seam ghost-fill regime (issue #21 N2): selects the
+                                                         !< flag emitted on coarse->fine map rows (1 = injection legacy copy,
+                                                         !< 4 = interpolate per the packed metadata column). Set from the
+                                                         !< `[amr] seam_ghost_fill` INI key by `adam_object%initialize`
+                                                         !< BEFORE any ghost-map build; default injection so that map builds
+                                                         !< predating the parse (or tests bypassing it) keep legacy behavior.
    ! local maps
    integer(I8P), allocatable :: local_map(:,:)            !< Local map, list block index changes of my nodes.
    integer(I8P), allocatable :: local_map_ghost(:,:)      !< Local map for ghost cells updating [fec_number, 4].
@@ -538,9 +547,9 @@ contains
    call mpih%print_message('maps_object%make_comm_local_maps_ghost start')
    call self%alloc_comm_local_maps_ghost(tree=tree, grid=grid, nv=nv)
    call self%populate_comm_local_maps_ghost(tree=tree, grid=grid)
-   call self%make_local_map_ghost_cell
-   call self%make_comm_map_recv_ghost_cell(nv=nv)
-   call self%make_comm_map_send_ghost_cell(nv=nv)
+   call self%make_local_map_ghost_cell(nijk=[grid%ni, grid%nj, grid%nk], ngc=grid%ngc)
+   call self%make_comm_map_recv_ghost_cell(nv=nv, nijk=[grid%ni, grid%nj, grid%nk], ngc=grid%ngc)
+   call self%make_comm_map_send_ghost_cell(nv=nv, nijk=[grid%ni, grid%nj, grid%nk], ngc=grid%ngc)
    call mpih%print_message('maps_object%make_comm_local_maps_ghost finish')
    endsubroutine make_comm_local_maps_ghost
 
@@ -842,10 +851,17 @@ contains
    enddo
    endsubroutine count_bc_numbers
 
-   subroutine make_comm_map_recv_ghost_cell(self, nv)
+   subroutine make_comm_map_recv_ghost_cell(self, nv, nijk, ngc)
    !< Make communication receive map of ghost cells in cell order.
+   !<
+   !< Coarse->fine octant clipping (issue #21 N3.5): out-of-slab octants of
+   !< the widened donor range are skipped WITHOUT advancing `recv_ctr` — the
+   !< sender applies the identical predicate on the identical walk order, so
+   !< the packed buffer holds kept octants only and positions stay in lockstep.
    class(maps_object), intent(inout) :: self               !< The maps.
    integer(I4P),       intent(in)    :: nv                 !< Number of field variables.
+   integer(I4P),       intent(in)    :: nijk(1:3)          !< Block interior cell counts [ni,nj,nk].
+   integer(I4P),       intent(in)    :: ngc                !< Ghost cells number (octant clip bound).
    integer(I4P)                      :: i, j, k, c, f, v   !< Counter.
    integer(I4P)                      :: iii, jjj, kkk      !< Counter.
    integer(I4P)                      :: ic, jc, kc         !< Counter.
@@ -886,10 +902,19 @@ contains
             enddo
          else
             ! receiving from a block coarser than me
+            idelta = self%comm_map_recv_ghost(f, 12)
+            jdelta = self%comm_map_recv_ghost(f, 13)
+            kdelta = self%comm_map_recv_ghost(f, 14)
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
                      do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
+                        if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
+                        if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
                         c = c + 1
                      enddo ; enddo ; enddo
                   enddo
@@ -938,6 +963,9 @@ contains
                      jjj = 2 * j + jdelta
                      iii = 2 * i + idelta
                      do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
+                        if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
+                        if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
                         do v=1, nv
                            self%comm_map_recv_ghost_cell(c, 1 ) = recv_ptr + recv_ctr
                            self%comm_map_recv_ghost_cell(c,2:6) = [b_recv,iii+ic,jjj+jc,kkk+kc,v]
@@ -950,16 +978,41 @@ contains
             enddo
          endif
       enddo
+      ! Issue #22 F1: last-writer-wins made explicit (see make_local_map_ghost_cell);
+      ! superseded rows simply leave their buffer slots unread — the sender-side
+      ! packing and buffer layout are untouched, so cross-rank lockstep is preserved.
+      call dedupe_last_writer(map=self%comm_map_recv_ghost_cell, cb=2, ci=3, cj=4, ck=5, stride=nv, ngc=ngc)
    endif
    endsubroutine make_comm_map_recv_ghost_cell
 
-   subroutine make_comm_map_send_ghost_cell(self, nv)
+   subroutine make_comm_map_send_ghost_cell(self, nv, nijk, ngc)
    !< Make communication send map of ghost cells in cell order.
+   !<
+   !< Column 8 (issue #21 N1) carries the packed coarse->fine interpolation
+   !< metadata (octant sub-position + shifted anchor positions, see
+   !< `seam_meta_pack`) on "sending to finer" rows; 0 elsewhere. Pack-side
+   !< interpolation (G5): the donor rank owns footprint and metadata; the
+   !< recv map stays a plain buffer unpack. Consumers gate on the flag
+   !< column (7), never on the metadata value.
+   !<
+   !< Coarse->fine octant clipping (issue #21 N3.5): the "sending to finer"
+   !< ranges are in the RECEIVER's frame (fec/portion of the receiver, see
+   !< populate_comm_local_maps_ghost), so the sender evaluates the receiver's
+   !< fine index `2*i + delta + c` and skips out-of-slab octants with the
+   !< identical predicate and walk order as the receive side — buffer
+   !< positions stay in lockstep without shipping discarded values.
    class(maps_object), intent(inout) :: self                !< The maps.
    integer(I4P),       intent(in)    :: nv                  !< Number of field variables.
+   integer(I4P),       intent(in)    :: nijk(1:3)           !< Block interior cell counts [ni,nj,nk].
+   integer(I4P),       intent(in)    :: ngc                 !< Ghost cells number (octant clip bound).
    integer(I4P)                      :: i, j, k, c, f, v, n !< Counter.
    integer(I4P)                      :: iii, jjj, kkk       !< Counter.
    integer(I4P)                      :: ic, jc, kc          !< Counter.
+   integer(I4P)                      :: sub(1:3)            !< Octant sub-position per direction.
+   integer(I4P)                      :: p4(1:3)             !< Tricubic anchor position per direction.
+   integer(I4P)                      :: p3(1:3)             !< Compatible anchor position per direction.
+   integer(I4P)                      :: d, meta             !< Direction counter, packed metadata.
+   integer(I4P)                      :: anchor(1:3)         !< Donor anchor cell per direction.
    integer(I4P)                      :: portion             !< Portion of fec updated (0=>whole fec).
    integer(I4P)                      :: b_send              !< Index of sending block.
    integer(I4P)                      :: imin                !< Lower limit of i indexes.
@@ -997,10 +1050,19 @@ contains
             enddo
          else
             ! sending to a block finer than me
+            idelta = self%comm_map_send_ghost(f, 12)
+            jdelta = self%comm_map_send_ghost(f, 13)
+            kdelta = self%comm_map_send_ghost(f, 14)
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
                      do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
+                        if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
+                        if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
                         c = c + 1
                      enddo ; enddo ; enddo
                   enddo
@@ -1009,7 +1071,7 @@ contains
          endif
       enddo
       ! Nv variables map
-      allocate(self%comm_map_send_ghost_cell(1:c*nv,1:7))
+      allocate(self%comm_map_send_ghost_cell(1:c*nv,1:8))
       c = 1
       do f=1, size(self%comm_map_send_ghost, dim=1)
          b_send    = self%comm_map_send_ghost(f, 2 )
@@ -1035,6 +1097,7 @@ contains
                         self%comm_map_send_ghost_cell(c,  5 ) = v
                         self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
                         self%comm_map_send_ghost_cell(c,  7 ) = 1
+                        self%comm_map_send_ghost_cell(c,  8 ) = 0
                         send_ctr = send_ctr + 1
                         c = c + 1
                      enddo
@@ -1043,16 +1106,42 @@ contains
             enddo
          elseif (portion<0_I4P) then ! Beware! This is < 0 because the reference is the receiver
             ! sending to a block finer than me
+            if (any(nijk < 4_I4P)) call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 '// &
+                                                            '(coarse->fine footprint cannot fit the donor block)')
             send_ctr = 1
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
+                     anchor = [i, j, k]
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
                      do n=1,8
+                        ! octant order must match the recv-side unpack loops (kc,jc,ic with ic fastest)
+                        ic = mod(n - 1, 2)
+                        jc = mod((n - 1) / 2, 2)
+                        kc = (n - 1) / 4
+                        if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
+                        if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
+                        if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
+                        sub = [ic, jc, kc] + 1_I4P
+                        do d=1, 3
+                           p4(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
+                           p3(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_compatible_centered_pos(sub(d)), footprint_n=3_I4P)
+                        enddo
+                        meta = seam_meta_pack(sub=sub, p4=p4, p3=p3)
                         do v=1, nv
                            self%comm_map_send_ghost_cell(c, 1:4) = [b_send,i,j,k]
                            self%comm_map_send_ghost_cell(c,  5 ) = v
                            self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
-                           self%comm_map_send_ghost_cell(c,  7 ) = 1
+                           if (self%seam_ghost_fill == SEAM_FILL_INJECTION) then
+                              self%comm_map_send_ghost_cell(c, 7) = 1
+                           else
+                              self%comm_map_send_ghost_cell(c, 7) = 4
+                           endif
+                           self%comm_map_send_ghost_cell(c,  8 ) = meta
                            send_ctr = send_ctr + 1
                            c = c + 1
                         enddo
@@ -1074,6 +1163,7 @@ contains
                         self%comm_map_send_ghost_cell(c,  5 ) = v
                         self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
                         self%comm_map_send_ghost_cell(c,  7 ) = 8
+                        self%comm_map_send_ghost_cell(c,  8 ) = 0
                         send_ctr = send_ctr + 1
                         c = c + 1
                      enddo
@@ -1085,12 +1175,30 @@ contains
    endif
    endsubroutine make_comm_map_send_ghost_cell
 
-   subroutine make_local_map_ghost_cell(self)
+   subroutine make_local_map_ghost_cell(self, nijk, ngc)
    !< Make local map of ghost cells in cell order.
+   !<
+   !< Column 10 (issue #21 N1) carries the packed coarse->fine interpolation
+   !< metadata (octant sub-position + shifted anchor positions, see
+   !< `seam_meta_pack`) on "receiving from coarser" rows; 0 elsewhere.
+   !< Consumers gate on the flag column (9), never on the metadata value.
+   !<
+   !< Coarse->fine octant clipping (issue #21 N3.5): the widened donor range
+   !< ((ngc+1)/2 coarse layers, see `ijk_mmd_ghost`) generates one fine octant
+   !< per donor pair that falls outside the ghost slab for odd ngc; count and
+   !< fill loops skip it with the same predicate (fine index within
+   !< [1-ngc, nijk+ngc] per direction).
    class(maps_object), intent(inout) :: self          !< The maps.
+   integer(I4P),       intent(in)    :: nijk(1:3)     !< Block interior cell counts [ni,nj,nk].
+   integer(I4P),       intent(in)    :: ngc           !< Ghost cells number (octant clip bound).
    integer(I4P)                      :: i, j, k, c, f !< Counter.
    integer(I4P)                      :: iii, jjj, kkk !< Counter.
    integer(I4P)                      :: ic, jc, kc    !< Counter.
+   integer(I4P)                      :: sub(1:3)      !< Octant sub-position per direction.
+   integer(I4P)                      :: p4(1:3)       !< Tricubic anchor position per direction.
+   integer(I4P)                      :: p3(1:3)       !< Compatible anchor position per direction.
+   integer(I4P)                      :: d             !< Direction counter.
+   integer(I4P)                      :: anchor(1:3)   !< Donor anchor cell per direction.
    integer(I4P)                      :: portion       !< Portion of fec updated (0=>whole fec).
    integer(I4P)                      :: b_recv        !< Index of receiving block.
    integer(I4P)                      :: b_send        !< Index of sending block.
@@ -1126,10 +1234,19 @@ contains
             enddo
          else
             ! receiving from a block coarser than me
+            idelta  = self%local_map_ghost(f, 11)
+            jdelta  = self%local_map_ghost(f, 12)
+            kdelta  = self%local_map_ghost(f, 13)
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
                      do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
+                        if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
+                        if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
                         c = c + 1
                      enddo ; enddo ; enddo
                   enddo
@@ -1137,7 +1254,7 @@ contains
             enddo
          endif
       enddo
-      allocate(self%local_map_ghost_cell(1:c,1:9))
+      allocate(self%local_map_ghost_cell(1:c,1:10))
       c = 1
       do f=1, size(self%local_map_ghost, dim=1)
          b_recv  = self%local_map_ghost(f, 1 )
@@ -1161,6 +1278,7 @@ contains
                      self%local_map_ghost_cell(c,3:5) = [i+idelta, j+jdelta, k+kdelta]
                      self%local_map_ghost_cell(c,6:8) = [i, j, k]
                      self%local_map_ghost_cell(c, 9 ) = 1
+                     self%local_map_ghost_cell(c, 10) = 0
                      c = c + 1
                   enddo
                enddo
@@ -1177,23 +1295,42 @@ contains
                      self%local_map_ghost_cell(c,3:5) = [iii, jjj, kkk]
                      self%local_map_ghost_cell(c,6:8) = [i, j, k]
                      self%local_map_ghost_cell(c, 9 ) = 8
+                     self%local_map_ghost_cell(c, 10) = 0
                      c = c + 1
                   enddo
                enddo
             enddo
          else
             ! receiving from a block coarser than me
+            if (any(nijk < 4_I4P)) call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 '// &
+                                                            '(coarse->fine footprint cannot fit the donor block)')
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
                      kkk = 2 * k + kdelta
                      jjj = 2 * j + jdelta
                      iii = 2 * i + idelta
+                     anchor = [i, j, k]
                      do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
+                        if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
+                        if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
+                        sub = [ic, jc, kc] + 1_I4P
+                        do d=1, 3
+                           p4(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
+                           p3(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_compatible_centered_pos(sub(d)), footprint_n=3_I4P)
+                        enddo
                         self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
                         self%local_map_ghost_cell(c,3:5) = [i, j, k]
                         self%local_map_ghost_cell(c,6:8) = [iii+ic,  jjj+jc, kkk+kc]
-                        self%local_map_ghost_cell(c, 9 ) = 1
+                        if (self%seam_ghost_fill == SEAM_FILL_INJECTION) then
+                           self%local_map_ghost_cell(c, 9) = 1
+                        else
+                           self%local_map_ghost_cell(c, 9) = 4
+                        endif
+                        self%local_map_ghost_cell(c, 10) = seam_meta_pack(sub=sub, p4=p4, p3=p3)
                         c = c + 1
                      enddo ; enddo ; enddo
                   enddo
@@ -1201,6 +1338,9 @@ contains
             enddo
          endif
       enddo
+      ! Issue #22 F1: make the sequential last-writer-wins semantics explicit so the
+      ! GPU consumers (acc parallel loop over rows) cannot race on duplicate receivers.
+      call dedupe_last_writer(map=self%local_map_ghost_cell, cb=2, ci=6, cj=7, ck=8, stride=1, ngc=ngc)
    endif
    endsubroutine make_local_map_ghost_cell
 
@@ -1239,6 +1379,69 @@ contains
    ijk_min_max_delta = [ijkmin, ijkmax, ijkdelta_global]
    endassociate
    endfunction ijk_mmd
+
+   subroutine dedupe_last_writer(map, cb, ci, cj, ck, stride, ngc)
+   !< Remove duplicate-receiver rows from a ghost-cell map, keeping the LAST row per
+   !< receiver cell (issue #22 F1).
+   !<
+   !< Ghost-cell maps can carry several rows writing the SAME ghost cell (overlapping
+   !< face/edge/corner fec regions). The CPU consumers process rows sequentially, so
+   !< the last writer wins deterministically; the GPU consumers execute rows under
+   !< `!$acc parallel loop independent`, so duplicate writers RACE. On uniform grids
+   !< the duplicates agree in value (benign); at a 2:1 coarse-fine seam they disagree
+   !< (different donors/levels) — observed as run-to-run nondeterministic seam
+   !< divergences on FNL. Making last-writer-wins explicit at build time removes the
+   !< race structurally: CPU results are bit-identical (that row was winning anyway),
+   !< GPU becomes deterministic and CPU-equal, and both backends do less work.
+   !< Rows for one receiver cell always appear as CONTIGUOUS runs of `stride` rows
+   !< (stride = 1 for the cell-level local map, nv for the per-variable MPI recv map,
+   !< whose `do v=1,nv` loop is innermost in every build branch) — so the survivor
+   !< test is `last_row(cell) - row < stride`, and the winner table is keyed on the
+   !< CELL only (no nv factor in its size).
+   integer(I8P), allocatable, intent(inout) :: map(:,:) !< Ghost-cell map (rows compacted in place).
+   integer(I4P),              intent(in)    :: cb       !< Column of the receiver block index.
+   integer(I4P),              intent(in)    :: ci       !< Column of the receiver i index.
+   integer(I4P),              intent(in)    :: cj       !< Column of the receiver j index.
+   integer(I4P),              intent(in)    :: ck       !< Column of the receiver k index.
+   integer(I4P),              intent(in)    :: stride   !< Rows per receiver cell (1 = cell-level map, nv = per-variable map).
+   integer(I4P),              intent(in)    :: ngc      !< Ghost cells number (index offset for the key).
+   integer(I8P), allocatable                :: compact(:,:) !< Deduplicated rows.
+   integer(I4P), allocatable                :: winner(:)    !< Last row index per receiver cell key.
+   integer(I8P), allocatable                :: key(:)       !< Linearized receiver cell key per row.
+   integer(I8P)                             :: si, sj, sk   !< Key spans.
+   integer(I4P)                             :: n, m, r      !< Counters.
+
+   if (.not.allocated(map)) return
+   n = size(map, dim=1)
+   if (n == 0) return
+   si = maxval(map(:,ci)) + ngc
+   sj = maxval(map(:,cj)) + ngc
+   sk = maxval(map(:,ck)) + ngc
+   allocate(key(1:n))
+   do r=1, n
+      key(r) = (((map(r,cb) - 1)*sk + (map(r,ck) + ngc - 1))*sj + (map(r,cj) + ngc - 1))*si + &
+               (map(r,ci) + ngc - 1) + 1
+   enddo
+   allocate(winner(1:int(maxval(key), I8P))) ; winner = 0
+   do r=1, n
+      winner(key(r)) = r
+   enddo
+   m = 0
+   do r=1, n
+      if (winner(key(r)) - r < stride) m = m + 1
+   enddo
+   if (m == n) return ! no duplicate receivers
+   call mpih%print_message('ghost-map dedupe: kept '//trim(str(m))//' of '//trim(str(n))//' rows (last-writer-wins)')
+   allocate(compact(1:m, 1:size(map, dim=2)))
+   m = 0
+   do r=1, n
+      if (winner(key(r)) - r < stride) then
+         m = m + 1
+         compact(m,:) = map(r,:)
+      endif
+   enddo
+   call move_alloc(from=compact, to=map)
+   endsubroutine dedupe_last_writer
 
    function ijk_mmd_ghost(self, grid, fec, portion) result(ijk_min_max_delta)
    !< Return IJK min/max/delta, ghost maps.
@@ -1302,13 +1505,20 @@ contains
       portion_array(2) = mod((abs_portion-1)/2,2)
       portion_array(3) = mod((abs_portion-1)/4,2)
       do i=1, 3
+         ! Coarse->fine donor depth: (ngc+1)/2 coarse layers cover all ngc fine
+         ! ghost layers (issue #21 N3.5). The former ngc/2 (floor) left fine
+         ! ghost layer ngc NEVER refreshed for odd ngc — the stale-layer defect
+         ! isolated by the E0' gate. The widened range emits one out-of-slab
+         ! fine octant per donor pair; the map builders clip it symmetrically
+         ! on both sides of the exchange, so the packed count per fec equals
+         ! grid%weight_neighbor exactly (the full-slab allotment).
          if     (delta(i)==1) then
             ijkmin(i) = nijk(i) / 2 * portion_array(i) + 1
-            ijkmax(i) = ijkmin(i) + ngc / 2 - 1
+            ijkmax(i) = ijkmin(i) + (ngc + 1) / 2 - 1
             ijkdelta(i) = - nijk(i) * portion_array(i) + nijk(i) - 1
          elseif (delta(i)==-1) then
-            ijkmin(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - ngc / 2
-            ijkmax(i) = ijkmin(i) + ngc / 2 - 1
+            ijkmin(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - (ngc + 1) / 2
+            ijkmax(i) = ijkmin(i) + (ngc + 1) / 2 - 1
             ijkdelta(i) = - nijk(i) -  nijk(i) * portion_array(i) - 1
          elseif (delta(i)==0) then
             ijkmin(i) = nijk(i) / 2 * portion_array(i) + 1

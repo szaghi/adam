@@ -301,6 +301,41 @@ the workstation that runs `run-fnl-local.sh` — there is no GPU CI to capture
 from. Whoever refreshes it must run on a known-good tree and review the digest
 diff before committing.
 
+## AMR seam cases (goldenless, `check.sh`-driven)
+
+`rmf-amr`, `rmf-amr-fd` and `rmf-amr-fd-pulse` carry a deterministic
+intra-realm 2:1 AMR jump (the `AMR_GEO` primitive-box marker) and are driven
+by their own `check.sh`, not by `run.sh` goldens. `rmf-amr` asserts the seam
+*structure* (registration, restriction, reflux plumbing, fv path);
+`rmf-amr-fd` and `rmf-amr-fd-pulse` assert the seam *divergence* behaviour of
+the fd_centered path.
+
+**The historical acceptance "seam max|div(B)| ≤ 1e-13" is RETIRED** (issue
+#21 §1, premise correction): no surveyed cell-centered method achieves
+machine-zero seam div(B) without staggered storage, and the E0/E0′ gate
+established that the residual seam div(B) under the tricubic ghost fill
+(`[amr] seam_ghost_fill`, default) is an ordinary truncation quantity —
+convergent under refinement at p_obs ≈ +1.2…+1.6 and bounded in time
+(#21 N3.5). The pointwise round-off criterion applies only to the
+**controls** (no seam) and to the pulse case's **div(D)**, which is a
+structural zero (partition-of-unity fill of a z-invariant field).
+
+Acceptance now in force (implemented in the two `check.sh`):
+
+| assertion | case | meaning |
+|---|---|---|
+| control max\|div(D,B)\| ≤ 1e-13 | both | interior matched-stencil identity intact |
+| seam max\|div(D)\| ≤ 1e-13 | pulse | structural invariant of the fill |
+| seam max\|div(B)\| = pinned baseline ± 5% | both | golden-style: catches regressions AND silent improvements |
+| `--convergence`: p_obs ≥ 0.8 on the 16→32 matched-time ladder | pulse only | the seam leak stays truncation-order |
+
+Convergence is asserted only on the **pulse** case: the rmf coil filament has
+div(J) ~ h⁻², which contaminates matched-time seam metrics on `rmf-amr-fd`
+(#21 N3 — the case remains a valuable regression anchor, but not an order
+measurement). Baselines are pinned in each `check.sh` header with provenance;
+moving them is a deliberate, reviewer-approved rebaseline, exactly like a
+golden refresh.
+
 ## Debug builds for diagnosis
 
 `run.sh` builds the **release** modes (`prism-cpu-gnu`, `prism-fnl-nvf`) — that
