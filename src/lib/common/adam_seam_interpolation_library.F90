@@ -30,6 +30,12 @@ module adam_seam_interpolation_library
 !<
 !< All weights are integer/2^k rationals: EXACT in binary floating point.
 !< Partition of unity therefore holds to 0 ulp in every table.
+!<
+!< **Device availability (issue #22 F2).** Every public procedure carries
+!< `!$acc routine seq`: single-source host/device, callable from OpenACC
+!< parallel regions on the FNL backend (weight tables are parameters,
+!< materialized by the compiler on device). Inert comments on non-OpenACC
+!< builds. Pinned on device by `test_seam_interpolation_fnl`.
 use penf, only : I4P, R8P
 
 implicit none
@@ -90,6 +96,7 @@ contains
    !< eta=+1/4 (p=2), nodes -2..1 for eta=-1/4 (p=3).
    integer(I4P), intent(in) :: sub !< Octant sub-position (1 => eta=-1/4, 2 => eta=+1/4).
    integer(I4P)             :: p   !< Anchor position in the 4-node footprint.
+   !$acc routine seq
 
    p = 4_I4P - sub
    endfunction seam_tricubic_centered_pos
@@ -98,6 +105,7 @@ contains
    !< Centered anchor position for the compatible footprint (p=2 for both subs).
    integer(I4P), intent(in) :: sub !< Octant sub-position (unused: symmetric footprint).
    integer(I4P)             :: p   !< Anchor position in the 3-node footprint.
+   !$acc routine seq
 
    p = 2_I4P + 0_I4P*sub
    endfunction seam_compatible_centered_pos
@@ -113,6 +121,7 @@ contains
    real(R8P)                :: value_                 !< Interpolated fine-ghost value.
    real(R8P)                :: wyz                    !< Tangential weight product.
    integer(I4P)             :: i, j, k                !< Footprint counters.
+   !$acc routine seq
 
    value_ = 0._R8P
    do k = 1, 4
@@ -134,6 +143,7 @@ contains
    real(R8P)                :: value_                 !< Interpolated fine-ghost value.
    real(R8P)                :: wyz                    !< Tangential weight product.
    integer(I4P)             :: i, j, k                !< Footprint counters.
+   !$acc routine seq
 
    value_ = 0._R8P
    do k = 1, 3
@@ -157,6 +167,7 @@ contains
    integer(I4P), intent(in) :: p_centered  !< Centered anchor position for the active sub-position.
    integer(I4P), intent(in) :: footprint_n !< Footprint width (4 tricubic, 3 compatible).
    integer(I4P)             :: p           !< Shifted anchor position (1..footprint_n).
+   !$acc routine seq
 
    p = min(max(p_centered, anchor + footprint_n - n_cells), anchor)
    endfunction seam_shift_anchor_pos
@@ -173,6 +184,7 @@ contains
    integer(I4P), intent(in) :: p4(1:3)  !< Tricubic anchor position per direction (1..4).
    integer(I4P), intent(in) :: p3(1:3)  !< Compatible anchor position per direction (1..3).
    integer(I4P)             :: meta     !< Packed metadata.
+   !$acc routine seq
 
    meta = (sub(1) - 1) + 2_I4P*(sub(2) - 1) + 4_I4P*(sub(3) - 1) + &
           ishft(p4(1) - 1,  3) + ishft(p4(2) - 1,  5) + ishft(p4(3) - 1,  7) + &
@@ -187,6 +199,7 @@ contains
    integer(I4P), intent(out) :: p4(1:3)  !< Tricubic anchor position per direction (1..4).
    integer(I4P), intent(out) :: p3(1:3)  !< Compatible anchor position per direction (1..3).
    integer(I4P)              :: d        !< Direction counter.
+   !$acc routine seq
 
    do d=1, 3
       sub(d) = 1_I4P + ibits(meta, d - 1,      1)
@@ -203,6 +216,7 @@ contains
    real(R8P)                :: value_                 !< Interpolated fine-ghost value.
    real(R8P)                :: wyz                    !< Tangential weight product.
    integer(I4P)             :: i, j, k                !< Footprint counters.
+   !$acc routine seq
 
    value_ = 0._R8P
    do k = 1, 3

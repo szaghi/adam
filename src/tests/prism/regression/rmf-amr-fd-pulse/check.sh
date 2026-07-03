@@ -27,11 +27,18 @@
 # fill, fdv_order 6, ni=16, it_max=5, -np 1 — max over the history (= step 5).
 #
 # Usage: ./check.sh [--build] [--convergence]
+#
+# PRISM_EXE (issue #22, GA4): override the executable under test, e.g.
+#   PRISM_EXE=$REPO/exe/adam_prism_fnl ./check.sh --convergence
+# The caller owns the matching environment (FNL: nvhpc mpirun on PATH + the
+# WSL UCX knobs of issue #12) and the build (--build always builds the CPU
+# default, never the override). Baselines are CPU-pinned; the ±5% band is the
+# cross-backend/compiler-noise allowance; p_obs is compiler-independent.
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
-EXE="$REPO_ROOT/exe/adam_prism_cpu"
+EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_cpu}"
 
 DIV_TOL="1.0E-13"            # round-off ceiling for the conserved invariants
 SEAM_B_BASELINE="1.265004E+01" # pinned seam max|div(B)| (see provenance above)
