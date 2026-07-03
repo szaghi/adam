@@ -2762,11 +2762,9 @@ contains
 			! collapse(4) region are mis-privatized by nvfortran -- scheduling-dependent
 			! garbage that grows with gang count (issue #22 F1: the divergence history read
 			! O(1e3) on a bit-perfect solution, nondeterministically, above ~32 blocks).
-			real(R8P)                 :: qsx_x(1-FDV_S_MAX:1+FDV_S_MAX)        !< Buffer for x-derivative in x direction (for divergence).
-			real(R8P)                 :: qsy_y(1-FDV_S_MAX:1+FDV_S_MAX)        !< Buffer for y-derivative in y direction (for divergence).
-			real(R8P)                 :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX)        !< Buffer for z-derivative in z direction (for divergence).
 			real(R8P)                 :: divergenceD, divergenceB, divergenceJ !< Divergence of D, B and J fields.
 			real(R8P)                 :: max_divD, max_divB, max_divJ			 !< Maximum divergence of D, B and J fields.
+			real(R8P)                 :: dxyz_b(3)                             !< Per-block deltas, PRIVATE copy (no strided-section temp: issue #22 F1-bis).
 			integer(I4P)              :: i,j,k,b,s                             !< Counter.
 
 			max_divD = 0.0_R8P
@@ -2774,42 +2772,37 @@ contains
 			max_divJ = 0.0_R8P
 	      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
          !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                      &
-         !$acc& private(qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,divergenceJ)			 	 &
+         !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b)			 	 &
 			!$acc& reduction(max: max_divD, max_divB, max_divJ)
          do b=1,blocks_number
          do k=1,nk
          do j=1,nj
          do i=1,ni
+            dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+            ! Buffer-free divergences (issue #22 F1-bis): the former private stencil
+            ! buffers of this CONTAINED kernel were mis-privatized by nvfortran even
+            ! with constant bounds (threads bled each other's fills: div(J) tracked
+            ! div(D) with J identically zero, nondeterministically, seam-only because
+            ! zero planes are race-invisible on the uniform cases). Scalars only:
+            ! pair-form FD1_CC accumulation, no arrays, no callees.
+            divergenceD = 0._R8P
+            divergenceB = 0._R8P
+            divergenceJ = 0._R8P
             !$acc loop seq
-            do s=1-s1, 1+s1
-               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DX)
-               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
-               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
+            do s=1, s1
+               divergenceD = divergenceD + FD1_CC(s,s1)*((q_gpu(b,i+s,j,k,VAR_DX) - q_gpu(b,i-s,j,k,VAR_DX))/dxyz_b(1)  &
+                                                       + (q_gpu(b,i,j+s,k,VAR_DY) - q_gpu(b,i,j-s,k,VAR_DY))/dxyz_b(2)  &
+                                                       + (q_gpu(b,i,j,k+s,VAR_DZ) - q_gpu(b,i,j,k-s,VAR_DZ))/dxyz_b(3))
+               divergenceB = divergenceB + FD1_CC(s,s1)*((q_gpu(b,i+s,j,k,VAR_BX) - q_gpu(b,i-s,j,k,VAR_BX))/dxyz_b(1)  &
+                                                       + (q_gpu(b,i,j+s,k,VAR_BY) - q_gpu(b,i,j-s,k,VAR_BY))/dxyz_b(2)  &
+                                                       + (q_gpu(b,i,j,k+s,VAR_BZ) - q_gpu(b,i,j,k-s,VAR_BZ))/dxyz_b(3))
+               divergenceJ = divergenceJ + FD1_CC(s,s1)*((q_gpu(b,i+s,j,k,var_Jx) - q_gpu(b,i-s,j,k,var_Jx))/dxyz_b(1)  &
+                                                       + (q_gpu(b,i,j+s,k,var_Jy) - q_gpu(b,i,j-s,k,var_Jy))/dxyz_b(2)  &
+                                                       + (q_gpu(b,i,j,k+s,var_Jz) - q_gpu(b,i,j,k-s,var_Jz))/dxyz_b(3))
             enddo
-            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
-                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
-                                                    divergence=divergenceD)
-				max_divD = max(max_divD, abs(divergenceD))
-            !$acc loop seq
-            do s=1-s1, 1+s1
-               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BX)
-               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
-               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
-            enddo
-            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
-                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
-                                                    divergence=divergenceB)
-				max_divB = max(max_divB, abs(divergenceB))
-            !$acc loop seq
-            do s=1-s1, 1+s1
-               qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,var_Jx)
-               qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,var_Jy)
-               qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,var_Jz)
-            enddo
-            call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),       &
-                                                    qsx=qsx_x,qsy=qsy_y,qsz=qsz_z,   &
-                                                    divergence=divergenceJ)
-				max_divJ = max(max_divJ, abs(divergenceJ))
+            max_divD = max(max_divD, abs(divergenceD))
+            max_divB = max(max_divB, abs(divergenceB))
+            max_divJ = max(max_divJ, abs(divergenceJ))
          enddo
          enddo
          enddo
