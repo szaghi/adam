@@ -776,6 +776,7 @@ contains
             call flux_register%register_face(face_index=cursor,                                 &
                                              seam_kind=SEAM_KIND_INTER_REALM,                   &
                                              coarse_realm=pair%realm_a,                         &
+                                             coarse_rank=mpih%myrank,                           &
                                              coarse_block=b,                                    &
                                              coarse_face=pair%face_a,                           &
                                              fine_realm=pair%realm_b,                           &
@@ -1507,16 +1508,24 @@ contains
 
    ! Allocate the per-realm (block, bc_fec) → signed register-index lookup. Same
    ! array the inter-realm pass uses and the FV reflux hook consumes; here it
-   ! carries intra-realm AMR seam faces. Zero = not a seam face.
+   ! carries intra-realm AMR seam faces. Zero = not a seam face. The companion
+   ! quadrant table (issue #28 D2) is allocated ONLY by this intra-realm pass —
+   ! its allocation status is what the FV accumulation hooks use to discriminate
+   ! intra-realm AMR seams (2:1 quadrant restriction) from inter-realm mirror
+   ! seams (no quadrant).
    do is = 1_I4P, int(size(realm), I4P)
       block
          integer(I4P) :: nb_realm
          nb_realm = int(realm(is)%adam%field%blocks_number, I4P)
          if (allocated(realm(is)%adam%maps%inter_realm_face_register_index)) &
             deallocate(realm(is)%adam%maps%inter_realm_face_register_index)
+         if (allocated(realm(is)%adam%maps%amr_seam_quadrant)) &
+            deallocate(realm(is)%adam%maps%amr_seam_quadrant)
          if (nb_realm > 0_I4P) then
             allocate(realm(is)%adam%maps%inter_realm_face_register_index(1:nb_realm, 1:6))
             realm(is)%adam%maps%inter_realm_face_register_index = 0_I4P
+            allocate(realm(is)%adam%maps%amr_seam_quadrant(1:2, 1:nb_realm, 1:6))
+            realm(is)%adam%maps%amr_seam_quadrant = 0_I4P
          endif
       endblock
    enddo
@@ -1545,6 +1554,7 @@ contains
             call self%flux_register%register_face(face_index=cursor,                            &
                                                   seam_kind=SEAM_KIND_INTRA_REALM_AMR,          &
                                                   coarse_realm=is,                              &
+                                                  coarse_rank=node_ptr%myrank,                  &
                                                   coarse_block=int(node_ptr%block_index, I4P),  &
                                                   coarse_face=fec,                              &
                                                   fine_realm=is,                                &
@@ -1558,11 +1568,36 @@ contains
             ! only for boundary-condition neighbors, not interior AMR neighbors, so
             ! it is unusable here.) +cursor on the coarse (block, fec); -cursor on
             ! each fine neighbor's opposite face (fec 1↔2, 3↔4, 5↔6).
-            realm(is)%adam%maps%inter_realm_face_register_index(int(node_ptr%block_index, I4P), fec) = +cursor
+            !
+            ! Issue #28 D1: both writes are OWNERSHIP-GATED. `block_index` is an
+            ! owner-rank-LOCAL field slot (assigned per-proc by the tree
+            ! redistribution), while this walk covers the REPLICATED tree — every
+            ! rank sees every node. Writing a remote node's entry would land the
+            ! ±cursor on an unrelated LOCAL block that happens to share the local
+            ! index (registration aliasing: at np2 on rmf-amr the later
+            ! Morton-order write won and two physical faces swapped register
+            ! entries) and is an out-of-bounds write whenever the remote rank
+            ! stores more blocks than this one. The register face LIST stays
+            ! replicated (same cursor order on every rank); only the rank-local
+            ! LOOKUP is ownership-filtered.
+            if (node_ptr%myrank == mpih%myrank) &
+               realm(is)%adam%maps%inter_realm_face_register_index(int(node_ptr%block_index, I4P), fec) = +cursor
             do kf = 1_I4P, n_fine
                fine_ptr => realm(is)%adam%tree%node(code=node_ptr%neighbor(fec)%codes(kf))
+               if (fine_ptr%myrank /= mpih%myrank) cycle
                realm(is)%adam%maps%inter_realm_face_register_index(int(fine_ptr%block_index, I4P), &
                                                                    opposite_fec(fec)) = -cursor
+               ! Issue #28 D2: precompute this fine block's 2:1 quadrant offset
+               ! within the coarse face skin from the two Morton codes — pure
+               ! tree topology, valid regardless of which rank owns the coarse
+               ! block (whose emin/emax the accumulation hooks previously read
+               ! through an owner-local index, garbage when it is remote).
+               block
+                  integer(I4P) :: ioff, joff
+                  call seam_quadrant_from_codes(realm(is), node_ptr%code, fine_ptr%code, fec, ioff, joff)
+                  realm(is)%adam%maps%amr_seam_quadrant(1:2, int(fine_ptr%block_index, I4P), &
+                                                        opposite_fec(fec)) = [ioff, joff]
+               endblock
             enddo
          enddo
       enddo
@@ -1602,6 +1637,56 @@ contains
       case default; opp = 0_I4P
       endselect
       endfunction opposite_fec
+
+      subroutine seam_quadrant_from_codes(this_realm, coarse_code, fine_code, fec, ioff, joff)
+      !< Fine block's quadrant offset (inner, outer) ∈ {0,1}² within the coarse
+      !< face skin, from the two nodes' Morton codes (issue #28 D2).
+      !<
+      !< At the fine level the coarse block spans integer coordinates
+      !< `2c .. 2c+1` along every axis, so the offset along a tangential axis is
+      !< `coord_fine − 2·coord_coarse`. Pure tree topology — no geometry reads,
+      !< valid regardless of which ranks own the two blocks. The tangential
+      !< (inner, outer) axis pair per face matches the accumulation hooks'
+      !< convention: x-faces → (y, z); y-faces → (x, z); z-faces → (x, y).
+      class(realm_object), intent(in)  :: this_realm  !< Realm owning the seam (both sides).
+      integer(I8P),        intent(in)  :: coarse_code !< Coarse node Morton code.
+      integer(I8P),        intent(in)  :: fine_code   !< Fine node Morton code.
+      integer(I4P),        intent(in)  :: fec         !< Coarse-face tree fec (1..6).
+      integer(I4P),        intent(out) :: ioff        !< Quadrant offset along the inner tangential axis.
+      integer(I4P),        intent(out) :: joff        !< Quadrant offset along the outer tangential axis.
+      integer(I4P)                     :: cc(3)       !< Coarse node (i,j,k) at its own level.
+      integer(I4P)                     :: fc(3)       !< Fine node (i,j,k) at its own level.
+      integer(I4P)                     :: lc, lf      !< Coarse / fine node levels.
+      integer(I4P)                     :: inner_ax    !< Inner tangential axis (1=x,2=y,3=z).
+      integer(I4P)                     :: outer_ax    !< Outer tangential axis (1=x,2=y,3=z).
+
+      cc = 0_I4P ; fc = 0_I4P
+      associate(tree => this_realm%adam%tree)
+         select case (tree%ratio)
+         case (2_I4P)
+            call tree%morton_to_coordinates(code=coarse_code, i=cc(1), l=lc)
+            call tree%morton_to_coordinates(code=fine_code,   i=fc(1), l=lf)
+         case (4_I4P)
+            call tree%morton_to_coordinates(code=coarse_code, i=cc(1), j=cc(2), l=lc)
+            call tree%morton_to_coordinates(code=fine_code,   i=fc(1), j=fc(2), l=lf)
+         case default
+            call tree%morton_to_coordinates(code=coarse_code, i=cc(1), j=cc(2), k=cc(3), l=lc)
+            call tree%morton_to_coordinates(code=fine_code,   i=fc(1), j=fc(2), k=fc(3), l=lf)
+         endselect
+      endassociate
+      if (lf /= lc + 1_I4P) &
+         call mpih%error_stop(msg='register_intra_realm_amr_seams: NODE_MORE_REFINED neighbor is not one level finer')
+      select case ((fec + 1_I4P) / 2_I4P)
+      case (1_I4P)  ; inner_ax = 2_I4P ; outer_ax = 3_I4P
+      case (2_I4P)  ; inner_ax = 1_I4P ; outer_ax = 3_I4P
+      case default  ; inner_ax = 1_I4P ; outer_ax = 2_I4P
+      endselect
+      ioff = fc(inner_ax) - 2_I4P * cc(inner_ax)
+      joff = fc(outer_ax) - 2_I4P * cc(outer_ax)
+      if (ioff < 0_I4P .or. ioff > 1_I4P .or. joff < 0_I4P .or. joff > 1_I4P) &
+         call mpih%error_stop(msg='register_intra_realm_amr_seams: fine-block quadrant offset outside {0,1} — '// &
+                                  'tree topology inconsistent with a 2:1 face jump')
+      endsubroutine seam_quadrant_from_codes
    endsubroutine register_intra_realm_amr_seams
 
    subroutine apply_reflux_corrections(self, realm, dt)

@@ -2095,8 +2095,8 @@ contains
    !< contiguous device slab (inner axis fastest — the register's cell order), ONE
    !< D2H copy (~nv*nface_cells doubles, tens of KB per step) brings it to the
    !< host, and the shared register machinery does the rest: coarse side →
-   !< `accumulate_coarse_flux` directly; fine side → quadrant offset from the
-   !< coarse partner's `emin`/`emax` + the pure 2:1 restriction
+   !< `accumulate_coarse_flux` directly; fine side → quadrant offset from
+   !< `maps%amr_seam_quadrant` (Morton-code precompute, issue #28 D2) + the pure 2:1 restriction
    !< `restrict_fine_face_to_quadrant` (moved to adam_flux_register_object, shared
    !< with the CPU backend) → `accumulate_fine_flux`. Fires once per realm per
    !< step (final-substage gate at the call site). Third-axis register index
@@ -2111,13 +2111,11 @@ contains
    integer(I4P)                               :: face_idx        !< |sgn_idx| → register face.
    integer(I4P)                               :: nv_reg          !< Register state-vector width.
    integer(I4P)                               :: nface_cells     !< Coarse-face skin cell count.
-   integer(I4P)                               :: fec, b, cb      !< Face, block, coarse-partner counters.
-   integer(I4P)                               :: inner_ax, outer_ax !< Tangential axes for this face.
+   integer(I4P)                               :: fec, b          !< Face, block counters.
    integer(I4P)                               :: inner_n, outer_n   !< Cell counts along tangential axes.
    integer(I4P)                               :: ioff, joff      !< Fine-block quadrant offset ∈ {0,1}.
    integer(I4P)                               :: c, v, fi, fo    !< Packing counters.
    integer(I4P)                               :: ierr            !< Device allocation error flag.
-   real(R8P)                                  :: half_in, half_out !< Coarse half-extents (quadrant computation).
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv_c=>self%nv_c)
    do b=1, self%blocks_number
@@ -2129,11 +2127,11 @@ contains
          if (.not. allocated(flux_register%face(face_idx)%F_coarse)) cycle
          nv_reg      = int(size(flux_register%face(face_idx)%F_coarse, dim=1), I4P)
          nface_cells = flux_register%face(face_idx)%nface_cells
-         ! Tangential axes per face (inner fastest in the linear index c) — CPU parity.
+         ! Tangential extents per face (inner fastest in the linear index c) — CPU parity.
          select case (fec)
-         case (1_I4P, 2_I4P) ; inner_ax = 2_I4P ; outer_ax = 3_I4P ; inner_n = nj ; outer_n = nk
-         case (3_I4P, 4_I4P) ; inner_ax = 1_I4P ; outer_ax = 3_I4P ; inner_n = ni ; outer_n = nk
-         case (5_I4P, 6_I4P) ; inner_ax = 1_I4P ; outer_ax = 2_I4P ; inner_n = ni ; outer_n = nj
+         case (1_I4P, 2_I4P) ; inner_n = nj ; outer_n = nk
+         case (3_I4P, 4_I4P) ; inner_n = ni ; outer_n = nk
+         case (5_I4P, 6_I4P) ; inner_n = ni ; outer_n = nj
          case default ; cycle
          end select
 
@@ -2158,16 +2156,19 @@ contains
             call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
          else
             ! Fine side: reshape to (nv_c, inner, outer), 2:1-restrict into this
-            ! block's quadrant of the coarse skin (offset from emin/emax, CPU parity).
-            cb = flux_register%face(face_idx)%coarse_block
-            associate(emin=>self%adam%field%emin, emax=>self%adam%field%emax)
-               half_in  = 0.5_R8P * (emax(inner_ax, cb) - emin(inner_ax, cb))
-               half_out = 0.5_R8P * (emax(outer_ax, cb) - emin(outer_ax, cb))
-               ioff = nint((emin(inner_ax, b) - emin(inner_ax, cb)) / half_in, I4P)
-               joff = nint((emin(outer_ax, b) - emin(outer_ax, cb)) / half_out, I4P)
-            endassociate
-            ioff = max(0_I4P, min(1_I4P, ioff))
-            joff = max(0_I4P, min(1_I4P, joff))
+            ! block's quadrant of the coarse skin. Quadrant offsets are read from
+            ! `maps%amr_seam_quadrant`, precomputed at registration from Morton
+            ! codes (issue #28 D2, CPU parity): the register's `coarse_block` is
+            ! an owner-rank-LOCAL index, so deriving the quadrant from its
+            ! emin/emax here reads an unrelated local block's geometry whenever
+            ! the coarse partner lives on another rank. Table allocated only by
+            ! the intra-realm AMR pass; inter-realm mirror seams have no quadrant.
+            if (allocated(self%adam%maps%amr_seam_quadrant)) then
+               ioff = self%adam%maps%amr_seam_quadrant(1, b, fec)
+               joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
+            else
+               ioff = 0_I4P ; joff = 0_I4P
+            endif
             allocate(fine_face(1:nv_c, 1:inner_n, 1:outer_n))
             do fo=1_I4P, outer_n
                do fi=1_I4P, inner_n
@@ -2908,28 +2909,24 @@ contains
    endsubroutine after_topology_build_forest
 
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
-   !< PRISM-FNL override of the Berger-Colella reflux correction TBP.
+   !< PRISM-FNL override of the Berger-Colella reflux correction TBP —
+   !< the apply twin of `prism_cpu_object%apply_reflux_to_stage_forest`
+   !< (issue #23 R4, M4 semantics).
    !<
-   !< FV reflux is not yet implemented on the FNL side — the FNL FV
-   !< residual path (`compute_residuals_fv_centered_dev`) is a follow-up
-   !< port and currently does NOT accumulate fluxes into the register.
-   !< The override is therefore a deliberate **no-op**: with an empty
-   !< flux register on the FNL side (or with `nfaces == 0` for a
-   !< single-realm FNL forest), there is nothing to correct.
-   !<
-   !< **α.r1 cadence (forward-consistency gate):** the body returns
-   !< immediately for `stage /= self%rk%nrk`. Under the current no-op
-   !< body this is observationally identical to the previous
-   !< unconditional return, but it expresses the α.r1 contract
-   !< explicitly: when the FNL FV residual path is ported, the body
-   !< grows into the OpenACC twin of
-   !< `prism_cpu_object%apply_reflux_to_stage_forest` — walk
-   !< `flux_register%face(:)` for entries where `coarse_realm ==
-   !< self%realm_index` and write the per-cell correction into
-   !< `self%rk_fnl%q_rk_gpu(:, b, i, j, k, stage)` under a
-   !< `!$acc parallel loop` — and that twin must fire exactly once per
-   !< realm per step at the realm's final RK substage, reading the
-   !< register's collapsed third-axis `(:,:,1)` bucket.
+   !< **α.r1 cadence: end-of-step barrier.** Fires exactly once per realm
+   !< per step at `stage == self%rk%nrk`; earlier substages return
+   !< immediately. For each register face whose coarse side this realm —
+   !< and this RANK (#28 D4) — owns, the correction
+   !< `sign*(dt/dx_coarse)*(F_coarse − F_fine_sum)(:,:,1)` is applied to
+   !< the COMMITTED `q_gpu` on the one-cell-thick coarse seam skin (this
+   !< TBP runs AFTER `close_step_forest`'s `update_q`). Full step weight
+   !< `dt/dx` — NOT a stage RK coefficient, and NOT a `q_rk_gpu(...,stage)`
+   !< write (both were the pre-M4 sketch's errors: `ark` is never
+   !< allocated for the SSP family, and a stage-buffer write would
+   !< entangle the stage beta weight — see the CPU apply's M4 note).
+   !< The tiny host mismatch slab is H2D-copied per face and
+   !< `fv_apply_reflux_face_dev_kernel` adds it to `q_gpu` (scalar ops
+   !< only, disjoint cells).
    class(prism_fnl_object),     intent(inout) :: self          !< The realm.
    integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
    real(R8P),                   intent(in)    :: dt            !< Time step.
@@ -2961,6 +2958,11 @@ contains
    do f=1_I4P, flux_register%nfaces
       associate(face_f => flux_register%face(f))
       if (face_f%coarse_realm == self%realm_index) then
+      ! Issue #28 D4 (CPU parity): only the coarse block's OWNER rank applies
+      ! (and prints) this face — `coarse_block` is an owner-rank-LOCAL field
+      ! slot, an aliased unrelated block on any other rank. Accumulators are
+      ! complete on every rank after reduce_fine_sums (#28 D3).
+      if (face_f%coarse_rank == mpih%myrank) then
       if (allocated(face_f%F_coarse) .and. allocated(face_f%F_fine_sum)) then
          call face_axis_sign(face_f%coarse_face, axis, sgn)
          if (axis /= 0_I4P) then
@@ -2986,6 +2988,7 @@ contains
                deallocate(delta)
             endif
          endif
+      endif
       endif
       endif
       endassociate

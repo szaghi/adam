@@ -16,9 +16,17 @@
 #   4. (M2) the forest registers > 0 intra-realm AMR seam faces with the marker
 #      active, and exactly 0 in the marker-disabled control — proving the
 #      registration pass keys off the real coarse-fine tree adjacency.
+#   5. (#28) register parity np1 vs np2: at -np 2 every registered face must be
+#      printed (the issue-#23 matched `reflux face` diagnostics) exactly once
+#      per step across the rank union, with values identical to the np1 run.
+#      Registration aliasing, missing cross-rank fine-sum reduction, or an
+#      un-gated reflux apply all break this assertion.
 #
 # Usage: ./check.sh            (expects exe/adam_prism_cpu already built)
 #        ./check.sh --build    (build prism-cpu-gnu first)
+#        PRISM_EXE=<path> ./check.sh   (check a different backend executable,
+#                                       e.g. exe/adam_prism_fnl with the WSL
+#                                       UCX env from run-fnl-local.sh)
 #
 # mpirun and the GNU MPI toolchain must be on PATH (see run.sh header).
 
@@ -26,7 +34,7 @@ set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
-EXE="$REPO_ROOT/exe/adam_prism_cpu"
+EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_cpu}"
 
 if [[ "${1:-}" == "--build" ]]; then
    echo ">> building prism-cpu-gnu"
@@ -40,11 +48,11 @@ command -v mpirun >/dev/null 2>&1 || { echo "ERROR: mpirun not on PATH" >&2; exi
 levels_present() { grep -oE 'code=\+[0-9]+' "$1" \
    | awk -F+ '{c=$2; if(c<=0)l=0; else if(c<8)l=1; else l=2; print l}' | sort -un | tr '\n' ' '; }
 
-run_in() { # workdir, ini-transform-sed
-   local wd="$1" sed_expr="$2"
+run_in() { # workdir, ini-transform-sed [, nprocs (default 1)]
+   local wd="$1" sed_expr="$2" np="${3:-1}"
    rm -rf "$wd" && mkdir -p "$wd"
    sed "$sed_expr" "$CASE_DIR/input.ini" > "$wd/input.ini"
-   ( cd "$wd" && timeout 300 mpirun -np 1 "$EXE" > run.log 2>&1 )
+   ( cd "$wd" && timeout 300 mpirun -np "$np" "$EXE" > run.log 2>&1 )
 }
 
 fail=0
@@ -106,10 +114,61 @@ if grep -q 'reflux max|F_coarse-F_fine_sum|' "$CTRL/run.log"; then
    echo "FAIL [rmf-amr] control fired a reflux correction without a coarse-fine jump"; fail=1
 fi
 
+# --- #28 register-parity leg (default-on): np2 register content must equal np1. ---
+# The per-face `reflux face N coarse_block M max|F_coarse-F_fine_sum|` prints
+# (issue #23 R3 matched diagnostics) are the acceptance instrument: field digests
+# cannot see the reflux correction at this scale (#23 R2 finding), so register
+# content is asserted directly. At np>1 each face must be printed EXACTLY ONCE
+# per step across the rank union — by its coarse-owner rank — with per-step
+# values identical to np1's (block groups are rank-complete at this
+# decomposition, so the cross-rank reduce adds exact zeros; string equality is
+# the intended strength). Duplicated faces, 0.0-stuck entries, or shifted
+# values are the issue-#28 defect signatures.
+REG1="$CASE_DIR/work-reg-np1"
+REG2="$CASE_DIR/work-reg-np2"
+echo ">> [rmf-amr] running register-parity np1 run"
+run_in "$REG1" 's/^$/&/' 1
+echo ">> [rmf-amr] running register-parity np2 run"
+run_in "$REG2" 's/^$/&/' 2
+for wd in "$REG1" "$REG2"; do
+   if ! grep -qE 'progress:[[:space:]]*100%' "$wd/run.log"; then
+      echo "FAIL [rmf-amr] register-parity run in $(basename "$wd") did not reach 100%"; fail=1
+   fi
+done
+# Registration must be decomposition-invariant: same face count at np1 and np2.
+reg_count() { grep -oE 'registered intra-realm AMR seam faces: \+?[0-9]+' "$1" | grep -oE '[0-9]+' | tail -1; }
+np1_faces="$(reg_count "$REG1/run.log")"
+np2_faces="$(reg_count "$REG2/run.log")"
+if [[ "${np1_faces:-0}" -ne "${np2_faces:-1}" || "${np1_faces:-0}" -le 0 ]]; then
+   echo "FAIL [rmf-amr] #28 registered face count differs: np1=${np1_faces:-none} np2=${np2_faces:-none}"; fail=1
+fi
+# Per-face per-step value sequences (log order = step order; each face's np2
+# prints come from a single owner rank, so mpirun's per-rank ordering holds).
+face_values() { # log, face-index -> newline list of printed max|...| values
+   grep -E "reflux face $2 " "$1" | awk '{print $NF}'
+}
+for f in $(seq 1 "${np1_faces:-0}"); do
+   v1="$(face_values "$REG1/run.log" "$f")"
+   v2="$(face_values "$REG2/run.log" "$f")"
+   n1="$(printf '%s\n' "$v1" | grep -c . || true)"
+   n2="$(printf '%s\n' "$v2" | grep -c . || true)"
+   if [[ "$n1" -ne "$n2" ]]; then
+      echo "FAIL [rmf-amr] #28 face $f printed $n2 times at np2 vs $n1 at np1 (must be exactly once per step)"; fail=1
+   elif [[ "$v1" != "$v2" ]]; then
+      echo "FAIL [rmf-amr] #28 face $f np2 values differ from np1:"
+      paste <(printf '%s\n' "$v1") <(printf '%s\n' "$v2") | sed 's/^/       np1 vs np2: /'
+      fail=1
+   else
+      echo ">> [rmf-amr] #28 face $f: np2 == np1 ($n1 steps, exact match)"
+   fi
+done
+# WSL disk discipline: the parity runs' checkpoints are not needed downstream.
+rm -f "$REG1"/*.h5 "$REG2"/*.h5
+
 if [[ $fail -eq 0 ]]; then
-   echo "PASS [rmf-amr] M1: deterministic intra-realm 2:1 jump forms under fv_centered, driven by the box marker"
+   echo "PASS [rmf-amr] M1-M3 structural + #28 np1/np2 register parity"
    exit 0
 else
-   echo "FAIL [rmf-amr] M1 structural check failed"
+   echo "FAIL [rmf-amr] structural / register-parity check failed"
    exit 1
 fi
