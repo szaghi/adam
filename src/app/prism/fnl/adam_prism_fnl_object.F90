@@ -372,6 +372,10 @@ contains
       self%compute_gradient_dev    => compute_gradient_fv_dev
       self%compute_laplacian_dev   => compute_laplacian_fv_dev
       ! self%compute_residuals_dev   => compute_residuals_weno_dev
+      ! issue #23 R1: the WENO residual path is not ported to FNL — refuse cleanly at
+      ! initialization instead of leaving a null procedure pointer (segfault at step 1).
+      call mpih_fnl%error_stop(msg=': scheme_space "weno" residual path is not ported to FNL — '// &
+                                   'run this case on the CPU backend')
    case(NUM_SCHEME_SPACE_FD_CENTERED)
       self%compute_curl_dev        => compute_curl_fd_dev
       self%compute_derivative1_dev => compute_derivative1_fd_dev
@@ -387,7 +391,11 @@ contains
       self%compute_divergence_dev  => compute_divergence_fv_dev
       self%compute_gradient_dev    => compute_gradient_fv_dev
       self%compute_laplacian_dev   => compute_laplacian_fv_dev
-      ! self%compute_residuals_dev   => compute_residuals_fv_centered_dev
+      ! issue #23 R1 (TRANSITIONAL — replaced by the R2 pointer assignment): the FV
+      ! residual path is not yet ported to FNL; refuse cleanly at initialization
+      ! instead of leaving a null procedure pointer (was: segfault at step 1).
+      call mpih_fnl%error_stop(msg=': scheme_space "fv_centered" residual path is not yet ported to FNL '// &
+                                   '(issue #23) — run this case on the CPU backend')
    endselect
 
    call external_fields_initialize_dev(external_fields=self%external_fields)
