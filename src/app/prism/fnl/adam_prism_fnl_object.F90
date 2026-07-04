@@ -391,11 +391,17 @@ contains
       self%compute_divergence_dev  => compute_divergence_fv_dev
       self%compute_gradient_dev    => compute_gradient_fv_dev
       self%compute_laplacian_dev   => compute_laplacian_fv_dev
-      ! issue #23 R1 (TRANSITIONAL — replaced by the R2 pointer assignment): the FV
-      ! residual path is not yet ported to FNL; refuse cleanly at initialization
-      ! instead of leaving a null procedure pointer (was: segfault at step 1).
-      call mpih_fnl%error_stop(msg=': scheme_space "fv_centered" residual path is not yet ported to FNL '// &
-                                   '(issue #23) — run this case on the CPU backend')
+      ! issue #23 R2: FV residual path ported for the PLAIN Maxwell flux variant only.
+      ! The divergence-cleaning flux variants (div_d/div_b/div_d_b, selected on CPU when
+      ! constrained transport is active under hyperbolic correction) are NOT ported:
+      ! fail fast instead of silently computing plain fluxes for a cleaning configuration.
+      if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
+          (self%numerics%constrained_transport_D .or. self%numerics%constrained_transport_B)) then
+         call mpih_fnl%error_stop(msg=': fv_centered divergence-cleaning flux variants (constrained transport '// &
+                                      'under hyperbolic correction) are not ported to FNL (issue #23) — '// &
+                                      'run this case on the CPU backend')
+      endif
+      self%compute_residuals_dev   => compute_residuals_fv_centered_dev
    endselect
 
    call external_fields_initialize_dev(external_fields=self%external_fields)
@@ -1823,6 +1829,240 @@ contains
       endif
       endsubroutine compute_residuals_fd_centered_dev_kernel
    endsubroutine compute_residuals_fd_centered_dev
+
+   subroutine compute_residuals_fv_centered_dev(self, q_gpu, dq_gpu, s)
+   !< Compute residuals, space operator, centered finite volume scheme — FNL device
+   !< backend (issue #23 R2). 1:1 structural mirror of
+   !< `prism_cpu_object%compute_residuals_fv_centered`: fWL correction + ghost refresh
+   !< on q, pointwise Maxwell fluxes at ALL cells (incl. ghosts) into `flxyz_c_gpu`,
+   !< three staggered face-reconstruction sweeps into `fl{x,y,z}_f_gpu` (the m=0 SOTA
+   !< primitive, already `acc routine seq`), flux difference + J source into `dq_gpu`.
+   !< PLAIN Maxwell flux variant only — the cleaning variants are refused at dispatch
+   !< (initialize_prism). Inter-realm seam flux accumulation for the reflux register
+   !< is #23 R3 (the `s` stage index is accepted now, consumed then).
+   !<
+   !< Race discipline (CLAUDE-gpu): the kernels below are MODULE-LEVEL procedures
+   !< (not contained here) with constant-bound private gathers — the certified
+   !< #22 F2/F3 pattern.
+   class(prism_fnl_object), intent(inout)           :: self       !< The equation.
+   real(R8P),               intent(inout)           :: q_gpu(1:,         &
+                                                            1-self%ngc:,&
+                                                            1-self%ngc:,&
+                                                            1-self%ngc:,&
+                                                            1:)  !< Conservative variables.
+   real(R8P),               intent(inout)           :: dq_gpu(1:,         &
+                                                             1-self%ngc:,&
+                                                             1-self%ngc:,&
+                                                             1-self%ngc:,&
+                                                             1:) !< Residuals.
+   integer(I4P),            intent(in),    optional :: s          !< Stage counter (unused until #23 R3).
+
+   if (present(s)) continue ! stage index consumed by the R3 register accumulation
+   if (self%blocks_number > 0) then
+      call self%apply_fwl_correction(q_gpu=q_gpu)
+      ! bare refresh (no stage time): CPU-parity — compute_residuals_fv_centered
+      ! calls update_ghost(q) without `s`, so the trailing coil re-stamp is bare-time.
+      call self%update_ghost(q_gpu=q_gpu)
+      call fv_cell_fluxes_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,        &
+                                     nv_c=self%nv_c, blocks_number=self%blocks_number,        &
+                                     chi=self%physics%chi, q_gpu=q_gpu,                       &
+                                     flxyz_c_gpu=self%flxyz_c_gpu)
+      call fv_recon_x_dev_kernel(s1=self%fdv_half_stencils(1), ni=self%ni, nj=self%nj,        &
+                                 nk=self%nk, ngc=self%ngc, nv_c=self%nv_c,                    &
+                                 blocks_number=self%blocks_number,                            &
+                                 flxyz_c_gpu=self%flxyz_c_gpu, flx_f_gpu=self%flx_f_gpu)
+      call fv_recon_y_dev_kernel(s1=self%fdv_half_stencils(1), ni=self%ni, nj=self%nj,        &
+                                 nk=self%nk, ngc=self%ngc, nv_c=self%nv_c,                    &
+                                 blocks_number=self%blocks_number,                            &
+                                 flxyz_c_gpu=self%flxyz_c_gpu, fly_f_gpu=self%fly_f_gpu)
+      call fv_recon_z_dev_kernel(s1=self%fdv_half_stencils(1), ni=self%ni, nj=self%nj,        &
+                                 nk=self%nk, ngc=self%ngc, nv_c=self%nv_c,                    &
+                                 blocks_number=self%blocks_number,                            &
+                                 flxyz_c_gpu=self%flxyz_c_gpu, flz_f_gpu=self%flz_f_gpu)
+      call fv_flux_diff_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,          &
+                                   nv_c=self%nv_c, blocks_number=self%blocks_number,          &
+                                   var_jx=self%physics%var_jx, var_jy=self%physics%var_jy,    &
+                                   var_jz=self%physics%var_jz,                                &
+                                   dxyz_gpu=self%field_fnl%dxyz_gpu,                          &
+                                   flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu,        &
+                                   flz_f_gpu=self%flz_f_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
+   endif
+   endsubroutine compute_residuals_fv_centered_dev
+
+   subroutine fv_cell_fluxes_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
+   !< Pointwise Maxwell fluxes at every cell (incl. ghosts), all 3 directions (issue #23 R2).
+   !< MODULE-LEVEL kernel (certified pattern): per-thread scalar gather of the local state
+   !< into CONSTANT-BOUND private vectors, contiguous-section actuals to the
+   !< `acc routine seq` flux routine — no strided shared sections, no contained-kernel
+   !< private arrays (CLAUDE-gpu race rules; passing q_gpu(b,i,j,k,:) directly would
+   !< materialize an unprivatized strided-section temporary).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number                     !< Grids dimensions.
+   integer(I4P), intent(in)    :: nv_c                                               !< Conservative variables number.
+   real(R8P),    intent(in)    :: chi                                                !< Divergence-cleaning speed (unused, plain).
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                  !< Field variables, FNL layout.
+   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Cell-center fluxes (b,1,d,i,j,k,v).
+   integer(I4P), parameter     :: NVC_CAP=8_I4P                                      !< Constant bound for the private state vectors.
+   real(R8P)                   :: qv(1:NVC_CAP)                                      !< Private state gather.
+   real(R8P)                   :: fv(1:NVC_CAP)                                      !< Private flux result.
+   real(R8P)                   :: sir(1:3)                                           !< Private direction versor.
+   integer(I4P)                :: i, j, k, b, d, v                                   !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
+   !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
+   !$acc& private(qv, fv, sir)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+      !$acc loop seq
+      do v=1, nv_c
+         qv(v) = q_gpu(b,i,j,k,v)
+      enddo
+      !$acc loop seq
+      do d=1, 3
+         sir(1) = 0._R8P ; sir(2) = 0._R8P ; sir(3) = 0._R8P ; sir(d) = 1._R8P
+         call compute_convective_fluxes_maxwell(sir=sir, q=qv(1:nv_c), f=fv(1:nv_c), chi=chi)
+         do v=1, nv_c
+            flxyz_c_gpu(b,1,d,i,j,k,v) = fv(v)
+         enddo
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_cell_fluxes_dev_kernel
+
+   subroutine fv_recon_x_dev_kernel(s1, ni, nj, nk, ngc, nv_c, blocks_number, flxyz_c_gpu, flx_f_gpu)
+   !< Reconstruct x-fluxes at x-faces from cell-center fluxes (issue #23 R2): per face
+   !< i+1/2 (i = 0..ni), gather the 2*s1 cell-flux stencil into a constant-bound private
+   !< buffer and call the m=0 SOTA face-reconstruction primitive (already acc routine seq).
+   integer(I4P), intent(in)    :: s1                                                 !< Half FDV stencil length.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number                     !< Grids dimensions.
+   integer(I4P), intent(in)    :: nv_c                                               !< Conservative variables number.
+   real(R8P),    intent(in)    :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Cell-center fluxes (b,1,d,i,j,k,v).
+   real(R8P),    intent(inout) :: flx_f_gpu(1:,0:,1:,1:,1:)                          !< X-face fluxes (b,0:ni,j,k,v).
+   real(R8P)                   :: qs(1-FDV_S_MAX:FDV_S_MAX)                          !< Private stencil gather.
+   integer(I4P)                :: i, j, k, b, v, m                                   !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(flxyz_c_gpu, flx_f_gpu) &
+   !$acc& firstprivate(s1, ni, nj, nk, ngc, nv_c, blocks_number)                             &
+   !$acc& private(qs)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=0, ni
+      !$acc loop seq
+      do v=1, nv_c
+         do m=1-s1, s1
+            qs(m) = flxyz_c_gpu(b,1,1,i+m,j,k,v)
+         enddo
+         call compute_reconstruction_r_fv_centered(s=s1, q=qs(1-s1:s1), qr=flx_f_gpu(b,i,j,k,v))
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_recon_x_dev_kernel
+
+   subroutine fv_recon_y_dev_kernel(s1, ni, nj, nk, ngc, nv_c, blocks_number, flxyz_c_gpu, fly_f_gpu)
+   !< Reconstruct y-fluxes at y-faces (issue #23 R2); twin of fv_recon_x_dev_kernel.
+   integer(I4P), intent(in)    :: s1                                                 !< Half FDV stencil length.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number                     !< Grids dimensions.
+   integer(I4P), intent(in)    :: nv_c                                               !< Conservative variables number.
+   real(R8P),    intent(in)    :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Cell-center fluxes (b,1,d,i,j,k,v).
+   real(R8P),    intent(inout) :: fly_f_gpu(1:,1:,0:,1:,1:)                          !< Y-face fluxes (b,i,0:nj,k,v).
+   real(R8P)                   :: qs(1-FDV_S_MAX:FDV_S_MAX)                          !< Private stencil gather.
+   integer(I4P)                :: i, j, k, b, v, m                                   !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(flxyz_c_gpu, fly_f_gpu) &
+   !$acc& firstprivate(s1, ni, nj, nk, ngc, nv_c, blocks_number)                             &
+   !$acc& private(qs)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=0, nj
+   do i=1, ni
+      !$acc loop seq
+      do v=1, nv_c
+         do m=1-s1, s1
+            qs(m) = flxyz_c_gpu(b,1,2,i,j+m,k,v)
+         enddo
+         call compute_reconstruction_r_fv_centered(s=s1, q=qs(1-s1:s1), qr=fly_f_gpu(b,i,j,k,v))
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_recon_y_dev_kernel
+
+   subroutine fv_recon_z_dev_kernel(s1, ni, nj, nk, ngc, nv_c, blocks_number, flxyz_c_gpu, flz_f_gpu)
+   !< Reconstruct z-fluxes at z-faces (issue #23 R2); twin of fv_recon_x_dev_kernel.
+   integer(I4P), intent(in)    :: s1                                                 !< Half FDV stencil length.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number                     !< Grids dimensions.
+   integer(I4P), intent(in)    :: nv_c                                               !< Conservative variables number.
+   real(R8P),    intent(in)    :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Cell-center fluxes (b,1,d,i,j,k,v).
+   real(R8P),    intent(inout) :: flz_f_gpu(1:,1:,1:,0:,1:)                          !< Z-face fluxes (b,i,j,0:nk,v).
+   real(R8P)                   :: qs(1-FDV_S_MAX:FDV_S_MAX)                          !< Private stencil gather.
+   integer(I4P)                :: i, j, k, b, v, m                                   !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(flxyz_c_gpu, flz_f_gpu) &
+   !$acc& firstprivate(s1, ni, nj, nk, ngc, nv_c, blocks_number)                             &
+   !$acc& private(qs)
+   do b=1, blocks_number
+   do k=0, nk
+   do j=1, nj
+   do i=1, ni
+      !$acc loop seq
+      do v=1, nv_c
+         do m=1-s1, s1
+            qs(m) = flxyz_c_gpu(b,1,3,i,j,k+m,v)
+         enddo
+         call compute_reconstruction_r_fv_centered(s=s1, q=qs(1-s1:s1), qr=flz_f_gpu(b,i,j,k,v))
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_recon_z_dev_kernel
+
+   subroutine fv_flux_diff_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, var_jx, var_jy, var_jz, &
+                                      dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)
+   !< Conservative flux difference + J source (issue #23 R2):
+   !< dq = -(F(i+1/2)-F(i-1/2))/dx - ... ; dq(D) -= J. Per-block deltas read as
+   !< SCALARS (no dxyz section actuals — CLAUDE-gpu race rule).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number                     !< Grids dimensions.
+   integer(I4P), intent(in)    :: nv_c                                               !< Conservative variables number.
+   integer(I4P), intent(in)    :: var_jx, var_jy, var_jz                             !< Indexes of J_vec variables.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                                    !< Delta cells GPU [nb,3].
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)                          !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)                          !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)                          !< Z-face fluxes.
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                  !< Field variables (J source).
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                 !< Residuals.
+   real(R8P)                   :: dxb, dyb, dzb                                      !< Per-block deltas, scalar reads.
+   integer(I4P)                :: i, j, k, b, v                                      !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4)                              &
+   !$acc& DEVICEVAR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)            &
+   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      dxb = dxyz_gpu(b,1) ; dyb = dxyz_gpu(b,2) ; dzb = dxyz_gpu(b,3)
+      !$acc loop seq
+      do v=1, nv_c
+         dq_gpu(b,i,j,k,v) = - (flx_f_gpu(b,i,j,k,v) - flx_f_gpu(b,i-1,j,k,v)) / dxb &
+                             - (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dyb &
+                             - (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dzb
+      enddo
+      dq_gpu(b,i,j,k,VAR_DX) = dq_gpu(b,i,j,k,VAR_DX) - q_gpu(b,i,j,k,var_jx)
+      dq_gpu(b,i,j,k,VAR_DY) = dq_gpu(b,i,j,k,VAR_DY) - q_gpu(b,i,j,k,var_jy)
+      dq_gpu(b,i,j,k,VAR_DZ) = dq_gpu(b,i,j,k,VAR_DZ) - q_gpu(b,i,j,k,var_jz)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_flux_diff_dev_kernel
 
    ! numerical methods, time operators
    subroutine integrate_blanesmoan_dev(self)
