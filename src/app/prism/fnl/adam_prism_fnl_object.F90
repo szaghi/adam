@@ -2230,6 +2230,48 @@ contains
    enddo
    endsubroutine fv_pack_face_skin_dev_kernel
 
+   subroutine fv_apply_reflux_face_dev_kernel(axis, sgn, b, ni, nj, nk, ngc, nv_reg, nface_cells, &
+                                              scale, delta_gpu, q_gpu)
+   !< Apply the Berger-Colella end-of-step correction for ONE register face to the
+   !< committed q_gpu (issue #23 R4): per skin cell c (register cell order — the
+   !< SAME (axis, sgn) → (i,j,k) mapping as the CPU apply), add
+   !< scale * delta(v, c) to every state row. Scalar element ops only: no private
+   !< arrays, no section actuals; each c writes a distinct cell (disjoint), the
+   !< inner v loop is per-thread seq. Tiny kernel — one launch per face per step.
+   integer(I4P), intent(in)    :: axis, sgn                  !< Face normal axis (1..3) and sign (+-1).
+   integer(I4P), intent(in)    :: b                          !< Coarse block index.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc            !< Grids dimensions.
+   integer(I4P), intent(in)    :: nv_reg                     !< Register state-vector width.
+   integer(I4P), intent(in)    :: nface_cells                !< Skin cell count.
+   real(R8P),    intent(in)    :: scale                      !< sign * dt / dx_coarse.
+   real(R8P),    intent(in)    :: delta_gpu(1:,1:)           !< Flux mismatch slab (nv_reg, nface_cells).
+   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Committed conservative variables.
+   integer(I4P)                :: c, c0, i, j, k, v          !< Counters / decoded cell indexes.
+
+   !$acc parallel loop independent gang vector          &
+   !$acc& DEVICEVAR(delta_gpu, q_gpu)                   &
+   !$acc& firstprivate(axis, sgn, b, ni, nj, nk, nv_reg, nface_cells, scale)
+   do c=1, nface_cells
+      c0 = c - 1
+      select case (axis)
+      case (1_I4P)  ! x-normal face: i fixed; tangentials (j, k) walk (mod nj, div nj).
+         i = merge(ni, 1_I4P, sgn > 0_I4P) ; j = 1_I4P + mod(c0, nj) ; k = 1_I4P + c0/nj
+      case (2_I4P)  ! y-normal face: j fixed; tangentials (i, k) walk (mod ni, div ni).
+         i = 1_I4P + mod(c0, ni) ; j = merge(nj, 1_I4P, sgn > 0_I4P) ; k = 1_I4P + c0/ni
+      case (3_I4P)  ! z-normal face: k fixed; tangentials (i, j) walk (mod ni, div ni).
+         i = 1_I4P + mod(c0, ni) ; j = 1_I4P + c0/ni ; k = merge(nk, 1_I4P, sgn > 0_I4P)
+      case default
+         i = 0_I4P ; j = 0_I4P ; k = 0_I4P
+      endselect
+      if (i /= 0_I4P) then
+         !$acc loop seq
+         do v=1, nv_reg
+            q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + scale * delta_gpu(v,c)
+         enddo
+      endif
+   enddo
+   endsubroutine fv_apply_reflux_face_dev_kernel
+
    ! numerical methods, time operators
    subroutine integrate_blanesmoan_dev(self)
    !< Integrate equation, time operator, Blanes and Moan scheme.
@@ -2892,29 +2934,59 @@ contains
    integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
    real(R8P),                   intent(in)    :: dt            !< Time step.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
-   integer(I4P)                                :: f             !< Register face counter.
+   integer(I4P)                               :: f             !< Register face counter.
+   integer(I4P)                               :: axis, sgn     !< Face normal axis and sign.
+   integer(I4P)                               :: nv_reg        !< Register state-vector width.
+   integer(I4P)                               :: nface_cells   !< Coarse-face skin cell count.
+   integer(I4P)                               :: ierr          !< Device allocation error flag.
+   real(R8P)                                  :: dx_coarse     !< Coarse spacing along the face normal.
+   real(R8P)                                  :: scale_        !< Correction scale: sign * dt / dx_coarse.
+   real(R8P), allocatable                     :: delta(:,:)    !< Host flux mismatch F_coarse - F_fine_sum (:,:,1).
+   real(R8P), pointer                         :: delta_gpu(:,:)!< Device copy of the mismatch slab.
 
    ! α.r1 end-of-step gate: parity with PRISM-CPU M3. Returns immediately
    ! for any non-final substage.
    if (stage /= self%rk%nrk) return
-   associate(dt_unused => dt) ! correction application is still a no-op (#23 R4)
-   endassociate
-
-   ! Register-level diagnostic (issue #23 R3): the register is now POPULATED on FNL
-   ! (accumulate_seam_fluxes_fv_dev), but the correction application is still a
-   ! no-op until #23 R4. Print the per-face flux mismatch in the SAME format as the
-   ! CPU apply, so the two backends' register contents are directly comparable from
-   ! the logs — the R3 acceptance instrument.
    if (.not. flux_register%is_initialized_) return
    if (flux_register%nfaces == 0_I4P)       return
    if (.not. allocated(flux_register%face)) return
+
+   ! Issue #23 R4 — the correction application, M4 semantics (CPU parity): for each
+   ! face this realm owns the coarse side of, apply sign*(dt/dx_coarse)*(F_coarse -
+   ! F_fine_sum)(:,:,1) to the COMMITTED q_gpu on the one-cell-thick coarse seam
+   ! skin, once per realm per step (this TBP runs AFTER close_step_forest's
+   ! update_q). Full step weight dt/dx — NOT a stage RK coefficient (see the CPU
+   ! apply's M4 note). The tiny host mismatch slab is H2D-copied and a per-face
+   ! device kernel adds it to q_gpu (scalar ops only, disjoint cells).
    do f=1_I4P, flux_register%nfaces
       associate(face_f => flux_register%face(f))
-      if (face_f%coarse_realm /= self%realm_index) then
-      elseif (allocated(face_f%F_coarse) .and. allocated(face_f%F_fine_sum)) then
-         call mpih_fnl%print_message('reflux face '//trim(str(f, .true.))//' coarse_block '//                 &
-                                     trim(str(face_f%coarse_block, .true.))//' max|F_coarse-F_fine_sum| = '// &
-                                     trim(str(maxval(abs(face_f%F_coarse(:,:,1) - face_f%F_fine_sum(:,:,1))))))
+      if (face_f%coarse_realm == self%realm_index) then
+      if (allocated(face_f%F_coarse) .and. allocated(face_f%F_fine_sum)) then
+         call face_axis_sign(face_f%coarse_face, axis, sgn)
+         if (axis /= 0_I4P) then
+            dx_coarse = self%adam%field%dxyz(axis, face_f%coarse_block)
+            if (dx_coarse > 0._R8P) then
+               ! Register-level diagnostic (issue #23 R3): format matched with the CPU
+               ! apply — the two backends' register contents stay log-comparable.
+               call mpih_fnl%print_message('reflux face '//trim(str(f, .true.))//' coarse_block '//                 &
+                                           trim(str(face_f%coarse_block, .true.))//' max|F_coarse-F_fine_sum| = '// &
+                                           trim(str(maxval(abs(face_f%F_coarse(:,:,1) - face_f%F_fine_sum(:,:,1))))))
+               scale_      = real(sgn, R8P) * dt / dx_coarse
+               nv_reg      = int(size(face_f%F_coarse, dim=1), I4P)
+               nface_cells = face_f%nface_cells
+               allocate(delta(1:nv_reg, 1:nface_cells))
+               delta = face_f%F_coarse(:,:,1) - face_f%F_fine_sum(:,:,1)
+               call dev_alloc(fptr_dev=delta_gpu, lbounds=[1,1], ubounds=[nv_reg,nface_cells], ierr=ierr)
+               call dev_memcpy_to_device(dst=delta_gpu, src=delta)
+               call fv_apply_reflux_face_dev_kernel(axis=axis, sgn=sgn, b=face_f%coarse_block,          &
+                                                    ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,   &
+                                                    nv_reg=nv_reg, nface_cells=nface_cells,             &
+                                                    scale=scale_, delta_gpu=delta_gpu, q_gpu=self%q_gpu)
+               call dev_free(delta_gpu, mydev)
+               deallocate(delta)
+            endif
+         endif
+      endif
       endif
       endassociate
    enddo
