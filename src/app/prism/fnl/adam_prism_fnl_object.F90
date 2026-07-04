@@ -340,7 +340,7 @@ contains
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%rk%scheme)
          case(RK_1, RK_2, RK_3)                ; self%integrate_dev => integrate_rk_ls_dev
-         case(RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate_dev => integrate_rk_ssp_dev
+         case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate_dev => integrate_rk_ssp_dev
          case(RK_YOSHIDA)                      ; self%integrate_dev => integrate_rk_yoshida_dev
          endselect
       endselect
@@ -2158,16 +2158,29 @@ contains
    function stages_per_step_forest(self) result(K)
    !< Number of integrator stages this realm exposes per step (FNL).
    !<
-   !< For the multi-realm path the forest drives the stage loop, so it
-   !< needs to know `K` up front. Currently only `runge-kutta-ssp-*` is
-   !< split into per-stage TBPs (`begin_stage_forest` / `end_stage_forest`);
-   !< for RK realms `K = rk%nrk`. Other integrators (Yoshida, Leapfrog,
-   !< Blanes-Moan, CFM) will error-stop on the multi-realm path until they
-   !< are split as well.
+   !< SSP-only contract, twin of `prism_cpu_object%stages_per_step_forest`
+   !< (issue #25): the staged protocol reads `gamm(k)` per stage and
+   !< `beta_gpu` in `close_step_forest` — for low-storage schemes those are
+   !< never allocated (the FNL symptom was CUDA_ERROR_ILLEGAL_ADDRESS in
+   !< `rk_update_q_dev` through a bogus `beta_gpu`). Refusing here leaves
+   !< the fused fast path — where LS schemes legitimately run — untouched.
    class(prism_fnl_object), intent(in) :: self !< The realm.
    integer(I4P)                        :: K    !< Number of integrator stages per step.
 
-   K = self%rk%nrk
+   select case(self%rk%scheme)
+   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
+      K = self%rk%nrk
+   case default
+      K = 0
+      ! Routed through the ADAM (CPU) mpih handler, NOT mpih_fnl: FUNDAL's error_stop
+      ! ends with a plain `stop` (exit code 0), so a refusal through it looks SUCCESSFUL
+      ! to the calling shell/harness (upstream FUNDAL defect, flagged in issue #25).
+      ! This is host code; both handlers wrap the same communicator.
+      call mpih%error_stop(msg=': RK scheme "'//trim(adjustl(self%rk%scheme))//'" is not stage-splittable: '// &
+                               'the staged forest path (multi-realm, or intra-realm AMR seam faces) requires '// &
+                               'an SSP scheme (runge-kutta-ssp-*); low-storage schemes run only on the fused '// &
+                               'single-realm/no-seam fast path')
+   endselect
    endfunction stages_per_step_forest
 
    subroutine open_step_forest(self, dt)

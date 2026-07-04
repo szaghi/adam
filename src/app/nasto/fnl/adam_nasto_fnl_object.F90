@@ -671,7 +671,7 @@ contains
             call rk_fnl%compute_stage_ls(s=s,dt=self%time%dt,dq_gpu=self%dq_gpu,q_gpu=self%q_gpu)
          endif
       enddo
-   case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
       ! RK working on q_rk_gpu as stages
       do s=1, self%rk%nrk
          if (self%ib%solids_number>0) then

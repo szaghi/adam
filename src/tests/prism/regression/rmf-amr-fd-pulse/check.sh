@@ -34,6 +34,16 @@
 # WSL UCX knobs of issue #12) and the build (--build always builds the CPU
 # default, never the override). Baselines are CPU-pinned; the ±5% band is the
 # cross-backend/compiler-noise allowance; p_obs is compiler-independent.
+#
+# RK-scheme contract legs (issue #25, DEFAULT-ON):
+#   1. LS refusal: a low-storage RK scheme (runge-kutta-1) on this SEAM case
+#      must REFUSE CLEANLY — the staged forest path is SSP-only by contract
+#      (stages_per_step_forest). The leg asserts non-zero exit AND the
+#      contract message in the log: a segfault also exits non-zero, and the
+#      leg must distinguish clean refusal from the pre-#25 crash/UB.
+#   2. SSP-11 instrument: runge-kutta-ssp-11 (forward Euler in SSP form, the
+#      1-stage debugging discriminator) must run the seam case to 100% with
+#      div(D) structural zero and div(B) on its own CPU-pinned baseline.
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -44,6 +54,9 @@ DIV_TOL="1.0E-13"            # round-off ceiling for the conserved invariants
 SEAM_B_BASELINE="1.265004E+01" # pinned seam max|div(B)| (see provenance above)
 SEAM_RTOL="0.05"             # 5% relative band around the baseline
 P_MIN="0.8"                  # convergence-order floor (measured ~ +1.15)
+SEAM_B_SSP11_BASELINE="1.181251E+01" # pinned seam max|div(B)| under runge-kutta-ssp-11 (#25 F2; CPU
+                                     # F3-fix binary, 2026-07-04: ni=16, it_max=5, -np 1, tricubic fill)
+LS_REFUSAL_MSG="not stage-splittable" # the stages_per_step_forest contract message (#25 F1)
 
 do_build=0 ; do_convergence=0
 for arg in "$@"; do
@@ -116,6 +129,46 @@ if ! awk "BEGIN{d=($seam_divb-$SEAM_B_BASELINE)/$SEAM_B_BASELINE; if(d<0)d=-d; e
    echo "                        (a DROP means an improvement landed — rebaseline deliberately;"
    echo "                         a RISE means the seam fill or the exchange regressed)"
    fail=1
+fi
+
+# --- RK-scheme contract legs (issue #25, default-on) ---
+RK1="$CASE_DIR/work-rk1-refusal"
+echo ">> [rmf-amr-fd-pulse] running LS-refusal leg (runge-kutta-1 on the seam: must refuse cleanly)"
+rk1_rc=0
+rm -rf "$RK1" && mkdir -p "$RK1"
+sed 's/^scheme = runge-kutta-ssp-54/scheme = runge-kutta-1/' "$CASE_DIR/input.ini" > "$RK1/input.ini"
+( cd "$RK1" && timeout 300 mpirun -np 1 "$EXE" > run.log 2>&1 ) || rk1_rc=$?
+find "$RK1" -type f \( -name '*.h5' -o -name '*.fbd' -o -name '*.xdmf' \) -delete
+if [[ $rk1_rc -eq 0 ]]; then
+   echo "FAIL [rmf-amr-fd-pulse] runge-kutta-1 RAN on the staged (seam) path — the SSP-only"
+   echo "                        contract of stages_per_step_forest is not enforced"
+   fail=1
+elif ! grep -q "$LS_REFUSAL_MSG" "$RK1/run.log"; then
+   echo "FAIL [rmf-amr-fd-pulse] runge-kutta-1 died WITHOUT the contract message ('$LS_REFUSAL_MSG')"
+   echo "                        — crash/UB instead of the clean stages_per_step_forest refusal"
+   fail=1
+else
+   echo ">> [rmf-amr-fd-pulse] LS refusal: clean error-stop with contract message (exit $rk1_rc)"
+fi
+
+SSP11="$CASE_DIR/work-ssp11"
+echo ">> [rmf-amr-fd-pulse] running SSP-11 instrument leg (forward Euler in SSP form, seam case)"
+run_in "$SSP11" 's/^scheme = runge-kutta-ssp-54/scheme = runge-kutta-ssp-11/'
+if grep -qiE 'error|abort| nan |segfault' "$SSP11/run.log"; then
+   echo "FAIL [rmf-amr-fd-pulse] SSP-11 run reported an error/abort/NaN"; fail=1
+fi
+if ! grep -qE 'progress:[[:space:]]*100%' "$SSP11/run.log"; then
+   echo "FAIL [rmf-amr-fd-pulse] SSP-11 time loop did not reach 100%"; fail=1
+fi
+ssp11_divd="$(max_div_d "$SSP11/$HIST")"
+ssp11_divb="$(max_div_b "$SSP11/$HIST")"
+echo ">> [rmf-amr-fd-pulse] SSP-11 seam max|div(D)| = $ssp11_divd (structural invariant: <= $DIV_TOL)"
+echo ">> [rmf-amr-fd-pulse] SSP-11 seam max|div(B)| = $ssp11_divb (baseline $SEAM_B_SSP11_BASELINE, rtol $SEAM_RTOL)"
+if ! awk "BEGIN{exit !($ssp11_divd <= $DIV_TOL)}"; then
+   echo "FAIL [rmf-amr-fd-pulse] SSP-11 seam div(D) above round-off"; fail=1
+fi
+if ! awk "BEGIN{d=($ssp11_divb-$SEAM_B_SSP11_BASELINE)/$SEAM_B_SSP11_BASELINE; if(d<0)d=-d; exit !(d<=$SEAM_RTOL)}" 2>/dev/null; then
+   echo "FAIL [rmf-amr-fd-pulse] SSP-11 seam max|div(B)| off its pinned baseline"; fail=1
 fi
 
 if [[ $do_convergence -eq 1 ]]; then

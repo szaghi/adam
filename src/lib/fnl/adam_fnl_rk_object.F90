@@ -122,13 +122,19 @@ contains
    integer(I4P)                        :: nrk   !< RK stages.
 
    call mpih_fnl%print_message('rk_fnl_object%initialize start')
-   call dev_assign_to_device(src=rk%alph, dst=self%alph_gpu)
-   call dev_assign_to_device(src=rk%beta, dst=self%beta_gpu)
-   call dev_assign_to_device(src=rk%gamm, dst=self%gamm_gpu)
+   ! SSP coefficients exist only for the SSP schemes (issue #25): the low-storage
+   ! schemes never allocate alph/beta/gamm, and passing an unallocated allocatable
+   ! as the non-optional assumed-shape src of dev_assign_to_device is illegal
+   ! Fortran (the *_gpu pointer would hold a bogus device address). Guard each
+   ! copy; a null *_gpu is the correct device state for "this scheme has none"
+   ! (same pattern as maps_fnl_object%copy_cpu_gpu).
+   if (allocated(rk%alph)) call dev_assign_to_device(src=rk%alph, dst=self%alph_gpu)
+   if (allocated(rk%beta)) call dev_assign_to_device(src=rk%beta, dst=self%beta_gpu)
+   if (allocated(rk%gamm)) call dev_assign_to_device(src=rk%gamm, dst=self%gamm_gpu)
    select case(rk%scheme)
    case(RK_1, RK_2, RK_3) ! low storage, only stage 1 is necessary
       nrk = 1
-   case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
       nrk = rk%nrk
    endselect
    associate(nb=>field%nb, ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nv=>field%nv)
