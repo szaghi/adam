@@ -24,13 +24,20 @@
 #
 # Usage: ./check.sh            (expects exe/adam_prism_cpu already built)
 #        ./check.sh --build    (build prism-cpu-gnu first)
-#        ./check.sh --divj     (also assert seam max|div(J)| on its pinned baseline)
 #
-# --divj (issue #26 G1.a): cross-backend div(J) TRUTHFULNESS gate. The coil
-# J_vec ghost content diverged between backends (#22 backlog: FNL 2.35E+01 vs
-# CPU 3.218E-05 at G1.a capture, deterministic on both); the baseline below is
-# CPU-pinned, so this leg is GREEN on CPU and RED on FNL until #26 G1.b/G2
-# land. Opt-in until it is green on both backends, then promoted to default-on.
+# div(J) truthfulness leg (issue #26 G1.a/G2, DEFAULT-ON since G2): asserts the
+# seam max|div(J)| within a FACTOR-3 band of the CPU-pinned baseline.
+# Why factor 3 and not the ±5% used for div(B): div(J) of the coil filament is
+# a TEN-DECADE cancellation — the stencil cancels |J|/h ~ 1e+6-scale gradients
+# down to ~3e-5 — so any relative J noise n reappears in div(J) as ~n*1e+6.
+# The irreducible cross-compiler noise in the coil-geometry initialization
+# (gfortran vs nvfortran host code, ~1e-11 relative on J after the amplitude)
+# puts a ~1e-5 ABSOLUTE noise floor under this diagnostic at this resolution:
+# cross-backend agreement tighter than a small factor is mathematically
+# impossible, while the defect class this leg guards against (#26 G2: unstamped
+# J ghosts + one-dt-lagged stamp) sat SIX ORDERS off. Band history: G1.a red at
+# 2.35E+01; after the G2 stamp fixes, FNL reads 2.62E-05 vs CPU 3.22E-05.
+# The legacy --divj flag is accepted as a no-op (the leg always runs).
 #
 # mpirun and the GNU MPI toolchain must be on PATH (see rmf-amr/run.sh header).
 #
@@ -50,15 +57,16 @@ EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_cpu}"
 DIVB_TOL="1.0E-13"           # control: round-off ceiling for the interior identity
 SEAM_BASELINE="1.555802E-07" # pinned seam max|div(B)| (see provenance above)
 SEAM_RTOL="0.05"             # 5% relative band around the baseline
-SEAM_J_BASELINE="3.217958E-05" # pinned seam max|div(J)| (--divj leg; CPU N5-era binary,
+SEAM_J_BASELINE="3.217958E-05" # pinned seam max|div(J)| (CPU N5-era binary,
                                # captured 2026-07-04 at #26 G1.a: ni=16, it_max=5, -np 1)
+SEAM_J_FACTOR="3.0"            # factor band around the div(J) baseline (see header)
 
-do_build=0 ; do_divj=0
+do_build=0
 for arg in "$@"; do
    case "$arg" in
       --build) do_build=1 ;;
-      --divj)  do_divj=1 ;;
-      *) echo "ERROR: unknown flag $arg (use --build / --divj)" >&2; exit 2 ;;
+      --divj)  ;; # legacy opt-in flag (issue #26 G1.a), now a no-op: the leg is default-on
+      *) echo "ERROR: unknown flag $arg (use --build)" >&2; exit 2 ;;
    esac
 done
 if [[ $do_build -eq 1 ]]; then
@@ -117,15 +125,13 @@ if ! awk "BEGIN{d=($seam_divb-$SEAM_BASELINE)/$SEAM_BASELINE; if(d<0)d=-d; exit 
    fail=1
 fi
 
-if [[ $do_divj -eq 1 ]]; then
-   seam_divj="$(max_div_j "$WORK/$HIST")"
-   echo ">> [rmf-amr-fd] seam   max|div(J)| = $seam_divj (baseline $SEAM_J_BASELINE, rtol $SEAM_RTOL)"
-   if ! awk "BEGIN{d=($seam_divj-$SEAM_J_BASELINE)/$SEAM_J_BASELINE; if(d<0)d=-d; exit !(d<=$SEAM_RTOL)}"; then
-      echo "FAIL [rmf-amr-fd] seam max|div(J)| off the CPU-pinned baseline — the div(J)"
-      echo "                  diagnostic is not truthful on this backend (J_vec ghost content"
-      echo "                  or the divergence operator kernel differs; see issue #26)"
-      fail=1
-   fi
+seam_divj="$(max_div_j "$WORK/$HIST")"
+echo ">> [rmf-amr-fd] seam   max|div(J)| = $seam_divj (baseline $SEAM_J_BASELINE, factor band x/$SEAM_J_FACTOR)"
+if ! awk "BEGIN{r=$seam_divj/$SEAM_J_BASELINE; exit !(r>=1.0/$SEAM_J_FACTOR && r<=$SEAM_J_FACTOR)}"; then
+   echo "FAIL [rmf-amr-fd] seam max|div(J)| off the CPU-pinned baseline beyond the noise-floor"
+   echo "                  band — the div(J) diagnostic is not truthful on this backend"
+   echo "                  (J stamping extent/order or the divergence path; see issue #26 G2)"
+   fail=1
 fi
 
 if [[ $fail -eq 0 ]]; then

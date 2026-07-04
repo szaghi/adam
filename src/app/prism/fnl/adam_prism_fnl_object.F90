@@ -607,13 +607,17 @@ contains
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
       integer(I4P)                :: i,j,k,b                           !< Counter.
 
+      ! FULL ghost-inclusive extent (issue #26 G2): the CPU stamp covers 1-ngc..n+ngc;
+      ! the former interior-only loops left the q J-row ghosts UNSTAMPED (stale exchange
+      ! content) -- the divergence stencils near every block border read wrong J, the
+      ! dominant term of the FNL div(J) untruthfulness (2.35E+01 vs 3.2E-05).
       !$acc parallel loop independent gang vector collapse(4) &
       !$acc DEVICEVAR(q_gpu)                                  &
-      !$acc firstprivate(ni,nj,nk,blocks_number,var_jx,var_jy,var_jz)
+      !$acc firstprivate(ni,nj,nk,ngc,blocks_number,var_jx,var_jy,var_jz)
       do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
+      do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+      do i=1-ngc, ni+ngc
          q_gpu(b,i,j,k,var_Jx) = 0._R8P
          q_gpu(b,i,j,k,var_Jy) = 0._R8P
          q_gpu(b,i,j,k,var_Jz) = 0._R8P
@@ -633,13 +637,16 @@ contains
       real(R8P),    intent(inout) :: q_gpu(    1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Field cell centered variables.
       integer(I4P)                :: i,j,k,b                                  !< Counter.
 
+      ! FULL ghost-inclusive extent (issue #26 G2): twin of the nullify kernel above;
+      ! j_vec_gpu carries ghost cells by allocation and matches the CPU J_vec content
+      ! to round-off, so the analytic stamp is valid over the whole slab.
       !$acc parallel loop independent gang vector collapse(4) &
       !$acc DEVICEVAR(q_gpu,j_vec_gpu)                        &
-      !$acc firstprivate(ni,nj,nk,blocks_number,current_density,n,var_jx,var_jy,var_jz)
+      !$acc firstprivate(ni,nj,nk,ngc,blocks_number,current_density,n,var_jx,var_jy,var_jz)
       do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
+      do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+      do i=1-ngc, ni+ngc
          q_gpu(b,i,j,k,var_Jx) = q_gpu(b,i,j,k,var_Jx) + current_density * j_vec_gpu(b,i,j,k,1,n)
          q_gpu(b,i,j,k,var_Jy) = q_gpu(b,i,j,k,var_Jy) + current_density * j_vec_gpu(b,i,j,k,2,n)
          q_gpu(b,i,j,k,var_Jz) = q_gpu(b,i,j,k,var_Jz) + current_density * j_vec_gpu(b,i,j,k,3,n)
@@ -774,8 +781,6 @@ contains
    logical                                                  :: do_local_update !< Flag for triggering local update.
    logical                                                  :: do_set_bc       !< Flag for triggering setting bc.
 
-   if (present(s)) continue  ! `s` is retained for API symmetry with CPU update_ghost.
-
    ! perform local update if step is not specified or if first step is selected
    do_local_update = .false.
    do_set_bc       = .false.
@@ -792,6 +797,20 @@ contains
                                                                  comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
                                                                  q_gpu=q_gpu, step=step)
    if (do_set_bc) call self%set_boundary_conditions(q_gpu=q_gpu)
+   ! Trailing coil re-stamp, CPU-parity (issue #26 G2): the CPU update_ghost ends with an
+   ! unconditional compute_coils_current, so q's J rows are analytic-fresh over the FULL
+   ! extent (interiors + ghosts) after every ghost refresh -- the ghost machinery never
+   ! has the last word on J. The call was dropped on FNL in the fWL resequencing (the `s`
+   ! dummy survived as "API symmetry"); its absence left the committed q with a
+   ! one-dt-lagged J interior and stale J ghosts. The allocated() guard reproduces the
+   ! CPU low-storage behavior exactly: CPU LS calls compute_residuals without `s`, so its
+   ! stamp is the bare-time one; FNL LS threads `s` through, and gamm does not exist for
+   ! LS schemes.
+   if (present(s) .and. allocated(self%rk%gamm)) then
+      call self%compute_coils_current(q_gpu=q_gpu, gamm=self%rk%gamm(s))
+   else
+      call self%compute_coils_current(q_gpu=q_gpu)
+   endif
    endsubroutine update_ghost
 
    subroutine update_rk_ghost(self, dt, phi_gpu)
