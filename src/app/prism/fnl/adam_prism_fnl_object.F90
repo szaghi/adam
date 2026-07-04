@@ -198,7 +198,7 @@ interface
    real(R8P),               intent(inout) :: laplacian_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Laplacian.
    endsubroutine compute_laplacian_interface_dev
 
-   subroutine compute_residuals_interface_dev(self, q_gpu, dq_gpu, s)
+   subroutine compute_residuals_interface_dev(self, q_gpu, dq_gpu, s, flux_register)
    !< Compute residuals of equation, space operator.
    !<
    !< Inter-realm seam ghost cells are filled by the forest's Phase 2 seam
@@ -206,7 +206,11 @@ interface
    !< data without any peer-realm access. The `realm(:)` optional that
    !< used to thread through this signature has been retired by the
    !< agnostic-dummy seam redesign.
-   import :: prism_fnl_object, R8P, I4P
+   !<
+   !< `flux_register` (issue #23 R3): the forest's flux register for FV seam
+   !< reflux, threaded from end_stage_forest; consumed by the fv_centered
+   !< implementation at the realm's final RK substage, ignored elsewhere.
+   import :: prism_fnl_object, R8P, I4P, flux_register_object
    class(prism_fnl_object), intent(inout)             :: self       !< The equation.
    real(R8P),               intent(inout)             :: q_gpu(1:,         &
                                                                1-self%ngc:,&
@@ -219,6 +223,7 @@ interface
                                                                 1-self%ngc:,&
                                                                 1:) !< Residuals.
    integer(I4P),            intent(in),    optional   :: s          !< Stage counter.
+   class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register for FV seam reflux.
    endsubroutine compute_residuals_interface_dev
 
    subroutine integrate_interface_dev(self)
@@ -1184,7 +1189,7 @@ contains
    endsubroutine compute_laplacian_fv_dev
 
    ! numerical methods, space operators
-   subroutine compute_residuals_fd_centered_dev(self, q_gpu, dq_gpu, s)
+   subroutine compute_residuals_fd_centered_dev(self, q_gpu, dq_gpu, s, flux_register)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
    class(prism_fnl_object), intent(inout)                :: self       !< The equation.
    real(R8P),               intent(inout)                :: q_gpu(1:,         &
@@ -1198,7 +1203,10 @@ contains
                                                                    1-self%ngc:,&
                                                                    1:) !< Residuals.
    integer(I4P),            intent(in),    optional      :: s          !< Stage counter.
+   class(flux_register_object), intent(inout), optional  :: flux_register !< Forest's flux register (interface parity; the
+                                                                          !< FD path does not accumulate seam fluxes).
 
+   if (present(flux_register)) continue ! FV-only machinery; accepted for interface conformance
    if (self%blocks_number > 0) then
       !call self%apply_fwl_correction(q_gpu=q_gpu)
       call self%update_ghost(q_gpu=q_gpu, s=s)
@@ -1830,7 +1838,7 @@ contains
       endsubroutine compute_residuals_fd_centered_dev_kernel
    endsubroutine compute_residuals_fd_centered_dev
 
-   subroutine compute_residuals_fv_centered_dev(self, q_gpu, dq_gpu, s)
+   subroutine compute_residuals_fv_centered_dev(self, q_gpu, dq_gpu, s, flux_register)
    !< Compute residuals, space operator, centered finite volume scheme — FNL device
    !< backend (issue #23 R2). 1:1 structural mirror of
    !< `prism_cpu_object%compute_residuals_fv_centered`: fWL correction + ghost refresh
@@ -1838,8 +1846,10 @@ contains
    !< three staggered face-reconstruction sweeps into `fl{x,y,z}_f_gpu` (the m=0 SOTA
    !< primitive, already `acc routine seq`), flux difference + J source into `dq_gpu`.
    !< PLAIN Maxwell flux variant only — the cleaning variants are refused at dispatch
-   !< (initialize_prism). Inter-realm seam flux accumulation for the reflux register
-   !< is #23 R3 (the `s` stage index is accepted now, consumed then).
+   !< (initialize_prism). Inter-realm seam flux accumulation (issue #23 R3): after the
+   !< face sweeps, at the realm's FINAL RK substage only (α.r1, CPU parity), the seam
+   !< face skins are device-packed, D2H-copied (tiny slabs) and accumulated into the
+   !< HOST-side flux register — see accumulate_seam_fluxes_fv_dev.
    !<
    !< Race discipline (CLAUDE-gpu): the kernels below are MODULE-LEVEL procedures
    !< (not contained here) with constant-bound private gathers — the certified
@@ -1855,9 +1865,11 @@ contains
                                                              1-self%ngc:,&
                                                              1-self%ngc:,&
                                                              1:) !< Residuals.
-   integer(I4P),            intent(in),    optional :: s          !< Stage counter (unused until #23 R3).
+   integer(I4P),            intent(in),    optional :: s          !< Stage counter (gates the seam-flux accumulation).
+   class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register for FV seam reflux.
+   integer(I4P)                                     :: stage_idx  !< Captured stage index (CPU-parity gate).
 
-   if (present(s)) continue ! stage index consumed by the R3 register accumulation
+   stage_idx = 0_I4P ; if (present(s)) stage_idx = s
    if (self%blocks_number > 0) then
       call self%apply_fwl_correction(q_gpu=q_gpu)
       ! bare refresh (no stage time): CPU-parity — compute_residuals_fv_centered
@@ -1879,6 +1891,16 @@ contains
                                  nk=self%nk, ngc=self%ngc, nv_c=self%nv_c,                    &
                                  blocks_number=self%blocks_number,                            &
                                  flxyz_c_gpu=self%flxyz_c_gpu, flz_f_gpu=self%flz_f_gpu)
+      ! Inter-realm seam flux accumulation (issue #23 R3): α.r1 end-of-step gate, CPU
+      ! parity with compute_residuals_fv_centered's hook — accumulate ONLY at the
+      ! realm's final RK substage, from the just-reconstructed face fluxes, BEFORE
+      ! the conservative update consumes them.
+      if (present(flux_register) .and. stage_idx == self%rk%nrk &
+                                 .and. allocated(self%adam%maps%inter_realm_face_register_index)) then
+         if (flux_register%nfaces > 0_I4P) then
+            call accumulate_seam_fluxes_fv_dev(self, flux_register)
+         endif
+      endif
       call fv_flux_diff_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,          &
                                    nv_c=self%nv_c, blocks_number=self%blocks_number,          &
                                    var_jx=self%physics%var_jx, var_jy=self%physics%var_jy,    &
@@ -2063,6 +2085,150 @@ contains
    enddo
    enddo
    endsubroutine fv_flux_diff_dev_kernel
+
+   subroutine accumulate_seam_fluxes_fv_dev(self, flux_register)
+   !< Accumulate end-of-step FV seam face fluxes into the forest's flux register —
+   !< FNL twin of `prism_cpu_object%accumulate_seam_fluxes_fv` (issue #23 R3).
+   !<
+   !< Register crossing (grilled R0 default): the flux register stays HOST-side.
+   !< Per seam (block, fec) hit, a tiny device kernel packs the face skin into a
+   !< contiguous device slab (inner axis fastest — the register's cell order), ONE
+   !< D2H copy (~nv*nface_cells doubles, tens of KB per step) brings it to the
+   !< host, and the shared register machinery does the rest: coarse side →
+   !< `accumulate_coarse_flux` directly; fine side → quadrant offset from the
+   !< coarse partner's `emin`/`emax` + the pure 2:1 restriction
+   !< `restrict_fine_face_to_quadrant` (moved to adam_flux_register_object, shared
+   !< with the CPU backend) → `accumulate_fine_flux`. Fires once per realm per
+   !< step (final-substage gate at the call site). Third-axis register index
+   !< hardcoded to 1 (α.r1 collapsed register), exactly as on CPU.
+   class(prism_fnl_object),     intent(inout) :: self          !< The realm.
+   class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register.
+   real(R8P), pointer                         :: skin_gpu(:,:)   !< Device face-skin slab (nface_cells, nv_c).
+   real(R8P), allocatable                     :: skin(:,:)       !< Host copy of the packed skin.
+   real(R8P), allocatable                     :: flux_slab(:,:)  !< Register-shaped contribution (nv_reg, nface_cells).
+   real(R8P), allocatable                     :: fine_face(:,:,:)!< Fine face flux (nv_c, inner_n, outer_n).
+   integer(I4P)                               :: sgn_idx         !< Signed register index for (b, fec).
+   integer(I4P)                               :: face_idx        !< |sgn_idx| → register face.
+   integer(I4P)                               :: nv_reg          !< Register state-vector width.
+   integer(I4P)                               :: nface_cells     !< Coarse-face skin cell count.
+   integer(I4P)                               :: fec, b, cb      !< Face, block, coarse-partner counters.
+   integer(I4P)                               :: inner_ax, outer_ax !< Tangential axes for this face.
+   integer(I4P)                               :: inner_n, outer_n   !< Cell counts along tangential axes.
+   integer(I4P)                               :: ioff, joff      !< Fine-block quadrant offset ∈ {0,1}.
+   integer(I4P)                               :: c, v, fi, fo    !< Packing counters.
+   integer(I4P)                               :: ierr            !< Device allocation error flag.
+   real(R8P)                                  :: half_in, half_out !< Coarse half-extents (quadrant computation).
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv_c=>self%nv_c)
+   do b=1, self%blocks_number
+      do fec=1, 6
+         sgn_idx = self%adam%maps%inter_realm_face_register_index(b, fec)
+         if (sgn_idx == 0_I4P) cycle
+         face_idx = abs(sgn_idx)
+         if (face_idx > flux_register%nfaces) cycle
+         if (.not. allocated(flux_register%face(face_idx)%F_coarse)) cycle
+         nv_reg      = int(size(flux_register%face(face_idx)%F_coarse, dim=1), I4P)
+         nface_cells = flux_register%face(face_idx)%nface_cells
+         ! Tangential axes per face (inner fastest in the linear index c) — CPU parity.
+         select case (fec)
+         case (1_I4P, 2_I4P) ; inner_ax = 2_I4P ; outer_ax = 3_I4P ; inner_n = nj ; outer_n = nk
+         case (3_I4P, 4_I4P) ; inner_ax = 1_I4P ; outer_ax = 3_I4P ; inner_n = ni ; outer_n = nk
+         case (5_I4P, 6_I4P) ; inner_ax = 1_I4P ; outer_ax = 2_I4P ; inner_n = ni ; outer_n = nj
+         case default ; cycle
+         end select
+
+         call dev_alloc(fptr_dev=skin_gpu, lbounds=[1,1], ubounds=[inner_n*outer_n, nv_c], ierr=ierr)
+         call fv_pack_face_skin_dev_kernel(fec=fec, ni=ni, nj=nj, nk=nk, nv_c=nv_c, b=b,       &
+                                           inner_n=inner_n, outer_n=outer_n,                   &
+                                           flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
+                                           flz_f_gpu=self%flz_f_gpu, skin_gpu=skin_gpu)
+         allocate(skin(1:inner_n*outer_n, 1:nv_c))
+         call dev_memcpy_from_device(dst=skin, src=skin_gpu)
+         call dev_free(skin_gpu, mydev)
+
+         allocate(flux_slab(1:nv_reg, 1:nface_cells))
+         flux_slab = 0._R8P
+         if (sgn_idx > 0_I4P) then
+            ! Coarse side: the packed skin IS the register-order slab (transpose only).
+            do c=1_I4P, nface_cells
+               do v=1_I4P, nv_c
+                  flux_slab(v, c) = skin(c, v)
+               enddo
+            enddo
+            call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
+         else
+            ! Fine side: reshape to (nv_c, inner, outer), 2:1-restrict into this
+            ! block's quadrant of the coarse skin (offset from emin/emax, CPU parity).
+            cb = flux_register%face(face_idx)%coarse_block
+            associate(emin=>self%adam%field%emin, emax=>self%adam%field%emax)
+               half_in  = 0.5_R8P * (emax(inner_ax, cb) - emin(inner_ax, cb))
+               half_out = 0.5_R8P * (emax(outer_ax, cb) - emin(outer_ax, cb))
+               ioff = nint((emin(inner_ax, b) - emin(inner_ax, cb)) / half_in, I4P)
+               joff = nint((emin(outer_ax, b) - emin(outer_ax, cb)) / half_out, I4P)
+            endassociate
+            ioff = max(0_I4P, min(1_I4P, ioff))
+            joff = max(0_I4P, min(1_I4P, joff))
+            allocate(fine_face(1:nv_c, 1:inner_n, 1:outer_n))
+            do fo=1_I4P, outer_n
+               do fi=1_I4P, inner_n
+                  c = (fo - 1_I4P)*inner_n + fi
+                  do v=1_I4P, nv_c
+                     fine_face(v, fi, fo) = skin(c, v)
+                  enddo
+               enddo
+            enddo
+            call restrict_fine_face_to_quadrant(fine_face=fine_face, inner_n=inner_n, outer_n=outer_n, &
+                                                ioff=ioff, joff=joff, slab=flux_slab)
+            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
+            deallocate(fine_face)
+         endif
+         deallocate(skin, flux_slab)
+      enddo
+   enddo
+   endassociate
+   endsubroutine accumulate_seam_fluxes_fv_dev
+
+   subroutine fv_pack_face_skin_dev_kernel(fec, ni, nj, nk, nv_c, b, inner_n, outer_n, &
+                                           flx_f_gpu, fly_f_gpu, flz_f_gpu, skin_gpu)
+   !< Pack one block's face flux skin into a contiguous device slab (issue #23 R3):
+   !< `skin_gpu(c, v)` with `c = (outer-1)*inner_n + inner` — the register cell order,
+   !< identical to the CPU pack (pack_coarse_face / fine_face_cell mappings). Scalar
+   !< element reads/writes only: no private arrays, no section actuals. The `fec`
+   !< branch is uniform per launch (firstprivate scalar). Tiny kernel: one launch per
+   !< seam (block, fec) hit, once per step.
+   integer(I4P), intent(in)    :: fec                        !< Face code 1..6 (-x,+x,-y,+y,-z,+z).
+   integer(I4P), intent(in)    :: ni, nj, nk                 !< Interior cell counts.
+   integer(I4P), intent(in)    :: nv_c                       !< Conservative variables number.
+   integer(I4P), intent(in)    :: b                          !< Block index.
+   integer(I4P), intent(in)    :: inner_n, outer_n           !< Tangential cell counts (inner fastest).
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)  !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)  !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)  !< Z-face fluxes.
+   real(R8P),    intent(inout) :: skin_gpu(1:,1:)            !< Packed skin (inner_n*outer_n, nv_c).
+   integer(I4P)                :: ii, o, v                   !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(2)                    &
+   !$acc& DEVICEVAR(flx_f_gpu, fly_f_gpu, flz_f_gpu, skin_gpu)                &
+   !$acc& firstprivate(fec, ni, nj, nk, nv_c, b, inner_n, outer_n)
+   do o=1, outer_n
+   do ii=1, inner_n
+      select case (fec)
+      case (1_I4P)
+         do v=1, nv_c ; skin_gpu((o-1)*inner_n+ii, v) = flx_f_gpu(b, 0,  ii, o, v) ; enddo ! -x: inner=j, outer=k
+      case (2_I4P)
+         do v=1, nv_c ; skin_gpu((o-1)*inner_n+ii, v) = flx_f_gpu(b, ni, ii, o, v) ; enddo ! +x
+      case (3_I4P)
+         do v=1, nv_c ; skin_gpu((o-1)*inner_n+ii, v) = fly_f_gpu(b, ii, 0,  o, v) ; enddo ! -y: inner=i, outer=k
+      case (4_I4P)
+         do v=1, nv_c ; skin_gpu((o-1)*inner_n+ii, v) = fly_f_gpu(b, ii, nj, o, v) ; enddo ! +y
+      case (5_I4P)
+         do v=1, nv_c ; skin_gpu((o-1)*inner_n+ii, v) = flz_f_gpu(b, ii, o, 0,  v) ; enddo ! -z: inner=i, outer=j
+      case (6_I4P)
+         do v=1, nv_c ; skin_gpu((o-1)*inner_n+ii, v) = flz_f_gpu(b, ii, o, nk, v) ; enddo ! +z
+      endselect
+   enddo
+   enddo
+   endsubroutine fv_pack_face_skin_dev_kernel
 
    ! numerical methods, time operators
    subroutine integrate_blanesmoan_dev(self)
@@ -2520,9 +2686,10 @@ contains
    !< no longer races with peer reads.
    !<
    !< `realm` accepted on contract for parity but unused: the seam has
-   !< already been refreshed by the forest. Reflux for FV is not yet
-   !< implemented on the FNL side (the FV residual path is commented
-   !< out; `compute_residuals_fv_centered_dev` is a follow-up port).
+   !< already been refreshed by the forest. FV seam-flux ACCUMULATION is
+   !< threaded through `flux_register` (issue #23 R3, CPU parity); the
+   !< reflux APPLICATION (`apply_reflux_to_stage_forest`) remains a no-op
+   !< until #23 R4.
    class(prism_fnl_object),     intent(inout)                   :: self          !< The realm.
    integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
    integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count for this step.
@@ -2531,7 +2698,12 @@ contains
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
    if (present(realm)) continue
-   call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k)
+   if (present(flux_register)) then
+      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k, &
+                                      flux_register=flux_register)
+   else
+      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k)
+   endif
    if (self%ib%solids_number>0) then
       call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=k, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
    else
@@ -2720,20 +2892,32 @@ contains
    integer(I4P),                intent(in)    :: stage         !< Integrator stage 1..K_total.
    real(R8P),                   intent(in)    :: dt            !< Time step.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
+   integer(I4P)                                :: f             !< Register face counter.
 
    ! α.r1 end-of-step gate: parity with PRISM-CPU M3. Returns immediately
-   ! for any non-final substage. Body below is a no-op until FNL FV
-   ! reflux lands; the gate is in place for forward consistency.
+   ! for any non-final substage.
    if (stage /= self%rk%nrk) return
+   associate(dt_unused => dt) ! correction application is still a no-op (#23 R4)
+   endassociate
 
-   ! Reference-but-don't-consume the dummies so the no-op body doesn't trip
-   ! an unused-dummy warning under -Wimplicit-procedure / strict modes.
-   if (.false.) then
-      if (stage    < 0_I4P) continue
-      if (dt       < 0._R8P) continue
-      if (flux_register%nfaces < 0_I4P) continue
-      if (associated(self%ngc)) continue
-   endif
+   ! Register-level diagnostic (issue #23 R3): the register is now POPULATED on FNL
+   ! (accumulate_seam_fluxes_fv_dev), but the correction application is still a
+   ! no-op until #23 R4. Print the per-face flux mismatch in the SAME format as the
+   ! CPU apply, so the two backends' register contents are directly comparable from
+   ! the logs — the R3 acceptance instrument.
+   if (.not. flux_register%is_initialized_) return
+   if (flux_register%nfaces == 0_I4P)       return
+   if (.not. allocated(flux_register%face)) return
+   do f=1_I4P, flux_register%nfaces
+      associate(face_f => flux_register%face(f))
+      if (face_f%coarse_realm /= self%realm_index) then
+      elseif (allocated(face_f%F_coarse) .and. allocated(face_f%F_fine_sum)) then
+         call mpih_fnl%print_message('reflux face '//trim(str(f, .true.))//' coarse_block '//                 &
+                                     trim(str(face_f%coarse_block, .true.))//' max|F_coarse-F_fine_sum| = '// &
+                                     trim(str(maxval(abs(face_f%F_coarse(:,:,1) - face_f%F_fine_sum(:,:,1))))))
+      endif
+      endassociate
+   enddo
    endsubroutine apply_reflux_to_stage_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
