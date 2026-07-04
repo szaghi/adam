@@ -1225,11 +1225,13 @@ contains
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
             !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-            !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,gradphi)
+            !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,gradphi,dxyz_b)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
             do i=1,ni
+               ! per-block deltas -> PRIVATE copy (issue #26 G1.c; rationale at the plain-EM branch of this kernel)
+               dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
                !$acc loop seq
                do s=1-s1, 1+s1
                   qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
@@ -1239,7 +1241,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                           &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                           &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1),&
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1),&
                                                  curl=curlD)
@@ -1252,7 +1254,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                           &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                           &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1),&
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1),&
                                                  curl=curlB)
@@ -1262,7 +1264,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
                enddo
-               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                        qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                        divergence=divergenceD)
                !$acc loop seq
@@ -1271,7 +1273,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c)
                enddo
-               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                      qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                      gradient=gradphi)
 
@@ -1296,11 +1298,13 @@ contains
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
             !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-            !$acc&         qsx_x,qsy_y,qsz_z,divergenceB,gradpsi)
+            !$acc&         qsx_x,qsy_y,qsz_z,divergenceB,gradpsi,dxyz_b)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
             do i=1,ni
+               ! per-block deltas -> PRIVATE copy (issue #26 G1.c; rationale at the plain-EM branch of this kernel)
+               dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
                !$acc loop seq
                do s=1-s1, 1+s1
                   qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
@@ -1310,7 +1314,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlD)
@@ -1323,7 +1327,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlB)
@@ -1333,7 +1337,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
                enddo
-               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                        qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                        divergence=divergenceB)
                !$acc loop seq
@@ -1342,7 +1346,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c)
                enddo
-               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                      qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                      gradient=gradpsi)
                dq_gpu(b,i,j,k,VAR_DX) =  curlB(1)/MU0 - q_gpu(b,i,j,k,var_Jx)
@@ -1367,11 +1371,13 @@ contains
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
             !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-            !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,gradphi,gradpsi)
+            !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,gradphi,gradpsi,dxyz_b)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
             do i=1,ni
+               ! per-block deltas -> PRIVATE copy (issue #26 G1.c; rationale at the plain-EM branch of this kernel)
+               dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
                !$acc loop seq
                do s=1-s1, 1+s1
                   qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
@@ -1381,7 +1387,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlD)
@@ -1394,7 +1400,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlB)
@@ -1404,7 +1410,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
                enddo
-               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                        qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                        divergence=divergenceD)
                !$acc loop seq
@@ -1413,7 +1419,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c-1_I4P)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c-1_I4P)
                enddo
-               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                      qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                      gradient=gradphi)
                !$acc loop seq
@@ -1422,7 +1428,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
                enddo
-               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                        qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                        divergence=divergenceB)
                !$acc loop seq
@@ -1431,7 +1437,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c)
                enddo
-               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                      qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                      gradient=gradpsi)
                dq_gpu(b,i,j,k,VAR_DX    ) =  curlB(1)/MU0  - gradphi(1) - q_gpu(b,i,j,k,var_Jx)
@@ -1510,11 +1516,13 @@ contains
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
             !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-            !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,gradphi)
+            !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,gradphi,dxyz_b)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
             do i=1,ni
+               ! per-block deltas -> PRIVATE copy (issue #26 G1.c; rationale at the plain-EM branch of this kernel)
+               dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
                !$acc loop seq
                do s=1-s1, 1+s1
                   qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
@@ -1524,7 +1532,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                           &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                           &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1),&
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1),&
                                                  curl=curlD)
@@ -1537,7 +1545,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                           &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                           &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1),&
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1),&
                                                  curl=curlB)
@@ -1547,7 +1555,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
                enddo
-               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                        qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                        divergence=divergenceD)
                !$acc loop seq
@@ -1556,7 +1564,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c)
                enddo
-               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                      qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                      gradient=gradphi)
 
@@ -1581,11 +1589,13 @@ contains
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
             !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-            !$acc&         qsx_x,qsy_y,qsz_z,divergenceB,gradpsi)
+            !$acc&         qsx_x,qsy_y,qsz_z,divergenceB,gradpsi,dxyz_b)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
             do i=1,ni
+               ! per-block deltas -> PRIVATE copy (issue #26 G1.c; rationale at the plain-EM branch of this kernel)
+               dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
                !$acc loop seq
                do s=1-s1, 1+s1
                   qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
@@ -1595,7 +1605,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlD)
@@ -1608,7 +1618,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlB)
@@ -1618,7 +1628,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
                enddo
-               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                        qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                        divergence=divergenceB)
                !$acc loop seq
@@ -1627,7 +1637,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c)
                enddo
-               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                      qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                      gradient=gradpsi)
                dq_gpu(b,i,j,k,VAR_DX) =  curlB(1) - q_gpu(b,i,j,k,var_Jx)
@@ -1652,11 +1662,13 @@ contains
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
             !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
-            !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,gradphi,gradpsi)
+            !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,gradphi,gradpsi,dxyz_b)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
             do i=1,ni
+               ! per-block deltas -> PRIVATE copy (issue #26 G1.c; rationale at the plain-EM branch of this kernel)
+               dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
                !$acc loop seq
                do s=1-s1, 1+s1
                   qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
@@ -1666,7 +1678,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlD)
@@ -1679,7 +1691,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlB)
@@ -1689,7 +1701,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
                enddo
-               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                        qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                        divergence=divergenceD)
                !$acc loop seq
@@ -1698,7 +1710,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c-1_I4P)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c-1_I4P)
                enddo
-               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                      qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                      gradient=gradphi)
                !$acc loop seq
@@ -1707,7 +1719,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
                enddo
-               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                        qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                        divergence=divergenceB)
                !$acc loop seq
@@ -1716,7 +1728,7 @@ contains
                   qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,nv_c)
                   qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,nv_c)
                enddo
-               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                      &
+               call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                                      qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                                      gradient=gradpsi)
                dq_gpu(b,i,j,k,VAR_DX    ) =  curlB(1) - gradphi(1) - q_gpu(b,i,j,k,var_Jx)
@@ -1737,11 +1749,13 @@ contains
             ! dB/dt = -curl(D)
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
             !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                             &
-            !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)
+            !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,dxyz_b)
             do b=1,blocks_number
             do k=1,nk
             do j=1,nj
             do i=1,ni
+               ! per-block deltas -> PRIVATE copy (issue #26 G1.c; rationale at the plain-EM branch of this kernel)
+               dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
                !$acc loop seq
                do s=1-s1, 1+s1
                   qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
@@ -1751,7 +1765,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlD)
@@ -1764,7 +1778,7 @@ contains
                   qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
                   qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
                enddo
-               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),                                            &
+               call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
                                                  qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
                                                  qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
                                                  curl=curlB)

@@ -69,6 +69,11 @@ REPO_ROOT="$(cd "$REGRESSION_DIR/../../../.." && pwd)" || {
    exit 2
 }
 
+# GPU race-shape lint gate (issue #26 G1.d): fail the sweep BEFORE any run if a
+# forbidden device-code pattern reappears — the gate fires at the first firewall
+# run, where FNL development actually happens (no CI GPU runners).
+"$REGRESSION_DIR/../../lint/check-gpu-race-shapes.sh"
+
 if ! command -v mpirun >/dev/null 2>&1; then
    echo "ERROR: mpirun not on PATH" >&2
    exit 2
