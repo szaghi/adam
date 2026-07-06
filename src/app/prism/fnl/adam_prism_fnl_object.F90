@@ -1974,6 +1974,9 @@ contains
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
    !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
    !$acc& private(qv, fv, sir)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu, flxyz_c_gpu) &
+   !$omp& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi) &
+   !$omp& private(qv, fv, sir)
    do b=1, blocks_number
    do k=1-ngc, nk+ngc
    do j=1-ngc, nj+ngc
@@ -2011,6 +2014,9 @@ contains
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(flxyz_c_gpu, flx_f_gpu) &
    !$acc& firstprivate(s1, ni, nj, nk, ngc, nv_c, blocks_number)                             &
    !$acc& private(qs)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(flxyz_c_gpu, flx_f_gpu) &
+   !$omp& firstprivate(s1, ni, nj, nk, ngc, nv_c, blocks_number) &
+   !$omp& private(qs)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -2041,6 +2047,9 @@ contains
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(flxyz_c_gpu, fly_f_gpu) &
    !$acc& firstprivate(s1, ni, nj, nk, ngc, nv_c, blocks_number)                             &
    !$acc& private(qs)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(flxyz_c_gpu, fly_f_gpu) &
+   !$omp& firstprivate(s1, ni, nj, nk, ngc, nv_c, blocks_number) &
+   !$omp& private(qs)
    do b=1, blocks_number
    do k=1, nk
    do j=0, nj
@@ -2071,6 +2080,9 @@ contains
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(flxyz_c_gpu, flz_f_gpu) &
    !$acc& firstprivate(s1, ni, nj, nk, ngc, nv_c, blocks_number)                             &
    !$acc& private(qs)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(flxyz_c_gpu, flz_f_gpu) &
+   !$omp& firstprivate(s1, ni, nj, nk, ngc, nv_c, blocks_number) &
+   !$omp& private(qs)
    do b=1, blocks_number
    do k=0, nk
    do j=1, nj
@@ -2108,6 +2120,9 @@ contains
    !$acc parallel loop independent gang vector collapse(4)                              &
    !$acc& DEVICEVAR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)            &
    !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz)
+   !$omp OMPLOOP collapse(4) &
+   !$omp& DEVICEPTR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu) &
+   !$omp& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -2253,6 +2268,9 @@ contains
    !$acc parallel loop independent gang vector collapse(2)                    &
    !$acc& DEVICEVAR(flx_f_gpu, fly_f_gpu, flz_f_gpu, skin_gpu)                &
    !$acc& firstprivate(fec, ni, nj, nk, nv_c, b, inner_n, outer_n)
+   !$omp OMPLOOP collapse(2) &
+   !$omp& DEVICEPTR(flx_f_gpu, fly_f_gpu, flz_f_gpu, skin_gpu) &
+   !$omp& firstprivate(fec, ni, nj, nk, nv_c, b, inner_n, outer_n)
    do o=1, outer_n
    do ii=1, inner_n
       select case (fec)
@@ -2294,6 +2312,8 @@ contains
    !$acc parallel loop independent gang vector          &
    !$acc& DEVICEVAR(delta_gpu, q_gpu)                   &
    !$acc& firstprivate(axis, sgn, b, ni, nj, nk, nv_reg, nface_cells, scale)
+   !$omp OMPLOOP DEVICEPTR(delta_gpu, q_gpu) &
+   !$omp& firstprivate(axis, sgn, b, ni, nj, nk, nv_reg, nface_cells, scale)
    do c=1, nface_cells
       c0 = c - 1
       select case (axis)

@@ -248,6 +248,7 @@ contains
    integer(I4P)             :: p3(1:3)          !< Compatible anchor position per direction.
    integer(I4P)             :: ii, jj, kk       !< Footprint counters.
    !$acc routine seq
+   !$omp declare target
 
    call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3)
    if (regime == SEAM_FILL_COMPATIBLE) then
