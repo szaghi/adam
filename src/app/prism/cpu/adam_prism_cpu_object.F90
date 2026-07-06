@@ -2325,7 +2325,8 @@ contains
              dxyz=>self%adam%field%dxyz,                                                                              &
              s1=>self%fdv_half_stencils(1),                                                                           &
              s4=>self%fdv_half_stencils(4),                                                                           &
-             chi =>self%physics%chi, constrained_transport_D=>self%numerics%constrained_transport_D,                  &
+             chi =>self%physics%chi, c_r=>self%physics%c_r,                                                          &
+             constrained_transport_D=>self%numerics%constrained_transport_D,                                         &
              constrained_transport_B=>self%numerics%constrained_transport_B,                                          &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
    if (blocks_number > 0) then
@@ -2359,7 +2360,7 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1)                                  !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2)                                  !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3)                                  !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceD
+               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2393,7 +2394,7 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1) - gradpsi(1)        !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2) - gradpsi(2)        !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3) - gradpsi(3)        !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceB
+               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2439,8 +2440,8 @@ contains
             ! sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b)      = -curlD(3) - gradpsi(3)                     !-
             ! sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c-1_I4P,i,j,k,b)  = -(chi)**2*divergenceD
-               dq(nv_c,i,j,k,b)        = -(chi)**2*divergenceB
+               dq(nv_c-1_I4P,i,j,k,b)  = -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c-1_I4P,i,j,k,b)
+               dq(nv_c,i,j,k,b)        = -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2555,7 +2556,7 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                                 !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                                 !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                                 !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceD
+               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2588,7 +2589,7 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)       !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)       !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)       !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceB
+               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2628,8 +2629,8 @@ contains
                dq(VAR_BX,    i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)                    !-sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,    i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)                    !-sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,    i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)                    !-sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c-1_I4P,i,j,k,b) = -(chi*C0)**2*divergenceD
-               dq(nv_c,      i,j,k,b) = -(chi*C0)**2*divergenceB
+               dq(nv_c-1_I4P,i,j,k,b) = -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c-1_I4P,i,j,k,b)
+               dq(nv_c,      i,j,k,b) = -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2717,6 +2718,12 @@ contains
          endif
       endif
    endif
+   ! Issue #29: the matched-difference-operator 2:1-seam correction (E3) was removed
+   ! here — measured eigenvalue-unstable (both-operator horizon diverged to 1e18),
+   ! the non-SBP construction Mattsson-Carpenter 2010 / Ranocha 2019 predict. The
+   ! prototype is archived (untracked/c3-fine-side-prototype-*.bak) and its reusable
+   ! seam derivative primitives live in adam_fdv_operators_library. The standing seam
+   ! div(B) fix is fix-class A (SBP-norm-compatible seam + weak SAT), still to build.
    endassociate
    endsubroutine compute_residuals_fd_centered
 

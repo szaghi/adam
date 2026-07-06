@@ -68,7 +68,12 @@ type :: prism_physics_object
    integer(I4P)                :: nv_cl = 0_I4P          !< Number of divergence cleaning variables in q vector.
    integer(I4P)                :: nv_pic = 0_I4P         !< Number of PIC variables in q vector.
    integer(I4P)                :: var_Jx, var_Jy, var_Jz !< Indices of current density components in q vector.
-   real(R8P)                   :: chi                    !< Speed coefficient for D & B div-cleaning.
+   real(R8P)                   :: chi                    !< Speed coefficient for D & B div-cleaning (Dedner c_h).
+   real(R8P)                   :: c_r = 0.18_R8P         !< Dedner GLM parabolic-damping ratio c_p^2/c_h^2 (dimensionless,
+                                                         !< per cell size). psi decays with rate c_h/(c_r*h). Dedner 2002
+                                                         !< recommend ~0.18 (CONSTANT UNVERIFIED vs the paper — tunable via
+                                                         !< [physics].c_r; the damping is the parabolic half of full GLM,
+                                                         !< previously absent — issue #29 fix-class E).
    !real(R8P)                   :: eta                   !< Coefficiente for B div-cleaning.
    real(R8P)                   :: evmax                  !< Maximum signal speed (eigenvalue).
    real(R8P)                   :: L0                     !< Maximum signal speed (eigenvalue).
@@ -452,6 +457,8 @@ contains
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+         ! Optional Dedner parabolic-damping ratio (issue #29 E). Absent → keep the 0.18 default.
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='c_r', val=self%c_r, error=error)
          !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
          !if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
 
@@ -471,6 +478,8 @@ contains
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+         ! Optional Dedner parabolic-damping ratio (issue #29 E). Absent → keep the 0.18 default.
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='c_r', val=self%c_r, error=error)
          !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
          !if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
 
