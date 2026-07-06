@@ -20,7 +20,7 @@ program test_amr_reflux_restrict
 !<   3. Disjoint tiling: the 4 quadrants together cover every coarse cell exactly
 !<      once (no gap, no overlap).
 
-use adam_prism_cpu_object, only : restrict_fine_face_to_quadrant
+use adam_flux_register_object, only : restrict_fine_face_to_quadrant
 use adam_globals, only : mpih
 use penf, only : I4P, R8P
 

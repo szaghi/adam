@@ -106,6 +106,14 @@ contains
       self%ark(1) = 1._R8P        ; self%brk(1) = 0._R8P        ; self%crk(1) = 1._R8P
       self%ark(2) = 0.75_R8P      ; self%brk(2) = 0.25_R8P      ; self%crk(2) = 0.25_R8P
       self%ark(3) = 1._R8P/3._R8P ; self%brk(3) = 2._R8P/3._R8P ; self%crk(3) = 2._R8P/3._R8P
+   case(RK_SSP_11) ! 1 stage, 1st order SSP (forward Euler, issue #25); mirrors adam_rk_object
+      self%nrk = 1
+      allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
+      self%alph = 0._R8P
+      self%beta = 0._R8P
+      self%gamm = 0._R8P
+
+      self%beta(1) = 1._R8P
    case(RK_SSP_22) ! 2 stages, 2nd order SSP
       self%nrk = 2
       allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
@@ -120,7 +128,7 @@ contains
 
       self%gamm(2) = 1._R8P
    case(RK_SSP_33) ! 3 stages, 3rd order SSP
-      self%nrk = 2
+      self%nrk = 3 ! was 2 (issue #25 finding): out-of-bounds writes below, twin of adam_rk_object
       allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
       self%alph = 0._R8P
       self%beta = 0._R8P
@@ -166,14 +174,15 @@ contains
       self%ssa = [w1/2.0_R8P,(w0+w1)/2.0_R8P,(w0+w1)/2.0_R8P,w1/2.0_R8P]
       self%ssb = [w1,w0,w1]
    case default
-      !@TODO write error trap
+      ! issue #25: fail fast on an unknown scheme (twin of adam_rk_object%initialize).
+      call mpih%error_stop(msg=': unknown Runge-Kutta BC scheme "'//trim(adjustl(self%scheme))//'"')
    endselect
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c, nb=>field%nb, nrk=>self%nrk)
    select case(self%scheme)
    case(RK_1, RK_2, RK_3) ! low storage, only stage 1 is necessary
 
-   case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
       call allocate_variable(var=self%q_bc_rk,          &
                              ulb=reshape([1,nv_c,       &
                                           1-ngc,ni+ngc, &

@@ -66,11 +66,13 @@ use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 ! third party modules
+use :: mpi
 use :: penf
 
 implicit none
 private
 public :: flux_register_object
+public :: restrict_fine_face_to_quadrant
 public :: flux_register_face_t
 public :: SEAM_KIND_INTRA_REALM_AMR, SEAM_KIND_INTER_REALM
 
@@ -99,7 +101,10 @@ type :: flux_register_face_t
    !< time of accumulation, so the two arrays are pointwise-comparable.
    integer(I4P) :: seam_kind    = 0_I4P  !< SEAM_KIND_* (set by `register_face`).
    integer(I4P) :: coarse_realm = 0_I4P  !< Realm owning the coarse side (1-based; 0 sentinel = unset).
-   integer(I4P) :: coarse_block = 0_I4P  !< Block index on the coarse side.
+   integer(I4P) :: coarse_rank  = -1_I4P !< MPI rank owning the coarse block (issue #28 D4; -1 sentinel = unset).
+                                         !< `coarse_block` is a LOCAL field slot on THIS rank only — the apply
+                                         !< hooks must gate on `coarse_rank == mpih%myrank` before touching it.
+   integer(I4P) :: coarse_block = 0_I4P  !< Block index on the coarse side (owner-rank-LOCAL).
    integer(I4P) :: coarse_face  = 0_I4P  !< Face code (FACE_X_MAX..FACE_Z_MIN from adam_maps_object).
    integer(I4P) :: fine_realm   = 0_I4P  !< Realm owning the fine side (1-based; 0 sentinel = unset).
    integer(I4P), allocatable :: fine_block(:)        !< Fine blocks covering this coarse face (size 4 for 2:1 refinement in 3D).
@@ -165,7 +170,7 @@ contains
    self%is_initialized_ = .true.
    endsubroutine initialize
 
-   subroutine register_face(self, face_index, seam_kind, coarse_realm, coarse_block, coarse_face, &
+   subroutine register_face(self, face_index, seam_kind, coarse_realm, coarse_rank, coarse_block, coarse_face, &
                             fine_realm, fine_block, nface_cells, nv, n_stages)
    !< Populate one entry in `face(:)`; called by topology pass at init/regrid.
    !<
@@ -199,7 +204,8 @@ contains
    integer(I4P),                intent(in)              :: face_index    !< Index into `face(:)` to populate (1-based, 1..nfaces).
    integer(I4P),                intent(in)              :: seam_kind     !< SEAM_KIND_*.
    integer(I4P),                intent(in)              :: coarse_realm  !< Realm owning the coarse side (1-based).
-   integer(I4P),                intent(in)              :: coarse_block  !< Block index on the coarse side.
+   integer(I4P),                intent(in)              :: coarse_rank   !< MPI rank owning the coarse block (issue #28 D4).
+   integer(I4P),                intent(in)              :: coarse_block  !< Block index on the coarse side (owner-rank-LOCAL).
    integer(I4P),                intent(in)              :: coarse_face   !< Face code (FACE_X_MAX..FACE_Z_MIN).
    integer(I4P),                intent(in)              :: fine_realm    !< Realm owning the fine side (1-based).
    integer(I4P),                intent(in),    optional :: fine_block(:) !< Fine blocks covering the coarse face;
@@ -230,6 +236,7 @@ contains
    associate(slot => self%face(face_index))
    slot%seam_kind    = seam_kind
    slot%coarse_realm = coarse_realm
+   slot%coarse_rank  = coarse_rank
    slot%coarse_block = coarse_block
    slot%coarse_face  = coarse_face
    slot%fine_realm   = fine_realm
@@ -307,23 +314,51 @@ contains
    endsubroutine accumulate_fine_flux
 
    subroutine reduce_fine_sums(self)
-   !< MPI-reduce `F_fine_sum` across ranks so the coarse-side rank has the
-   !< full sum for the correction. Under the current replicated-forest
-   !< layout (both ranks own both realms) every accumulator is already
-   !< complete on every rank — this routine is a no-op in that case.
-   !< Cross-rank reduce is left to a follow-up commit that adds
-   !< disjoint-rank carve-out.
+   !< Complete the per-face accumulators across MPI ranks (issue #28 D3).
+   !<
+   !< Blocks are MPI-distributed inside a realm, and after #28 D1 the
+   !< accumulation is ownership-disjoint: every (block, face) contribution is
+   !< accumulated by EXACTLY ONE rank (the block's owner), all other ranks
+   !< hold zeros in that slot. An in-place SUM-allreduce of each face's
+   !< accumulators is therefore the exact completion — the coarse owner
+   !< receives the fine halves accumulated on other ranks, and every rank
+   !< ends holding the same complete register, which makes the end-of-step
+   !< diagnostics rank-invariant and lets the ownership-gated apply
+   !< (#28 D4) read complete data.
+   !<
+   !< Intra-realm AMR registers are REPLICATED (identical face list on every
+   !< rank — the registration pass walks the replicated tree), so the
+   !< per-face collectives match across ranks by construction. Inter-realm
+   !< registers are NOT replicated: `register_inter_realm_seams` registers
+   !< each rank's OWN realm-a-local seam blocks, so face lists differ per
+   !< rank and a per-face collective would not match. Those registers hold
+   !< zeros today (no FV inter-realm case exists; the FD path never
+   !< accumulates), so the reduce SKIPS them, preserving the pre-#28
+   !< replicated-forest semantics. Composing both seam kinds in one forest
+   !< is structurally excluded until the two registration passes share a
+   !< single `initialize` (see `register_intra_realm_amr_seams`).
    !<
    !< The reduce happens here (not in `apply_reflux_corrections` on
    !< `forest_object`) because it is purely register-internal: it
-   !< exchanges accumulator data between ranks owning copies of the
+   !< exchanges accumulator data between ranks owning parts of the
    !< same face entry, without any realm-side q access.
    class(flux_register_object), intent(inout) :: self !< The register.
+   integer(I4P)                               :: f    !< Face counter.
+   integer(I4P)                               :: n    !< Accumulator element count.
+   integer(I4P)                               :: ierr !< MPI error code.
 
    if (.not. self%is_initialized_) return
    if (self%nfaces == 0_I4P)        return
-   ! Replicated-forest layout: no cross-rank reduce needed. The skeleton
-   ! is in place for the disjoint-rank follow-up.
+   if (.not. allocated(self%face))  return
+   if (mpih%procs_number <= 1_I4P)  return
+   if (any(self%face(1:self%nfaces)%seam_kind == SEAM_KIND_INTER_REALM)) return
+   do f = 1_I4P, self%nfaces
+      if (.not. allocated(self%face(f)%F_coarse))   cycle
+      if (.not. allocated(self%face(f)%F_fine_sum)) cycle
+      n = int(size(self%face(f)%F_coarse), I4P)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, self%face(f)%F_coarse,   n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, self%face(f)%F_fine_sum, n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ierr)
+   enddo
    endsubroutine reduce_fine_sums
 
    subroutine reset(self)
@@ -361,4 +396,50 @@ contains
    self%nfaces = 0_I4P
    self%is_initialized_ = .false.
    endsubroutine destroy
+   ! coarse-fine seam reflux helper (moved here from adam_prism_cpu_object, issue #23 R3:
+   ! pure 2:1 face-flux restriction needed by BOTH backends' seam-flux accumulation;
+   ! unit-tested by test_amr_reflux_restrict)
+   pure subroutine restrict_fine_face_to_quadrant(fine_face, inner_n, outer_n, ioff, joff, slab)
+   !< 2:1-restrict one fine block's tangential face flux into its (ioff,joff)
+   !< quadrant of the coarse-face skin slab (#13 §7.5 M3).
+   !<
+   !< `fine_face(1:nv, 1:inner_n, 1:outer_n)` is the fine block's face flux on the
+   !< two tangential axes (inner fastest). Each coarse cell of the quadrant gets
+   !< the arithmetic mean of the 2x2 fine cells under it; the coarse-skin slab is
+   !< sized `(1:nv, 1:inner_n*outer_n)` with the linear index `c = (oc-1)*inner_n+ic`
+   !< (the SAME convention `accumulate_seam_fluxes_fv` packs the coarse face with),
+   !< and only this block's quadrant is written — cells outside stay untouched, so
+   !< the four fine blocks of a 2:1 face fill disjoint quadrants that together
+   !< cover the whole coarse face exactly once.
+   !<
+   !< Conservative averaging (the 0.25 factor) is the correct face-FLUX restriction:
+   !< the coarse-face flux per unit area equals the mean of the fine-face fluxes
+   !< per unit area covering it (Berger-Colella 1989 §4; Olivares 2019 Eq. 26-27),
+   !< so `F_coarse - F_fine_sum` telescopes to round-off for a consistent scheme.
+   real(R8P),    intent(in)    :: fine_face(:,:,:) !< Fine face flux (nv, inner_n, outer_n).
+   integer(I4P), intent(in)    :: inner_n, outer_n !< Coarse-face tangential cell counts.
+   integer(I4P), intent(in)    :: ioff, joff       !< Quadrant offset along (inner, outer) ∈ {0,1}.
+   real(R8P),    intent(inout) :: slab(:,:)        !< Coarse-skin slab (nv, inner_n*outer_n); quadrant written.
+   integer(I4P)                :: ic, oc, v, c_coarse, nv_ !< Counters / coarse linear index.
+   integer(I4P)                :: fi, fo, di, do_  !< Fine cell indices and 2x2 offsets.
+
+   nv_ = int(size(fine_face, dim=1), I4P)
+   do oc = 1_I4P, outer_n/2_I4P
+      do ic = 1_I4P, inner_n/2_I4P
+         c_coarse = (joff*outer_n/2_I4P + oc - 1_I4P) * inner_n + (ioff*inner_n/2_I4P + ic)
+         do v = 1_I4P, nv_
+            slab(v, c_coarse) = 0._R8P
+            do do_ = 0_I4P, 1_I4P
+               fo = 2_I4P*oc - 1_I4P + do_
+               do di = 0_I4P, 1_I4P
+                  fi = 2_I4P*ic - 1_I4P + di
+                  slab(v, c_coarse) = slab(v, c_coarse) + fine_face(v, fi, fo)
+               enddo
+            enddo
+            slab(v, c_coarse) = 0.25_R8P * slab(v, c_coarse)
+         enddo
+      enddo
+   enddo
+   endsubroutine restrict_fine_face_to_quadrant
+
 endmodule adam_flux_register_object

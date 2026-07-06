@@ -16,6 +16,7 @@ public :: rk_object
 public :: RK_1
 public :: RK_2
 public :: RK_3
+public :: RK_SSP_11
 public :: RK_SSP_22
 public :: RK_SSP_33
 public :: RK_SSP_54
@@ -24,6 +25,7 @@ public :: RK_YOSHIDA
 character(len=13), parameter :: RK_1       ="runge-kutta-1"       !< Parameter of time scheme, Runge-Kutta 1.
 character(len=13), parameter :: RK_2       ="runge-kutta-2"       !< Parameter of time scheme, Runge-Kutta 2.
 character(len=13), parameter :: RK_3       ="runge-kutta-3"       !< Parameter of time scheme, Runge-Kutta 3.
+character(len=18), parameter :: RK_SSP_11  ="runge-kutta-ssp-11"  !< Parameter of time scheme, Runge-Kutta SSP 11 (forward Euler).
 character(len=18), parameter :: RK_SSP_22  ="runge-kutta-ssp-22"  !< Parameter of time scheme, Runge-Kutta SSP 22.
 character(len=18), parameter :: RK_SSP_33  ="runge-kutta-ssp-33"  !< Parameter of time scheme, Runge-Kutta SSP 33.
 character(len=18), parameter :: RK_SSP_54  ="runge-kutta-ssp-54"  !< Parameter of time scheme, Runge-Kutta SSP 54.
@@ -334,6 +336,16 @@ contains
       self%ark(1) = 1._R8P        ; self%brk(1) = 0._R8P        ; self%crk(1) = 1._R8P
       self%ark(2) = 0.75_R8P      ; self%brk(2) = 0.25_R8P      ; self%crk(2) = 0.25_R8P
       self%ark(3) = 1._R8P/3._R8P ; self%brk(3) = 2._R8P/3._R8P ; self%crk(3) = 2._R8P/3._R8P
+   case(RK_SSP_11) ! 1 stage, 1st order SSP (forward Euler): the 1-stage debugging
+                   ! instrument of the staged forest path (issue #25); alph = Butcher A = 0,
+                   ! beta = Butcher b = 1, gamm = Butcher c = 0.
+      self%nrk = 1
+      allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
+      self%alph = 0._R8P
+      self%beta = 0._R8P
+      self%gamm = 0._R8P
+
+      self%beta(1) = 1._R8P
    case(RK_SSP_22) ! 2 stages, 2nd order SSP
       self%nrk = 2
       allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
@@ -348,7 +360,8 @@ contains
 
       self%gamm(2) = 1._R8P
    case(RK_SSP_33) ! 3 stages, 3rd order SSP
-      self%nrk = 2
+      self%nrk = 3 ! was 2 (issue #25 finding): beta(3)/alph(3,:)/gamm(3) below wrote OUT OF
+                   ! BOUNDS of nrk=2 allocations -- silent heap corruption for any SSP-33 user
       allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
       self%alph = 0._R8P
       self%beta = 0._R8P
@@ -394,7 +407,9 @@ contains
       self%ssa = [w1/2.0_R8P,(w0+w1)/2.0_R8P,(w0+w1)/2.0_R8P,w1/2.0_R8P]
       self%ssb = [w1,w0,w1]
    case default
-      !@TODO write error trap
+      ! issue #25: an unknown scheme used to fall through SILENTLY (default nrk, no
+      ! coefficient arrays) and crash far from the cause; fail fast at initialization.
+      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//trim(adjustl(self%scheme))//'"')
    endselect
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, nb=>field%nb, nrk=>self%nrk)
@@ -408,7 +423,7 @@ contains
                                           1,nb,         &
                                           1,1],[2,6]),  &
                              msg=mpih%myrankstr//'rk_object%initialize allocate q_rk')
-   case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
       call allocate_variable(var=self%q_rk,              &
                              ulb=reshape([1,nv,          &
                                           1-ngc,ni+ngc,  &

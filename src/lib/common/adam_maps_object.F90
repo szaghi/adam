@@ -206,6 +206,22 @@ type :: maps_object
                                                                      !< (block, face_1_6) → signed flux register face index; 0 = not
                                                                      !< a seam face, +idx = coarse side, -idx = fine side.
    !
+   ! Fine-side 2:1 quadrant offsets for the intra-realm AMR reflux (issue #28).
+   !
+   ! For every LOCALLY-OWNED fine block whose `inter_realm_face_register_index`
+   ! entry is negative (fine side of a 2:1 AMR seam), this table carries the
+   ! block's quadrant offset (inner, outer) ∈ {0,1}² within the coarse partner's
+   ! face skin, precomputed at registration time from the two blocks' Morton
+   ! codes (`coord_fine − 2·coord_coarse` along each tangential axis). The
+   ! accumulation hooks (`accumulate_seam_fluxes_fv` and its FNL twin) read the
+   ! offsets from here instead of deriving them from the coarse block's
+   ! `emin/emax` — the coarse block may live on ANOTHER RANK at np>1, where its
+   ! local geometry arrays are meaningless (issue #28 defect D2).
+   integer(I4P), allocatable :: amr_seam_quadrant(:,:,:)
+                                                                     !< (1:2, block, face_1_6) → fine-block quadrant offset
+                                                                     !< (inner, outer) ∈ {0,1}²; meaningful only where
+                                                                     !< `inter_realm_face_register_index` < 0.
+   !
    ! Seam ghost-cell maps — agnostic-dummy redesign.
    !
    ! These supersede `inter_realm_ghost_cell` (which remains allocated during

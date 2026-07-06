@@ -99,7 +99,9 @@ contains
    msg_ = '' ; if (present(msg)) msg_ = msg
    write(stderr, '(A)') self%myrankstr//'error stop '//msg_
    call self%finalize
-   stop
+   ! issue #25: plain `stop` exits with code 0 -- every error_stop looked SUCCESSFUL to
+   ! shells/harnesses/CI. A failed run must report a nonzero exit code.
+   stop 1
    endsubroutine error_stop
 
    subroutine finalize(self)

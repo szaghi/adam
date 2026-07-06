@@ -13,7 +13,6 @@ use :: mpi
 implicit none
 private
 public :: prism_cpu_object
-public :: restrict_fine_face_to_quadrant !< Pure 2:1 flux restriction (exposed for unit testing).
 
 ! pointer (abstract) procedures
 procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_maxwell=>null() !< Compute convective fluxes.
@@ -101,49 +100,7 @@ interface
 endinterface
 
 contains
-   ! coarse-fine seam reflux helpers (module-level so they can be unit-tested)
-   pure subroutine restrict_fine_face_to_quadrant(fine_face, inner_n, outer_n, ioff, joff, slab)
-   !< 2:1-restrict one fine block's tangential face flux into its (ioff,joff)
-   !< quadrant of the coarse-face skin slab (#13 §7.5 M3).
-   !<
-   !< `fine_face(1:nv, 1:inner_n, 1:outer_n)` is the fine block's face flux on the
-   !< two tangential axes (inner fastest). Each coarse cell of the quadrant gets
-   !< the arithmetic mean of the 2x2 fine cells under it; the coarse-skin slab is
-   !< sized `(1:nv, 1:inner_n*outer_n)` with the linear index `c = (oc-1)*inner_n+ic`
-   !< (the SAME convention `accumulate_seam_fluxes_fv` packs the coarse face with),
-   !< and only this block's quadrant is written — cells outside stay untouched, so
-   !< the four fine blocks of a 2:1 face fill disjoint quadrants that together
-   !< cover the whole coarse face exactly once.
-   !<
-   !< Conservative averaging (the 0.25 factor) is the correct face-FLUX restriction:
-   !< the coarse-face flux per unit area equals the mean of the fine-face fluxes
-   !< per unit area covering it (Berger-Colella 1989 §4; Olivares 2019 Eq. 26-27),
-   !< so `F_coarse - F_fine_sum` telescopes to round-off for a consistent scheme.
-   real(R8P),    intent(in)    :: fine_face(:,:,:) !< Fine face flux (nv, inner_n, outer_n).
-   integer(I4P), intent(in)    :: inner_n, outer_n !< Coarse-face tangential cell counts.
-   integer(I4P), intent(in)    :: ioff, joff       !< Quadrant offset along (inner, outer) ∈ {0,1}.
-   real(R8P),    intent(inout) :: slab(:,:)        !< Coarse-skin slab (nv, inner_n*outer_n); quadrant written.
-   integer(I4P)                :: ic, oc, v, c_coarse, nv_ !< Counters / coarse linear index.
-   integer(I4P)                :: fi, fo, di, do_  !< Fine cell indices and 2x2 offsets.
-
-   nv_ = int(size(fine_face, dim=1), I4P)
-   do oc = 1_I4P, outer_n/2_I4P
-      do ic = 1_I4P, inner_n/2_I4P
-         c_coarse = (joff*outer_n/2_I4P + oc - 1_I4P) * inner_n + (ioff*inner_n/2_I4P + ic)
-         do v = 1_I4P, nv_
-            slab(v, c_coarse) = 0._R8P
-            do do_ = 0_I4P, 1_I4P
-               fo = 2_I4P*oc - 1_I4P + do_
-               do di = 0_I4P, 1_I4P
-                  fi = 2_I4P*ic - 1_I4P + di
-                  slab(v, c_coarse) = slab(v, c_coarse) + fine_face(v, fi, fo)
-               enddo
-            enddo
-            slab(v, c_coarse) = 0.25_R8P * slab(v, c_coarse)
-         enddo
-      enddo
-   enddo
-   endsubroutine restrict_fine_face_to_quadrant
+   ! (restrict_fine_face_to_quadrant moved to adam_flux_register_object, issue #23 R3)
 
    ! AMR methods (amr_update + mark_by_geometry live on prism_common_object since issue #22 F0)
    subroutine mark_by_j_vec_total_variation(self, tv_tol, delta_type, delta_fine, delta_coarse, threshold, do_init)
@@ -267,7 +224,7 @@ contains
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%rk%scheme)
          case(RK_1, RK_2, RK_3)                ; self%integrate => integrate_rk_ls
-         case(RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate => integrate_rk_ssp
+         case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate => integrate_rk_ssp
          case(RK_YOSHIDA)                      ; self%integrate => integrate_rk_yoshida
          endselect
       endselect
@@ -1083,15 +1040,29 @@ contains
    !< Number of integrator stages this realm exposes per step.
    !<
    !< For the multi-realm path the forest drives the stage loop, so it
-   !< needs to know `K` up front. Currently only `runge-kutta-ssp-*` is
-   !< split into per-stage TBPs (`begin_stage_forest` / `end_stage_forest`);
-   !< for RK realms `K = rk%nrk`. Other integrators (Yoshida, Leapfrog,
-   !< Blanes-Moan, CFM) will error-stop on the multi-realm path until they
-   !< are split as well.
+   !< needs to know `K` up front. ONLY `runge-kutta-ssp-*` is split into
+   !< per-stage TBPs (`begin_stage_forest` / `end_stage_forest`): the
+   !< staged protocol reads `gamm(k)` per stage and applies `beta(:)` in
+   !< `close_step_forest` — coefficients the low-storage schemes do not
+   !< even allocate (issue #25: LS schemes used to pass this gate silently
+   !< and crash/corrupt far downstream on both backends). The forest
+   !< queries this TBP only on the STAGED branch, so refusing here leaves
+   !< the fused N=1/no-seam fast path — where LS schemes legitimately run —
+   !< untouched. Other integrators (Yoshida, Leapfrog, Blanes-Moan, CFM)
+   !< must error-stop here as well when they become selectable.
    class(prism_cpu_object), intent(in) :: self !< The realm.
    integer(I4P)                        :: K    !< Number of integrator stages per step.
 
-   K = self%rk%nrk
+   select case(self%rk%scheme)
+   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
+      K = self%rk%nrk
+   case default
+      K = 0
+      call mpih%error_stop(msg=': RK scheme "'//trim(adjustl(self%rk%scheme))//'" is not stage-splittable: '// &
+                               'the staged forest path (multi-realm, or intra-realm AMR seam faces) requires '// &
+                               'an SSP scheme (runge-kutta-ssp-*); low-storage schemes run only on the fused '// &
+                               'single-realm/no-seam fast path')
+   endselect
    endfunction stages_per_step_forest
 
    subroutine open_step_forest(self, dt)
@@ -1298,6 +1269,12 @@ contains
    do f = 1_I4P, flux_register%nfaces
       associate(face_f => flux_register%face(f))
       if (face_f%coarse_realm /= self%realm_index) cycle
+      ! Issue #28 D4: only the coarse block's OWNER rank applies (and prints)
+      ! this face — `coarse_block` is an owner-rank-LOCAL field slot, and on
+      ! any other rank it aliases an unrelated local block. The accumulators
+      ! are complete on every rank after reduce_fine_sums (#28 D3), so the
+      ! owner applies the full correction exactly once.
+      if (face_f%coarse_rank /= mpih%myrank)      cycle
       if (.not. allocated(face_f%F_coarse))       cycle
       if (.not. allocated(face_f%F_fine_sum))     cycle
 
@@ -1306,6 +1283,12 @@ contains
 
       dx_coarse = self%adam%field%dxyz(axis, face_f%coarse_block)
       if (dx_coarse <= 0._R8P) cycle  ! defensive (uninitialised block geometry)
+      ! Register-level diagnostic (issue #23 R3): the flux mismatch this face is about
+      ! to correct with. Format matched with the FNL twin so the two backends'
+      ! register contents are directly comparable from the logs.
+      call mpih%print_message('reflux face '//trim(str(f, .true.))//' coarse_block '//                     &
+                              trim(str(face_f%coarse_block, .true.))//' max|F_coarse-F_fine_sum| = '//     &
+                              trim(str(maxval(abs(face_f%F_coarse(:,:,1) - face_f%F_fine_sum(:,:,1))))))
       ! α.r1 end-of-step Berger-Colella correction applied DIRECTLY to the
       ! committed solution `self%q` (this TBP runs AFTER close_step_forest's
       ! update_q). The full step weight is `dt/dx_coarse` — NOT a stage RK
@@ -2908,8 +2891,9 @@ contains
    !<     2:1-restricted (2x2 conservative average) onto the `(nj/2)*(nk/2)` coarse
    !<     cells of that quadrant, written into the coarse-skin-shaped slab at the
    !<     quadrant offset (zero elsewhere), then accumulated. The quadrant offset
-   !<     is derived from the fine block's `field%emin` relative to the coarse
-   !<     block's `emin`/face extent — no extra register state. The four fine
+   !<     is read from `maps%amr_seam_quadrant`, precomputed at registration from
+   !<     the two blocks' Morton codes (issue #28 D2 — the coarse partner may
+   !<     live on another rank, so its geometry is not readable here). The fine
    !<     blocks' `accumulate_fine_flux` calls sum into disjoint quadrants, so
    !<     `F_fine_sum` ends up holding the area-averaged fine flux over the WHOLE
    !<     coarse face, matching `F_coarse`'s shape for the Berger-Colella delta.
@@ -2930,8 +2914,6 @@ contains
    integer(I4P)                               :: nv_reg          !< Register state-vector width.
    integer(I4P)                               :: nface_cells     !< Coarse-face skin cell count.
    integer(I4P)                               :: fec, b          !< Face, block counters.
-   integer(I4P)                               :: cb              !< Coarse partner block (fine-side restriction).
-   integer(I4P)                               :: inner_ax, outer_ax !< Tangential axes for this face.
    integer(I4P)                               :: inner_n, outer_n   !< Coarse cell counts along tangential axes.
    integer(I4P)                               :: ioff, joff      !< Fine-block quadrant offset (inner,outer) ∈ {0,1}.
    real(R8P), allocatable                     :: flux_slab(:,:)  !< Coarse-skin-shaped contribution.
@@ -2952,9 +2934,9 @@ contains
          ! x-faces (1,2): inner=y(2), outer=z(3); y-faces (3,4): inner=x(1),
          ! outer=z(3); z-faces (5,6): inner=x(1), outer=y(2).
          select case (fec)
-         case (1_I4P, 2_I4P) ; inner_ax = 2_I4P ; outer_ax = 3_I4P ; inner_n = nj ; outer_n = nk
-         case (3_I4P, 4_I4P) ; inner_ax = 1_I4P ; outer_ax = 3_I4P ; inner_n = ni ; outer_n = nk
-         case (5_I4P, 6_I4P) ; inner_ax = 1_I4P ; outer_ax = 2_I4P ; inner_n = ni ; outer_n = nj
+         case (1_I4P, 2_I4P) ; inner_n = nj ; outer_n = nk
+         case (3_I4P, 4_I4P) ; inner_n = ni ; outer_n = nk
+         case (5_I4P, 6_I4P) ; inner_n = ni ; outer_n = nj
          case default ; cycle
          end select
 
@@ -2964,10 +2946,20 @@ contains
             call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
          else
             ! Fine side: 2:1-restrict this fine block's face into its quadrant of
-            ! the coarse skin. The coarse partner block carries the reference
-            ! geometry for the quadrant computation.
-            cb = flux_register%face(face_idx)%coarse_block
-            call fine_block_quadrant(self, b, cb, inner_ax, outer_ax, ioff, joff)
+            ! the coarse skin. Quadrant offsets are PRECOMPUTED at registration
+            ! from the two blocks' Morton codes (issue #28 D2): the register's
+            ! `coarse_block` is an owner-rank-LOCAL index, so deriving the
+            ! quadrant from that block's emin/emax here would read an unrelated
+            ! local block's geometry whenever the coarse partner lives on
+            ! another rank. The quadrant table is allocated only by the
+            ! intra-realm AMR registration pass; an inter-realm mirror seam
+            ! (table unallocated) has no 2:1 quadrant — offsets are zero.
+            if (allocated(self%adam%maps%amr_seam_quadrant)) then
+               ioff = self%adam%maps%amr_seam_quadrant(1, b, fec)
+               joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
+            else
+               ioff = 0_I4P ; joff = 0_I4P
+            endif
             call restrict_fine_face(self, fec, ni, nj, nk, nv_c, b, inner_n, outer_n, ioff, joff, flux_slab)
             call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
          endif
@@ -2997,25 +2989,6 @@ contains
       if (c /= inner_n*outer_n) &
          call mpih%error_stop(msg='prism_cpu_object: FV coarse seam-flux pack count != nface_cells')
       endsubroutine pack_coarse_face
-
-      subroutine fine_block_quadrant(self, b, cb, inner_ax, outer_ax, ioff, joff)
-      !< Quadrant (ioff,joff) ∈ {0,1}² of fine block `b` within coarse block `cb`'s
-      !< face, from the fine block's lower corner relative to the coarse block's,
-      !< measured in coarse-block-half units along the two tangential axes.
-      class(prism_cpu_object), intent(in)  :: self
-      integer(I4P),            intent(in)  :: b, cb, inner_ax, outer_ax
-      integer(I4P),            intent(out) :: ioff, joff
-      real(R8P)                            :: half_in, half_out
-
-      associate(emin=>self%adam%field%emin, emax=>self%adam%field%emax)
-         half_in  = 0.5_R8P * (emax(inner_ax, cb) - emin(inner_ax, cb))
-         half_out = 0.5_R8P * (emax(outer_ax, cb) - emin(outer_ax, cb))
-         ioff = nint((emin(inner_ax, b) - emin(inner_ax, cb)) / half_in, I4P)
-         joff = nint((emin(outer_ax, b) - emin(outer_ax, cb)) / half_out, I4P)
-      end associate
-      ioff = max(0_I4P, min(1_I4P, ioff))
-      joff = max(0_I4P, min(1_I4P, joff))
-      endsubroutine fine_block_quadrant
 
       subroutine restrict_fine_face(self, fec, ni, nj, nk, nv_c, b, inner_n, outer_n, ioff, joff, slab)
       !< Pack fine block `b`'s tangential face flux into a raw (nv_c, inner_n,

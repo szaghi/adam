@@ -93,6 +93,7 @@ contains
    real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi (non usato)
+   !$acc routine seq
 
    f(VAR_DX) =  0.0_R8P        * sir(1) + -q(VAR_BZ)/MU0  * sir(2) +  q(VAR_BY)/MU0  * sir(3)
    f(VAR_DY) =  q(VAR_BZ)/MU0  * sir(1) +  0.0_R8P        * sir(2) + -q(VAR_BX)/MU0  * sir(3)
