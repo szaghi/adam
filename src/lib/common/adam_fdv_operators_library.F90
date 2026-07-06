@@ -24,7 +24,6 @@ public :: compute_laplacian_fdv_interface
 ! finite difference
 public :: compute_curl_fd_centered
 public :: compute_derivative1_fd_centered
-public :: compute_derivative1_fd_seam ! issue #29 E3: matched-resolution 2:1-seam d/dx
 public :: compute_derivative2_fd_centered
 public :: compute_derivative3_fd_centered
 public :: compute_derivative4_fd_centered
@@ -134,51 +133,6 @@ real(R8P), parameter :: FD1_CC_S3(S_MAX)=[  45._R8P,  -9._R8P,  1._R8P,  0._R8P,
 real(R8P), parameter :: FD1_CC_S4(S_MAX)=[ 672._R8P,-168._R8P, 32._R8P, -3._R8P,0._R8P]/840._R8P  !< FD1C, S4.
 real(R8P), parameter :: FD1_CC_S5(S_MAX)=[2100._R8P,-600._R8P,150._R8P,-25._R8P,2._R8P]/2520._R8P !< FD1C, S5.
 
-! Issue #29 E3: matched-resolution SEAM first-derivative operators (s=3, order 6).
-! At a 2:1 coarse-fine seam the coarse (Δx) and fine (Δx/2) sides use different-
-! resolution FD1_CC stencils, which breaks the div_h(curl_h)=0 telescoping (E2 proved
-! the source is this OPERATOR mismatch, not a value mismatch). These two matched
-! operators restore telescoping to the scheme's full order 6 across the jump (verified
-! symbolically: untracked/seam-symbolic-checks/t1_1_*.py). Applied ONLY to the
-! seam-NORMAL derivative at seam-adjacent cells; tangential dirs use standard FD1_CC.
-!
-! FINE-side seam cell: samples at fine-length offsets [0,-1,-2,-3, +3/2,+7/2,+11/2]
-! along the outward normal — fine interior (0..-3) then coarse donor centers. Result
-! is d/dx in units of the FINE spacing. Order 6, L1=2.49 (well conditioned).
-real(R8P), parameter :: FD1_SEAM_FINE(7) = [ 323._R8P/462._R8P, -77._R8P/65._R8P,     &
-                                              3._R8P/10._R8P,   -77._R8P/1989._R8P,    &
-                                             11._R8P/45._R8P,    -2._R8P/91._R8P,       &
-                                             21._R8P/12155._R8P ] !< FINE-side matched seam d/dx weights.
-integer(I4P), parameter :: FD1_SEAM_FINE_NODE2(7) = [0,-2,-4,-6, 3,7,11] !< 2*node (integer, fine half-units).
-
-! COARSE-side seam cell: samples at coarse-length offsets [0,-1,-2,-3,-4, +1/4,+3/4]
-! — coarse interior (0..-4) then fine ghost centers across the jump. Result is d/dx
-! in units of the COARSE spacing. Order 6, L1=7.60 (extrapolates onto near-seam fine
-! ghosts — the higher L1 is the quantified E3 risk; PRISM horizon is the real test).
-real(R8P), parameter :: FD1_SEAM_COARSE(7) = [ -13._R8P/4._R8P,   -12._R8P/35._R8P,   &
-                                                 1._R8P/11._R8P,    -4._R8P/195._R8P,  &
-                                                 3._R8P/1292._R8P, 4096._R8P/1105._R8P,&
-                                             -4096._R8P/21945._R8P ] !< COARSE-side matched seam d/dx weights.
-integer(I4P), parameter :: FD1_SEAM_COARSE_NODE4(7) = [0,-4,-8,-12,-16, 1,3] !< 4*node (integer, coarse quarter-units).
-
-! Issue #29 E3 (C1-ext): tangential Lagrange interpolation of the coarse samples onto
-! the fine seam cell's tangential line. Without this the coarse samples are piecewise-
-! constant across a coarse cell (their tangential derivative jumps), collapsing the
-! div(curl) telescoping to order 1 (the E1-class tangential trap — verified). With
-! order-6+ tangential interp, telescoping recovers to order 6 (c3_physical.py). 9-point
-! interp from the coarse tangential grid (spacing 2 fine); the fine cell is at one of 2
-! sub-positions (offset -/+1/2 from the coarse center). Order 8, L1=1.414 (well cond.).
-real(R8P), parameter :: FD_SEAM_TANG(9,0:1) = reshape([ &
-   -7293._R8P/8388608._R8P, 9945._R8P/1048576._R8P, -109395._R8P/2097152._R8P,       &
-   255255._R8P/1048576._R8P, 3828825._R8P/4194304._R8P, -153153._R8P/1048576._R8P,   &
-   85085._R8P/2097152._R8P, -8415._R8P/1048576._R8P, 6435._R8P/8388608._R8P,         & ! sub=0 (offset -1/2)
-   6435._R8P/8388608._R8P, -8415._R8P/1048576._R8P, 85085._R8P/2097152._R8P,         &
-   -153153._R8P/1048576._R8P, 3828825._R8P/4194304._R8P, 255255._R8P/1048576._R8P,   &
-   -109395._R8P/2097152._R8P, 9945._R8P/1048576._R8P, -7293._R8P/8388608._R8P],      & ! sub=1 (offset +1/2)
-   [9,2])
-   !< Tangential interp weights (node 1:9 at coarse-y offsets [-8,-6,-4,-2,0,2,4,6,8]
-   !< fine units, sub 0:1). Coarse sample at the fine seam line = FD_SEAM_TANG(:,sub) .
-   !< [9 coarse-tangential cell values].
 real(R8P), parameter :: FD1_CC(S_MAX,S_MAX)=reshape([FD1_CC_S1, &
                                                      FD1_CC_S2, &
                                                      FD1_CC_S3, &
@@ -737,38 +691,6 @@ contains
    enddo
    dq_ds = dq_ds/ds
    endsubroutine compute_derivative1_fd_centered
-
-   pure subroutine compute_derivative1_fd_seam(samples, ds, side, dq_ds)
-   !< Issue #29 E3: matched-resolution SEAM first derivative along the normal, for a
-   !< seam-adjacent cell at a 2:1 coarse-fine jump. Restores div_h(curl_h)=0
-   !< telescoping to order 6 across the jump (E3 T1.1). `samples(1:7)` are the field
-   !< values the CALLER gathered along the outward seam-normal, in TABLE ORDER:
-   !<   side=+1 (FINE side): [q0, q(-1), q(-2), q(-3), Qc0, Qc1, Qc2] — fine interior
-   !<     0..-3 then coarse donor centers; `ds` = FINE spacing.
-   !<   side=-1 (COARSE side): [q0, q(-1), q(-2), q(-3), q(-4), Qf0, Qf1] — coarse
-   !<     interior 0..-4 then fine ghost centers; `ds` = COARSE spacing.
-   !< The weight tables (FD1_SEAM_FINE / FD1_SEAM_COARSE) already carry the geometry;
-   !< the caller supplies the samples in order and the local spacing. Same div/curl
-   !< primitive both sides (one operator), so the composite telescopes.
-   real(R8P),    intent(in)  :: samples(1:7) !< Normal-line samples in table order (see above).
-   real(R8P),    intent(in)  :: ds           !< Local spacing (FINE for side=+1, COARSE for side=-1).
-   integer(I4P), intent(in)  :: side         !< +1 = fine-side seam cell, -1 = coarse-side seam cell.
-   real(R8P),    intent(out) :: dq_ds        !< Matched seam derivative d/ds.
-   integer(I4P)              :: n            !< Sample counter.
-   !$acc routine seq
-
-   dq_ds = 0.0_R8P
-   if (side > 0_I4P) then
-      do n=1, 7
-         dq_ds = dq_ds + FD1_SEAM_FINE(n) * samples(n)
-      enddo
-   else
-      do n=1, 7
-         dq_ds = dq_ds + FD1_SEAM_COARSE(n) * samples(n)
-      enddo
-   endif
-   dq_ds = dq_ds/ds
-   endsubroutine compute_derivative1_fd_seam
 
    pure subroutine compute_derivative2_fd_centered(s,ds,q,d2q_ds2)
    !< Compute derivative of order 2 with finite difference centered scheme.
