@@ -286,7 +286,8 @@ contains
    ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
    ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
    call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid)
-   call self%fwlayer_fnl%copy_cpu_gpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
+   ! call self%fwlayer_fnl%copy_cpu_gpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
+   call self%fwlayer_fnl%copy_cpu_gpu(fwlayer=self%fWLayer, grid=self%adam%grid, verbose=verbose)
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
 
@@ -485,11 +486,11 @@ contains
    integer(I4P)                           :: alfa_B(6), beta_B(6)                !< Corrected var index of D (Barbas' notation).
    integer(I4P)                           :: face                                !< Counter.
 
-   associate(C=>self%fWLayer%C, layer=>self%fWLayer%layer, & 
+   associate(C=>self%fWLayer%C, layer=>self%fWLayer%layer, &
             ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number)
    if (C>0) then
       ni_fWL(1,1)=1_I4P; ni_fWL(1,2)=ni-C+1_I4P; ni_fWL(1,3)=1_I4P; &
-      ni_fWL(1,4)=1_I4P; ni_fWL(1,5)=1_I4P     ; ni_fWL(1,6)=1_I4P  
+      ni_fWL(1,4)=1_I4P; ni_fWL(1,5)=1_I4P     ; ni_fWL(1,6)=1_I4P
 
       ni_fWL(2,1)=C ; ni_fWL(2,2)=ni; ni_fWL(2,3)=ni; &
       ni_fWL(2,4)=ni; ni_fWL(2,5)=ni; ni_fWL(2,6)=ni
@@ -765,8 +766,6 @@ contains
    ! call self%coil%set_coils(physics=physics, field=self%adam%field)
 
    call self%initialize_coils
-
-   
 
    ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
    !    call self%pic%current_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
