@@ -123,7 +123,7 @@ commit raw HDF5. Each case commits two compact references instead:
 | File                            | What it is                                   | Compared with        |
 |---------------------------------|----------------------------------------------|----------------------|
 | `golden/<backend>/digest.txt`   | Per-variable field digest (see `digest.py`)  | tolerance-aware      |
-| `golden/<backend>/*-residuals.dat` | Per-iteration residuals log               | byte-exact (`diff`)  |
+| `golden/<backend>/*-residuals.dat` | Per-iteration residuals log               | tolerance-aware (`digest.py compare-residuals`) |
 
 **The field digest** (`digest.py`) reduces every HDF5 checkpoint to a small set
 of point-wise reductions — `count, min, max, sum, sum_sq` — aggregated per
@@ -236,16 +236,23 @@ exist for the machine-to-machine case.
   it as indistinguishable from zero. A genuine non-cancelling aggregate
   like `Jx` `sum` (~4.6e8) is utterly unaffected by a `1e-3` floor.
 
-**Residuals log** (`diff -q`): compared **byte-exact**. Residuals are written
-from a single rank, formatted decimally, and not subject to reduction
-reordering. Byte-exact only holds **within one toolchain** — the residuals
-golden must therefore be captured on the *same* toolchain that checks it
-(CI captures and CI checks). Across GCC versions the low-order digits drift;
-a dev-workstation run with a different compiler is expected to fail the
-residuals diff and that is not a regression. If cross-compiler residual
-checking is ever needed, the residuals comparison must move to a
-tolerance-aware diff like the digest — it is byte-exact today only because
-CI is the single source of truth.
+**Residuals log** (`digest.py compare-residuals`): compared **tolerance-aware**,
+with the *same* `(rtol = 1e-6, atol = 1e-3)` calibration as the field digest —
+the header line must match verbatim, integer columns exact, float columns within
+tolerance (`run.sh` calls `compare-residuals`, not `diff`). Residuals are written
+from a single rank and are not subject to reduction reordering, so within one
+toolchain they are in fact bit-stable; the tolerance exists so a dev-workstation
+run on a **different** compiler (this box currently runs gfortran-16-experimental,
+CI runs the Ubuntu default) is checked on its significant digits rather than
+failing on last-digit drift. The golden is still captured in CI (the single
+source of truth for the CPU backend); the tolerance simply means a same-case
+cross-compiler rerun is a meaningful check rather than a guaranteed failure.
+
+> **Historical note.** Earlier revisions of this suite compared residuals
+> byte-exact with `diff -q` and required the golden to be captured on the exact
+> checking toolchain. The comparison has since moved to the tolerance-aware
+> `compare-residuals` path; this section and the reference table above reflect
+> the current code.
 
 If the digest tolerance proves too tight or too loose on a specific case,
 `digest.py compare` accepts `--rtol` / `--atol` overrides; wire a per-case

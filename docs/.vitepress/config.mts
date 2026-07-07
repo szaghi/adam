@@ -162,7 +162,13 @@ export default withMermaid({
         {
           text: 'Tests',
           items: [
-            { text: 'Overview',      link: '/tests/' },
+            { text: 'Overview',            link: '/tests/' },
+            { text: 'PRISM regression',    link: '/tests/prism-regression' },
+          ],
+        },
+        {
+          text: 'NASTO integration',
+          items: [
             { text: 'Sod-X',         link: '/tests/sod-x' },
             { text: 'Sod-Y',         link: '/tests/sod-y' },
             { text: 'Sod-Z',         link: '/tests/sod-z' },
