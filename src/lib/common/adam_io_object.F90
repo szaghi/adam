@@ -42,6 +42,12 @@ type :: io_object
    logical :: save_divergence_fields=.false. !< Flag to activate divergence fields saving.
    logical :: save_gradient_fields  =.false. !< Flag to activate gradient fields saving.
    logical :: save_laplacian_fields =.false. !< Flag to activate gradient fields saving.
+   ! seam div(B) guard-rail (issue #29 — accept-truncation): the 2:1 AMR seam injects an
+   ! O(h^p) div(B) source that is refinement-convergent but UNBOUNDED in t at fixed h; no
+   ! local collocated-FD fix exists (E1/E2/E3/E/A all ruled out). This monitor turns the
+   ! otherwise-SILENT growth into a visible signal on AMR runs. Disabled by default.
+   real(R8P) :: seam_divB_tol = -1.0_R8P     !< Seam max|div(B)| tolerance; <=0 disables the monitor.
+   logical   :: seam_divB_error = .false.    !< If .true., exceeding seam_divB_tol is fatal; else warn-only.
    contains
       ! public methods
       procedure, pass(self) :: description          !< Return pretty-printed object description.
@@ -162,6 +168,9 @@ contains
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_gradient_fields)')
       call file_parameters%get(section_name=ISN,option_name='save_laplacian_fields',val=self%save_laplacian_fields,error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_laplacian_fields)')
+      ! Optional seam div(B) guard-rail (issue #29). Absent → monitor disabled (tol=-1).
+      call file_parameters%get(section_name=ISN,option_name='seam_divB_tol',val=self%seam_divB_tol,error=error)
+      call file_parameters%get(section_name=ISN,option_name='seam_divB_error',val=self%seam_divB_error,error=error)
    endassociate
    endsubroutine load_from_file
 
