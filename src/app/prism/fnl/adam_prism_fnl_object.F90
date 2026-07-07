@@ -1220,6 +1220,7 @@ contains
                                                     var_jz        = self%physics%var_jz           ,&
                                                     nv_c          = self%physics%nv_c             ,&
                                                     chi           = self%physics%chi              ,&
+                                                    c_r           = self%physics%c_r              ,&
                                                     s1            = self%fdv_half_stencils(1),&
                                                     dxyz_gpu      = self%field_fnl%dxyz_gpu       ,&
                                                     q_gpu         = q_gpu                    ,&
@@ -1227,13 +1228,14 @@ contains
    endif
    contains
       subroutine compute_residuals_fd_centered_dev_kernel(ni, nj, nk, ngc, blocks_number,        &
-                                                          var_Jx, var_Jy, var_Jz, nv_c, chi, s1, &
+                                                          var_Jx, var_Jy, var_Jz, nv_c, chi, c_r, s1, &
                                                           dxyz_gpu, q_gpu, dq_gpu)
       !< Compute residuals of equation, space operator, centered finite difference schemes, kernel device.
       integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number         !< Grids dimensions.
       integer(I4P), intent(in)    :: var_jx,var_jy,var_jz               !< Indexes of J_vec variables.
       integer(I4P), intent(in)    :: nv_c                               !< Number of conservative variables.
       real(R8P),    intent(in)    :: chi                                !< Hyperbolic correction speed.
+      real(R8P),    intent(in)    :: c_r                                !< Dedner GLM parabolic-damping ratio (issue #29).
       integer(I4P), intent(in)    :: s1                                 !< Half FDV stencil length.
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Delta cells GPU [nb,3].
       real(R8P),    intent(in)    :: q_gpu( 1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
@@ -1324,7 +1326,7 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)/EPS0
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)/EPS0
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)/EPS0
-               dq_gpu(b,i,j,k,nv_c	) = -(chi*C0)**2*divergenceD
+               dq_gpu(b,i,j,k,nv_c	) = -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -1396,7 +1398,7 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)/EPS0 - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)/EPS0 - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)/EPS0 - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c	) = -(chi*C0)**2*divergenceB
+               dq_gpu(b,i,j,k,nv_c	) = -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -1487,8 +1489,8 @@ contains
                dq_gpu(b,i,j,k,VAR_BX    ) = -curlD(1)/EPS0 - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY    ) = -curlD(2)/EPS0 - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ    ) = -curlD(3)/EPS0 - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c-1_I4P)	= -(chi*C0)**2*divergenceD
-               dq_gpu(b,i,j,k,nv_c	    )	= -(chi*C0)**2*divergenceB
+               dq_gpu(b,i,j,k,nv_c-1_I4P)	= -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c-1_I4P)
+               dq_gpu(b,i,j,k,nv_c	    )	= -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -1615,7 +1617,7 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)
-               dq_gpu(b,i,j,k,nv_c	) = -(chi)**2*divergenceD
+               dq_gpu(b,i,j,k,nv_c	) = -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -1687,7 +1689,7 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c	) = -(chi)**2*divergenceB
+               dq_gpu(b,i,j,k,nv_c	) = -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -1778,8 +1780,8 @@ contains
                dq_gpu(b,i,j,k,VAR_BX    ) = -curlD(1) - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY    ) = -curlD(2) - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ    ) = -curlD(3) - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c-1_I4P)	= -(chi)**2*divergenceD
-               dq_gpu(b,i,j,k,nv_c	    )	= -(chi)**2*divergenceB
+               dq_gpu(b,i,j,k,nv_c-1_I4P)	= -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c-1_I4P)
+               dq_gpu(b,i,j,k,nv_c	    )	= -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -3035,6 +3037,22 @@ contains
    endif
    call self%save_simulation_data
    call self%update_ghost(q_gpu=self%q_gpu) !Cazzo
+   ! Issue #31 (CPU-parity): self%update_ghost fills the intra-realm ghosts + physical BCs
+   ! but NOT the inter-realm seam (the forest owns that). The max-divergence diagnostic
+   ! below reads an s1-deep stencil that, at seam-adjacent cells, needs the seam ghosts —
+   ! which update_ghost leaves stale/BC-filled, producing a spurious div(B) at the seam skin
+   ! (the evolved field is div-free). Re-establish the inter-realm seam from peers on the
+   ! committed q_gpu (stage_active==0 → fill writes self%q_gpu) before the diagnostic.
+   ! Mirrors the CPU fix in prism_cpu_object%post_step_forest.
+   if (present(realm) .and. allocated(self%adam%maps%seam_local_map_ghost_cell) .and. &
+       allocated(self%adam%maps%seam_local_peer_realm)) then
+      block
+         integer(I4P) :: p_s
+         do p_s = 1_I4P, int(size(self%adam%maps%seam_local_peer_realm), I4P)
+            call self%fill_seam_from_peer_forest(peer=realm(self%adam%maps%seam_local_peer_realm(p_s)), p_idx=p_s)
+         enddo
+      endblock
+   endif
    call self%compute_energy
    !call self%save_energy_error !Cazzo
    call self%save_energy_history !Cazzo
@@ -3312,6 +3330,7 @@ contains
                                           var_jy        = self%physics%var_jy      ,&
                                           var_jz        = self%physics%var_jz      ,&
                                           s1            = self%fdv_half_stencils(1),&
+                                          fwl_c         = self%fWLayer%C            ,&
                                           dxyz_gpu      = self%field_fnl%dxyz_gpu  ,&
                                           q_gpu         = self%q_gpu               ,&
                                           max_div       = max_div)
@@ -3321,13 +3340,14 @@ contains
 	self%max_divergence_J = max_div(3)
    contains
       subroutine compute_max_divergence_dev_kernel(ni, nj, nk, blocks_number, ngc, &
-                                                   var_Jx, var_Jy, var_Jz, s1, 	  &
+                                                   var_Jx, var_Jy, var_Jz, s1, fwl_c, 	  &
                                                    dxyz_gpu, q_gpu, max_div)
 
 			!< Compute maximum divergence of D, B and J fields, device kernel.
 			integer(I4P), intent(in)  :: ni, nj, nk, blocks_number, ngc        !< Grids dimensions.
 			integer(I4P), intent(in)  :: var_Jx, var_Jy, var_Jz                !< Current variables indices.
 			integer(I4P), intent(in)  :: s1                                    !< FDV half stencil.
+			integer(I4P), intent(in)  :: fwl_c                                 !< fWLayer cell count C (issue #26/#31 CPU-parity: skin exclusion).
 			real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Delta cells GPU [nb,3].
 			real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
 			real(R8P),    intent(out) :: max_div(3)                            !< Maximum divergence of D, B and J fields.
@@ -3340,6 +3360,17 @@ contains
 			real(R8P)                 :: max_divD, max_divB, max_divJ			 !< Maximum divergence of D, B and J fields.
 			real(R8P)                 :: dxyz_b(3)                             !< Per-block deltas, PRIVATE copy (no strided-section temp: issue #22 F1-bis).
 			integer(I4P)              :: i,j,k,b,s                             !< Counter.
+			integer(I4P)              :: r, lo, hi_i, hi_j, hi_k               !< fWLayer skin-exclusion bounds (CPU-parity).
+
+			! CPU-parity (issue #31 / #26): exclude the fWLayer skin (C+s1 cells per face)
+			! from the reported maximum when a fWLayer is present. r = nint(C/(C+1)) is 1
+			! when C>0, 0 when C=0 (no fWLayer ⇒ full interior, unchanged). Mirrors the CPU
+			! post_step_forest max region 1+r*(C+hs) : n-r*(C+hs-1).
+			r    = nint(real(fwl_c, R8P) / (real(fwl_c, R8P) + 1.0_R8P), I4P)
+			lo   = 1_I4P + r*(fwl_c + s1)
+			hi_i = ni - r*(fwl_c + s1 - 1_I4P)
+			hi_j = nj - r*(fwl_c + s1 - 1_I4P)
+			hi_k = nk - r*(fwl_c + s1 - 1_I4P)
 
 			max_divD = 0.0_R8P
 			max_divB = 0.0_R8P
@@ -3374,9 +3405,13 @@ contains
                                                        + (q_gpu(b,i,j+s,k,var_Jy) - q_gpu(b,i,j-s,k,var_Jy))/dxyz_b(2)  &
                                                        + (q_gpu(b,i,j,k+s,var_Jz) - q_gpu(b,i,j,k-s,var_Jz))/dxyz_b(3))
             enddo
-            max_divD = max(max_divD, abs(divergenceD))
-            max_divB = max(max_divB, abs(divergenceB))
-            max_divJ = max(max_divJ, abs(divergenceJ))
+            ! fWLayer-skin exclusion (CPU-parity): only interior-of-skin cells contribute
+            ! to the reported max. For C=0 (r=0) lo=1, hi=n ⇒ full interior (no change).
+            if (i >= lo .and. i <= hi_i .and. j >= lo .and. j <= hi_j .and. k >= lo .and. k <= hi_k) then
+               max_divD = max(max_divD, abs(divergenceD))
+               max_divB = max(max_divB, abs(divergenceB))
+               max_divJ = max(max_divJ, abs(divergenceJ))
+            endif
          enddo
          enddo
          enddo
