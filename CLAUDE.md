@@ -435,6 +435,22 @@ When touching `prism_physics_object%initialize`, `prism_common_object%allocate_c
 
 This shared scalar would become **silently wrong** under realm-local subcycling (realms at different substages or different `nrk`) or any temporal overlap of two realms' substage phases — neither is the current execution model. **If subcycling is ever scoped, `forest_active_substage` must become per-realm state** (carried on the realm, e.g. via `bind_my_globals_forest`), not a shared module scalar. This is the inverse hazard to the `tree%loop` re-entrancy fix (#13 P1): both were single-context state that the multi-realm forest must not assume. Tracked as P2 in [issue #13](https://github.com/szaghi/adam/issues/13).
 
+### 2:1 AMR seam injects an O(h^p) div(B) source — no local collocated-FD fix exists (accept-truncation)
+
+PRISM keeps `div(B) = 0` to machine precision on **uniform** grids: `compute_curl_fd_centered` and `compute_divergence_fd_centered` are both built from the same antisymmetric `FD1_CC` primitive, so `div_h(curl_h) ≡ 0` by operator commutation (a genuine mimetic / discrete-de-Rham identity, Ranocha 2019 Remark 2.8). **At a 2:1 AMR seam this breaks.** The coarse (Δx) and fine (Δx/2) sides difference with different-resolution stencils, the composite is no longer a tensor product, commutation fails, and the seam injects a `div(B)` source that lives in the grid-oscillation subspace `ker D*`. Measured on `rmf-amr-fd-pulse` (source-free, `-np1`, `ni=16`): seam `max|div(B)|` runs away **6.9 → 1002 over 100 steps at fixed h** (control = 0.0), while `‖B‖` stays flat (−3%) — it is a **divergence-constraint violation, not an energy instability**. The source is **O(h^p) truncation-order**: it *converges under refinement* (committed `--convergence` leg, `p_obs ≈ +1.15 → +2`) but is **unbounded in t at fixed h**, dt-independent, and scheme-universal (FD ≡ FV to 4-5 digits).
+
+**No local collocated-FD fix exists — five fix classes ruled out with evidence (issue #29):**
+
+| Fix class | What it tried | Verdict |
+|---|---|---|
+| **E1** | matched ghost VALUES (single-valued seam fill) | RED — 1D-normal-only, behaved as q=2 |
+| **E2** | single-valued flux VALUES (auxiliary EMF) | NULL — fluxes already agree 0.24%; reframed the source to OPERATOR-not-value |
+| **E3** | matched-difference seam OPERATOR (telescoping-exact) | CLOSED — eigenvalue-**unstable** (both-operator horizon → 1e18); the non-SBP construction Mattsson-Carpenter 2010 / Ranocha 2019 predict; telescoping-exactness ≠ time-stability |
+| **E** | complete the Dedner GLM (add parabolic damping) | CLOSED — implemented + tunable `[physics].c_r`, but GLM cannot bound a **persistent** source (Koley 2011); c_r sweep 0.05→5.0 all still run away |
+| **A** | SBP-norm-compatible seam + weak SAT | CLOSED (analysis) — SBP bounds `‖B‖` (already fine), NOT `div(B)`; a value-transfer cannot restore operator commutation across the resolution jump (the `R∘P≠I` wall, #21) |
+
+**RESOLUTION = accept-truncation.** The O(h^p) refinement-convergent floor is accepted; **Route 2** (re-collocate B to CT/staggered at the seam — abandons the collocated-FD design) is **parked**, activating only if a production workload exceeds tolerance. Guard-rail: `[IO].seam_divB_tol` (default off) + `[IO].seam_divB_error` — a run-time monitor in `save_divergence_history` (`adam_io_object.F90` / `adam_prism_common_object.F90`) that warns (or `error_stop`s) when seam `max|div(B)|` exceeds the tolerance on AMR runs, turning the otherwise-**silent** growth into a visible signal. **Mitigation to extend AMR runs:** enable `divergence_correction = hyperbolic` (needs `constrained_transport = D/B/DB`, the #11 hazard) and tune `[physics].c_r` — this *delays* the runaway (~5.5× margin) but does **not** cure it. **Safe usage:** short/moderate-horizon AMR runs, or refine h, or accept the monitored floor. Tracked in [issue #29](https://github.com/szaghi/adam/issues/29).
+
 ## Development Environment: WSL2 GPU+MPI Caveats
 
 The primary GPU development box is **WSL2**. Its GPU+MPI stack is broken in several places a real cluster is not, so the FNL (OpenACC/nvfortran) backend runs there for **correctness checks only — never performance**. Do not quote WSL timings as benchmarks, and **never copy WSL MPI/UCX settings into a Slurm/cluster job script** (they are perf regressions or no-ops on real InfiniBand + GPUDirect RDMA). The workarounds live in the `nvhpc` modulefile and `src/tests/prism/regression/run-fnl-local.sh`:

@@ -436,6 +436,32 @@ contains
                                            div_D=div_D,div_B=div_B,div_J=div_J,is_to_open=is_to_open,            &
                                            is_to_close=is_to_close)
    endif
+   ! Seam div(B) guard-rail (issue #29 — accept-truncation resolution). The 2:1 AMR seam
+   ! injects an O(h^p) div(B) source, refinement-convergent but UNBOUNDED in t at fixed h;
+   ! no local collocated-FD fix exists (E1/E2/E3/E/A all ruled out with evidence — see the
+   ! PRISM seam-div(B) gotcha in CLAUDE.md). This monitor turns the otherwise-SILENT growth
+   ! into a visible signal. Active only when: enabled (tol>0) AND a 2:1 AMR seam is present
+   ! (amr_seam_quadrant allocated by the intra-realm AMR registration pass). Mitigation to
+   ! extend runs: enable divergence_correction=hyperbolic + tune [physics].c_r (delays, not
+   ! cures). Route 2 (CT/staggered B at the seam) is parked (activates only if a workload
+   ! needs it beyond this monitor's tolerance).
+   if (self%io%seam_divB_tol > 0.0_R8P .and. allocated(self%adam%maps%amr_seam_quadrant)) then
+      if (div_B > self%io%seam_divB_tol) then
+         if (self%io%seam_divB_error) then
+            call mpih%error_stop(msg=mpih%myrankstr//'prism: seam div(B) '//trim(str(div_B))//              &
+                                     ' exceeds [IO].seam_divB_tol '//trim(str(self%io%seam_divB_tol))//     &
+                                     ' at it '//trim(str(self%time%it))//' — 2:1 AMR seam O(h^p) source '// &
+                                     '(issue #29, no local FD fix; refine h, shorten the run, or enable '// &
+                                     'hyperbolic+c_r cleaning to delay it).')
+         else
+            call mpih%print_message(mpih%myrankstr//'WARNING: seam div(B) '//trim(str(div_B))//             &
+                                    ' exceeds [IO].seam_divB_tol '//trim(str(self%io%seam_divB_tol))//      &
+                                    ' at it '//trim(str(self%time%it))//' — 2:1 AMR seam O(h^p) source, '// &
+                                    'unbounded in t at fixed h (issue #29). Refine h, shorten the run, or ' &
+                                    //'enable hyperbolic+c_r cleaning to delay it.')
+         endif
+      endif
+   endif
    !endassociate
    endsubroutine save_divergence_history
 
