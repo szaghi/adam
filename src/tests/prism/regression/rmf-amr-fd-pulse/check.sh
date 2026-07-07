@@ -15,7 +15,14 @@
 #
 # ACCEPTANCE (redefined per #21 — the historical "seam div(B) <= 1e-13"
 # pointwise criterion is RETIRED, see the regression README and #21 §1):
-#   1. control: max|div(D)| and max|div(B)| <= DIV_TOL;
+#   1. control: max|div(D)| and max|div(B)| <= DIV_TOL (no seam at all);
+#   1b. [#29] JUMP-ISOLATION: uniform-refined (whole domain -> 1:1 same-level
+#      boundaries, NO 2:1 jump) must also keep max|div(D)| AND max|div(B)| <=
+#      DIV_TOL. This is the CONTROLLED COMPARISON: identical pulse physics +
+#      identical level-2 resolution + the same many-block ghost-exchange as the
+#      AMR case, differing ONLY in whether a resolution jump exists. 1:1 must be
+#      machine-zero; the 2:1 seam (leg 3) is ~1.26E+01 — isolating the JUMP as
+#      the sole div(B) source, not the seam machinery. (issue #29 accept-truncation.)
 #   2. seam: max|div(D)| <= DIV_TOL (structural invariant);
 #   3. seam: max|div(B)| within RTOL of the pinned baseline;
 #   4. [--convergence] seam div(B) at matched time over a 2-rung ladder
@@ -104,6 +111,34 @@ if ! awk "BEGIN{exit !($ctrl_divd <= $DIV_TOL)}"; then
 fi
 if ! awk "BEGIN{exit !($ctrl_divb <= $DIV_TOL)}"; then
    echo "FAIL [rmf-amr-fd-pulse] control div(B) above round-off — matched-stencil identity broken without a seam"; fail=1
+fi
+
+# --- JUMP-ISOLATION leg (issue #29): 1:1 same-resolution boundaries do NOT leak; only the 2:1 JUMP does.
+# Refine the WHOLE domain (box_xmax 0.0 -> +0.06) so every block reaches level 2 UNIFORMLY: many
+# same-level (1:1) block boundaries, ghost-exchanged every step, but NO 2:1 resolution jump. The
+# mimetic div_h(curl_h)=0 identity survives 1:1 adjacency (both sides same Delta-x -> operators
+# commute), so div(B) must stay at round-off. Paired with the 2:1 seam leg below (~1.26E+01), this
+# ISOLATES the resolution jump as the sole div(B) source — the controlled comparison that proves the
+# leak is the JUMP, not the seam machinery/ghost-exchange (measured 64 blocks, div(B)=0.0 to 100 steps).
+UNIF="$CASE_DIR/work-cpu-uniform"
+echo ">> [rmf-amr-fd-pulse] running uniform-refined leg (whole domain -> 1:1 boundaries, NO 2:1 jump)"
+run_in "$UNIF" 's/^box_xmax     =  0.0/box_xmax     =  0.06/'
+if grep -qiE 'error|abort| nan |segfault' "$UNIF/run.log"; then
+   echo "FAIL [rmf-amr-fd-pulse] uniform-refined leg reported an error/abort/NaN"; fail=1
+fi
+unif_divd="$(max_div_d "$UNIF/$HIST")"
+unif_divb="$(max_div_b "$UNIF/$HIST")"
+echo ">> [rmf-amr-fd-pulse] 1:1 uniform max|div(D)| = $unif_divd (expect <= $DIV_TOL)"
+echo ">> [rmf-amr-fd-pulse] 1:1 uniform max|div(B)| = $unif_divb (expect <= $DIV_TOL — 1:1 boundaries must NOT leak)"
+if ! awk "BEGIN{exit !($unif_divd <= $DIV_TOL)}"; then
+   echo "FAIL [rmf-amr-fd-pulse] uniform-refined div(D) above round-off — source-free invariant broke"; fail=1
+fi
+if ! awk "BEGIN{exit !($unif_divb <= $DIV_TOL)}"; then
+   echo "FAIL [rmf-amr-fd-pulse] uniform-refined div(B) above round-off — a 1:1 SAME-LEVEL boundary is"
+   echo "                        leaking div(B). The mimetic identity must hold at 1:1 adjacency; a"
+   echo "                        leak here means the seam machinery/ghost-exchange itself regressed"
+   echo "                        (NOT the 2:1-jump truncation source, which is separate and expected)."
+   fail=1
 fi
 
 WORK="$CASE_DIR/work-cpu"
