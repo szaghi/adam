@@ -1371,6 +1371,21 @@ contains
    associate(hs => self%fdv_half_stencil)
    call self%save_simulation_data
    call self%update_ghost(q=self%q)
+   ! Issue #31: self%update_ghost fills the intra-realm ghosts + physical BCs but NOT the
+   ! inter-realm seam (the forest owns that). The divergence diagnostic below reads an
+   ! s1-deep stencil that, at seam-adjacent cells, needs the seam ghosts — which
+   ! update_ghost leaves stale/BC-filled, producing a spurious div(B) at the seam skin
+   ! (the evolved field is div-free; verified). Re-establish the inter-realm seam from
+   ! peers on the committed q (stage_active==0 → fill writes self%q) before the diagnostic.
+   if (present(realm) .and. allocated(self%adam%maps%seam_local_map_ghost_cell) .and. &
+       allocated(self%adam%maps%seam_local_peer_realm)) then
+      block
+         integer(I4P) :: p_s
+         do p_s = 1_I4P, int(size(self%adam%maps%seam_local_peer_realm), I4P)
+            call self%fill_seam_from_peer_forest(peer=realm(self%adam%maps%seam_local_peer_realm(p_s)), p_idx=p_s)
+         enddo
+      endblock
+   endif
    call self%compute_energy
    !call self%save_energy_error
    call self%save_energy_history
