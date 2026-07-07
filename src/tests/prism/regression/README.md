@@ -42,6 +42,24 @@ research cases but **tuned for CI**:
   the run itself, so the case remains deterministic across compilers.
 - Fixed `mpirun -np 2` — same across backends and across runs.
 
+### Case inventory notes
+
+Most cases are auto-discovered (any subdirectory with an `input.ini` and a
+`golden/<backend>/`). Two are worth calling out because they exercise a
+device-path a plain field case does not:
+
+- **`rmf-fwl`** — the only case that turns on the **fWLayer** (`[fWLayer] C = 6`,
+  all six faces) together with four AC coils. It is the regression anchor for the
+  fWLayer host→device transfer: on the FNL backend the fWLayer field is stored
+  transposed (`(nb,i,j,k,3)`) and copied through FUNDAL's transposed HtoD path,
+  which — unlike the plain q-field copy — is sensitive to how the device
+  destination pointer is passed. A `C=30`/`ni=32` research variant crashed at
+  `np>1` with `cuMemcpyHtoDAsync → CUDA_ERROR_INVALID_VALUE` (an nvfortran
+  copy-in temporary on the lbound-remapped device dummy handed a host address to
+  the async HtoD); this regression-sized case guards that fix. Note `C` **must**
+  stay `< ni`: the fWLayer stamps cells `ni-C+1 .. ni`, so `C ≥ ni` drives the
+  index negative.
+
 ## Running the harness
 
 The harness is `run.sh` in this directory — a backend-agnostic core. The CPU
