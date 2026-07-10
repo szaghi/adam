@@ -1918,7 +1918,7 @@ contains
                enddo
                call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
-               call self%compute_gradient_fd_extended(hs=hs,ivar=1,q=phi,gradient=buffer(5:7,:,:,:,:)) !Calcolo E da phi, ma con il segno opposto
+               call self%compute_gradient_extended(hs=hs,ivar=1,q=phi,gradient=buffer(5:7,:,:,:,:)) !Calcolo E da phi, ma con il segno opposto
                do b=1, blocks_number
                   do k=1-ngc/2, nk+ngc/2
                      do j=1-ngc/2, nj+ngc/2
@@ -1997,7 +1997,7 @@ contains
                enddo
                call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
-               call self%compute_curl_fd_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
                   do k=1-ngc/2, nk+ngc/2
                      do j=1-ngc/2, nj+ngc/2
@@ -2184,7 +2184,7 @@ contains
             enddo
             call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                   reached at iteration '//trim(str(iter,.true.)))
-            call self%compute_curl_fd_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+            call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
             do b=1, blocks_number
                do k=1-ngc/2, nk+ngc/2
                   do j=1-ngc/2, nj+ngc/2
@@ -2266,7 +2266,7 @@ contains
             enddo
             call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                   reached at iteration '//trim(str(iter,.true.)))
-            call self%compute_curl_fd_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+            call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
             do b=1, blocks_number
                do k=1-ngc/2, nk+ngc/2
                   do j=1-ngc/2, nj+ngc/2

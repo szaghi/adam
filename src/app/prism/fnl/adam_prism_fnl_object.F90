@@ -306,7 +306,8 @@ contains
    ! call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
    ! call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
    call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid)
-   call self%fwlayer_fnl%copy_gpu_cpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
+   ! call self%fwlayer_fnl%copy_gpu_cpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
+   call self%fwlayer_fnl%copy_gpu_cpu(fwlayer=self%fWLayer, grid=self%adam%grid, verbose=verbose)
    endsubroutine copy_gpu_cpu
 
    subroutine initialize_prism(self, filename, realms_number)
@@ -692,16 +693,18 @@ contains
                                              nk                     = self%nk                                   ,&
                                              ngc                    = self%ngc                                  ,&
                                              nv                     = self%nv                                   ,&
+                                             nv_c                   = self%physics%nv_c                         ,&
                                              crown                  = crown                                     ,&
                                              local_map_bc_crown_gpu = self%field_fnl%maps%local_map_bc_crown_gpu,&
                                              q_gpu                  = q_gpu)
       enddo
    endif
    contains
-      subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, crown, local_map_bc_crown_gpu, q_gpu)
+      subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, nv_c, crown, local_map_bc_crown_gpu, q_gpu)
       !< Set boundary conditions of equation, kernel device.
       integer(I4P), intent(in)    :: ni,nj,nk,ngc                      !< Grid dimensions.
       integer(I4P), intent(in)    :: nv                                !< Number of conservative variables.
+      integer(I4P), intent(in)    :: nv_c                              !< Number of physical conservative variables.
       integer(I4P), intent(in)    :: crown                             !< Crown counter.
       integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
@@ -713,7 +716,7 @@ contains
       integer(I4P)                :: fec                               !< Boundary fec (1 to 26).
       integer(I4P)                :: fec_1_6                           !< Boundary fec (1 to 6).
       !$acc parallel loop independent gang vector &
-      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,crown)
+      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,crown)
       do c=1, size(local_map_bc_crown_gpu, dim=1)
          b = local_map_bc_crown_gpu(c, 1 ,crown)
          if (b>0) then
@@ -743,7 +746,35 @@ contains
                   q_gpu(b,i,j,k,v) = 0._R8P
                enddo
             elseif (bc_type == BC_PERIOD) then
-               ! to be implemented
+               do v=1, nv
+                  q_gpu(b,i,j,k,v) = 0._R8P
+               enddo
+               select case(fec_1_6)
+               case(1)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,ni+i,j   ,k   ,v)
+                  enddo
+               case(2)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i-ni,j   ,k   ,v)
+                  enddo
+               case(3)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,nj+j,k   ,v)
+                  enddo
+               case(4)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,j-nj,k   ,v)
+                  enddo
+               case(5)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,j   ,nk+k,v)
+                  enddo
+               case(6)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,j   ,k-nk,v)
+                  enddo
+               endselect
             endif
          endif
       enddo

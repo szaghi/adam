@@ -819,25 +819,50 @@ contains
    ypoints = y_points(1:N_points)
    zpoints = z_points(1:N_points)
 !
-   do f = 1_I4P, n_faces
-      do b = 1, blocks_number
-         do k = k1_f(f), k2_f(f)
-            do j = j1_f(f), j2_f(f)
-               do i = i1_f(f), i2_f(f)
-                  gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+   select case (self%fdv_scheme)
+   case ('FD')
+      do f = 1_I4P, n_faces
+         do b = 1, blocks_number
+            do k = k1_f(f), k2_f(f)
+               do j = j1_f(f), j2_f(f)
+                  do i = i1_f(f), i2_f(f)
+                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,                    &
-                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,                      &
-                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b,           &
-                                               N_Points=N_Points, r_coil=Radius, normal=normal,             & 
-                                               s_map=s_map, csi_map=csi_map, eta=eta,                       &
-                                               area_signed=area_signed, theta_c=theta_c, coil_type=4.0_R8P)
-                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,                    &
+                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,                      &
+                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b,           &
+                                                  N_Points=N_Points, r_coil=Radius, normal=normal,             &
+                                                  s_map=s_map, csi_map=csi_map, eta=eta,                       &
+                                                  area_signed=area_signed, theta_c=theta_c, coil_type=4.0_R8P)
+                     call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+                  enddo
                enddo
             enddo
          enddo
       enddo
-   enddo
+   case ('FV')
+      do f = 1_I4P, n_faces
+         do b = 1, blocks_number
+            do k = k1_f(f), k2_f(f)
+               do j = j1_f(f), j2_f(f)
+                  do i = i1_f(f), i2_f(f)
+                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+
+                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,                    &
+                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,                      &
+                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b,           &
+                                                  N_Points=N_Points, r_coil=Radius, normal=normal,             &
+                                                  s_map=s_map, csi_map=csi_map, eta=eta,                       &
+                                                  area_signed=area_signed, theta_c=theta_c, coil_type=4.0_R8P)
+                     call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   case default
+      call mpih%error_stop(msg='set_helicon_coil: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
+   endselect
 
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
@@ -1259,27 +1284,54 @@ contains
    k1_f(6) = nk + 1_I4P
    k2_f(6) = nk + ngc
 
-   do f = 1_I4P, n_faces
-      do b = 1, blocks_number
-         do k = k1_f(f), k2_f(f)
-            do j = j1_f(f), j2_f(f)
-               do i = i1_f(f), i2_f(f)
+   select case (self%fdv_scheme)
+   case ('FD')
+      do f = 1_I4P, n_faces
+         do b = 1, blocks_number
+            do k = k1_f(f), k2_f(f)
+               do j = j1_f(f), j2_f(f)
+                  do i = i1_f(f), i2_f(f)
 
-                  gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
-                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
-                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                               a1=y_1, a2=y_2, b1=z_1, b2=z_2,                    &
-                                               coil_type=1.0_R8P, N_points=0_I4P)
+                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
+                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
+                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
+                                                  a1=y_1, a2=y_2, b1=z_1, b2=z_2,                    &
+                                                  coil_type=1.0_R8P, N_points=0_I4P)
 
-                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+                     call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
+                  enddo
                enddo
             enddo
          enddo
       enddo
-   enddo
+   case ('FV')
+      do f = 1_I4P, n_faces
+         do b = 1, blocks_number
+            do k = k1_f(f), k2_f(f)
+               do j = j1_f(f), j2_f(f)
+                  do i = i1_f(f), i2_f(f)
+
+                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+
+                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
+                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
+                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
+                                                  a1=y_1, a2=y_2, b1=z_1, b2=z_2,                    &
+                                                  coil_type=1.0_R8P, N_points=0_I4P)
+
+                     call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   case default
+      call mpih%error_stop(msg='set_rectangular_coil_x: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
+   endselect
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -1626,27 +1678,54 @@ contains
    k1_f(6) = nk+1_I4P
    k2_f(6) = nk+ngc
 
-   do f = 1_I4P, n_faces
-      do b = 1, blocks_number
-         do k = k1_f(f), k2_f(f)
-            do j = j1_f(f), j2_f(f)
-               do i = i1_f(f), i2_f(f)
+   select case (self%fdv_scheme)
+   case ('FD')
+      do f = 1_I4P, n_faces
+         do b = 1, blocks_number
+            do k = k1_f(f), k2_f(f)
+               do j = j1_f(f), j2_f(f)
+                  do i = i1_f(f), i2_f(f)
 
-                  gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
-                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
-                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                               a1=z_1, a2=z_2, b1=x_1, b2=x_2,                    &
-                                               coil_type=1.0_R8P, N_points=0_I4P)
+                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
+                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
+                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
+                                                  a1=z_1, a2=z_2, b1=x_1, b2=x_2,                    &
+                                                  coil_type=1.0_R8P, N_points=0_I4P)
 
-                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+                     call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
+                  enddo
                enddo
             enddo
          enddo
       enddo
-   enddo
+   case ('FV')
+      do f = 1_I4P, n_faces
+         do b = 1, blocks_number
+            do k = k1_f(f), k2_f(f)
+               do j = j1_f(f), j2_f(f)
+                  do i = i1_f(f), i2_f(f)
+
+                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+
+                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
+                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
+                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
+                                                  a1=z_1, a2=z_2, b1=x_1, b2=x_2,                    &
+                                                  coil_type=1.0_R8P, N_points=0_I4P)
+
+                     call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   case default
+      call mpih%error_stop(msg='set_rectangular_coil_y: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
+   endselect
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -1994,24 +2073,48 @@ contains
    k1_f(6) = nk + 1_I4P
    k2_f(6) = nk + ngc
 
-   do f = 1_I4P, n_faces
-      do b = 1, blocks_number
-         do k = k1_f(f), k2_f(f)
-            do j = j1_f(f), j2_f(f)
-               do i = i1_f(f), i2_f(f)
-                  gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-                  A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
-                                               x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
-                                               i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                               a1=x_1, a2=x_2, b1=y_1, b2=y_2,                    &
-                                               coil_type=1.0_R8P, N_points=0_I4P)
-                  call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+   select case (self%fdv_scheme)
+   case ('FD')
+      do f = 1_I4P, n_faces
+         do b = 1, blocks_number
+            do k = k1_f(f), k2_f(f)
+               do j = j1_f(f), j2_f(f)
+                  do i = i1_f(f), i2_f(f)
+                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
+                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
+                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
+                                                  a1=x_1, a2=x_2, b1=y_1, b2=y_2,                    &
+                                                  coil_type=1.0_R8P, N_points=0_I4P)
+                     call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
+                  enddo
                enddo
             enddo
          enddo
       enddo
-   enddo
+   case ('FV')
+      do f = 1_I4P, n_faces
+         do b = 1, blocks_number
+            do k = k1_f(f), k2_f(f)
+               do j = j1_f(f), j2_f(f)
+                  do i = i1_f(f), i2_f(f)
+                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
+                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
+                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
+                                                  a1=x_1, a2=x_2, b1=y_1, b2=y_2,                    &
+                                                  coil_type=1.0_R8P, N_points=0_I4P)
+                     call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
+
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   case default
+      call mpih%error_stop(msg='set_rectangular_coil_z: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
+   endselect
 
    J_vec_buffer = J_vec_buffer * verse
 
