@@ -402,9 +402,17 @@ contains
       if (self%coil%total_coils_number >= 1_I4P) then
 
          ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
+         print *, 'COIL A: enter compute_coils_current, gamma_present=', present(gamma), ' nv=', size(q,1)
+         print *, 'COIL A1: Jx=', var_Jx, ' Jy=', var_Jy, ' Jz=', var_Jz
+         print *, 'COIL B: before zero Jx'
          q(var_Jx,:,:,:,:) = 0._R8P
+         print *, 'COIL C: after zero Jx'
+         print *, 'COIL D: before zero Jy'
          q(var_Jy,:,:,:,:) = 0._R8P
+         print *, 'COIL E: after zero Jy'
+         print *, 'COIL F: before zero Jz'
          q(var_Jz,:,:,:,:) = 0._R8P
+         print *, 'COIL G: after zero Jz'
 
          ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
          if (td > 0._R8P) then
@@ -464,28 +472,26 @@ contains
                                                1:)           !< Conservative variables.
    integer(I4P)                           :: face            !< Counter
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,         &
-            f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL,     &
+   associate(ngc=>self%ngc, blocks_number=>self%blocks_number, f=>self%fWLayer%f, layer=>self%fWLayer%layer, &
+            C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL,                                                     &
             nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, s2=>self%fWLayer%s2, &
             alfa_D=>self%fWLayer%alfa_D, alfa_B=>self%fWLayer%alfa_B, beta_D=>self%fWLayer%beta_D,            &
             beta_B=>self%fWLayer%beta_B)
-   if (C>0) then
+   if (allocated(self%fWLayer%f) .and. allocated(self%fWLayer%C)) then
       do face=1, 6
-         if (layer(face)) call apply_fWL_correction_fun(blocks_number = blocks_number,      &
-                                                        ngc           = ngc,                &
-                                                        ni1           = ni_fWL(1,face),     &
-                                                        ni2           = ni_fWL(2,face),     &
-                                                        nj1           = nj_fWL(1,face),     &
-                                                        nj2           = nj_fWL(2,face),     &
-                                                        nk1           = nk_fWL(1,face),     &
-                                                        nk2           = nk_fWL(2,face),     &
-                                                        n             = n(face),            &
-                                                        s2            = s2(face),           &
-                                                        alfa_D        = alfa_D(face),       &
-                                                        beta_D        = beta_D(face),       &
-                                                        alfa_B        = alfa_B(face),       &
-                                                        beta_B        = beta_B(face),       &
-                                                        f             = self%fWLayer%f,     &
+         if (layer(face)) call apply_fWL_correction_fun(blocks_number = blocks_number,        &
+                                                        ngc           = ngc,                  &
+                                                        C             = C(:,face),           &
+                                                        ni_fWL        = ni_fWL(:,:,face),    &
+                                                        nj_fWL        = nj_fWL(:,:,face),    &
+                                                        nk_fWL        = nk_fWL(:,:,face),    &
+                                                        n             = n(face),             &
+                                                        s2            = s2(face),            &
+                                                        alfa_D        = alfa_D(face),        &
+                                                        beta_D        = beta_D(face),        &
+                                                        alfa_B        = alfa_B(face),        &
+                                                        beta_B        = beta_B(face),        &
+                                                        f             = self%fWLayer%f,      &
                                                         q             = q)
       enddo
    endif
@@ -512,7 +518,7 @@ contains
    real(R8P)                              :: s1                           !< Coefficiente pari a +-1.
    real(R8P)                              :: ds                           !< Distanza tra le celle in x, y o z.
    real(R8P)                              :: ngc_r, crown_r               !< Numero di gc totale, reale
-   real(R8P)                              :: ref(1:9)                     !< Vettore di stato di riferimento per assegnazione gc.
+   real(R8P)                              :: ref(1:self%nv)               !< Vettore di stato di riferimento per assegnazione gc.
 
    associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                              &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),     &
@@ -901,7 +907,6 @@ contains
    integer(I4P),            intent(in),    optional         :: s               !< Stage counter.
    logical                                                  :: do_local_update !< Flag for triggering local update.
    logical                                                  :: do_set_bc       !< Flag for triggering setting bc.
-
    ! perform local update if step is not specified or if first step is selected
    do_local_update = .false.
    do_set_bc       = .false.
@@ -912,14 +917,28 @@ contains
       if (step==1) do_local_update = .true.
       if (step==3) do_set_bc       = .true.
    endif
-   if (do_local_update) call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+   print *, 'GHOST A: enter update_ghost, stage_present=', present(s), ' do_local=', do_local_update, ' do_bc=', do_set_bc
+   if (do_local_update) then
+      print *, 'GHOST B: before update_ghost_local'
+      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+      print *, 'GHOST C: after update_ghost_local'
+   endif
+   print *, 'GHOST D: before update_ghost_mpi'
    call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, step=step)
-   if (do_set_bc) call self%set_boundary_conditions(q=q, s=s)
+   print *, 'GHOST E: after update_ghost_mpi'
+   if (do_set_bc) then
+      print *, 'GHOST F: before set_boundary_conditions'
+      call self%set_boundary_conditions(q=q, s=s)
+      print *, 'GHOST G: after set_boundary_conditions'
+   endif
    if (present(s)) then
+      print *, 'GHOST H: before compute_coils_current(stage)'
       call self%compute_coils_current(q=q, gamma=self%rk%gamm(s))
    else
+      print *, 'GHOST H: before compute_coils_current(no_stage)'
       call self%compute_coils_current(q=q)
    endif
+   print *, 'GHOST I: after compute_coils_current'
    endsubroutine update_ghost
 
    ! forest orchestrator contract methods overridings
@@ -996,17 +1015,9 @@ contains
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.)
-
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
-   r = nint(real(C)/(real(C)+1_I4P))
-   max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-   max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-   max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   call compute_max_divergence_outside_fwl(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
+                                           max_div_B=max_div_B, max_div_J=max_div_J)
    call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
-   endassociate
    call self%io%open_file_residuals(nv=self%nv)
 
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -1402,7 +1413,6 @@ contains
    real(R8P)                                                :: max_div_D         !< Maximum of divergence of D field.
    real(R8P)                                                :: max_div_B         !< Maximum of divergence of B
    real(R8P)                                                :: max_div_J         !< Maximum of divergence of J field.
-   integer(I4P)                                             :: r                 !< Auxiliary variable to identify fWL presence
 
    if (self%io%save_memory_status) then
       call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
@@ -1437,16 +1447,9 @@ contains
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
-   r = nint(real(C)/(real(C)+1_I4P))
-   max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-   max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-   max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   call compute_max_divergence_outside_fwl(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
+                                           max_div_B=max_div_B, max_div_J=max_div_J)
    call self%save_divergence_history(div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
-   endassociate
    endsubroutine post_step_forest
 
    subroutine is_done_forest(self, done)
@@ -1477,8 +1480,6 @@ contains
    !< loop block formerly inline in `simulate`. Behavior unchanged.
    class(prism_cpu_object), intent(inout) :: self !< The realm.
    real(R8P)                              :: max_div_D, max_div_B, max_div_J
-   integer(I4P)                           :: r
-
    !call self%compute_energy_error
    call self%save_simulation_data
    call self%io%close_file_residuals
@@ -1497,16 +1498,9 @@ contains
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%fdv_half_stencils(1))
-   r = nint(real(C)/(real(C)+1_I4P))
-   max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-   max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-   max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                          1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+   call compute_max_divergence_outside_fwl(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
+                                           max_div_B=max_div_B, max_div_J=max_div_J)
    call self%save_divergence_history(is_to_close=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
-   endassociate
 
    ! NB: MPI_FINALIZE is NOT called here — it is process-global and runs once via
    ! forest%finalize -> finalize_mpi_forest after ALL realms finish.
@@ -1726,6 +1720,38 @@ contains
       self%rms_energy_error_B = sqrt(sum(error_B)/size(error_B))
    endif
    endsubroutine compute_energy_error
+
+   subroutine compute_max_divergence_outside_fwl(self, hs, max_div_D, max_div_B, max_div_J)
+   !< Compute divergence maxima excluding the local fWLayer skin block by block.
+   class(prism_cpu_object), intent(in)  :: self
+   integer(I4P),            intent(in)  :: hs
+   real(R8P),               intent(out) :: max_div_D
+   real(R8P),               intent(out) :: max_div_B
+   real(R8P),               intent(out) :: max_div_J
+   integer(I4P)                         :: b
+   integer(I4P)                         :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k
+
+   max_div_D = 0._R8P
+   max_div_B = 0._R8P
+   max_div_J = 0._R8P
+   do b = 1, self%blocks_number
+      lo_i = 1_I4P ; hi_i = self%ni
+      lo_j = 1_I4P ; hi_j = self%nj
+      lo_k = 1_I4P ; hi_k = self%nk
+      if (allocated(self%fWLayer%C)) then
+         if (self%fWLayer%C(b,1) > 0_I4P) lo_i = 1_I4P + self%fWLayer%C(b,1) + hs
+         if (self%fWLayer%C(b,2) > 0_I4P) hi_i = self%ni - (self%fWLayer%C(b,2) + hs - 1_I4P)
+         if (self%fWLayer%C(b,3) > 0_I4P) lo_j = 1_I4P + self%fWLayer%C(b,3) + hs
+         if (self%fWLayer%C(b,4) > 0_I4P) hi_j = self%nj - (self%fWLayer%C(b,4) + hs - 1_I4P)
+         if (self%fWLayer%C(b,5) > 0_I4P) lo_k = 1_I4P + self%fWLayer%C(b,5) + hs
+         if (self%fWLayer%C(b,6) > 0_I4P) hi_k = self%nk - (self%fWLayer%C(b,6) + hs - 1_I4P)
+      endif
+      if (lo_i > hi_i .or. lo_j > hi_j .or. lo_k > hi_k) cycle
+      max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      max_div_B = max(max_div_B, maxval(abs(self%divergence(2,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      max_div_J = max(max_div_J, maxval(abs(self%divergence(3,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+   enddo
+   endsubroutine compute_max_divergence_outside_fwl
 
    subroutine impose_div_free(self)
    !< Impose divergence-free property.
@@ -2211,6 +2237,7 @@ contains
    real(R8P)                                                    :: KO_Bz_x,KO_Bz_y,KO_Bz_z  !< Buffer for KO correction, B z.
    real(R8P), parameter                                         :: sigma = 1000.01_R8P
    real(R8P)                                                    :: min_curlD,max_curlD
+   real(R8P)                                                    :: damping_coeff            !< Optional GLM parabolic damping coefficient.
 
    min_curlD =  huge(1._R8P)
    max_curlD = -huge(1._R8P)
@@ -2260,7 +2287,11 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1)                                 
                dq(VAR_BY,i,j,k,b) = -curlD(2)                                 
                dq(VAR_BZ,i,j,k,b) = -curlD(3)                                 
-               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
+               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceD
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
+                  dq(nv_c,i,j,k,b) = dq(nv_c,i,j,k,b) - damping_coeff * q(nv_c,i,j,k,b)
+               endif
             enddo
             enddo
             enddo
@@ -2294,7 +2325,11 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1) - gradpsi(1)       
                dq(VAR_BY,i,j,k,b) = -curlD(2) - gradpsi(2)       
                dq(VAR_BZ,i,j,k,b) = -curlD(3) - gradpsi(3)       
-               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
+               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
+                  dq(nv_c,i,j,k,b) = dq(nv_c,i,j,k,b) - damping_coeff * q(nv_c,i,j,k,b)
+               endif
             enddo
             enddo
             enddo
@@ -2334,8 +2369,13 @@ contains
                dq(VAR_BX,i,j,k,b)      = -curlD(1) - gradpsi(1)
                dq(VAR_BY,i,j,k,b)      = -curlD(2) - gradpsi(2)
                dq(VAR_BZ,i,j,k,b)      = -curlD(3) - gradpsi(3)
-               dq(nv_c-1_I4P,i,j,k,b)  = -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c-1_I4P,i,j,k,b)
-               dq(nv_c,i,j,k,b)        = -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
+               dq(nv_c-1_I4P,i,j,k,b)  = -(chi)**2*divergenceD
+               dq(nv_c,i,j,k,b)        = -(chi)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
+                  dq(nv_c-1_I4P,i,j,k,b) = dq(nv_c-1_I4P,i,j,k,b) - damping_coeff * q(nv_c-1_I4P,i,j,k,b)
+                  dq(nv_c,i,j,k,b)       = dq(nv_c,i,j,k,b)       - damping_coeff * q(nv_c,i,j,k,b)
+               endif
             enddo
             enddo
             enddo
@@ -2394,7 +2434,11 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                                 !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                                 !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                                 !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
+               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceD
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
+                  dq(nv_c,i,j,k,b) = dq(nv_c,i,j,k,b) - damping_coeff * q(nv_c,i,j,k,b)
+               endif
             enddo
             enddo
             enddo
@@ -2427,7 +2471,11 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)       !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)       !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)       !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
+               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
+                  dq(nv_c,i,j,k,b) = dq(nv_c,i,j,k,b) - damping_coeff * q(nv_c,i,j,k,b)
+               endif
             enddo
             enddo
             enddo
@@ -2467,8 +2515,13 @@ contains
                dq(VAR_BX,    i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)                    
                dq(VAR_BY,    i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)                    
                dq(VAR_BZ,    i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)                    
-               dq(nv_c-1_I4P,i,j,k,b) = -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c-1_I4P,i,j,k,b)
-               dq(nv_c,      i,j,k,b) = -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
+               dq(nv_c-1_I4P,i,j,k,b) = -(chi*C0)**2*divergenceD
+               dq(nv_c,      i,j,k,b) = -(chi*C0)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
+                  dq(nv_c-1_I4P,i,j,k,b) = dq(nv_c-1_I4P,i,j,k,b) - damping_coeff * q(nv_c-1_I4P,i,j,k,b)
+                  dq(nv_c,i,j,k,b)       = dq(nv_c,i,j,k,b)       - damping_coeff * q(nv_c,i,j,k,b)
+               endif
             enddo
             enddo
             enddo
@@ -2511,17 +2564,17 @@ contains
 
    subroutine compute_residuals_fv_centered(self, q, dq, s, flux_register)
    !< Compute residuals of equation, space operator, centered finite volume schemes.
-   class(prism_cpu_object),     intent(inout) :: self                                         !< The equation.
-   real(R8P),                   intent(inout) :: q(1:,         &
-                                                   1-self%ngc:,&
-                                                   1-self%ngc:,&
-                                                   1-self%ngc:,&
-                                                   1:)                                        !< Conservative variables.
-   real(R8P),                   intent(inout) :: dq(1:,         &
-                                                    1-self%ngc:,&
-                                                    1-self%ngc:,&
-                                                    1-self%ngc:,&
-                                                    1:)                                       !< Residuals.
+   class(prism_cpu_object),     intent(inout)                    :: self                      !< The equation.
+   real(R8P),                   intent(inout)                    :: q(1:,       &
+                                                                    1-self%ngc:,&
+                                                                    1-self%ngc:,&
+                                                                    1-self%ngc:,&
+                                                                    1:)                       !< Conservative variables.
+   real(R8P),                   intent(inout)                    :: dq(1:,       &
+                                                                     1-self%ngc:,&
+                                                                     1-self%ngc:,&
+                                                                     1-self%ngc:,&
+                                                                     1:)                      !< Residuals.
    integer(I4P),                intent(in),    optional         :: s                          !< Stage counter.
    class(flux_register_object), intent(inout), optional         :: flux_register              !< Forest's flux register; FV reflux.
    integer(I4P)                                                 :: i,j,k,b,d,v                !< Counter
@@ -2530,6 +2583,7 @@ contains
                                                                                        0._R8P,1._R8P,0._R8P,  &
                                                                                        0._R8P,0._R8P,1._R8P], &
                                                                                        [3,3]) !< Direction versor, real.
+   real(R8P)                                                    :: damping_coeff
 
    ! Capture stage BEFORE the associate block rebinds `s` to the
    ! reconstruction stencil half-width. The inter-realm FV reflux hook
@@ -2641,21 +2695,25 @@ contains
          dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - q(var_Jy,i,j,k,b)
          dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q(var_Jz,i,j,k,b)
          if (self%fv_add_phi_damping) then
-            if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+            if (c_r > 0._R8P) then
+               if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
+               else
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
+               endif
                dq(self%fv_ivar_phi,i,j,k,b) = dq(self%fv_ivar_phi,i,j,k,b) - &
-                                              (chi/(c_r*minval(dxyz(1:3,b)))) * q(self%fv_ivar_phi,i,j,k,b)
-            else
-               dq(self%fv_ivar_phi,i,j,k,b) = dq(self%fv_ivar_phi,i,j,k,b) - &
-                                              (chi*C0/(c_r*minval(dxyz(1:3,b)))) * q(self%fv_ivar_phi,i,j,k,b)
+                                              damping_coeff * q(self%fv_ivar_phi,i,j,k,b)
             endif
          endif
          if (self%fv_add_psi_damping) then
-            if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+            if (c_r > 0._R8P) then
+               if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
+               else
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
+               endif
                dq(self%fv_ivar_psi,i,j,k,b) = dq(self%fv_ivar_psi,i,j,k,b) - &
-                                              (chi/(c_r*minval(dxyz(1:3,b)))) * q(self%fv_ivar_psi,i,j,k,b)
-            else
-               dq(self%fv_ivar_psi,i,j,k,b) = dq(self%fv_ivar_psi,i,j,k,b) - &
-                                              (chi*C0/(c_r*minval(dxyz(1:3,b)))) * q(self%fv_ivar_psi,i,j,k,b)
+                                              damping_coeff * q(self%fv_ivar_psi,i,j,k,b)
             endif
          endif
       enddo

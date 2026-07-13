@@ -45,7 +45,7 @@ contains
    integer(I4P)                                             :: db(2,5)    !< Device data bounds.
    integer(I4P)                                             :: hb(2,5)    !< Host   data bounds.
 
-   if (fwlayer%C ==0) return
+   if (.not. allocated(fwlayer%f)) return
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu start')
    if (present(buffer)) then
@@ -71,7 +71,7 @@ contains
    integer(I4P)                                             :: db(2,5)    !< Device data bounds.
    integer(I4P)                                             :: hb(2,5)    !< Host   data bounds.
 
-   if (fwlayer%C ==0) return
+   if (.not. allocated(fwlayer%f)) return
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu start')
    if (present(buffer)) then
@@ -93,7 +93,7 @@ contains
    type(grid_object),          intent(in)         :: grid !< Grid (sibling realm component, threaded in).
    integer(I4P)                                        :: ierr    !< Error status.
 
-   if (fwlayer%C ==0) return
+   if (.not. allocated(fwlayer%f)) return
    associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nb=>field%nb)
    print '(A)', mpih_fnl%myrankstr//'prism_fnl_fwlayer_object%initialize start'
    call dev_alloc(fptr_dev=self%f_gpu, &
@@ -104,10 +104,10 @@ contains
    endsubroutine initialize
 
    ! non TBP
-   subroutine apply_fwl_correction_dev_kernel(blocks_number,ngc,ni1,ni2,nj1,nj2,nk1,nk2,n,s2,alfa_D,beta_D,alfa_B,beta_B,&
+   subroutine apply_fwl_correction_dev_kernel(block_idx,ngc,ni1,ni2,nj1,nj2,nk1,nk2,n,s2,alfa_D,beta_D,alfa_B,beta_B,&
                                               f_gpu,q_gpu)
    !< Applay FWL correction, direction agnostic, device kernel.
-   integer(I4P), intent(in)    :: blocks_number                     !< Blocks number.
+   integer(I4P), intent(in)    :: block_idx                         !< Block index.
    integer(I4P), intent(in)    :: ngc                               !< Number of ghost cells.
    integer(I4P), intent(in)    :: ni1,ni2,nj1,nj2,nk1,nk2           !< Dimensions of FWL domain.
    integer(I4P), intent(in)    :: n                                 !< f component.
@@ -119,26 +119,24 @@ contains
    real(R8P)                   :: D_alfa, D_beta                    !< components of tangential fields before correction
    real(R8P)                   :: B_alfa, B_beta                    !< components of tangential fields before correction
    real(R8P)                   :: fm1, fp1                          !< fWLayer function values in -+ cell.
-   integer(I4P)                :: b,i,j,k                           !< Counter.
+   integer(I4P)                :: i,j,k                             !< Counter.
 
-   !$acc parallel loop independent gang vector collapse(4) &
+   !$acc parallel loop independent gang vector collapse(3) &
    !$acc& DEVICEVAR(f_gpu,q_gpu) private(fm1,fp1,D_alfa,D_beta,B_alfa,B_beta)          &
-   !$acc& firstprivate(ni1,ni2,nj1,nj2,nk1,nk2,blocks_number,n,s2,alfa_D,beta_D,alfa_B,beta_B)
-   do b=1,blocks_number
+   !$acc& firstprivate(block_idx,ni1,ni2,nj1,nj2,nk1,nk2,n,s2,alfa_D,beta_D,alfa_B,beta_B)
    do k=nk1, nk2
    do j=nj1, nj2
    do i=ni1, ni2
-      fm1 = f_gpu(b,i,j,k,n) - 1._R8P
-      fp1 = f_gpu(b,i,j,k,n) + 1._R8P
-      D_alfa = q_gpu(b,i,j,k,alfa_D)
-      D_beta = q_gpu(b,i,j,k,beta_D)
-      B_alfa = q_gpu(b,i,j,k,alfa_B)
-      B_beta = q_gpu(b,i,j,k,beta_B)
-      q_gpu(b,i,j,k,alfa_D) = MU0_SQ_I2  * ( s2*fm1*B_beta*EPS0_SQ +    fp1*D_alfa*MU0_SQ)
-      q_gpu(b,i,j,k,beta_D) = MU0_SQ_I2  * (-s2*fm1*B_alfa*EPS0_SQ +    fp1*D_beta*MU0_SQ)
-      q_gpu(b,i,j,k,alfa_B) = EPS0_SQ_I2 * (    fp1*B_alfa*EPS0_SQ - s2*fm1*D_beta*MU0_SQ)
-      q_gpu(b,i,j,k,beta_B) = EPS0_SQ_I2 * (    fp1*B_beta*EPS0_SQ + s2*fm1*D_alfa*MU0_SQ)
-   enddo
+      fm1 = f_gpu(block_idx,i,j,k,n) - 1._R8P
+      fp1 = f_gpu(block_idx,i,j,k,n) + 1._R8P
+      D_alfa = q_gpu(block_idx,i,j,k,alfa_D)
+      D_beta = q_gpu(block_idx,i,j,k,beta_D)
+      B_alfa = q_gpu(block_idx,i,j,k,alfa_B)
+      B_beta = q_gpu(block_idx,i,j,k,beta_B)
+      q_gpu(block_idx,i,j,k,alfa_D) = MU0_SQ_I2  * ( s2*fm1*B_beta*EPS0_SQ +    fp1*D_alfa*MU0_SQ)
+      q_gpu(block_idx,i,j,k,beta_D) = MU0_SQ_I2  * (-s2*fm1*B_alfa*EPS0_SQ +    fp1*D_beta*MU0_SQ)
+      q_gpu(block_idx,i,j,k,alfa_B) = EPS0_SQ_I2 * (    fp1*B_alfa*EPS0_SQ - s2*fm1*D_beta*MU0_SQ)
+      q_gpu(block_idx,i,j,k,beta_B) = EPS0_SQ_I2 * (    fp1*B_beta*EPS0_SQ + s2*fm1*D_alfa*MU0_SQ)
    enddo
    enddo
    enddo

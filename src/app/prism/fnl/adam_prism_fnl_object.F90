@@ -480,66 +480,25 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1:)                           !< Conservative variables.
-   integer(I4P)                           :: ni_fWL(2,6),nj_fWL(2,6),nk_fWL(2,6) !< Dimensions of FWL domain.
-   real(R8P)                              :: s2(6)                               !< Side coefficient.
-   integer(I4P)                           :: n(6)                                !< FWL f function index.
-   integer(I4P)                           :: alfa_D(6), beta_D(6)                !< Corrected var index of D (Barbas' notation).
-   integer(I4P)                           :: alfa_B(6), beta_B(6)                !< Corrected var index of D (Barbas' notation).
-   integer(I4P)                           :: face                                !< Counter.
+   integer(I4P)                           :: face, b                           !< Counter.
 
-   associate(C=>self%fWLayer%C, layer=>self%fWLayer%layer, &
-            ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number)
-   if (C>0) then
-      ni_fWL(1,1)=1_I4P; ni_fWL(1,2)=ni-C+1_I4P; ni_fWL(1,3)=1_I4P; &
-      ni_fWL(1,4)=1_I4P; ni_fWL(1,5)=1_I4P     ; ni_fWL(1,6)=1_I4P
-
-      ni_fWL(2,1)=C ; ni_fWL(2,2)=ni; ni_fWL(2,3)=ni; &
-      ni_fWL(2,4)=ni; ni_fWL(2,5)=ni; ni_fWL(2,6)=ni
-
-      nj_fWL(1,1)=1_I4P     ; nj_fWL(1,2)=1_I4P; nj_fWL(1,3)=1_I4P; &
-      nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
-
-      nj_fWL(2,1)=nj; nj_fWL(2,2)=nj; nj_fWL(2,3)=C ; &
-      nj_fWL(2,4)=nj; nj_fWL(2,5)=nj; nj_fWL(2,6)=nj
-
-      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P; nk_fWL(1,3)=1_I4P;     &
-      nk_fWL(1,4)=1_I4P; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P
-
-      nk_fWL(2,1)=nk; nk_fWL(2,2)=nk; nk_fWL(2,3)=nk; &
-      nk_fWL(2,4)=nk; nk_fWL(2,5)=C ; nk_fWL(2,6)=nk
-
-      n(1) =1_I4P; n(2)=1_I4P; n(3)=2_I4P; &
-      n(4) =2_I4P; n(5)=3_I4P; n(6)=3_I4P
-
-      s2(1)= 1.0_R8P; s2(2)=-1.0_R8P; s2(3)= 1.0_R8P; &
-      s2(4)=-1.0_R8P; s2(5)= 1.0_R8P; s2(6)=-1.0_R8P
-
-      alfa_D(1)=2_I4P; alfa_D(2)=2_I4P; alfa_D(3)=3_I4P; &
-      alfa_D(4)=3_I4P; alfa_D(5)=1_I4P; alfa_D(6)=1_I4P
-
-      beta_D(1)=3_I4P; beta_D(2)=3_I4P; beta_D(3)=1_I4P; &
-      beta_D(4)=1_I4P; beta_D(5)=2_I4P; beta_D(6)=2_I4P
-
-      alfa_B(1)=5_I4P; alfa_B(2)=5_I4P; alfa_B(3)=6_I4P; &
-      alfa_B(4)=6_I4P; alfa_B(5)=4_I4P; alfa_B(6)=4_I4P
-
-      beta_B(1)=6_I4P; beta_B(2)=6_I4P; beta_B(3)=4_I4P; &
-      beta_B(4)=4_I4P; beta_B(5)=5_I4P; beta_B(6)=5_I4P
+   associate(layer=>self%fWLayer%layer, C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL, &
+            nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, &
+            s2=>self%fWLayer%s2, alfa_D=>self%fWLayer%alfa_D, beta_D=>self%fWLayer%beta_D, &
+            alfa_B=>self%fWLayer%alfa_B, beta_B=>self%fWLayer%beta_B)
+   if (allocated(self%fWLayer%C) .and. associated(self%fwlayer_fnl%f_gpu)) then
       do face=1, 6
-         if (layer(face)) call apply_fwl_correction_dev_kernel(blocks_number=self%blocks_number,ngc=self%ngc,&
-                                                               ni1   = ni_fWL(1,face),                       &
-                                                               ni2   = ni_fWL(2,face),                       &
-                                                               nj1   = nj_fWL(1,face),                       &
-                                                               nj2   = nj_fWL(2,face),                       &
-                                                               nk1   = nk_fWL(1,face),                       &
-                                                               nk2   = nk_fWL(2,face),                       &
-                                                               n     =      n(face)  ,                       &
-                                                               s2    =     s2(face)  ,                       &
-                                                               alfa_D= alfa_D(face)  ,                       &
-                                                               beta_D= beta_D(face)  ,                       &
-                                                               alfa_B= alfa_B(face)  ,                       &
-                                                               beta_B= beta_B(face)  ,                       &
-                                                               f_gpu=self%fwlayer_fnl%f_gpu,q_gpu=q_gpu)
+         if (.not. layer(face)) cycle
+         do b=1, self%blocks_number
+            if (C(b,face) <= 0_I4P) cycle
+            call apply_fwl_correction_dev_kernel(block_idx=b, ngc=self%ngc,                  &
+                                                 ni1=ni_fWL(1,b,face), ni2=ni_fWL(2,b,face), &
+                                                 nj1=nj_fWL(1,b,face), nj2=nj_fWL(2,b,face), &
+                                                 nk1=nk_fWL(1,b,face), nk2=nk_fWL(2,b,face), &
+                                                 n=n(face), s2=s2(face), alfa_D=alfa_D(face), beta_D=beta_D(face), &
+                                                 alfa_B=alfa_B(face), beta_B=beta_B(face),    &
+                                                 f_gpu=self%fwlayer_fnl%f_gpu, q_gpu=q_gpu)
+         enddo
       enddo
    endif
    endassociate
@@ -1279,6 +1238,7 @@ contains
       real(R8P)                   :: divergenceD, divergenceB           !< Divergence for hyperbolic correction.
       real(R8P)   			   	 :: gradphi(3), gradpsi(3) 	         !< Gradient for hyperbolic correction.
       real(R8P)   			   	 :: dxyz_b(3) 	                     !< Per-block deltas, PRIVATE copy (no strided-section temp).
+      real(R8P)                   :: damping_coeff                      !< Optional GLM parabolic damping coefficient.
       ! rank 1D stencil for curl computations on device that contiguos memory is mandatory
       real(R8P) :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the x stencil.
       real(R8P) :: qsx_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the x stencil.
@@ -1360,7 +1320,11 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)/EPS0
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)/EPS0
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)/EPS0
-               dq_gpu(b,i,j,k,nv_c	) = -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c) = -(chi*C0)**2*divergenceD
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1432,7 +1396,11 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)/EPS0 - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)/EPS0 - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)/EPS0 - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c	) = -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c) = -(chi*C0)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1523,8 +1491,13 @@ contains
                dq_gpu(b,i,j,k,VAR_BX    ) = -curlD(1)/EPS0 - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY    ) = -curlD(2)/EPS0 - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ    ) = -curlD(3)/EPS0 - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c-1_I4P)	= -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c-1_I4P)
-               dq_gpu(b,i,j,k,nv_c	    )	= -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c-1_I4P) = -(chi*C0)**2*divergenceD
+               dq_gpu(b,i,j,k,nv_c)       = -(chi*C0)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c-1_I4P) = dq_gpu(b,i,j,k,nv_c-1_I4P) - damping_coeff * q_gpu(b,i,j,k,nv_c-1_I4P)
+                  dq_gpu(b,i,j,k,nv_c)       = dq_gpu(b,i,j,k,nv_c)       - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1651,7 +1624,11 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)
-               dq_gpu(b,i,j,k,nv_c	) = -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c) = -(chi)**2*divergenceD
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1723,7 +1700,11 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c	) = -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c) = -(chi)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1814,8 +1795,13 @@ contains
                dq_gpu(b,i,j,k,VAR_BX    ) = -curlD(1) - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY    ) = -curlD(2) - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ    ) = -curlD(3) - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c-1_I4P)	= -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c-1_I4P)
-               dq_gpu(b,i,j,k,nv_c	    )	= -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c-1_I4P) = -(chi)**2*divergenceD
+               dq_gpu(b,i,j,k,nv_c)       = -(chi)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c-1_I4P) = dq_gpu(b,i,j,k,nv_c-1_I4P) - damping_coeff * q_gpu(b,i,j,k,nv_c-1_I4P)
+                  dq_gpu(b,i,j,k,nv_c)       = dq_gpu(b,i,j,k,nv_c)       - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -3358,34 +3344,40 @@ contains
    !< Compute maximum divergence.
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    real(R8P)                              :: max_div(3) !< Maximum divergence.
+   integer(I4P), allocatable              :: fwl_cells(:,:) !< Block-local fWLayer cell counts; zero when layer is disabled.
+
+   allocate(fwl_cells(1:self%blocks_number,1:6))
+   fwl_cells = 0_I4P
+   if (allocated(self%fWLayer%C)) fwl_cells = self%fWLayer%C(1:self%blocks_number,1:6)
 
 	call compute_max_divergence_dev_kernel(ni            = self%ni                  ,&
                                           nj            = self%nj                  ,&
                                           nk            = self%nk                  ,&
                                           blocks_number = self%blocks_number       ,&
-														ngc           = self%ngc                 ,&
+															ngc           = self%ngc                 ,&
                                           var_jx        = self%physics%var_jx      ,&
                                           var_jy        = self%physics%var_jy      ,&
                                           var_jz        = self%physics%var_jz      ,&
                                           s1            = self%fdv_half_stencils(1),&
-                                          fwl_c         = self%fWLayer%C            ,&
+                                          fwl_c         = fwl_cells                ,&
                                           dxyz_gpu      = self%field_fnl%dxyz_gpu  ,&
                                           q_gpu         = self%q_gpu               ,&
                                           max_div       = max_div)
+   deallocate(fwl_cells)
 
 	self%max_divergence_D = max_div(1)
 	self%max_divergence_B = max_div(2)
 	self%max_divergence_J = max_div(3)
    contains
       subroutine compute_max_divergence_dev_kernel(ni, nj, nk, blocks_number, ngc, &
-                                                   var_Jx, var_Jy, var_Jz, s1, fwl_c, 	  &
+                                                   var_Jx, var_Jy, var_Jz, s1, fwl_c,     &
                                                    dxyz_gpu, q_gpu, max_div)
 
 			!< Compute maximum divergence of D, B and J fields, device kernel.
 			integer(I4P), intent(in)  :: ni, nj, nk, blocks_number, ngc        !< Grids dimensions.
 			integer(I4P), intent(in)  :: var_Jx, var_Jy, var_Jz                !< Current variables indices.
 			integer(I4P), intent(in)  :: s1                                    !< FDV half stencil.
-			integer(I4P), intent(in)  :: fwl_c                                 !< fWLayer cell count C (issue #26/#31 CPU-parity: skin exclusion).
+				integer(I4P), intent(in)  :: fwl_c(1:,1:)                          !< fWLayer cell counts [nb,6].
 			real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Delta cells GPU [nb,3].
 			real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
 			real(R8P),    intent(out) :: max_div(3)                            !< Maximum divergence of D, B and J fields.
@@ -3398,31 +3390,30 @@ contains
 			real(R8P)                 :: max_divD, max_divB, max_divJ			 !< Maximum divergence of D, B and J fields.
 			real(R8P)                 :: dxyz_b(3)                             !< Per-block deltas, PRIVATE copy (no strided-section temp: issue #22 F1-bis).
 			integer(I4P)              :: i,j,k,b,s                             !< Counter.
-			integer(I4P)              :: r, lo, hi_i, hi_j, hi_k               !< fWLayer skin-exclusion bounds (CPU-parity).
+				integer(I4P)              :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k    !< fWLayer skin-exclusion bounds (CPU-parity).
 
-			! CPU-parity (issue #31 / #26): exclude the fWLayer skin (C+s1 cells per face)
-			! from the reported maximum when a fWLayer is present. r = nint(C/(C+1)) is 1
-			! when C>0, 0 when C=0 (no fWLayer ⇒ full interior, unchanged). Mirrors the CPU
-			! post_step_forest max region 1+r*(C+hs) : n-r*(C+hs-1).
-			r    = nint(real(fwl_c, R8P) / (real(fwl_c, R8P) + 1.0_R8P), I4P)
-			lo   = 1_I4P + r*(fwl_c + s1)
-			hi_i = ni - r*(fwl_c + s1 - 1_I4P)
-			hi_j = nj - r*(fwl_c + s1 - 1_I4P)
-			hi_k = nk - r*(fwl_c + s1 - 1_I4P)
-
-			max_divD = 0.0_R8P
-			max_divB = 0.0_R8P
-			max_divJ = 0.0_R8P
-	      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
-         !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                      &
-         !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b)			 	 &
-			!$acc& reduction(max: max_divD, max_divB, max_divJ)
-         do b=1,blocks_number
-         do k=1,nk
-         do j=1,nj
-         do i=1,ni
-            dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
-            ! Buffer-free divergences (issue #22 F1-bis): the former private stencil
+				max_divD = 0.0_R8P
+				max_divB = 0.0_R8P
+				max_divJ = 0.0_R8P
+		      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) copyin(fwl_c) &
+	         !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                               &
+	         !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b,lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
+				!$acc& reduction(max: max_divD, max_divB, max_divJ)
+	         do b=1,blocks_number
+	         do k=1,nk
+	         do j=1,nj
+	         do i=1,ni
+	            dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+               lo_i = 1_I4P ; hi_i = ni
+               lo_j = 1_I4P ; hi_j = nj
+               lo_k = 1_I4P ; hi_k = nk
+               if (fwl_c(b,1) > 0_I4P) lo_i = 1_I4P + fwl_c(b,1) + s1
+               if (fwl_c(b,2) > 0_I4P) hi_i = ni - (fwl_c(b,2) + s1 - 1_I4P)
+               if (fwl_c(b,3) > 0_I4P) lo_j = 1_I4P + fwl_c(b,3) + s1
+               if (fwl_c(b,4) > 0_I4P) hi_j = nj - (fwl_c(b,4) + s1 - 1_I4P)
+               if (fwl_c(b,5) > 0_I4P) lo_k = 1_I4P + fwl_c(b,5) + s1
+               if (fwl_c(b,6) > 0_I4P) hi_k = nk - (fwl_c(b,6) + s1 - 1_I4P)
+	            ! Buffer-free divergences (issue #22 F1-bis): the former private stencil
             ! buffers of this CONTAINED kernel were mis-privatized by nvfortran even
             ! with constant bounds (threads bled each other's fills: div(J) tracked
             ! div(D) with J identically zero, nondeterministically, seam-only because
@@ -3443,12 +3434,12 @@ contains
                                                        + (q_gpu(b,i,j+s,k,var_Jy) - q_gpu(b,i,j-s,k,var_Jy))/dxyz_b(2)  &
                                                        + (q_gpu(b,i,j,k+s,var_Jz) - q_gpu(b,i,j,k-s,var_Jz))/dxyz_b(3))
             enddo
-            ! fWLayer-skin exclusion (CPU-parity): only interior-of-skin cells contribute
-            ! to the reported max. For C=0 (r=0) lo=1, hi=n ⇒ full interior (no change).
-            if (i >= lo .and. i <= hi_i .and. j >= lo .and. j <= hi_j .and. k >= lo .and. k <= hi_k) then
-               max_divD = max(max_divD, abs(divergenceD))
-               max_divB = max(max_divB, abs(divergenceB))
-               max_divJ = max(max_divJ, abs(divergenceJ))
+	            ! fWLayer-skin exclusion (CPU-parity): only cells outside the local block's
+	            ! layer skin contribute to the reported maximum.
+	            if (i >= lo_i .and. i <= hi_i .and. j >= lo_j .and. j <= hi_j .and. k >= lo_k .and. k <= hi_k) then
+	               max_divD = max(max_divD, abs(divergenceD))
+	               max_divB = max(max_divB, abs(divergenceB))
+	               max_divJ = max(max_divJ, abs(divergenceJ))
             endif
          enddo
          enddo

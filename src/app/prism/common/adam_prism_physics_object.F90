@@ -72,8 +72,8 @@ type :: prism_physics_object
    real(R8P)                   :: c_r = 0.18_R8P         !< Dedner GLM parabolic-damping ratio c_p^2/c_h^2 (dimensionless,
                                                          !< per cell size). psi decays with rate c_h/(c_r*h). Dedner 2002
                                                          !< recommend ~0.18 (CONSTANT UNVERIFIED vs the paper — tunable via
-                                                         !< [physics].c_r; the damping is the parabolic half of full GLM,
-                                                         !< previously absent — issue #29 fix-class E).
+                                                         !< [physics].c_r; set c_r<=0 to disable the parabolic damping and
+                                                         !< keep the cleaning purely hyperbolic.
    !real(R8P)                   :: eta                   !< Coefficiente for B div-cleaning.
    real(R8P)                   :: evmax                  !< Maximum signal speed (eigenvalue).
    real(R8P)                   :: L0                     !< Maximum signal speed (eigenvalue).
@@ -113,6 +113,7 @@ contains
    desc = desc//mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c     ))//NL
    desc = desc//mpih%myrankstr//'  number of PIC variables in q (nv_PIC):        '//trim(str(self%nv_PIC   ))//NL
    desc = desc//mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi      ))//NL
+   desc = desc//mpih%myrankstr//'  c_r:                                          '//trim(str(self%c_r      ))//NL
    !desc = desc//mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta ))
    if (self%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       desc = desc//mpih%myrankstr//'  L0:                                           '//trim(str(self%L0       ))//NL
