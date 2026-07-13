@@ -23,6 +23,10 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P), allocatable ::   flx_f(:,:,:,:,:    ) !< Fluxes along x at cell face.
    real(R8P), allocatable ::   fly_f(:,:,:,:,:    ) !< Fluxes along y at cell face.
    real(R8P), allocatable ::   flz_f(:,:,:,:,:    ) !< Fluxes along z at cell face.
+   logical               :: fv_add_phi_damping = .false. !< Apply phi damping in FV residuals.
+   logical               :: fv_add_psi_damping = .false. !< Apply psi damping in FV residuals.
+   integer(I4P)          :: fv_ivar_phi        = 0_I4P   !< Phi slot index in FV residuals.
+   integer(I4P)          :: fv_ivar_psi        = 0_I4P   !< Psi slot index in FV residuals.
    !< Pointer (abstract) TBP.
    procedure(compute_residuals_interface), pass(self),pointer :: compute_residuals=>null()!< Compute residuals, space operator.
    procedure(integrate_interface),         pass(self),pointer :: integrate        =>null()!< Integrate, time operator.
@@ -260,18 +264,57 @@ contains
    case(NUM_SCHEME_SPACE_FV_CENTERED) ; self%compute_residuals => compute_residuals_fv_centered
    endselect
 
-   select case(self%numerics%div_corr_var)
-   case(DIV_CORR_VAR_POISS) ; compute_fluxes_maxwell => compute_convective_fluxes_maxwell
-   case(DIV_CORR_VAR_HYPER)
-      if     (self%numerics%constrained_transport_D.and..not.self%numerics%constrained_transport_B) then
-         compute_fluxes_maxwell => compute_convective_fluxes_maxwell_div_d
-      elseif (.not.self%numerics%constrained_transport_D.and.self%numerics%constrained_transport_B) then
-         compute_fluxes_maxwell => compute_convective_fluxes_maxwell_div_b
-      elseif (self%numerics%constrained_transport_D.and.self%numerics%constrained_transport_B) then
-         compute_fluxes_maxwell => compute_convective_fluxes_maxwell_div_d_b
-      endif
+   self%fv_add_phi_damping = .false.
+   self%fv_add_psi_damping = .false.
+   self%fv_ivar_phi        = 0_I4P
+   self%fv_ivar_psi        = 0_I4P
+   select case(self%physics%physical_model)
+   case(ADIM_EM_PHYSICAL_MODEL)
+      select case(self%numerics%div_corr_var)
+      case(DIV_CORR_VAR_HYPER)
+         if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
+            compute_fluxes_maxwell  => compute_convective_fluxes_maxwell_adim_div_d
+            self%fv_add_phi_damping = .true.
+            self%fv_ivar_phi        = self%nv_c
+         elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            compute_fluxes_maxwell  => compute_convective_fluxes_maxwell_adim_div_b
+            self%fv_add_psi_damping = .true.
+            self%fv_ivar_psi        = self%nv_c
+         elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            compute_fluxes_maxwell  => compute_convective_fluxes_maxwell_adim_div_d_b
+            self%fv_add_phi_damping = .true.
+            self%fv_add_psi_damping = .true.
+            self%fv_ivar_phi        = self%nv_c - 1_I4P
+            self%fv_ivar_psi        = self%nv_c
+         else
+            compute_fluxes_maxwell => compute_convective_fluxes_maxwell_adim
+         endif
+      case default
+         compute_fluxes_maxwell => compute_convective_fluxes_maxwell_adim
+      endselect
    case default
-      compute_fluxes_maxwell => compute_convective_fluxes_maxwell
+      select case(self%numerics%div_corr_var)
+      case(DIV_CORR_VAR_HYPER)
+         if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
+            compute_fluxes_maxwell  => compute_convective_fluxes_maxwell_div_d
+            self%fv_add_phi_damping = .true.
+            self%fv_ivar_phi        = self%nv_c
+         elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            compute_fluxes_maxwell  => compute_convective_fluxes_maxwell_div_b
+            self%fv_add_psi_damping = .true.
+            self%fv_ivar_psi        = self%nv_c
+         elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            compute_fluxes_maxwell  => compute_convective_fluxes_maxwell_div_d_b
+            self%fv_add_phi_damping = .true.
+            self%fv_add_psi_damping = .true.
+            self%fv_ivar_phi        = self%nv_c - 1_I4P
+            self%fv_ivar_psi        = self%nv_c
+         else
+            compute_fluxes_maxwell => compute_convective_fluxes_maxwell
+         endif
+      case default
+         compute_fluxes_maxwell => compute_convective_fluxes_maxwell
+      endselect
    endselect
 
    print '(A)', mpih%description()
@@ -1151,6 +1194,7 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
+   call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
@@ -1874,48 +1918,8 @@ contains
             ind            = size(self%q(:,1,1,1,1))
             f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
             if (blocks_number>0) then
-               do iter=1, self%flail%iterations
-                  if (self%fdv_order == 2_I4P) then
-                     call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
-                                                      blocks_number=blocks_number,                     &
-                                                      dxyz=self%adam%field%dxyz,                       &
-                                                      f=f,                                             &
-                                                      q=phi,                                           &
-                                                      dq_max=dphi_max,                                 &
-                                                      dq=dphi,                                         &
-                                                      iterations_init=self%flail%iterations_init,      &
-                                                      iterations_fine=self%flail%iterations_fine,      &
-                                                      iterations_coarse=self%flail%iterations_coarse,  &
-                                                      bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
-                  elseif (self%fdv_order == 4_I4P) then
-                     call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
-                                                      blocks_number=blocks_number,                     &
-                                                      dxyz=self%adam%field%dxyz,                       &
-                                                      f=f,                                             &
-                                                      q=phi,                                           &
-                                                      dq_max=dphi_max,                                 &
-                                                      dq=dphi,                                         &
-                                                      iterations_init=self%flail%iterations_init,      &
-                                                      iterations_fine=self%flail%iterations_fine,      &
-                                                      iterations_coarse=self%flail%iterations_coarse,  &
-                                                      bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
-                  elseif (self%fdv_order == 6_I4P) then
-                     call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,       &
-                                                      blocks_number=blocks_number,                     &
-                                                      dxyz=self%adam%field%dxyz,                       &
-                                                      f=f,                                             &
-                                                      q=phi,                                           &
-                                                      dq_max=dphi_max,                                 &
-                                                      dq=dphi,                                         &
-                                                      iterations_init=self%flail%iterations_init,      &
-                                                      iterations_fine=self%flail%iterations_fine,      &
-                                                      iterations_coarse=self%flail%iterations_coarse,  &
-                                                      bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
-                  else
-                     call mpih%print_message('Initialization not already implemented for this scheme order')
-                  endif
-                  if (dphi_max < self%flail%tolerance) exit
-               enddo
+               call solve_pic_elliptic(nv_solve=1_I4P, bc_type=self%pic%bc_solver, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+                                       eps=EPS0)
                call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
                call self%compute_gradient_extended(hs=hs,ivar=1,q=phi,gradient=buffer(5:7,:,:,:,:)) !Calcolo E da phi, ma con il segno opposto
@@ -1953,48 +1957,8 @@ contains
             f   (:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             if (blocks_number>0) then
-               do iter=1, self%flail%iterations
-                  if (self%fdv_order == 2_I4P) then
-                     call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                      blocks_number=blocks_number,                     &
-                                                      dxyz=self%adam%field%dxyz,                       &
-                                                      f=f,                                             &
-                                                      q=phi,                                           &
-                                                      dq_max=dphi_max,                                 &
-                                                      dq=dphi,                                         &
-                                                      iterations_init=self%flail%iterations_init,      &
-                                                      iterations_fine=self%flail%iterations_fine,      &
-                                                      iterations_coarse=self%flail%iterations_coarse,  &
-                                                      bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
-                  elseif (self%fdv_order == 4_I4P) then
-                     call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                      blocks_number=blocks_number,                     &
-                                                      dxyz=self%adam%field%dxyz,                       &
-                                                      f=f,                                             &
-                                                      q=phi,                                           &
-                                                      dq_max=dphi_max,                                 &
-                                                      dq=dphi,                                         &
-                                                      iterations_init=self%flail%iterations_init,      &
-                                                      iterations_fine=self%flail%iterations_fine,      &
-                                                      iterations_coarse=self%flail%iterations_coarse,  &
-                                                      bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
-                  elseif (self%fdv_order == 6_I4P) then
-                     call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                      blocks_number=blocks_number,                     &
-                                                      dxyz=self%adam%field%dxyz,                       &
-                                                      f=f,                                             &
-                                                      q=phi,                                           &
-                                                      dq_max=dphi_max,                                 &
-                                                      dq=dphi,                                         &
-                                                      iterations_init=self%flail%iterations_init,      &
-                                                      iterations_fine=self%flail%iterations_fine,      &
-                                                      iterations_coarse=self%flail%iterations_coarse,  &
-                                                      bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
-                  else
-                     call mpih%print_message('Initialization not already implemented for this scheme order')
-                  endif
-                  if (dphi_max < self%flail%tolerance) exit
-               enddo
+               call solve_pic_elliptic(nv_solve=3_I4P, bc_type=self%pic%bc_solver, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+                                       mu=MU0)
                call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
                call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
@@ -2034,20 +1998,8 @@ contains
             ind            = size(self%q(:,1,1,1,1))
             f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
             if (blocks_number>0) then
-               do iter=1, self%flail%iterations
-                  call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,           &
-                                                   blocks_number=blocks_number,                     &
-                                                   dxyz=self%adam%field%dxyz,                       &
-                                                   f=f,                                             &
-                                                   q=phi,                                           &
-                                                   dq_max=dphi_max,                                 &
-                                                   dq=dphi,                                         &
-                                                   iterations_init=self%flail%iterations_init,      &
-                                                   iterations_fine=self%flail%iterations_fine,      &
-                                                   iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, eps=EPS0, field=self%adam%field)
-                  if (dphi_max < self%flail%tolerance) exit
-               enddo
+               call solve_pic_elliptic(nv_solve=1_I4P, bc_type=self%pic%bc_solver, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+                                       eps=EPS0)
                call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
                call self%compute_gradient(hs=hs,ivar=1,q=phi,gradient=buffer(5:7,:,:,:,:)) !Calcolo E da phi, ma con il segno opposto
@@ -2085,20 +2037,8 @@ contains
             f   (:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             if (blocks_number>0) then
-               do iter=1, self%flail%iterations
-                  call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,           &
-                                                   blocks_number=blocks_number,                     &
-                                                   dxyz=self%adam%field%dxyz,                       &
-                                                   f=f,                                             &
-                                                   q=phi,                                           &
-                                                   dq_max=dphi_max,                                 &
-                                                   dq=dphi,                                         &
-                                                   iterations_init=self%flail%iterations_init,      &
-                                                   iterations_fine=self%flail%iterations_fine,      &
-                                                   iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type=self%pic%bc_solver, ivar=ivar, mu=MU0, field=self%adam%field)
-                  if (dphi_max < self%flail%tolerance) exit
-               enddo
+               call solve_pic_elliptic(nv_solve=3_I4P, bc_type=self%pic%bc_solver, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+                                       mu=MU0)
                call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
                call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
@@ -2140,48 +2080,7 @@ contains
          f   (:,:,:,:,:) = 0._R8P
          f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
          if (blocks_number>0) then
-            do iter=1, self%flail%iterations
-               if (self%fdv_order == 2_I4P) then
-                  call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                   blocks_number=blocks_number,                     &
-                                                   dxyz=self%adam%field%dxyz,                       &
-                                                   f=f,                                             &
-                                                   q=phi,                                           &
-                                                   dq_max=dphi_max,                                 &
-                                                   dq=dphi,                                         &
-                                                   iterations_init=self%flail%iterations_init,      &
-                                                   iterations_fine=self%flail%iterations_fine,      &
-                                                   iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type='analytic', ivar=ivar, mu=MU0, field=self%adam%field)
-               elseif (self%fdv_order == 4_I4P) then
-                  call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                   blocks_number=blocks_number,                     &
-                                                   dxyz=self%adam%field%dxyz,                       &
-                                                   f=f,                                             &
-                                                   q=phi,                                           &
-                                                   dq_max=dphi_max,                                 &
-                                                   dq=dphi,                                         &
-                                                   iterations_init=self%flail%iterations_init,      &
-                                                   iterations_fine=self%flail%iterations_fine,      &
-                                                   iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type='analytic', ivar=ivar, mu=MU0, field=self%adam%field)
-               elseif (self%fdv_order == 6_I4P) then
-                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                   blocks_number=blocks_number,                     &
-                                                   dxyz=self%adam%field%dxyz,                       &
-                                                   f=f,                                             &
-                                                   q=phi,                                           &
-                                                   dq_max=dphi_max,                                 &
-                                                   dq=dphi,                                         &
-                                                   iterations_init=self%flail%iterations_init,      &
-                                                   iterations_fine=self%flail%iterations_fine,      &
-                                                   iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type='analytic', ivar=ivar, mu=MU0, field=self%adam%field)
-               else
-                  call mpih%print_message('Initialization not already implemented for this scheme order')
-               endif
-               if (dphi_max < self%flail%tolerance) exit
-            enddo
+            call solve_pic_elliptic(nv_solve=3_I4P, bc_type='analytic', phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, mu=MU0)
             call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                   reached at iteration '//trim(str(iter,.true.)))
             call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
@@ -2222,48 +2121,7 @@ contains
          f   (:,:,:,:,:) = 0._R8P
          f(:,:,:,:,:) = -1.0_R8P*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) !MU0 = 1
          if (blocks_number>0) then
-            do iter=1, self%flail%iterations
-               if (self%fdv_order == 2_I4P) then
-                  call compute_smoothing_gauss_seidel_2nd(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                   blocks_number=blocks_number,                     &
-                                                   dxyz=self%adam%field%dxyz,                       &
-                                                   f=f,                                             &
-                                                   q=phi,                                           &
-                                                   dq_max=dphi_max,                                 &
-                                                   dq=dphi,                                         &
-                                                   iterations_init=self%flail%iterations_init,      &
-                                                   iterations_fine=self%flail%iterations_fine,      &
-                                                   iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type='analytic', ivar=ivar, mu=1.0_R8P, field=self%adam%field)
-               elseif (self%fdv_order == 4_I4P) then
-                  call compute_smoothing_gauss_seidel_4th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                   blocks_number=blocks_number,                     &
-                                                   dxyz=self%adam%field%dxyz,                       &
-                                                   f=f,                                             &
-                                                   q=phi,                                           &
-                                                   dq_max=dphi_max,                                 &
-                                                   dq=dphi,                                         &
-                                                   iterations_init=self%flail%iterations_init,      &
-                                                   iterations_fine=self%flail%iterations_fine,      &
-                                                   iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type='analytic', ivar=ivar, mu=1.0_R8P, field=self%adam%field)
-               elseif (self%fdv_order == 6_I4P) then
-                  call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=3_I4P,       &
-                                                   blocks_number=blocks_number,                     &
-                                                   dxyz=self%adam%field%dxyz,                       &
-                                                   f=f,                                             &
-                                                   q=phi,                                           &
-                                                   dq_max=dphi_max,                                 &
-                                                   dq=dphi,                                         &
-                                                   iterations_init=self%flail%iterations_init,      &
-                                                   iterations_fine=self%flail%iterations_fine,      &
-                                                   iterations_coarse=self%flail%iterations_coarse,  &
-                                                   bc_type='analytic', ivar=ivar, mu=1.0_R8P, field=self%adam%field)
-               else
-                  call mpih%print_message('Initialization not already implemented for this scheme order')
-               endif
-               if (dphi_max < self%flail%tolerance) exit
-            enddo
+            call solve_pic_elliptic(nv_solve=3_I4P, bc_type='analytic', phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, mu=1.0_R8P)
             call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                   reached at iteration '//trim(str(iter,.true.)))
             call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
@@ -2282,6 +2140,29 @@ contains
       endif
    endif
    endassociate
+   contains
+      subroutine solve_pic_elliptic(nv_solve, bc_type, phi, dphi, f, dphi_max, mu, eps)
+      integer(I4P),       intent(in)            :: nv_solve
+      character(len=*),   intent(in)            :: bc_type
+      real(R8P),          intent(inout)         :: phi(:,:,:,:,:)
+      real(R8P),          intent(inout)         :: dphi(:,:,:,:,:)
+      real(R8P),          intent(in)            :: f(:,:,:,:,:)
+      real(R8P),          intent(out)           :: dphi_max
+      real(R8P),          intent(in), optional  :: mu, eps
+
+      do iter=1, self%flail%iterations
+         call compute_smoothing_gauss_seidel_centered_dg(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,           &
+                                                         nv=nv_solve, blocks_number=self%blocks_number,              &
+                                                         order=self%fdv_order,                                       &
+                                                         dxyz=self%adam%field%dxyz, f=f, q=phi, dq_max=dphi_max,     &
+                                                         dq=dphi, iterations_init=self%flail%iterations_init,        &
+                                                         iterations_fine=self%flail%iterations_fine,                 &
+                                                         iterations_coarse=self%flail%iterations_coarse,             &
+                                                         bc_type=bc_type, ivar=ivar, mu=mu, eps=eps,                 &
+                                                         field=self%adam%field)
+         if (dphi_max < self%flail%tolerance) exit
+      enddo
+      endsubroutine solve_pic_elliptic
    endsubroutine impose_pic_fields_time_zero
 
    subroutine simulate(self, filename)
@@ -2335,7 +2216,11 @@ contains
    max_curlD = -huge(1._R8P)
 
    !call self%apply_fWL_correction(q=q)
-   call self%update_ghost(q=q, s=s)
+   if (present(s)) then
+      call self%update_ghost(q=q, s=s)
+   else
+      call self%update_ghost(q=q)
+   endif
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%adam%field%dxyz,                                                                              &
              s1=>self%fdv_half_stencils(1),                                                                           &
@@ -2369,12 +2254,12 @@ contains
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
                                                    q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
                                                    divergence = divergenceD)
-               dq(VAR_DX,i,j,k,b) =  curlB(1) - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,i,j,k,b) =  curlB(2) - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,i,j,k,b) =  curlB(3) - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,i,j,k,b) = -curlD(1)                                  !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,i,j,k,b) = -curlD(2)                                  !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,i,j,k,b) = -curlD(3)                                  !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(VAR_DX,i,j,k,b) =  curlB(1) - gradphi(1) - q(var_Jx,i,j,k,b)
+               dq(VAR_DY,i,j,k,b) =  curlB(2) - gradphi(2) - q(var_Jy,i,j,k,b)
+               dq(VAR_DZ,i,j,k,b) =  curlB(3) - gradphi(3) - q(var_Jz,i,j,k,b)
+               dq(VAR_BX,i,j,k,b) = -curlD(1)                                 
+               dq(VAR_BY,i,j,k,b) = -curlD(2)                                 
+               dq(VAR_BZ,i,j,k,b) = -curlD(3)                                 
                dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
             enddo
@@ -2403,12 +2288,12 @@ contains
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceB)
-               dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,i,j,k,b) =  curlB(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,i,j,k,b) =  curlB(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,i,j,k,b) = -curlD(1) - gradpsi(1)        !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,i,j,k,b) = -curlD(2) - gradpsi(2)        !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,i,j,k,b) = -curlD(3) - gradpsi(3)        !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b)
+               dq(VAR_DY,i,j,k,b) =  curlB(2) - q(var_Jy,i,j,k,b)
+               dq(VAR_DZ,i,j,k,b) =  curlB(3) - q(var_Jz,i,j,k,b)
+               dq(VAR_BX,i,j,k,b) = -curlD(1) - gradpsi(1)       
+               dq(VAR_BY,i,j,k,b) = -curlD(2) - gradpsi(2)       
+               dq(VAR_BZ,i,j,k,b) = -curlD(3) - gradpsi(3)       
                dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
             enddo
@@ -2443,18 +2328,12 @@ contains
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
                                                    divergence = divergenceB)
-               dq(VAR_DX,i,j,k,b)      =  curlB(1)  - gradphi(1) - q(var_Jx,i,j,k,b) !-
-            ! sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,i,j,k,b)      =  curlB(2)  - gradphi(2) - q(var_Jy,i,j,k,b) !-
-            ! sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,i,j,k,b)      =  curlB(3)  - gradphi(3) - q(var_Jz,i,j,k,b) !-
-            ! sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,i,j,k,b)      = -curlD(1) - gradpsi(1)                     !-
-            ! sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,i,j,k,b)      = -curlD(2) - gradpsi(2)                     !-
-            ! sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,i,j,k,b)      = -curlD(3) - gradpsi(3)                     !-
-            ! sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(VAR_DX,i,j,k,b)      =  curlB(1)  - gradphi(1) - q(var_Jx,i,j,k,b)
+               dq(VAR_DY,i,j,k,b)      =  curlB(2)  - gradphi(2) - q(var_Jy,i,j,k,b)
+               dq(VAR_DZ,i,j,k,b)      =  curlB(3)  - gradphi(3) - q(var_Jz,i,j,k,b)
+               dq(VAR_BX,i,j,k,b)      = -curlD(1) - gradpsi(1)
+               dq(VAR_BY,i,j,k,b)      = -curlD(2) - gradpsi(2)
+               dq(VAR_BZ,i,j,k,b)      = -curlD(3) - gradpsi(3)
                dq(nv_c-1_I4P,i,j,k,b)  = -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c-1_I4P,i,j,k,b)
                dq(nv_c,i,j,k,b)        = -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
@@ -2472,71 +2351,15 @@ contains
                call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlD)
-            !min_curlD = min(min_curlD, curlD(1), curlD(2), curlD(3))
-            !max_curlD = max(max_curlD, curlD(1), curlD(2), curlD(3))
                call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlB)
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*
-               !KO_Dx_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*
-               !KO_Dx_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*
-               !KO_Dx_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*
-               !KO_Dy_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*
-               !KO_Dy_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*
-               !KO_Dy_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*
-               !KO_Dz_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*
-               !KO_Dz_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*
-               !KO_Dz_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*
-               !KO_Bx_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*
-               !KO_Bx_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*
-               !KO_Bx_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*
-               !KO_By_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*
-               !KO_By_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*
-               !KO_By_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*
-               !KO_Bz_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*
-               !KO_Bz_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*
-               !KO_Bz_z
-               dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,i,j,k,b) =  curlB(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,i,j,k,b) =  curlB(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,i,j,k,b) = -curlD(1)                     !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,i,j,k,b) = -curlD(2)                     !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,i,j,k,b) = -curlD(3)                     !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b)
+               dq(VAR_DY,i,j,k,b) =  curlB(2) - q(var_Jy,i,j,k,b)
+               dq(VAR_DZ,i,j,k,b) =  curlB(3) - q(var_Jz,i,j,k,b)
+               dq(VAR_BX,i,j,k,b) = -curlD(1)                    
+               dq(VAR_BY,i,j,k,b) = -curlD(2)                    
+               dq(VAR_BZ,i,j,k,b) = -curlD(3)                    
             enddo
             enddo
             enddo
@@ -2638,12 +2461,12 @@ contains
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceB)
-               dq(VAR_DX,    i,j,k,b) =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b)!-sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,    i,j,k,b) =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b)!-sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,    i,j,k,b) =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b)!-sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,    i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)                    !-sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,    i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)                    !-sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,    i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)                    !-sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(VAR_DX,    i,j,k,b) =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b)
+               dq(VAR_DY,    i,j,k,b) =  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b)
+               dq(VAR_DZ,    i,j,k,b) =  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b)
+               dq(VAR_BX,    i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)                    
+               dq(VAR_BY,    i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)                    
+               dq(VAR_BZ,    i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)                    
                dq(nv_c-1_I4P,i,j,k,b) = -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c-1_I4P,i,j,k,b)
                dq(nv_c,      i,j,k,b) = -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz(1:3,b))))*q(nv_c,i,j,k,b)
             enddo
@@ -2661,71 +2484,15 @@ contains
                call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlD)
-            !min_curlD = min(min_curlD, curlD(1), curlD(2), curlD(3))
-            !max_curlD = max(max_curlD, curlD(1), curlD(2), curlD(3))
                call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlB)
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*
-               !KO_Dx_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*
-               !KO_Dx_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*
-               !KO_Dx_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*
-               !KO_Dy_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*
-               !KO_Dy_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*
-               !KO_Dy_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*
-               !KO_Dz_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*
-               !KO_Dz_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*
-               !KO_Dz_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*
-               !KO_Bx_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*
-               !KO_Bx_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*
-               !KO_Bx_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*
-               !KO_By_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*
-               !KO_By_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*
-               !KO_By_z
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*
-               !KO_Bz_x
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*
-               !KO_Bz_y
-               !call
-               !compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*
-               !KO_Bz_z
-               dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-               dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-               dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-               dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                    !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-               dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                    !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-               dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                    !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+               dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)
+               dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)
+               dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)
+               dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                   
+               dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                   
+               dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                   
             enddo
             enddo
             enddo
@@ -2774,12 +2541,16 @@ contains
       stage_idx = 0_I4P
    endif
 
-   call self%apply_fWL_correction(q=q)
-   call self%update_ghost(q=q)
+   if (present(s)) then
+      call self%update_ghost(q=q, s=s)
+   else
+      call self%update_ghost(q=q)
+   endif
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%adam%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,        &
              s=>self%fdv_half_stencils(1),                                                                            &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi)
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,      &
+             c_r=>self%physics%c_r)
    if (blocks_number > 0) then
       ! compute fluxes at cell centers
       do b=1, blocks_number
@@ -2869,6 +2640,24 @@ contains
          dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - q(var_Jx,i,j,k,b)
          dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - q(var_Jy,i,j,k,b)
          dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q(var_Jz,i,j,k,b)
+         if (self%fv_add_phi_damping) then
+            if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+               dq(self%fv_ivar_phi,i,j,k,b) = dq(self%fv_ivar_phi,i,j,k,b) - &
+                                              (chi/(c_r*minval(dxyz(1:3,b)))) * q(self%fv_ivar_phi,i,j,k,b)
+            else
+               dq(self%fv_ivar_phi,i,j,k,b) = dq(self%fv_ivar_phi,i,j,k,b) - &
+                                              (chi*C0/(c_r*minval(dxyz(1:3,b)))) * q(self%fv_ivar_phi,i,j,k,b)
+            endif
+         endif
+         if (self%fv_add_psi_damping) then
+            if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+               dq(self%fv_ivar_psi,i,j,k,b) = dq(self%fv_ivar_psi,i,j,k,b) - &
+                                              (chi/(c_r*minval(dxyz(1:3,b)))) * q(self%fv_ivar_psi,i,j,k,b)
+            else
+               dq(self%fv_ivar_psi,i,j,k,b) = dq(self%fv_ivar_psi,i,j,k,b) - &
+                                              (chi*C0/(c_r*minval(dxyz(1:3,b)))) * q(self%fv_ivar_psi,i,j,k,b)
+            endif
+         endif
       enddo
       enddo
       enddo
@@ -3068,8 +2857,11 @@ contains
    integer(I4P),                intent(in),    optional         :: s             !< Stage counter.
    class(flux_register_object), intent(inout), optional         :: flux_register !< Flux register.
 
-   call self%apply_fWL_correction(q=q)
-   call self%update_ghost(q=q)
+   if (present(s)) then
+      call self%update_ghost(q=q, s=s)
+   else
+      call self%update_ghost(q=q)
+   endif
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&
              dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:),                         &
@@ -3117,6 +2909,8 @@ contains
       self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
       self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
    enddo
+   call self%apply_fWL_correction(q=self%q)
+   call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    endassociate
    endsubroutine integrate_blanesmoan
@@ -3145,6 +2939,8 @@ contains
    enddo
    self%q = self%cfm%q
    endassociate
+   call self%apply_fWL_correction(q=self%q)
+   call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    endsubroutine integrate_cfm
 
@@ -3156,6 +2952,8 @@ contains
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
    call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%apply_fWL_correction(q=self%q)
+   call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    endsubroutine integrate_leapfrog
 
@@ -3176,6 +2974,7 @@ contains
    !< Integration of equations
    call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
+   call self%apply_fWL_correction(q=self%q)
    call self%impose_div_free
    endsubroutine integrate_leapfrog_pic
 
@@ -3196,6 +2995,8 @@ contains
          call self%rk%compute_stage_ls(field=self%adam%field, s=s,dt=self%time%dt,dq=self%dq,q=self%q)
       endif
    enddo
+   call self%apply_fWL_correction(q=self%q)
+   call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    endsubroutine integrate_rk_ls
 
@@ -3291,6 +3092,7 @@ contains
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
+   call self%apply_fWL_correction(q=self%q)
    call self%impose_div_free
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
@@ -3410,6 +3212,8 @@ contains
    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   call self%apply_fWL_correction(q=self%q)
+   call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    endsubroutine integrate_rk_yoshida
 

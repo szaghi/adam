@@ -14,9 +14,13 @@ private
 public :: compute_convective_fluxes_interface
 public :: compute_riemann_maxwell_llf
 public :: compute_convective_fluxes_maxwell
+public :: compute_convective_fluxes_maxwell_adim
 public :: compute_convective_fluxes_maxwell_div_d
 public :: compute_convective_fluxes_maxwell_div_b
 public :: compute_convective_fluxes_maxwell_div_d_b
+public :: compute_convective_fluxes_maxwell_adim_div_d
+public :: compute_convective_fluxes_maxwell_adim_div_b
+public :: compute_convective_fluxes_maxwell_adim_div_d_b
 public :: compute_eigenvalues_vector
 
 interface
@@ -125,6 +129,22 @@ contains
    ! endif
    endsubroutine compute_convective_fluxes_maxwell
 
+   subroutine compute_convective_fluxes_maxwell_adim(sir,q,f,chi)
+   !< Compute convective fluxes for the adimensional Maxwell system.
+   real(R8P), intent(in)    :: sir(3) !< Direction array
+   real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
+   real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
+   real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi (non usato)
+   !$acc routine seq
+
+   f(VAR_DX) =  0.0_R8P      * sir(1) + -q(VAR_BZ) * sir(2) +  q(VAR_BY) * sir(3)
+   f(VAR_DY) =  q(VAR_BZ)    * sir(1) +  0.0_R8P   * sir(2) + -q(VAR_BX) * sir(3)
+   f(VAR_DZ) = -q(VAR_BY)    * sir(1) +  q(VAR_BX) * sir(2) +  0.0_R8P   * sir(3)
+   f(VAR_BX) =  0.0_R8P      * sir(1) +  q(VAR_DZ) * sir(2) + -q(VAR_DY) * sir(3)
+   f(VAR_BY) = -q(VAR_DZ)    * sir(1) +  0.0_R8P   * sir(2) +  q(VAR_DX) * sir(3)
+   f(VAR_BZ) =  q(VAR_DY)    * sir(1) + -q(VAR_DX) * sir(2) +  0.0_R8P   * sir(3)
+   endsubroutine compute_convective_fluxes_maxwell_adim
+
    subroutine compute_convective_fluxes_maxwell_div_d(sir,q,f,chi)
    !< Compute convective fluxes.
    !< J corrected with phi:
@@ -191,6 +211,23 @@ contains
    !endif
    endsubroutine compute_convective_fluxes_maxwell_div_d
 
+   subroutine compute_convective_fluxes_maxwell_adim_div_d(sir,q,f,chi)
+   !< Compute convective fluxes for the adimensional Maxwell system with D cleaning.
+   real(R8P), intent(in)    :: sir(3) !< Direction array
+   real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
+   real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
+   real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
+   !$acc routine seq
+
+   f(VAR_DX) =  q(7_I4P)        * sir(1) + -q(VAR_BZ)     * sir(2) +  q(VAR_BY)     * sir(3)
+   f(VAR_DY) =  q(VAR_BZ)       * sir(1) +  q(7_I4P)      * sir(2) + -q(VAR_BX)     * sir(3)
+   f(VAR_DZ) = -q(VAR_BY)       * sir(1) +  q(VAR_BX)     * sir(2) +  q(7_I4P)      * sir(3)
+   f(VAR_BX) =  0.0_R8P         * sir(1) +  q(VAR_DZ)     * sir(2) + -q(VAR_DY)     * sir(3)
+   f(VAR_BY) = -q(VAR_DZ)       * sir(1) +  0.0_R8P       * sir(2) +  q(VAR_DX)     * sir(3)
+   f(VAR_BZ) =  q(VAR_DY)       * sir(1) + -q(VAR_DX)     * sir(2) +  0.0_R8P       * sir(3)
+   f(7_I4P ) =  chi**2*q(VAR_DX)* sir(1) +  chi**2*q(VAR_DY)* sir(2) +  chi**2*q(VAR_DZ)* sir(3)
+   endsubroutine compute_convective_fluxes_maxwell_adim_div_d
+
    subroutine compute_convective_fluxes_maxwell_div_b(sir,q,f,chi)
    !< Compute convective fluxes.
    !< J corrected with phi:
@@ -256,6 +293,23 @@ contains
    !   f(10) =  ch*ch*q(3)
    !endif
    endsubroutine compute_convective_fluxes_maxwell_div_b
+
+   subroutine compute_convective_fluxes_maxwell_adim_div_b(sir,q,f,chi)
+   !< Compute convective fluxes for the adimensional Maxwell system with B cleaning.
+   real(R8P), intent(in)    :: sir(3) !< Direction array
+   real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
+   real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
+   real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
+   !$acc routine seq
+
+   f(VAR_DX) =  0.0_R8P         * sir(1) + -q(VAR_BZ)     * sir(2) +  q(VAR_BY)     * sir(3)
+   f(VAR_DY) =  q(VAR_BZ)       * sir(1) +  0.0_R8P       * sir(2) + -q(VAR_BX)     * sir(3)
+   f(VAR_DZ) = -q(VAR_BY)       * sir(1) +  q(VAR_BX)     * sir(2) +  0.0_R8P       * sir(3)
+   f(VAR_BX) =  q(7_I4P)        * sir(1) +  q(VAR_DZ)     * sir(2) + -q(VAR_DY)     * sir(3)
+   f(VAR_BY) = -q(VAR_DZ)       * sir(1) +  q(7_I4P)      * sir(2) +  q(VAR_DX)     * sir(3)
+   f(VAR_BZ) =  q(VAR_DY)       * sir(1) + -q(VAR_DX)     * sir(2) +  q(7_I4P)      * sir(3)
+   f(7_I4P ) =  chi**2*q(VAR_BX)* sir(1) +  chi**2*q(VAR_BY)* sir(2) +  chi**2*q(VAR_BZ)* sir(3)
+   endsubroutine compute_convective_fluxes_maxwell_adim_div_b
 
    subroutine compute_convective_fluxes_maxwell_div_d_b(sir,q,f,chi)
    !< Compute convective fluxes.
@@ -327,6 +381,24 @@ contains
    !   f(11) =  ch*ch*q(6)
    !endif
    endsubroutine compute_convective_fluxes_maxwell_div_d_b
+
+   subroutine compute_convective_fluxes_maxwell_adim_div_d_b(sir,q,f,chi)
+   !< Compute convective fluxes for the adimensional Maxwell system with D/B cleaning.
+   real(R8P), intent(in)    :: sir(3) !< Direction array
+   real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
+   real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
+   real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
+   !$acc routine seq
+
+   f(VAR_DX) =  q(7_I4P)        * sir(1) + -q(VAR_BZ)     * sir(2) +  q(VAR_BY)     * sir(3)
+   f(VAR_DY) =  q(VAR_BZ)       * sir(1) +  q(7_I4P)      * sir(2) + -q(VAR_BX)     * sir(3)
+   f(VAR_DZ) = -q(VAR_BY)       * sir(1) +  q(VAR_BX)     * sir(2) +  q(7_I4P)      * sir(3)
+   f(VAR_BX) =  q(8_I4P)        * sir(1) +  q(VAR_DZ)     * sir(2) + -q(VAR_DY)     * sir(3)
+   f(VAR_BY) = -q(VAR_DZ)       * sir(1) +  q(8_I4P)      * sir(2) +  q(VAR_DX)     * sir(3)
+   f(VAR_BZ) =  q(VAR_DY)       * sir(1) + -q(VAR_DX)     * sir(2) +  q(8_I4P)      * sir(3)
+   f(7_I4P ) =  chi**2*q(VAR_DX)* sir(1) +  chi**2*q(VAR_DY)* sir(2) +  chi**2*q(VAR_DZ)* sir(3)
+   f(8_I4P ) =  chi**2*q(VAR_BX)* sir(1) +  chi**2*q(VAR_BY)* sir(2) +  chi**2*q(VAR_BZ)* sir(3)
+   endsubroutine compute_convective_fluxes_maxwell_adim_div_d_b
 
    subroutine compute_eigenvalues_vector(sir, p)
    !< Compute eigenvalues vector for Maxwell equations in direction sir.

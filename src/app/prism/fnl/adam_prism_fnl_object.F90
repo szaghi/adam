@@ -1239,7 +1239,11 @@ contains
    if (present(flux_register)) continue ! FV-only machinery; accepted for interface conformance
    if (self%blocks_number > 0) then
       !call self%apply_fwl_correction(q_gpu=q_gpu)
-      call self%update_ghost(q_gpu=q_gpu, s=s)
+      if (present(s)) then
+         call self%update_ghost(q_gpu=q_gpu, s=s)
+      else
+         call self%update_ghost(q_gpu=q_gpu)
+      endif
       call compute_residuals_fd_centered_dev_kernel(ni            = self%ni                  ,&
                                                     nj            = self%nj                  ,&
                                                     nk            = self%nk                  ,&
@@ -1873,8 +1877,8 @@ contains
    subroutine compute_residuals_fv_centered_dev(self, q_gpu, dq_gpu, s, flux_register)
    !< Compute residuals, space operator, centered finite volume scheme — FNL device
    !< backend (issue #23 R2). 1:1 structural mirror of
-   !< `prism_cpu_object%compute_residuals_fv_centered`: fWL correction + ghost refresh
-   !< on q, pointwise Maxwell fluxes at ALL cells (incl. ghosts) into `flxyz_c_gpu`,
+   !< `prism_cpu_object%compute_residuals_fv_centered`: ghost refresh on q,
+   !< pointwise Maxwell fluxes at ALL cells (incl. ghosts) into `flxyz_c_gpu`,
    !< three staggered face-reconstruction sweeps into `fl{x,y,z}_f_gpu` (the m=0 SOTA
    !< primitive, already `acc routine seq`), flux difference + J source into `dq_gpu`.
    !< PLAIN Maxwell flux variant only — the cleaning variants are refused at dispatch
@@ -1903,10 +1907,11 @@ contains
 
    stage_idx = 0_I4P ; if (present(s)) stage_idx = s
    if (self%blocks_number > 0) then
-      call self%apply_fwl_correction(q_gpu=q_gpu)
-      ! bare refresh (no stage time): CPU-parity — compute_residuals_fv_centered
-      ! calls update_ghost(q) without `s`, so the trailing coil re-stamp is bare-time.
-      call self%update_ghost(q_gpu=q_gpu)
+      if (present(s)) then
+         call self%update_ghost(q_gpu=q_gpu, s=s)
+      else
+         call self%update_ghost(q_gpu=q_gpu)
+      endif
       call fv_cell_fluxes_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,        &
                                      nv_c=self%nv_c, blocks_number=self%blocks_number,        &
                                      chi=self%physics%chi, q_gpu=q_gpu,                       &
@@ -2410,6 +2415,8 @@ contains
                                            dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       endif
    enddo
+   call self%apply_fwl_correction(q_gpu=self%q_gpu)
+   call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
    endsubroutine integrate_rk_ls_dev
 
@@ -2799,6 +2806,7 @@ contains
       call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
       call self%save_residuals
    endif
+   call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
