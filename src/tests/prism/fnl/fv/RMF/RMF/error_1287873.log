@@ -1,3 +1,0 @@
-Loading intel/slurm
-  Loading requirement: intel/nvidia/cuda-12.3.2 intel/gcc-8.5.0/hwloc-2.10.0
-    intel/gcc-8.5.0/pmix-5.0.1 intel/gcc-8.5.0/ucx-1.15.0
