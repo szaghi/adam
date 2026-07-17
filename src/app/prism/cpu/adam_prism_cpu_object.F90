@@ -402,17 +402,9 @@ contains
       if (self%coil%total_coils_number >= 1_I4P) then
 
          ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
-         print *, 'COIL A: enter compute_coils_current, gamma_present=', present(gamma), ' nv=', size(q,1)
-         print *, 'COIL A1: Jx=', var_Jx, ' Jy=', var_Jy, ' Jz=', var_Jz
-         print *, 'COIL B: before zero Jx'
          q(var_Jx,:,:,:,:) = 0._R8P
-         print *, 'COIL C: after zero Jx'
-         print *, 'COIL D: before zero Jy'
          q(var_Jy,:,:,:,:) = 0._R8P
-         print *, 'COIL E: after zero Jy'
-         print *, 'COIL F: before zero Jz'
          q(var_Jz,:,:,:,:) = 0._R8P
-         print *, 'COIL G: after zero Jz'
 
          ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
          if (td > 0._R8P) then
@@ -917,28 +909,18 @@ contains
       if (step==1) do_local_update = .true.
       if (step==3) do_set_bc       = .true.
    endif
-   print *, 'GHOST A: enter update_ghost, stage_present=', present(s), ' do_local=', do_local_update, ' do_bc=', do_set_bc
    if (do_local_update) then
-      print *, 'GHOST B: before update_ghost_local'
       call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
-      print *, 'GHOST C: after update_ghost_local'
    endif
-   print *, 'GHOST D: before update_ghost_mpi'
    call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, step=step)
-   print *, 'GHOST E: after update_ghost_mpi'
    if (do_set_bc) then
-      print *, 'GHOST F: before set_boundary_conditions'
       call self%set_boundary_conditions(q=q, s=s)
-      print *, 'GHOST G: after set_boundary_conditions'
    endif
    if (present(s)) then
-      print *, 'GHOST H: before compute_coils_current(stage)'
       call self%compute_coils_current(q=q, gamma=self%rk%gamm(s))
    else
-      print *, 'GHOST H: before compute_coils_current(no_stage)'
       call self%compute_coils_current(q=q)
    endif
-   print *, 'GHOST I: after compute_coils_current'
    endsubroutine update_ghost
 
    ! forest orchestrator contract methods overridings
@@ -1773,11 +1755,16 @@ contains
    real(R8P)                              :: dq_max          !< Maximum residual.
    real(R8P),               allocatable   :: D0(:,:,:,:,:)   !< Buffer to monitor divergence evolution for the electric displacement
    real(R8P),               allocatable   :: grad(:,:,:,:,:) !< Correction field for electric displacement
+   integer(I4P)                           :: elliptic_bc_type(6) !< Elliptic BC type for each face.
+   integer(I4P)                           :: last_progress_percent !< Last printed progress percentage.
+   integer(I4P)                           :: progress_counter !< Completed smoothing sweeps.
+   integer(I4P)                           :: progress_total   !< Planned smoothing sweeps.
    integer(I4P)                           :: iter            !< Counter.
    integer(I4P)                           :: i,j,k,b,v,ind   !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence, &
              hs=>self%fdv_half_stencil, physical_model=>self%physics%physical_model, nb=>self%nb)
+   if (.not. allocated(self%adam%maps%local_map_bc_crown)) call self%adam%make_comm_local_maps_ghost_bc
 
    buffer(5:9,:,:,:,:) = 0._R8P
    allocate(D0(1:3,     &
@@ -1792,6 +1779,7 @@ contains
            1-ngc:nk+ngc, &
            1:nb))
    grad(:,:,:,:,:) = 0._R8P
+   call self%bc%build_elliptic_bc_types(ivar=ivar, ell_bc_type=elliptic_bc_type)
 
    if (ivar == VAR_DX) then
       if (physical_model==EM_PHYSICAL_MODEL .or. physical_model==ADIM_EM_PHYSICAL_MODEL) then !Messo solo per completezza, ma di fatto mai utilizzato per definizione
@@ -1807,7 +1795,8 @@ contains
          !                                       iterations_init=self%flail%iterations_init,                           &
          !                                       iterations_fine=self%flail%iterations_fine,                           &
          !                                       iterations_coarse=self%flail%iterations_coarse,                       &
-         !                                       bc_type=self%pic%bc_correction)
+         !                                       ell_bc_type=elliptic_bc_type,                                         &
+         !                                       local_map_bc_crown=self%adam%maps%local_map_bc_crown)
          !      if (dq_max < self%flail%tolerance) exit
          !   enddo
          !   call mpih%print_message('FLAIL convergence for divD correction reached at iteration '//trim(str(iter,.true.)))
@@ -1830,6 +1819,11 @@ contains
          if (blocks_number>0) then
             call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
             buffer(5,:,:,:,:)   = buffer(5,:,:,:,:) - self%q(ind,:,:,:,:)
+            progress_total = max(1_I4P, self%flail%iterations * max(1_I4P, self%flail%iterations_fine))
+            progress_counter = 0_I4P
+            last_progress_percent = -1_I4P
+            call print_elliptic_progress(label='Elliptic CT divD-rho correction', progress_done=progress_counter,      &
+                                         progress_total=progress_total, last_percent=last_progress_percent)
             do iter=1, self%flail%iterations
                call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
                                                       dxyz=self%adam%field%dxyz,                                       &
@@ -1840,7 +1834,12 @@ contains
                                                       iterations_init=self%flail%iterations_init,                      &
                                                       iterations_fine=self%flail%iterations_fine,                      &
                                                       iterations_coarse=self%flail%iterations_coarse,                  &
-                                                      bc_type=self%pic%bc_correction)
+                                                      ivar=1_I4P, field=self%adam%field,                               &
+                                                      ell_bc_type=elliptic_bc_type,                                     &
+                                                      local_map_bc_crown=self%adam%maps%local_map_bc_crown,            &
+                                                      progress_label='Elliptic CT divD-rho correction',                &
+                                                      progress_counter=progress_counter, progress_total=progress_total, &
+                                                      progress_last_percent=last_progress_percent)
                call self%compute_gradient(hs=hs,ivar=1,q=buffer(8:8,:,:,:,:),gradient=grad(:,:,:,:,:))
                do b=1, blocks_number
                   do k=1, nk
@@ -1856,7 +1855,12 @@ contains
                call self%compute_divergence(hs=hs,ivar=ivar,q=D0,divergence=buffer(9,:,:,:,:))
                call mpih%print_message('Divergence - rho maximum value: '//trim(str(maxval(abs(buffer(9,:,:,:,:)- &
                                                                            self%q(ind,:,:,:,:))),.true.)))
-               if (maxval(abs(buffer(9,:,:,:,:)- self%q(ind,:,:,:,:))) < 1.0E-12_R8P) exit
+               if (maxval(abs(buffer(9,:,:,:,:)- self%q(ind,:,:,:,:))) < 1.0E-12_R8P) then
+                  call print_elliptic_progress(label='Elliptic CT divD-rho correction', progress_done=progress_counter, &
+                                               progress_total=progress_total, last_percent=last_progress_percent,     &
+                                               converged=.true.)
+                  exit
+               endif
             enddo
             call mpih%print_message('FLAIL convergence for divD-rho correction reached at iteration '//trim(str(iter,.true.)))
             do b=1, blocks_number
@@ -1875,6 +1879,11 @@ contains
    elseif (ivar == VAR_BX) then
       call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(5,:,:,:,:))
       if (blocks_number>0) then
+         progress_total = max(1_I4P, self%flail%iterations * max(1_I4P, self%flail%iterations_fine))
+         progress_counter = 0_I4P
+         last_progress_percent = -1_I4P
+         call print_elliptic_progress(label='Elliptic CT divB correction', progress_done=progress_counter,             &
+                                      progress_total=progress_total, last_percent=last_progress_percent)
          do iter=1, self%flail%iterations
             call compute_smoothing_gauss_seidel_6th(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
                                              dxyz=self%adam%field%dxyz,                                             &
@@ -1885,8 +1894,18 @@ contains
                                              iterations_init=self%flail%iterations_init,                            &
                                              iterations_fine=self%flail%iterations_fine,                            &
                                              iterations_coarse=self%flail%iterations_coarse,                        &
-                                             bc_type=self%pic%bc_correction)
-            if (dq_max < self%flail%tolerance) exit
+                                             ivar=1_I4P, field=self%adam%field,                                     &
+                                             ell_bc_type=elliptic_bc_type,                                           &
+                                             local_map_bc_crown=self%adam%maps%local_map_bc_crown,                  &
+                                             progress_label='Elliptic CT divB correction',                          &
+                                             progress_counter=progress_counter, progress_total=progress_total,       &
+                                             progress_last_percent=last_progress_percent)
+            if (dq_max < self%flail%tolerance) then
+               call print_elliptic_progress(label='Elliptic CT divB correction', progress_done=progress_counter,     &
+                                            progress_total=progress_total, last_percent=last_progress_percent,       &
+                                            converged=.true.)
+               exit
+            endif
          enddo
          call mpih%print_message('FLAIL convergence for divB correction reached at iteration '//trim(str(iter,.true.)))
          call self%compute_gradient(hs=hs,ivar=1,q=buffer(8:8,:,:,:,:),gradient=buffer(5:7,:,:,:,:))
@@ -1914,12 +1933,18 @@ contains
    real(R8P),               allocatable   :: phi(:,:,:,:,:)  !< Potential computed
    real(R8P),               allocatable   :: dphi(:,:,:,:,:) !< Potential variation
    real(R8P),               allocatable   :: f(:,:,:,:,:)    !< Source term
+   integer(I4P)                           :: elliptic_bc_type(6) !< Elliptic BC type for each face.
    integer(I4P)                           :: ind             !< Rho index
+   integer(I4P)                           :: last_progress_percent !< Last printed progress percentage.
+   integer(I4P)                           :: progress_counter !< Completed smoothing sweeps.
+   integer(I4P)                           :: progress_total   !< Planned smoothing sweeps.
    integer(I4P)                           :: iter            !< Counter.
    integer(I4P)                           :: i,j,k,b,v       !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
             nb=>self%nb, buffer=>self%divergence, hs=>self%fdv_half_stencil)
+   if (.not. allocated(self%adam%maps%local_map_bc_crown)) call self%adam%make_comm_local_maps_ghost_bc
+   call self%bc%build_elliptic_bc_types(ivar=ivar, ell_bc_type=elliptic_bc_type)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%initialization == COHERENT_INITIALIZATION) then
          if (ivar == VAR_DX) then
@@ -1944,7 +1969,7 @@ contains
             ind            = size(self%q(:,1,1,1,1))
             f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
             if (blocks_number>0) then
-               call solve_pic_elliptic(nv_solve=1_I4P, bc_type=self%pic%bc_solver, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+               call solve_pic_elliptic(nv_solve=1_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
                                        eps=EPS0)
                call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
@@ -1983,7 +2008,7 @@ contains
             f   (:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             if (blocks_number>0) then
-               call solve_pic_elliptic(nv_solve=3_I4P, bc_type=self%pic%bc_solver, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+               call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
                                        mu=MU0)
                call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
@@ -2024,7 +2049,7 @@ contains
             ind            = size(self%q(:,1,1,1,1))
             f(1,:,:,:,:)   = -self%q(ind,:,:,:,:)/EPS0 !Faccio i calcoli considerando E, e poi riporto a D
             if (blocks_number>0) then
-               call solve_pic_elliptic(nv_solve=1_I4P, bc_type=self%pic%bc_solver, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+               call solve_pic_elliptic(nv_solve=1_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
                                        eps=EPS0)
                call mpih%print_message('FLAIL convergence for electric displacement field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
@@ -2063,7 +2088,7 @@ contains
             f   (:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             if (blocks_number>0) then
-               call solve_pic_elliptic(nv_solve=3_I4P, bc_type=self%pic%bc_solver, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+               call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
                                        mu=MU0)
                call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                      reached at iteration '//trim(str(iter,.true.)))
@@ -2106,7 +2131,8 @@ contains
          f   (:,:,:,:,:) = 0._R8P
          f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
          if (blocks_number>0) then
-            call solve_pic_elliptic(nv_solve=3_I4P, bc_type='analytic', phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, mu=MU0)
+            call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+                                    mu=MU0)
             call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                   reached at iteration '//trim(str(iter,.true.)))
             call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
@@ -2147,7 +2173,8 @@ contains
          f   (:,:,:,:,:) = 0._R8P
          f(:,:,:,:,:) = -1.0_R8P*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) !MU0 = 1
          if (blocks_number>0) then
-            call solve_pic_elliptic(nv_solve=3_I4P, bc_type='analytic', phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, mu=1.0_R8P)
+            call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, dphi_max=dphi_max, &
+                                    mu=1.0_R8P)
             call mpih%print_message('FLAIL convergence for magnetic field at t0 &
                                   reached at iteration '//trim(str(iter,.true.)))
             call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
@@ -2167,15 +2194,20 @@ contains
    endif
    endassociate
    contains
-      subroutine solve_pic_elliptic(nv_solve, bc_type, phi, dphi, f, dphi_max, mu, eps)
+      subroutine solve_pic_elliptic(nv_solve, ell_bc_type, phi, dphi, f, dphi_max, mu, eps)
       integer(I4P),       intent(in)            :: nv_solve
-      character(len=*),   intent(in)            :: bc_type
+      integer(I4P),       intent(in)            :: ell_bc_type(6)
       real(R8P),          intent(inout)         :: phi(:,:,:,:,:)
       real(R8P),          intent(inout)         :: dphi(:,:,:,:,:)
       real(R8P),          intent(in)            :: f(:,:,:,:,:)
       real(R8P),          intent(out)           :: dphi_max
       real(R8P),          intent(in), optional  :: mu, eps
 
+      progress_total = max(1_I4P, self%flail%iterations * max(1_I4P, self%flail%iterations_fine))
+      progress_counter = 0_I4P
+      last_progress_percent = -1_I4P
+      call print_elliptic_progress(label='Elliptic BC initialization', progress_done=progress_counter,              &
+                                   progress_total=progress_total, last_percent=last_progress_percent)
       do iter=1, self%flail%iterations
          call compute_smoothing_gauss_seidel_centered_dg(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,           &
                                                          nv=nv_solve, blocks_number=self%blocks_number,              &
@@ -2184,12 +2216,51 @@ contains
                                                          dq=dphi, iterations_init=self%flail%iterations_init,        &
                                                          iterations_fine=self%flail%iterations_fine,                 &
                                                          iterations_coarse=self%flail%iterations_coarse,             &
-                                                         bc_type=bc_type, ivar=ivar, mu=mu, eps=eps,                 &
-                                                         field=self%adam%field)
-         if (dphi_max < self%flail%tolerance) exit
+                                                         ivar=ivar, mu=mu, eps=eps, field=self%adam%field,           &
+                                                         ell_bc_type=ell_bc_type,                                     &
+                                                         local_map_bc_crown=self%adam%maps%local_map_bc_crown,       &
+                                                         progress_label='Elliptic BC initialization',                &
+                                                         progress_counter=progress_counter, progress_total=progress_total, &
+                                                         progress_last_percent=last_progress_percent)
+         if (dphi_max < self%flail%tolerance) then
+            call print_elliptic_progress(label='Elliptic BC initialization', progress_done=progress_counter,         &
+                                         progress_total=progress_total, last_percent=last_progress_percent,          &
+                                         converged=.true.)
+            exit
+         endif
       enddo
       endsubroutine solve_pic_elliptic
    endsubroutine impose_pic_fields_time_zero
+
+   subroutine print_elliptic_progress(label, progress_done, progress_total, last_percent, converged)
+   character(*),  intent(in)    :: label        !< Progress label.
+   integer(I4P),  intent(in)    :: progress_done  !< Completed smoothing sweeps.
+   integer(I4P),  intent(in)    :: progress_total !< Planned smoothing sweeps.
+   integer(I4P),  intent(inout) :: last_percent !< Last printed percent.
+   logical,       intent(in), optional :: converged !< Force progress to 100% when converged.
+   integer(I4P)                  :: progress_total_ !< Safe planned smoothing sweeps.
+   integer(I4P)                  :: progress_done_  !< Safe completed smoothing sweeps.
+   integer(I4P)                  :: shown_done      !< Printed completed smoothing sweeps.
+   integer(I4P)                  :: progress      !< Current progress percentage.
+   logical                       :: converged_    !< Convergence flag.
+
+   progress_total_ = max(1_I4P, progress_total)
+   progress_done_  = min(max(progress_done, 0_I4P), progress_total_)
+   converged_ = .false.
+   if (present(converged)) converged_ = converged
+
+   shown_done = progress_done_
+   if (converged_) shown_done = progress_total_
+   progress = int(100._R8P * real(shown_done, R8P) / real(progress_total_, R8P), kind=I4P)
+   if (converged_) progress = 100_I4P
+   progress = min(100_I4P, max(0_I4P, progress))
+
+   if (progress > last_percent) then
+      call mpih%print_message(trim(label)//' progress: '//trim(str(progress,.true.))//'% ('//trim(str(shown_done,.true.))// &
+                              '/'//trim(str(progress_total_,.true.))//')')
+      last_percent = progress
+   endif
+   endsubroutine print_elliptic_progress
 
    subroutine simulate(self, filename)
    !< Perform the simulation: legacy single-realm entry point.
