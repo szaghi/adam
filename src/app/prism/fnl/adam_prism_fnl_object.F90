@@ -796,6 +796,33 @@ contains
                enddo
             elseif (bc_type == BC_SILVER_MULLER) then
                ! to be impelmented
+            elseif (bc_type == BC_PEC) then
+               do v=1, nv
+                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+               enddo
+               select case(fec_1_6)
+               case(1, 2)
+                  q_gpu(b,i,j,k,VAR_DX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+               case(3, 4)
+                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+               case(5, 6)
+                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+               endselect
             elseif (bc_type == BC_DIRICHLET) then
                do v=1, nv
                   q_gpu(b,i,j,k,v) = 0._R8P

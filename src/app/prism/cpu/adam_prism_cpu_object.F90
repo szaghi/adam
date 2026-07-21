@@ -653,6 +653,32 @@ contains
                      enddo
 
                   endif
+               elseif (bc_type == BC_PEC) then
+                  ref = q(:,i-idelta,j-jdelta,k-kdelta,b)
+                  q(:,i,j,k,b) = ref
+                  select case(fec_1_6)
+                  case(1, 2)
+                     q(VAR_DX,i,j,k,b) =  ref(VAR_DX)
+                     q(VAR_DY,i,j,k,b) = -ref(VAR_DY)
+                     q(VAR_DZ,i,j,k,b) = -ref(VAR_DZ)
+                     q(VAR_BX,i,j,k,b) = -ref(VAR_BX)
+                     q(VAR_BY,i,j,k,b) =  ref(VAR_BY)
+                     q(VAR_BZ,i,j,k,b) =  ref(VAR_BZ)
+                  case(3, 4)
+                     q(VAR_DX,i,j,k,b) = -ref(VAR_DX)
+                     q(VAR_DY,i,j,k,b) =  ref(VAR_DY)
+                     q(VAR_DZ,i,j,k,b) = -ref(VAR_DZ)
+                     q(VAR_BX,i,j,k,b) =  ref(VAR_BX)
+                     q(VAR_BY,i,j,k,b) = -ref(VAR_BY)
+                     q(VAR_BZ,i,j,k,b) =  ref(VAR_BZ)
+                  case(5, 6)
+                     q(VAR_DX,i,j,k,b) = -ref(VAR_DX)
+                     q(VAR_DY,i,j,k,b) = -ref(VAR_DY)
+                     q(VAR_DZ,i,j,k,b) =  ref(VAR_DZ)
+                     q(VAR_BX,i,j,k,b) =  ref(VAR_BX)
+                     q(VAR_BY,i,j,k,b) =  ref(VAR_BY)
+                     q(VAR_BZ,i,j,k,b) = -ref(VAR_BZ)
+                  endselect
                elseif (bc_type == BC_DIRICHLET) then
                      do v=1, nv
                         q(v,i,j,k,b) = 0._R8P
