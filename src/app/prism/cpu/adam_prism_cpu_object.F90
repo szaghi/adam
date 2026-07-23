@@ -505,10 +505,10 @@ contains
    integer(I4P)                           :: crown                        !< Crown counter.
    integer(I4P)                           :: fec                          !< Boundary fec (1 to 26).
    integer(I4P)                           :: fec_1_6                      !< Boundary fec (1 to 6).
+   integer(I4P)                           :: iref, jref, kref            !< Interior reference indexes for face BCs.
    integer(I4P)                           :: alfa_D, beta_D, gamma_D      !< Indici alfa beta gamma come in Barbas.
    integer(I4P)                           :: alfa_B, beta_B, gamma_B      !< Indici alfa beta gamma come in Barbas.
    real(R8P)                              :: s1                           !< Coefficiente pari a +-1.
-   real(R8P)                              :: ds                           !< Distanza tra le celle in x, y o z.
    real(R8P)                              :: ngc_r, crown_r               !< Numero di gc totale, reale
    real(R8P)                              :: ref(1:self%nv)               !< Vettore di stato di riferimento per assegnazione gc.
 
@@ -580,79 +580,78 @@ contains
                         q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
                      enddo
                   endif
-               elseif (bc_type == BC_SILVER_MULLER) then !Al momento scritta per funzionare solo con un secondo ordine
-                  !print *, fec
-                  if (fec <= 6) then
-                     select case(fec)
-                     !Identifico gli alfa beta gamma come nel paper di Barbas, distinguendo tra alfa_D e alfa_B ecc
-                     case(1) ! x- face alfa = 2, beta = 3, gamma = 1
-                        s1 = -1.0_R8P
-                        alfa_D = 2_I4P
-                        beta_D = 3_I4P
-                        gamma_D = 1_I4P
-                        alfa_B = 5_I4P
-                        beta_B = 6_I4P
-                        gamma_B = 4_I4P
-                        ds = dx(b) !distanza tra le celle in x
-                        ref = q(:,1,j,k,b) !vettore di stato di riferimento per assegnazione gc
-                     case(2) ! x+ face
-                        s1 = 1.0_R8P
-                        alfa_D = 2_I4P
-                        beta_D = 3_I4P
-                        gamma_D = 1_I4P
-                        alfa_B = 5_I4P
-                        beta_B = 6_I4P
-                        gamma_B = 4_I4P
-                        ref = q(:,ni,j,k,b)
-                     case(3) ! y- face
-                        s1 = -1.0_R8P
-                        alfa_D = 3_I4P
-                        beta_D = 1_I4P
-                        gamma_D = 2_I4P
-                        alfa_B = 6_I4P
-                        beta_B = 4_I4P
-                        gamma_B = 5_I4P
-                        ref = q(:,i,1,k,b)
-                     case(4) ! y+ face
-                        s1 = 1.0_R8P
-                        alfa_D = 3_I4P
-                        beta_D = 1_I4P
-                        gamma_D = 2_I4P
-                        alfa_B = 6_I4P
-                        beta_B = 4_I4P
-                        gamma_B = 5_I4P
-                        ref = q(:,i,nj,k,b)
-                     case(5) ! z- face
-                        s1 = -1.0_R8P
-                        alfa_D = 1_I4P
-                        beta_D = 2_I4P
-                        gamma_D = 3_I4P
-                        alfa_B = 4_I4P
-                        beta_B = 5_I4P
-                        gamma_B = 6_I4P
-                        ref = q(:,i,j,1,b)
-                     case(6) ! z+ face
-                        s1 = 1.0_R8P
-                        alfa_D = 1_I4P
-                        beta_D = 2_I4P
-                        gamma_D = 3_I4P
-                        alfa_B = 4_I4P
-                        beta_B = 5_I4P
-                        gamma_B = 6_I4P
-                        ref = q(:,i,j,nk,b)
-                     endselect
-                     q(alfa_D, i,j,k,b) = s1*C0*ref(beta_B)*EPS0
-                     q(beta_D, i,j,k,b) = -s1*C0*ref(alfa_B)*EPS0
-                     q(gamma_D,i,j,k,b) = ref(gamma_D)
-                     q(alfa_B, i,j,k,b) = -s1/C0*ref(beta_D)/EPS0
-                     q(beta_B, i,j,k,b) = s1/C0*ref(alfa_D)/EPS0
-                     q(gamma_B,i,j,k,b) = ref(gamma_B)
+               elseif (bc_type == BC_SILVER_MULLER) then
+                  ! With outward normal n, the Silver-Muller conditions are
+                  ! B_t = (n x E_d) / c, B_n = B_n,d, E_t = c (B_d x n), E_n = E_n,d.
+                  iref = min(max(i, 1_I4P), ni)
+                  jref = min(max(j, 1_I4P), nj)
+                  kref = min(max(k, 1_I4P), nk)
+                  select case(fec_1_6)
+                  case(1)
+                     s1 = -1.0_R8P
+                     alfa_D = 2_I4P
+                     beta_D = 3_I4P
+                     gamma_D = 1_I4P
+                     alfa_B = 5_I4P
+                     beta_B = 6_I4P
+                     gamma_B = 4_I4P
+                     ref = q(:,1,jref,kref,b)
+                  case(2)
+                     s1 = 1.0_R8P
+                     alfa_D = 2_I4P
+                     beta_D = 3_I4P
+                     gamma_D = 1_I4P
+                     alfa_B = 5_I4P
+                     beta_B = 6_I4P
+                     gamma_B = 4_I4P
+                     ref = q(:,ni,jref,kref,b)
+                  case(3)
+                     s1 = -1.0_R8P
+                     alfa_D = 3_I4P
+                     beta_D = 1_I4P
+                     gamma_D = 2_I4P
+                     alfa_B = 6_I4P
+                     beta_B = 4_I4P
+                     gamma_B = 5_I4P
+                     ref = q(:,iref,1,kref,b)
+                  case(4)
+                     s1 = 1.0_R8P
+                     alfa_D = 3_I4P
+                     beta_D = 1_I4P
+                     gamma_D = 2_I4P
+                     alfa_B = 6_I4P
+                     beta_B = 4_I4P
+                     gamma_B = 5_I4P
+                     ref = q(:,iref,nj,kref,b)
+                  case(5)
+                     s1 = -1.0_R8P
+                     alfa_D = 1_I4P
+                     beta_D = 2_I4P
+                     gamma_D = 3_I4P
+                     alfa_B = 4_I4P
+                     beta_B = 5_I4P
+                     gamma_B = 6_I4P
+                     ref = q(:,iref,jref,1,b)
+                  case(6)
+                     s1 = 1.0_R8P
+                     alfa_D = 1_I4P
+                     beta_D = 2_I4P
+                     gamma_D = 3_I4P
+                     alfa_B = 4_I4P
+                     beta_B = 5_I4P
+                     gamma_B = 6_I4P
+                     ref = q(:,iref,jref,nk,b)
+                  endselect
+                  q(alfa_D, i,j,k,b) =  s1*C0*ref(beta_B)*EPS0
+                  q(beta_D, i,j,k,b) = -s1*C0*ref(alfa_B)*EPS0
+                  q(gamma_D,i,j,k,b) = ref(gamma_D)
+                  q(alfa_B, i,j,k,b) = -s1/C0*ref(beta_D)/EPS0
+                  q(beta_B, i,j,k,b) =  s1/C0*ref(alfa_D)/EPS0
+                  q(gamma_B,i,j,k,b) = ref(gamma_B)
 
-                     do v=(nv_c-nv_cl+1), nv
-                        q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b)
-                     enddo
-
-                  endif
+                  do v=(nv_c-nv_cl+1), nv
+                     q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b)
+                  enddo
                elseif (bc_type == BC_PEC) then
                   ref = q(:,i-idelta,j-jdelta,k-kdelta,b)
                   q(:,i,j,k,b) = ref

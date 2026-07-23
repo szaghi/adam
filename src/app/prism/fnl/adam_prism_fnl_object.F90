@@ -749,17 +749,19 @@ contains
                                              ngc                    = self%ngc                                  ,&
                                              nv                     = self%nv                                   ,&
                                              nv_c                   = self%physics%nv_c                         ,&
+                                             nv_cl                  = self%physics%nv_cl                        ,&
                                              crown                  = crown                                     ,&
                                              local_map_bc_crown_gpu = self%field_fnl%maps%local_map_bc_crown_gpu,&
                                              q_gpu                  = q_gpu)
       enddo
    endif
    contains
-      subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, nv_c, crown, local_map_bc_crown_gpu, q_gpu)
+      subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, nv_c, nv_cl, crown, local_map_bc_crown_gpu, q_gpu)
       !< Set boundary conditions of equation, kernel device.
       integer(I4P), intent(in)    :: ni,nj,nk,ngc                      !< Grid dimensions.
       integer(I4P), intent(in)    :: nv                                !< Number of conservative variables.
       integer(I4P), intent(in)    :: nv_c                              !< Number of physical conservative variables.
+      integer(I4P), intent(in)    :: nv_cl                             !< Number of cleaning variables.
       integer(I4P), intent(in)    :: crown                             !< Crown counter.
       integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
@@ -770,8 +772,12 @@ contains
       integer(I4P)                :: bc_type                           !< Boundary condition type.
       integer(I4P)                :: fec                               !< Boundary fec (1 to 26).
       integer(I4P)                :: fec_1_6                           !< Boundary fec (1 to 6).
+      integer(I4P)                :: iref, jref, kref                  !< Interior reference indexes for face BCs.
+      integer(I4P)                :: alfa_D, beta_D, gamma_D           !< Tangential/normal D components.
+      integer(I4P)                :: alfa_B, beta_B, gamma_B           !< Tangential/normal B components.
+      real(R8P)                   :: s1                                !< Face orientation sign.
       !$acc parallel loop independent gang vector &
-      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,crown)
+      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown)
       do c=1, size(local_map_bc_crown_gpu, dim=1)
          b = local_map_bc_crown_gpu(c, 1 ,crown)
          if (b>0) then
@@ -795,7 +801,76 @@ contains
                                              k+abs(kdelta)*(-2*k+1+(kdelta+1)*nk),v)
                enddo
             elseif (bc_type == BC_SILVER_MULLER) then
-               ! to be impelmented
+               ! With outward normal n, the Silver-Muller conditions are
+               ! B_t = (n x E_d) / c, B_n = B_n,d, E_t = c (B_d x n), E_n = E_n,d.
+               iref = min(max(i, 1_I4P), ni)
+               jref = min(max(j, 1_I4P), nj)
+               kref = min(max(k, 1_I4P), nk)
+               select case(fec_1_6)
+               case(1)
+                  s1 = -1.0_R8P
+                  alfa_D = 2_I4P
+                  beta_D = 3_I4P
+                  gamma_D = 1_I4P
+                  alfa_B = 5_I4P
+                  beta_B = 6_I4P
+                  gamma_B = 4_I4P
+                  iref = 1_I4P
+               case(2)
+                  s1 = 1.0_R8P
+                  alfa_D = 2_I4P
+                  beta_D = 3_I4P
+                  gamma_D = 1_I4P
+                  alfa_B = 5_I4P
+                  beta_B = 6_I4P
+                  gamma_B = 4_I4P
+                  iref = ni
+               case(3)
+                  s1 = -1.0_R8P
+                  alfa_D = 3_I4P
+                  beta_D = 1_I4P
+                  gamma_D = 2_I4P
+                  alfa_B = 6_I4P
+                  beta_B = 4_I4P
+                  gamma_B = 5_I4P
+                  jref = 1_I4P
+               case(4)
+                  s1 = 1.0_R8P
+                  alfa_D = 3_I4P
+                  beta_D = 1_I4P
+                  gamma_D = 2_I4P
+                  alfa_B = 6_I4P
+                  beta_B = 4_I4P
+                  gamma_B = 5_I4P
+                  jref = nj
+               case(5)
+                  s1 = -1.0_R8P
+                  alfa_D = 1_I4P
+                  beta_D = 2_I4P
+                  gamma_D = 3_I4P
+                  alfa_B = 4_I4P
+                  beta_B = 5_I4P
+                  gamma_B = 6_I4P
+                  kref = 1_I4P
+               case(6)
+                  s1 = 1.0_R8P
+                  alfa_D = 1_I4P
+                  beta_D = 2_I4P
+                  gamma_D = 3_I4P
+                  alfa_B = 4_I4P
+                  beta_B = 5_I4P
+                  gamma_B = 6_I4P
+                  kref = nk
+               endselect
+               q_gpu(b,i,j,k,alfa_D ) =  s1*C0*q_gpu(b,iref,jref,kref,beta_B )*EPS0
+               q_gpu(b,i,j,k,beta_D ) = -s1*C0*q_gpu(b,iref,jref,kref,alfa_B)*EPS0
+               q_gpu(b,i,j,k,gamma_D) =       q_gpu(b,iref,jref,kref,gamma_D)
+               q_gpu(b,i,j,k,alfa_B ) = -s1/C0*q_gpu(b,iref,jref,kref,beta_D)/EPS0
+               q_gpu(b,i,j,k,beta_B ) =  s1/C0*q_gpu(b,iref,jref,kref,alfa_D)/EPS0
+               q_gpu(b,i,j,k,gamma_B) =       q_gpu(b,iref,jref,kref,gamma_B)
+               do v=nv_c-nv_cl+1, nv
+                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+               enddo
             elseif (bc_type == BC_PEC) then
                do v=1, nv
                   q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
