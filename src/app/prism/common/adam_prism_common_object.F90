@@ -552,9 +552,6 @@ contains
          enddo
       endif
 
-      if (allocated(self%fWLayer%f)) &
-         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
-                                 q=self%fWLayer%f(:,:,:,:,b), q_name=self%fWLayer%f_name)
       if (self%io%save_residual_fields) &
          call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%dq(:,:,:,:,b), &
                                  q_name=self%dq_name)

@@ -18,12 +18,12 @@ use :: adam_prism_physics_object, only : prism_physics_object
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
-use :: stringifor
 
 implicit none
 private
 public :: prism_fWLayer_object
 public :: apply_fWL_correction_fun
+public :: compute_fwl_factor
 
 character(len=7), parameter :: INI_SECTION_NAME='fWLayer' !< INI file section name containing flWLayer datas.
 
@@ -37,8 +37,6 @@ type :: prism_fWLayer_object
    integer(I4P)              :: n(6)                                     !< FWL f function index.
    integer(I4P)              :: alfa_D(6), beta_D(6)                     !< Corrected var index of D (Barbas' notation).
    integer(I4P)              :: alfa_B(6), beta_B(6)                     !< Corrected var index of B (Barbas' notation).
-   real(R8P), allocatable    :: f(:,:,:,:,:)                             !< fWLayer function values.
-   type(string), allocatable :: f_name(:)                                !< fWLayer function values names.
 contains
   ! public methods
   procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -77,13 +75,9 @@ contains
    type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(prism_physics_object),  intent(in)    :: physics         !< Physics.
    type(tree_node_object),      pointer       :: node_ptr        !< Pointer to current node.
-   integer(I4P)                               :: i,j,k,b,fec     !< Counters.
+   integer(I4P)                               :: b,fec           !< Counters.
    integer(I4P)                               :: neighbor_type   !< Neighbors type.
    integer(I4P)                               :: C_face          !< Number of cells covering the requested width on this face/block.
-   real(R8P)                                  :: fi              !< Cell function
-   real(R8P)                                  :: distance        !< Distance between cell and physical boundary
-   real(R8P)                                  :: C_r             !< Real-valued cell count of the layer.
-   real(R8P)                                  :: i_r, j_r, k_r   !< (Real) counters
    real(R8P)                                  :: ds              !< Cells distance in x, y or z.
    integer(I4P)                               :: alloc_error     !< Allocation status.
    character(len=256)                         :: alloc_message   !< Allocation error message.
@@ -94,8 +88,6 @@ contains
    if (allocated(self%ni_fWL)) deallocate(self%ni_fWL)
    if (allocated(self%nj_fWL)) deallocate(self%nj_fWL)
    if (allocated(self%nk_fWL)) deallocate(self%nk_fWL)
-   if (allocated(self%f     )) deallocate(self%f)
-   if (allocated(self%f_name)) deallocate(self%f_name)
    print '(A)', self%description()
    
    if (self%width <= 0._R8P .or. .not. any(self%layer)) return
@@ -111,24 +103,13 @@ contains
    allocate(self%nk_fWL(1:2,1:field%nb,1:6), stat=alloc_error, errmsg=alloc_message)
    if (alloc_error /= 0) &
       call mpih%error_stop(msg='prism_fWLayer_object%initialize: failed to allocate nk_fWL: '//trim(alloc_message))
-   allocate(self%f(1:3,1-grid%ngc:grid%ni+grid%ngc,1-grid%ngc:grid%nj+grid%ngc,1-grid%ngc:grid%nk+grid%ngc,1:field%nb), &
-            stat=alloc_error, errmsg=alloc_message)
-   if (alloc_error /= 0) call mpih%error_stop(msg='prism_fWLayer_object%initialize: failed to allocate f: '//trim(alloc_message))
-   allocate(self%f_name(1:3), stat=alloc_error, errmsg=alloc_message)
-   if (alloc_error /= 0) &
-      call mpih%error_stop(msg='prism_fWLayer_object%initialize: failed to allocate f_name: '//trim(alloc_message))
    self%C      = 0_I4P
    self%ni_fWL = 0_I4P
    self%nj_fWL = 0_I4P
    self%nk_fWL = 0_I4P
-   self%f = 1.0_R8P
-   self%f_name(1) = 'fWLayer_x'
-   self%f_name(2) = 'fWLayer_y'
-   self%f_name(3) = 'fWLayer_z'
 
-   !Inizializzo funzione f nelle celle dello strato
    associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, blocks_number=>field%blocks_number,          &
-            ngc=>grid%ngc, nb=>field%nb, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), &
+            dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
             C=>self%C, ni_fWL=>self%ni_fWL, nj_fWL=>self%nj_fWL, nk_fWL=>self%nk_fWL, &
             n=>self%n, s2=>self%s2, alfa_D=>self%alfa_D, alfa_B=>self%alfa_B,         &
             beta_D=>self%beta_D, beta_B=>self%beta_B)
@@ -188,75 +169,6 @@ contains
          endselect
 
          C(b,fec) = C_face
-         C_r = real(C_face, R8P)
-         if (C_face < 40_I4P) then
-            fi = 1._R8P/150._R8P * (-7.0_R8P*C_r**2 + 255._R8P*C_r + 250._R8P)
-         else
-            fi = 25.0_R8P
-         endif
-
-         select case(fec)
-         case(1)
-            do k=1,nk
-               do j=1, nj
-                  do i=1, C_face
-                     i_r = real(i, R8P)
-                     distance = i_r*ds-ds
-                     self%f(1,i,j,k,b) = 1._R8P/fi*LOG10(distance/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
-                  enddo
-               enddo
-            enddo
-         case(2)
-            do k=1,nk
-               do j=1, nj
-                  do i=ni-C_face+1_I4P, ni
-                     i_r = real(i, R8P)
-                     distance = (ni-i_r)*ds
-                     self%f(1,i,j,k,b) = 1._R8P/fi*LOG10(distance/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
-                  enddo
-               enddo
-            enddo
-         case(3)
-            do k=1,nk
-               do i=1, ni
-                  do j=1, C_face
-                     j_r = real(j, R8P)
-                     distance = j_r*ds-ds
-                     self%f(2,i,j,k,b) = 1._R8P/fi*LOG10(distance/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
-                  enddo
-               enddo
-            enddo
-         case(4)
-            do k=1,nk
-               do i=1, ni
-                  do j=nj-C_face+1_I4P, nj
-                     j_r = real(j, R8P)
-                     distance = (nj-j_r)*ds
-                     self%f(2,i,j,k,b) = 1._R8P/fi*LOG10(distance/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
-                  enddo
-               enddo
-            enddo
-         case(5)
-            do i=1,ni
-               do j=1, nj
-                  do k=1, C_face
-                     k_r = real(k, R8P)
-                     distance = k_r*ds-ds
-                     self%f(3,i,j,k,b) = 1._R8P/fi*LOG10(distance/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
-                  enddo
-               enddo
-            enddo
-         case(6)
-            do i=1,ni
-               do j=1, nj
-                  do k=nk-C_face+1_I4P, nk
-                     k_r = real(k, R8P)
-                     distance = (nk-k_r)*ds
-                     self%f(3,i,j,k,b) = 1._R8P/fi*LOG10(distance/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
-                  enddo
-               enddo
-            enddo
-         endselect
       enddo
    enddo
    endassociate
@@ -345,7 +257,32 @@ contains
    endselect
    endsubroutine load_from_file
 
-   subroutine apply_fWL_correction_fun(blocks_number,ngc,C,ni_fWL,nj_fWL,nk_fWL,n,s2,alfa_D,beta_D,alfa_B,beta_B,f,q)
+   pure real(R8P) function compute_fwl_factor(offset, cells_number, ds) result(f_value)
+   !< Return the local fWLayer damping factor for a cell at integer offset from the boundary.
+   integer(I4P), intent(in) :: offset       !< Cell offset from the boundary, 0 at the boundary cell.
+   integer(I4P), intent(in) :: cells_number !< Layer thickness in cells.
+   real(R8P),    intent(in) :: ds           !< Cell size along the layer-normal direction.
+   real(R8P)                :: C_r          !< Layer thickness in reals.
+   real(R8P)                :: fi           !< Profile-shape coefficient.
+   real(R8P)                :: distance     !< Physical distance from the boundary.
+   !$acc routine seq
+
+   if (cells_number <= 0_I4P) then
+      f_value = 1._R8P
+      return
+   endif
+
+   C_r = real(cells_number, R8P)
+   if (cells_number < 40_I4P) then
+      fi = 1._R8P / 150._R8P * (-7._R8P * C_r**2 + 255._R8P * C_r + 250._R8P)
+   else
+      fi = 25._R8P
+   endif
+   distance = real(offset, R8P) * ds
+   f_value = 1._R8P / fi * log10(distance / (C_r * ds) * (10._R8P**fi - 1._R8P) + 1._R8P)
+   endfunction compute_fwl_factor
+
+   subroutine apply_fWL_correction_fun(blocks_number,ngc,C,ni_fWL,nj_fWL,nk_fWL,n,s2,alfa_D,beta_D,alfa_B,beta_B,dxyz,q)
    !< Applay FWL correction, direction agnostic.
    integer(I4P), intent(in)    :: blocks_number                     !< Blocks number.
    integer(I4P), intent(in)    :: ngc                               !< Number of ghost cells.
@@ -355,20 +292,43 @@ contains
    real(R8P),    intent(in)    :: s2                                !< Side coefficient.
    integer(I4P), intent(in)    :: alfa_D, beta_D                    !< Corrected var index of D (Barbas' notation).
    integer(I4P), intent(in)    :: alfa_B, beta_B                    !< Corrected var index of D (Barbas' notation).
-   real(R8P),    intent(in)    :: f(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< fWLayer function values.
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Block mesh spacing [3,nb].
    real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Field variables.
+   real(R8P)                   :: f_value                           !< Local fWLayer factor.
    real(R8P)                   :: fm1, fp1                          !< fWLayer function values in -+ cell.
    real(R8P)                   :: D_alfa, D_beta                    !< components of tangential fields before correction
    real(R8P)                   :: B_alfa, B_beta                    !< components of tangential fields before correction
    integer(I4P)                :: b,i,j,k                           !< Counter.
+   integer(I4P)                :: offset                            !< Cell offset from the active boundary.
 
    do b=1,blocks_number
       if (C(b) <= 0_I4P) cycle
       do k=nk_fWL(1,b), nk_fWL(2,b)
          do j=nj_fWL(1,b), nj_fWL(2,b)
             do i=ni_fWL(1,b), ni_fWL(2,b)
-               fm1 = f(n,i,j,k,b) - 1._R8P
-               fp1 = f(n,i,j,k,b) + 1._R8P
+               select case(n)
+               case(1)
+                  if (s2 > 0._R8P) then
+                     offset = i - ni_fWL(1,b)
+                  else
+                     offset = ni_fWL(2,b) - i
+                  endif
+               case(2)
+                  if (s2 > 0._R8P) then
+                     offset = j - nj_fWL(1,b)
+                  else
+                     offset = nj_fWL(2,b) - j
+                  endif
+               case default
+                  if (s2 > 0._R8P) then
+                     offset = k - nk_fWL(1,b)
+                  else
+                     offset = nk_fWL(2,b) - k
+                  endif
+               endselect
+               f_value = compute_fwl_factor(offset=offset, cells_number=C(b), ds=dxyz(n,b))
+               fm1 = f_value - 1._R8P
+               fp1 = f_value + 1._R8P
                D_alfa = q(alfa_D,i,j,k,b)
                D_beta = q(beta_D,i,j,k,b)
                B_alfa = q(alfa_B,i,j,k,b)

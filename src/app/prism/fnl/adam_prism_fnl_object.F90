@@ -311,8 +311,6 @@ contains
    ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
    ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
    call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid)
-   ! call self%fwlayer_fnl%copy_cpu_gpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
-   call self%fwlayer_fnl%copy_cpu_gpu(fwlayer=self%fWLayer, grid=self%adam%grid, verbose=verbose)
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
 
@@ -331,8 +329,6 @@ contains
    ! call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
    ! call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
    call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid)
-   ! call self%fwlayer_fnl%copy_gpu_cpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
-   call self%fwlayer_fnl%copy_gpu_cpu(fwlayer=self%fWLayer, grid=self%adam%grid, verbose=verbose)
    endsubroutine copy_gpu_cpu
 
    subroutine initialize_prism(self, filename, realms_number)
@@ -361,7 +357,6 @@ contains
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
    call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid)
-   call self%fwlayer_fnl%initialize(fwlayer=self%fWLayer, field=self%adam%field, grid=self%adam%grid)
 
    ! set pointer (abstract) TBP
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
@@ -581,8 +576,8 @@ contains
    associate(layer=>self%fWLayer%layer, C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL, &
             nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, &
             s2=>self%fWLayer%s2, alfa_D=>self%fWLayer%alfa_D, beta_D=>self%fWLayer%beta_D, &
-            alfa_B=>self%fWLayer%alfa_B, beta_B=>self%fWLayer%beta_B)
-   if (allocated(self%fWLayer%C) .and. associated(self%fwlayer_fnl%f_gpu)) then
+            alfa_B=>self%fWLayer%alfa_B, beta_B=>self%fWLayer%beta_B, dxyz_gpu=>self%field_fnl%dxyz_gpu)
+   if (allocated(self%fWLayer%C)) then
       do face=1, 6
          if (.not. layer(face)) cycle
          do b=1, self%blocks_number
@@ -593,7 +588,7 @@ contains
                                                  nk1=nk_fWL(1,b,face), nk2=nk_fWL(2,b,face), &
                                                  n=n(face), s2=s2(face), alfa_D=alfa_D(face), beta_D=beta_D(face), &
                                                  alfa_B=alfa_B(face), beta_B=beta_B(face),    &
-                                                 f_gpu=self%fwlayer_fnl%f_gpu, q_gpu=q_gpu)
+                                                 C_face=C(b,face), dxyz_gpu=dxyz_gpu, q_gpu=q_gpu)
          enddo
       enddo
    endif

@@ -464,12 +464,12 @@ contains
                                                1:)           !< Conservative variables.
    integer(I4P)                           :: face            !< Counter
 
-   associate(ngc=>self%ngc, blocks_number=>self%blocks_number, f=>self%fWLayer%f, layer=>self%fWLayer%layer, &
+   associate(ngc=>self%ngc, blocks_number=>self%blocks_number, dxyz=>self%adam%field%dxyz, layer=>self%fWLayer%layer, &
             C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL,                                                     &
             nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, s2=>self%fWLayer%s2, &
             alfa_D=>self%fWLayer%alfa_D, alfa_B=>self%fWLayer%alfa_B, beta_D=>self%fWLayer%beta_D,            &
             beta_B=>self%fWLayer%beta_B)
-   if (allocated(self%fWLayer%f) .and. allocated(self%fWLayer%C)) then
+   if (allocated(self%fWLayer%C)) then
       do face=1, 6
          if (layer(face)) call apply_fWL_correction_fun(blocks_number = blocks_number,        &
                                                         ngc           = ngc,                  &
@@ -483,7 +483,7 @@ contains
                                                         beta_D        = beta_D(face),        &
                                                         alfa_B        = alfa_B(face),        &
                                                         beta_B        = beta_B(face),        &
-                                                        f             = self%fWLayer%f,      &
+                                                        dxyz          = dxyz,                &
                                                         q             = q)
       enddo
    endif
