@@ -42,6 +42,9 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(weno_fnl_object)          :: weno_fnl    !< GPU WENO reconstructor.
    type(prism_fnl_coil_object)    :: coil_fnl    !< GPU coil source.
    type(prism_fnl_fwlayer_object) :: fwlayer_fnl !< GPU fWLayer.
+   type(prism_fnl_leapfrog_pic_object) :: leapfrog_pic_fnl !< GPU PIC leapfrog integrator.
+   type(prism_fnl_pic_object)     :: pic_fnl     !< GPU PIC support state.
+   type(prism_fnl_rk_pic_object)  :: rk_pic_fnl  !< GPU PIC RK integrator.
    ! device data
    real(R8P), pointer :: q_gpu(:,:,:,:,:)=>null()           !< Field cell centered variables.
    real(R8P), pointer :: dq_gpu(:,:,:,:,:)=>null()          !< Residuals right hand side.
@@ -141,7 +144,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
-      procedure, pass(self) :: impose_ct_correction 	!< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: impose_ct_correction_dev  !< Device-side constrained-transport correction on q_gpu.
       procedure, pass(self) :: impose_div_free      	!< Impose divergence-free property.
       procedure, pass(self) :: simulate             	!< Perform the simulation.
 endtype prism_fnl_object
@@ -310,6 +313,9 @@ contains
    ! call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
    ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
    ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+      call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
+                                     verbose=verbose)
    call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid)
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
@@ -328,6 +334,9 @@ contains
    ! call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,ij=[1,5])
    ! call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
    ! call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+      call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
+                                     verbose=verbose)
    call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid)
    endsubroutine copy_gpu_cpu
 
@@ -357,6 +366,13 @@ contains
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
    call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      call self%pic_fnl%initialize(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
+         call self%leapfrog_pic_fnl%initialize(pic=self%pic, leapfrog_pic=self%leapfrog_pic)
+      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
+         call self%rk_pic_fnl%initialize(pic=self%pic, rk_pic=self%rk_pic)
+   endif
 
    ! set pointer (abstract) TBP
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
@@ -371,23 +387,32 @@ contains
          case(RK_YOSHIDA)                      ; self%integrate_dev => integrate_rk_yoshida_dev
          endselect
       endselect
-   !elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !   select case(self%numerics%scheme_time)
-   !   case(NUM_SCHEME_TIME_LEAPFROG)
-   !      select case(self%pic%scheme_time)
-   !      case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-   !         self%integrate => integrate_leapfrog_pic
-   !      case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-   !         !self%integrate =>
-   !      endselect
-   !   case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-   !      select case(self%pic%scheme_time)
-   !      case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-   !         self%integrate => integrate_leapfrog_pic
-   !      case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-   !         !self%integrate =>
-   !      endselect
-   !   endselect
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      select case(self%numerics%scheme_time)
+      case(NUM_SCHEME_TIME_LEAPFROG)
+         select case(self%pic%scheme_time)
+         case(NUM_SCHEME_TIME_PIC_LEAPFROG)
+            self%integrate_dev => integrate_leapfrog_pic
+         case default
+            call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
+         endselect
+      case(NUM_SCHEME_TIME_RUNGE_KUTTA)
+         select case(self%pic%scheme_time)
+         case(NUM_SCHEME_TIME_PIC_LEAPFROG)
+            self%integrate_dev => integrate_leapfrog_pic
+         case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
+            select case(self%rk_pic%scheme)
+            case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+               self%integrate_dev => integrate_rk_ssp_pic
+            case default
+               call mpih_fnl%error_stop(msg=': PIC RK scheme not ported to FNL backend')
+            endselect
+         case default
+            call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
+         endselect
+      case default
+         call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
+      endselect
    endif
 
    self%fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL
@@ -940,26 +965,23 @@ contains
 
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, &
                                                             q=self%q)
-   ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%particle_injection%set_particle_initial_injection(field=self%adam%field, pic=pic, q_pic=self%q_pic)
-   !    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
-   !    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
-   !                                     np=self%pic%particle_number)
-   ! endif
-   ! call self%coil%set_coils(physics=physics, field=self%adam%field)
+   call self%initialize_pic_time_zero()
 
    call self%initialize_coils
-
-   ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%pic%current_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%particle_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%field_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, pic_fields=pic_fields, nv=self%nv)
-   ! endif
+   call self%compute_coils_current_time_zero()
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+      call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+   if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0._R8P) &
+      call self%impose_pic_fields_time_zero(ivar=VAR_BX)
 
    call self%copy_cpu_gpu
 
-   call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%apply_fWL_correction(q_gpu=self%q_gpu)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q,src=self%q_gpu,buf=self%buf_5D_R8P)
+      call self%weight_pic_fields_time_zero()
+      call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+   endif
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q_gpu, step, s)
@@ -3368,8 +3390,6 @@ contains
    !call self%compute_residuals_dev(q=self%q, dq=self%dq) !< Calcolo i residui relativi ai campi E e B
    !call self%save_residuals
 
-   !!Qua ci va la chiamata alla subroutine che calcola i resiudi delle particellle dq_pic
-
    !call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
 
    !!Qua ci va la chiamata alla subroutine che integra aggiornando le velocita e le posizioni delle particelle
@@ -3378,6 +3398,65 @@ contains
    !call self%impose_div_free
    !!call self%apply_fWL_correction
    endsubroutine integrate_leapfrog_pic
+
+   subroutine integrate_rk_ssp_pic(self)
+   !< Integrate PIC equations with SSP RK on device.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: s    !< Counter.
+
+   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
+   call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
+
+   do s=1, self%rk%nrk
+      if (self%ib%solids_number>0) then
+         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, &
+                                        phi_gpu=self%ib_fnl%phi_gpu)
+      else
+         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
+      endif
+      call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
+
+      call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                          grid=self%adam%grid, q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s))
+      call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                              q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                              q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+      call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
+      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+      if (s==1) call self%save_residuals
+
+      call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                            pic_fields_gpu=self%pic_fnl%pic_fields_gpu, &
+                                            q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                            q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+
+      if (self%ib%solids_number>0) then
+         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
+                                       phi_gpu=self%ib_fnl%phi_gpu)
+      else
+         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
+      endif
+      call self%rk_pic_fnl%assign_stage(s=s, pic_fields_gpu=self%pic_fnl%pic_fields_gpu)
+   enddo
+
+   if (self%ib%solids_number>0) then
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
+                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+   else
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   endif
+   call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+
+   call self%apply_fwl_correction(q_gpu=self%q_gpu)
+   call self%impose_div_free
+   call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                       grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                           q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+   call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                            q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+   call self%compute_coils_current(q_gpu=self%q_gpu)
+   endsubroutine integrate_rk_ssp_pic
 
    subroutine integrate_rk_ls_dev(self)
    !< Integrate equation, time operator, RK classical low storage schemes.
@@ -4449,7 +4528,7 @@ contains
 		endsubroutine compute_max_divergence_dev_kernel
 	endsubroutine compute_max_divergence
 
-   subroutine impose_ct_correction(self, ivar)
+   subroutine impose_ct_correction_dev(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
    !< Note that self%divergence memory is used as buffer, be carefull.
    class(prism_fnl_object), intent(inout) :: self   !< The equation.
@@ -4507,7 +4586,7 @@ contains
          enddo
       enddo
       endsubroutine impose_ct_correction_kernel
-   endsubroutine impose_ct_correction
+   endsubroutine impose_ct_correction_dev
 
    subroutine impose_div_free(self)
    !< Impose divergence-free property.
@@ -4515,8 +4594,8 @@ contains
 
    associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
              constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
-   if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
-   if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
+   if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction_dev(ivar=1_I4P)
+   if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction_dev(ivar=4_I4P)
    ! here should go also other corrections...
    endassociate
    endsubroutine impose_div_free
