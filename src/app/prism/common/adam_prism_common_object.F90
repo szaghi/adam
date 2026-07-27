@@ -26,6 +26,8 @@ use :: stringifor
 implicit none
 private
 public :: prism_common_object
+public :: initialize_single_particle_output
+public :: write_single_particle_output
 
 type, extends(realm_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
@@ -440,6 +442,38 @@ contains
    call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
                                  pic_fields=self%pic_fields, nv=self%nv)
    endsubroutine weight_pic_fields_time_zero
+
+   subroutine initialize_single_particle_output(filename)
+   !< Reset the single-particle output file before a fresh run from t = 0.
+   character(len=*), intent(in) :: filename
+   integer(I4P)                 :: iu, ios
+
+   open(newunit=iu, file=trim(filename), status='replace', action='write', form='formatted', iostat=ios)
+   if (ios /= 0) then
+      write(*,'(a,i0)') 'initialize_single_particle_output: errore open(), iostat=', ios
+      error stop
+   endif
+   close(iu)
+   endsubroutine initialize_single_particle_output
+
+   subroutine write_single_particle_output(filename, time, q_pic)
+   !< Append the single-particle trajectory/state sample.
+   character(len=1), parameter  :: TAB = achar(9)
+   character(len=*), intent(in) :: filename
+   real(R8P),        intent(in) :: q_pic(1:,1:)
+   real(R8P),        intent(in) :: time
+   integer(I4P)                 :: iu, ios, l, j
+
+   l = size(q_pic, dim=1)
+   open(newunit=iu, file=trim(filename), status='unknown', action='write', &
+        form='formatted', position='append', iostat=ios)
+   if (ios /= 0) then
+      write(*,'(a,i0)') 'write_current_tab: errore open(), iostat=', ios
+      error stop
+   endif
+   write(iu,'(ES24.16,8(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l)
+   close(iu)
+   endsubroutine write_single_particle_output
 
    ! IO methods
    subroutine load_restart_files(self, t, time)

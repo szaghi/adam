@@ -874,6 +874,9 @@ contains
                                  call self%impose_pic_fields_time_zero(ivar=VAR_BX)
 
    call self%apply_fWL_correction(q=self%q)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=0._R8P, dt=0._R8P, q=self%q)
    call self%weight_pic_fields_time_zero()
 
    call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), &
@@ -988,6 +991,10 @@ contains
    do b = 1, self%adam%field%blocks_number
       call mpih%print_message('  b='//trim(str(b,.true.))//' code='//trim(str(self%adam%field%code(b))))
    enddo
+
+   if (.not.self%io%restart .and. self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      call initialize_single_particle_output(filename='single_particle_output.dat')
+   endif
 
    associate(hs => self%fdv_half_stencil)
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
@@ -2701,6 +2708,7 @@ contains
    !< SSP RK working on q_rk as stages.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
+   real(R8P), allocatable                 :: q_stage(:,:,:,:,:) !< Contiguous stage scratch to avoid huge slice temporaries.
 
    !call sub_external_fields(self = self%external_fields, field = field, &
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
@@ -2708,6 +2716,13 @@ contains
    !Inizializzo stadi RK per campi e PIC
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
+   call allocate_variable(var=q_stage,                              &
+                          ulb=reshape([1,self%nv,                   &
+                                       1-self%ngc,self%ni+self%ngc, &
+                                       1-self%ngc,self%nj+self%ngc, &
+                                       1-self%ngc,self%nk+self%ngc, &
+                                       1,self%nb],[2,5]),           &
+                          msg=mpih%myrankstr//'integrate_rk_ssp_pic allocate q_stage')
 
    do s=1, self%rk%nrk
       !Calcolo stadio RK per campi e PIC
@@ -2717,17 +2732,18 @@ contains
          call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       endif
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
+      q_stage = self%rk%q_rk(:,:,:,:,:,s)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
-      call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%rk%q_rk(:,:,:,:,:,s), &
+      call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
-      call self%compute_coils_current(q=self%rk%q_rk(:,:,:,:,:,s), gamma=self%rk%gamm(s))
+      call self%compute_coils_current(q=q_stage, gamma=self%rk%gamm(s))
       !Calcolo residui Maxwell
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+      call self%compute_residuals(q=q_stage, dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
-      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%rk%q_rk(:,:,:,:,:,s), &
+      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                     q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (self%ib%solids_number>0) then
@@ -3085,24 +3101,6 @@ contains
    write(iu,'(ES24.16,a,ES24.16)') time, TAB, current_density
    close(iu)
    endsubroutine write_current_behavior_tab
-
-   subroutine write_single_particle_output(filename, time, q_pic)
-   character(len=1), parameter  :: TAB = achar(9)
-   character(len=*), intent(in) :: filename
-   real(R8P),        intent(in) :: q_pic(1:,1:)
-   real(R8P),        intent(in) :: time
-   integer(I4P)                 :: iu, ios, l, j
-
-   l = size(q_pic, dim=1)
-   open(newunit=iu, file=trim(filename), status='unknown', action='write', &
-        form='formatted', position='append', iostat=ios)
-   if (ios /= 0) then
-     write(*,'(a,i0)') 'write_current_tab: errore open(), iostat=', ios
-     error stop
-   end if
-   write(iu,'(ES24.16,8(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l)
-   close(iu)
-   endsubroutine write_single_particle_output
 
    subroutine compute_field_mean_value(self, q, n_x, n_y, n_z, n_b, mean_value)
    !< Compute mean value of the field in a certain region of the domain.

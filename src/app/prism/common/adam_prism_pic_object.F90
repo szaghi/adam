@@ -174,22 +174,6 @@ interface
 endinterface
 
 contains
-   pure function sanitize_ini_token(value) result(clean)
-   !< Normalize INI string tokens read through FiNeR on all compilers/backends.
-   character(*), intent(in) :: value
-   character(len=len(value)) :: clean
-   integer(I4P) :: i
-
-   clean = adjustl(value)
-   do i = 1, len(clean)
-      if (iachar(clean(i:i)) < 32) then
-         clean(i:) = ' '
-         exit
-      endif
-   enddo
-   clean = trim(clean)
-   endfunction sanitize_ini_token
-
    function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(prism_pic_object), intent(in) :: self             !< External fields.
@@ -343,7 +327,7 @@ contains
    val=buff, error=error)
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
-   self%problem_type = sanitize_ini_token(buff)
+   self%problem_type = trim(adjustl(buff))
 
    if(self%problem_type == PLASMA_TYPE_PROBLEM) then
       buff = ''
@@ -351,9 +335,9 @@ contains
       val=buff, error=error)
       if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_domain)')
-      buff = sanitize_ini_token(buff)
+      buff = trim(adjustl(buff))
 
-      select case(trim(buff))
+      select case(trim(adjustl(buff)))
       case('uniform', 'Uniform', 'UNIFORM', 'uniform_domain', 'all', 'full', 'Full', 'FULL')
          self%plasma_domain = UNIFORM_DOMAIN
       case('Cilinder', 'cilinder', 'CILINDER', 'uniform_cilinder', 'UNIFORM_CILINDER')
@@ -411,7 +395,7 @@ contains
    val=buff, error=error)
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(initialization)')
-   self%initialization = sanitize_ini_token(buff)
+   self%initialization = trim(adjustl(buff))
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='elliptic_correction', &
    val=self%elliptic_correction, error=error)
@@ -422,8 +406,8 @@ contains
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_weighting_model) from file')
-   buff = sanitize_ini_token(buff)
-   select case(trim(buff))
+   buff = trim(adjustl(buff))
+   select case(trim(adjustl(buff)))
    case('CIC', 'cic', 'Cic')
       self%particle_weighting_model = CIC_WEIGHTING_MODEL
 	case('NGP', 'ngp', 'Ngp')
@@ -447,8 +431,8 @@ contains
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='current_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(current_weighting_model) from file')
-   buff = sanitize_ini_token(buff)
-   select case(trim(buff))
+   buff = trim(adjustl(buff))
+   select case(trim(adjustl(buff)))
    case('CIC', 'cic', 'Cic')
       self%current_weighting_model = CIC_WEIGHTING_MODEL
 	case('NGP', 'ngp', 'Ngp')
@@ -485,8 +469,8 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='field_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(field_weighting_model) from file')
-   buff = sanitize_ini_token(buff)
-   select case(trim(buff))
+   buff = trim(adjustl(buff))
+   select case(trim(adjustl(buff)))
    case('0D', '0d', '0_d', '0_D')
       self%field_weighting_model = ZEROD_FIELDS_WEIGHTING_MODEL
    case('1D', '1d', '1_d', '1_D')
@@ -509,8 +493,8 @@ contains
    buff = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
-   buff = sanitize_ini_token(buff)
-   select case(trim(buff))
+   buff = trim(adjustl(buff))
+   select case(trim(adjustl(buff)))
    case('LEAPFROG', 'leapfrog', 'Leapfrog')
       self%scheme_time = NUM_SCHEME_TIME_PIC_LEAPFROG
    case('RUNGE_KUTTA', 'runge_kutta', 'Runge_Kutta')

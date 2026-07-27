@@ -585,6 +585,10 @@ contains
       !                              q_name=self%q_name)
       ! endif
    endif
+   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      call self%pic_fnl%copy_q_pic_gpu_cpu(q_pic=self%q_pic)
+      call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic)
+   endif
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
@@ -977,6 +981,9 @@ contains
    call self%copy_cpu_gpu
 
    call self%apply_fWL_correction(q_gpu=self%q_gpu)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                   dt=0._R8P, time=0._R8P, q_gpu=self%q_gpu)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q,src=self%q_gpu,buf=self%buf_5D_R8P)
       call self%weight_pic_fields_time_zero()
@@ -3624,6 +3631,7 @@ contains
    integer(I4P)                                     :: i             !< Counter.
    integer(I4P)                                     :: n             !< Coil counter.
    integer(I4P)                                     :: b             !< Block counter.
+   integer(I4P)                                     :: ind           !< Charge-density variable index for PIC diagnostics.
 
    call self%initialize_prism(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
@@ -3666,11 +3674,25 @@ contains
       call mpih_fnl%print_message('  b='//trim(str(b,.true.))//' code='//trim(str(self%adam%field%code(b))))
    enddo
 
-   ! associate(hs => self%fdv_half_stencil)
-   ! call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
-   ! call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
-   ! call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
-   ! endassociate
+   if (.not.self%io%restart .and. self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      call initialize_single_particle_output(filename='single_particle_output.dat')
+   endif
+
+   call self%copy_gpu_cpu
+   associate(hs => self%fdv_half_stencils(1))
+   call self%compute_divergence(hs=hs, ivar=1_I4P, q=self%q, divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=4_I4P, q=self%q, divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   endassociate
+
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      call mpih_fnl%print_message('   max div(D) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      ind = size(self%q(:,1,1,1,1))
+      call mpih_fnl%print_message('   max div(D)-rho at t0 after update ghost='// &
+                                  trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
+   endif
+   call mpih_fnl%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
