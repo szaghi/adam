@@ -508,7 +508,6 @@ contains
    integer(I4P),  optional, intent(in)    :: s                            !< Stage counter.
    integer(I4P)                           :: b, c, i, j, k, v             !< Counter.
    integer(I4P)                           :: idelta,jdelta,kdelta         !< IJK delta step for extrapolation.
-   integer(I4P)                           :: idelta_n, jdelta_n, kdelta_n !< IJK delta step for Neumann BC.
    integer(I4P)                           :: bc_type                      !< Boundary condition type.
    integer(I4P)                           :: crown                        !< Crown counter.
    integer(I4P)                           :: fec                          !< Boundary fec (1 to 26).
@@ -545,55 +544,19 @@ contains
                      q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b) !ni,j,k coordinate della cella da cui prendo i valori
                   enddo
                elseif (bc_type == BC_NEUMANN) then
-                  if (fec == 1) then
-                     idelta_n = nint(abs(real(i))*idelta,kind=I4P) - 1_I4P
-                     jdelta_n = jdelta
-                     kdelta_n = kdelta
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,-idelta_n,j-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  elseif (fec == 2) then
-                     idelta_n = 2_I4P*nint(abs(real(i-ni))*idelta,kind=I4P) - 1_I4P
-                     jdelta_n = jdelta
-                     kdelta_n = kdelta
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  elseif (fec == 3) then
-                     idelta_n = idelta
-                     jdelta_n = nint(abs(real(j))*jdelta,kind=I4P) - 1_I4P
-                     kdelta_n = kdelta
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  elseif (fec == 4) then
-                     idelta_n = idelta
-                     jdelta_n = 2_I4P*nint(abs(real(j-nj))*jdelta,kind=I4P) - 1_I4P
-                     kdelta_n = kdelta
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  elseif (fec == 5) then
-                     idelta_n = idelta
-                     jdelta_n = jdelta
-                     kdelta_n = nint(abs(real(k))*kdelta,kind=I4P) - 1_I4P
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,-kdelta_n,b)
-                     enddo
-                  elseif (fec == 6) then
-                     idelta_n = idelta
-                     jdelta_n = jdelta
-                     kdelta_n = 2_I4P*nint(abs(real(k-nk))*kdelta,kind=I4P) - 1_I4P
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  endif
+                  call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                   idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                   i_d=iref, j_d=jref, k_d=kref)
+                  do v=1, nv!(nv_c-nv_cl)
+                     q(v,i,j,k,b) = q(v,iref,jref,kref,b)
+                  enddo
                elseif (bc_type == BC_SILVER_MULLER) then
                   ! With outward normal n, the Silver-Muller conditions are
                   ! B_t = (n x E_d) / c, B_n = B_n,d, E_t = c (B_d x n), E_n = E_n,d.
-                  iref = min(max(i, 1_I4P), ni)
-                  jref = min(max(j, 1_I4P), nj)
-                  kref = min(max(k, 1_I4P), nk)
+                  call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                   idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                   i_d=iref, j_d=jref, k_d=kref)
+                  ref = q(:,iref,jref,kref,b)
                   select case(fec_1_6)
                   case(1)
                      s1 = -1.0_R8P
@@ -603,7 +566,6 @@ contains
                      alfa_B = 5_I4P
                      beta_B = 6_I4P
                      gamma_B = 4_I4P
-                     ref = q(:,1,jref,kref,b)
                   case(2)
                      s1 = 1.0_R8P
                      alfa_D = 2_I4P
@@ -612,7 +574,6 @@ contains
                      alfa_B = 5_I4P
                      beta_B = 6_I4P
                      gamma_B = 4_I4P
-                     ref = q(:,ni,jref,kref,b)
                   case(3)
                      s1 = -1.0_R8P
                      alfa_D = 3_I4P
@@ -621,7 +582,6 @@ contains
                      alfa_B = 6_I4P
                      beta_B = 4_I4P
                      gamma_B = 5_I4P
-                     ref = q(:,iref,1,kref,b)
                   case(4)
                      s1 = 1.0_R8P
                      alfa_D = 3_I4P
@@ -630,7 +590,6 @@ contains
                      alfa_B = 6_I4P
                      beta_B = 4_I4P
                      gamma_B = 5_I4P
-                     ref = q(:,iref,nj,kref,b)
                   case(5)
                      s1 = -1.0_R8P
                      alfa_D = 1_I4P
@@ -639,7 +598,6 @@ contains
                      alfa_B = 4_I4P
                      beta_B = 5_I4P
                      gamma_B = 6_I4P
-                     ref = q(:,iref,jref,1,b)
                   case(6)
                      s1 = 1.0_R8P
                      alfa_D = 1_I4P
@@ -648,7 +606,6 @@ contains
                      alfa_B = 4_I4P
                      beta_B = 5_I4P
                      gamma_B = 6_I4P
-                     ref = q(:,iref,jref,nk,b)
                   endselect
                   q(alfa_D, i,j,k,b) =  s1*C0*ref(beta_B)*EPS0
                   q(beta_D, i,j,k,b) = -s1*C0*ref(alfa_B)*EPS0
@@ -658,10 +615,13 @@ contains
                   q(gamma_B,i,j,k,b) = ref(gamma_B)
 
                   do v=(nv_c-nv_cl+1), nv
-                     q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b)
+                     q(v,i,j,k,b) = q(v,iref,jref,kref,b)
                   enddo
                elseif (bc_type == BC_PEC) then
-                  ref = q(:,i-idelta,j-jdelta,k-kdelta,b)
+                  call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                   idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                   i_d=iref, j_d=jref, k_d=kref)
+                  ref = q(:,iref,jref,kref,b)
                   q(:,i,j,k,b) = ref
                   select case(fec_1_6)
                   case(1, 2)
@@ -781,6 +741,36 @@ contains
    endif
    endassociate
    endsubroutine set_boundary_conditions
+
+   subroutine compute_face_mirror_indexes(face, ni, nj, nk, i_gc, j_gc, k_gc, idelta, jdelta, kdelta, i_d, j_d, k_d)
+   !< Return the donor indexes mirrored across the selected boundary face.
+   integer(I4P), intent(in)  :: face                     !< Face index in 1:6 numbering.
+   integer(I4P), intent(in)  :: ni, nj, nk               !< Grid dimensions.
+   integer(I4P), intent(in)  :: i_gc, j_gc, k_gc         !< Ghost-cell indexes.
+   integer(I4P), intent(in)  :: idelta, jdelta, kdelta   !< One-step inward deltas.
+   integer(I4P), intent(out) :: i_d, j_d, k_d            !< Mirrored donor indexes.
+
+   i_d = i_gc - idelta
+   j_d = j_gc - jdelta
+   k_d = k_gc - kdelta
+
+   select case(face)
+   case(1)
+      i_d = 1_I4P - i_gc
+   case(2)
+      i_d = 2_I4P * ni + 1_I4P - i_gc
+   case(3)
+      j_d = 1_I4P - j_gc
+   case(4)
+      j_d = 2_I4P * nj + 1_I4P - j_gc
+   case(5)
+      k_d = 1_I4P - k_gc
+   case(6)
+      k_d = 2_I4P * nk + 1_I4P - k_gc
+   case default
+      call mpih%error_stop(msg='compute_face_mirror_indexes: invalid face index '//trim(str(face)))
+   endselect
+   endsubroutine compute_face_mirror_indexes
 
    !subroutine compute_residuals_BC(self,s)
    !!< Compute residuals BCs.

@@ -829,17 +829,18 @@ contains
                   q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
                enddo
             elseif (bc_type == BC_NEUMANN) then
+               call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                i_d=iref, j_d=jref, k_d=kref)
                do v=1, nv
-                  q_gpu(b,i,j,k,v) = q_gpu(b,i+abs(idelta)*(-2*i+1+(idelta+1)*ni),&
-                                             j+abs(jdelta)*(-2*j+1+(jdelta+1)*nj),&
-                                             k+abs(kdelta)*(-2*k+1+(kdelta+1)*nk),v)
+                  q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
                enddo
             elseif (bc_type == BC_SILVER_MULLER) then
                ! With outward normal n, the Silver-Muller conditions are
                ! B_t = (n x E_d) / c, B_n = B_n,d, E_t = c (B_d x n), E_n = E_n,d.
-               iref = min(max(i, 1_I4P), ni)
-               jref = min(max(j, 1_I4P), nj)
-               kref = min(max(k, 1_I4P), nk)
+               call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                i_d=iref, j_d=jref, k_d=kref)
                select case(fec_1_6)
                case(1)
                   s1 = -1.0_R8P
@@ -849,7 +850,6 @@ contains
                   alfa_B = 5_I4P
                   beta_B = 6_I4P
                   gamma_B = 4_I4P
-                  iref = 1_I4P
                case(2)
                   s1 = 1.0_R8P
                   alfa_D = 2_I4P
@@ -858,7 +858,6 @@ contains
                   alfa_B = 5_I4P
                   beta_B = 6_I4P
                   gamma_B = 4_I4P
-                  iref = ni
                case(3)
                   s1 = -1.0_R8P
                   alfa_D = 3_I4P
@@ -867,7 +866,6 @@ contains
                   alfa_B = 6_I4P
                   beta_B = 4_I4P
                   gamma_B = 5_I4P
-                  jref = 1_I4P
                case(4)
                   s1 = 1.0_R8P
                   alfa_D = 3_I4P
@@ -876,7 +874,6 @@ contains
                   alfa_B = 6_I4P
                   beta_B = 4_I4P
                   gamma_B = 5_I4P
-                  jref = nj
                case(5)
                   s1 = -1.0_R8P
                   alfa_D = 1_I4P
@@ -885,7 +882,6 @@ contains
                   alfa_B = 4_I4P
                   beta_B = 5_I4P
                   gamma_B = 6_I4P
-                  kref = 1_I4P
                case(6)
                   s1 = 1.0_R8P
                   alfa_D = 1_I4P
@@ -894,7 +890,6 @@ contains
                   alfa_B = 4_I4P
                   beta_B = 5_I4P
                   gamma_B = 6_I4P
-                  kref = nk
                endselect
                q_gpu(b,i,j,k,alfa_D ) =  s1*C0*q_gpu(b,iref,jref,kref,beta_B )*EPS0
                q_gpu(b,i,j,k,beta_D ) = -s1*C0*q_gpu(b,iref,jref,kref,alfa_B)*EPS0
@@ -903,34 +898,37 @@ contains
                q_gpu(b,i,j,k,beta_B ) =  s1/C0*q_gpu(b,iref,jref,kref,alfa_D)/EPS0
                q_gpu(b,i,j,k,gamma_B) =       q_gpu(b,iref,jref,kref,gamma_B)
                do v=nv_c-nv_cl+1, nv
-                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+                  q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
                enddo
             elseif (bc_type == BC_PEC) then
+               call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                i_d=iref, j_d=jref, k_d=kref)
                do v=1, nv
-                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+                  q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
                enddo
                select case(fec_1_6)
                case(1, 2)
-                  q_gpu(b,i,j,k,VAR_DX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
-                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
-                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
-                  q_gpu(b,i,j,k,VAR_BX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
-                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
-                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+                  q_gpu(b,i,j,k,VAR_DX) =  q_gpu(b,iref,jref,kref,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,iref,jref,kref,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,iref,jref,kref,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) = -q_gpu(b,iref,jref,kref,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,iref,jref,kref,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,iref,jref,kref,VAR_BZ)
                case(3, 4)
-                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
-                  q_gpu(b,i,j,k,VAR_DY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
-                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
-                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
-                  q_gpu(b,i,j,k,VAR_BY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
-                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,iref,jref,kref,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) =  q_gpu(b,iref,jref,kref,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,iref,jref,kref,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,iref,jref,kref,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) = -q_gpu(b,iref,jref,kref,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,iref,jref,kref,VAR_BZ)
                case(5, 6)
-                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
-                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
-                  q_gpu(b,i,j,k,VAR_DZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
-                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
-                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
-                  q_gpu(b,i,j,k,VAR_BZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,iref,jref,kref,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,iref,jref,kref,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) =  q_gpu(b,iref,jref,kref,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,iref,jref,kref,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,iref,jref,kref,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) = -q_gpu(b,iref,jref,kref,VAR_BZ)
                endselect
             elseif (bc_type == BC_DIRICHLET) then
                do v=1, nv
@@ -970,6 +968,35 @@ contains
          endif
       enddo
       endsubroutine set_boundary_conditions_kernel
+
+      subroutine compute_face_mirror_indexes(face, ni, nj, nk, i_gc, j_gc, k_gc, idelta, jdelta, kdelta, i_d, j_d, k_d)
+      !$acc routine seq
+      !< Return the donor indexes mirrored across the selected boundary face.
+      integer(I4P), intent(in)  :: face                       !< Boundary face index in [1, 6].
+      integer(I4P), intent(in)  :: ni, nj, nk                !< Interior grid extents.
+      integer(I4P), intent(in)  :: i_gc, j_gc, k_gc         !< Ghost-cell indexes.
+      integer(I4P), intent(in)  :: idelta, jdelta, kdelta   !< One-step inward deltas.
+      integer(I4P), intent(out) :: i_d, j_d, k_d            !< Mirrored donor indexes.
+
+      i_d = i_gc - idelta
+      j_d = j_gc - jdelta
+      k_d = k_gc - kdelta
+
+      select case(face)
+      case(1)
+         i_d = 1_I4P - i_gc
+      case(2)
+         i_d = 2_I4P * ni + 1_I4P - i_gc
+      case(3)
+         j_d = 1_I4P - j_gc
+      case(4)
+         j_d = 2_I4P * nj + 1_I4P - j_gc
+      case(5)
+         k_d = 1_I4P - k_gc
+      case(6)
+         k_d = 2_I4P * nk + 1_I4P - k_gc
+      endselect
+      endsubroutine compute_face_mirror_indexes
    endsubroutine set_boundary_conditions
 
    subroutine set_initial_conditions(self, is_restart)
