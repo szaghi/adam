@@ -659,9 +659,11 @@ contains
                                      nk            = nk           ,&
                                      ngc           = ngc          ,&
                                      blocks_number = blocks_number,&
+                                     coils_number  = self%coil%total_coils_number,&
                                      var_jx        = var_jx       ,&
                                      var_jy        = var_jy       ,&
                                      var_jz        = var_jz       ,&
+                                     j_vec_gpu     = self%coil_fnl%j_vec_gpu,&
                                      q_gpu         = q_gpu)
 
       ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
@@ -700,27 +702,36 @@ contains
    endif
    endassociate
    contains
-      subroutine nullify_j_vec_vars_kernel(ni,nj,nk,ngc,blocks_number,var_jx,var_jy,var_jz,q_gpu)
-      !< Nullify J_Vec vars in q, devide kernel.
-      integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number        !< Grids dimensions.
-      integer(I4P), intent(in)    :: var_jx,var_jy,var_jz              !< Indexes of J_vec variables.
-      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
-      integer(I4P)                :: i,j,k,b                           !< Counter.
+      subroutine nullify_j_vec_vars_kernel(ni,nj,nk,ngc,blocks_number,coils_number,var_jx,var_jy,var_jz,j_vec_gpu,q_gpu)
+      !< Nullify J_Vec vars in q only on the support of the analytic coil current.
+      integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number,coils_number        !< Grids dimensions / coil count.
+      integer(I4P), intent(in)    :: var_jx,var_jy,var_jz                            !< Indexes of J_vec variables.
+      real(R8P),    intent(in)    :: j_vec_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:)       !< Analytic coil support.
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)               !< Field cell centered variables.
+      integer(I4P)                :: i,j,k,b,n                                       !< Counter.
+      logical                     :: has_coil                                         !< Coil support flag.
 
       ! FULL ghost-inclusive extent (issue #26 G2): the CPU stamp covers 1-ngc..n+ngc;
       ! the former interior-only loops left the q J-row ghosts UNSTAMPED (stale exchange
       ! content) -- the divergence stencils near every block border read wrong J, the
       ! dominant term of the FNL div(J) untruthfulness (2.35E+01 vs 3.2E-05).
       !$acc parallel loop independent gang vector collapse(4) &
-      !$acc DEVICEVAR(q_gpu)                                  &
-      !$acc firstprivate(ni,nj,nk,ngc,blocks_number,var_jx,var_jy,var_jz)
+      !$acc DEVICEVAR(q_gpu,j_vec_gpu)                        &
+      !$acc firstprivate(ni,nj,nk,ngc,blocks_number,coils_number,var_jx,var_jy,var_jz)
       do b=1, blocks_number
       do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
       do i=1-ngc, ni+ngc
-         q_gpu(b,i,j,k,var_Jx) = 0._R8P
-         q_gpu(b,i,j,k,var_Jy) = 0._R8P
-         q_gpu(b,i,j,k,var_Jz) = 0._R8P
+         has_coil = .false.
+         !$acc loop seq
+         do n=1, coils_number
+            has_coil = has_coil .or. any(j_vec_gpu(b,i,j,k,1:3,n) /= 0._R8P)
+         enddo
+         if (has_coil) then
+            q_gpu(b,i,j,k,var_Jx) = 0._R8P
+            q_gpu(b,i,j,k,var_Jy) = 0._R8P
+            q_gpu(b,i,j,k,var_Jz) = 0._R8P
+         endif
       enddo
       enddo
       enddo

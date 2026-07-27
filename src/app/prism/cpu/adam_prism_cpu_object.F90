@@ -399,10 +399,20 @@ contains
       end if
       if (self%coil%total_coils_number >= 1_I4P) then
 
-         ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
-         q(var_Jx,:,:,:,:) = 0._R8P
-         q(var_Jy,:,:,:,:) = 0._R8P
-         q(var_Jz,:,:,:,:) = 0._R8P
+         ! Azzeramento limitato al supporto coil: preserva il contributo PIC fuori dalle bobine.
+         do b=1, blocks_number
+            do k=1-self%ngc, nk+self%ngc
+               do j=1-self%ngc, nj+self%ngc
+                  do i=1-self%ngc, ni+self%ngc
+                     if (any(J_vec(:,i,j,k,b,:) /= 0._R8P)) then
+                        q(var_Jx,i,j,k,b) = 0._R8P
+                        q(var_Jy,i,j,k,b) = 0._R8P
+                        q(var_Jz,i,j,k,b) = 0._R8P
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
 
          ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
          if (td > 0._R8P) then

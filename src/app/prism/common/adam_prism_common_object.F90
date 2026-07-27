@@ -693,9 +693,19 @@ contains
              A=>self%coil%coil_amplitude, f=>self%coil%f, phase=>self%coil%phase, J_vec=>self%coil%J_vec,  &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
       if (self%coil%total_coils_number >= 1_I4P) then
-         self%q(var_Jx,:,:,:,:) = 0._R8P
-         self%q(var_Jy,:,:,:,:) = 0._R8P
-         self%q(var_Jz,:,:,:,:) = 0._R8P
+         do b=1, blocks_number
+            do k=1-self%ngc, nk+self%ngc
+               do j=1-self%ngc, nj+self%ngc
+                  do i=1-self%ngc, ni+self%ngc
+                     if (any(J_vec(:,i,j,k,b,:) /= 0._R8P)) then
+                        self%q(var_Jx,i,j,k,b) = 0._R8P
+                        self%q(var_Jy,i,j,k,b) = 0._R8P
+                        self%q(var_Jz,i,j,k,b) = 0._R8P
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
 
          if (td > 0._R8P) then
             s = 0._R8P
