@@ -1479,7 +1479,7 @@ contains
    !< Invoked by forest%finalize. v1 implementation is the verbatim post-
    !< loop block formerly inline in `simulate`. Behavior unchanged.
    class(prism_cpu_object), intent(inout) :: self !< The realm.
-   real(R8P)                              :: max_div_D, max_div_B, max_div_J
+   logical                                :: is_open !< Guard close() against unopened units.
    !call self%compute_energy_error
    call self%save_simulation_data
    call self%io%close_file_residuals
@@ -1490,17 +1490,15 @@ contains
    !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_B))))))
    !call mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
    !call mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
-   call self%save_energy_history(is_to_close=.true.)
-   call self%update_ghost(q=self%q)
-   associate(hs => self%fdv_half_stencil)
-   call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
-   endassociate
-
-   call compute_max_divergence_outside_fwl(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
-                                           max_div_B=max_div_B, max_div_J=max_div_J)
-   call self%save_divergence_history(is_to_close=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
+   ! The final post_step_forest already writes the terminal energy/divergence row when
+   ! the stop criterion is hit. finalize_forest must only close the files, otherwise the
+   ! last iteration is appended twice in the CPU backend.
+   if (mpih%myrank == 0) then
+      inquire(unit=self%io%energy_history_unit, opened=is_open)
+      if (is_open) close(self%io%energy_history_unit)
+      inquire(unit=self%io%divergence_history_unit, opened=is_open)
+      if (is_open) close(self%io%divergence_history_unit)
+   endif
 
    ! NB: MPI_FINALIZE is NOT called here — it is process-global and runs once via
    ! forest%finalize -> finalize_mpi_forest after ALL realms finish.
