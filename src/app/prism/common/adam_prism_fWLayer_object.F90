@@ -266,6 +266,7 @@ contains
    real(R8P)                :: fi           !< Profile-shape coefficient.
    real(R8P)                :: distance     !< Physical distance from the boundary.
    !$acc routine seq
+   !$omp declare target
 
    if (cells_number <= 0_I4P) then
       f_value = 1._R8P

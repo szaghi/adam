@@ -336,6 +336,8 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p)
+   !$omp OMPLOOP DEVICEPTR(q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
+   !$omp& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p)
    do n = 1, self%particle_number
       x_p = q_pic_gpu(n,1)
       y_p = q_pic_gpu(n,2)
@@ -687,6 +689,7 @@ contains
    neighbour_list_gpu => self%neighbour_list_gpu
 
    !$acc parallel loop collapse(4) independent DEVICEVAR(q_gpu)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu)
    do k = 1-ngc, nk+ngc
       do j = 1-ngc, nj+ngc
          do i = 1-ngc, ni+ngc
@@ -699,6 +702,8 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)
+   !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
+   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -730,6 +735,7 @@ contains
                wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / dx)
                weight = wx * wy * wz
                !$acc atomic update
+               !$omp atomic update
                q_gpu(block_p,i,j,k,nv) = q_gpu(block_p,i,j,k,nv) + charge_density * weight
             enddo
          enddo
@@ -767,6 +773,7 @@ contains
    neighbour_list_gpu => self%neighbour_list_gpu
 
    !$acc parallel loop collapse(4) independent DEVICEVAR(q_gpu)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu)
    do k = 1-ngc, nk+ngc
       do j = 1-ngc, nj+ngc
          do i = 1-ngc, ni+ngc
@@ -780,6 +787,9 @@ contains
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$acc&         dx, dy, dz, sigma_x, sigma_y, sigma_z, inverse_cell_volume, charge_prefactor, rx, ry, rz, wx, wy, wz, weight, weight_sum)
+   !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
+   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
+   !$omp&         dx, dy, dz, sigma_x, sigma_y, sigma_z, inverse_cell_volume, charge_prefactor, rx, ry, rz, wx, wy, wz, weight, weight_sum)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -837,6 +847,7 @@ contains
                   wx = exp(-0.5_R8P * rx * rx)
                   weight = wx * wy * wz / weight_sum
                   !$acc atomic update
+                  !$omp atomic update
                   q_gpu(block_p,i,j,k,nv) = q_gpu(block_p,i,j,k,nv) + charge_prefactor * weight
                enddo
             enddo
@@ -875,6 +886,7 @@ contains
    neighbour_list_gpu => self%neighbour_list_gpu
 
    !$acc parallel loop collapse(4) independent DEVICEVAR(q_gpu)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu)
    do k = 1-ngc, nk+ngc
       do j = 1-ngc, nj+ngc
          do i = 1-ngc, ni+ngc
@@ -889,6 +901,8 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, prefactor, wx, wy, wz, weight, jx, jy, jz)
+   !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
+   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, prefactor, wx, wy, wz, weight, jx, jy, jz)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -923,10 +937,13 @@ contains
                wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / dx)
                weight = wx * wy * wz
                !$acc atomic update
+               !$omp atomic update
                q_gpu(block_p,i,j,k,nv-3) = q_gpu(block_p,i,j,k,nv-3) + jx * weight
                !$acc atomic update
+               !$omp atomic update
                q_gpu(block_p,i,j,k,nv-2) = q_gpu(block_p,i,j,k,nv-2) + jy * weight
                !$acc atomic update
+               !$omp atomic update
                q_gpu(block_p,i,j,k,nv-1) = q_gpu(block_p,i,j,k,nv-1) + jz * weight
             enddo
          enddo
@@ -964,6 +981,7 @@ contains
    neighbour_list_gpu => self%neighbour_list_gpu
 
    !$acc parallel loop collapse(4) independent DEVICEVAR(q_gpu)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu)
    do k = 1-ngc, nk+ngc
       do j = 1-ngc, nj+ngc
          do i = 1-ngc, ni+ngc
@@ -979,6 +997,9 @@ contains
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$acc&         dx, dy, dz, sigma_x, sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, jx, jy, jz)
+   !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
+   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
+   !$omp&         dx, dy, dz, sigma_x, sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, jx, jy, jz)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -1038,10 +1059,13 @@ contains
                   wx = exp(-0.5_R8P * rx * rx)
                   weight = wx * wy * wz / weight_sum
                   !$acc atomic update
+                  !$omp atomic update
                   q_gpu(block_p,i,j,k,nv-3) = q_gpu(block_p,i,j,k,nv-3) + jx * weight
                   !$acc atomic update
+                  !$omp atomic update
                   q_gpu(block_p,i,j,k,nv-2) = q_gpu(block_p,i,j,k,nv-2) + jy * weight
                   !$acc atomic update
+                  !$omp atomic update
                   q_gpu(block_p,i,j,k,nv-1) = q_gpu(block_p,i,j,k,nv-1) + jz * weight
                enddo
             enddo
@@ -1079,6 +1103,8 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, wx, wy, wz, weight, f1, f2, f3, f4, f5, f6)
+   !$omp OMPLOOP DEVICEPTR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
+   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, wx, wy, wz, weight, f1, f2, f3, f4, f5, f6)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) then
@@ -1170,6 +1196,9 @@ contains
    !$acc parallel loop independent DEVICEVAR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$acc&         dx, dy, dz, sigma_x, sigma_y, sigma_z, rx, ry, rz, wx, wy, wz, weight, weight_sum, f1, f2, f3, f4, f5, f6)
+   !$omp OMPLOOP DEVICEPTR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
+   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
+   !$omp&         dx, dy, dz, sigma_x, sigma_y, sigma_z, rx, ry, rz, wx, wy, wz, weight, weight_sum, f1, f2, f3, f4, f5, f6)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) then
@@ -1259,6 +1288,7 @@ contains
    pure subroutine set_bspline_stencil_dev(order, x_p, x_c, i_p, i_min, i_max)
    !< Compute the one-dimensional B-spline stencil.
    !$acc routine seq
+   !$omp declare target
    integer(I4P), intent(in)  :: order
    real(R8P),    intent(in)  :: x_p, x_c
    integer(I4P), intent(in)  :: i_p
@@ -1307,6 +1337,7 @@ contains
    pure function bspline_weight_dev(order, r) result(weight)
    !< Return the centered cardinal B-spline weight.
    !$acc routine seq
+   !$omp declare target
    integer(I4P), intent(in) :: order
    real(R8P),    intent(in) :: r
    real(R8P)                :: weight

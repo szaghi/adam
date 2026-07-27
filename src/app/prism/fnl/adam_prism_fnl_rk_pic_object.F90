@@ -60,6 +60,7 @@ contains
    q_pic_rk_gpu => self%q_pic_rk_gpu
 
    !$acc parallel loop collapse(3) independent DEVICEVAR(q_pic_gpu, q_pic_rk_gpu)
+   !$omp OMPLOOP collapse(3) DEVICEPTR(q_pic_gpu, q_pic_rk_gpu)
    do s = 1, self%nrk
       do v = 1, PIC_VARIABLES_NUMBER
          do n = 1, self%particle_number
@@ -83,6 +84,7 @@ contains
    alph_gpu => self%alph_gpu
 
    !$acc parallel loop collapse(2) independent DEVICEVAR(q_pic_rk_gpu, alph_gpu)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(q_pic_rk_gpu, alph_gpu)
    do v = 1, 6
       do n = 1, self%particle_number
          !$acc loop seq
@@ -111,6 +113,8 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_pic_rk_gpu, pic_fields_gpu)&
    !$acc& private(vx, vy, vz, ex, ey, ez, bx, by, bz, fx, fy, fz, charge, mass)
+   !$omp OMPLOOP DEVICEPTR(q_pic_rk_gpu, pic_fields_gpu) &
+   !$omp& private(vx, vy, vz, ex, ey, ez, bx, by, bz, fx, fy, fz, charge, mass)
    do n = 1, self%particle_number
       vx = q_pic_rk_gpu(n,4,s)
       vy = q_pic_rk_gpu(n,5,s)
@@ -156,6 +160,8 @@ contains
 
    !$acc parallel loop collapse(2) independent DEVICEVAR(q_pic_gpu, q_pic_rk_gpu, beta_gpu)&
    !$acc& private(increment)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(q_pic_gpu, q_pic_rk_gpu, beta_gpu) &
+   !$omp& private(increment)
    do v = 1, 6
       do n = 1, self%particle_number
          increment = 0._R8P
