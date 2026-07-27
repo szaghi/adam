@@ -17,6 +17,11 @@ public :: BC_DIRICHLET
 public :: BC_Silver_Muller
 public :: BC_PERIOD
 public :: BC_radiative
+public :: BC_PEC
+public :: ELL_BC_DIRICHLET
+public :: ELL_BC_PERIODIC
+public :: ELL_BC_EXACT_OPEN
+public :: ELL_BC_PEC
 
 character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
                                                      "bc_y_min", "bc_y_max", &
@@ -30,6 +35,11 @@ integer(I4P), parameter :: BC_DIRICHLET     = 3_I4P !< Dirichlet BC.
 integer(I4P), parameter :: BC_Silver_Muller = 4_I4P !< Silver-Muller BC.
 integer(I4P), parameter :: BC_PERIOD        = 5_I4P !< Periodic BC.
 integer(I4P), parameter :: BC_radiative     = 6_I4P !< Radiative BC.
+integer(I4P), parameter :: BC_PEC           = 7_I4P !< Perfect Electric Conductor BC.
+integer(I4P), parameter :: ELL_BC_DIRICHLET = 1_I4P !< Elliptic Dirichlet BC.
+integer(I4P), parameter :: ELL_BC_PERIODIC  = 2_I4P !< Elliptic periodic BC.
+integer(I4P), parameter :: ELL_BC_EXACT_OPEN = 3_I4P !< Elliptic exact/open BC.
+integer(I4P), parameter :: ELL_BC_PEC       = 4_I4P !< Elliptic Perfect Electric Conductor BC.
 
 type :: prism_bc_object
    !< Boundary Conditions class definition, CPU backend.
@@ -38,7 +48,9 @@ type :: prism_bc_object
    contains
       ! public methods
       procedure, pass(self) :: initialize     !< Initialize BC.
+      procedure, pass(self) :: build_elliptic_bc_types !< Build elliptic BC types on all faces.
       procedure, pass(self) :: load_from_file !< Load config from file.
+      procedure, pass(self) :: map_face_bc_to_elliptic !< Map one EM BC to one elliptic BC.
 endtype prism_bc_object
 
 contains
@@ -83,7 +95,44 @@ contains
          self%bc_type(b) = BC_PERIOD
       case('radiative')
          self%bc_type(b) = BC_radiative
+      case('PEC', 'pec')
+         self%bc_type(b) = BC_PEC
       endselect
    enddo
    endsubroutine load_from_file
+
+   subroutine build_elliptic_bc_types(self, ivar, ell_bc_type)
+   !< Build the elliptic BC type associated with each EM face BC.
+   class(prism_bc_object), intent(in)  :: self           !< BC object.
+   integer(I4P),           intent(in)  :: ivar           !< Variable (start) index in q.
+   integer(I4P),           intent(out) :: ell_bc_type(6) !< Elliptic BC types.
+   integer(I4P)                        :: b              !< Counter.
+
+   do b=1, 6
+      call self%map_face_bc_to_elliptic(bc_type=self%bc_type(b), ivar=ivar, ell_bc_type=ell_bc_type(b))
+   enddo
+   endsubroutine build_elliptic_bc_types
+
+   subroutine map_face_bc_to_elliptic(self, bc_type, ivar, ell_bc_type)
+   !< Map one EM BC into the elliptic solver taxonomy.
+   class(prism_bc_object), intent(in)  :: self        !< BC object.
+   integer(I4P),           intent(in)  :: bc_type     !< EM BC type.
+   integer(I4P),           intent(in)  :: ivar        !< Variable (start) index in q.
+   integer(I4P),           intent(out) :: ell_bc_type !< Elliptic BC type.
+
+   select case(bc_type)
+   case(BC_DIRICHLET)
+      ell_bc_type = ELL_BC_DIRICHLET
+   case(BC_PERIOD)
+      ell_bc_type = ELL_BC_PERIODIC
+   case(BC_NEUMANN, BC_Silver_Muller, BC_radiative)
+      ell_bc_type = ELL_BC_EXACT_OPEN
+   case(BC_PEC)
+      ell_bc_type = ELL_BC_PEC
+   case(BC_EXTRAPOLATION)
+      call mpih%error_stop(msg=': BC_EXTRAPOLATION is not supported for elliptic solve on q('//trim(str(ivar))//')')
+   case default
+      call mpih%error_stop(msg=': unsupported EM BC for elliptic solve on q('//trim(str(ivar))//')')
+   endselect
+   endsubroutine map_face_bc_to_elliptic
 endmodule adam_prism_bc_object

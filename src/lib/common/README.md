@@ -355,10 +355,11 @@ The **forest** machinery coordinates more than one independent simulation domain
 | `begin_stage_forest(k, K_total, dt)`         | N>1 path: open integrator stage `k`; sets `self%stage_active = k`. |
 | `end_stage_forest(k, K_total, dt, ...)`      | N>1 path: residuals + stage assignment for stage `k`. |
 | `close_step_forest(dt)`                      | N>1 path: per-step epilogue (state assembly, BC, div-clean, time advance). |
-| `fill_seam_from_peer_forest(peer, p_idx)`    | Receive-side roundtrip: copy peer's interior into self's seam ghosts. |
+| `fill_seam_from_peer_forest(peer, p_idx)`    | Receive-side roundtrip: copy peer's interior into self's seam ghosts. Source/target buffer chosen by `self%stage_active`/`peer%stage_active` (`>0` ⇒ `rk%q_rk(:,...,stage)`, else committed `q`). |
+| `after_topology_build_forest()`              | Backend hook fired once after the seam maps are built — FNL uses it to refresh the device-resident seam maps (`field_fnl%maps%copy_cpu_gpu`). |
 | `apply_reflux_to_stage_forest(stage, dt, flux_register)` | Apply Berger-Colella reflux at the realm's end-of-step (α.r1 gate). |
 | `stages_per_step_forest()`                   | Report K (the realm's integrator stride; `rk%nrk` for SSP-RK). |
-| `coupling_descriptor_forest(scheme_time, rk_scheme, nv)` | Report `(scheme_time, rk_scheme, nv)` for β admissibility (issue #18). |
+| `coupling_descriptor_forest(scheme_time, rk_scheme, nv)` | Report `(scheme_time, rk_scheme, nv)` for β admissibility (issue #18). Default returns `''/''/-1` — a realm can't join β unless it overrides. |
 | `is_done_forest(done)`                       | Report whether the simulation has reached its termination predicate. |
 | `post_step_forest(dt, t, it, realm)`         | Per-step diagnostics / IO block (savers, residual prints). |
 
@@ -425,9 +426,24 @@ The orchestrator gates per-seam: Phase 2 fires only on `STAGE_COINCIDENT` seams;
 
 β admissibility — same `scheme_time`, `rk_scheme`, `nv`, and K between both endpoint realms — is verified at `initialize_from_manifest` time via `check_beta_admissibility`. Mismatch → immediate `error_stop`; no silent downgrade.
 
+### Intra-realm AMR seams (a second, independent seam family)
+
+The inter-realm machinery above couples two *realms*. A separate family — the **intra-realm AMR seam** — handles a 2:1 resolution jump *inside a single realm's* Morton octree (a level-`ℓ` block abutting a level-`ℓ+1` block, produced by AMR markers). It is not manifest-declared and uses different code:
+
+- **Registration**: `forest_object%register_intra_realm_amr_seams(realm)` (private) does a two-pass registration of the coarse-fine faces into the flux register with `SEAM_KIND_INTRA_REALM_AMR` (`adam_flux_register_object.F90`), and allocates/fills `maps%amr_seam_quadrant`. That array's allocation is also the **gate** for the seam `div(B)` guard-rail (below).
+- **Ghost fill**: the fine block's coarse-overlapping ghosts are filled through `field_object%update_ghost_local`'s **flag-4** map-row path → `interp_seam_ghost`. The interpolation *regime* is `maps%seam_ghost_fill`, one of `SEAM_FILL_INJECTION` (0, copy), `SEAM_FILL_COMPATIBLE` (1, q=2 restriction-compatible), `SEAM_FILL_TRICUBIC` (2, q=4) — declared in `adam_seam_interpolation_library.F90`, selected by `[amr] seam_ghost_fill`. **Effective default is `tricubic`**: `adam_object%initialize` overwrites the `maps` struct default (`SEAM_FILL_INJECTION`) with `SEAM_FILL_TRICUBIC` when the key is absent. The FNL device path carries the regime via `update_ghost_local_gpu(..., seam_ghost_fill=..., ...)`.
+- **Reflux**: Berger-Colella reflux at the 2:1 face, dispatched by `apply_reflux_corrections` at each realm's own end-of-step (α.r1 gate), identical machinery to the inter-realm register.
+
+The two families are structurally disjoint — a single-realm run never touches `fill_seam_from_peer_forest`; a same-resolution forest never touches `interp_seam_ghost`. They can coexist (a forest of internally-AMR-refined realms).
+
+### Seam div(B) guard-rail (`[IO]`, issue #29)
+
+The 2:1 AMR seam breaks the mimetic `div_h(curl_h) ≡ 0` identity (coarse Δx vs fine Δx/2 stencils no longer commute) and injects an O(h^p) `div(B)` source that is refinement-convergent but unbounded in `t` at fixed `h` — a constraint violation, not an energy instability. No local collocated-FD fix exists (five classes ruled out); the resolution is **accept-truncation**. To make the otherwise-silent growth visible, `save_divergence_history` (`adam_prism_common_object.F90`) carries an opt-in monitor: `[IO] seam_divB_tol` (default `-1.0`, off) and `seam_divB_error` (default `.false.`, warn-only). It arms only when `seam_divB_tol > 0` **and** `allocated(maps%amr_seam_quadrant)` (an AMR seam is present); on exceedance it `error_stop`s (`seam_divB_error = .true.`) or warns. `seam_divB_tol`/`seam_divB_error` live on the base `adam_io_object`.
+
 ### Load-bearing invariants
 
 - **Phase 2 → Phase 3 ordering (β)**: Phase 2 must complete on ALL realms before Phase 3 starts on ANY realm; otherwise the read-after-overwrite race between `fill_seam_from_peer_forest` writes and `compute_residuals` reads returns. The serial inner loops within a rank give this for free under the Phase-A replicated-forest layout.
+- **Inter-realm seam diagnostic refill (issue #31)**: any div(B) diagnostic that runs `self%update_ghost` before reading the divergence stencil must ALSO refill the inter-realm seam (`fill_seam_from_peer_forest` per peer), because `update_ghost` fills intra-realm ghosts + physical BCs but NOT the inter-realm seam (the forest owns it). Omitting it reports a spurious seam-skin div(B) on a div-free field. `present(realm)`-guarded so single-realm runs are untouched. A 1:1 same-resolution inter-realm mirror seam must use `stage_coincident` (β) to stay div-free — α leaves the seam ghosts unfilled during RK substages.
 - **`stage_active` discipline**: `begin_stage_forest(k)` MUST set `self%stage_active = k`; `close_step_forest(dt)` MUST clear it back to 0. The `fill_seam_from_peer_forest` buffer-selection logic reads `self%stage_active` and `peer%stage_active` to pick between `q` (committed) and `rk%q_rk(:,...,stage_active)`. Mid-step writes to `q` outside this discipline corrupt peer reads.
 - **α.r1 reflux gate**: `apply_reflux_to_stage_forest` and `accumulate_seam_fluxes_fv` MUST gate on `stage == rk%nrk` (the realm's own final substage). `flux_register`'s third axis is collapsed to 1 under α.r1; per-stage RK-weighted reflux (Wang 2018) is deferred. Both α and β share this gate — β does not undo α.r1.
 - **N=1 fast path**: when `size(realm) == 1`, `evolve_one_step` routes through `advance_one_step_forest` directly with zero exposure to the per-stage TBPs. App backends MAY leave the per-stage TBPs at the parent's error_stop default for N=1-only use.
@@ -438,9 +454,14 @@ The orchestrator gates per-seam: Phase 2 fires only on `STAGE_COINCIDENT` seams;
 | PRD | Scope | Status |
 |---|---|---|
 | [#10](https://github.com/szaghi/adam/issues/10)  | Phase D inception — forest orchestrator design          | shipped |
-| [#13](https://github.com/szaghi/adam/issues/13)  | Coarse-fine interface machinery (A/B/C)                 | A shipped; B & C deferred |
+| [#13](https://github.com/szaghi/adam/issues/13)  | Coarse-fine interface machinery (A/B/C)                 | A + C shipped; B characterized (→ #29) |
 | [#16](https://github.com/szaghi/adam/issues/16)  | α end-of-step barrier + asymmetric K                    | shipped |
 | [#18](https://github.com/szaghi/adam/issues/18)  | β stage-coincident recovery + cross-config oracle       | shipped |
+| [#21](https://github.com/szaghi/adam/issues/21)  | tricubic coarse→fine seam ghost fill (`seam_ghost_fill`) | shipped |
+| [#22](https://github.com/szaghi/adam/issues/22)/[#23](https://github.com/szaghi/adam/issues/23) | FNL seam fill + FV residual/reflux device twins | shipped |
+| [#28](https://github.com/szaghi/adam/issues/28)  | np>1 reflux register ownership-gating                   | shipped |
+| [#29](https://github.com/szaghi/adam/issues/29)  | 2:1 seam div(B) — accept-truncation + guard-rail        | shipped (resolution) |
+| [#31](https://github.com/szaghi/adam/issues/31)  | inter-realm 1:1 seam div-free (β + diagnostic refill); FNL fWLayer HtoD | shipped |
 
 ---
 

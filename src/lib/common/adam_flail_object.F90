@@ -5,6 +5,7 @@ module adam_flail_object
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_field_object
+use :: adam_parameters, only : FEC_1_6_ARRAY
 ! third party modules
 use :: finer
 use :: penf
@@ -14,9 +15,11 @@ private
 public :: flail_object
 public :: compute_smoothing_interface
 public :: compute_smoothing_gauss_seidel
+public :: compute_smoothing_gauss_seidel_centered_dg
 public :: compute_smoothing_gauss_seidel_2nd
 public :: compute_smoothing_gauss_seidel_4th
 public :: compute_smoothing_gauss_seidel_6th
+public :: compute_smoothing_gauss_seidel_8th
 public :: compute_smoothing_multigrid
 public :: compute_smoothing_sor
 public :: compute_smoothing_sor_omp
@@ -25,6 +28,10 @@ character(9),  parameter, public :: SMOOTHING_MULTIGRID   ='MULTIGRID'    !< Smo
 character(12), parameter, public :: SMOOTHING_GAUSS_SEIDEL='GAUSS-SEIDEL' !< Smoothing Gauss-Seidel parameter.
 character(3),  parameter, public :: SMOOTHING_SOR         ='SOR'          !< Smoothing SOR parameter.
 character(7),  parameter, public :: SMOOTHING_SOR_OMP     ='SOR-OMP'      !< Smoothing SOR-OpenMP parameter.
+integer(I4P),  parameter         :: ELL_BC_DIRICHLET      = 1_I4P         !< Elliptic Dirichlet BC.
+integer(I4P),  parameter         :: ELL_BC_PERIODIC       = 2_I4P         !< Elliptic periodic BC.
+integer(I4P),  parameter         :: ELL_BC_EXACT_OPEN     = 3_I4P         !< Elliptic exact/open BC.
+integer(I4P),  parameter         :: ELL_BC_PEC            = 4_I4P         !< Elliptic Perfect Electric Conductor BC.
 
 character(len=14), parameter :: INI_SECTION_NAME="linear-algebra" !< INI (config) file section name containing FLAIL configs.
 
@@ -45,9 +52,10 @@ endtype flail_object
 
 interface
    subroutine compute_smoothing_interface(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                          iterations_init, iterations_fine, iterations_coarse)
-   !< Compute smoothing, abstract interface.
-   import :: I4P, R8P
+                                          iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
+                                          ell_bc_type, local_map_bc_crown)
+   !< Compute smoothing, abstract interface for face-based elliptic BCs.
+   import :: I4P, I8P, R8P, field_object
    integer(I4P), intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
    integer(I4P), intent(in)              :: nv                !< Number of q variables.
    integer(I4P), intent(in)              :: blocks_number     !< Number of current blocks.
@@ -71,6 +79,11 @@ interface
    integer(I4P), intent(in),    optional :: iterations_init   !< Smoothing iterations to initialize guess.
    integer(I4P), intent(in),    optional :: iterations_fine   !< Smoothing iterations for fine grid.
    integer(I4P), intent(in),    optional :: iterations_coarse !< Smoothing iterations for coarse grid.
+   integer(I4P), intent(in)              :: ivar              !< Variable (start) index in q.
+   real(R8P),    intent(in),    optional :: mu, eps          !< Electromagnetic constants.
+   type(field_object), intent(in)        :: field             !< Field (sibling realm component, threaded in).
+   integer(I4P), intent(in)              :: ell_bc_type(6)    !< Elliptic BC type for each face.
+   integer(I8P), intent(in)              :: local_map_bc_crown(:,:,:) !< BC crown map.
    endsubroutine compute_smoothing_interface
 endinterface
 contains
@@ -137,7 +150,7 @@ contains
    endsubroutine load_from_file
 
    ! non TBP
-   subroutine apply_bc_dirichlet(ni, nj, nk, ngc, blocks_number, q)
+   subroutine zero_ghost_cells(ni, nj, nk, ngc, blocks_number, q)
    integer(I4P), intent(in)    :: ni,nj,nk,ngc  !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number !< Number of current blocks.
    real(R8P),    intent(inout) :: q(1:,    &
@@ -154,181 +167,223 @@ contains
       q(:,:,:,1-gc,b) = 0._R8P ; q(:,:   ,:   ,nk+gc,b) = 0._R8P
       enddo
    enddo
-   !do b=1, blocks_number
-   !   do gc = 1, ngc
-   !   q(:,1-gc,:,:,b) = -q(:,gc,:,:,b) ; q(:,ni+gc,:   ,:   ,b) = -q(:,ni-gc+1,:   ,:   ,b)
-   !   q(:,:,1-gc,:,b) = -q(:,:,gc,:,b) ; q(:,:   ,nj+gc,:   ,b) = -q(:,:   ,nj-gc+1,:   ,b)
-   !   q(:,:,:,1-gc,b) = -q(:,:,:,gc,b) ; q(:,:   ,:   ,nk+gc,b) = -q(:,:   ,:   ,nk-gc+1,b)
-   !   enddo
-   !enddo
-   endsubroutine apply_bc_dirichlet
+   endsubroutine zero_ghost_cells
 
-   subroutine apply_bc_neumann(ni, nj, nk, ngc, blocks_number, q)
-   integer(I4P), intent(in)    :: ni,nj,nk,ngc  !< Grid dimensions.
-   integer(I4P), intent(in)    :: blocks_number !< Number of current blocks.
-   real(R8P),    intent(inout) :: q(1:,    &
-                                    1-ngc:,&
-                                    1-ngc:,&
-                                    1-ngc:,&
-                                    1:)         !< Field variables.
-   integer(I4P)                :: b, gc         !< Counter.
+   subroutine apply_bc_elliptic_from_faces(ni, nj, nk, ngc, blocks_number, ell_bc_type, local_map_bc_crown, ivar, mu, eps, field, &
+                                           f, q, rebuild_exact_open)
+   !< Apply elliptic BCs using the face/crown map built for the hyperbolic BC machinery.
+   integer(I4P),       intent(in)    :: ni,nj,nk,ngc          !< Grid dimensions.
+   integer(I4P),       intent(in)    :: blocks_number         !< Number of current blocks.
+   integer(I4P),       intent(in)    :: ell_bc_type(6)        !< Elliptic BC types on the 6 faces.
+   integer(I8P),       intent(in)    :: local_map_bc_crown(:,:,:) !< Face BC crown map.
+   integer(I4P),       intent(in)    :: ivar                  !< Variable (start) index in q.
+   real(R8P),          intent(in), optional :: mu, eps        !< Electromagnetic constants.
+   type(field_object), intent(in)    :: field                 !< Field (sibling realm component, threaded in).
+   real(R8P),          intent(in)    :: f(1:,     &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1:)                 !< Forcing distribution.
+   real(R8P),          intent(inout) :: q(1:,     &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1:)                 !< Field variables.
+   logical,            intent(in), optional :: rebuild_exact_open !< Rebuild exact/open BC values.
+   integer(I4P)                      :: crown                  !< Crown counter.
+   integer(I4P)                      :: c                      !< Map entry counter.
+   integer(I4P)                      :: b, i, j, k            !< Grid indexes.
+   integer(I4P)                      :: idelta, jdelta, kdelta !< Mirror-cell offsets.
+   integer(I4P)                      :: i_d, j_d, k_d         !< Mirror donor indexes.
+   integer(I4P)                      :: face                   !< Face index in 1:6 numbering.
+   integer(I4P)                      :: ip, jp, kp            !< Periodic source indexes.
+   logical                           :: rebuild_exact_open_    !< Rebuild exact/open BC values, local var.
 
-   do b=1, blocks_number
-      do gc = 1, ngc
-      q(:,1-gc,:,:,b) = q(:,gc,:,:,b) ; q(:,ni+gc,:   ,:   ,b) = q(:,ni-gc+1,:   ,:   ,b)
-      q(:,:,1-gc,:,b) = q(:,:,gc,:,b) ; q(:,:   ,nj+gc,:   ,b) = q(:,:   ,nj-gc+1,:   ,b)
-      q(:,:,:,1-gc,b) = q(:,:,:,gc,b) ; q(:,:   ,:   ,nk+gc,b) = q(:,:   ,:   ,nk-gc+1,b)
+   rebuild_exact_open_ = .true.
+   if (present(rebuild_exact_open)) rebuild_exact_open_ = rebuild_exact_open
+
+   do crown=1, ngc
+      do c=1, size(local_map_bc_crown, dim=1)
+         b = int(local_map_bc_crown(c, 1, crown), I4P)
+         if (b <= 0_I4P) cycle
+         i = int(local_map_bc_crown(c, 2, crown), I4P)
+         j = int(local_map_bc_crown(c, 3, crown), I4P)
+         k = int(local_map_bc_crown(c, 4, crown), I4P)
+         idelta = int(local_map_bc_crown(c, 5, crown), I4P)
+         jdelta = int(local_map_bc_crown(c, 6, crown), I4P)
+         kdelta = int(local_map_bc_crown(c, 7, crown), I4P)
+         i_d = i - idelta
+         j_d = j - jdelta
+         k_d = k - kdelta
+         face = FEC_1_6_ARRAY(int(local_map_bc_crown(c, 9, crown), I4P))
+         select case(ell_bc_type(face))
+         case(ELL_BC_DIRICHLET)
+            q(:,i,j,k,b) = 0._R8P
+         case(ELL_BC_PERIODIC)
+            ip = i ; jp = j ; kp = k
+            if (ip < 1_I4P ) ip = ip + ni
+            if (ip > ni   ) ip = ip - ni
+            if (jp < 1_I4P ) jp = jp + nj
+            if (jp > nj   ) jp = jp - nj
+            if (kp < 1_I4P ) kp = kp + nk
+            if (kp > nk   ) kp = kp - nk
+            q(:,i,j,k,b) = q(:,ip,jp,kp,b)
+         case(ELL_BC_EXACT_OPEN)
+            if (rebuild_exact_open_) then
+               call apply_bc_elliptic_face_exact_open(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, face=face, &
+                                                      ivar=ivar, mu=mu, eps=eps, field=field, f=f, i_gc=i, j_gc=j, k_gc=k, &
+                                                      b_gc=b, q=q)
+            endif
+         case(ELL_BC_PEC)
+            call apply_bc_elliptic_face_pec(face=face, ivar=ivar, ngc=ngc, i_gc=i, j_gc=j, k_gc=k, b_gc=b, &
+                                            i_d=i_d, j_d=j_d, k_d=k_d, q=q)
+         case default
+            call mpih%error_stop(msg='apply_bc_elliptic_from_faces: unsupported elliptic face BC '//trim(str(ell_bc_type(face))))
+         endselect
       enddo
    enddo
-   endsubroutine apply_bc_neumann
+   endsubroutine apply_bc_elliptic_from_faces
 
-   subroutine apply_bc_analytic(ni, nj, nk, ngc, blocks_number, ivar, mu, eps, field, rho, current, q)
-   integer(I4P),       intent(in)              :: ni,nj,nk,ngc                 !< Grid dimensions.
-   integer(I4P),       intent(in)              :: blocks_number                !< Number of current blocks.
-   integer(I4P),       intent(in)              :: ivar                         !< Variable (start) index in q.
-   real(R8P),          intent(in), optional    :: mu, eps
-   type(field_object), intent(in)              :: field                        !< Field (sibling realm component, threaded in).
-   real(R8P),          intent(in), optional    :: rho(1:,     &
-                                                      1-ngc:, &
-                                                      1-ngc:, &
-                                                      1-ngc:, &
-                                                      1:)                      !< Source term for scalar potential.
-   real(R8P),          intent(in), optional    :: current(1:, &
-                                                      1-ngc:, &
-                                                      1-ngc:, &
-                                                      1-ngc:, &
-                                                      1:)                      !< Source term for vector potential.
-   real(R8P),          intent(inout)           :: q(1:,       &
-                                                    1-ngc:,   &
-                                                    1-ngc:,   &
-                                                    1-ngc:,   &
-                                                    1:)                        !< Field variables.
-   integer(I4P)                                :: i,j,k,b,f                    !< Counter.
-   integer(I4P)                                :: i_f,j_f,k_f,b_f              !< Counter.
-   real(R8P)                                   :: gc_coord(3)                  !< Ghost cell coordinates
-   real(R8P)                                   :: cell_coord(3)                !< Cell coordinates
-   integer(I4P)                                :: i_dir_n, i_dir_a, i_dir_b    !< Normal and tangential directions indices for ghost cell reconstruction
-   integer(I4P), parameter                     :: n_faces = 6_I4P              !< Number of ghost-cell face slabs.
-   integer(I4P)                                :: i1_f(n_faces), i2_f(n_faces)
-   integer(I4P)                                :: j1_f(n_faces), j2_f(n_faces)
-   integer(I4P)                                :: k1_f(n_faces), k2_f(n_faces)
+   subroutine apply_bc_elliptic_face_pec(face, ivar, ngc, i_gc, j_gc, k_gc, b_gc, i_d, j_d, k_d, q)
+   !< Reflect one elliptic ghost cell according to PEC parity.
+   integer(I4P),       intent(in)    :: face                   !< Face index in 1:6 numbering.
+   integer(I4P),       intent(in)    :: ivar                   !< Variable (start) index in q.
+   integer(I4P),       intent(in)    :: ngc                    !< Ghost-cell width.
+   integer(I4P),       intent(in)    :: i_gc, j_gc, k_gc, b_gc !< Ghost-cell indexes.
+   integer(I4P),       intent(in)    :: i_d, j_d, k_d         !< Mirror donor indexes.
+   real(R8P),          intent(inout) :: q(1:,     &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1:)                 !< Field variables.
+
+   if (face < 1_I4P .or. face > 6_I4P) then
+      call mpih%error_stop(msg='apply_bc_elliptic_face_pec: invalid face index '//trim(str(face)))
+   endif
+
+   select case(ivar)
+   case(1_I4P)
+      q(1,i_gc,j_gc,k_gc,b_gc) = -q(1,i_d,j_d,k_d,b_gc)
+   case(4_I4P)
+      select case(face)
+      case(1, 2)
+         q(1,i_gc,j_gc,k_gc,b_gc) =  q(1,i_d,j_d,k_d,b_gc)
+         q(2,i_gc,j_gc,k_gc,b_gc) = -q(2,i_d,j_d,k_d,b_gc)
+         q(3,i_gc,j_gc,k_gc,b_gc) = -q(3,i_d,j_d,k_d,b_gc)
+      case(3, 4)
+         q(1,i_gc,j_gc,k_gc,b_gc) = -q(1,i_d,j_d,k_d,b_gc)
+         q(2,i_gc,j_gc,k_gc,b_gc) =  q(2,i_d,j_d,k_d,b_gc)
+         q(3,i_gc,j_gc,k_gc,b_gc) = -q(3,i_d,j_d,k_d,b_gc)
+      case(5, 6)
+         q(1,i_gc,j_gc,k_gc,b_gc) = -q(1,i_d,j_d,k_d,b_gc)
+         q(2,i_gc,j_gc,k_gc,b_gc) = -q(2,i_d,j_d,k_d,b_gc)
+         q(3,i_gc,j_gc,k_gc,b_gc) =  q(3,i_d,j_d,k_d,b_gc)
+      endselect
+   case default
+      call mpih%error_stop(msg='apply_bc_elliptic_face_pec: unsupported ivar '//trim(str(ivar)))
+   endselect
+   endsubroutine apply_bc_elliptic_face_pec
+
+   subroutine apply_bc_elliptic_face_exact_open(ni, nj, nk, ngc, blocks_number, face, ivar, mu, eps, field, f, i_gc, j_gc, k_gc, &
+                                                b_gc, q)
+   !< Reconstruct one exact/open elliptic ghost cell from the volumetric source distribution.
+   integer(I4P),       intent(in)    :: ni,nj,nk,ngc          !< Grid dimensions.
+   integer(I4P),       intent(in)    :: blocks_number         !< Number of current blocks.
+   integer(I4P),       intent(in)    :: face                  !< Face index in 1:6 numbering.
+   integer(I4P),       intent(in)    :: ivar                  !< Variable (start) index in q.
+   real(R8P),          intent(in), optional :: mu, eps        !< Electromagnetic constants.
+   type(field_object), intent(in)    :: field                 !< Field (sibling realm component, threaded in).
+   real(R8P),          intent(in)    :: f(1:,     &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1:)                 !< Forcing distribution.
+   integer(I4P),       intent(in)    :: i_gc, j_gc, k_gc, b_gc !< Ghost-cell indexes.
+   real(R8P),          intent(inout) :: q(1:,     &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1-ngc:, &
+                                          1:)                 !< Field variables.
+   integer(I4P)                      :: i,j,k,b              !< Counters.
+   real(R8P)                         :: gc_coord(3)          !< Ghost-cell coordinates.
+   real(R8P)                         :: cell_coord(3)        !< Interior-cell coordinates.
+   real(R8P)                         :: distance             !< Distance between source and target cell centers.
+
+   if (face < 1_I4P .or. face > 6_I4P) then
+      call mpih%error_stop(msg='apply_bc_elliptic_face_exact_open: invalid face index '//trim(str(face)))
+   endif
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, &
-               dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
-
-   i_dir_n = 1_I4P
-   i_dir_a = 2_I4P
-   i_dir_b = 3_I4P
-
-   ! Faccia -x
-   i1_f(1) = 1_I4P - ngc
-   i2_f(1) = 0_I4P
-   j1_f(1) = 1_I4P
-   j2_f(1) = nj
-   k1_f(1) = 1_I4P
-   k2_f(1) = nk
-
-   ! Faccia +x
-   i1_f(2) = ni    + 1_I4P
-   i2_f(2) = ni    + ngc
-   j1_f(2) = 1_I4P
-   j2_f(2) = nj
-   k1_f(2) = 1_I4P
-   k2_f(2) = nk
-
-   ! Faccia -y
-   i1_f(3) = 1_I4P
-   i2_f(3) = ni
-   j1_f(3) = 1_I4P - ngc
-   j2_f(3) = 0_I4P
-   k1_f(3) = 1_I4P
-   k2_f(3) = nk
-
-   ! Faccia +y
-   i1_f(4) = 1_I4P
-   i2_f(4) = ni
-   j1_f(4) = nj    + 1_I4P
-   j2_f(4) = nj    + ngc
-   k1_f(4) = 1_I4P
-   k2_f(4) = nk
-
-   ! Faccia -z
-   i1_f(5) = 1_I4P
-   i2_f(5) = ni
-   j1_f(5) = 1_I4P
-   j2_f(5) = nj
-   k1_f(5) = 1_I4P - ngc
-   k2_f(5) = 0_I4P
-
-   ! Faccia +z
-   i1_f(6) = 1_I4P
-   i2_f(6) = ni
-   j1_f(6) = 1_I4P
-   j2_f(6) = nj
-   k1_f(6) = nk    + 1_I4P
-   k2_f(6) = nk    + ngc
-  
-   if(ivar==1_I4P) then
-      do f = 1_I4P, n_faces
-         do b_f = 1, blocks_number
-            do k_f = k1_f(f), k2_f(f)
-               do j_f = j1_f(f), j2_f(f)
-                  do i_f = i1_f(f), i2_f(f)
-                     gc_coord = [x_cell(i_f,b_f), y_cell(j_f,b_f), z_cell(k_f,b_f)]
-                     q(1, i_f, j_f, k_f, b_f) = 0.0_R8P
-                     do b=1, blocks_number
-                     do k = 1, nk
-                     do j = 1, nj
-                     do i = 1, ni
-                        cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-                        q(1, i_f, j_f, k_f, b_f) = q(1, i_f, j_f, k_f, b_f) + 1/(4* acos(-1.0)*eps)*(rho(1,i,j,k,b)* &
-                                                   (dx(b)*dy(b)*dz(b)))/sqrt((gc_coord(1)-cell_coord(1))**2 +        & 
-                                                   (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
-                     enddo
-                     enddo
-                     enddo
-                     enddo
-                  enddo
-               enddo
-            enddo
+             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
+   gc_coord = [x_cell(i_gc,b_gc), y_cell(j_gc,b_gc), z_cell(k_gc,b_gc)]
+   q(:,i_gc,j_gc,k_gc,b_gc) = 0._R8P
+   if (ivar == 1_I4P) then
+      if (.not. present(eps)) call mpih%error_stop(msg='apply_bc_elliptic_face_exact_open: eps missing for scalar potential')
+      do b=1, blocks_number
+         do k=1, nk
+         do j=1, nj
+         do i=1, ni
+            cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+            distance = sqrt((gc_coord(1)-cell_coord(1))**2 + (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
+            q(1,i_gc,j_gc,k_gc,b_gc) = q(1,i_gc,j_gc,k_gc,b_gc) - &
+                                        (f(1,i,j,k,b) * dx(b) * dy(b) * dz(b)) / (4._R8P * acos(-1._R8P) * distance)
+         enddo
+         enddo
          enddo
       enddo
-   elseif(ivar==4_I4P) then
-      do f = 1_I4P, n_faces
-         do b_f = 1, blocks_number
-            do k_f = k1_f(f), k2_f(f)
-               do j_f = j1_f(f), j2_f(f)
-                  do i_f = i1_f(f), i2_f(f)
-                     gc_coord = [x_cell(i_f,b_f), y_cell(j_f,b_f), z_cell(k_f,b_f)]
-                     q(1, i_f, j_f, k_f, b_f) = 0.0_R8P
-                     q(2, i_f, j_f, k_f, b_f) = 0.0_R8P
-                     q(3, i_f, j_f, k_f, b_f) = 0.0_R8P
-                     do b=1, blocks_number
-                     do k = 1, nk
-                     do j = 1, nj
-                     do i = 1, ni
-                        cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-                        q(1, i_f, j_f, k_f, b_f) = q(1, i_f, j_f, k_f, b_f) + mu/(4* acos(-1.0))*current(1,i,j,k,b) * &
-                                                   (dy(b)*dz(b))*dx(b)/sqrt((gc_coord(1)-cell_coord(1))**2 +          & 
-                                                   (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
-                        q(2, i_f, j_f, k_f, b_f) = q(2, i_f, j_f, k_f, b_f) + mu/(4* acos(-1.0))*current(2,i,j,k,b) * &
-                                                   (dx(b)*dz(b))*dy(b)/sqrt((gc_coord(1)-cell_coord(1))**2 +          & 
-                                                   (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
-                        q(3, i_f, j_f, k_f, b_f) = q(3, i_f, j_f, k_f, b_f) + mu/(4* acos(-1.0))*current(3,i,j,k,b) * &
-                                                   (dx(b)*dy(b))*dz(b)/sqrt((gc_coord(1)-cell_coord(1))**2 +          & 
-                                                   (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
-                     enddo
-                     enddo
-                     enddo
-                     enddo
-                  enddo
-               enddo
-            enddo
+   elseif (ivar == 4_I4P) then
+      if (.not. present(mu)) call mpih%error_stop(msg='apply_bc_elliptic_face_exact_open: mu missing for vector potential')
+      do b=1, blocks_number
+         do k=1, nk
+         do j=1, nj
+         do i=1, ni
+            cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+            distance = sqrt((gc_coord(1)-cell_coord(1))**2 + (gc_coord(2)-cell_coord(2))**2 + (gc_coord(3)-cell_coord(3))**2)
+            q(1,i_gc,j_gc,k_gc,b_gc) = q(1,i_gc,j_gc,k_gc,b_gc) - f(1,i,j,k,b) * dx(b) * dy(b) * dz(b) / &
+                                        (4._R8P * acos(-1._R8P) * distance)
+            q(2,i_gc,j_gc,k_gc,b_gc) = q(2,i_gc,j_gc,k_gc,b_gc) - f(2,i,j,k,b) * dx(b) * dy(b) * dz(b) / &
+                                        (4._R8P * acos(-1._R8P) * distance)
+            q(3,i_gc,j_gc,k_gc,b_gc) = q(3,i_gc,j_gc,k_gc,b_gc) - f(3,i,j,k,b) * dx(b) * dy(b) * dz(b) / &
+                                        (4._R8P * acos(-1._R8P) * distance)
+         enddo
+         enddo
          enddo
       enddo
+   else
+      call mpih%error_stop(msg='apply_bc_elliptic_face_exact_open: unsupported ivar '//trim(str(ivar)))
    endif
    endassociate
-   endsubroutine apply_bc_analytic
+   endsubroutine apply_bc_elliptic_face_exact_open
+
+   subroutine apply_bc_elliptic(ni, nj, nk, ngc, blocks_number, f, q, ell_bc_type, local_map_bc_crown, ivar, mu, eps, field, &
+                                rebuild_exact_open)
+   !< Apply elliptic BCs using the face/crown map built for the hyperbolic BC machinery.
+   integer(I4P),       intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
+   integer(I4P),       intent(in)              :: blocks_number     !< Number of current blocks.
+   real(R8P),          intent(in)              :: f(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)             !< Forcing distribution.
+   real(R8P),          intent(inout)           :: q(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)             !< Field variables.
+   integer(I4P),       intent(in)              :: ell_bc_type(6)    !< Elliptic BC types on the 6 faces.
+   integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:) !< BC crown map.
+   integer(I4P),       intent(in)              :: ivar              !< Variable (start) index in q.
+   real(R8P),          intent(in),    optional :: mu, eps           !< Electromagnetic constants.
+   type(field_object), intent(in)              :: field             !< Field (sibling realm component, threaded in).
+   logical,            intent(in),    optional :: rebuild_exact_open !< Rebuild exact/open BC values.
+   logical                                     :: rebuild_exact_open_ !< Rebuild exact/open BC values, local var.
+
+   rebuild_exact_open_ = .true.
+   if (present(rebuild_exact_open)) rebuild_exact_open_ = rebuild_exact_open
+   call apply_bc_elliptic_from_faces(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, ell_bc_type=ell_bc_type, &
+                                     local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, field=field, f=f, q=q, &
+                                     rebuild_exact_open=rebuild_exact_open_)
+   endsubroutine apply_bc_elliptic
 
    subroutine compute_prolongation(ngc, nic, njc, nkc, nv, blocks_number, coarse, fine)
    !< Compute trilinear prolongation.
@@ -421,7 +476,7 @@ contains
       enddo
       enddo
    enddo
-   call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=dq)
+   call zero_ghost_cells(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=dq)
    endsubroutine compute_laplacian_residuals
 
    subroutine compute_restriction(ngc, nic, njc, nkc, nv, blocks_number, fine, coarse)
@@ -460,11 +515,97 @@ contains
       enddo
       enddo
    enddo
-   call apply_bc_dirichlet(ni=nic, nj=njc, nk=nkc, ngc=ngc, blocks_number=blocks_number, q=coarse)
+   call zero_ghost_cells(ni=nic, nj=njc, nk=nkc, ngc=ngc, blocks_number=blocks_number, q=coarse)
    endsubroutine compute_restriction
 
+   subroutine compute_smoothing_gauss_seidel_centered_dg(ni, nj, nk, ngc, nv, blocks_number, order, dxyz, f, q, dq, dq_max, &
+                                                         iterations_init, iterations_fine, iterations_coarse, ivar,          &
+                                                         mu, eps, field, ell_bc_type, local_map_bc_crown, progress_label,     &
+                                                         progress_counter, progress_total, progress_last_percent)
+   !< Compute smoothing by Gauss-Seidel for the centered `D(G)` elliptic operator.
+   !<
+   !< On the uniform Cartesian blocks used here, centered FD and centered FV share
+   !< the same composed `D(G)` coefficients. The dispatch therefore depends only
+   !< on the formal order, not on `fdv_scheme`.
+   integer(I4P),       intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
+   integer(I4P),       intent(in)              :: nv                !< Number of q variables.
+   integer(I4P),       intent(in)              :: blocks_number     !< Number of current blocks.
+   integer(I4P),       intent(in)              :: order             !< Formal order of the centered `D(G)` operator.
+   real(R8P),          intent(in)              :: dxyz(1:,1:)       !< Space steps.
+   real(R8P),          intent(in)              :: f(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)             !< Forcing distribution.
+   real(R8P),          intent(inout)           :: q(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)             !< Field variables.
+   real(R8P),          intent(inout), optional :: dq(1:,     &
+                                                     1-ngc:, &
+                                                     1-ngc:, &
+                                                     1-ngc:, &
+                                                     1:)            !< Residuals.
+   real(R8P),          intent(inout), optional :: dq_max            !< Maximum residual.
+   integer(I4P),       intent(in),    optional :: iterations_init   !< Smoothing iterations to initialize guess.
+   integer(I4P),       intent(in),    optional :: iterations_fine   !< Smoothing iterations for fine grid.
+   integer(I4P),       intent(in),    optional :: iterations_coarse !< Smoothing iterations for coarse grid.
+   integer(I4P),       intent(in)              :: ivar              !< Variable (start) index in q.
+   real(R8P),          intent(in),    optional :: mu, eps           !< Electromagnetic constants.
+   type(field_object), intent(in)              :: field             !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ell_bc_type(6)    !< Elliptic BC type for each face.
+   integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:) !< BC crown map.
+   character(len=*),   intent(in),    optional :: progress_label    !< Progress message label.
+   integer(I4P),       intent(inout), optional :: progress_counter  !< Completed smoothing sweeps.
+   integer(I4P),       intent(in),    optional :: progress_total    !< Planned smoothing sweeps.
+   integer(I4P),       intent(inout), optional :: progress_last_percent !< Last printed progress percentage.
+
+   select case(order)
+   case(2_I4P)
+      call compute_smoothing_gauss_seidel_2nd(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+                                              dxyz=dxyz, f=f, q=q, dq=dq, dq_max=dq_max,                         &
+                                              iterations_init=iterations_init, iterations_fine=iterations_fine,   &
+                                              iterations_coarse=iterations_coarse, ivar=ivar,                    &
+                                              mu=mu, eps=eps, field=field, ell_bc_type=ell_bc_type,              &
+                                              local_map_bc_crown=local_map_bc_crown, progress_label=progress_label, &
+                                              progress_counter=progress_counter, progress_total=progress_total,     &
+                                              progress_last_percent=progress_last_percent)
+   case(4_I4P)
+      call compute_smoothing_gauss_seidel_4th(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+                                              dxyz=dxyz, f=f, q=q, dq=dq, dq_max=dq_max,                         &
+                                              iterations_init=iterations_init, iterations_fine=iterations_fine,   &
+                                              iterations_coarse=iterations_coarse, ivar=ivar,                    &
+                                              mu=mu, eps=eps, field=field, ell_bc_type=ell_bc_type,              &
+                                              local_map_bc_crown=local_map_bc_crown, progress_label=progress_label, &
+                                              progress_counter=progress_counter, progress_total=progress_total,     &
+                                              progress_last_percent=progress_last_percent)
+   case(6_I4P)
+      call compute_smoothing_gauss_seidel_6th(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+                                              dxyz=dxyz, f=f, q=q, dq=dq, dq_max=dq_max,                         &
+                                              iterations_init=iterations_init, iterations_fine=iterations_fine,   &
+                                              iterations_coarse=iterations_coarse, ivar=ivar,                    &
+                                              mu=mu, eps=eps, field=field, ell_bc_type=ell_bc_type,              &
+                                              local_map_bc_crown=local_map_bc_crown, progress_label=progress_label, &
+                                              progress_counter=progress_counter, progress_total=progress_total,     &
+                                              progress_last_percent=progress_last_percent)
+   case(8_I4P)
+      call compute_smoothing_gauss_seidel_8th(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+                                              dxyz=dxyz, f=f, q=q, dq=dq, dq_max=dq_max,                         &
+                                              iterations_init=iterations_init, iterations_fine=iterations_fine,   &
+                                              iterations_coarse=iterations_coarse, ivar=ivar,                    &
+                                              mu=mu, eps=eps, field=field, ell_bc_type=ell_bc_type,              &
+                                              local_map_bc_crown=local_map_bc_crown, progress_label=progress_label, &
+                                              progress_counter=progress_counter, progress_total=progress_total,     &
+                                              progress_last_percent=progress_last_percent)
+   case default
+      call mpih%error_stop(msg='compute_smoothing_gauss_seidel_centered_dg: unsupported FDV order '//trim(str(order)))
+   endselect
+   endsubroutine compute_smoothing_gauss_seidel_centered_dg
+
    subroutine compute_smoothing_gauss_seidel(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                             iterations_init, iterations_fine, iterations_coarse, bc_type, mu, eps, ivar, field)
+                                             iterations_init, iterations_fine, iterations_coarse, mu, eps, ivar, field, &
+                                             ell_bc_type, local_map_bc_crown)
    !< Compute smoothing by Gauss-Seidel method.
    integer(I4P),       intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
    integer(I4P),       intent(in)              :: nv                !< Number of q variables.
@@ -489,10 +630,11 @@ contains
    integer(I4P),       intent(in),    optional :: iterations_init   !< Smoothing iterations to initialize guess.
    integer(I4P),       intent(in),    optional :: iterations_fine   !< Smoothing iterations for fine grid.
    integer(I4P),       intent(in),    optional :: iterations_coarse !< Smoothing iterations for coarse grid.
-   character(len=*),   intent(in),    optional :: bc_type           !< Boundary condition type
    real(R8P),          intent(in),    optional :: mu, eps           !< Constant of electromagnetism, =1 in adimensional case
-   integer(I4P),       intent(in),    optional :: ivar              !< Variable (start) index in q.
-   type(field_object), intent(in),    optional :: field             !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ivar              !< Variable (start) index in q.
+   type(field_object), intent(in)              :: field             !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ell_bc_type(6)    !< Elliptic BC type for each face.
+   integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:) !< BC crown map.
    integer(I4P)                                :: iterations_       !< Smoothing iterations, local var.
    real(R8P)                                   :: dq_max_           !< Maximum residual, local var.
    real(R8P)                                   :: dx2,dy2,dz2       !< Square space steps.
@@ -502,27 +644,13 @@ contains
 
    iterations_ = 1 ; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
-   if (present(bc_type)) then
-      if (bc_type == 'analytic') then
-         if (ivar == 1_I4P) then
-         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
-                     ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
-         elseif (ivar == 4_I4P) then
-         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
-                     ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
-         endif
-      endif
-   endif
+   call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                          ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                          field=field, rebuild_exact_open=.true.)
    do iter=1, iterations_
-      if (present(bc_type)) then
-         if (bc_type == 'dirichlet') then
-            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         elseif (bc_type == 'neumann') then
-            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         endif
-      else
-         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      endif
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=.false.)
       do b=1, blocks_number
          dx2 = dxyz(1,b)*dxyz(1,b)
          dy2 = dxyz(2,b)*dxyz(2,b)
@@ -543,22 +671,15 @@ contains
          enddo
          enddo
       enddo
-      !if (present(bc_type)) then
-      !   if (bc_type == 'dirichlet') then
-      !      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      !   elseif (bc_type == 'neumann') then
-      !      call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      !   endif
-      !else
-      !   call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      !endif
    enddo
 
    if (present(dq_max)) dq_max = dq_max_
    endsubroutine compute_smoothing_gauss_seidel
 
    subroutine compute_smoothing_gauss_seidel_2nd(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                             iterations_init, iterations_fine, iterations_coarse, bc_type, ivar, mu, eps, field)
+                                             iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
+                                             ell_bc_type, local_map_bc_crown, progress_label, progress_counter, progress_total, &
+                                             progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with second-order
    !< centered first-derivative operators.
    integer(I4P),       intent(in)              :: ni,nj,nk,ngc               !< Grid dimensions.
@@ -584,10 +705,15 @@ contains
    integer(I4P),       intent(in),    optional :: iterations_init            !< Smoothing iterations to initialize guess.
    integer(I4P),       intent(in),    optional :: iterations_fine            !< Smoothing iterations for fine grid.
    integer(I4P),       intent(in),    optional :: iterations_coarse          !< Smoothing iterations for coarse grid.
-   character(len=*),   intent(in),    optional :: bc_type                    !< Boundary condition type
    real(R8P),          intent(in),    optional :: mu, eps                    !< Constant of electromagnetism, =1 in adimensional case
-   integer(I4P),       intent(in),    optional :: ivar                       !< Variable (start) index in q.
-   type(field_object), intent(in),    optional :: field                      !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ivar                       !< Variable (start) index in q.
+   type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
+   integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
+   character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
+   integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
+   integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
+   integer(I4P),       intent(inout), optional :: progress_last_percent      !< Last printed progress percentage.
    real(R8P), parameter                        :: c2 =   1._R8P /    4._R8P  !< Constant for laplacian computation
    integer(I4P)                                :: iterations_                !< Smoothing iterations, local var.
    real(R8P)                                   :: dq_max_                    !< Maximum residual, local var.
@@ -601,27 +727,13 @@ contains
 
    iterations_ = 1_I4P; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
-   if (present(bc_type)) then
-      if (bc_type == 'analytic') then
-         if (ivar == 1_I4P) then
-         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
-                     ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
-         elseif (ivar == 4_I4P) then
-         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
-                     ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
-         endif
-      endif
-   endif
+   call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                          ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                          field=field, rebuild_exact_open=.true.)
    do iter=1, iterations_
-      if (present(bc_type)) then
-         if (bc_type == 'dirichlet') then
-            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         elseif (bc_type == 'neumann') then
-            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         endif
-      else
-         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      endif
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=.false.)
       do b=1, blocks_number
          dx2 = dxyz(1,b)*dxyz(1,b)
          dy2 = dxyz(2,b)*dxyz(2,b)
@@ -644,22 +756,20 @@ contains
          enddo
          enddo
       enddo
-      if (present(bc_type)) then
-         if (bc_type == 'dirichlet') then
-            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         elseif (bc_type == 'neumann') then
-            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         endif
-      else
-         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      endif
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=.false.)
+      call update_smoothing_progress(progress_label=progress_label, progress_counter=progress_counter,            &
+                                     progress_total=progress_total, progress_last_percent=progress_last_percent)
    enddo
 
    if (present(dq_max)) dq_max = dq_max_
    endsubroutine compute_smoothing_gauss_seidel_2nd
 
    subroutine compute_smoothing_gauss_seidel_4th(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                             iterations_init, iterations_fine, iterations_coarse, bc_type, ivar, mu, eps, field)
+                                             iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
+                                             ell_bc_type, local_map_bc_crown, progress_label, progress_counter, progress_total, &
+                                             progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with fourth-order
    !< centered first-derivative operators.
    integer(I4P),       intent(in)              :: ni,nj,nk,ngc               !< Grid dimensions.
@@ -685,10 +795,15 @@ contains
    integer(I4P),       intent(in),    optional :: iterations_init            !< Smoothing iterations to initialize guess.
    integer(I4P),       intent(in),    optional :: iterations_fine            !< Smoothing iterations for fine grid.
    integer(I4P),       intent(in),    optional :: iterations_coarse          !< Smoothing iterations for coarse grid.
-   character(len=*),   intent(in),    optional :: bc_type                    !< Boundary condition type
    real(R8P),          intent(in),    optional :: mu, eps                    !< Constant of electromagnetism, =1 in adimensional case
-   integer(I4P),       intent(in),    optional :: ivar                       !< Variable (start) index in q.
-   type(field_object), intent(in),    optional :: field                      !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ivar                       !< Variable (start) index in q.
+   type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
+   integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
+   character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
+   integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
+   integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
+   integer(I4P),       intent(inout), optional :: progress_last_percent      !< Last printed progress percentage.
    real(R8P), parameter                        :: c1 =   1._R8P /   9._R8P  !< Constant for laplacian computation
    real(R8P), parameter                        :: c2 =   4._R8P /   9._R8P  !< Constant for laplacian computation
    real(R8P), parameter                        :: c3 =  -1._R8P /   9._R8P  !< Constant for laplacian computation
@@ -705,27 +820,13 @@ contains
 
    iterations_ = 1_I4P; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
-   if (present(bc_type)) then
-      if (bc_type == 'analytic') then
-         if (ivar == 1_I4P) then
-         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
-                     ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
-         elseif (ivar == 4_I4P) then
-         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
-                     ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
-         endif
-      endif
-   endif
+   call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                          ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                          field=field, rebuild_exact_open=.true.)
    do iter=1, iterations_
-      if (present(bc_type)) then
-         if (bc_type == 'dirichlet') then
-            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         elseif (bc_type == 'neumann') then
-            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         endif
-      else
-         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      endif
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=.false.)
       do b=1, blocks_number
          dx2 = dxyz(1,b)*dxyz(1,b)
          dy2 = dxyz(2,b)*dxyz(2,b)
@@ -757,22 +858,20 @@ contains
          enddo
          enddo
       enddo
-      if (present(bc_type)) then
-         if (bc_type == 'dirichlet') then
-            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         elseif (bc_type == 'neumann') then
-            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         endif
-      else
-         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      endif
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=.false.)
+      call update_smoothing_progress(progress_label=progress_label, progress_counter=progress_counter,            &
+                                     progress_total=progress_total, progress_last_percent=progress_last_percent)
    enddo
 
    if (present(dq_max)) dq_max = dq_max_
    endsubroutine compute_smoothing_gauss_seidel_4th
 
    subroutine compute_smoothing_gauss_seidel_6th(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                             iterations_init, iterations_fine, iterations_coarse, bc_type, ivar, mu, eps, field)
+                                             iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
+                                             ell_bc_type, local_map_bc_crown, progress_label, progress_counter, progress_total, &
+                                             progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with sixth-order
    !< centered first-derivative operators.
    integer(I4P),       intent(in)              :: ni,nj,nk,ngc               !< Grid dimensions.
@@ -798,10 +897,15 @@ contains
    integer(I4P),       intent(in),    optional :: iterations_init            !< Smoothing iterations to initialize guess.
    integer(I4P),       intent(in),    optional :: iterations_fine            !< Smoothing iterations for fine grid.
    integer(I4P),       intent(in),    optional :: iterations_coarse          !< Smoothing iterations for coarse grid.
-   character(len=*),   intent(in),    optional :: bc_type                    !< Boundary condition type
    real(R8P),          intent(in),    optional :: mu, eps                    !< Constant of electromagnetism, =1 in adimensional case
-   integer(I4P),       intent(in),    optional :: ivar                       !< Variable (start) index in q.
-   type(field_object), intent(in),    optional :: field                      !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ivar                       !< Variable (start) index in q.
+   type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
+   integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
+   character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
+   integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
+   integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
+   integer(I4P),       intent(inout), optional :: progress_last_percent      !< Last printed progress percentage.
    real(R8P), parameter                        :: c1 =  23._R8P /  100._R8P  !< Constant for laplacian computation
    real(R8P), parameter                        :: c2 =  43._R8P /   80._R8P  !< Constant for laplacian computation
    real(R8P), parameter                        :: c3 =  -9._R8P /   40._R8P  !< Constant for laplacian computation
@@ -820,27 +924,13 @@ contains
 
    iterations_ = 1_I4P; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
-   if (present(bc_type)) then
-      if (bc_type == 'analytic') then
-         if (ivar == 1_I4P) then
-         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
-                     ivar=ivar, eps=eps, field=field, rho=-f*eps, q=q)
-         elseif (ivar == 4_I4P) then
-         call apply_bc_analytic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
-                     ivar=ivar, mu=mu, field=field, current=-f/mu, q=q)
-         endif
-      endif
-   endif
+   call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                          ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                          field=field, rebuild_exact_open=.true.)
    do iter=1, iterations_
-      if (present(bc_type)) then
-         if (bc_type == 'dirichlet') then
-            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         elseif (bc_type == 'neumann') then
-            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         endif
-      else
-         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      endif
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=.false.)
       do b=1, blocks_number
          dx2 = dxyz(1,b)*dxyz(1,b)
          dy2 = dxyz(2,b)*dxyz(2,b)
@@ -878,22 +968,138 @@ contains
          enddo
          enddo
       enddo
-      if (present(bc_type)) then
-         if (bc_type == 'dirichlet') then
-            call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         elseif (bc_type == 'neumann') then
-            call apply_bc_neumann(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-         endif
-      else
-         call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
-      endif
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=.false.)
+      call update_smoothing_progress(progress_label=progress_label, progress_counter=progress_counter,            &
+                                     progress_total=progress_total, progress_last_percent=progress_last_percent)
    enddo
 
    if (present(dq_max)) dq_max = dq_max_
    endsubroutine compute_smoothing_gauss_seidel_6th
 
+   subroutine compute_smoothing_gauss_seidel_8th(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
+                                                 iterations_init, iterations_fine, iterations_coarse, ivar,    &
+                                                 mu, eps, field, ell_bc_type, local_map_bc_crown,             &
+                                                 progress_label, progress_counter, progress_total,             &
+                                                 progress_last_percent)
+   !< Compute smoothing by Gauss-Seidel using L = D(G), with eighth-order
+   !< centered first-derivative operators.
+   integer(I4P),       intent(in)              :: ni,nj,nk,ngc               !< Grid dimensions.
+   integer(I4P),       intent(in)              :: nv                         !< Number of q variables.
+   integer(I4P),       intent(in)              :: blocks_number              !< Number of current blocks.
+   real(R8P),          intent(in)              :: dxyz(1:,1:)                !< Space steps.
+   real(R8P),          intent(in)              :: f(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)                      !< Forcing distribution.
+   real(R8P),          intent(inout)           :: q(1:,     &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1-ngc:, &
+                                                    1:)                      !< Field variables.
+   real(R8P),          intent(inout), optional :: dq(1:,     &
+                                                     1-ngc:, &
+                                                     1-ngc:, &
+                                                     1-ngc:, &
+                                                     1:)                     !< Residuals.
+   real(R8P),          intent(inout), optional :: dq_max                     !< Maximum residual.
+   integer(I4P),       intent(in),    optional :: iterations_init            !< Smoothing iterations to initialize guess.
+   integer(I4P),       intent(in),    optional :: iterations_fine            !< Smoothing iterations for fine grid.
+   integer(I4P),       intent(in),    optional :: iterations_coarse          !< Smoothing iterations for coarse grid.
+   integer(I4P),       intent(in)              :: ivar                       !< Variable (start) index in q.
+   real(R8P),          intent(in),    optional :: mu, eps                    !< Constant of electromagnetism, =1 in adimensional case.
+   type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
+   integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
+   character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
+   integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
+   integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
+   integer(I4P),       intent(inout), optional :: progress_last_percent      !< Last printed progress percentage.
+   real(R8P), parameter                        :: c1 =  411._R8P /   1225._R8P   !< Constant for laplacian computation.
+   real(R8P), parameter                        :: c2 = 1213._R8P /   2100._R8P   !< Constant for laplacian computation.
+   real(R8P), parameter                        :: c3 =  -11._R8P /     35._R8P   !< Constant for laplacian computation.
+   real(R8P), parameter                        :: c4 =   53._R8P /    525._R8P   !< Constant for laplacian computation.
+   real(R8P), parameter                        :: c5 =  -11._R8P /    525._R8P   !< Constant for laplacian computation.
+   real(R8P), parameter                        :: c6 =  127._R8P /  44100._R8P   !< Constant for laplacian computation.
+   real(R8P), parameter                        :: c7 =   -1._R8P /   3675._R8P   !< Constant for laplacian computation.
+   real(R8P), parameter                        :: c8 =    1._R8P /  78400._R8P   !< Constant for laplacian computation.
+   integer(I4P)                                :: iterations_                   !< Smoothing iterations, local var.
+   real(R8P)                                   :: dq_max_                       !< Maximum residual, local var.
+   real(R8P)                                   :: dx2,dy2,dz2                   !< Square space steps.
+   real(R8P)                                   :: idx2,idy2,idz2                !< Inverse square space steps.
+   real(R8P)                                   :: q_old                         !< Previous q.
+   real(R8P)                                   :: factor                        !< Relaxation factor.
+   integer(I4P)                                :: i,j,k,b,v,iter                !< Counter.
+
+   if (ngc < 8_I4P) error stop 'compute_smoothing_gauss_seidel_8th: ngc must be >= 8 for eighth-order D(G) stencil'
+
+   iterations_ = 1_I4P; if (present(iterations_fine)) iterations_ = iterations_fine
+   dq_max_ = 0._R8P
+   call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                          ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                          field=field, rebuild_exact_open=.true.)
+   do iter=1, iterations_
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=.false.)
+      do b=1, blocks_number
+         dx2 = dxyz(1,b)*dxyz(1,b)
+         dy2 = dxyz(2,b)*dxyz(2,b)
+         dz2 = dxyz(3,b)*dxyz(3,b)
+         idx2 = 1._R8P / dx2
+         idy2 = 1._R8P / dy2
+         idz2 = 1._R8P / dz2
+         factor = 352800._R8P / (480841._R8P * (idx2 + idy2 + idz2))
+         do k=1, nk
+         do j=1, nj
+         do i=1, ni
+            do v=1, nv
+               q_old = q(v,i,j,k,b)
+               q(v,i,j,k,b) = factor * (idx2 * (c1 * (q(v,i+1,j,  k  ,b) + q(v,i-1,j,  k  ,b))  + &
+                                                c2 * (q(v,i+2,j,  k  ,b) + q(v,i-2,j,  k  ,b))  + &
+                                                c3 * (q(v,i+3,j,  k  ,b) + q(v,i-3,j,  k  ,b))  + &
+                                                c4 * (q(v,i+4,j,  k  ,b) + q(v,i-4,j,  k  ,b))  + &
+                                                c5 * (q(v,i+5,j,  k  ,b) + q(v,i-5,j,  k  ,b))  + &
+                                                c6 * (q(v,i+6,j,  k  ,b) + q(v,i-6,j,  k  ,b))  + &
+                                                c7 * (q(v,i+7,j,  k  ,b) + q(v,i-7,j,  k  ,b))  + &
+                                                c8 * (q(v,i+8,j,  k  ,b) + q(v,i-8,j,  k  ,b))) + &
+                                        idy2 * (c1 * (q(v,i,  j+1,k  ,b) + q(v,i,  j-1,k  ,b))  + &
+                                                c2 * (q(v,i,  j+2,k  ,b) + q(v,i,  j-2,k  ,b))  + &
+                                                c3 * (q(v,i,  j+3,k  ,b) + q(v,i,  j-3,k  ,b))  + &
+                                                c4 * (q(v,i,  j+4,k  ,b) + q(v,i,  j-4,k  ,b))  + &
+                                                c5 * (q(v,i,  j+5,k  ,b) + q(v,i,  j-5,k  ,b))  + &
+                                                c6 * (q(v,i,  j+6,k  ,b) + q(v,i,  j-6,k  ,b))  + &
+                                                c7 * (q(v,i,  j+7,k  ,b) + q(v,i,  j-7,k  ,b))  + &
+                                                c8 * (q(v,i,  j+8,k  ,b) + q(v,i,  j-8,k  ,b))) + &
+                                        idz2 * (c1 * (q(v,i,  j,  k+1,b) + q(v,i,  j,  k-1,b))  + &
+                                                c2 * (q(v,i,  j,  k+2,b) + q(v,i,  j,  k-2,b))  + &
+                                                c3 * (q(v,i,  j,  k+3,b) + q(v,i,  j,  k-3,b))  + &
+                                                c4 * (q(v,i,  j,  k+4,b) + q(v,i,  j,  k-4,b))  + &
+                                                c5 * (q(v,i,  j,  k+5,b) + q(v,i,  j,  k-5,b))  + &
+                                                c6 * (q(v,i,  j,  k+6,b) + q(v,i,  j,  k-6,b))  + &
+                                                c7 * (q(v,i,  j,  k+7,b) + q(v,i,  j,  k-7,b))  + &
+                                                c8 * (q(v,i,  j,  k+8,b) + q(v,i,  j,  k-8,b))) - f(v,i,j,k,b))
+               dq_max_ = max(dq_max_, abs(q(v,i,j,k,b) - q_old))
+            enddo
+         enddo
+         enddo
+         enddo
+      enddo
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=.false.)
+      call update_smoothing_progress(progress_label=progress_label, progress_counter=progress_counter,            &
+                                     progress_total=progress_total, progress_last_percent=progress_last_percent)
+   enddo
+
+   if (present(dq_max)) dq_max = dq_max_
+   endsubroutine compute_smoothing_gauss_seidel_8th
+
    subroutine compute_smoothing_multigrid(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                          iterations_init, iterations_fine, iterations_coarse)
+                                          iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
+                                          ell_bc_type, local_map_bc_crown)
    integer(I4P), intent(in)              :: ni,nj,nk,ngc         !< Grid dimensions.
    integer(I4P), intent(in)              :: nv                   !< Number of q variables.
    integer(I4P), intent(in)              :: blocks_number        !< Number of current blocks.
@@ -917,6 +1123,11 @@ contains
    integer(I4P), intent(in),    optional :: iterations_init      !< Smoothing iterations to initialize guess.
    integer(I4P), intent(in),    optional :: iterations_fine      !< Smoothing iterations for fine grid.
    integer(I4P), intent(in),    optional :: iterations_coarse    !< Smoothing iterations for coarse grid.
+   integer(I4P),       intent(in)              :: ivar           !< Variable (start) index in q.
+   real(R8P),          intent(in),    optional :: mu, eps        !< Electromagnetic constants.
+   type(field_object), intent(in)              :: field          !< Field (sibling realm component, threaded in).
+   integer(I4P),       intent(in)              :: ell_bc_type(6) !< Elliptic BC type for each face.
+   integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:) !< BC crown map.
    real(R8P)                             :: f_c(1:nv,          &
                                                 1-ngc:ni/2+ngc,&
                                                 1-ngc:nj/2+ngc,&
@@ -936,24 +1147,28 @@ contains
 
    ! V-cicle
    call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,dxyz=dxyz,f=f,q=q,&
-                                       iterations_fine=iterations_init)
+                                       iterations_fine=iterations_init, ivar=ivar, mu=mu, eps=eps,                 &
+                                       field=field, ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown)
    call compute_laplacian_residuals(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,dxyz=dxyz,f=f,q=q,dq=dq)
    call compute_restriction(ngc=ngc,nic=ni/2,njc=nj/2,nkc=nk/2,nv=nv,blocks_number=blocks_number,fine=dq,coarse=f_c)
    do b=1, blocks_number
       q_c(:,:,:,:,b) = 0._R8P
    enddo
    call compute_smoothing_gauss_seidel(ni=ni/2,nj=nj/2,nk=nk/2,ngc=ngc,nv=nv,blocks_number=blocks_number,dxyz=dxyz*2_R8P,&
-                                       f=f_c,q=q_c,iterations_fine=iterations_coarse)
+                                       f=f_c,q=q_c,iterations_fine=iterations_coarse, ivar=ivar, mu=mu,                 &
+                                       eps=eps, field=field, ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown)
    call compute_prolongation(ngc=ngc,nic=ni/2,njc=nj/2,nkc=nk/2,nv=nv,blocks_number=blocks_number,coarse=q_c,fine=dq)
    do b=1, blocks_number
       q(:,:,:,:,b) = q(:,:,:,:,b) + dq(:,:,:,:,b)
    enddo
    call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,dxyz=dxyz,f=f,q=q,dq_max=dq_max,&
-                                       iterations_fine=iterations_fine)
+                                       iterations_fine=iterations_fine, ivar=ivar, mu=mu, eps=eps,                 &
+                                       field=field, ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown)
    endsubroutine compute_smoothing_multigrid
 
    subroutine compute_smoothing_sor(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                    iterations_init, iterations_fine, iterations_coarse)
+                                    iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
+                                    ell_bc_type, local_map_bc_crown)
    !< Compute smoothing by SOR, Successive Overrelaxation.
    integer(I4P), intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
    integer(I4P), intent(in)              :: nv                !< Number of q variables.
@@ -978,6 +1193,11 @@ contains
    integer(I4P), intent(in),    optional :: iterations_init   !< Smoothing iterations to initialize guess.
    integer(I4P), intent(in),    optional :: iterations_fine   !< Smoothing iterations for fine grid.
    integer(I4P), intent(in),    optional :: iterations_coarse !< Smoothing iterations for coarse grid.
+   integer(I4P), intent(in)              :: ivar              !< Variable (start) index in q.
+   real(R8P),    intent(in),    optional :: mu, eps          !< Electromagnetic constants.
+   type(field_object), intent(in)        :: field             !< Field (sibling realm component, threaded in).
+   integer(I4P), intent(in)              :: ell_bc_type(6)    !< Elliptic BC type for each face.
+   integer(I8P), intent(in)              :: local_map_bc_crown(:,:,:) !< BC crown map.
    integer(I4P)                          :: iterations_       !< Smoothing iterations, local var.
    real(R8P)                             :: dq_max_           !< Maximum residual, local var.
    real(R8P)                             :: dx2,dy2,dz2       !< Square space steps.
@@ -990,7 +1210,9 @@ contains
    omega = 1.8_R8P
    dq_max_ = 0._R8P
    do iter=1, iterations_
-      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=(iter==1))
       do b=1, blocks_number
          dx2 = dxyz(1,b)*dxyz(1,b)
          dy2 = dxyz(2,b)*dxyz(2,b)
@@ -1006,7 +1228,7 @@ contains
                                         (q(v,i,  j,  k+1,b) +  q(v,i,  j,  k-1,b)) / dz2 - &
                                          f(v,i,  j,  k  ,b))
                q(v,i,j,k,b) = q_old + omega * (q(v,i,j,k,b) - q_old)
-               dq_max_ = max(dq_max, abs(q(v,i,j,k,b) - q_old))
+               dq_max_ = max(dq_max_, abs(q(v,i,j,k,b) - q_old))
             enddo
          enddo
          enddo
@@ -1017,7 +1239,8 @@ contains
    endsubroutine compute_smoothing_sor
 
    subroutine compute_smoothing_sor_omp(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
-                                        iterations_init, iterations_fine, iterations_coarse)
+                                        iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
+                                        ell_bc_type, local_map_bc_crown)
    !< Compute smoothing by SOR, Successive Overrelaxation (parallel OpenMP) method: red-black 3D scheme.
    integer(I4P), intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
    integer(I4P), intent(in)              :: nv                !< Number of q variables.
@@ -1042,6 +1265,11 @@ contains
    integer(I4P), intent(in),    optional :: iterations_init   !< Smoothing iterations to initialize guess.
    integer(I4P), intent(in),    optional :: iterations_fine   !< Smoothing iterations for fine grid.
    integer(I4P), intent(in),    optional :: iterations_coarse !< Smoothing iterations for coarse grid.
+   integer(I4P), intent(in)              :: ivar              !< Variable (start) index in q.
+   real(R8P),    intent(in),    optional :: mu, eps          !< Electromagnetic constants.
+   type(field_object), intent(in)        :: field             !< Field (sibling realm component, threaded in).
+   integer(I4P), intent(in)              :: ell_bc_type(6)    !< Elliptic BC type for each face.
+   integer(I8P), intent(in)              :: local_map_bc_crown(:,:,:) !< BC crown map.
    integer(I4P)                          :: iterations_       !< Smoothing iterations, local var.
    real(R8P)                             :: dq_max_           !< Maximum residual, local var.
    real(R8P)                             :: factor            !< Jacobi relaxation factor.
@@ -1055,14 +1283,16 @@ contains
    omega = 1.8_R8P
    dq_max_ = 0._R8P
    do iter=1, iterations_
-      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q)
+      call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
+                             ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
+                             field=field, rebuild_exact_open=(iter==1))
       do b=1, blocks_number
          dx2 = dxyz(1,b)*dxyz(1,b)
          dy2 = dxyz(2,b)*dxyz(2,b)
          dz2 = dxyz(3,b)*dxyz(3,b)
          factor = 1._R8P / (2._R8P * (1._R8P/dx2 + 1._R8P/dy2 + 1._R8P/dz2))
          do color=0, 7
-            !$omp parallel do firstprivate(b,factor,omega,color) private(residual) shared(q,dq) reduction(max:dq_max) collapse(3)
+            !$omp parallel do firstprivate(b,factor,omega,color) private(residual) shared(q,dq) reduction(max:dq_max_) collapse(3)
             do k = 1, nk
             do j = 1, nj
             do i = 1, ni
@@ -1096,4 +1326,38 @@ contains
    enddo
    if (present(dq_max)) dq_max = dq_max_
    endsubroutine compute_smoothing_sor_omp
+
+   subroutine update_smoothing_progress(progress_label, progress_counter, progress_total, progress_last_percent, &
+                                        converged)
+   character(len=*),   intent(in),    optional :: progress_label        !< Progress message label.
+   integer(I4P),       intent(inout), optional :: progress_counter      !< Completed smoothing sweeps.
+   integer(I4P),       intent(in),    optional :: progress_total        !< Planned smoothing sweeps.
+   integer(I4P),       intent(inout), optional :: progress_last_percent !< Last printed progress percentage.
+   logical,            intent(in),    optional :: converged             !< Force 100% when converged.
+   integer(I4P)                                :: counter_              !< Local progress counter.
+   integer(I4P)                                :: total_                !< Local planned sweeps.
+   integer(I4P)                                :: progress              !< Current progress percentage.
+   logical                                     :: converged_            !< Local convergence flag.
+
+   if (.not. present(progress_label)) return
+   if (.not. present(progress_counter)) return
+   if (.not. present(progress_total)) return
+   if (.not. present(progress_last_percent)) return
+
+   converged_ = .false.
+   if (present(converged)) converged_ = converged
+
+   total_ = max(1_I4P, progress_total)
+   counter_ = min(max(progress_counter + merge(0_I4P, 1_I4P, converged_), 0_I4P), total_)
+   if (.not. converged_) progress_counter = counter_
+   progress = int(100._R8P * real(counter_, R8P) / real(total_, R8P), kind=I4P)
+   if (converged_) progress = 100_I4P
+   progress = min(100_I4P, max(0_I4P, progress))
+
+   if (progress > progress_last_percent) then
+      call mpih%print_message(trim(progress_label)//' progress: '//trim(str(progress,.true.))//'% ('// &
+                              trim(str(counter_,.true.))//'/'//trim(str(total_,.true.))//')')
+      progress_last_percent = progress
+   endif
+   endsubroutine update_smoothing_progress
 endmodule adam_flail_object

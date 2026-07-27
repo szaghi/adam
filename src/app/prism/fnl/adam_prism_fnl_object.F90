@@ -21,6 +21,19 @@ implicit none
 private
 public :: prism_fnl_object
 
+integer(I4P), parameter :: FV_FLUX_VARIANT_MAXWELL          = 0_I4P !< Plain dimensional Maxwell fluxes.
+integer(I4P), parameter :: FV_FLUX_VARIANT_MAXWELL_ADIM     = 1_I4P !< Plain adimensional Maxwell fluxes.
+integer(I4P), parameter :: FV_FLUX_VARIANT_MAXWELL_DIV_D    = 2_I4P !< Dimensional hyperbolic fluxes with D cleaning.
+integer(I4P), parameter :: FV_FLUX_VARIANT_MAXWELL_DIV_B    = 3_I4P !< Dimensional hyperbolic fluxes with B cleaning.
+integer(I4P), parameter :: FV_FLUX_VARIANT_MAXWELL_DIV_D_B  = 4_I4P !< Dimensional hyperbolic fluxes with D/B cleaning.
+integer(I4P), parameter :: FV_FLUX_VARIANT_MAXWELL_ADIM_DIV_D   = 5_I4P !< Adimensional hyperbolic fluxes with D cleaning.
+integer(I4P), parameter :: FV_FLUX_VARIANT_MAXWELL_ADIM_DIV_B   = 6_I4P !< Adimensional hyperbolic fluxes with B cleaning.
+integer(I4P), parameter :: FV_FLUX_VARIANT_MAXWELL_ADIM_DIV_D_B = 7_I4P !< Adimensional hyperbolic fluxes with D/B cleaning.
+integer(I4P), parameter :: FD_RESIDUAL_VARIANT_PLAIN   = 0_I4P !< Centered-FD Maxwell residual without hyperbolic cleaning.
+integer(I4P), parameter :: FD_RESIDUAL_VARIANT_PHI     = 1_I4P !< Centered-FD Maxwell residual with phi cleaning only.
+integer(I4P), parameter :: FD_RESIDUAL_VARIANT_PSI     = 2_I4P !< Centered-FD Maxwell residual with psi cleaning only.
+integer(I4P), parameter :: FD_RESIDUAL_VARIANT_PHI_PSI = 3_I4P !< Centered-FD Maxwell residual with phi/psi cleaning.
+
 type, extends(prism_common_object) :: prism_fnl_object
    !< PRISM equations system class definition, GPU (FNL) backend.
    type(field_fnl_object)         :: field_fnl   !< GPU field handler.
@@ -29,6 +42,9 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(weno_fnl_object)          :: weno_fnl    !< GPU WENO reconstructor.
    type(prism_fnl_coil_object)    :: coil_fnl    !< GPU coil source.
    type(prism_fnl_fwlayer_object) :: fwlayer_fnl !< GPU fWLayer.
+   type(prism_fnl_leapfrog_pic_object) :: leapfrog_pic_fnl !< GPU PIC leapfrog integrator.
+   type(prism_fnl_pic_object)     :: pic_fnl     !< GPU PIC support state.
+   type(prism_fnl_rk_pic_object)  :: rk_pic_fnl  !< GPU PIC RK integrator.
    ! device data
    real(R8P), pointer :: q_gpu(:,:,:,:,:)=>null()           !< Field cell centered variables.
    real(R8P), pointer :: dq_gpu(:,:,:,:,:)=>null()          !< Residuals right hand side.
@@ -42,6 +58,18 @@ type, extends(prism_common_object) :: prism_fnl_object
    integer(I4P)           :: db5(2,5)              !< Device data bounds (rank 5): bb(1,:)=lower, bb(2,:)=upper.
    integer(I4P)           :: hb5(2,5)              !< Host buffer data bounds (rank 5): bb(1,:)=lower, bb(2,:)=upper.
    real(R8P), allocatable :: buf_5D_R8P(:,:,:,:,:) !< Buffer (host memory, device shape), rank 5, R8P.
+   integer(I4P)          :: fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL !< FV Maxwell-flux variant selector.
+   logical               :: fv_add_phi_damping = .false.                  !< Apply phi damping in FV residuals.
+   logical               :: fv_add_psi_damping = .false.                  !< Apply psi damping in FV residuals.
+   integer(I4P)          :: fv_ivar_phi        = 0_I4P                    !< Phi slot index in FV residuals.
+   integer(I4P)          :: fv_ivar_psi        = 0_I4P                    !< Psi slot index in FV residuals.
+   integer(I4P)          :: fd_residual_variant = FD_RESIDUAL_VARIANT_PLAIN !< Centered-FD residual selector.
+   integer(I4P)          :: fd_ivar_phi         = 0_I4P                     !< Phi slot index in FD residuals.
+   integer(I4P)          :: fd_ivar_psi         = 0_I4P                     !< Psi slot index in FD residuals.
+   real(R8P)             :: fd_inv_mu_scale     = 1._R8P / MU0              !< Dimensional/adimensional scaling on curl(B).
+   real(R8P)             :: fd_inv_eps_scale    = 1._R8P / EPS0             !< Dimensional/adimensional scaling on curl(D).
+   real(R8P)             :: fd_chi_wave         = 0._R8P                    !< Hyperbolic transport speed for phi/psi equations.
+   real(R8P)             :: fd_chi_damp         = 0._R8P                    !< Dedner damping speed for phi/psi equations.
    !< Pointer (abstract) TBP.
    procedure(compute_curl_interface_dev),       pass(self),pointer :: compute_curl_dev       =>null()!< Compute curl.
    procedure(compute_derivative1_interface_dev),pass(self),pointer :: compute_derivative1_dev=>null()!< Compute derivative1.
@@ -116,7 +144,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
-      procedure, pass(self) :: impose_ct_correction 	!< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: impose_ct_correction_dev  !< Device-side constrained-transport correction on q_gpu.
       procedure, pass(self) :: impose_div_free      	!< Impose divergence-free property.
       procedure, pass(self) :: simulate             	!< Perform the simulation.
 endtype prism_fnl_object
@@ -285,9 +313,10 @@ contains
    ! call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
    ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
    ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+      call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
+                                     verbose=verbose)
    call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid)
-   ! call self%fwlayer_fnl%copy_cpu_gpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
-   call self%fwlayer_fnl%copy_cpu_gpu(fwlayer=self%fWLayer, grid=self%adam%grid, verbose=verbose)
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
 
@@ -305,8 +334,10 @@ contains
    ! call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,ij=[1,5])
    ! call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
    ! call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+      call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
+                                     verbose=verbose)
    call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid)
-   call self%fwlayer_fnl%copy_gpu_cpu(fwlayer=self%fWLayer, grid=self%adam%grid, buffer=self%buf_5D_R8P, verbose=verbose)
    endsubroutine copy_gpu_cpu
 
    subroutine initialize_prism(self, filename, realms_number)
@@ -335,7 +366,13 @@ contains
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
    call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid)
-   call self%fwlayer_fnl%initialize(fwlayer=self%fWLayer, field=self%adam%field, grid=self%adam%grid)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      call self%pic_fnl%initialize(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
+         call self%leapfrog_pic_fnl%initialize(pic=self%pic, leapfrog_pic=self%leapfrog_pic)
+      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
+         call self%rk_pic_fnl%initialize(pic=self%pic, rk_pic=self%rk_pic)
+   endif
 
    ! set pointer (abstract) TBP
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
@@ -350,23 +387,113 @@ contains
          case(RK_YOSHIDA)                      ; self%integrate_dev => integrate_rk_yoshida_dev
          endselect
       endselect
-   !elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !   select case(self%numerics%scheme_time)
-   !   case(NUM_SCHEME_TIME_LEAPFROG)
-   !      select case(self%pic%scheme_time)
-   !      case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-   !         self%integrate => integrate_leapfrog_pic
-   !      case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-   !         !self%integrate =>
-   !      endselect
-   !   case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-   !      select case(self%pic%scheme_time)
-   !      case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-   !         self%integrate => integrate_leapfrog_pic
-   !      case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-   !         !self%integrate =>
-   !      endselect
-   !   endselect
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      select case(self%numerics%scheme_time)
+      case(NUM_SCHEME_TIME_LEAPFROG)
+         select case(self%pic%scheme_time)
+         case(NUM_SCHEME_TIME_PIC_LEAPFROG)
+            self%integrate_dev => integrate_leapfrog_pic
+         case default
+            call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
+         endselect
+      case(NUM_SCHEME_TIME_RUNGE_KUTTA)
+         select case(self%pic%scheme_time)
+         case(NUM_SCHEME_TIME_PIC_LEAPFROG)
+            self%integrate_dev => integrate_leapfrog_pic
+         case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
+            select case(self%rk_pic%scheme)
+            case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+               self%integrate_dev => integrate_rk_ssp_pic
+            case default
+               call mpih_fnl%error_stop(msg=': PIC RK scheme not ported to FNL backend')
+            endselect
+         case default
+            call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
+         endselect
+      case default
+         call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
+      endselect
+   endif
+
+   self%fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL
+   self%fv_add_phi_damping = .false.
+   self%fv_add_psi_damping = .false.
+   self%fv_ivar_phi        = 0_I4P
+   self%fv_ivar_psi        = 0_I4P
+   select case(self%physics%physical_model)
+   case(ADIM_EM_PHYSICAL_MODEL)
+      select case(self%numerics%div_corr_var)
+      case(DIV_CORR_VAR_HYPER)
+         if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
+            self%fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL_ADIM_DIV_D
+            self%fv_add_phi_damping = .true.
+            self%fv_ivar_phi        = self%nv_c
+         elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            self%fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL_ADIM_DIV_B
+            self%fv_add_psi_damping = .true.
+            self%fv_ivar_psi        = self%nv_c
+         elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            self%fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL_ADIM_DIV_D_B
+            self%fv_add_phi_damping = .true.
+            self%fv_add_psi_damping = .true.
+            self%fv_ivar_phi        = self%nv_c - 1_I4P
+            self%fv_ivar_psi        = self%nv_c
+         else
+            self%fv_flux_variant = FV_FLUX_VARIANT_MAXWELL_ADIM
+         endif
+      case default
+         self%fv_flux_variant = FV_FLUX_VARIANT_MAXWELL_ADIM
+      endselect
+   case default
+      select case(self%numerics%div_corr_var)
+      case(DIV_CORR_VAR_HYPER)
+         if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
+            self%fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL_DIV_D
+            self%fv_add_phi_damping = .true.
+            self%fv_ivar_phi        = self%nv_c
+         elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            self%fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL_DIV_B
+            self%fv_add_psi_damping = .true.
+            self%fv_ivar_psi        = self%nv_c
+         elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            self%fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL_DIV_D_B
+            self%fv_add_phi_damping = .true.
+            self%fv_add_psi_damping = .true.
+            self%fv_ivar_phi        = self%nv_c - 1_I4P
+            self%fv_ivar_psi        = self%nv_c
+         else
+            self%fv_flux_variant = FV_FLUX_VARIANT_MAXWELL
+         endif
+      case default
+         self%fv_flux_variant = FV_FLUX_VARIANT_MAXWELL
+      endselect
+   endselect
+
+   self%fd_residual_variant = FD_RESIDUAL_VARIANT_PLAIN
+   self%fd_ivar_phi         = 0_I4P
+   self%fd_ivar_psi         = 0_I4P
+   select case(self%physics%physical_model)
+   case(ADIM_EM_PHYSICAL_MODEL)
+      self%fd_inv_mu_scale  = 1._R8P
+      self%fd_inv_eps_scale = 1._R8P
+      self%fd_chi_wave      = self%physics%chi
+      self%fd_chi_damp      = self%physics%chi
+   case default
+      self%fd_inv_mu_scale  = 1._R8P / MU0
+      self%fd_inv_eps_scale = 1._R8P / EPS0
+      self%fd_chi_wave      = self%physics%chi * C0
+      self%fd_chi_damp      = self%physics%chi * C0
+   endselect
+   if (self%fv_add_phi_damping .and. self%fv_add_psi_damping) then
+      self%fd_residual_variant = FD_RESIDUAL_VARIANT_PHI_PSI
+      self%fd_ivar_phi         = self%fv_ivar_phi
+      self%fd_ivar_psi         = self%fv_ivar_psi
+   elseif (self%fv_add_phi_damping) then
+      self%fd_residual_variant = FD_RESIDUAL_VARIANT_PHI
+      self%fd_ivar_phi         = self%fv_ivar_phi
+   elseif (self%fv_add_psi_damping) then
+      self%fd_residual_variant = FD_RESIDUAL_VARIANT_PSI
+      self%fd_ivar_psi         = self%fv_ivar_psi
    endif
 
    select case(self%numerics%scheme_space)
@@ -397,16 +524,6 @@ contains
       self%compute_divergence_dev  => compute_divergence_fv_dev
       self%compute_gradient_dev    => compute_gradient_fv_dev
       self%compute_laplacian_dev   => compute_laplacian_fv_dev
-      ! issue #23 R2: FV residual path ported for the PLAIN Maxwell flux variant only.
-      ! The divergence-cleaning flux variants (div_d/div_b/div_d_b, selected on CPU when
-      ! constrained transport is active under hyperbolic correction) are NOT ported:
-      ! fail fast instead of silently computing plain fluxes for a cleaning configuration.
-      if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
-          (self%numerics%constrained_transport_D .or. self%numerics%constrained_transport_B)) then
-         call mpih_fnl%error_stop(msg=': fv_centered divergence-cleaning flux variants (constrained transport '// &
-                                      'under hyperbolic correction) are not ported to FNL (issue #23) — '// &
-                                      'run this case on the CPU backend')
-      endif
       self%compute_residuals_dev   => compute_residuals_fv_centered_dev
    endselect
 
@@ -479,66 +596,25 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1:)                           !< Conservative variables.
-   integer(I4P)                           :: ni_fWL(2,6),nj_fWL(2,6),nk_fWL(2,6) !< Dimensions of FWL domain.
-   real(R8P)                              :: s2(6)                               !< Side coefficient.
-   integer(I4P)                           :: n(6)                                !< FWL f function index.
-   integer(I4P)                           :: alfa_D(6), beta_D(6)                !< Corrected var index of D (Barbas' notation).
-   integer(I4P)                           :: alfa_B(6), beta_B(6)                !< Corrected var index of D (Barbas' notation).
-   integer(I4P)                           :: face                                !< Counter.
+   integer(I4P)                           :: face, b                           !< Counter.
 
-   associate(C=>self%fWLayer%C, layer=>self%fWLayer%layer, &
-            ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number)
-   if (C>0) then
-      ni_fWL(1,1)=1_I4P; ni_fWL(1,2)=ni-C+1_I4P; ni_fWL(1,3)=1_I4P; &
-      ni_fWL(1,4)=1_I4P; ni_fWL(1,5)=1_I4P     ; ni_fWL(1,6)=1_I4P
-
-      ni_fWL(2,1)=C ; ni_fWL(2,2)=ni; ni_fWL(2,3)=ni; &
-      ni_fWL(2,4)=ni; ni_fWL(2,5)=ni; ni_fWL(2,6)=ni
-
-      nj_fWL(1,1)=1_I4P     ; nj_fWL(1,2)=1_I4P; nj_fWL(1,3)=1_I4P; &
-      nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
-
-      nj_fWL(2,1)=nj; nj_fWL(2,2)=nj; nj_fWL(2,3)=C ; &
-      nj_fWL(2,4)=nj; nj_fWL(2,5)=nj; nj_fWL(2,6)=nj
-
-      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P; nk_fWL(1,3)=1_I4P;     &
-      nk_fWL(1,4)=1_I4P; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P
-
-      nk_fWL(2,1)=nk; nk_fWL(2,2)=nk; nk_fWL(2,3)=nk; &
-      nk_fWL(2,4)=nk; nk_fWL(2,5)=C ; nk_fWL(2,6)=nk
-
-      n(1) =1_I4P; n(2)=1_I4P; n(3)=2_I4P; &
-      n(4) =2_I4P; n(5)=3_I4P; n(6)=3_I4P
-
-      s2(1)= 1.0_R8P; s2(2)=-1.0_R8P; s2(3)= 1.0_R8P; &
-      s2(4)=-1.0_R8P; s2(5)= 1.0_R8P; s2(6)=-1.0_R8P
-
-      alfa_D(1)=2_I4P; alfa_D(2)=2_I4P; alfa_D(3)=3_I4P; &
-      alfa_D(4)=3_I4P; alfa_D(5)=1_I4P; alfa_D(6)=1_I4P
-
-      beta_D(1)=3_I4P; beta_D(2)=3_I4P; beta_D(3)=1_I4P; &
-      beta_D(4)=1_I4P; beta_D(5)=2_I4P; beta_D(6)=2_I4P
-
-      alfa_B(1)=5_I4P; alfa_B(2)=5_I4P; alfa_B(3)=6_I4P; &
-      alfa_B(4)=6_I4P; alfa_B(5)=4_I4P; alfa_B(6)=4_I4P
-
-      beta_B(1)=6_I4P; beta_B(2)=6_I4P; beta_B(3)=4_I4P; &
-      beta_B(4)=4_I4P; beta_B(5)=5_I4P; beta_B(6)=5_I4P
+   associate(layer=>self%fWLayer%layer, C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL, &
+            nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, &
+            s2=>self%fWLayer%s2, alfa_D=>self%fWLayer%alfa_D, beta_D=>self%fWLayer%beta_D, &
+            alfa_B=>self%fWLayer%alfa_B, beta_B=>self%fWLayer%beta_B, dxyz_gpu=>self%field_fnl%dxyz_gpu)
+   if (allocated(self%fWLayer%C)) then
       do face=1, 6
-         if (layer(face)) call apply_fwl_correction_dev_kernel(blocks_number=self%blocks_number,ngc=self%ngc,&
-                                                               ni1   = ni_fWL(1,face),                       &
-                                                               ni2   = ni_fWL(2,face),                       &
-                                                               nj1   = nj_fWL(1,face),                       &
-                                                               nj2   = nj_fWL(2,face),                       &
-                                                               nk1   = nk_fWL(1,face),                       &
-                                                               nk2   = nk_fWL(2,face),                       &
-                                                               n     =      n(face)  ,                       &
-                                                               s2    =     s2(face)  ,                       &
-                                                               alfa_D= alfa_D(face)  ,                       &
-                                                               beta_D= beta_D(face)  ,                       &
-                                                               alfa_B= alfa_B(face)  ,                       &
-                                                               beta_B= beta_B(face)  ,                       &
-                                                               f_gpu=self%fwlayer_fnl%f_gpu,q_gpu=q_gpu)
+         if (.not. layer(face)) cycle
+         do b=1, self%blocks_number
+            if (C(b,face) <= 0_I4P) cycle
+            call apply_fwl_correction_dev_kernel(block_idx=b, ngc=self%ngc,                  &
+                                                 ni1=ni_fWL(1,b,face), ni2=ni_fWL(2,b,face), &
+                                                 nj1=nj_fWL(1,b,face), nj2=nj_fWL(2,b,face), &
+                                                 nk1=nk_fWL(1,b,face), nk2=nk_fWL(2,b,face), &
+                                                 n=n(face), s2=s2(face), alfa_D=alfa_D(face), beta_D=beta_D(face), &
+                                                 alfa_B=alfa_B(face), beta_B=beta_B(face),    &
+                                                 C_face=C(b,face), dxyz_gpu=dxyz_gpu, q_gpu=q_gpu)
+         enddo
       enddo
    endif
    endassociate
@@ -698,16 +774,20 @@ contains
                                              nk                     = self%nk                                   ,&
                                              ngc                    = self%ngc                                  ,&
                                              nv                     = self%nv                                   ,&
+                                             nv_c                   = self%physics%nv_c                         ,&
+                                             nv_cl                  = self%physics%nv_cl                        ,&
                                              crown                  = crown                                     ,&
                                              local_map_bc_crown_gpu = self%field_fnl%maps%local_map_bc_crown_gpu,&
                                              q_gpu                  = q_gpu)
       enddo
    endif
    contains
-      subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, crown, local_map_bc_crown_gpu, q_gpu)
+      subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, nv_c, nv_cl, crown, local_map_bc_crown_gpu, q_gpu)
       !< Set boundary conditions of equation, kernel device.
       integer(I4P), intent(in)    :: ni,nj,nk,ngc                      !< Grid dimensions.
       integer(I4P), intent(in)    :: nv                                !< Number of conservative variables.
+      integer(I4P), intent(in)    :: nv_c                              !< Number of physical conservative variables.
+      integer(I4P), intent(in)    :: nv_cl                             !< Number of cleaning variables.
       integer(I4P), intent(in)    :: crown                             !< Crown counter.
       integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
@@ -718,10 +798,14 @@ contains
       integer(I4P)                :: bc_type                           !< Boundary condition type.
       integer(I4P)                :: fec                               !< Boundary fec (1 to 26).
       integer(I4P)                :: fec_1_6                           !< Boundary fec (1 to 6).
+      integer(I4P)                :: iref, jref, kref                  !< Interior reference indexes for face BCs.
+      integer(I4P)                :: alfa_D, beta_D, gamma_D           !< Tangential/normal D components.
+      integer(I4P)                :: alfa_B, beta_B, gamma_B           !< Tangential/normal B components.
+      real(R8P)                   :: s1                                !< Face orientation sign.
       !$acc parallel loop independent gang vector &
-      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,crown)
+      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown)
       !$omp OMPLOOP &
-      !$omp& DEVICEPTR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,crown)
+      !$omp& DEVICEPTR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown)
       do c=1, size(local_map_bc_crown_gpu, dim=1)
          b = local_map_bc_crown_gpu(c, 1 ,crown)
          if (b>0) then
@@ -745,13 +829,137 @@ contains
                                              k+abs(kdelta)*(-2*k+1+(kdelta+1)*nk),v)
                enddo
             elseif (bc_type == BC_SILVER_MULLER) then
-               ! to be impelmented
+               ! With outward normal n, the Silver-Muller conditions are
+               ! B_t = (n x E_d) / c, B_n = B_n,d, E_t = c (B_d x n), E_n = E_n,d.
+               iref = min(max(i, 1_I4P), ni)
+               jref = min(max(j, 1_I4P), nj)
+               kref = min(max(k, 1_I4P), nk)
+               select case(fec_1_6)
+               case(1)
+                  s1 = -1.0_R8P
+                  alfa_D = 2_I4P
+                  beta_D = 3_I4P
+                  gamma_D = 1_I4P
+                  alfa_B = 5_I4P
+                  beta_B = 6_I4P
+                  gamma_B = 4_I4P
+                  iref = 1_I4P
+               case(2)
+                  s1 = 1.0_R8P
+                  alfa_D = 2_I4P
+                  beta_D = 3_I4P
+                  gamma_D = 1_I4P
+                  alfa_B = 5_I4P
+                  beta_B = 6_I4P
+                  gamma_B = 4_I4P
+                  iref = ni
+               case(3)
+                  s1 = -1.0_R8P
+                  alfa_D = 3_I4P
+                  beta_D = 1_I4P
+                  gamma_D = 2_I4P
+                  alfa_B = 6_I4P
+                  beta_B = 4_I4P
+                  gamma_B = 5_I4P
+                  jref = 1_I4P
+               case(4)
+                  s1 = 1.0_R8P
+                  alfa_D = 3_I4P
+                  beta_D = 1_I4P
+                  gamma_D = 2_I4P
+                  alfa_B = 6_I4P
+                  beta_B = 4_I4P
+                  gamma_B = 5_I4P
+                  jref = nj
+               case(5)
+                  s1 = -1.0_R8P
+                  alfa_D = 1_I4P
+                  beta_D = 2_I4P
+                  gamma_D = 3_I4P
+                  alfa_B = 4_I4P
+                  beta_B = 5_I4P
+                  gamma_B = 6_I4P
+                  kref = 1_I4P
+               case(6)
+                  s1 = 1.0_R8P
+                  alfa_D = 1_I4P
+                  beta_D = 2_I4P
+                  gamma_D = 3_I4P
+                  alfa_B = 4_I4P
+                  beta_B = 5_I4P
+                  gamma_B = 6_I4P
+                  kref = nk
+               endselect
+               q_gpu(b,i,j,k,alfa_D ) =  s1*C0*q_gpu(b,iref,jref,kref,beta_B )*EPS0
+               q_gpu(b,i,j,k,beta_D ) = -s1*C0*q_gpu(b,iref,jref,kref,alfa_B)*EPS0
+               q_gpu(b,i,j,k,gamma_D) =       q_gpu(b,iref,jref,kref,gamma_D)
+               q_gpu(b,i,j,k,alfa_B ) = -s1/C0*q_gpu(b,iref,jref,kref,beta_D)/EPS0
+               q_gpu(b,i,j,k,beta_B ) =  s1/C0*q_gpu(b,iref,jref,kref,alfa_D)/EPS0
+               q_gpu(b,i,j,k,gamma_B) =       q_gpu(b,iref,jref,kref,gamma_B)
+               do v=nv_c-nv_cl+1, nv
+                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+               enddo
+            elseif (bc_type == BC_PEC) then
+               do v=1, nv
+                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+               enddo
+               select case(fec_1_6)
+               case(1, 2)
+                  q_gpu(b,i,j,k,VAR_DX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+               case(3, 4)
+                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+               case(5, 6)
+                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+               endselect
             elseif (bc_type == BC_DIRICHLET) then
                do v=1, nv
                   q_gpu(b,i,j,k,v) = 0._R8P
                enddo
             elseif (bc_type == BC_PERIOD) then
-               ! to be implemented
+               do v=1, nv
+                  q_gpu(b,i,j,k,v) = 0._R8P
+               enddo
+               select case(fec_1_6)
+               case(1)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,ni+i,j   ,k   ,v)
+                  enddo
+               case(2)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i-ni,j   ,k   ,v)
+                  enddo
+               case(3)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,nj+j,k   ,v)
+                  enddo
+               case(4)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,j-nj,k   ,v)
+                  enddo
+               case(5)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,j   ,nk+k,v)
+                  enddo
+               case(6)
+                  do v=1, nv_c
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,j   ,k-nk,v)
+                  enddo
+               endselect
             endif
          endif
       enddo
@@ -765,26 +973,23 @@ contains
 
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, &
                                                             q=self%q)
-   ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%particle_injection%set_particle_initial_injection(field=self%adam%field, pic=pic, q_pic=self%q_pic)
-   !    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
-   !    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
-   !                                     np=self%pic%particle_number)
-   ! endif
-   ! call self%coil%set_coils(physics=physics, field=self%adam%field)
+   call self%initialize_pic_time_zero()
 
    call self%initialize_coils
-
-   ! if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-   !    call self%pic%current_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%particle_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   !    call self%pic%field_weighting(field=self%adam%field, q=self%q, q_pic=self%q_pic, pic_fields=pic_fields, nv=self%nv)
-   ! endif
+   call self%compute_coils_current_time_zero()
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+      call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+   if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0._R8P) &
+      call self%impose_pic_fields_time_zero(ivar=VAR_BX)
 
    call self%copy_cpu_gpu
 
-   call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%apply_fWL_correction(q_gpu=self%q_gpu)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q,src=self%q_gpu,buf=self%buf_5D_R8P)
+      call self%weight_pic_fields_time_zero()
+      call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+   endif
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q_gpu, step, s)
@@ -1222,22 +1427,47 @@ contains
    if (present(flux_register)) continue ! FV-only machinery; accepted for interface conformance
    if (self%blocks_number > 0) then
       !call self%apply_fwl_correction(q_gpu=q_gpu)
-      call self%update_ghost(q_gpu=q_gpu, s=s)
-      call compute_residuals_fd_centered_dev_kernel(ni            = self%ni                  ,&
-                                                    nj            = self%nj                  ,&
-                                                    nk            = self%nk                  ,&
-                                                    ngc           = self%ngc                 ,&
-                                                    blocks_number = self%blocks_number       ,&
-                                                    var_jx        = self%physics%var_jx           ,&
-                                                    var_jy        = self%physics%var_jy           ,&
-                                                    var_jz        = self%physics%var_jz           ,&
-                                                    nv_c          = self%physics%nv_c             ,&
-                                                    chi           = self%physics%chi              ,&
-                                                    c_r           = self%physics%c_r              ,&
-                                                    s1            = self%fdv_half_stencils(1),&
-                                                    dxyz_gpu      = self%field_fnl%dxyz_gpu       ,&
-                                                    q_gpu         = q_gpu                    ,&
-                                                    dq_gpu        = dq_gpu)
+      if (present(s)) then
+         call self%update_ghost(q_gpu=q_gpu, s=s)
+      else
+         call self%update_ghost(q_gpu=q_gpu)
+      endif
+      select case(self%fd_residual_variant)
+      case(FD_RESIDUAL_VARIANT_PLAIN)
+         call fd_centered_plain_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                           blocks_number=self%blocks_number,                   &
+                                           var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                           var_jz=self%physics%var_jz, s1=self%fdv_half_stencils(1), &
+                                           inv_mu_scale=self%fd_inv_mu_scale, inv_eps_scale=self%fd_inv_eps_scale, &
+                                           dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
+      case(FD_RESIDUAL_VARIANT_PHI)
+         call fd_centered_phi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                         blocks_number=self%blocks_number,                 &
+                                         var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                         var_jz=self%physics%var_jz, s1=self%fdv_half_stencils(1), &
+                                         inv_mu_scale=self%fd_inv_mu_scale, inv_eps_scale=self%fd_inv_eps_scale, &
+                                         chi_wave=self%fd_chi_wave, chi_damp=self%fd_chi_damp, c_r=self%physics%c_r, &
+                                         ivar_phi=self%fd_ivar_phi, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
+      case(FD_RESIDUAL_VARIANT_PSI)
+         call fd_centered_psi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                         blocks_number=self%blocks_number,                 &
+                                         var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                         var_jz=self%physics%var_jz, s1=self%fdv_half_stencils(1), &
+                                         inv_mu_scale=self%fd_inv_mu_scale, inv_eps_scale=self%fd_inv_eps_scale, &
+                                         chi_wave=self%fd_chi_wave, chi_damp=self%fd_chi_damp, c_r=self%physics%c_r, &
+                                         ivar_psi=self%fd_ivar_psi, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
+      case(FD_RESIDUAL_VARIANT_PHI_PSI)
+         call fd_centered_phi_psi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                             blocks_number=self%blocks_number,                 &
+                                             var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                             var_jz=self%physics%var_jz, s1=self%fdv_half_stencils(1), &
+                                             inv_mu_scale=self%fd_inv_mu_scale, inv_eps_scale=self%fd_inv_eps_scale, &
+                                             chi_wave=self%fd_chi_wave, chi_damp=self%fd_chi_damp, c_r=self%physics%c_r, &
+                                             ivar_phi=self%fd_ivar_phi, ivar_psi=self%fd_ivar_psi, &
+                                             dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
+      case default
+         call mpih_fnl%error_stop(msg=': unknown FD residual variant in FNL backend')
+      end select
    endif
    contains
       subroutine compute_residuals_fd_centered_dev_kernel(ni, nj, nk, ngc, blocks_number,        &
@@ -1258,6 +1488,7 @@ contains
       real(R8P)                   :: divergenceD, divergenceB           !< Divergence for hyperbolic correction.
       real(R8P)   			   	 :: gradphi(3), gradpsi(3) 	         !< Gradient for hyperbolic correction.
       real(R8P)   			   	 :: dxyz_b(3) 	                     !< Per-block deltas, PRIVATE copy (no strided-section temp).
+      real(R8P)                   :: damping_coeff                      !< Optional GLM parabolic damping coefficient.
       ! rank 1D stencil for curl computations on device that contiguos memory is mandatory
       real(R8P) :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the x stencil.
       real(R8P) :: qsx_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the x stencil.
@@ -1343,7 +1574,11 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)/EPS0
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)/EPS0
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)/EPS0
-               dq_gpu(b,i,j,k,nv_c	) = -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c) = -(chi*C0)**2*divergenceD
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1419,7 +1654,11 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)/EPS0 - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)/EPS0 - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)/EPS0 - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c	) = -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c) = -(chi*C0)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1514,8 +1753,13 @@ contains
                dq_gpu(b,i,j,k,VAR_BX    ) = -curlD(1)/EPS0 - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY    ) = -curlD(2)/EPS0 - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ    ) = -curlD(3)/EPS0 - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c-1_I4P)	= -(chi*C0)**2*divergenceD - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c-1_I4P)
-               dq_gpu(b,i,j,k,nv_c	    )	= -(chi*C0)**2*divergenceB - (chi*C0/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c-1_I4P) = -(chi*C0)**2*divergenceD
+               dq_gpu(b,i,j,k,nv_c)       = -(chi*C0)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi * C0 / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c-1_I4P) = dq_gpu(b,i,j,k,nv_c-1_I4P) - damping_coeff * q_gpu(b,i,j,k,nv_c-1_I4P)
+                  dq_gpu(b,i,j,k,nv_c)       = dq_gpu(b,i,j,k,nv_c)       - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1649,7 +1893,11 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)
-               dq_gpu(b,i,j,k,nv_c	) = -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c) = -(chi)**2*divergenceD
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1725,7 +1973,11 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c	) = -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c) = -(chi)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1820,8 +2072,13 @@ contains
                dq_gpu(b,i,j,k,VAR_BX    ) = -curlD(1) - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY    ) = -curlD(2) - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ    ) = -curlD(3) - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c-1_I4P)	= -(chi)**2*divergenceD - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c-1_I4P)
-               dq_gpu(b,i,j,k,nv_c	    )	= -(chi)**2*divergenceB - (chi/(c_r*minval(dxyz_b)))*q_gpu(b,i,j,k,nv_c)
+               dq_gpu(b,i,j,k,nv_c-1_I4P) = -(chi)**2*divergenceD
+               dq_gpu(b,i,j,k,nv_c)       = -(chi)**2*divergenceB
+               if (c_r > 0._R8P) then
+                  damping_coeff = chi / (c_r * minval(dxyz_b))
+                  dq_gpu(b,i,j,k,nv_c-1_I4P) = dq_gpu(b,i,j,k,nv_c-1_I4P) - damping_coeff * q_gpu(b,i,j,k,nv_c-1_I4P)
+                  dq_gpu(b,i,j,k,nv_c)       = dq_gpu(b,i,j,k,nv_c)       - damping_coeff * q_gpu(b,i,j,k,nv_c)
+               endif
             enddo
             enddo
             enddo
@@ -1883,15 +2140,361 @@ contains
       endsubroutine compute_residuals_fd_centered_dev_kernel
    endsubroutine compute_residuals_fd_centered_dev
 
+   subroutine fd_centered_plain_dev_kernel(ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, &
+                                           inv_mu_scale, inv_eps_scale, dxyz_gpu, q_gpu, dq_gpu)
+   !< Centered-FD Maxwell residual without hyperbolic cleaning.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1
+   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P)                :: i, j, k, b, s
+   real(R8P)                   :: curlD(3), curlB(3), dxyz_b(3)
+   real(R8P)                   :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX), qsx_z(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsy_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_z(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsz_x(1-FDV_S_MAX:1+FDV_S_MAX), qsz_y(1-FDV_S_MAX:1+FDV_S_MAX)
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
+   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale)                 &
+   !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,dxyz_b)
+   do b=1,blocks_number
+   do k=1,nk
+   do j=1,nj
+   do i=1,ni
+      dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
+         qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DZ)
+         qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DX)
+         qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DZ)
+         qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
+         qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
+      enddo
+      call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
+                                        qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                        qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
+                                        curl=curlD)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BY)
+         qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BZ)
+         qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BX)
+         qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BZ)
+         qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
+         qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
+      enddo
+      call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
+                                        qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                        qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
+                                        curl=curlB)
+      dq_gpu(b,i,j,k,VAR_DX) =  curlB(1) * inv_mu_scale - q_gpu(b,i,j,k,var_jx)
+      dq_gpu(b,i,j,k,VAR_DY) =  curlB(2) * inv_mu_scale - q_gpu(b,i,j,k,var_jy)
+      dq_gpu(b,i,j,k,VAR_DZ) =  curlB(3) * inv_mu_scale - q_gpu(b,i,j,k,var_jz)
+      dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) * inv_eps_scale
+      dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) * inv_eps_scale
+      dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) * inv_eps_scale
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fd_centered_plain_dev_kernel
+
+   subroutine fd_centered_phi_dev_kernel(ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, &
+                                         inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r, ivar_phi, &
+                                         dxyz_gpu, q_gpu, dq_gpu)
+   !< Centered-FD Maxwell residual with phi cleaning only.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, ivar_phi
+   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P)                :: i, j, k, b, s
+   real(R8P)                   :: curlD(3), curlB(3), gradphi(3), divergenceD, dxyz_b(3)
+   real(R8P)                   :: damping_coeff, min_h
+   real(R8P)                   :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX), qsx_z(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsy_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_z(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsz_x(1-FDV_S_MAX:1+FDV_S_MAX), qsz_y(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsx_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_y(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX)
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
+   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,chi_damp,c_r,ivar_phi) &
+   !$acc& private(curlD,curlB,gradphi,divergenceD,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b,min_h,damping_coeff)
+   do b=1,blocks_number
+   do k=1,nk
+   do j=1,nj
+   do i=1,ni
+      dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
+         qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DZ)
+         qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DX)
+         qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DZ)
+         qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
+         qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
+      enddo
+      call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
+                                        qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                        qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
+                                        curl=curlD)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BY)
+         qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BZ)
+         qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BX)
+         qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BZ)
+         qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
+         qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
+      enddo
+      call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
+                                        qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                        qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
+                                        curl=curlB)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DX)
+         qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
+         qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
+      enddo
+      call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
+                                              qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                              divergence=divergenceD)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,ivar_phi)
+         qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,ivar_phi)
+         qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,ivar_phi)
+      enddo
+      call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                        &
+                                            qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                            gradient=gradphi)
+      dq_gpu(b,i,j,k,VAR_DX) =  curlB(1) * inv_mu_scale - gradphi(1) - q_gpu(b,i,j,k,var_jx)
+      dq_gpu(b,i,j,k,VAR_DY) =  curlB(2) * inv_mu_scale - gradphi(2) - q_gpu(b,i,j,k,var_jy)
+      dq_gpu(b,i,j,k,VAR_DZ) =  curlB(3) * inv_mu_scale - gradphi(3) - q_gpu(b,i,j,k,var_jz)
+      dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) * inv_eps_scale
+      dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) * inv_eps_scale
+      dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) * inv_eps_scale
+      dq_gpu(b,i,j,k,ivar_phi) = -(chi_wave * chi_wave) * divergenceD
+      if (c_r > 0._R8P) then
+         min_h = min(dxyz_b(1), min(dxyz_b(2), dxyz_b(3)))
+         damping_coeff = chi_damp / (c_r * min_h)
+         dq_gpu(b,i,j,k,ivar_phi) = dq_gpu(b,i,j,k,ivar_phi) - damping_coeff * q_gpu(b,i,j,k,ivar_phi)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fd_centered_phi_dev_kernel
+
+   subroutine fd_centered_psi_dev_kernel(ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, &
+                                         inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r, ivar_psi, &
+                                         dxyz_gpu, q_gpu, dq_gpu)
+   !< Centered-FD Maxwell residual with psi cleaning only.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, ivar_psi
+   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P)                :: i, j, k, b, s
+   real(R8P)                   :: curlD(3), curlB(3), gradpsi(3), divergenceB, dxyz_b(3)
+   real(R8P)                   :: damping_coeff, min_h
+   real(R8P)                   :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX), qsx_z(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsy_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_z(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsz_x(1-FDV_S_MAX:1+FDV_S_MAX), qsz_y(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsx_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_y(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX)
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
+   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,chi_damp,c_r,ivar_psi) &
+   !$acc& private(curlD,curlB,gradpsi,divergenceB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b,min_h,damping_coeff)
+   do b=1,blocks_number
+   do k=1,nk
+   do j=1,nj
+   do i=1,ni
+      dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
+         qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DZ)
+         qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DX)
+         qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DZ)
+         qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
+         qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
+      enddo
+      call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
+                                        qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                        qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
+                                        curl=curlD)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BY)
+         qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BZ)
+         qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BX)
+         qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BZ)
+         qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
+         qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
+      enddo
+      call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
+                                        qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                        qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
+                                        curl=curlB)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BX)
+         qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
+         qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
+      enddo
+      call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
+                                              qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                              divergence=divergenceB)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,ivar_psi)
+         qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,ivar_psi)
+         qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,ivar_psi)
+      enddo
+      call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                        &
+                                            qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                            gradient=gradpsi)
+      dq_gpu(b,i,j,k,VAR_DX) =  curlB(1) * inv_mu_scale - q_gpu(b,i,j,k,var_jx)
+      dq_gpu(b,i,j,k,VAR_DY) =  curlB(2) * inv_mu_scale - q_gpu(b,i,j,k,var_jy)
+      dq_gpu(b,i,j,k,VAR_DZ) =  curlB(3) * inv_mu_scale - q_gpu(b,i,j,k,var_jz)
+      dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) * inv_eps_scale - gradpsi(1)
+      dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) * inv_eps_scale - gradpsi(2)
+      dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) * inv_eps_scale - gradpsi(3)
+      dq_gpu(b,i,j,k,ivar_psi) = -(chi_wave * chi_wave) * divergenceB
+      if (c_r > 0._R8P) then
+         min_h = min(dxyz_b(1), min(dxyz_b(2), dxyz_b(3)))
+         damping_coeff = chi_damp / (c_r * min_h)
+         dq_gpu(b,i,j,k,ivar_psi) = dq_gpu(b,i,j,k,ivar_psi) - damping_coeff * q_gpu(b,i,j,k,ivar_psi)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fd_centered_psi_dev_kernel
+
+   subroutine fd_centered_phi_psi_dev_kernel(ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, &
+                                             inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r, ivar_phi, ivar_psi, &
+                                             dxyz_gpu, q_gpu, dq_gpu)
+   !< Centered-FD Maxwell residual with phi/psi cleaning.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, ivar_phi, ivar_psi
+   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P)                :: i, j, k, b, s
+   real(R8P)                   :: curlD(3), curlB(3), gradphi(3), gradpsi(3), divergenceD, divergenceB, dxyz_b(3)
+   real(R8P)                   :: damping_coeff, min_h
+   real(R8P)                   :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX), qsx_z(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsy_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_z(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsz_x(1-FDV_S_MAX:1+FDV_S_MAX), qsz_y(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsx_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_y(1-FDV_S_MAX:1+FDV_S_MAX)
+   real(R8P)                   :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX)
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
+   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,chi_damp,c_r,ivar_phi,ivar_psi) &
+   !$acc& private(curlD,curlB,gradphi,gradpsi,divergenceD,divergenceB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y, &
+   !$acc&         qsx_x,qsy_y,qsz_z,dxyz_b,min_h,damping_coeff)
+   do b=1,blocks_number
+   do k=1,nk
+   do j=1,nj
+   do i=1,ni
+      dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DY)
+         qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DZ)
+         qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DX)
+         qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DZ)
+         qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DX)
+         qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DY)
+      enddo
+      call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
+                                        qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                        qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
+                                        curl=curlD)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_y(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BY)
+         qsx_z(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BZ)
+         qsy_x(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BX)
+         qsy_z(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BZ)
+         qsz_x(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BX)
+         qsz_y(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BY)
+      enddo
+      call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_b,                                            &
+                                        qsx_y=qsx_y(1-s1:1+s1),qsx_z=qsx_z(1-s1:1+s1),qsy_x=qsy_x(1-s1:1+s1), &
+                                        qsy_z=qsy_z(1-s1:1+s1),qsz_x=qsz_x(1-s1:1+s1),qsz_y=qsz_y(1-s1:1+s1), &
+                                        curl=curlB)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_DX)
+         qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_DY)
+         qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_DZ)
+      enddo
+      call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
+                                              qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                              divergence=divergenceD)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,ivar_phi)
+         qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,ivar_phi)
+         qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,ivar_phi)
+      enddo
+      call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                        &
+                                            qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                            gradient=gradphi)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,VAR_BX)
+         qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,VAR_BY)
+         qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,VAR_BZ)
+      enddo
+      call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
+                                              qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                              divergence=divergenceB)
+      !$acc loop seq
+      do s=1-s1, 1+s1
+         qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,ivar_psi)
+         qsy_y(s) = q_gpu(b,i    ,j+s-1,k    ,ivar_psi)
+         qsz_z(s) = q_gpu(b,i    ,j    ,k+s-1,ivar_psi)
+      enddo
+      call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,                                        &
+                                            qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
+                                            gradient=gradpsi)
+      dq_gpu(b,i,j,k,VAR_DX) =  curlB(1) * inv_mu_scale - gradphi(1) - q_gpu(b,i,j,k,var_jx)
+      dq_gpu(b,i,j,k,VAR_DY) =  curlB(2) * inv_mu_scale - gradphi(2) - q_gpu(b,i,j,k,var_jy)
+      dq_gpu(b,i,j,k,VAR_DZ) =  curlB(3) * inv_mu_scale - gradphi(3) - q_gpu(b,i,j,k,var_jz)
+      dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) * inv_eps_scale - gradpsi(1)
+      dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) * inv_eps_scale - gradpsi(2)
+      dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) * inv_eps_scale - gradpsi(3)
+      dq_gpu(b,i,j,k,ivar_phi) = -(chi_wave * chi_wave) * divergenceD
+      dq_gpu(b,i,j,k,ivar_psi) = -(chi_wave * chi_wave) * divergenceB
+      if (c_r > 0._R8P) then
+         min_h = min(dxyz_b(1), min(dxyz_b(2), dxyz_b(3)))
+         damping_coeff = chi_damp / (c_r * min_h)
+         dq_gpu(b,i,j,k,ivar_phi) = dq_gpu(b,i,j,k,ivar_phi) - damping_coeff * q_gpu(b,i,j,k,ivar_phi)
+         dq_gpu(b,i,j,k,ivar_psi) = dq_gpu(b,i,j,k,ivar_psi) - damping_coeff * q_gpu(b,i,j,k,ivar_psi)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fd_centered_phi_psi_dev_kernel
+
    subroutine compute_residuals_fv_centered_dev(self, q_gpu, dq_gpu, s, flux_register)
    !< Compute residuals, space operator, centered finite volume scheme — FNL device
    !< backend (issue #23 R2). 1:1 structural mirror of
-   !< `prism_cpu_object%compute_residuals_fv_centered`: fWL correction + ghost refresh
-   !< on q, pointwise Maxwell fluxes at ALL cells (incl. ghosts) into `flxyz_c_gpu`,
+   !< `prism_cpu_object%compute_residuals_fv_centered`: ghost refresh on q,
+   !< pointwise Maxwell fluxes at ALL cells (incl. ghosts) into `flxyz_c_gpu`,
    !< three staggered face-reconstruction sweeps into `fl{x,y,z}_f_gpu` (the m=0 SOTA
    !< primitive, already `acc routine seq`), flux difference + J source into `dq_gpu`.
-   !< PLAIN Maxwell flux variant only — the cleaning variants are refused at dispatch
-   !< (initialize_prism). Inter-realm seam flux accumulation (issue #23 R3): after the
+   !< The Maxwell-flux variant is selected ONCE at host side, then a specialized
+   !< device kernel runs with no per-cell variant branch. Inter-realm seam accumulation
+   !< (issue #23 R3): after the
    !< face sweeps, at the realm's FINAL RK substage only (α.r1, CPU parity), the seam
    !< face skins are device-packed, D2H-copied (tiny slabs) and accumulated into the
    !< HOST-side flux register — see accumulate_seam_fluxes_fv_dev.
@@ -1913,17 +2516,51 @@ contains
    integer(I4P),            intent(in),    optional :: s          !< Stage counter (gates the seam-flux accumulation).
    class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register for FV seam reflux.
    integer(I4P)                                     :: stage_idx  !< Captured stage index (CPU-parity gate).
+   real(R8P)                                        :: chi_damp   !< Host-side damping-speed factor.
 
    stage_idx = 0_I4P ; if (present(s)) stage_idx = s
    if (self%blocks_number > 0) then
-      call self%apply_fwl_correction(q_gpu=q_gpu)
-      ! bare refresh (no stage time): CPU-parity — compute_residuals_fv_centered
-      ! calls update_ghost(q) without `s`, so the trailing coil re-stamp is bare-time.
-      call self%update_ghost(q_gpu=q_gpu)
-      call fv_cell_fluxes_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,        &
-                                     nv_c=self%nv_c, blocks_number=self%blocks_number,        &
-                                     chi=self%physics%chi, q_gpu=q_gpu,                       &
-                                     flxyz_c_gpu=self%flxyz_c_gpu)
+      if (present(s)) then
+         call self%update_ghost(q_gpu=q_gpu, s=s)
+      else
+         call self%update_ghost(q_gpu=q_gpu)
+      endif
+      select case(self%fv_flux_variant)
+      case(FV_FLUX_VARIANT_MAXWELL)
+         call fv_cell_fluxes_maxwell_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                                chi=self%physics%chi, q_gpu=q_gpu, flxyz_c_gpu=self%flxyz_c_gpu)
+      case(FV_FLUX_VARIANT_MAXWELL_ADIM)
+         call fv_cell_fluxes_maxwell_adim_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                     nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                                     chi=self%physics%chi, q_gpu=q_gpu, flxyz_c_gpu=self%flxyz_c_gpu)
+      case(FV_FLUX_VARIANT_MAXWELL_DIV_D)
+         call fv_cell_fluxes_maxwell_div_d_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                      nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                                      chi=self%physics%chi, q_gpu=q_gpu, flxyz_c_gpu=self%flxyz_c_gpu)
+      case(FV_FLUX_VARIANT_MAXWELL_DIV_B)
+         call fv_cell_fluxes_maxwell_div_b_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                      nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                                      chi=self%physics%chi, q_gpu=q_gpu, flxyz_c_gpu=self%flxyz_c_gpu)
+      case(FV_FLUX_VARIANT_MAXWELL_DIV_D_B)
+         call fv_cell_fluxes_maxwell_div_d_b_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                        nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                                        chi=self%physics%chi, q_gpu=q_gpu, flxyz_c_gpu=self%flxyz_c_gpu)
+      case(FV_FLUX_VARIANT_MAXWELL_ADIM_DIV_D)
+         call fv_cell_fluxes_maxwell_adim_div_d_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                           nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                                           chi=self%physics%chi, q_gpu=q_gpu, flxyz_c_gpu=self%flxyz_c_gpu)
+      case(FV_FLUX_VARIANT_MAXWELL_ADIM_DIV_B)
+         call fv_cell_fluxes_maxwell_adim_div_b_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                           nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                                           chi=self%physics%chi, q_gpu=q_gpu, flxyz_c_gpu=self%flxyz_c_gpu)
+      case(FV_FLUX_VARIANT_MAXWELL_ADIM_DIV_D_B)
+         call fv_cell_fluxes_maxwell_adim_div_d_b_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                             nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                                             chi=self%physics%chi, q_gpu=q_gpu, flxyz_c_gpu=self%flxyz_c_gpu)
+      case default
+         call mpih_fnl%error_stop(msg=': unknown FV flux variant in FNL backend')
+      end select
       call fv_recon_x_dev_kernel(s1=self%fdv_half_stencils(1), ni=self%ni, nj=self%nj,        &
                                  nk=self%nk, ngc=self%ngc, nv_c=self%nv_c,                    &
                                  blocks_number=self%blocks_number,                            &
@@ -1946,33 +2583,53 @@ contains
             call accumulate_seam_fluxes_fv_dev(self, flux_register)
          endif
       endif
-      call fv_flux_diff_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,          &
-                                   nv_c=self%nv_c, blocks_number=self%blocks_number,          &
-                                   var_jx=self%physics%var_jx, var_jy=self%physics%var_jy,    &
-                                   var_jz=self%physics%var_jz,                                &
-                                   dxyz_gpu=self%field_fnl%dxyz_gpu,                          &
-                                   flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu,        &
-                                   flz_f_gpu=self%flz_f_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
+      chi_damp = self%physics%chi * C0
+      if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) chi_damp = self%physics%chi
+      if (self%fv_add_phi_damping .and. self%fv_add_psi_damping) then
+         call fv_flux_diff_phi_psi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                              nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                              var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                              var_jz=self%physics%var_jz, chi_damp=chi_damp, c_r=self%physics%c_r, &
+                                              fv_ivar_phi=self%fv_ivar_phi, fv_ivar_psi=self%fv_ivar_psi, &
+                                              dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu, &
+                                              fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
+      elseif (self%fv_add_phi_damping) then
+         call fv_flux_diff_phi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                          nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                          var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                          var_jz=self%physics%var_jz, chi_damp=chi_damp, c_r=self%physics%c_r, &
+                                          fv_ivar_phi=self%fv_ivar_phi, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                          flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, &
+                                          q_gpu=q_gpu, dq_gpu=dq_gpu)
+      elseif (self%fv_add_psi_damping) then
+         call fv_flux_diff_psi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                          nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                          var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                          var_jz=self%physics%var_jz, chi_damp=chi_damp, c_r=self%physics%c_r, &
+                                          fv_ivar_psi=self%fv_ivar_psi, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                          flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, &
+                                          q_gpu=q_gpu, dq_gpu=dq_gpu)
+      else
+         call fv_flux_diff_plain_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                            nv_c=self%nv_c, blocks_number=self%blocks_number, &
+                                            var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                            var_jz=self%physics%var_jz, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                            flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, &
+                                            q_gpu=q_gpu, dq_gpu=dq_gpu)
+      endif
    endif
    endsubroutine compute_residuals_fv_centered_dev
 
-   subroutine fv_cell_fluxes_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
-   !< Pointwise Maxwell fluxes at every cell (incl. ghosts), all 3 directions (issue #23 R2).
-   !< MODULE-LEVEL kernel (certified pattern): per-thread scalar gather of the local state
-   !< into CONSTANT-BOUND private vectors, contiguous-section actuals to the
-   !< `acc routine seq` flux routine — no strided shared sections, no contained-kernel
-   !< private arrays (CLAUDE-gpu race rules; passing q_gpu(b,i,j,k,:) directly would
-   !< materialize an unprivatized strided-section temporary).
-   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number                     !< Grids dimensions.
-   integer(I4P), intent(in)    :: nv_c                                               !< Conservative variables number.
-   real(R8P),    intent(in)    :: chi                                                !< Divergence-cleaning speed (unused, plain).
-   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                  !< Field variables, FNL layout.
-   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Cell-center fluxes (b,1,d,i,j,k,v).
-   integer(I4P), parameter     :: NVC_CAP=8_I4P                                      !< Constant bound for the private state vectors.
-   real(R8P)                   :: qv(1:NVC_CAP)                                      !< Private state gather.
-   real(R8P)                   :: fv(1:NVC_CAP)                                      !< Private flux result.
-   real(R8P)                   :: sir(1:3)                                           !< Private direction versor.
-   integer(I4P)                :: i, j, k, b, d, v                                   !< Counters.
+   subroutine fv_cell_fluxes_maxwell_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
+   !< Pointwise plain dimensional Maxwell fluxes at every cell (incl. ghosts).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   real(R8P),    intent(in)    :: chi
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), parameter     :: NVC_CAP=8_I4P
+   real(R8P)                   :: qv(1:NVC_CAP), fv(1:NVC_CAP), sir(1:3)
+   integer(I4P)                :: i, j, k, b, d, v
 
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
    !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
@@ -2000,7 +2657,259 @@ contains
    enddo
    enddo
    enddo
-   endsubroutine fv_cell_fluxes_dev_kernel
+   endsubroutine fv_cell_fluxes_maxwell_dev_kernel
+
+   subroutine fv_cell_fluxes_maxwell_adim_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
+   !< Pointwise plain adimensional Maxwell fluxes at every cell (incl. ghosts).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   real(R8P),    intent(in)    :: chi
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), parameter     :: NVC_CAP=8_I4P
+   real(R8P)                   :: qv(1:NVC_CAP), fv(1:NVC_CAP), sir(1:3)
+   integer(I4P)                :: i, j, k, b, d, v
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
+   !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
+   !$acc& private(qv, fv, sir)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+      !$acc loop seq
+      do v=1, nv_c
+         qv(v) = q_gpu(b,i,j,k,v)
+      enddo
+      !$acc loop seq
+      do d=1, 3
+         sir(1) = 0._R8P ; sir(2) = 0._R8P ; sir(3) = 0._R8P ; sir(d) = 1._R8P
+         call compute_convective_fluxes_maxwell_adim(sir=sir, q=qv(1:nv_c), f=fv(1:nv_c), chi=chi)
+         do v=1, nv_c
+            flxyz_c_gpu(b,1,d,i,j,k,v) = fv(v)
+         enddo
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_cell_fluxes_maxwell_adim_dev_kernel
+
+   subroutine fv_cell_fluxes_maxwell_div_d_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
+   !< Pointwise dimensional Maxwell fluxes with D hyperbolic cleaning.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   real(R8P),    intent(in)    :: chi
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), parameter     :: NVC_CAP=8_I4P
+   real(R8P)                   :: qv(1:NVC_CAP), fv(1:NVC_CAP), sir(1:3)
+   integer(I4P)                :: i, j, k, b, d, v
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
+   !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
+   !$acc& private(qv, fv, sir)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+      !$acc loop seq
+      do v=1, nv_c
+         qv(v) = q_gpu(b,i,j,k,v)
+      enddo
+      !$acc loop seq
+      do d=1, 3
+         sir(1) = 0._R8P ; sir(2) = 0._R8P ; sir(3) = 0._R8P ; sir(d) = 1._R8P
+         call compute_convective_fluxes_maxwell_div_d(sir=sir, q=qv(1:nv_c), f=fv(1:nv_c), chi=chi)
+         do v=1, nv_c
+            flxyz_c_gpu(b,1,d,i,j,k,v) = fv(v)
+         enddo
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_cell_fluxes_maxwell_div_d_dev_kernel
+
+   subroutine fv_cell_fluxes_maxwell_div_b_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
+   !< Pointwise dimensional Maxwell fluxes with B hyperbolic cleaning.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   real(R8P),    intent(in)    :: chi
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), parameter     :: NVC_CAP=8_I4P
+   real(R8P)                   :: qv(1:NVC_CAP), fv(1:NVC_CAP), sir(1:3)
+   integer(I4P)                :: i, j, k, b, d, v
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
+   !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
+   !$acc& private(qv, fv, sir)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+      !$acc loop seq
+      do v=1, nv_c
+         qv(v) = q_gpu(b,i,j,k,v)
+      enddo
+      !$acc loop seq
+      do d=1, 3
+         sir(1) = 0._R8P ; sir(2) = 0._R8P ; sir(3) = 0._R8P ; sir(d) = 1._R8P
+         call compute_convective_fluxes_maxwell_div_b(sir=sir, q=qv(1:nv_c), f=fv(1:nv_c), chi=chi)
+         do v=1, nv_c
+            flxyz_c_gpu(b,1,d,i,j,k,v) = fv(v)
+         enddo
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_cell_fluxes_maxwell_div_b_dev_kernel
+
+   subroutine fv_cell_fluxes_maxwell_div_d_b_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
+   !< Pointwise dimensional Maxwell fluxes with D/B hyperbolic cleaning.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   real(R8P),    intent(in)    :: chi
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), parameter     :: NVC_CAP=8_I4P
+   real(R8P)                   :: qv(1:NVC_CAP), fv(1:NVC_CAP), sir(1:3)
+   integer(I4P)                :: i, j, k, b, d, v
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
+   !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
+   !$acc& private(qv, fv, sir)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+      !$acc loop seq
+      do v=1, nv_c
+         qv(v) = q_gpu(b,i,j,k,v)
+      enddo
+      !$acc loop seq
+      do d=1, 3
+         sir(1) = 0._R8P ; sir(2) = 0._R8P ; sir(3) = 0._R8P ; sir(d) = 1._R8P
+         call compute_convective_fluxes_maxwell_div_d_b(sir=sir, q=qv(1:nv_c), f=fv(1:nv_c), chi=chi)
+         do v=1, nv_c
+            flxyz_c_gpu(b,1,d,i,j,k,v) = fv(v)
+         enddo
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_cell_fluxes_maxwell_div_d_b_dev_kernel
+
+   subroutine fv_cell_fluxes_maxwell_adim_div_d_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
+   !< Pointwise adimensional Maxwell fluxes with D hyperbolic cleaning.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   real(R8P),    intent(in)    :: chi
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), parameter     :: NVC_CAP=8_I4P
+   real(R8P)                   :: qv(1:NVC_CAP), fv(1:NVC_CAP), sir(1:3)
+   integer(I4P)                :: i, j, k, b, d, v
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
+   !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
+   !$acc& private(qv, fv, sir)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+      !$acc loop seq
+      do v=1, nv_c
+         qv(v) = q_gpu(b,i,j,k,v)
+      enddo
+      !$acc loop seq
+      do d=1, 3
+         sir(1) = 0._R8P ; sir(2) = 0._R8P ; sir(3) = 0._R8P ; sir(d) = 1._R8P
+         call compute_convective_fluxes_maxwell_adim_div_d(sir=sir, q=qv(1:nv_c), f=fv(1:nv_c), chi=chi)
+         do v=1, nv_c
+            flxyz_c_gpu(b,1,d,i,j,k,v) = fv(v)
+         enddo
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_cell_fluxes_maxwell_adim_div_d_dev_kernel
+
+   subroutine fv_cell_fluxes_maxwell_adim_div_b_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
+   !< Pointwise adimensional Maxwell fluxes with B hyperbolic cleaning.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   real(R8P),    intent(in)    :: chi
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), parameter     :: NVC_CAP=8_I4P
+   real(R8P)                   :: qv(1:NVC_CAP), fv(1:NVC_CAP), sir(1:3)
+   integer(I4P)                :: i, j, k, b, d, v
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
+   !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
+   !$acc& private(qv, fv, sir)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+      !$acc loop seq
+      do v=1, nv_c
+         qv(v) = q_gpu(b,i,j,k,v)
+      enddo
+      !$acc loop seq
+      do d=1, 3
+         sir(1) = 0._R8P ; sir(2) = 0._R8P ; sir(3) = 0._R8P ; sir(d) = 1._R8P
+         call compute_convective_fluxes_maxwell_adim_div_b(sir=sir, q=qv(1:nv_c), f=fv(1:nv_c), chi=chi)
+         do v=1, nv_c
+            flxyz_c_gpu(b,1,d,i,j,k,v) = fv(v)
+         enddo
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_cell_fluxes_maxwell_adim_div_b_dev_kernel
+
+   subroutine fv_cell_fluxes_maxwell_adim_div_d_b_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, chi, q_gpu, flxyz_c_gpu)
+   !< Pointwise adimensional Maxwell fluxes with D/B hyperbolic cleaning.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   real(R8P),    intent(in)    :: chi
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: flxyz_c_gpu(1:,1:,1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), parameter     :: NVC_CAP=8_I4P
+   real(R8P)                   :: qv(1:NVC_CAP), fv(1:NVC_CAP), sir(1:3)
+   integer(I4P)                :: i, j, k, b, d, v
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu, flxyz_c_gpu) &
+   !$acc& firstprivate(ni, nj, nk, ngc, nv_c, blocks_number, chi)                        &
+   !$acc& private(qv, fv, sir)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+      !$acc loop seq
+      do v=1, nv_c
+         qv(v) = q_gpu(b,i,j,k,v)
+      enddo
+      !$acc loop seq
+      do d=1, 3
+         sir(1) = 0._R8P ; sir(2) = 0._R8P ; sir(3) = 0._R8P ; sir(d) = 1._R8P
+         call compute_convective_fluxes_maxwell_adim_div_d_b(sir=sir, q=qv(1:nv_c), f=fv(1:nv_c), chi=chi)
+         do v=1, nv_c
+            flxyz_c_gpu(b,1,d,i,j,k,v) = fv(v)
+         enddo
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_cell_fluxes_maxwell_adim_div_d_b_dev_kernel
 
    subroutine fv_recon_x_dev_kernel(s1, ni, nj, nk, ngc, nv_c, blocks_number, flxyz_c_gpu, flx_f_gpu)
    !< Reconstruct x-fluxes at x-faces from cell-center fluxes (issue #23 R2): per face
@@ -2103,22 +3012,20 @@ contains
    enddo
    endsubroutine fv_recon_z_dev_kernel
 
-   subroutine fv_flux_diff_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, var_jx, var_jy, var_jz, &
-                                      dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)
-   !< Conservative flux difference + J source (issue #23 R2):
-   !< dq = -(F(i+1/2)-F(i-1/2))/dx - ... ; dq(D) -= J. Per-block deltas read as
-   !< SCALARS (no dxyz section actuals — CLAUDE-gpu race rule).
-   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number                     !< Grids dimensions.
-   integer(I4P), intent(in)    :: nv_c                                               !< Conservative variables number.
-   integer(I4P), intent(in)    :: var_jx, var_jy, var_jz                             !< Indexes of J_vec variables.
-   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                                    !< Delta cells GPU [nb,3].
-   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)                          !< X-face fluxes.
-   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)                          !< Y-face fluxes.
-   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)                          !< Z-face fluxes.
-   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                  !< Field variables (J source).
-   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                 !< Residuals.
-   real(R8P)                   :: dxb, dyb, dzb                                      !< Per-block deltas, scalar reads.
-   integer(I4P)                :: i, j, k, b, v                                      !< Counters.
+   subroutine fv_flux_diff_plain_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, var_jx, var_jy, var_jz, &
+                                            dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)
+   !< Conservative flux difference + J source, no hyperbolic damping fields.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   integer(I4P), intent(in)    :: var_jx, var_jy, var_jz
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P)                   :: dxb, dyb, dzb
+   integer(I4P)                :: i, j, k, b, v
 
    !$acc parallel loop independent gang vector collapse(4)                              &
    !$acc& DEVICEVAR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)            &
@@ -2144,7 +3051,142 @@ contains
    enddo
    enddo
    enddo
-   endsubroutine fv_flux_diff_dev_kernel
+   endsubroutine fv_flux_diff_plain_dev_kernel
+
+   subroutine fv_flux_diff_phi_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, var_jx, var_jy, var_jz, &
+                                          chi_damp, c_r, fv_ivar_phi, dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)
+   !< Conservative flux difference + J source + phi damping.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   integer(I4P), intent(in)    :: var_jx, var_jy, var_jz, fv_ivar_phi
+   real(R8P),    intent(in)    :: chi_damp, c_r
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P)                   :: dxb, dyb, dzb, min_h, damping_coeff
+   integer(I4P)                :: i, j, k, b, v
+
+   !$acc parallel loop independent gang vector collapse(4)                              &
+   !$acc& DEVICEVAR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)            &
+   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_damp, c_r, fv_ivar_phi)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      dxb = dxyz_gpu(b,1) ; dyb = dxyz_gpu(b,2) ; dzb = dxyz_gpu(b,3)
+      !$acc loop seq
+      do v=1, nv_c
+         dq_gpu(b,i,j,k,v) = - (flx_f_gpu(b,i,j,k,v) - flx_f_gpu(b,i-1,j,k,v)) / dxb &
+                             - (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dyb &
+                             - (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dzb
+      enddo
+      dq_gpu(b,i,j,k,VAR_DX) = dq_gpu(b,i,j,k,VAR_DX) - q_gpu(b,i,j,k,var_jx)
+      dq_gpu(b,i,j,k,VAR_DY) = dq_gpu(b,i,j,k,VAR_DY) - q_gpu(b,i,j,k,var_jy)
+      dq_gpu(b,i,j,k,VAR_DZ) = dq_gpu(b,i,j,k,VAR_DZ) - q_gpu(b,i,j,k,var_jz)
+      if (c_r > 0._R8P) then
+         min_h = min(dxb, min(dyb, dzb))
+         damping_coeff = chi_damp / (c_r * min_h)
+         dq_gpu(b,i,j,k,fv_ivar_phi) = dq_gpu(b,i,j,k,fv_ivar_phi) - damping_coeff * q_gpu(b,i,j,k,fv_ivar_phi)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_flux_diff_phi_dev_kernel
+
+   subroutine fv_flux_diff_psi_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, var_jx, var_jy, var_jz, &
+                                          chi_damp, c_r, fv_ivar_psi, dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)
+   !< Conservative flux difference + J source + psi damping.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   integer(I4P), intent(in)    :: var_jx, var_jy, var_jz, fv_ivar_psi
+   real(R8P),    intent(in)    :: chi_damp, c_r
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P)                   :: dxb, dyb, dzb, min_h, damping_coeff
+   integer(I4P)                :: i, j, k, b, v
+
+   !$acc parallel loop independent gang vector collapse(4)                              &
+   !$acc& DEVICEVAR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)            &
+   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_damp, c_r, fv_ivar_psi)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      dxb = dxyz_gpu(b,1) ; dyb = dxyz_gpu(b,2) ; dzb = dxyz_gpu(b,3)
+      !$acc loop seq
+      do v=1, nv_c
+         dq_gpu(b,i,j,k,v) = - (flx_f_gpu(b,i,j,k,v) - flx_f_gpu(b,i-1,j,k,v)) / dxb &
+                             - (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dyb &
+                             - (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dzb
+      enddo
+      dq_gpu(b,i,j,k,VAR_DX) = dq_gpu(b,i,j,k,VAR_DX) - q_gpu(b,i,j,k,var_jx)
+      dq_gpu(b,i,j,k,VAR_DY) = dq_gpu(b,i,j,k,VAR_DY) - q_gpu(b,i,j,k,var_jy)
+      dq_gpu(b,i,j,k,VAR_DZ) = dq_gpu(b,i,j,k,VAR_DZ) - q_gpu(b,i,j,k,var_jz)
+      if (c_r > 0._R8P) then
+         min_h = min(dxb, min(dyb, dzb))
+         damping_coeff = chi_damp / (c_r * min_h)
+         dq_gpu(b,i,j,k,fv_ivar_psi) = dq_gpu(b,i,j,k,fv_ivar_psi) - damping_coeff * q_gpu(b,i,j,k,fv_ivar_psi)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_flux_diff_psi_dev_kernel
+
+   subroutine fv_flux_diff_phi_psi_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, var_jx, var_jy, var_jz, &
+                                              chi_damp, c_r, fv_ivar_phi, fv_ivar_psi, dxyz_gpu, flx_f_gpu, fly_f_gpu, &
+                                              flz_f_gpu, q_gpu, dq_gpu)
+   !< Conservative flux difference + J source + phi/psi damping.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+   integer(I4P), intent(in)    :: nv_c
+   integer(I4P), intent(in)    :: var_jx, var_jy, var_jz, fv_ivar_phi, fv_ivar_psi
+   real(R8P),    intent(in)    :: chi_damp, c_r
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P)                   :: dxb, dyb, dzb, min_h, damping_coeff
+   integer(I4P)                :: i, j, k, b, v
+
+   !$acc parallel loop independent gang vector collapse(4)                              &
+   !$acc& DEVICEVAR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)            &
+   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_damp, c_r, &
+   !$acc&              fv_ivar_phi, fv_ivar_psi)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      dxb = dxyz_gpu(b,1) ; dyb = dxyz_gpu(b,2) ; dzb = dxyz_gpu(b,3)
+      !$acc loop seq
+      do v=1, nv_c
+         dq_gpu(b,i,j,k,v) = - (flx_f_gpu(b,i,j,k,v) - flx_f_gpu(b,i-1,j,k,v)) / dxb &
+                             - (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dyb &
+                             - (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dzb
+      enddo
+      dq_gpu(b,i,j,k,VAR_DX) = dq_gpu(b,i,j,k,VAR_DX) - q_gpu(b,i,j,k,var_jx)
+      dq_gpu(b,i,j,k,VAR_DY) = dq_gpu(b,i,j,k,VAR_DY) - q_gpu(b,i,j,k,var_jy)
+      dq_gpu(b,i,j,k,VAR_DZ) = dq_gpu(b,i,j,k,VAR_DZ) - q_gpu(b,i,j,k,var_jz)
+      if (c_r > 0._R8P) then
+         min_h = min(dxb, min(dyb, dzb))
+         damping_coeff = chi_damp / (c_r * min_h)
+         dq_gpu(b,i,j,k,fv_ivar_phi) = dq_gpu(b,i,j,k,fv_ivar_phi) - damping_coeff * q_gpu(b,i,j,k,fv_ivar_phi)
+         dq_gpu(b,i,j,k,fv_ivar_psi) = dq_gpu(b,i,j,k,fv_ivar_psi) - damping_coeff * q_gpu(b,i,j,k,fv_ivar_psi)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine fv_flux_diff_phi_psi_dev_kernel
 
    subroutine accumulate_seam_fluxes_fv_dev(self, flux_register)
    !< Accumulate end-of-step FV seam face fluxes into the forest's flux register —
@@ -2412,8 +3454,6 @@ contains
    !call self%compute_residuals_dev(q=self%q, dq=self%dq) !< Calcolo i residui relativi ai campi E e B
    !call self%save_residuals
 
-   !!Qua ci va la chiamata alla subroutine che calcola i resiudi delle particellle dq_pic
-
    !call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
 
    !!Qua ci va la chiamata alla subroutine che integra aggiornando le velocita e le posizioni delle particelle
@@ -2422,6 +3462,65 @@ contains
    !call self%impose_div_free
    !!call self%apply_fWL_correction
    endsubroutine integrate_leapfrog_pic
+
+   subroutine integrate_rk_ssp_pic(self)
+   !< Integrate PIC equations with SSP RK on device.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: s    !< Counter.
+
+   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
+   call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
+
+   do s=1, self%rk%nrk
+      if (self%ib%solids_number>0) then
+         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, &
+                                        phi_gpu=self%ib_fnl%phi_gpu)
+      else
+         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
+      endif
+      call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
+
+      call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                          grid=self%adam%grid, q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s))
+      call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                              q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                              q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+      call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
+      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+      if (s==1) call self%save_residuals
+
+      call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                            pic_fields_gpu=self%pic_fnl%pic_fields_gpu, &
+                                            q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                            q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+
+      if (self%ib%solids_number>0) then
+         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
+                                       phi_gpu=self%ib_fnl%phi_gpu)
+      else
+         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
+      endif
+      call self%rk_pic_fnl%assign_stage(s=s, pic_fields_gpu=self%pic_fnl%pic_fields_gpu)
+   enddo
+
+   if (self%ib%solids_number>0) then
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
+                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+   else
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   endif
+   call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+
+   call self%apply_fwl_correction(q_gpu=self%q_gpu)
+   call self%impose_div_free
+   call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                       grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                           q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+   call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                            q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+   call self%compute_coils_current(q_gpu=self%q_gpu)
+   endsubroutine integrate_rk_ssp_pic
 
    subroutine integrate_rk_ls_dev(self)
    !< Integrate equation, time operator, RK classical low storage schemes.
@@ -2443,6 +3542,8 @@ contains
                                            dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
       endif
    enddo
+   call self%apply_fwl_correction(q_gpu=self%q_gpu)
+   call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
    endsubroutine integrate_rk_ls_dev
 
@@ -2833,6 +3934,7 @@ contains
       call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
       call self%save_residuals
    endif
+   call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
@@ -3401,34 +4503,40 @@ contains
    !< Compute maximum divergence.
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    real(R8P)                              :: max_div(3) !< Maximum divergence.
+   integer(I4P), allocatable              :: fwl_cells(:,:) !< Block-local fWLayer cell counts; zero when layer is disabled.
+
+   allocate(fwl_cells(1:self%blocks_number,1:6))
+   fwl_cells = 0_I4P
+   if (allocated(self%fWLayer%C)) fwl_cells = self%fWLayer%C(1:self%blocks_number,1:6)
 
 	call compute_max_divergence_dev_kernel(ni            = self%ni                  ,&
                                           nj            = self%nj                  ,&
                                           nk            = self%nk                  ,&
                                           blocks_number = self%blocks_number       ,&
-														ngc           = self%ngc                 ,&
+															ngc           = self%ngc                 ,&
                                           var_jx        = self%physics%var_jx      ,&
                                           var_jy        = self%physics%var_jy      ,&
                                           var_jz        = self%physics%var_jz      ,&
                                           s1            = self%fdv_half_stencils(1),&
-                                          fwl_c         = self%fWLayer%C            ,&
+                                          fwl_c         = fwl_cells                ,&
                                           dxyz_gpu      = self%field_fnl%dxyz_gpu  ,&
                                           q_gpu         = self%q_gpu               ,&
                                           max_div       = max_div)
+   deallocate(fwl_cells)
 
 	self%max_divergence_D = max_div(1)
 	self%max_divergence_B = max_div(2)
 	self%max_divergence_J = max_div(3)
    contains
       subroutine compute_max_divergence_dev_kernel(ni, nj, nk, blocks_number, ngc, &
-                                                   var_Jx, var_Jy, var_Jz, s1, fwl_c, 	  &
+                                                   var_Jx, var_Jy, var_Jz, s1, fwl_c,     &
                                                    dxyz_gpu, q_gpu, max_div)
 
 			!< Compute maximum divergence of D, B and J fields, device kernel.
 			integer(I4P), intent(in)  :: ni, nj, nk, blocks_number, ngc        !< Grids dimensions.
 			integer(I4P), intent(in)  :: var_Jx, var_Jy, var_Jz                !< Current variables indices.
 			integer(I4P), intent(in)  :: s1                                    !< FDV half stencil.
-			integer(I4P), intent(in)  :: fwl_c                                 !< fWLayer cell count C (issue #26/#31 CPU-parity: skin exclusion).
+				integer(I4P), intent(in)  :: fwl_c(1:,1:)                          !< fWLayer cell counts [nb,6].
 			real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Delta cells GPU [nb,3].
 			real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
 			real(R8P),    intent(out) :: max_div(3)                            !< Maximum divergence of D, B and J fields.
@@ -3441,35 +4549,34 @@ contains
 			real(R8P)                 :: max_divD, max_divB, max_divJ			 !< Maximum divergence of D, B and J fields.
 			real(R8P)                 :: dxyz_b(3)                             !< Per-block deltas, PRIVATE copy (no strided-section temp: issue #22 F1-bis).
 			integer(I4P)              :: i,j,k,b,s                             !< Counter.
-			integer(I4P)              :: r, lo, hi_i, hi_j, hi_k               !< fWLayer skin-exclusion bounds (CPU-parity).
+				integer(I4P)              :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k    !< fWLayer skin-exclusion bounds (CPU-parity).
 
-			! CPU-parity (issue #31 / #26): exclude the fWLayer skin (C+s1 cells per face)
-			! from the reported maximum when a fWLayer is present. r = nint(C/(C+1)) is 1
-			! when C>0, 0 when C=0 (no fWLayer ⇒ full interior, unchanged). Mirrors the CPU
-			! post_step_forest max region 1+r*(C+hs) : n-r*(C+hs-1).
-			r    = nint(real(fwl_c, R8P) / (real(fwl_c, R8P) + 1.0_R8P), I4P)
-			lo   = 1_I4P + r*(fwl_c + s1)
-			hi_i = ni - r*(fwl_c + s1 - 1_I4P)
-			hi_j = nj - r*(fwl_c + s1 - 1_I4P)
-			hi_k = nk - r*(fwl_c + s1 - 1_I4P)
-
-			max_divD = 0.0_R8P
-			max_divB = 0.0_R8P
-			max_divJ = 0.0_R8P
-	      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
-         !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                      &
-         !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b)			 	 &
-			!$acc& reduction(max: max_divD, max_divB, max_divJ)
-         !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
-         !$omp& firstprivate(var_jx,var_jy,var_jz,s1) &
-         !$omp& private(qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,divergenceJ) &
-         !$omp& reduction(max: max_divD, max_divB, max_divJ)
-         do b=1,blocks_number
-         do k=1,nk
-         do j=1,nj
-         do i=1,ni
-            dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
-            ! Buffer-free divergences (issue #22 F1-bis): the former private stencil
+				max_divD = 0.0_R8P
+				max_divB = 0.0_R8P
+				max_divJ = 0.0_R8P
+		      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) copyin(fwl_c) &
+	         !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                               &
+	         !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b,lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
+				!$acc& reduction(max: max_divD, max_divB, max_divJ)
+		      !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) map(to:fwl_c) &
+	         !$omp& firstprivate(var_jx,var_jy,var_jz,s1)                                               &
+	         !$omp& private(divergenceD,divergenceB,divergenceJ,dxyz_b,lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
+				!$omp& reduction(max: max_divD, max_divB, max_divJ)
+	         do b=1,blocks_number
+	         do k=1,nk
+	         do j=1,nj
+	         do i=1,ni
+	            dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+               lo_i = 1_I4P ; hi_i = ni
+               lo_j = 1_I4P ; hi_j = nj
+               lo_k = 1_I4P ; hi_k = nk
+               if (fwl_c(b,1) > 0_I4P) lo_i = 1_I4P + fwl_c(b,1) + s1
+               if (fwl_c(b,2) > 0_I4P) hi_i = ni - (fwl_c(b,2) + s1 - 1_I4P)
+               if (fwl_c(b,3) > 0_I4P) lo_j = 1_I4P + fwl_c(b,3) + s1
+               if (fwl_c(b,4) > 0_I4P) hi_j = nj - (fwl_c(b,4) + s1 - 1_I4P)
+               if (fwl_c(b,5) > 0_I4P) lo_k = 1_I4P + fwl_c(b,5) + s1
+               if (fwl_c(b,6) > 0_I4P) hi_k = nk - (fwl_c(b,6) + s1 - 1_I4P)
+	            ! Buffer-free divergences (issue #22 F1-bis): the former private stencil
             ! buffers of this CONTAINED kernel were mis-privatized by nvfortran even
             ! with constant bounds (threads bled each other's fills: div(J) tracked
             ! div(D) with J identically zero, nondeterministically, seam-only because
@@ -3490,12 +4597,12 @@ contains
                                                        + (q_gpu(b,i,j+s,k,var_Jy) - q_gpu(b,i,j-s,k,var_Jy))/dxyz_b(2)  &
                                                        + (q_gpu(b,i,j,k+s,var_Jz) - q_gpu(b,i,j,k-s,var_Jz))/dxyz_b(3))
             enddo
-            ! fWLayer-skin exclusion (CPU-parity): only interior-of-skin cells contribute
-            ! to the reported max. For C=0 (r=0) lo=1, hi=n ⇒ full interior (no change).
-            if (i >= lo .and. i <= hi_i .and. j >= lo .and. j <= hi_j .and. k >= lo .and. k <= hi_k) then
-               max_divD = max(max_divD, abs(divergenceD))
-               max_divB = max(max_divB, abs(divergenceB))
-               max_divJ = max(max_divJ, abs(divergenceJ))
+	            ! fWLayer-skin exclusion (CPU-parity): only cells outside the local block's
+	            ! layer skin contribute to the reported maximum.
+	            if (i >= lo_i .and. i <= hi_i .and. j >= lo_j .and. j <= hi_j .and. k >= lo_k .and. k <= hi_k) then
+	               max_divD = max(max_divD, abs(divergenceD))
+	               max_divB = max(max_divB, abs(divergenceB))
+	               max_divJ = max(max_divJ, abs(divergenceJ))
             endif
          enddo
          enddo
@@ -3507,7 +4614,7 @@ contains
 		endsubroutine compute_max_divergence_dev_kernel
 	endsubroutine compute_max_divergence
 
-   subroutine impose_ct_correction(self, ivar)
+   subroutine impose_ct_correction_dev(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
    !< Note that self%divergence memory is used as buffer, be carefull.
    class(prism_fnl_object), intent(inout) :: self   !< The equation.
@@ -3567,7 +4674,7 @@ contains
          enddo
       enddo
       endsubroutine impose_ct_correction_kernel
-   endsubroutine impose_ct_correction
+   endsubroutine impose_ct_correction_dev
 
    subroutine impose_div_free(self)
    !< Impose divergence-free property.
@@ -3575,8 +4682,8 @@ contains
 
    associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
              constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
-   if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
-   if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
+   if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction_dev(ivar=1_I4P)
+   if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction_dev(ivar=4_I4P)
    ! here should go also other corrections...
    endassociate
    endsubroutine impose_div_free

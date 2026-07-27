@@ -37,9 +37,6 @@ public :: NUM_SCHEME_TIME_PIC_LEAPFROG
 public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
 public :: STANDARD_INITIALIZATION
 public :: COHERENT_INITIALIZATION
-public :: NEUMANN_BC
-public :: DIRICHLET_BC
-public :: ANALYTIC_BC
 !public :: CIC_charge_weighting
 !public :: NGP_charge_weighting
 !public :: TSC_charge_weighting
@@ -53,9 +50,6 @@ character(len=3 ), parameter :: INI_SECTION_NAME                 = 'PIC'        
 character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'           !< Analyzing physical problem involving the presence of plasma
 character(len=8 ), parameter :: STANDARD_INITIALIZATION          = 'standard'         !< Field initialization through elliptic solver wuth standard laplacian scheme (7-points)
 character(len=8 ), parameter :: COHERENT_INITIALIZATION          = 'coherent'         !< Field initialization through elliptic solver wuth laplacian scheme coherent with centerd difference scheme (implemented only for 6th order)
-character(len=7 ), parameter :: NEUMANN_BC                       = 'neumann'          !< Neumann boundary condition
-character(len=9 ), parameter :: DIRICHLET_BC                     = 'dirichlet'        !< Dirichlet boundary condition
-character(len=5 ), parameter :: ANALYTIC_BC                      = 'analytic'         !< Analytic boundary condition
 character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle'  !< Analyzing physical problem involving the presence of a single particle
 character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'              !< NGP weighting model.
 character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'              !< CIC weighting model.
@@ -102,12 +96,10 @@ type :: prism_pic_object
 	integer(I4P)				  :: n_electrons = 0_I4P         !< Total electrons number
 	integer(I4P)				  :: n_neutrals = 0_I4P          !< Total neutrals number
    integer(I4P), allocatable :: neighbour_list(:,:)         !< Particle grid positions array.
-   character(len=99)         :: problem_type                !< Type of problem analyzed
-   character(len=99)         :: plasma_domain               !< Domain of plasma at t0
-   character(len=99)         :: initialization              !< field initialization solver
-   character(len=99)         :: bc_solver                   !< boundary conditions for the elliptic solver for initial conditions
+   character(len=99)         :: problem_type = ''           !< Type of problem analyzed
+   character(len=99)         :: plasma_domain = ''          !< Domain of plasma at t0
+   character(len=99)         :: initialization = ''         !< field initialization solver
    logical                   :: elliptic_correction=.false. !< elliptic correction for the initial fields
-   character(len=99)         :: bc_correction               !< boundary conditions for the elliptic correction
    character(len=99)         :: particle_weighting_model    !< Particle weighting model.
    character(len=99)         :: current_weighting_model     !< Current weighting model.
    character(len=99)         :: field_weighting_model       !< Field weighting model.
@@ -182,6 +174,22 @@ interface
 endinterface
 
 contains
+   pure function sanitize_ini_token(value) result(clean)
+   !< Normalize INI string tokens read through FiNeR on all compilers/backends.
+   character(*), intent(in) :: value
+   character(len=len(value)) :: clean
+   integer(I4P) :: i
+
+   clean = adjustl(value)
+   do i = 1, len(clean)
+      if (iachar(clean(i:i)) < 32) then
+         clean(i:) = ' '
+         exit
+      endif
+   enddo
+   clean = trim(clean)
+   endfunction sanitize_ini_token
+
    function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(prism_pic_object), intent(in) :: self             !< External fields.
@@ -190,8 +198,8 @@ contains
 
    desc =            mpih%myrankstr//'PIC object description:'
    desc = desc//NL//mpih%myrankstr//'    Problem type: '//trim(self%problem_type)
-   desc = desc//NL//mpih%myrankstr//'    Plasma initial domain: '//trim(self%plasma_domain)
    if (self%problem_type == PLASMA_TYPE_PROBLEM) then
+      desc = desc//NL//mpih%myrankstr//'    Plasma initial domain: '//trim(self%plasma_domain)
       desc = desc//NL//mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
       desc = desc//NL//mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
       if (self%plasma_domain == UNIFORM_CILINDER) then
@@ -208,11 +216,7 @@ contains
       !desc = desc//NL//mpih%myrankstr//'    of which neutrals: '//trim(str(self%n_neutrals))
    endif
    desc = desc//NL//mpih%myrankstr//'    Initialization type: '//trim(self%initialization)
-   desc = desc//NL//mpih%myrankstr//'    Bc elliptic solver: '//trim(self%bc_solver)
    desc = desc//NL//mpih%myrankstr//'    Elliptic correction: '//trim(str(self%elliptic_correction))
-   if (self%elliptic_correction) then
-      desc = desc//NL//mpih%myrankstr//'    Bc elliptic correction: '//trim(self%bc_correction)
-   endif
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
    if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
@@ -334,18 +338,22 @@ contains
 
 	go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
+   buff = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='problem_type', &
-   val=self%problem_type, error=error)
+   val=buff, error=error)
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
+   self%problem_type = sanitize_ini_token(buff)
 
    if(self%problem_type == PLASMA_TYPE_PROBLEM) then
+      buff = ''
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_domain', &
       val=buff, error=error)
       if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_domain)')
+      buff = sanitize_ini_token(buff)
 
-      select case(trim(adjustl(buff)))
+      select case(trim(buff))
       case('uniform', 'Uniform', 'UNIFORM', 'uniform_domain', 'all', 'full', 'Full', 'FULL')
          self%plasma_domain = UNIFORM_DOMAIN
       case('Cilinder', 'cilinder', 'CILINDER', 'uniform_cilinder', 'UNIFORM_CILINDER')
@@ -398,32 +406,24 @@ contains
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
    endif
 
+   buff = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='initialization', &
-   val=self%initialization, error=error)
+   val=buff, error=error)
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(initialization)')
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bc_solver', &
-   val=self%bc_solver, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bc_solver)')
+   self%initialization = sanitize_ini_token(buff)
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='elliptic_correction', &
    val=self%elliptic_correction, error=error)
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(elliptic_correction)')
 
-   if (self%elliptic_correction) then
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bc_correction', &
-      val=self%bc_correction, error=error)
-      if (.not.go_on_fail_.and.error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bc_correction)')
-   endif
-
+   buff = ''
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_weighting_model) from file')
-   select case(trim(adjustl(buff)))
+   buff = sanitize_ini_token(buff)
+   select case(trim(buff))
    case('CIC', 'cic', 'Cic')
       self%particle_weighting_model = CIC_WEIGHTING_MODEL
 	case('NGP', 'ngp', 'Ngp')
@@ -439,14 +439,16 @@ contains
    case('GAUSSIAN', 'Gaussian', 'gaussian', 'GAUSS', 'gauss')
       self%particle_weighting_model = GAUSSIAN_WEIGHTING_MODEL
 	case default
-		call mpih%error_stop(msg=': invalid particle weighting model ['//trim(adjustl(buff))//'] in  &
+		call mpih%error_stop(msg=': invalid particle weighting model ['//trim(buff)//'] in  &
       ['//INI_SECTION_NAME//'].(particle_weighting_model)')
 	endselect
 
+   buff = ''
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='current_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(current_weighting_model) from file')
-   select case(trim(adjustl(buff)))
+   buff = sanitize_ini_token(buff)
+   select case(trim(buff))
    case('CIC', 'cic', 'Cic')
       self%current_weighting_model = CIC_WEIGHTING_MODEL
 	case('NGP', 'ngp', 'Ngp')
@@ -462,7 +464,7 @@ contains
    case('GAUSSIAN', 'Gaussian', 'gaussian', 'GAUSS', 'gauss')
       self%current_weighting_model = GAUSSIAN_WEIGHTING_MODEL
 	case default
-		call mpih%error_stop(msg=': invalid current weighting model ['//trim(adjustl(buff))//'] in  &
+		call mpih%error_stop(msg=': invalid current weighting model ['//trim(buff)//'] in  &
       ['//INI_SECTION_NAME//'].(current_weighting_model)')
 	endselect
 
@@ -479,10 +481,12 @@ contains
          call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cutoff_sigma)')
    endif
 
+   buff = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='field_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(field_weighting_model) from file')
-   select case(trim(adjustl(buff)))
+   buff = sanitize_ini_token(buff)
+   select case(trim(buff))
    case('0D', '0d', '0_d', '0_D')
       self%field_weighting_model = ZEROD_FIELDS_WEIGHTING_MODEL
    case('1D', '1d', '1_d', '1_D')
@@ -498,19 +502,21 @@ contains
    case('GAUSSIAN', 'Gaussian', 'gaussian', 'GAUSS', 'gauss')
       self%field_weighting_model = GAUSSIAN_WEIGHTING_MODEL
    case default
-      call mpih%error_stop(msg=': invalid field weighting model ['//trim(adjustl(buff))//'] in  &
+      call mpih%error_stop(msg=': invalid field weighting model ['//trim(buff)//'] in  &
       ['//INI_SECTION_NAME//'].(field_weighting_model)')
    endselect
 
+   buff = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
-   select case(trim(adjustl(buff)))
+   buff = sanitize_ini_token(buff)
+   select case(trim(buff))
    case('LEAPFROG', 'leapfrog', 'Leapfrog')
       self%scheme_time = NUM_SCHEME_TIME_PIC_LEAPFROG
    case('RUNGE_KUTTA', 'runge_kutta', 'Runge_Kutta')
       self%scheme_time = NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
    case default
-      call mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to RK scheme')
+      call mpih%print_message(msg='warning: numerical scheme "'//trim(buff)//'" unknown. Revert back to RK scheme')
       self%scheme_time = NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
    endselect
    endsubroutine load_from_file

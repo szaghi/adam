@@ -793,7 +793,7 @@ contains
 	!if(.not.space_pairing) then
 		do i = 1, n_ions
 			call space_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
-			r_p     = r_n(1)*(Radius)
+			r_p     = sqrt(r_n(1))*(Radius)
 			theta_p = r_n(2)*(2*PI)
 			axial_p = -length/2+r_n(3)*(length)
          call cylindrical_to_cartesian(r=r_p, theta=theta_p, axial=axial_p, x_c=xyz_c(1), y_c=xyz_c(2), &
@@ -806,7 +806,7 @@ contains
 		enddo
 		do i = 1, n_electrons
 			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
-			r_p     = r_n(1)*(Radius)
+			r_p     = sqrt(r_n(1))*(Radius)
 			theta_p = r_n(2)*(2*PI)
 			axial_p = -length/2+r_n(3)*(length)
          call cylindrical_to_cartesian(r=r_p, theta=theta_p, axial=axial_p, x_c=xyz_c(1), y_c=xyz_c(2), &
@@ -819,7 +819,7 @@ contains
 		enddo
 		do i = 1, n_neutrals
 			call space_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
-			r_p     = r_n(1)*(Radius)
+			r_p     = sqrt(r_n(1))*(Radius)
 			theta_p = r_n(2)*(2*PI)
 			axial_p = -length/2+r_n(3)*(length)
          call cylindrical_to_cartesian(r=r_p, theta=theta_p, axial=axial_p, x_c=xyz_c(1), y_c=xyz_c(2), &

@@ -19,6 +19,10 @@ fobis build --mode test-fdv-operators-step-gnu
 mpirun -np <N> exe/<test_executable>
 ```
 
+## Regression Tests
+
+The [PRISM regression suite](./prism-regression) is the structural-change baseline for the Maxwell/EM solver: CI-tuned two-rank cases run on both the CPU and FNL (GPU) backends, compared tolerance-aware against committed field-digest and residuals goldens. It covers the forest multi-realm seam machinery (α/β cadence, inter-realm 1:1 mirror seams), the intra-realm 2:1 AMR seams (with `check.sh`-driven `div(B)` oracles), reflux, and the fWLayer. See the [Forest guide](../guide/forest) for the seam machinery itself.
+
 ## Integration Tests
 
 NASTO integration tests with known CFD benchmarks:
