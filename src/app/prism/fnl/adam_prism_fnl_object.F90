@@ -41,7 +41,6 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(rk_fnl_object)            :: rk_fnl      !< GPU Runge-Kutta integrator.
    type(weno_fnl_object)          :: weno_fnl    !< GPU WENO reconstructor.
    type(prism_fnl_coil_object)    :: coil_fnl    !< GPU coil source.
-   type(prism_fnl_fwlayer_object) :: fwlayer_fnl !< GPU fWLayer.
    type(prism_fnl_leapfrog_pic_object) :: leapfrog_pic_fnl !< GPU PIC leapfrog integrator.
    type(prism_fnl_pic_object)     :: pic_fnl     !< GPU PIC support state.
    type(prism_fnl_rk_pic_object)  :: rk_pic_fnl  !< GPU PIC RK integrator.
@@ -3670,6 +3669,20 @@ contains
       self%time%it = 0
       call mpih_fnl%print_message('impose initial conditions finish')
    endif
+
+   associate(hs => self%fdv_half_stencils(1))
+   call self%compute_divergence(hs=hs, ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=1_I4P, q=self%q(VAR_BX:VAR_BZ,:,:,:,:), divergence=self%divergence(2,:,:,:,:))
+   endassociate
+   call mpih_fnl%print_message('Initial conditions setting completed')
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      call mpih_fnl%print_message('   max div(D) at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      ind = size(self%q(:,1,1,1,1))
+      call mpih_fnl%print_message('   max div(D)-rho at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
+   endif
+   call mpih_fnl%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+
    call self%update_ghost(q_gpu=self%q_gpu)
 
    call mpih_fnl%print_message('Coils initialization values')
@@ -3703,7 +3716,7 @@ contains
       call mpih_fnl%print_message('   max div(D)-rho at t0 after update ghost='// &
                                   trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
    endif
-   call mpih_fnl%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+   call mpih_fnl%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
