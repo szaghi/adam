@@ -86,6 +86,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
       procedure, pass(self) :: initialize               !< Initialize the equation common data.
       procedure, pass(self) :: initialize_pic_time_zero !< Host-side PIC particle injection plus charge/current deposition at t=0.
+      procedure, pass(self) :: verify_no_pic_deposition_on_coils !< Guard against PIC deposition on coil cells.
       procedure, pass(self) :: weight_pic_fields_time_zero !< Host-side PIC field interpolation at t=0.
       ! IO methods
       procedure, pass(self) :: load_restart_files      !< Load restart files.
@@ -432,7 +433,66 @@ contains
 
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
+                                               context='initialize_pic_time_zero')
    endsubroutine initialize_pic_time_zero
+
+   subroutine verify_no_pic_deposition_on_coils(self, q, check_current, check_charge, context)
+   !< Ensure PIC deposition does not populate cells carrying analytic coil current.
+   class(prism_common_object), intent(in)              :: self                  !< The equation.
+   real(R8P),                  intent(in)              :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Deposited field.
+   logical,                    intent(in),    optional :: check_current         !< Check Jx/Jy/Jz overlap.
+   logical,                    intent(in),    optional :: check_charge          !< Check rho overlap.
+   character(*),               intent(in),    optional :: context               !< Call-site label.
+   logical                                           :: do_current            !< Check current overlap.
+   logical                                           :: do_charge             !< Check charge overlap.
+   logical                                           :: overlap_current       !< Current overlap found.
+   logical                                           :: overlap_charge        !< Charge overlap found.
+   logical                                           :: has_coil              !< Analytic coil support at cell.
+   character(len=:), allocatable                     :: context_              !< Context label, local copy.
+   integer(I4P)                                      :: i, j, k, b           !< Counters.
+   integer(I4P)                                      :: nv_q                  !< Runtime q width.
+
+   do_current = .false. ; if (present(check_current)) do_current = check_current
+   do_charge  = .false. ; if (present(check_charge )) do_charge  = check_charge
+   if ((.not. do_current) .and. (.not. do_charge)) return
+   if (self%coil%total_coils_number <= 0_I4P) return
+
+   context_ = 'PIC deposition'
+   if (present(context)) context_ = trim(context)
+
+   overlap_current = .false.
+   overlap_charge  = .false.
+   nv_q = int(size(q, dim=1), I4P)
+
+   scan_cells: do b=1, self%blocks_number
+      do k=1-self%ngc, self%nk+self%ngc
+         do j=1-self%ngc, self%nj+self%ngc
+            do i=1-self%ngc, self%ni+self%ngc
+               has_coil = any(self%coil%J_vec(:,i,j,k,b,:) /= 0._R8P)
+               if (.not. has_coil) cycle
+               if (do_current) then
+                  overlap_current = (q(self%physics%var_Jx,i,j,k,b) /= 0._R8P) .or. &
+                                    (q(self%physics%var_Jy,i,j,k,b) /= 0._R8P) .or. &
+                                    (q(self%physics%var_Jz,i,j,k,b) /= 0._R8P)
+                  if (overlap_current) exit scan_cells
+               endif
+               if (do_charge) then
+                  overlap_charge = q(nv_q,i,j,k,b) /= 0._R8P
+                  if (overlap_charge) exit scan_cells
+               endif
+            enddo
+         enddo
+      enddo
+   enddo scan_cells
+
+   if (overlap_current) then
+      call mpih%error_stop(msg=': '//trim(context_)//' deposited plasma current on a coil cell')
+   endif
+   if (overlap_charge) then
+      call mpih%error_stop(msg=': '//trim(context_)//' deposited plasma charge on a coil cell')
+   endif
+   endsubroutine verify_no_pic_deposition_on_coils
 
    subroutine weight_pic_fields_time_zero(self)
    !< Interpolate initialized fields at particle positions at t=0.
@@ -494,11 +554,14 @@ contains
    real(R8P),                  intent(in)           :: div_D       !< Maximum of divergence of D field.
    real(R8P),                  intent(in)           :: div_B       !< Maximum of divergence of B
    real(R8P),                  intent(in)           :: div_J       !< Maximum of divergence of J field.
+   character(len=:), allocatable                    :: div_D_name  !< Header label for the first divergence monitor.
 
    if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
+      div_D_name = 'D_divergence'
+      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) div_D_name = 'D_divergence_minus_rho'
       call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
-                                           div_D=div_D,div_B=div_B,div_J=div_J,is_to_open=is_to_open,            &
-                                           is_to_close=is_to_close)
+                                           div_D=div_D,div_B=div_B,div_J=div_J,div_D_name=div_D_name,           &
+                                           is_to_open=is_to_open,is_to_close=is_to_close)
    endif
    ! Seam div(B) guard-rail (issue #29 — accept-truncation resolution). The 2:1 AMR seam
    ! injects an O(h^p) div(B) source, refinement-convergent but UNBOUNDED in t at fixed h;

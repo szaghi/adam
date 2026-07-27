@@ -1730,10 +1730,12 @@ contains
    real(R8P),               intent(out) :: max_div_J
    integer(I4P)                         :: b
    integer(I4P)                         :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k
+   integer(I4P)                         :: rho_ivar
 
    max_div_D = 0._R8P
    max_div_B = 0._R8P
    max_div_J = 0._R8P
+   rho_ivar = self%nv
    do b = 1, self%blocks_number
       lo_i = 1_I4P ; hi_i = self%ni
       lo_j = 1_I4P ; hi_j = self%nj
@@ -1747,7 +1749,14 @@ contains
          if (self%fWLayer%C(b,6) > 0_I4P) hi_k = self%nk - (self%fWLayer%C(b,6) + hs - 1_I4P)
       endif
       if (lo_i > hi_i .or. lo_j > hi_j .or. lo_k > hi_k) cycle
-      max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+         ! In PIC runs rho is appended as the last state variable, so the most useful
+         ! electric-field constraint monitor is max|div(D) - rho|.
+         max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b) - &
+                                               self%q(rho_ivar,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      else
+         max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      endif
       max_div_B = max(max_div_B, maxval(abs(self%divergence(2,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
       max_div_J = max(max_div_J, maxval(abs(self%divergence(3,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
    enddo
@@ -2626,6 +2635,8 @@ contains
    !< Maxwell source terms computation: particles and coils
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., &
+                                               context='integrate_leapfrog_pic(current)')
    call self%compute_coils_current(q=self%q)
    !< Maxwell residuals computation
    call self%compute_residuals(q=self%q, dq=self%dq)
@@ -2737,6 +2748,8 @@ contains
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
       call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
+      call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
+                                                  context='integrate_rk_ssp_pic(stage current)')
       call self%compute_coils_current(q=q_stage, gamma=self%rk%gamm(s))
       !Calcolo residui Maxwell
       call self%compute_residuals(q=q_stage, dq=self%dq, s=s)
@@ -2768,6 +2781,8 @@ contains
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
+                                               context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q=self%q)
    !call add_external_fields(self = self%external_fields, field = field, &
    !                        time = self%time%time, dt = self%time%dt, q = self%q)

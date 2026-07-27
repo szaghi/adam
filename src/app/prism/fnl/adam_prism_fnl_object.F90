@@ -92,6 +92,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! IC/BC/sources
       procedure, pass(self) :: apply_fwl_correction    !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current   !< Compute current coils sources.
+      procedure, pass(self) :: verify_no_pic_deposition_on_coils_dev !< Guard against PIC deposition on coil cells.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
@@ -766,6 +767,89 @@ contains
       enddo
       endsubroutine apply_j_vec_kernel
    endsubroutine compute_coils_current
+
+   subroutine verify_no_pic_deposition_on_coils_dev(self, q_gpu, check_current, check_charge, context)
+   !< Ensure device-side PIC deposition does not populate cells carrying analytic coil current.
+   class(prism_fnl_object), intent(in)              :: self                                               !< The equation.
+   real(R8P),               intent(in)              :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Deposited field.
+   logical,                 intent(in),    optional :: check_current                                      !< Check Jx/Jy/Jz overlap.
+   logical,                 intent(in),    optional :: check_charge                                       !< Check rho overlap.
+   character(*),            intent(in),    optional :: context                                            !< Call-site label.
+   logical                                         :: do_current                                          !< Check current overlap.
+   logical                                         :: do_charge                                           !< Check charge overlap.
+   character(len=:), allocatable                   :: context_                                            !< Context label, local copy.
+   integer(I4P)                                    :: overlap_current                                     !< Reduction flag for current overlap.
+   integer(I4P)                                    :: overlap_charge                                      !< Reduction flag for charge overlap.
+   integer(I4P)                                    :: nv_q                                                !< Runtime q width.
+
+   do_current = .false. ; if (present(check_current)) do_current = check_current
+   do_charge  = .false. ; if (present(check_charge )) do_charge  = check_charge
+   if ((.not. do_current) .and. (.not. do_charge)) return
+   if (self%coil%total_coils_number <= 0_I4P) return
+
+   context_ = 'PIC deposition'
+   if (present(context)) context_ = trim(context)
+
+   overlap_current = 0_I4P
+   overlap_charge  = 0_I4P
+   nv_q = int(size(q_gpu, dim=5), I4P)
+
+   if (do_current .or. do_charge) then
+      call verify_no_pic_deposition_on_coils_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,          &
+                                                        blocks_number=self%blocks_number, coils_number=self%coil%total_coils_number, &
+                                                        var_jx=self%physics%var_Jx, var_jy=self%physics%var_Jy, var_jz=self%physics%var_Jz, &
+                                                        nv_q=nv_q, do_current=merge(1_I4P,0_I4P,do_current),         &
+                                                        do_charge=merge(1_I4P,0_I4P,do_charge), j_vec_gpu=self%coil_fnl%j_vec_gpu, &
+                                                        q_gpu=q_gpu, overlap_current=overlap_current, overlap_charge=overlap_charge)
+   endif
+
+   if (overlap_current /= 0_I4P) then
+      call mpih_fnl%error_stop(msg=': '//trim(context_)//' deposited plasma current on a coil cell')
+   endif
+   if (overlap_charge /= 0_I4P) then
+      call mpih_fnl%error_stop(msg=': '//trim(context_)//' deposited plasma charge on a coil cell')
+   endif
+
+   contains
+      subroutine verify_no_pic_deposition_on_coils_dev_kernel(ni, nj, nk, ngc, blocks_number, coils_number,       &
+                                                              var_jx, var_jy, var_jz, nv_q, do_current, do_charge, &
+                                                              j_vec_gpu, q_gpu, overlap_current, overlap_charge)
+      !< Check overlap between PIC deposition and coil support on device.
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, coils_number       !< Grid / coil sizes.
+      integer(I4P), intent(in)    :: var_jx, var_jy, var_jz, nv_q                        !< Variable indexes.
+      integer(I4P), intent(in)    :: do_current, do_charge                               !< Integerized logicals.
+      real(R8P),    intent(in)    :: j_vec_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:)           !< Analytic coil support.
+      real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                  !< Deposited field.
+      integer(I4P), intent(inout) :: overlap_current, overlap_charge                     !< Host reduction flags.
+      integer(I4P)                :: b, i, j, k, n                                       !< Counters.
+      logical                     :: has_coil                                             !< Coil support at cell.
+
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(j_vec_gpu, q_gpu) &
+      !$acc& firstprivate(ni, nj, nk, ngc, blocks_number, coils_number, var_jx, var_jy, var_jz, nv_q, do_current, do_charge) &
+      !$acc& reduction(max: overlap_current, overlap_charge)
+      do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+      do i=1-ngc, ni+ngc
+         has_coil = .false.
+         !$acc loop seq
+         do n=1, coils_number
+            has_coil = has_coil .or. any(j_vec_gpu(b,i,j,k,1:3,n) /= 0._R8P)
+         enddo
+         if (.not. has_coil) cycle
+         if (do_current /= 0_I4P) then
+            if ((q_gpu(b,i,j,k,var_jx) /= 0._R8P) .or. (q_gpu(b,i,j,k,var_jy) /= 0._R8P) .or. &
+                (q_gpu(b,i,j,k,var_jz) /= 0._R8P)) overlap_current = 1_I4P
+         endif
+         if (do_charge /= 0_I4P) then
+            if (q_gpu(b,i,j,k,nv_q) /= 0._R8P) overlap_charge = 1_I4P
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine verify_no_pic_deposition_on_coils_dev_kernel
+   endsubroutine verify_no_pic_deposition_on_coils_dev
 
    subroutine set_boundary_conditions(self, q_gpu)
    !< Set boundary conditions of equation.
@@ -3465,6 +3549,8 @@ contains
       call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                               q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
                                               q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+      call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), check_current=.true., &
+                                                      context='integrate_rk_ssp_pic(stage current)')
       call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
@@ -3499,6 +3585,8 @@ contains
                                            q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
    call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                             q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+   call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
+                                                   context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ssp_pic
 
@@ -4495,10 +4583,15 @@ contains
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    real(R8P)                              :: max_div(3) !< Maximum divergence.
    integer(I4P), allocatable              :: fwl_cells(:,:) !< Block-local fWLayer cell counts; zero when layer is disabled.
+   integer(I4P)                           :: rho_ivar   !< Charge-density slot for PIC, appended at the end of q.
+   integer(I4P)                           :: use_rho    !< Integerized PIC flag for OpenACC firstprivate handling.
 
    allocate(fwl_cells(1:self%blocks_number,1:6))
    fwl_cells = 0_I4P
    if (allocated(self%fWLayer%C)) fwl_cells = self%fWLayer%C(1:self%blocks_number,1:6)
+   rho_ivar = self%nv
+   use_rho = 0_I4P
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) use_rho = 1_I4P
 
 	call compute_max_divergence_dev_kernel(ni            = self%ni                  ,&
                                           nj            = self%nj                  ,&
@@ -4508,6 +4601,8 @@ contains
                                           var_jx        = self%physics%var_jx      ,&
                                           var_jy        = self%physics%var_jy      ,&
                                           var_jz        = self%physics%var_jz      ,&
+                                          rho_ivar      = rho_ivar                 ,&
+                                          use_rho       = use_rho                  ,&
                                           s1            = self%fdv_half_stencils(1),&
                                           fwl_c         = fwl_cells                ,&
                                           dxyz_gpu      = self%field_fnl%dxyz_gpu  ,&
@@ -4520,14 +4615,16 @@ contains
 	self%max_divergence_J = max_div(3)
    contains
       subroutine compute_max_divergence_dev_kernel(ni, nj, nk, blocks_number, ngc, &
-                                                   var_Jx, var_Jy, var_Jz, s1, fwl_c,     &
+                                                   var_Jx, var_Jy, var_Jz, rho_ivar, use_rho, s1, fwl_c, &
                                                    dxyz_gpu, q_gpu, max_div)
 
 			!< Compute maximum divergence of D, B and J fields, device kernel.
 			integer(I4P), intent(in)  :: ni, nj, nk, blocks_number, ngc        !< Grids dimensions.
 			integer(I4P), intent(in)  :: var_Jx, var_Jy, var_Jz                !< Current variables indices.
+			integer(I4P), intent(in)  :: rho_ivar                              !< Charge-density slot for PIC.
+			integer(I4P), intent(in)  :: use_rho                               !< Integerized PIC flag.
 			integer(I4P), intent(in)  :: s1                                    !< FDV half stencil.
-				integer(I4P), intent(in)  :: fwl_c(1:,1:)                          !< fWLayer cell counts [nb,6].
+			integer(I4P), intent(in)  :: fwl_c(1:,1:)                          !< fWLayer cell counts [nb,6].
 			real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Delta cells GPU [nb,3].
 			real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
 			real(R8P),    intent(out) :: max_div(3)                            !< Maximum divergence of D, B and J fields.
@@ -4540,13 +4637,13 @@ contains
 			real(R8P)                 :: max_divD, max_divB, max_divJ			 !< Maximum divergence of D, B and J fields.
 			real(R8P)                 :: dxyz_b(3)                             !< Per-block deltas, PRIVATE copy (no strided-section temp: issue #22 F1-bis).
 			integer(I4P)              :: i,j,k,b,s                             !< Counter.
-				integer(I4P)              :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k    !< fWLayer skin-exclusion bounds (CPU-parity).
+			integer(I4P)              :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k    !< fWLayer skin-exclusion bounds (CPU-parity).
 
-				max_divD = 0.0_R8P
-				max_divB = 0.0_R8P
-				max_divJ = 0.0_R8P
+			max_divD = 0.0_R8P
+			max_divB = 0.0_R8P
+			max_divJ = 0.0_R8P
 		      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) copyin(fwl_c) &
-	         !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                               &
+	         !$acc& firstprivate(var_jx,var_jy,var_jz,rho_ivar,use_rho,s1)                             &
 	         !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b,lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
 				!$acc& reduction(max: max_divD, max_divB, max_divJ)
 	         do b=1,blocks_number
@@ -4584,6 +4681,7 @@ contains
                                                        + (q_gpu(b,i,j+s,k,var_Jy) - q_gpu(b,i,j-s,k,var_Jy))/dxyz_b(2)  &
                                                        + (q_gpu(b,i,j,k+s,var_Jz) - q_gpu(b,i,j,k-s,var_Jz))/dxyz_b(3))
             enddo
+            if (use_rho /= 0_I4P) divergenceD = divergenceD - q_gpu(b,i,j,k,rho_ivar)
 	            ! fWLayer-skin exclusion (CPU-parity): only cells outside the local block's
 	            ! layer skin contribute to the reported maximum.
 	            if (i >= lo_i .and. i <= hi_i .and. j >= lo_j .and. j <= hi_j .and. k >= lo_k .and. k <= hi_k) then
