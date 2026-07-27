@@ -890,7 +890,7 @@ contains
       ind = size(self%q(:,1,1,1,1))
       call mpih%print_message('   max div(D)-rho at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
    endif
-   call mpih%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+   call mpih%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q, step, s)
@@ -1009,7 +1009,7 @@ contains
       call mpih%print_message('   max div(D)-rho at t0 after update ghost='// &
                                     trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
    endif
-   call mpih%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+   call mpih%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
 
    call self%save_simulation_data
    call self%compute_energy
