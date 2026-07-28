@@ -246,7 +246,7 @@ The cadence × K matrix and both seam families are covered by cases under `src/t
 
 [issue #31]: https://github.com/szaghi/adam/issues/31
 
-**Intra-realm AMR-seam cases** (goldenless, driven by a bespoke `check.sh` div-oracle rather than a committed digest):
+**Intra-realm AMR-seam cases** (digest-goldened on both backends since `d15fed4c`, **and** driven by a bespoke `check.sh` div-oracle that `run.sh` does not invoke):
 
 | Case | Scheme | Oracle (`check.sh`) |
 |---|---|---|

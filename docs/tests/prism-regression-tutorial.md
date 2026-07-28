@@ -10,17 +10,17 @@ is the operational reference for golden capture and tolerances. **This page is
 the bring-up path**: from a bare checkout to a green `run.sh cpu`, then
 optionally to a green FNL/GPU run.
 
-::: danger Known-broken as of `96420ae4` (2026-07-27)
-Every case currently aborts at initialisation with
-`error stop : failed to load [fWLayer].(width)`, because commit `8e05d363`
-changed `[fWLayer]` from a cell-count `C` to a physical `width` without
-migrating the nine case `input.ini` files. `regression-prism-cpu` has been red
-in CI since.
+::: warning Expect one known failure (as of `cf16e20d`)
+A correct port currently reaches **6 PASS, 1 FAIL, 3 SKIP** on the CPU
+backend. The failure is `rmf-amr` — an unadjudicated behaviour change on the
+`fv_centered` path, not a porting problem — and `rmf-fwl` is still un-migrated
+from the old `[fWLayer] C` key, so it `error_stop`s if you force it to run.
 
-**This does not block a port.** Use the suite as your build/toolchain
-validation — reaching the `[fWLayer].(width)` error already proves the
-toolchain, HDF5, MPI and launch path are correct. Digest comparison only
-becomes meaningful once the inputs are migrated.
+When validating a new machine, judge the port on the **seven `fd` cases**:
+`rmf`, `rmf-2realm`, `rmf-2realm-asymK` and `rmf-2realm-stagesync` must PASS
+against their goldens, and `rmf-amr-fd` / `rmf-amr-fd-pulse` must pass their
+`check.sh` oracles. See the [suite page](./prism-regression) for the two open
+items.
 :::
 
 ## The dependency stack
@@ -231,13 +231,19 @@ would otherwise compile or document the Fortran test fixtures shipped inside
 
 ### Expected skips (not failures)
 
-`SKIP` is normal. Cases without a `golden/<backend>/` directory are not anchors
-and are skipped by design:
+`SKIP` is normal. A case with no `golden/<backend>/` directory is not an anchor
+on that backend and is skipped. On the CPU backend that is three cases:
 
-- `rmf-fwl` — FNL-goldened only; its CPU golden is pending a CI capture.
-- `rmf-2realm-fd-pulse` — no golden and no `check.sh`; a manual reproducer only.
-- `rmf-amr`, `rmf-amr-fd`, `rmf-amr-fd-pulse` — goldenless by design, driven by
-  their own `check.sh` oracle (Step 6), not by `run.sh`.
+- `rmf-fwl` — FNL-goldened only; its CPU golden is pending a CI capture (and it
+  is un-migrated from the old `[fWLayer] C` key, so it would `error_stop`).
+- `rmf-2realm-fd-pulse` — no golden and no `check.sh` on either backend; a
+  manual reproducer for [#31](https://github.com/szaghi/adam/issues/31) only.
+- one further case depending on your tree state.
+
+The three AMR-seam cases (`rmf-amr`, `rmf-amr-fd`, `rmf-amr-fd-pulse`) are
+**not** skipped: they carry digest goldens on both backends *and* a bespoke
+`check.sh` oracle. `run.sh` checks the goldens; the oracles are separate and
+must be run by hand (Step 6).
 
 ## Step 5 — Run the FNL (GPU) suite
 
@@ -282,8 +288,9 @@ hardware floor is one GPU, not two).
 
 ## Step 6 — Run the AMR-seam `check.sh` oracles
 
-Three cases are goldenless by design and assert a physics oracle instead of a
-committed digest. `run.sh` does **not** invoke them:
+Three cases assert a physics oracle **in addition to** their committed digest
+goldens. `run.sh` checks the goldens but does **not** invoke the oracles — run
+them by hand:
 
 ```bash
 cd src/tests/prism/regression
@@ -347,7 +354,7 @@ cp src/tests/prism/regression/<case>/work-fnl/digest.txt \
 | `ERROR: mpirun not on PATH` | 1 | load your MPI module before `run.sh` |
 | `ERROR: executable exe/adam_prism_* not found after build` | 3 | the build failed — scroll up; don't trust `--no-build` |
 | venv creation fails / `h5py` import error | 4 | system Python lacks `venv`; delete `exe/.regression-venv` and retry |
-| `error stop : failed to load [fWLayer].(width)` | 4 | the known suite breakage — see the banner at the top |
+| `error stop : failed to load [fWLayer].(width)` | 4 | the case's `input.ini` predates the `C` → `width` migration (`cf16e20d`). Expected for `rmf-fwl`, which is not yet migrated; for a research case under `cpu/`/`fnl/`, add `width = 0.0` (inactive) or the intended physical width |
 | `no '*-*.h5' checkpoints produced` | 4 | the solver aborted — read the run output; try a debug build |
 | SIGABRT in `ucp_proto_rndv_send_start` (FNL, np≥2) | 4 | WSL2 rendezvous bug — `UCX_RNDV_THRESH=inf` ([#12](https://github.com/szaghi/adam/issues/12)) |
 | Digest mismatch ~1e-9 on stable fields | — | expected cross-compiler noise, inside `rtol=1e-6`; not a failure |

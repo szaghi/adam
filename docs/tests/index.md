@@ -25,8 +25,8 @@ The [PRISM regression suite](./prism-regression) is the structural-change baseli
 
 To stand the suite up on a new machine, compiler, or GPU architecture, follow the [regression bring-up tutorial](./prism-regression-tutorial).
 
-::: danger Suite currently broken (`96420ae4`, 2026-07-27)
-All nine cases abort at initialisation with `error stop : failed to load [fWLayer].(width)` — commit `8e05d363` changed the `[fWLayer]` input key from a cell-count `C` to a physical `width` without migrating the case inputs. `regression-prism-cpu` has been red in CI since. See the [suite page](./prism-regression) for details.
+::: warning Current status (`cf16e20d`)
+The suite runs again after the `[fWLayer]` `C` → `width` input migration, but is not fully green: **6 PASS, 1 FAIL, 3 SKIP**. The `rmf-amr` failure is an unadjudicated FV-path behaviour change, and `rmf-fwl` is still un-migrated. See the [suite page](./prism-regression) for details.
 :::
 
 Research and development cases live separately under `src/tests/prism/<backend>/{fd,fv}/<family>/` — long integration times, full AMR, sized for physics validation. They are **not** regression anchors and `run.sh` never descends into them.

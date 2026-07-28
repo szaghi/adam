@@ -4,45 +4,52 @@ CI-tuned regression tests for the PRISM (Maxwell-equation) solver. Each case
 runs in roughly one minute and validates one backend against a committed golden
 output.
 
-> ## ⚠️ THE SUITE IS CURRENTLY BROKEN — every case fails at init
+> ## ⚠️ Current status — two open items
 >
-> As of `96420ae4` (2026-07-27) **all nine cases abort during initialisation**
-> with:
+> As of `cf16e20d` the suite runs again, but it is not fully green. Local CPU
+> sweep (gfortran 15.1, OpenMPI 5.0.7): **6 PASS, 1 FAIL, 3 SKIP**.
 >
-> ```
-> [mpi-00000]prism_fWLayer_object%initialize start
-> [mpi-00000]error stop : failed to load [fWLayer].(width)
-> ```
+> ### 1. `rmf-amr` digest mismatch — an unadjudicated FV-path change
 >
-> **Cause.** Commit `8e05d363` ("debug of fWL and divergence correction")
-> reworked `prism_fWLayer_object` to take a **physical** layer width
-> (`[fWLayer] width`, a real) instead of the old **cell-count** `C` (an
-> integer); `C` became a *derived* per-block/face array
-> (`C_face = min(ni, ceiling(width/ds))`,
-> `src/app/prism/common/adam_prism_fWLayer_object.F90:144`). The parser now
-> reads `width` and **only** `width` (`:189`), and `load_from_file` is called
+> `rmf-amr` is the **only** regression case on `scheme_space = fv_centered`;
+> every other case is `fd`. Its golden was captured at `d15fed4c`
+> (2026-07-04), and `28625dbf` ("fv tests, coils & PIC initialization on fv")
+> has since reworked FV coil initialisation by ~213 lines in
+> `adam_prism_common_object.F90`. The case's `input.ini` has changed only in
+> comments over that span, so the divergence is a **source-behaviour change on
+> the FV path**, not an input drift.
+>
+> The digest is not off by round-off: at the first saved checkpoint a
+> reduction that the golden records as exactly `0.0` now reads `~9.9E+03`, and
+> subsequent checkpoints diverge progressively. **Do not refresh this golden
+> reflexively** — decide first whether the new FV coil initialisation is
+> correct. If it is, this is a reviewer-approved golden bump; if not, it is a
+> bug the golden would otherwise enshrine.
+>
+> This regression was masked until `cf16e20d`: the fWLayer breakage below took
+> the whole suite down, so nothing was checking the FV path.
+>
+> ### 2. `rmf-fwl` is still un-migrated
+>
+> `8e05d363` reworked `prism_fWLayer_object` to take a **physical** width
+> (`[fWLayer] width`, a real) instead of the old **cell-count** `C`; `C` became
+> a *derived* per-block/face array (`C_face = min(ni, ceiling(width/ds))`,
+> `src/app/prism/common/adam_prism_fWLayer_object.F90:144`). The parser reads
+> `width` and **only** `width` (`:189`), and `load_from_file` is called
 > unconditionally from `initialize` (`:86`) with `go_on_fail` defaulting to
 > `.false.` — so a missing `width` is a hard `error_stop` **even when the case
 > uses no layer at all**.
 >
-> None of the nine regression `input.ini` files were migrated: all still carry
-> `C = ...` and none defines `width`. The CI job `regression-prism-cpu` has been
-> red on every commit since.
+> `cf16e20d` migrated the eight cases whose layer is inactive (`C = 0` →
+> `width = 0.0`; both mean "no layer", so goldens stayed valid). **`rmf-fwl`
+> was deliberately left out**: its layer is active (`C = 6` at `ni = 16` on
+> `[-0.16, 0.16]`, i.e. `ds = 0.02`, so nominally `width = 0.12`), and because
+> `C` is now derived through `ceiling` the translation is not guaranteed to
+> round-trip on refined blocks. It needs its own change with a **re-verified
+> (probably recaptured) FNL golden**.
 >
-> **Fix** (not yet applied — it changes case inputs and therefore golden
-> validity, so it is a deliberate, reviewer-approved act):
->
-> - For the eight cases with `C = 0` (no layer), replace it with `width = 0.0`.
->   The layer is inactive either way, so the physics — and the committed
->   goldens — are unchanged.
-> - For `rmf-fwl` the layer is **active** (`C = 6` cells at `ni = 16` on
->   `[-0.16, 0.16]`, i.e. `ds = 0.32/16 = 0.02`), so the equivalent physical
->   width is `6 * 0.02 = 0.12`. Because `C` is now derived via `ceiling`, an
->   exact round-trip is not guaranteed on refined blocks — **the `rmf-fwl` FNL
->   golden must be re-verified, and probably recaptured**, after the migration.
->
-> Until this is fixed, treat every statement below about "green" as describing
-> the suite's *design*, not its current state.
+> Until then `rmf-fwl` still carries `C` and therefore still `error_stop`s; it
+> is skipped by `run.sh` on the CPU backend anyway (no CPU golden).
 
 This suite is the **structural-change regression baseline** referenced by
 [issue #10][issue10] (forest-of-trees migration plan). Every step of that plan
@@ -405,14 +412,20 @@ the workstation that runs `run-fnl-local.sh` — there is no GPU CI to capture
 from. Whoever refreshes it must run on a known-good tree and review the digest
 diff before committing.
 
-## AMR seam cases (goldenless, `check.sh`-driven)
+## AMR seam cases (digest-goldened **and** `check.sh`-driven)
 
 `rmf-amr`, `rmf-amr-fd` and `rmf-amr-fd-pulse` carry a deterministic
-intra-realm 2:1 AMR jump (the `AMR_GEO` primitive-box marker) and are driven
-by their own `check.sh`, not by `run.sh` goldens. `rmf-amr` asserts the seam
-*structure* (registration, restriction, reflux plumbing, fv path);
-`rmf-amr-fd` and `rmf-amr-fd-pulse` assert the seam *divergence* behaviour of
-the fd_centered path.
+intra-realm 2:1 AMR jump (the `AMR_GEO` primitive-box marker). They are doubly
+covered: digest + residuals goldens exist for **both** backends (captured in
+issue #24, `d15fed4c`) and are checked by `run.sh` like any other case, **plus**
+a bespoke `check.sh` that asserts a physics oracle `run.sh` does not — run those
+by hand. `rmf-amr`'s oracle asserts the seam *structure* (registration,
+restriction, reflux plumbing, fv path); `rmf-amr-fd` and `rmf-amr-fd-pulse`
+assert the seam *divergence* behaviour of the fd_centered path.
+
+(Earlier revisions of this file described these three as "goldenless". That has
+been false since `d15fed4c`; the goldens are what `rmf-amr` is currently failing
+against — see the status banner at the top.)
 
 **The historical acceptance "seam max|div(B)| ≤ 1e-13" is RETIRED** (issue
 #21 §1, premise correction): no surveyed cell-centered method achieves

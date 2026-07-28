@@ -4,12 +4,13 @@ The `src/tests/prism/regression/` suite is the **structural-change regression ba
 
 This page is the conceptual overview. The authoritative operational reference — golden-capture workflow, CI-as-authority rules, tolerance rationale, adding a case — is the suite's own [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md); it is not duplicated here. To stand the suite up on a new machine, compiler, or GPU architecture, follow the [bring-up tutorial](./prism-regression-tutorial).
 
-::: danger Suite currently broken (as of `96420ae4`, 2026-07-27)
-**All nine cases abort at initialisation** with `error stop : failed to load [fWLayer].(width)`, and the `regression-prism-cpu` CI job has been red on every commit since.
+::: warning Current status — two open items (as of `cf16e20d`)
+The suite runs again after the `[fWLayer]` input migration, but is not fully green: **6 PASS, 1 FAIL, 3 SKIP** on a local CPU sweep.
 
-Commit `8e05d363` changed `[fWLayer]` from a cell-count `C` to a **physical** `width`, but none of the nine case `input.ini` files were migrated — and because `load_from_file` is called unconditionally with `go_on_fail = .false.`, the missing key is fatal *even for cases that use no layer*. The fix and its golden implications are described in the [suite README](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md).
+1. **`rmf-amr` digest mismatch.** It is the only case on `fv_centered`; its golden dates from `d15fed4c` (2026-07-04) and `28625dbf` has since reworked FV coil initialisation. The input changed only in comments, so this is a source-behaviour change on the FV path — previously masked by the fWLayer breakage. It needs adjudication (correct behaviour → golden bump; incorrect → fix), **not a reflexive golden refresh**.
+2. **`rmf-fwl` is still un-migrated** and still `error_stop`s: its layer is active, so translating `C = 6` to a physical `width` is not a guaranteed round-trip and its FNL golden must be re-verified.
 
-Everything below describes the suite's **design**, which is unchanged — not its current runnable state.
+Details and evidence in the [suite README](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md).
 :::
 
 ## Design goals
@@ -68,9 +69,9 @@ All cases share `physical_model = EM`, `nv = 9`, `fdv_order = 6`, `ngc = 3`, `co
 This case carries **no golden and no `check.sh`**, so `run.sh` skips it and nothing in CI or the local sweep checks the div-free property it documents. It is a **manual reproducer** for [#31](https://github.com/szaghi/adam/issues/31), not an enforced anchor. To make it a real guard it needs either a committed digest golden (both backends) or a `check.sh` asserting `max|div(B)|` and `max|div(D)|` at round-off, in the style of the AMR-seam oracles.
 :::
 
-### AMR-seam cases (goldenless, `check.sh`-driven)
+### AMR-seam cases (digest-goldened **and** `check.sh`-driven)
 
-Three single-realm cases carry a static intra-realm **2:1 AMR jump** (`markers_number = 1`, an AMR_GEO box marker covering the x<0 half). They are not digest-goldened; each carries a bespoke `check.sh` that asserts a physics oracle, run with a marker-off control leg for contrast. `run.sh` does **not** invoke them — they are run directly.
+Three single-realm cases carry a static intra-realm **2:1 AMR jump** (`markers_number = 1`, an AMR_GEO box marker covering the x<0 half). They are doubly covered: digest + residuals goldens on **both** backends (captured in [#24](https://github.com/szaghi/adam/issues/24), `d15fed4c`), which `run.sh` checks like any other case, **plus** a bespoke `check.sh` asserting a physics oracle with a marker-off control leg for contrast. The oracles are *not* invoked by `run.sh` — run them directly (they are the only thing that checks the seam `div(B)` behaviour).
 
 | Case | Scheme | `check.sh` oracle |
 |---|---|---|
