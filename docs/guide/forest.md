@@ -238,11 +238,11 @@ The cadence × K matrix and both seam families are covered by cases under `src/t
 | `rmf-2realm`            | α | 5 / 5 | own α golden (single-realm `rmf` split at x=0) |
 | `rmf-2realm-asymK`      | α | 3 / 5 | own α golden — the asymmetric-K validation (SSP-33 ∥ SSP-54) |
 | `rmf-2realm-stagesync`  | β | 5 / 5 | own β golden **+** continuous match against `rmf/golden/<backend>/digest.txt` |
-| `rmf-2realm-fd-pulse`   | β | 5 / 5 | the inter-realm 1:1 div-free anchor (issue #31) |
+| `rmf-2realm-fd-pulse`   | β | 5 / 5 | the inter-realm 1:1 div-free reproducer (issue #31) — **manual only: no golden, no `check.sh`, skipped by `run.sh`** |
 
 `rmf-2realm-stagesync` is the load-bearing β oracle: under same-K, same-physics, same-ODE decomposition the multi-realm digest matches the **single-realm** `rmf` digest within `(rtol=1e-06, atol=1e-3)` (per-block metadata auto-downgraded to `SKIP_METADATA`). The harness fires this cross-config check on every run.
 
-`rmf-2realm-fd-pulse` guards [issue #31]: a 1:1 same-resolution inter-realm mirror seam **must** be div-free like a 1:1 intra-block interface. It holds `div(B) = div(D) = 0` — but **only under β**. Under α the seam ghosts go unfilled during RK substages (`fill_seam_from_peer_forest` runs once per step, so substages 2..N read stale/zero seam ghosts), which leaks div(B). For a 1:1 same-`dt` seam, β is the correct and required cadence.
+`rmf-2realm-fd-pulse` documents [issue #31] (as a manual reproducer — it carries no golden and no `check.sh`, so `run.sh` skips it and nothing checks this automatically): a 1:1 same-resolution inter-realm mirror seam **must** be div-free like a 1:1 intra-block interface. It holds `div(B) = div(D) = 0` — but **only under β**. Under α the seam ghosts go unfilled during RK substages (`fill_seam_from_peer_forest` runs once per step, so substages 2..N read stale/zero seam ghosts), which leaks div(B). For a 1:1 same-`dt` seam, β is the correct and required cadence.
 
 [issue #31]: https://github.com/szaghi/adam/issues/31
 

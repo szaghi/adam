@@ -164,6 +164,7 @@ export default withMermaid({
           items: [
             { text: 'Overview',            link: '/tests/' },
             { text: 'PRISM regression',    link: '/tests/prism-regression' },
+            { text: 'Regression bring-up', link: '/tests/prism-regression-tutorial' },
           ],
         },
         {

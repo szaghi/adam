@@ -315,7 +315,8 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
 - **NVIDIA HPC SDK** (nvfortran): Required for GPU builds (OpenACC, CUDA Fortran)
   - Version sensitivity: OpenACC 3.x features require SDK >=22.x
   - CUDA compatibility: Verify nvfortran CUDA version matches driver
-  - Environment: Set `HDF5_nvf` for NVIDIA-compiled HDF5 libraries
+  - Build NVF modes with `--varset local_nvf` (or another NVF varset), which
+    resolves both `$HDF5_PREFIX` and `$NVF_CC` — see "I/O and Serialization"
 
 - **GNU Compiler Collection** (gfortran): CPU builds and baseline testing
   - Minimum version: 9.x for Fortran 2008 submodules
@@ -335,9 +336,26 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
 - **HDF5**: Parallel I/O library (version >=1.10 required)
   - **Critical**: Must be compiled with same MPI library as application
   - Requires ZLIB and SZIP for compression support
-  - Library paths configured in fobos `[common-variables]`:
-    - GNU: `$HDF5_gnu = lib/hdf5/develop/gnu/14.2.0`
-    - NVF: `$HDF5_nvf = lib/hdf5/develop/nvf/25.11`
+  - The library path is the fobos variable **`$HDF5_PREFIX`**, defined per
+    `[varset:*]` in the repo `fobos` (there is no `[common-variables]` section,
+    and no per-compiler `$HDF5_gnu`/`$HDF5_nvf` variables). Selecting a varset
+    selects the HDF5 build:
+
+    | Varset | `$HDF5_PREFIX` | `$NVF_CC` |
+    |---|---|---|
+    | `local_gnu` (**default**) | `lib/hdf5/develop/gnu/14.2.0` | — |
+    | `local_nvf` | `lib/hdf5/develop/nvf/26.1` | `cc89` |
+    | `leonardo` | Spack path (NVHPC 24.5) | `cc80` |
+    | `iac_gnu` | `lib/hdf5/develop/iac/gnu/12.2.1/openmpi-4.1.6` | — |
+    | `iac_nvf` | `lib/hdf5/develop/iac/nvf/25.5` | `cc80` |
+    | `spacehpc` | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` |
+
+  - These are fobos *variables*, **not** shell environment variables —
+    exporting them has no effect. Build a new machine by adding a `[varset:*]`
+    block; see the [bring-up tutorial](docs/tests/prism-regression-tutorial.md).
+  - `scripts/hdf5_build.sh -build` fetches and builds szip + zlib + parallel
+    HDF5 with `CC=mpicc FC=mpif90` — load the intended compiler/MPI modules
+    *before* running it.
   - Collective I/O optimization: Set `H5Pset_dxpl_mpio` for MPI-IO hints
 
 ### Build System
@@ -462,7 +480,9 @@ Reproducer / regression anchor: `src/tests/prism/regression/rmf-2realm-fd-pulse/
 
 ### FNL fWLayer host→device copy: don't route it through the mismatched transposed staging buffer (issue #31)
 
-The fWLayer field is stored transposed on the FNL device (`f_gpu(nb,i,j,k,3)` vs host `fwlayer%f(3,i,j,k,nb)`). Copying it through FUNDAL's **buffered** transposed HtoD (`dev_memcpy_to_device(..., buf=self%buf_5D_R8P)`) with the **q-field-shaped** staging buffer (last dim `nv=9`, not `3`) passes the device destination through an assumed-shape, **lbound-remapped dummy** `dst(bb(1,1):,…)`; the non-identity remap makes nvfortran materialise a **host copy-in temporary**, so `c_loc(dst)` yields a host address and `cuMemcpyHtoDAsync` rejects it → `CUDA_ERROR_INVALID_VALUE` (crashes at `np>1`, where the decomposition shifts the bounds). **This is NOT a VRAM issue** — the WSL `free/total memory` print (~42 MB) is `/dev/dxg` garbage; the real fault is only visible under `compute-sanitizer`. The q-field copy survives because its buffer extent equals `q_gpu`'s (identity remap, no temp). **Fix: drop the `buffer=` argument** (`adam_prism_fnl_object.F90` `copy_cpu_gpu`) so the fWLayer copy takes the whole-array `dev_assign_to_device(...,ij=[1,5])` branch — `c_loc` then acts on entire contiguous objects, no copy-in temp. This is the nvfortran **device** analogue of the gfortran assumed-shape pointer-section + explicit-lbound copy-temp trap. Regression anchor: `src/tests/prism/regression/rmf-fwl/` (**`C < ni` required** — the layer stamps cells `ni-C+1..ni`, so `C ≥ ni` drives the index negative).
+The fWLayer field is stored transposed on the FNL device (`f_gpu(nb,i,j,k,3)` vs host `fwlayer%f(3,i,j,k,nb)`). Copying it through FUNDAL's **buffered** transposed HtoD (`dev_memcpy_to_device(..., buf=self%buf_5D_R8P)`) with the **q-field-shaped** staging buffer (last dim `nv=9`, not `3`) passes the device destination through an assumed-shape, **lbound-remapped dummy** `dst(bb(1,1):,…)`; the non-identity remap makes nvfortran materialise a **host copy-in temporary**, so `c_loc(dst)` yields a host address and `cuMemcpyHtoDAsync` rejects it → `CUDA_ERROR_INVALID_VALUE` (crashes at `np>1`, where the decomposition shifts the bounds). **This is NOT a VRAM issue** — the WSL `free/total memory` print (~42 MB) is `/dev/dxg` garbage; the real fault is only visible under `compute-sanitizer`. The q-field copy survives because its buffer extent equals `q_gpu`'s (identity remap, no temp). **Fix: drop the `buffer=` argument** (`adam_prism_fnl_object.F90` `copy_cpu_gpu`) so the fWLayer copy takes the whole-array `dev_assign_to_device(...,ij=[1,5])` branch — `c_loc` then acts on entire contiguous objects, no copy-in temp. This is the nvfortran **device** analogue of the gfortran assumed-shape pointer-section + explicit-lbound copy-temp trap. Regression anchor: `src/tests/prism/regression/rmf-fwl/`.
+
+**⚠️ The fWLayer input key changed (`8e05d363`) and the anchor is currently broken.** `[fWLayer]` now takes a **physical** `width` (real); the cell count `C` became a derived per-block/face array (`C_face = min(ni, ceiling(width/ds))`, `adam_prism_fWLayer_object.F90:144`). The old `C < ni` footgun is gone (the `min` clamps it), but `load_from_file` reads `width` unconditionally with `go_on_fail = .false.` (`:86`, `:189`), so **any** case lacking the key dies at init — and none of the nine regression `input.ini` files were migrated. The whole regression suite, not just `rmf-fwl`, currently `error_stop`s and CI has been red since. Migration also puts the `rmf-fwl` FNL golden in question (see the suite README).
 
 ## Development Environment: WSL2 GPU+MPI Caveats
 

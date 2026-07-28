@@ -2,7 +2,15 @@
 
 The `src/tests/prism/regression/` suite is the **structural-change regression baseline** for the PRISM Maxwell/EM solver — every step of the [forest-of-trees migration](https://github.com/szaghi/adam/issues/10) must leave it green. Each case runs in roughly a minute per backend and validates one backend against committed reference outputs (or, for the AMR-seam cases, against a physics oracle).
 
-This page is the conceptual overview. The authoritative operational reference — golden-capture workflow, CI-as-authority rules, tolerance rationale, adding a case — is the suite's own [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md); it is not duplicated here.
+This page is the conceptual overview. The authoritative operational reference — golden-capture workflow, CI-as-authority rules, tolerance rationale, adding a case — is the suite's own [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md); it is not duplicated here. To stand the suite up on a new machine, compiler, or GPU architecture, follow the [bring-up tutorial](./prism-regression-tutorial).
+
+::: danger Suite currently broken (as of `96420ae4`, 2026-07-27)
+**All nine cases abort at initialisation** with `error stop : failed to load [fWLayer].(width)`, and the `regression-prism-cpu` CI job has been red on every commit since.
+
+Commit `8e05d363` changed `[fWLayer]` from a cell-count `C` to a **physical** `width`, but none of the nine case `input.ini` files were migrated — and because `load_from_file` is called unconditionally with `go_on_fail = .false.`, the missing key is fatal *even for cases that use no layer*. The fix and its golden implications are described in the [suite README](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md).
+
+Everything below describes the suite's **design**, which is unchanged — not its current runnable state.
+:::
 
 ## Design goals
 
@@ -50,11 +58,15 @@ All cases share `physical_model = EM`, `nv = 9`, `fdv_order = 6`, `ngc = 3`, `co
 | `rmf-2realm`           | inter (x-split) | α | fd | single-realm `rmf` split at x=0; aggregated digest vs the `rmf` golden ([#13](https://github.com/szaghi/adam/issues/13) Phase D) |
 | `rmf-2realm-asymK`     | inter | α | fd | the asymmetric-K validation: realm_1 SSP-33 (K=3) ∥ realm_2 SSP-54 (K=5), the α K-equality-guard removal ([#16](https://github.com/szaghi/adam/issues/16)) |
 | `rmf-2realm-stagesync` | inter | β | fd | the load-bearing β oracle — digest must match the single-realm `rmf` golden bit-for-bit ([#18](https://github.com/szaghi/adam/issues/18)) |
-| `rmf-fwl`              | single | — | fd | the only fWLayer case (`C=6`, six faces) + 4 coils — guards the FNL fWLayer host→device transfer fix ([#31](https://github.com/szaghi/adam/issues/31)); **FNL-goldened, CPU golden pending CI** |
+| `rmf-fwl`              | single | — | fd | the only fWLayer case (six faces) + 4 coils — guards the FNL fWLayer host→device transfer fix ([#31](https://github.com/szaghi/adam/issues/31)); **FNL-goldened, CPU golden pending CI** |
 
 ### Inter-realm 1:1 seam anchor
 
 `rmf-2realm-fd-pulse` — a source-free Gaussian pulse split at x=0 into two same-resolution realms glued by a **β** mirror seam. It isolates the seam *mechanism* (inter-realm peer copy) from any resolution *jump*: a 1:1 seam must be div-free exactly like a 1:1 intra-block interface, and it holds `div(B) = div(D) = 0` — **but only under β**. Under α the seam ghosts go unfilled during RK substages and div(B) leaks (this is the [#31](https://github.com/szaghi/adam/issues/31) diagnosis). For a 1:1 same-`dt` seam, β is correct and required.
+
+::: warning Not automatically enforced
+This case carries **no golden and no `check.sh`**, so `run.sh` skips it and nothing in CI or the local sweep checks the div-free property it documents. It is a **manual reproducer** for [#31](https://github.com/szaghi/adam/issues/31), not an enforced anchor. To make it a real guard it needs either a committed digest golden (both backends) or a `check.sh` asserting `max|div(B)|` and `max|div(D)|` at round-off, in the style of the AMR-seam oracles.
+:::
 
 ### AMR-seam cases (goldenless, `check.sh`-driven)
 

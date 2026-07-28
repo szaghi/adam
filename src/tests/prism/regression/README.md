@@ -4,6 +4,46 @@ CI-tuned regression tests for the PRISM (Maxwell-equation) solver. Each case
 runs in roughly one minute and validates one backend against a committed golden
 output.
 
+> ## ⚠️ THE SUITE IS CURRENTLY BROKEN — every case fails at init
+>
+> As of `96420ae4` (2026-07-27) **all nine cases abort during initialisation**
+> with:
+>
+> ```
+> [mpi-00000]prism_fWLayer_object%initialize start
+> [mpi-00000]error stop : failed to load [fWLayer].(width)
+> ```
+>
+> **Cause.** Commit `8e05d363` ("debug of fWL and divergence correction")
+> reworked `prism_fWLayer_object` to take a **physical** layer width
+> (`[fWLayer] width`, a real) instead of the old **cell-count** `C` (an
+> integer); `C` became a *derived* per-block/face array
+> (`C_face = min(ni, ceiling(width/ds))`,
+> `src/app/prism/common/adam_prism_fWLayer_object.F90:144`). The parser now
+> reads `width` and **only** `width` (`:189`), and `load_from_file` is called
+> unconditionally from `initialize` (`:86`) with `go_on_fail` defaulting to
+> `.false.` — so a missing `width` is a hard `error_stop` **even when the case
+> uses no layer at all**.
+>
+> None of the nine regression `input.ini` files were migrated: all still carry
+> `C = ...` and none defines `width`. The CI job `regression-prism-cpu` has been
+> red on every commit since.
+>
+> **Fix** (not yet applied — it changes case inputs and therefore golden
+> validity, so it is a deliberate, reviewer-approved act):
+>
+> - For the eight cases with `C = 0` (no layer), replace it with `width = 0.0`.
+>   The layer is inactive either way, so the physics — and the committed
+>   goldens — are unchanged.
+> - For `rmf-fwl` the layer is **active** (`C = 6` cells at `ni = 16` on
+>   `[-0.16, 0.16]`, i.e. `ds = 0.32/16 = 0.02`), so the equivalent physical
+>   width is `6 * 0.02 = 0.12`. Because `C` is now derived via `ceiling`, an
+>   exact round-trip is not guaranteed on refined blocks — **the `rmf-fwl` FNL
+>   golden must be re-verified, and probably recaptured**, after the migration.
+>
+> Until this is fixed, treat every statement below about "green" as describing
+> the suite's *design*, not its current state.
+
 This suite is the **structural-change regression baseline** referenced by
 [issue #10][issue10] (forest-of-trees migration plan). Every step of that plan
 must leave this suite green.
@@ -16,6 +56,38 @@ The existing test trees under `src/tests/prism/{cpu,fnl}/` are **research /
 development** cases — long integration times, full AMR, sized for physics
 validation. They are **not** regression anchors and are not consumed by
 `run.sh`.
+
+Since the 2026-07 reorganization those trees are split by spatial scheme,
+`src/tests/prism/<backend>/{fd,fv}/<family>/`, where `fd` is the finite-difference
+(`fd_centered`) path and `fv` the finite-volume (`fv_centered`) one. Current
+families:
+
+| Family | Where | What it is |
+|---|---|---|
+| `RMF` / `rmf` | `cpu/{fd,fv}`, `fnl/{fd,fv}` | the 4-AC-coil rotating-magnetic-field workhorse the regression cases derive from |
+| `BC_tests` | `cpu/fd`, `fnl/fd` | one directory per boundary kind — `Neumann`, `Silver-Muller`, `fW_Layer`, and the combined `fWLayer_Silver_Muller` |
+| `PIC` | `cpu/fd`, `fnl/fd` | `physical_model = PIC` particle cases: single particle (RK and leapfrog), plasma column/cylinder, and the `elliptic_solver_tests/` sub-family (incl. the `PEC` validation case) |
+| `divergence_correction` | all four | the only cases exercising `constrained_transport = DB` + `divergence_correction = hyperbolic` (the [issue #11](https://github.com/szaghi/adam/issues/11) `nv`/CT hazard the regression suite deliberately avoids) |
+| `fWL` | all four | the isolated absorbing-layer case (`[fWLayer] width`, all six faces) |
+| `plane_wave` | `cpu/fd` | plane wave, Gaussian pulse, and `gaussian_pulse_PEC` (1-D PEC reflection) |
+| `Gaussian_pulse` | `cpu/fv`, `fnl/fv` | the FV twin of the pulse case (`[weno] scheme = weno-c-4`) |
+| `Helicon_antenna`, `magnetic_nozzle` | `cpu/fd` | long-integration application cases (helicon coil, solenoid nozzle) |
+| `infinite_wire` | `fnl/fd` | single rectangular coil, `fdv_order = 4` |
+
+None of these has a `check.sh`, none is goldened, and `run.sh` never descends
+into them — it iterates only the immediate subdirectories of *this* directory.
+The `fv` subtrees and the `divergence_correction`, `fWL`, PIC-on-FNL and
+PEC/Silver-Müller families are all **new since 2026-07** and are not yet
+represented by any regression anchor.
+
+### Boundary-condition kinds
+
+`[bc_*] type` accepts (`src/app/prism/common/adam_prism_bc_object.F90:84-101`):
+`extrapolation`, `Neumann`, `Dirichlet`, `Silver_Muller`, `periodic`,
+`radiative`, `PEC` (also lowercase `pec`). Note the **underscore** spelling
+`Silver_Muller` — the hyphen appears only in a directory name. There is no
+`default` branch in the `select case`, so an unrecognised string leaves the BC
+type undefined rather than erroring: spelling mistakes fail silently.
 
 Cases under this directory (`src/tests/prism/regression/`) are derived from
 research cases but **tuned for CI**:
@@ -48,17 +120,24 @@ Most cases are auto-discovered (any subdirectory with an `input.ini` and a
 `golden/<backend>/`). Two are worth calling out because they exercise a
 device-path a plain field case does not:
 
-- **`rmf-fwl`** — the only case that turns on the **fWLayer** (`[fWLayer] C = 6`,
-  all six faces) together with four AC coils. It is the regression anchor for the
+- **`rmf-fwl`** — the only case that turns on the **fWLayer** (six faces)
+  together with four AC coils. It is the regression anchor for the
   fWLayer host→device transfer: on the FNL backend the fWLayer field is stored
   transposed (`(nb,i,j,k,3)`) and copied through FUNDAL's transposed HtoD path,
   which — unlike the plain q-field copy — is sensitive to how the device
   destination pointer is passed. A `C=30`/`ni=32` research variant crashed at
   `np>1` with `cuMemcpyHtoDAsync → CUDA_ERROR_INVALID_VALUE` (an nvfortran
   copy-in temporary on the lbound-remapped device dummy handed a host address to
-  the async HtoD); this regression-sized case guards that fix. Note `C` **must**
-  stay `< ni`: the fWLayer stamps cells `ni-C+1 .. ni`, so `C ≥ ni` drives the
-  index negative.
+  the async HtoD); this regression-sized case guards that fix.
+
+  **Layer width.** The layer used to be configured as a cell count `C`, which
+  had to stay `< ni` — the layer stamps cells `ni-C+1 .. ni`, so `C ≥ ni` drove
+  the index negative. Since `8e05d363` the input key is a **physical** width
+  (`[fWLayer] width`) and the per-block/face cell count is derived and clamped:
+  `C_face = min(ni, ceiling(width/ds))`. The clamp makes the old negative-index
+  footgun unreachable, but a `width` wider than a block still silently saturates
+  the layer to the whole block — keep `width` well under the block extent so the
+  case exercises a genuine partial layer.
 
 ## Running the harness
 
