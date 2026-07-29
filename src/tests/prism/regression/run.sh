@@ -220,11 +220,32 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    echo "============================================================"
    echo "== [$case_name/$BACKEND] running"
    echo "============================================================"
+   # Run the case, tolerant of a hung MPI/GPU finalize. On the GPU-aware-MPI
+   # backends (fnl, amd-omp) the ROCm/UCX teardown can deadlock in MPI_Finalize
+   # *after* all checkpoints and residuals are already flushed, so a hung or
+   # non-zero mpirun must NOT abort the sweep — the digest/residual comparison
+   # below is the real pass/fail gate (a genuinely failed run leaves no/partial
+   # checkpoints and fails there). REGRESSION_MPIRUN_TIMEOUT (seconds, default
+   # 300; 0 disables) bounds a hung finalize; output is tee'd to
+   # work-<backend>/run.log (live + captured) instead of buffered through tail.
+   mpirun_timeout="${REGRESSION_MPIRUN_TIMEOUT:-300}"
+   mpirun_cmd=(mpirun -np 2 "$EXE_ABS")
+   if [[ "$mpirun_timeout" != "0" ]]; then
+      mpirun_cmd=(timeout --signal=TERM --kill-after=30s "$mpirun_timeout" "${mpirun_cmd[@]}")
+   fi
    pushd "$workdir" >/dev/null
    t0=$(date +%s)
-   mpirun -np 2 "$EXE_ABS" 2>&1 | tail -20
+   set +e
+   "${mpirun_cmd[@]}" 2>&1 | tee run.log
+   mpirun_rc=${PIPESTATUS[0]}
+   set -e
    t1=$(date +%s)
    popd >/dev/null
+   if [[ "$mpirun_rc" -eq 124 ]]; then
+      echo ">> [$case_name/$BACKEND] mpirun hit the ${mpirun_timeout}s timeout (likely MPI/GPU finalize teardown) — continuing to digest produced output"
+   elif [[ "$mpirun_rc" -ne 0 ]]; then
+      echo ">> [$case_name/$BACKEND] mpirun exited non-zero ($mpirun_rc) — continuing to digest (checkpoints decide pass/fail)"
+   fi
    echo ">> [$case_name/$BACKEND] runtime: $((t1 - t0))s"
 
    # ----- Compare outputs against golden -----
