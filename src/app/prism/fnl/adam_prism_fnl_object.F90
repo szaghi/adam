@@ -833,6 +833,9 @@ contains
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(j_vec_gpu, q_gpu) &
       !$acc& firstprivate(ni, nj, nk, ngc, blocks_number, coils_number, var_jx, var_jy, var_jz, nv_q, do_current, do_charge) &
       !$acc& reduction(max: overlap_current, overlap_charge)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(j_vec_gpu, q_gpu) &
+      !$omp& firstprivate(ni, nj, nk, ngc, blocks_number, coils_number, var_jx, var_jy, var_jz, nv_q, do_current, do_charge) &
+      !$omp& reduction(max: overlap_current, overlap_charge)
       do b=1, blocks_number
       do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
@@ -1110,6 +1113,8 @@ contains
 
       !$acc parallel loop independent gang vector &
       !$acc& DEVICEVAR(local_map_bc_crown_gpu, dxyz_gpu, q_gpu) firstprivate(ni, nj, nk, ngc, nv, hs, has_rho, var_rho)
+      !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu, dxyz_gpu, q_gpu) &
+      !$omp& firstprivate(ni, nj, nk, ngc, nv, hs, has_rho, var_rho)
       do c=1, size(local_map_bc_crown_gpu, dim=1)
          call enforce_silver_muller_normal_line_kernel(c=c, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, hs=hs,     &
                                                        has_rho=has_rho, var_rho=var_rho,                      &
@@ -5102,7 +5107,7 @@ contains
 	         !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b,lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
 				!$acc& reduction(max: max_divD, max_divB, max_divJ)
 		      !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) map(to:fwl_c) &
-	         !$omp& firstprivate(var_jx,var_jy,var_jz,s1)                                               &
+	         !$omp& firstprivate(var_jx,var_jy,var_jz,rho_ivar,use_rho,s1)                             &
 	         !$omp& private(divergenceD,divergenceB,divergenceJ,dxyz_b,lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
 				!$omp& reduction(max: max_divD, max_divB, max_divJ)
 	         do b=1,blocks_number
