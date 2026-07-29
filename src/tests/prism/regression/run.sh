@@ -45,17 +45,40 @@ while [[ $# -gt 0 ]]; do
    shift
 done
 
+# GOLDEN_BACKEND selects which golden/<dir> a run is diffed against. It is
+# usually the same as BACKEND, but the AMD backends reuse an existing golden:
+# they exercise the *same* Fortran code path as an already-anchored backend and
+# only swap the compiler/offload runtime, so the committed golden is the correct
+# cross-compiler / cross-runtime reference (digest.py tolerances are calibrated
+# for exactly this).
 case "$BACKEND" in
    cpu)
       MODE="prism-cpu-gnu"
       EXE="exe/adam_prism_cpu"
+      GOLDEN_BACKEND="cpu"
       ;;
    fnl)
       MODE="prism-fnl-nvf"
       EXE="exe/adam_prism_fnl"
+      GOLDEN_BACKEND="fnl"
+      ;;
+   amd)
+      # AMD CPU backend (amdflang). Same source as prism-cpu-gnu (no _FNL, no
+      # offload), so it validates against the committed CPU golden.
+      MODE="prism-cpu-amd"
+      EXE="exe/adam_prism_cpu"
+      GOLDEN_BACKEND="cpu"
+      ;;
+   amd-omp)
+      # AMD GPU backend: OpenMP target offload through the FNL/FUNDAL DEV_OMP
+      # path — the same _FNL source as the NVIDIA OpenACC build, so it validates
+      # against the committed FNL golden.
+      MODE="prism-fnl-omp-amd"
+      EXE="exe/adam_prism_fnl"
+      GOLDEN_BACKEND="fnl"
       ;;
    *)
-      echo "Usage: $0 {cpu|fnl} [--no-build] [--varset <name>]" >&2
+      echo "Usage: $0 {cpu|fnl|amd|amd-omp} [--no-build] [--varset <name>]" >&2
       exit 2
       ;;
 esac
@@ -151,7 +174,7 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    # So SKIP goldenless cases by default. To run one anyway — the initial
    # golden-capture workflow — set REGRESSION_RUN_GOLDENLESS=1, which runs the
    # case and produces work-<backend>/digest.txt for promotion into golden/.
-   golden_dir="${case_dir%/}/golden/$BACKEND"
+   golden_dir="${case_dir%/}/golden/$GOLDEN_BACKEND"
    if [[ ! -d "$golden_dir" ]]; then
       if [[ "${REGRESSION_RUN_GOLDENLESS:-0}" == "1" ]]; then
          echo "!! [$case_name/$BACKEND] no golden at $golden_dir — running anyway"
@@ -279,7 +302,7 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    # (hardcoded for this single case; if a second case ever needs cross-
    # config equivalence, generalise to a per-case `equiv_to` annotation).
    if [[ "$case_name" == "rmf-2realm-stagesync" && -f "$workdir/digest.txt" ]]; then
-      rmf_golden="${REGRESSION_DIR}/rmf/golden/${BACKEND}/digest.txt"
+      rmf_golden="${REGRESSION_DIR}/rmf/golden/${GOLDEN_BACKEND}/digest.txt"
       if [[ ! -f "$rmf_golden" ]]; then
          echo "FAIL [$case_name/$BACKEND] β cross-config oracle: missing single-realm reference $rmf_golden"
          case_failed=1
