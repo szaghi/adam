@@ -538,6 +538,7 @@ contains
                kdelta  = local_map_bc_crown(c, 7 ,crown)
                bc_type = local_map_bc_crown(c, 8 ,crown)
                fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
+               if (fec > 6_I4P) cycle
                fec_1_6 = fec_1_6_array(fec)
                if (bc_type == BC_EXTRAPOLATION) then
                   do v=1, nv!(nv_c-nv_cl)
@@ -672,6 +673,8 @@ contains
       enddo
    endif
 
+   call enforce_silver_muller_normal_bc_cpu(self=self, q=q)
+
    if (self%bc%bc_type(1) == BC_radiative .or. self%bc%bc_type(2) == BC_radiative &
        .or. self%bc%bc_type(3) == BC_radiative .or. self%bc%bc_type(4) == BC_radiative &
        .or. self%bc%bc_type(5) == BC_radiative .or. self%bc%bc_type(6) == BC_radiative) then
@@ -771,6 +774,344 @@ contains
       call mpih%error_stop(msg='compute_face_mirror_indexes: invalid face index '//trim(str(face)))
    endselect
    endsubroutine compute_face_mirror_indexes
+
+   subroutine enforce_silver_muller_normal_bc_cpu(self, q)
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(inout) :: q(1:,         &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,1:)
+   integer(I4P)                           :: b, c, face, hs, var_rho
+   integer(I4P)                           :: i, j, k
+   logical                                :: has_rho
+
+   if (.not. allocated(self%adam%maps%local_map_bc_crown)) return
+   if (.not. any(self%bc%bc_type == BC_SILVER_MULLER)) return
+
+   hs = self%fdv_half_stencils(1)
+   if (hs <= 0) return
+   if (self%ngc < hs) call mpih%error_stop(msg='Silver_Muller requires ngc >= fdv_half_stencils(1)')
+
+   has_rho = self%physics%physical_model == PIC_PHYSICAL_MODEL
+   if (has_rho) then
+      var_rho = self%nv
+   else
+      var_rho = 0_I4P
+   endif
+
+   do c=1, size(self%adam%maps%local_map_bc_crown, dim=1)
+      b = self%adam%maps%local_map_bc_crown(c, 1, 1)
+      if (b <= 0) cycle
+      if (self%adam%maps%local_map_bc_crown(c, 8, 1) /= BC_SILVER_MULLER) cycle
+      if (self%adam%maps%local_map_bc_crown(c, 9, 1) > 6_I4P) cycle
+
+      i = self%adam%maps%local_map_bc_crown(c, 2, 1)
+      j = self%adam%maps%local_map_bc_crown(c, 3, 1)
+      k = self%adam%maps%local_map_bc_crown(c, 4, 1)
+      face = fec_1_6_array(self%adam%maps%local_map_bc_crown(c, 9, 1))
+      if (.not. is_face_line_seed_cpu(face=face, i=i, j=j, k=k, ni=self%ni, nj=self%nj, nk=self%nk)) cycle
+
+      call solve_silver_muller_normal_line_cpu(q=q, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk,         &
+                                               b=b, face=face, i_seed=i, j_seed=j, k_seed=k, hs=hs,            &
+                                               dxyz=self%adam%field%dxyz(:,b), has_rho=has_rho, var_rho=var_rho)
+   enddo
+   endsubroutine enforce_silver_muller_normal_bc_cpu
+
+   logical pure function is_face_line_seed_cpu(face, i, j, k, ni, nj, nk) result(is_seed)
+   integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
+
+   is_seed = .false.
+   select case(face)
+   case(1)
+      is_seed = i == 0_I4P      .and. j >= 1_I4P .and. j <= nj .and. k >= 1_I4P .and. k <= nk
+   case(2)
+      is_seed = i == ni + 1_I4P .and. j >= 1_I4P .and. j <= nj .and. k >= 1_I4P .and. k <= nk
+   case(3)
+      is_seed = j == 0_I4P      .and. i >= 1_I4P .and. i <= ni .and. k >= 1_I4P .and. k <= nk
+   case(4)
+      is_seed = j == nj + 1_I4P .and. i >= 1_I4P .and. i <= ni .and. k >= 1_I4P .and. k <= nk
+   case(5)
+      is_seed = k == 0_I4P      .and. i >= 1_I4P .and. i <= ni .and. j >= 1_I4P .and. j <= nj
+   case(6)
+      is_seed = k == nk + 1_I4P .and. i >= 1_I4P .and. i <= ni .and. j >= 1_I4P .and. j <= nj
+   endselect
+   endfunction is_face_line_seed_cpu
+
+   subroutine solve_silver_muller_normal_line_cpu(q, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz, has_rho, var_rho)
+   integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, var_rho
+   real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(in)    :: dxyz(3)
+   logical,      intent(in)    :: has_rho
+   integer(I4P)                :: dir_t1, dir_t2
+   integer(I4P)                :: var_d_t1, var_d_t2, var_d_n
+   integer(I4P)                :: var_b_t1, var_b_t2, var_b_n
+
+   call silver_muller_face_metadata_cpu(face=face, dir_t1=dir_t1, dir_t2=dir_t2,                              &
+                                        var_d_t1=var_d_t1, var_d_t2=var_d_t2, var_d_n=var_d_n,               &
+                                        var_b_t1=var_b_t1, var_b_t2=var_b_t2, var_b_n=var_b_n)
+
+   call solve_silver_muller_normal_field_cpu(q=q, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,            &
+                                             i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, hs=hs,            &
+                                             dxyz=dxyz, dir_t1=dir_t1, dir_t2=dir_t2,                        &
+                                             var_t1=var_d_t1, var_t2=var_d_t2, var_n=var_d_n,               &
+                                             use_target_var=has_rho, target_var=var_rho)
+
+   call solve_silver_muller_normal_field_cpu(q=q, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,            &
+                                             i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, hs=hs,            &
+                                             dxyz=dxyz, dir_t1=dir_t1, dir_t2=dir_t2,                        &
+                                             var_t1=var_b_t1, var_t2=var_b_t2, var_n=var_b_n,               &
+                                             use_target_var=.false., target_var=0_I4P)
+   endsubroutine solve_silver_muller_normal_line_cpu
+
+   subroutine silver_muller_face_metadata_cpu(face, dir_t1, dir_t2, var_d_t1, var_d_t2, var_d_n, var_b_t1, var_b_t2, var_b_n)
+   integer(I4P), intent(in)  :: face
+   integer(I4P), intent(out) :: dir_t1, dir_t2
+   integer(I4P), intent(out) :: var_d_t1, var_d_t2, var_d_n
+   integer(I4P), intent(out) :: var_b_t1, var_b_t2, var_b_n
+
+   select case(face)
+   case(1, 2)
+      dir_t1 = 2_I4P ; dir_t2 = 3_I4P
+      var_d_t1 = VAR_DY ; var_d_t2 = VAR_DZ ; var_d_n = VAR_DX
+      var_b_t1 = VAR_BY ; var_b_t2 = VAR_BZ ; var_b_n = VAR_BX
+   case(3, 4)
+      dir_t1 = 3_I4P ; dir_t2 = 1_I4P
+      var_d_t1 = VAR_DZ ; var_d_t2 = VAR_DX ; var_d_n = VAR_DY
+      var_b_t1 = VAR_BZ ; var_b_t2 = VAR_BX ; var_b_n = VAR_BY
+   case(5, 6)
+      dir_t1 = 1_I4P ; dir_t2 = 2_I4P
+      var_d_t1 = VAR_DX ; var_d_t2 = VAR_DY ; var_d_n = VAR_DZ
+      var_b_t1 = VAR_BX ; var_b_t2 = VAR_BY ; var_b_n = VAR_BZ
+   case default
+      call mpih%error_stop(msg='silver_muller_face_metadata_cpu: invalid face index '//trim(str(face)))
+   endselect
+   endsubroutine silver_muller_face_metadata_cpu
+
+   subroutine solve_silver_muller_normal_field_cpu(q, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz, &
+                                                   dir_t1, dir_t2, var_t1, var_t2, var_n, use_target_var, target_var)
+   integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs
+   integer(I4P), intent(in)    :: dir_t1, dir_t2, var_t1, var_t2, var_n, target_var
+   real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(in)    :: dxyz(3)
+   logical,      intent(in)    :: use_target_var
+   real(R8P)                   :: unknown(FDV_S_MAX)
+   real(R8P)                   :: rhs, coeff, target
+   integer(I4P)                :: eq, u, u_new, m, dir_n
+   integer(I4P)                :: ic, jc, kc
+
+   if (hs > FDV_S_MAX) call mpih%error_stop(msg='Silver_Muller hs exceeds FDV_S_MAX')
+
+   unknown = 0._R8P
+   dir_n = face_normal_direction_cpu(face)
+
+   do eq=hs, 1, -1
+      call interior_cell_from_face_cpu(face=face, eq=eq, ni=ni, nj=nj, nk=nk,                                 &
+                                       i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, ic=ic, jc=jc, kc=kc)
+
+      if (use_target_var) then
+         target = q(target_var, ic, jc, kc, b)
+      else
+         target = 0._R8P
+      endif
+
+      rhs = target
+      rhs = rhs - tangential_divergence_at_cell_cpu(q=q, ngc=ngc, b=b, i=ic, j=jc, k=kc, hs=hs, dxyz=dxyz, &
+                                                    dir_t1=dir_t1, dir_t2=dir_t2, var_t1=var_t1, var_t2=var_t2)
+      rhs = rhs - normal_known_contribution_cpu(q=q, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,          &
+                                                i=ic, j=jc, k=kc, hs=hs, dxyz=dxyz, var_n=var_n)
+
+      u_new = hs - eq + 1_I4P
+      do u=1, u_new-1
+         m = eq + u - 1_I4P
+         coeff = silver_muller_unknown_coefficient_cpu(face=face, m=m, hs=hs, ds=dxyz(dir_n))
+         rhs = rhs - coeff * unknown(u)
+      enddo
+
+      coeff = silver_muller_unknown_coefficient_cpu(face=face, m=hs, hs=hs, ds=dxyz(dir_n))
+      unknown(u_new) = rhs / coeff
+   enddo
+
+   do u=1, hs
+      call ghost_cell_from_face_cpu(face=face, ghost_layer=u, ni=ni, nj=nj, nk=nk,                             &
+                                    i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, ic=ic, jc=jc, kc=kc)
+      q(var_n, ic, jc, kc, b) = unknown(u)
+   enddo
+   endsubroutine solve_silver_muller_normal_field_cpu
+
+   integer(I4P) pure function face_normal_direction_cpu(face) result(dir_n)
+   integer(I4P), intent(in) :: face
+
+   select case(face)
+   case(1, 2)
+      dir_n = 1_I4P
+   case(3, 4)
+      dir_n = 2_I4P
+   case(5, 6)
+      dir_n = 3_I4P
+   case default
+      dir_n = 0_I4P
+   endselect
+   endfunction face_normal_direction_cpu
+
+   real(R8P) pure function silver_muller_unknown_coefficient_cpu(face, m, hs, ds) result(coeff)
+   integer(I4P), intent(in) :: face, m, hs
+   real(R8P),    intent(in) :: ds
+
+   coeff = FD1_CC(m, hs) / ds
+   if (face == 1_I4P .or. face == 3_I4P .or. face == 5_I4P) coeff = -coeff
+   endfunction silver_muller_unknown_coefficient_cpu
+
+   subroutine interior_cell_from_face_cpu(face, eq, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
+   integer(I4P), intent(in)  :: face, eq, ni, nj, nk, i_seed, j_seed, k_seed
+   integer(I4P), intent(out) :: ic, jc, kc
+
+   select case(face)
+   case(1)
+      ic = eq
+      jc = j_seed
+      kc = k_seed
+   case(2)
+      ic = ni - eq + 1_I4P
+      jc = j_seed
+      kc = k_seed
+   case(3)
+      ic = i_seed
+      jc = eq
+      kc = k_seed
+   case(4)
+      ic = i_seed
+      jc = nj - eq + 1_I4P
+      kc = k_seed
+   case(5)
+      ic = i_seed
+      jc = j_seed
+      kc = eq
+   case(6)
+      ic = i_seed
+      jc = j_seed
+      kc = nk - eq + 1_I4P
+   case default
+      ic = 0_I4P
+      jc = 0_I4P
+      kc = 0_I4P
+   endselect
+   endsubroutine interior_cell_from_face_cpu
+
+   subroutine ghost_cell_from_face_cpu(face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
+   integer(I4P), intent(in)  :: face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed
+   integer(I4P), intent(out) :: ic, jc, kc
+
+   select case(face)
+   case(1)
+      ic = 1_I4P - ghost_layer
+      jc = j_seed
+      kc = k_seed
+   case(2)
+      ic = ni + ghost_layer
+      jc = j_seed
+      kc = k_seed
+   case(3)
+      ic = i_seed
+      jc = 1_I4P - ghost_layer
+      kc = k_seed
+   case(4)
+      ic = i_seed
+      jc = nj + ghost_layer
+      kc = k_seed
+   case(5)
+      ic = i_seed
+      jc = j_seed
+      kc = 1_I4P - ghost_layer
+   case(6)
+      ic = i_seed
+      jc = j_seed
+      kc = nk + ghost_layer
+   case default
+      ic = 0_I4P
+      jc = 0_I4P
+      kc = 0_I4P
+   endselect
+   endsubroutine ghost_cell_from_face_cpu
+
+   real(R8P) pure function tangential_divergence_at_cell_cpu(q, ngc, b, i, j, k, hs, dxyz, dir_t1, dir_t2, var_t1, var_t2) result(div_t)
+   integer(I4P), intent(in) :: ngc, b, i, j, k, hs, dir_t1, dir_t2, var_t1, var_t2
+   real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(in) :: dxyz(3)
+   integer(I4P)             :: m
+
+   div_t = 0._R8P
+   do m=1, hs
+      div_t = div_t + FD1_CC(m, hs) * (component_along_direction_cpu(q, ngc, b, var_t1, dir_t1, i, j, k,  m) - &
+                                       component_along_direction_cpu(q, ngc, b, var_t1, dir_t1, i, j, k, -m)) / dxyz(dir_t1)
+      div_t = div_t + FD1_CC(m, hs) * (component_along_direction_cpu(q, ngc, b, var_t2, dir_t2, i, j, k,  m) - &
+                                       component_along_direction_cpu(q, ngc, b, var_t2, dir_t2, i, j, k, -m)) / dxyz(dir_t2)
+   enddo
+   endfunction tangential_divergence_at_cell_cpu
+
+   real(R8P) pure function normal_known_contribution_cpu(q, ngc, ni, nj, nk, b, face, i, j, k, hs, dxyz, var_n) result(div_n_known)
+   integer(I4P), intent(in) :: ngc, ni, nj, nk, b, face, i, j, k, hs, var_n
+   real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(in) :: dxyz(3)
+   integer(I4P)             :: dir_n, m, depth
+
+   dir_n = face_normal_direction_cpu(face)
+   depth = normal_depth_from_cell_cpu(face=face, i=i, j=j, k=k, ni=ni, nj=nj, nk=nk)
+   div_n_known = 0._R8P
+
+   select case(face)
+   case(1, 3, 5)
+      do m=1, hs
+         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz(dir_n)
+      enddo
+      do m=1, depth-1
+         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz(dir_n)
+      enddo
+   case(2, 4, 6)
+      do m=1, depth-1
+         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz(dir_n)
+      enddo
+      do m=1, hs
+         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz(dir_n)
+      enddo
+   endselect
+   endfunction normal_known_contribution_cpu
+
+   integer(I4P) pure function normal_depth_from_cell_cpu(face, i, j, k, ni, nj, nk) result(depth)
+   integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
+
+   select case(face)
+   case(1)
+      depth = i
+   case(2)
+      depth = ni - i + 1_I4P
+   case(3)
+      depth = j
+   case(4)
+      depth = nj - j + 1_I4P
+   case(5)
+      depth = k
+   case(6)
+      depth = nk - k + 1_I4P
+   case default
+      depth = 0_I4P
+   endselect
+   endfunction normal_depth_from_cell_cpu
+
+   real(R8P) pure function component_along_direction_cpu(q, ngc, b, var, dir, i, j, k, offset) result(value_)
+   integer(I4P), intent(in) :: ngc, b, var, dir, i, j, k, offset
+   real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+
+   select case(dir)
+   case(1)
+      value_ = q(var, i + offset, j, k, b)
+   case(2)
+      value_ = q(var, i, j + offset, k, b)
+   case(3)
+      value_ = q(var, i, j, k + offset, b)
+   case default
+      value_ = 0._R8P
+   endselect
+   endfunction component_along_direction_cpu
 
    !subroutine compute_residuals_BC(self,s)
    !!< Compute residuals BCs.

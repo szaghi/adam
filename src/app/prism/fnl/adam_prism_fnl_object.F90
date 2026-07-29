@@ -872,6 +872,13 @@ contains
                                              local_map_bc_crown_gpu = self%field_fnl%maps%local_map_bc_crown_gpu,&
                                              q_gpu                  = q_gpu)
       enddo
+      call enforce_silver_muller_normal_bc_fnl(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
+                                               hs=self%fdv_half_stencils(1), has_rho=merge(1_I4P, 0_I4P,      &
+                                               self%physics%physical_model == PIC_PHYSICAL_MODEL),             &
+                                               var_rho=merge(self%nv, 0_I4P,                                  &
+                                               self%physics%physical_model == PIC_PHYSICAL_MODEL),             &
+                                               local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu, &
+                                               dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu)
    endif
    contains
       subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, nv_c, nv_cl, crown, local_map_bc_crown_gpu, q_gpu)
@@ -907,6 +914,7 @@ contains
             kdelta  = local_map_bc_crown_gpu(c, 7 ,crown)
             bc_type = local_map_bc_crown_gpu(c, 8 ,crown)
             fec     = local_map_bc_crown_gpu(c, 9 ,crown)
+            if (fec > 6_I4P) cycle
             fec_1_6 = fec_1_6_array(fec)
             if (bc_type == BC_EXTRAPOLATION) then
                do v=1, nv
@@ -1081,6 +1089,327 @@ contains
          k_d = 2_I4P * nk + 1_I4P - k_gc
       endselect
       endsubroutine compute_face_mirror_indexes
+
+      subroutine enforce_silver_muller_normal_bc_fnl(ni, nj, nk, ngc, nv, hs, has_rho, var_rho, local_map_bc_crown_gpu, dxyz_gpu, q_gpu)
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, nv, hs, has_rho, var_rho
+      integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      integer(I4P)                :: c
+
+      if (hs <= 0_I4P) return
+      if (ngc < hs) call mpih_fnl%error_stop(msg='Silver_Muller requires ngc >= fdv_half_stencils(1)')
+
+      !$acc parallel loop independent gang vector &
+      !$acc& DEVICEVAR(local_map_bc_crown_gpu, dxyz_gpu, q_gpu) firstprivate(ni, nj, nk, ngc, nv, hs, has_rho, var_rho)
+      do c=1, size(local_map_bc_crown_gpu, dim=1)
+         call enforce_silver_muller_normal_line_kernel(c=c, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, hs=hs,     &
+                                                       has_rho=has_rho, var_rho=var_rho,                      &
+                                                       local_map_bc_crown_gpu=local_map_bc_crown_gpu,         &
+                                                       dxyz_gpu=dxyz_gpu, q_gpu=q_gpu)
+      enddo
+      endsubroutine enforce_silver_muller_normal_bc_fnl
+
+      subroutine enforce_silver_muller_normal_line_kernel(c, ni, nj, nk, ngc, nv, hs, has_rho, var_rho, local_map_bc_crown_gpu, dxyz_gpu, q_gpu)
+      !$acc routine seq
+      integer(I4P), intent(in)    :: c, ni, nj, nk, ngc, nv, hs, has_rho, var_rho
+      integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      integer(I4P)                :: b, i, j, k, face
+
+      b = local_map_bc_crown_gpu(c, 1, 1)
+      if (b <= 0_I4P) return
+      if (local_map_bc_crown_gpu(c, 8, 1) /= BC_SILVER_MULLER) return
+      if (local_map_bc_crown_gpu(c, 9, 1) > 6_I4P) return
+
+      i = local_map_bc_crown_gpu(c, 2, 1)
+      j = local_map_bc_crown_gpu(c, 3, 1)
+      k = local_map_bc_crown_gpu(c, 4, 1)
+      face = local_map_bc_crown_gpu(c, 9, 1)
+      if (.not. is_face_line_seed_fnl(face=face, i=i, j=j, k=k, ni=ni, nj=nj, nk=nk)) return
+
+      call solve_silver_muller_normal_line_fnl(q_gpu=q_gpu, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face, &
+                                               i_seed=i, j_seed=j, k_seed=k, hs=hs, dxyz_gpu=dxyz_gpu,     &
+                                               has_rho=has_rho, var_rho=var_rho)
+      endsubroutine enforce_silver_muller_normal_line_kernel
+
+      logical function is_face_line_seed_fnl(face, i, j, k, ni, nj, nk)
+      !$acc routine seq
+      integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
+
+      is_face_line_seed_fnl = .false.
+      select case(face)
+      case(1)
+         is_face_line_seed_fnl = i == 0_I4P      .and. j >= 1_I4P .and. j <= nj .and. k >= 1_I4P .and. k <= nk
+      case(2)
+         is_face_line_seed_fnl = i == ni + 1_I4P .and. j >= 1_I4P .and. j <= nj .and. k >= 1_I4P .and. k <= nk
+      case(3)
+         is_face_line_seed_fnl = j == 0_I4P      .and. i >= 1_I4P .and. i <= ni .and. k >= 1_I4P .and. k <= nk
+      case(4)
+         is_face_line_seed_fnl = j == nj + 1_I4P .and. i >= 1_I4P .and. i <= ni .and. k >= 1_I4P .and. k <= nk
+      case(5)
+         is_face_line_seed_fnl = k == 0_I4P      .and. i >= 1_I4P .and. i <= ni .and. j >= 1_I4P .and. j <= nj
+      case(6)
+         is_face_line_seed_fnl = k == nk + 1_I4P .and. i >= 1_I4P .and. i <= ni .and. j >= 1_I4P .and. j <= nj
+      endselect
+      endfunction is_face_line_seed_fnl
+
+      subroutine solve_silver_muller_normal_line_fnl(q_gpu, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz_gpu, has_rho, var_rho)
+      !$acc routine seq
+      integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, has_rho, var_rho
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      integer(I4P)                :: dir_t1, dir_t2
+      integer(I4P)                :: var_d_t1, var_d_t2, var_d_n
+      integer(I4P)                :: var_b_t1, var_b_t2, var_b_n
+
+      call silver_muller_face_metadata_fnl(face=face, dir_t1=dir_t1, dir_t2=dir_t2,                              &
+                                           var_d_t1=var_d_t1, var_d_t2=var_d_t2, var_d_n=var_d_n,               &
+                                           var_b_t1=var_b_t1, var_b_t2=var_b_t2, var_b_n=var_b_n)
+
+      call solve_silver_muller_normal_field_fnl(q_gpu=q_gpu, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,         &
+                                                i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, hs=hs, dxyz_gpu=dxyz_gpu, &
+                                                dir_t1=dir_t1, dir_t2=dir_t2, var_t1=var_d_t1, var_t2=var_d_t2,      &
+                                                var_n=var_d_n, has_target=has_rho, target_var=var_rho)
+
+      call solve_silver_muller_normal_field_fnl(q_gpu=q_gpu, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,         &
+                                                i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, hs=hs, dxyz_gpu=dxyz_gpu, &
+                                                dir_t1=dir_t1, dir_t2=dir_t2, var_t1=var_b_t1, var_t2=var_b_t2,      &
+                                                var_n=var_b_n, has_target=0_I4P, target_var=0_I4P)
+      endsubroutine solve_silver_muller_normal_line_fnl
+
+      subroutine silver_muller_face_metadata_fnl(face, dir_t1, dir_t2, var_d_t1, var_d_t2, var_d_n, var_b_t1, var_b_t2, var_b_n)
+      !$acc routine seq
+      integer(I4P), intent(in)  :: face
+      integer(I4P), intent(out) :: dir_t1, dir_t2
+      integer(I4P), intent(out) :: var_d_t1, var_d_t2, var_d_n
+      integer(I4P), intent(out) :: var_b_t1, var_b_t2, var_b_n
+
+      select case(face)
+      case(1, 2)
+         dir_t1 = 2_I4P ; dir_t2 = 3_I4P
+         var_d_t1 = VAR_DY ; var_d_t2 = VAR_DZ ; var_d_n = VAR_DX
+         var_b_t1 = VAR_BY ; var_b_t2 = VAR_BZ ; var_b_n = VAR_BX
+      case(3, 4)
+         dir_t1 = 3_I4P ; dir_t2 = 1_I4P
+         var_d_t1 = VAR_DZ ; var_d_t2 = VAR_DX ; var_d_n = VAR_DY
+         var_b_t1 = VAR_BZ ; var_b_t2 = VAR_BX ; var_b_n = VAR_BY
+      case(5, 6)
+         dir_t1 = 1_I4P ; dir_t2 = 2_I4P
+         var_d_t1 = VAR_DX ; var_d_t2 = VAR_DY ; var_d_n = VAR_DZ
+         var_b_t1 = VAR_BX ; var_b_t2 = VAR_BY ; var_b_n = VAR_BZ
+      case default
+         dir_t1 = 0_I4P ; dir_t2 = 0_I4P
+         var_d_t1 = 0_I4P ; var_d_t2 = 0_I4P ; var_d_n = 0_I4P
+         var_b_t1 = 0_I4P ; var_b_t2 = 0_I4P ; var_b_n = 0_I4P
+      endselect
+      endsubroutine silver_muller_face_metadata_fnl
+
+      subroutine solve_silver_muller_normal_field_fnl(q_gpu, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz_gpu, &
+                                                      dir_t1, dir_t2, var_t1, var_t2, var_n, has_target, target_var)
+      !$acc routine seq
+      integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs
+      integer(I4P), intent(in)    :: dir_t1, dir_t2, var_t1, var_t2, var_n, has_target, target_var
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P)                   :: unknown(FDV_S_MAX)
+      real(R8P)                   :: rhs, coeff, target
+      integer(I4P)                :: eq, u, u_new, m, dir_n
+      integer(I4P)                :: ic, jc, kc
+
+      unknown = 0._R8P
+      dir_n = face_normal_direction_fnl(face)
+
+      do eq=hs, 1, -1
+         call interior_cell_from_face_fnl(face=face, eq=eq, ni=ni, nj=nj, nk=nk, i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, &
+                                          ic=ic, jc=jc, kc=kc)
+
+         if (has_target /= 0_I4P) then
+            target = q_gpu(b, ic, jc, kc, target_var)
+         else
+            target = 0._R8P
+         endif
+
+         rhs = target
+         rhs = rhs - tangential_divergence_at_cell_fnl(q_gpu=q_gpu, ngc=ngc, b=b, i=ic, j=jc, k=kc, hs=hs, dxyz_gpu=dxyz_gpu, &
+                                                       dir_t1=dir_t1, dir_t2=dir_t2, var_t1=var_t1, var_t2=var_t2)
+         rhs = rhs - normal_known_contribution_fnl(q_gpu=q_gpu, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face, i=ic, j=jc, k=kc, &
+                                                   hs=hs, dxyz_gpu=dxyz_gpu, var_n=var_n)
+
+         u_new = hs - eq + 1_I4P
+         do u=1, u_new-1
+            m = eq + u - 1_I4P
+            coeff = silver_muller_unknown_coefficient_fnl(face=face, m=m, hs=hs, ds=dxyz_gpu(b,dir_n))
+            rhs = rhs - coeff * unknown(u)
+         enddo
+
+         coeff = silver_muller_unknown_coefficient_fnl(face=face, m=hs, hs=hs, ds=dxyz_gpu(b,dir_n))
+         unknown(u_new) = rhs / coeff
+      enddo
+
+      do u=1, hs
+         call ghost_cell_from_face_fnl(face=face, ghost_layer=u, ni=ni, nj=nj, nk=nk, i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, &
+                                       ic=ic, jc=jc, kc=kc)
+         q_gpu(b, ic, jc, kc, var_n) = unknown(u)
+      enddo
+      endsubroutine solve_silver_muller_normal_field_fnl
+
+      integer(I4P) function face_normal_direction_fnl(face)
+      !$acc routine seq
+      integer(I4P), intent(in) :: face
+      select case(face)
+      case(1, 2)
+         face_normal_direction_fnl = 1_I4P
+      case(3, 4)
+         face_normal_direction_fnl = 2_I4P
+      case(5, 6)
+         face_normal_direction_fnl = 3_I4P
+      case default
+         face_normal_direction_fnl = 0_I4P
+      endselect
+      endfunction face_normal_direction_fnl
+
+      real(R8P) function silver_muller_unknown_coefficient_fnl(face, m, hs, ds)
+      !$acc routine seq
+      integer(I4P), intent(in) :: face, m, hs
+      real(R8P),    intent(in) :: ds
+      silver_muller_unknown_coefficient_fnl = FD1_CC(m, hs) / ds
+      if (face == 1_I4P .or. face == 3_I4P .or. face == 5_I4P) then
+         silver_muller_unknown_coefficient_fnl = -silver_muller_unknown_coefficient_fnl
+      endif
+      endfunction silver_muller_unknown_coefficient_fnl
+
+      subroutine interior_cell_from_face_fnl(face, eq, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
+      !$acc routine seq
+      integer(I4P), intent(in)  :: face, eq, ni, nj, nk, i_seed, j_seed, k_seed
+      integer(I4P), intent(out) :: ic, jc, kc
+      select case(face)
+      case(1)
+         ic = eq ; jc = j_seed ; kc = k_seed
+      case(2)
+         ic = ni - eq + 1_I4P ; jc = j_seed ; kc = k_seed
+      case(3)
+         ic = i_seed ; jc = eq ; kc = k_seed
+      case(4)
+         ic = i_seed ; jc = nj - eq + 1_I4P ; kc = k_seed
+      case(5)
+         ic = i_seed ; jc = j_seed ; kc = eq
+      case(6)
+         ic = i_seed ; jc = j_seed ; kc = nk - eq + 1_I4P
+      case default
+         ic = 0_I4P ; jc = 0_I4P ; kc = 0_I4P
+      endselect
+      endsubroutine interior_cell_from_face_fnl
+
+      subroutine ghost_cell_from_face_fnl(face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
+      !$acc routine seq
+      integer(I4P), intent(in)  :: face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed
+      integer(I4P), intent(out) :: ic, jc, kc
+      select case(face)
+      case(1)
+         ic = 1_I4P - ghost_layer ; jc = j_seed ; kc = k_seed
+      case(2)
+         ic = ni + ghost_layer    ; jc = j_seed ; kc = k_seed
+      case(3)
+         ic = i_seed ; jc = 1_I4P - ghost_layer ; kc = k_seed
+      case(4)
+         ic = i_seed ; jc = nj + ghost_layer    ; kc = k_seed
+      case(5)
+         ic = i_seed ; jc = j_seed ; kc = 1_I4P - ghost_layer
+      case(6)
+         ic = i_seed ; jc = j_seed ; kc = nk + ghost_layer
+      case default
+         ic = 0_I4P ; jc = 0_I4P ; kc = 0_I4P
+      endselect
+      endsubroutine ghost_cell_from_face_fnl
+
+      real(R8P) function tangential_divergence_at_cell_fnl(q_gpu, ngc, b, i, j, k, hs, dxyz_gpu, dir_t1, dir_t2, var_t1, var_t2)
+      !$acc routine seq
+      integer(I4P), intent(in) :: ngc, b, i, j, k, hs, dir_t1, dir_t2, var_t1, var_t2
+      real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(in) :: dxyz_gpu(1:,1:)
+      integer(I4P)             :: m
+      tangential_divergence_at_cell_fnl = 0._R8P
+      do m=1, hs
+         tangential_divergence_at_cell_fnl = tangential_divergence_at_cell_fnl + FD1_CC(m, hs) * &
+            (component_along_direction_fnl(q_gpu, ngc, b, var_t1, dir_t1, i, j, k,  m) - &
+             component_along_direction_fnl(q_gpu, ngc, b, var_t1, dir_t1, i, j, k, -m)) / dxyz_gpu(b,dir_t1)
+         tangential_divergence_at_cell_fnl = tangential_divergence_at_cell_fnl + FD1_CC(m, hs) * &
+            (component_along_direction_fnl(q_gpu, ngc, b, var_t2, dir_t2, i, j, k,  m) - &
+             component_along_direction_fnl(q_gpu, ngc, b, var_t2, dir_t2, i, j, k, -m)) / dxyz_gpu(b,dir_t2)
+      enddo
+      endfunction tangential_divergence_at_cell_fnl
+
+      real(R8P) function normal_known_contribution_fnl(q_gpu, ngc, ni, nj, nk, b, face, i, j, k, hs, dxyz_gpu, var_n)
+      !$acc routine seq
+      integer(I4P), intent(in) :: ngc, ni, nj, nk, b, face, i, j, k, hs, var_n
+      real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(in) :: dxyz_gpu(1:,1:)
+      integer(I4P)             :: dir_n, m, depth
+
+      dir_n = face_normal_direction_fnl(face)
+      depth = normal_depth_from_cell_fnl(face=face, i=i, j=j, k=k, ni=ni, nj=nj, nk=nk)
+      normal_known_contribution_fnl = 0._R8P
+
+      select case(face)
+      case(1, 3, 5)
+         do m=1, hs
+            normal_known_contribution_fnl = normal_known_contribution_fnl + FD1_CC(m, hs) * &
+               component_along_direction_fnl(q_gpu, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz_gpu(b,dir_n)
+         enddo
+         do m=1, depth-1
+            normal_known_contribution_fnl = normal_known_contribution_fnl - FD1_CC(m, hs) * &
+               component_along_direction_fnl(q_gpu, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz_gpu(b,dir_n)
+         enddo
+      case(2, 4, 6)
+         do m=1, depth-1
+            normal_known_contribution_fnl = normal_known_contribution_fnl + FD1_CC(m, hs) * &
+               component_along_direction_fnl(q_gpu, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz_gpu(b,dir_n)
+         enddo
+         do m=1, hs
+            normal_known_contribution_fnl = normal_known_contribution_fnl - FD1_CC(m, hs) * &
+               component_along_direction_fnl(q_gpu, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz_gpu(b,dir_n)
+         enddo
+      endselect
+      endfunction normal_known_contribution_fnl
+
+      integer(I4P) function normal_depth_from_cell_fnl(face, i, j, k, ni, nj, nk)
+      !$acc routine seq
+      integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
+      select case(face)
+      case(1)
+         normal_depth_from_cell_fnl = i
+      case(2)
+         normal_depth_from_cell_fnl = ni - i + 1_I4P
+      case(3)
+         normal_depth_from_cell_fnl = j
+      case(4)
+         normal_depth_from_cell_fnl = nj - j + 1_I4P
+      case(5)
+         normal_depth_from_cell_fnl = k
+      case(6)
+         normal_depth_from_cell_fnl = nk - k + 1_I4P
+      case default
+         normal_depth_from_cell_fnl = 0_I4P
+      endselect
+      endfunction normal_depth_from_cell_fnl
+
+      real(R8P) function component_along_direction_fnl(q_gpu, ngc, b, var, dir, i, j, k, offset)
+      !$acc routine seq
+      integer(I4P), intent(in) :: ngc, b, var, dir, i, j, k, offset
+      real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      select case(dir)
+      case(1)
+         component_along_direction_fnl = q_gpu(b, i + offset, j, k, var)
+      case(2)
+         component_along_direction_fnl = q_gpu(b, i, j + offset, k, var)
+      case(3)
+         component_along_direction_fnl = q_gpu(b, i, j, k + offset, var)
+      case default
+         component_along_direction_fnl = 0._R8P
+      endselect
+      endfunction component_along_direction_fnl
    endsubroutine set_boundary_conditions
 
    subroutine set_initial_conditions(self, is_restart)
