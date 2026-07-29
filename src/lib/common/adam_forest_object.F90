@@ -141,6 +141,14 @@ contains
    do is = 1, int(size(realm), I4P)
       call realm(is)%finalize_forest
    enddo
+   ! End-of-run marker. Every realm has run finalize_forest above, so all
+   ! checkpoints and residual/history files are flushed to disk. Emit a stable
+   ! sentinel to stdout *before* the process-global MPI_Finalize below, which on
+   ! some GPU-aware-MPI stacks (ROCm/UCX) can deadlock in teardown *after* the
+   ! run is otherwise complete. Reaching here means the simulation finished
+   ! cleanly; the regression harness keys on this line to distinguish "done,
+   ! then hung in finalize" (terminate early) from "still running" (wait).
+   call mpih%print_message('ADAM run complete: all realms finalized, entering MPI_Finalize')
    ! MPI_FINALIZE is process-global: run it ONCE here, after every realm has done its
    ! MPI-using teardown above — not per realm inside finalize_forest, which would tear
    ! MPI down while later realms still need it.
