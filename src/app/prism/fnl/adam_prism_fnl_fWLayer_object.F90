@@ -5,10 +5,6 @@
 module adam_prism_fnl_fWLayer_object
 !< ADAM, PRISM (Plasma Research usIng Simulation Methods) fWLayer class definition, FNL backend.
 
-! ADAM classes, libraries, parameters
-use :: adam_common_library
-! ADAM FNL classes, libraries, parameters
-use :: adam_fnl_library
 ! PRISM common classes, libraries, parameters
 use :: adam_prism_common_library
 ! third party modules
@@ -17,63 +13,9 @@ use :: penf
 
 implicit none
 private
-public :: prism_fnl_fwlayer_object
 public :: apply_fwl_correction_dev_kernel
 
-type :: prism_fnl_fwlayer_object
-   !< PRISM fWLayer class definition.
-   contains
-      ! public methods
-      procedure, pass(self) :: copy_cpu_gpu !< Copy data from CPU to GPU.
-      procedure, pass(self) :: copy_gpu_cpu !< Copy data from GPU to CPU.
-      procedure, pass(self) :: initialize   !< Initialize object from global singletons.
-endtype prism_fnl_fwlayer_object
-
 contains
-   ! public methods
-   subroutine copy_cpu_gpu(self, fwlayer, grid, buffer, verbose)
-   !< Copy data from CPU to GPU.
-   class(prism_fnl_fwlayer_object), intent(inout)           :: self       !< The field.
-   class(prism_fwlayer_object),     intent(in)              :: fwlayer    !< Fwlayer common handler (host).
-   type(grid_object),               intent(in)              :: grid       !< Grid (sibling realm component, threaded in).
-   real(R8P),                       intent(inout), optional :: buffer(1:,                                 &
-                                                                      1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
-                                                                      1:) !< Buffer (host memory, device shape).
-   logical,                         intent(in),    optional :: verbose    !< Flag to activate verbose mode.
-   logical                                                  :: verbose_   !< Flag to activate verbose mode, local var.
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu start')
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu finish')
-   endsubroutine copy_cpu_gpu
-
-   subroutine copy_gpu_cpu(self, fwlayer, grid, buffer, verbose)
-   !< Copy data from GPU to CPU.
-   class(prism_fnl_fwlayer_object), intent(inout)           :: self       !< The field.
-   class(prism_fwlayer_object),     intent(inout)           :: fwlayer    !< Fwlayer common handler (host).
-   type(grid_object),               intent(in)              :: grid       !< Grid (sibling realm component, threaded in).
-   real(R8P),                       intent(inout), optional :: buffer(1:,                                 &
-                                                                      1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,&
-                                                                      1:) !< Buffer (host memory, device shape).
-   logical,                         intent(in), optional    :: verbose    !< Flag to activate verbose mode.
-   logical                                                  :: verbose_   !< Flag to activate verbose mode, local var.
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu start')
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu finish')
-   endsubroutine copy_gpu_cpu
-
-   subroutine initialize(self, fwlayer, field, grid)
-   !< Initialize the fWLayer from program-scope `field` (adam_field_global) and `grid` (adam_grid_global) singletons.
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global), `field` and `grid` singletons to be ready.
-   class(prism_fnl_fwlayer_object), intent(inout)      :: self    !< fWLayer.
-   type(prism_fwlayer_object),      intent(in), target :: fwlayer !< Fwlayer common handler.
-   type(field_object),         intent(in)         :: field !< Field (sibling realm component, threaded in).
-   type(grid_object),          intent(in)         :: grid !< Grid (sibling realm component, threaded in).
-   ! No device-side fWLayer state is needed: factors are computed on the fly during correction.
-   print '(A)', mpih_fnl%myrankstr//'prism_fnl_fwlayer_object%initialize start'
-   print '(A)', mpih_fnl%myrankstr//'prism_fnl_fwlayer_object%initialize finish'
-   endsubroutine initialize
-
-   ! non TBP
    subroutine apply_fwl_correction_dev_kernel(block_idx,ngc,ni1,ni2,nj1,nj2,nk1,nk2,n,s2,alfa_D,beta_D,alfa_B,beta_B,&
                                               C_face,dxyz_gpu,q_gpu)
    !< Applay FWL correction, direction agnostic, device kernel.

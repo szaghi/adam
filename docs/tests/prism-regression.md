@@ -2,7 +2,16 @@
 
 The `src/tests/prism/regression/` suite is the **structural-change regression baseline** for the PRISM Maxwell/EM solver — every step of the [forest-of-trees migration](https://github.com/szaghi/adam/issues/10) must leave it green. Each case runs in roughly a minute per backend and validates one backend against committed reference outputs (or, for the AMR-seam cases, against a physics oracle).
 
-This page is the conceptual overview. The authoritative operational reference — golden-capture workflow, CI-as-authority rules, tolerance rationale, adding a case — is the suite's own [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md); it is not duplicated here.
+This page is the conceptual overview. The authoritative operational reference — golden-capture workflow, CI-as-authority rules, tolerance rationale, adding a case — is the suite's own [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md); it is not duplicated here. To stand the suite up on a new machine, compiler, or GPU architecture, follow the [bring-up tutorial](./prism-regression-tutorial).
+
+::: warning Current status — two open items (as of `cf16e20d`)
+The suite runs again after the `[fWLayer]` input migration, but is not fully green: **6 PASS, 1 FAIL, 3 SKIP** on a local CPU sweep.
+
+1. **`rmf-amr` digest mismatch.** It is the only case on `fv_centered`; its golden dates from `d15fed4c` (2026-07-04) and `28625dbf` has since reworked FV coil initialisation. The input changed only in comments, so this is a source-behaviour change on the FV path — previously masked by the fWLayer breakage. It needs adjudication (correct behaviour → golden bump; incorrect → fix), **not a reflexive golden refresh**.
+2. **`rmf-fwl` is still un-migrated** and still `error_stop`s: its layer is active, so translating `C = 6` to a physical `width` is not a guaranteed round-trip and its FNL golden must be re-verified.
+
+Details and evidence in the [suite README](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md).
+:::
 
 ## Design goals
 
@@ -50,15 +59,19 @@ All cases share `physical_model = EM`, `nv = 9`, `fdv_order = 6`, `ngc = 3`, `co
 | `rmf-2realm`           | inter (x-split) | α | fd | single-realm `rmf` split at x=0; aggregated digest vs the `rmf` golden ([#13](https://github.com/szaghi/adam/issues/13) Phase D) |
 | `rmf-2realm-asymK`     | inter | α | fd | the asymmetric-K validation: realm_1 SSP-33 (K=3) ∥ realm_2 SSP-54 (K=5), the α K-equality-guard removal ([#16](https://github.com/szaghi/adam/issues/16)) |
 | `rmf-2realm-stagesync` | inter | β | fd | the load-bearing β oracle — digest must match the single-realm `rmf` golden bit-for-bit ([#18](https://github.com/szaghi/adam/issues/18)) |
-| `rmf-fwl`              | single | — | fd | the only fWLayer case (`C=6`, six faces) + 4 coils — guards the FNL fWLayer host→device transfer fix ([#31](https://github.com/szaghi/adam/issues/31)); **FNL-goldened, CPU golden pending CI** |
+| `rmf-fwl`              | single | — | fd | the only fWLayer case (six faces) + 4 coils — guards the FNL fWLayer host→device transfer fix ([#31](https://github.com/szaghi/adam/issues/31)); **FNL-goldened, CPU golden pending CI** |
 
 ### Inter-realm 1:1 seam anchor
 
 `rmf-2realm-fd-pulse` — a source-free Gaussian pulse split at x=0 into two same-resolution realms glued by a **β** mirror seam. It isolates the seam *mechanism* (inter-realm peer copy) from any resolution *jump*: a 1:1 seam must be div-free exactly like a 1:1 intra-block interface, and it holds `div(B) = div(D) = 0` — **but only under β**. Under α the seam ghosts go unfilled during RK substages and div(B) leaks (this is the [#31](https://github.com/szaghi/adam/issues/31) diagnosis). For a 1:1 same-`dt` seam, β is correct and required.
 
-### AMR-seam cases (goldenless, `check.sh`-driven)
+::: warning Not automatically enforced
+This case carries **no golden and no `check.sh`**, so `run.sh` skips it and nothing in CI or the local sweep checks the div-free property it documents. It is a **manual reproducer** for [#31](https://github.com/szaghi/adam/issues/31), not an enforced anchor. To make it a real guard it needs either a committed digest golden (both backends) or a `check.sh` asserting `max|div(B)|` and `max|div(D)|` at round-off, in the style of the AMR-seam oracles.
+:::
 
-Three single-realm cases carry a static intra-realm **2:1 AMR jump** (`markers_number = 1`, an AMR_GEO box marker covering the x<0 half). They are not digest-goldened; each carries a bespoke `check.sh` that asserts a physics oracle, run with a marker-off control leg for contrast. `run.sh` does **not** invoke them — they are run directly.
+### AMR-seam cases (digest-goldened **and** `check.sh`-driven)
+
+Three single-realm cases carry a static intra-realm **2:1 AMR jump** (`markers_number = 1`, an AMR_GEO box marker covering the x<0 half). They are doubly covered: digest + residuals goldens on **both** backends (captured in [#24](https://github.com/szaghi/adam/issues/24), `d15fed4c`), which `run.sh` checks like any other case, **plus** a bespoke `check.sh` asserting a physics oracle with a marker-off control leg for contrast. The oracles are *not* invoked by `run.sh` — run them directly (they are the only thing that checks the seam `div(B)` behaviour).
 
 | Case | Scheme | `check.sh` oracle |
 |---|---|---|

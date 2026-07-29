@@ -212,9 +212,6 @@ contains
          idelta = int(local_map_bc_crown(c, 5, crown), I4P)
          jdelta = int(local_map_bc_crown(c, 6, crown), I4P)
          kdelta = int(local_map_bc_crown(c, 7, crown), I4P)
-         i_d = i - idelta
-         j_d = j - jdelta
-         k_d = k - kdelta
          face = FEC_1_6_ARRAY(int(local_map_bc_crown(c, 9, crown), I4P))
          select case(ell_bc_type(face))
          case(ELL_BC_DIRICHLET)
@@ -235,6 +232,8 @@ contains
                                                       b_gc=b, q=q)
             endif
          case(ELL_BC_PEC)
+            call compute_face_mirror_indexes(face=face, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, idelta=idelta, &
+                                             jdelta=jdelta, kdelta=kdelta, i_d=i_d, j_d=j_d, k_d=k_d)
             call apply_bc_elliptic_face_pec(face=face, ivar=ivar, ngc=ngc, i_gc=i, j_gc=j, k_gc=k, b_gc=b, &
                                             i_d=i_d, j_d=j_d, k_d=k_d, q=q)
          case default
@@ -243,6 +242,36 @@ contains
       enddo
    enddo
    endsubroutine apply_bc_elliptic_from_faces
+
+   subroutine compute_face_mirror_indexes(face, ni, nj, nk, i_gc, j_gc, k_gc, idelta, jdelta, kdelta, i_d, j_d, k_d)
+   !< Return the donor indexes mirrored across the selected boundary face.
+   integer(I4P), intent(in)  :: face                     !< Face index in 1:6 numbering.
+   integer(I4P), intent(in)  :: ni, nj, nk               !< Grid dimensions.
+   integer(I4P), intent(in)  :: i_gc, j_gc, k_gc         !< Ghost-cell indexes.
+   integer(I4P), intent(in)  :: idelta, jdelta, kdelta   !< One-step inward deltas.
+   integer(I4P), intent(out) :: i_d, j_d, k_d            !< Mirrored donor indexes.
+
+   i_d = i_gc - idelta
+   j_d = j_gc - jdelta
+   k_d = k_gc - kdelta
+
+   select case(face)
+   case(1)
+      i_d = 1_I4P - i_gc
+   case(2)
+      i_d = 2_I4P * ni + 1_I4P - i_gc
+   case(3)
+      j_d = 1_I4P - j_gc
+   case(4)
+      j_d = 2_I4P * nj + 1_I4P - j_gc
+   case(5)
+      k_d = 1_I4P - k_gc
+   case(6)
+      k_d = 2_I4P * nk + 1_I4P - k_gc
+   case default
+      call mpih%error_stop(msg='compute_face_mirror_indexes: invalid face index '//trim(str(face)))
+   endselect
+   endsubroutine compute_face_mirror_indexes
 
    subroutine apply_bc_elliptic_face_pec(face, ivar, ngc, i_gc, j_gc, k_gc, b_gc, i_d, j_d, k_d, q)
    !< Reflect one elliptic ghost cell according to PEC parity.

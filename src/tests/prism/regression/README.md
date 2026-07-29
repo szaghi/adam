@@ -4,6 +4,53 @@ CI-tuned regression tests for the PRISM (Maxwell-equation) solver. Each case
 runs in roughly one minute and validates one backend against a committed golden
 output.
 
+> ## ⚠️ Current status — two open items
+>
+> As of `cf16e20d` the suite runs again, but it is not fully green. Local CPU
+> sweep (gfortran 15.1, OpenMPI 5.0.7): **6 PASS, 1 FAIL, 3 SKIP**.
+>
+> ### 1. `rmf-amr` digest mismatch — an unadjudicated FV-path change
+>
+> `rmf-amr` is the **only** regression case on `scheme_space = fv_centered`;
+> every other case is `fd`. Its golden was captured at `d15fed4c`
+> (2026-07-04), and `28625dbf` ("fv tests, coils & PIC initialization on fv")
+> has since reworked FV coil initialisation by ~213 lines in
+> `adam_prism_common_object.F90`. The case's `input.ini` has changed only in
+> comments over that span, so the divergence is a **source-behaviour change on
+> the FV path**, not an input drift.
+>
+> The digest is not off by round-off: at the first saved checkpoint a
+> reduction that the golden records as exactly `0.0` now reads `~9.9E+03`, and
+> subsequent checkpoints diverge progressively. **Do not refresh this golden
+> reflexively** — decide first whether the new FV coil initialisation is
+> correct. If it is, this is a reviewer-approved golden bump; if not, it is a
+> bug the golden would otherwise enshrine.
+>
+> This regression was masked until `cf16e20d`: the fWLayer breakage below took
+> the whole suite down, so nothing was checking the FV path.
+>
+> ### 2. `rmf-fwl` is still un-migrated
+>
+> `8e05d363` reworked `prism_fWLayer_object` to take a **physical** width
+> (`[fWLayer] width`, a real) instead of the old **cell-count** `C`; `C` became
+> a *derived* per-block/face array (`C_face = min(ni, ceiling(width/ds))`,
+> `src/app/prism/common/adam_prism_fWLayer_object.F90:144`). The parser reads
+> `width` and **only** `width` (`:189`), and `load_from_file` is called
+> unconditionally from `initialize` (`:86`) with `go_on_fail` defaulting to
+> `.false.` — so a missing `width` is a hard `error_stop` **even when the case
+> uses no layer at all**.
+>
+> `cf16e20d` migrated the eight cases whose layer is inactive (`C = 0` →
+> `width = 0.0`; both mean "no layer", so goldens stayed valid). **`rmf-fwl`
+> was deliberately left out**: its layer is active (`C = 6` at `ni = 16` on
+> `[-0.16, 0.16]`, i.e. `ds = 0.02`, so nominally `width = 0.12`), and because
+> `C` is now derived through `ceiling` the translation is not guaranteed to
+> round-trip on refined blocks. It needs its own change with a **re-verified
+> (probably recaptured) FNL golden**.
+>
+> Until then `rmf-fwl` still carries `C` and therefore still `error_stop`s; it
+> is skipped by `run.sh` on the CPU backend anyway (no CPU golden).
+
 This suite is the **structural-change regression baseline** referenced by
 [issue #10][issue10] (forest-of-trees migration plan). Every step of that plan
 must leave this suite green.
@@ -16,6 +63,38 @@ The existing test trees under `src/tests/prism/{cpu,fnl}/` are **research /
 development** cases — long integration times, full AMR, sized for physics
 validation. They are **not** regression anchors and are not consumed by
 `run.sh`.
+
+Since the 2026-07 reorganization those trees are split by spatial scheme,
+`src/tests/prism/<backend>/{fd,fv}/<family>/`, where `fd` is the finite-difference
+(`fd_centered`) path and `fv` the finite-volume (`fv_centered`) one. Current
+families:
+
+| Family | Where | What it is |
+|---|---|---|
+| `RMF` / `rmf` | `cpu/{fd,fv}`, `fnl/{fd,fv}` | the 4-AC-coil rotating-magnetic-field workhorse the regression cases derive from |
+| `BC_tests` | `cpu/fd`, `fnl/fd` | one directory per boundary kind — `Neumann`, `Silver-Muller`, `fW_Layer`, and the combined `fWLayer_Silver_Muller` |
+| `PIC` | `cpu/fd`, `fnl/fd` | `physical_model = PIC` particle cases: single particle (RK and leapfrog), plasma column/cylinder, and the `elliptic_solver_tests/` sub-family (incl. the `PEC` validation case) |
+| `divergence_correction` | all four | the only cases exercising `constrained_transport = DB` + `divergence_correction = hyperbolic` (the [issue #11](https://github.com/szaghi/adam/issues/11) `nv`/CT hazard the regression suite deliberately avoids) |
+| `fWL` | all four | the isolated absorbing-layer case (`[fWLayer] width`, all six faces) |
+| `plane_wave` | `cpu/fd` | plane wave, Gaussian pulse, and `gaussian_pulse_PEC` (1-D PEC reflection) |
+| `Gaussian_pulse` | `cpu/fv`, `fnl/fv` | the FV twin of the pulse case (`[weno] scheme = weno-c-4`) |
+| `Helicon_antenna`, `magnetic_nozzle` | `cpu/fd` | long-integration application cases (helicon coil, solenoid nozzle) |
+| `infinite_wire` | `fnl/fd` | single rectangular coil, `fdv_order = 4` |
+
+None of these has a `check.sh`, none is goldened, and `run.sh` never descends
+into them — it iterates only the immediate subdirectories of *this* directory.
+The `fv` subtrees and the `divergence_correction`, `fWL`, PIC-on-FNL and
+PEC/Silver-Müller families are all **new since 2026-07** and are not yet
+represented by any regression anchor.
+
+### Boundary-condition kinds
+
+`[bc_*] type` accepts (`src/app/prism/common/adam_prism_bc_object.F90:84-101`):
+`extrapolation`, `Neumann`, `Dirichlet`, `Silver_Muller`, `periodic`,
+`radiative`, `PEC` (also lowercase `pec`). Note the **underscore** spelling
+`Silver_Muller` — the hyphen appears only in a directory name. There is no
+`default` branch in the `select case`, so an unrecognised string leaves the BC
+type undefined rather than erroring: spelling mistakes fail silently.
 
 Cases under this directory (`src/tests/prism/regression/`) are derived from
 research cases but **tuned for CI**:
@@ -48,17 +127,24 @@ Most cases are auto-discovered (any subdirectory with an `input.ini` and a
 `golden/<backend>/`). Two are worth calling out because they exercise a
 device-path a plain field case does not:
 
-- **`rmf-fwl`** — the only case that turns on the **fWLayer** (`[fWLayer] C = 6`,
-  all six faces) together with four AC coils. It is the regression anchor for the
+- **`rmf-fwl`** — the only case that turns on the **fWLayer** (six faces)
+  together with four AC coils. It is the regression anchor for the
   fWLayer host→device transfer: on the FNL backend the fWLayer field is stored
   transposed (`(nb,i,j,k,3)`) and copied through FUNDAL's transposed HtoD path,
   which — unlike the plain q-field copy — is sensitive to how the device
   destination pointer is passed. A `C=30`/`ni=32` research variant crashed at
   `np>1` with `cuMemcpyHtoDAsync → CUDA_ERROR_INVALID_VALUE` (an nvfortran
   copy-in temporary on the lbound-remapped device dummy handed a host address to
-  the async HtoD); this regression-sized case guards that fix. Note `C` **must**
-  stay `< ni`: the fWLayer stamps cells `ni-C+1 .. ni`, so `C ≥ ni` drives the
-  index negative.
+  the async HtoD); this regression-sized case guards that fix.
+
+  **Layer width.** The layer used to be configured as a cell count `C`, which
+  had to stay `< ni` — the layer stamps cells `ni-C+1 .. ni`, so `C ≥ ni` drove
+  the index negative. Since `8e05d363` the input key is a **physical** width
+  (`[fWLayer] width`) and the per-block/face cell count is derived and clamped:
+  `C_face = min(ni, ceiling(width/ds))`. The clamp makes the old negative-index
+  footgun unreachable, but a `width` wider than a block still silently saturates
+  the layer to the whole block — keep `width` well under the block extent so the
+  case exercises a genuine partial layer.
 
 ## Running the harness
 
@@ -326,14 +412,20 @@ the workstation that runs `run-fnl-local.sh` — there is no GPU CI to capture
 from. Whoever refreshes it must run on a known-good tree and review the digest
 diff before committing.
 
-## AMR seam cases (goldenless, `check.sh`-driven)
+## AMR seam cases (digest-goldened **and** `check.sh`-driven)
 
 `rmf-amr`, `rmf-amr-fd` and `rmf-amr-fd-pulse` carry a deterministic
-intra-realm 2:1 AMR jump (the `AMR_GEO` primitive-box marker) and are driven
-by their own `check.sh`, not by `run.sh` goldens. `rmf-amr` asserts the seam
-*structure* (registration, restriction, reflux plumbing, fv path);
-`rmf-amr-fd` and `rmf-amr-fd-pulse` assert the seam *divergence* behaviour of
-the fd_centered path.
+intra-realm 2:1 AMR jump (the `AMR_GEO` primitive-box marker). They are doubly
+covered: digest + residuals goldens exist for **both** backends (captured in
+issue #24, `d15fed4c`) and are checked by `run.sh` like any other case, **plus**
+a bespoke `check.sh` that asserts a physics oracle `run.sh` does not — run those
+by hand. `rmf-amr`'s oracle asserts the seam *structure* (registration,
+restriction, reflux plumbing, fv path); `rmf-amr-fd` and `rmf-amr-fd-pulse`
+assert the seam *divergence* behaviour of the fd_centered path.
+
+(Earlier revisions of this file described these three as "goldenless". That has
+been false since `d15fed4c`; the goldens are what `rmf-amr` is currently failing
+against — see the status banner at the top.)
 
 **The historical acceptance "seam max|div(B)| ≤ 1e-13" is RETIRED** (issue
 #21 §1, premise correction): no surveyed cell-centered method achieves

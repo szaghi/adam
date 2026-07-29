@@ -41,7 +41,6 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(rk_fnl_object)            :: rk_fnl      !< GPU Runge-Kutta integrator.
    type(weno_fnl_object)          :: weno_fnl    !< GPU WENO reconstructor.
    type(prism_fnl_coil_object)    :: coil_fnl    !< GPU coil source.
-   type(prism_fnl_fwlayer_object) :: fwlayer_fnl !< GPU fWLayer.
    type(prism_fnl_leapfrog_pic_object) :: leapfrog_pic_fnl !< GPU PIC leapfrog integrator.
    type(prism_fnl_pic_object)     :: pic_fnl     !< GPU PIC support state.
    type(prism_fnl_rk_pic_object)  :: rk_pic_fnl  !< GPU PIC RK integrator.
@@ -93,6 +92,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! IC/BC/sources
       procedure, pass(self) :: apply_fwl_correction    !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current   !< Compute current coils sources.
+      procedure, pass(self) :: verify_no_pic_deposition_on_coils_dev !< Guard against PIC deposition on coil cells.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
@@ -585,6 +585,10 @@ contains
       !                              q_name=self%q_name)
       ! endif
    endif
+   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      call self%pic_fnl%copy_q_pic_gpu_cpu(q_pic=self%q_pic)
+      call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic)
+   endif
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
@@ -655,9 +659,11 @@ contains
                                      nk            = nk           ,&
                                      ngc           = ngc          ,&
                                      blocks_number = blocks_number,&
+                                     coils_number  = self%coil%total_coils_number,&
                                      var_jx        = var_jx       ,&
                                      var_jy        = var_jy       ,&
                                      var_jz        = var_jz       ,&
+                                     j_vec_gpu     = self%coil_fnl%j_vec_gpu,&
                                      q_gpu         = q_gpu)
 
       ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
@@ -696,30 +702,39 @@ contains
    endif
    endassociate
    contains
-      subroutine nullify_j_vec_vars_kernel(ni,nj,nk,ngc,blocks_number,var_jx,var_jy,var_jz,q_gpu)
-      !< Nullify J_Vec vars in q, devide kernel.
-      integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number        !< Grids dimensions.
-      integer(I4P), intent(in)    :: var_jx,var_jy,var_jz              !< Indexes of J_vec variables.
-      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
-      integer(I4P)                :: i,j,k,b                           !< Counter.
+      subroutine nullify_j_vec_vars_kernel(ni,nj,nk,ngc,blocks_number,coils_number,var_jx,var_jy,var_jz,j_vec_gpu,q_gpu)
+      !< Nullify J_Vec vars in q only on the support of the analytic coil current.
+      integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number,coils_number        !< Grids dimensions / coil count.
+      integer(I4P), intent(in)    :: var_jx,var_jy,var_jz                            !< Indexes of J_vec variables.
+      real(R8P),    intent(in)    :: j_vec_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:)       !< Analytic coil support.
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)               !< Field cell centered variables.
+      integer(I4P)                :: i,j,k,b,n                                       !< Counter.
+      logical                     :: has_coil                                         !< Coil support flag.
 
       ! FULL ghost-inclusive extent (issue #26 G2): the CPU stamp covers 1-ngc..n+ngc;
       ! the former interior-only loops left the q J-row ghosts UNSTAMPED (stale exchange
       ! content) -- the divergence stencils near every block border read wrong J, the
       ! dominant term of the FNL div(J) untruthfulness (2.35E+01 vs 3.2E-05).
       !$acc parallel loop independent gang vector collapse(4) &
-      !$acc DEVICEVAR(q_gpu)                                  &
-      !$acc firstprivate(ni,nj,nk,ngc,blocks_number,var_jx,var_jy,var_jz)
+      !$acc DEVICEVAR(q_gpu,j_vec_gpu)                        &
+      !$acc firstprivate(ni,nj,nk,ngc,blocks_number,coils_number,var_jx,var_jy,var_jz)
       !$omp OMPLOOP collapse(4) &
-      !$omp DEVICEPTR(q_gpu) &
-      !$omp firstprivate(ni,nj,nk,ngc,blocks_number,var_jx,var_jy,var_jz)
+      !$omp DEVICEPTR(q_gpu,j_vec_gpu) &
+      !$omp firstprivate(ni,nj,nk,ngc,blocks_number,coils_number,var_jx,var_jy,var_jz)
       do b=1, blocks_number
       do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
       do i=1-ngc, ni+ngc
-         q_gpu(b,i,j,k,var_Jx) = 0._R8P
-         q_gpu(b,i,j,k,var_Jy) = 0._R8P
-         q_gpu(b,i,j,k,var_Jz) = 0._R8P
+         has_coil = .false.
+         !$acc loop seq
+         do n=1, coils_number
+            has_coil = has_coil .or. any(j_vec_gpu(b,i,j,k,1:3,n) /= 0._R8P)
+         enddo
+         if (has_coil) then
+            q_gpu(b,i,j,k,var_Jx) = 0._R8P
+            q_gpu(b,i,j,k,var_Jy) = 0._R8P
+            q_gpu(b,i,j,k,var_Jz) = 0._R8P
+         endif
       enddo
       enddo
       enddo
@@ -759,6 +774,89 @@ contains
       endsubroutine apply_j_vec_kernel
    endsubroutine compute_coils_current
 
+   subroutine verify_no_pic_deposition_on_coils_dev(self, q_gpu, check_current, check_charge, context)
+   !< Ensure device-side PIC deposition does not populate cells carrying analytic coil current.
+   class(prism_fnl_object), intent(in)              :: self                                               !< The equation.
+   real(R8P),               intent(in)              :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Deposited field.
+   logical,                 intent(in),    optional :: check_current                                      !< Check Jx/Jy/Jz overlap.
+   logical,                 intent(in),    optional :: check_charge                                       !< Check rho overlap.
+   character(*),            intent(in),    optional :: context                                            !< Call-site label.
+   logical                                         :: do_current                                          !< Check current overlap.
+   logical                                         :: do_charge                                           !< Check charge overlap.
+   character(len=:), allocatable                   :: context_                                            !< Context label, local copy.
+   integer(I4P)                                    :: overlap_current                                     !< Reduction flag for current overlap.
+   integer(I4P)                                    :: overlap_charge                                      !< Reduction flag for charge overlap.
+   integer(I4P)                                    :: nv_q                                                !< Runtime q width.
+
+   do_current = .false. ; if (present(check_current)) do_current = check_current
+   do_charge  = .false. ; if (present(check_charge )) do_charge  = check_charge
+   if ((.not. do_current) .and. (.not. do_charge)) return
+   if (self%coil%total_coils_number <= 0_I4P) return
+
+   context_ = 'PIC deposition'
+   if (present(context)) context_ = trim(context)
+
+   overlap_current = 0_I4P
+   overlap_charge  = 0_I4P
+   nv_q = int(size(q_gpu, dim=5), I4P)
+
+   if (do_current .or. do_charge) then
+      call verify_no_pic_deposition_on_coils_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,          &
+                                                        blocks_number=self%blocks_number, coils_number=self%coil%total_coils_number, &
+                                                        var_jx=self%physics%var_Jx, var_jy=self%physics%var_Jy, var_jz=self%physics%var_Jz, &
+                                                        nv_q=nv_q, do_current=merge(1_I4P,0_I4P,do_current),         &
+                                                        do_charge=merge(1_I4P,0_I4P,do_charge), j_vec_gpu=self%coil_fnl%j_vec_gpu, &
+                                                        q_gpu=q_gpu, overlap_current=overlap_current, overlap_charge=overlap_charge)
+   endif
+
+   if (overlap_current /= 0_I4P) then
+      call mpih_fnl%error_stop(msg=': '//trim(context_)//' deposited plasma current on a coil cell')
+   endif
+   if (overlap_charge /= 0_I4P) then
+      call mpih_fnl%error_stop(msg=': '//trim(context_)//' deposited plasma charge on a coil cell')
+   endif
+
+   contains
+      subroutine verify_no_pic_deposition_on_coils_dev_kernel(ni, nj, nk, ngc, blocks_number, coils_number,       &
+                                                              var_jx, var_jy, var_jz, nv_q, do_current, do_charge, &
+                                                              j_vec_gpu, q_gpu, overlap_current, overlap_charge)
+      !< Check overlap between PIC deposition and coil support on device.
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, coils_number       !< Grid / coil sizes.
+      integer(I4P), intent(in)    :: var_jx, var_jy, var_jz, nv_q                        !< Variable indexes.
+      integer(I4P), intent(in)    :: do_current, do_charge                               !< Integerized logicals.
+      real(R8P),    intent(in)    :: j_vec_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:)           !< Analytic coil support.
+      real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                  !< Deposited field.
+      integer(I4P), intent(inout) :: overlap_current, overlap_charge                     !< Host reduction flags.
+      integer(I4P)                :: b, i, j, k, n                                       !< Counters.
+      logical                     :: has_coil                                             !< Coil support at cell.
+
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(j_vec_gpu, q_gpu) &
+      !$acc& firstprivate(ni, nj, nk, ngc, blocks_number, coils_number, var_jx, var_jy, var_jz, nv_q, do_current, do_charge) &
+      !$acc& reduction(max: overlap_current, overlap_charge)
+      do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+      do i=1-ngc, ni+ngc
+         has_coil = .false.
+         !$acc loop seq
+         do n=1, coils_number
+            has_coil = has_coil .or. any(j_vec_gpu(b,i,j,k,1:3,n) /= 0._R8P)
+         enddo
+         if (.not. has_coil) cycle
+         if (do_current /= 0_I4P) then
+            if ((q_gpu(b,i,j,k,var_jx) /= 0._R8P) .or. (q_gpu(b,i,j,k,var_jy) /= 0._R8P) .or. &
+                (q_gpu(b,i,j,k,var_jz) /= 0._R8P)) overlap_current = 1_I4P
+         endif
+         if (do_charge /= 0_I4P) then
+            if (q_gpu(b,i,j,k,nv_q) /= 0._R8P) overlap_charge = 1_I4P
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine verify_no_pic_deposition_on_coils_dev_kernel
+   endsubroutine verify_no_pic_deposition_on_coils_dev
+
    subroutine set_boundary_conditions(self, q_gpu)
    !< Set boundary conditions of equation.
    class(prism_fnl_object), intent(in)    :: self                  !< The equation.
@@ -780,6 +878,13 @@ contains
                                              local_map_bc_crown_gpu = self%field_fnl%maps%local_map_bc_crown_gpu,&
                                              q_gpu                  = q_gpu)
       enddo
+      call enforce_silver_muller_normal_bc_fnl(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
+                                               hs=self%fdv_half_stencils(1), has_rho=merge(1_I4P, 0_I4P,      &
+                                               self%physics%physical_model == PIC_PHYSICAL_MODEL),             &
+                                               var_rho=merge(self%nv, 0_I4P,                                  &
+                                               self%physics%physical_model == PIC_PHYSICAL_MODEL),             &
+                                               local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu, &
+                                               dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu)
    endif
    contains
       subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, nv_c, nv_cl, crown, local_map_bc_crown_gpu, q_gpu)
@@ -817,23 +922,25 @@ contains
             kdelta  = local_map_bc_crown_gpu(c, 7 ,crown)
             bc_type = local_map_bc_crown_gpu(c, 8 ,crown)
             fec     = local_map_bc_crown_gpu(c, 9 ,crown)
+            if (fec > 6_I4P) cycle
             fec_1_6 = fec_1_6_array(fec)
             if (bc_type == BC_EXTRAPOLATION) then
                do v=1, nv
                   q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
                enddo
             elseif (bc_type == BC_NEUMANN) then
+               call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                i_d=iref, j_d=jref, k_d=kref)
                do v=1, nv
-                  q_gpu(b,i,j,k,v) = q_gpu(b,i+abs(idelta)*(-2*i+1+(idelta+1)*ni),&
-                                             j+abs(jdelta)*(-2*j+1+(jdelta+1)*nj),&
-                                             k+abs(kdelta)*(-2*k+1+(kdelta+1)*nk),v)
+                  q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
                enddo
             elseif (bc_type == BC_SILVER_MULLER) then
                ! With outward normal n, the Silver-Muller conditions are
                ! B_t = (n x E_d) / c, B_n = B_n,d, E_t = c (B_d x n), E_n = E_n,d.
-               iref = min(max(i, 1_I4P), ni)
-               jref = min(max(j, 1_I4P), nj)
-               kref = min(max(k, 1_I4P), nk)
+               call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                i_d=iref, j_d=jref, k_d=kref)
                select case(fec_1_6)
                case(1)
                   s1 = -1.0_R8P
@@ -843,7 +950,6 @@ contains
                   alfa_B = 5_I4P
                   beta_B = 6_I4P
                   gamma_B = 4_I4P
-                  iref = 1_I4P
                case(2)
                   s1 = 1.0_R8P
                   alfa_D = 2_I4P
@@ -852,7 +958,6 @@ contains
                   alfa_B = 5_I4P
                   beta_B = 6_I4P
                   gamma_B = 4_I4P
-                  iref = ni
                case(3)
                   s1 = -1.0_R8P
                   alfa_D = 3_I4P
@@ -861,7 +966,6 @@ contains
                   alfa_B = 6_I4P
                   beta_B = 4_I4P
                   gamma_B = 5_I4P
-                  jref = 1_I4P
                case(4)
                   s1 = 1.0_R8P
                   alfa_D = 3_I4P
@@ -870,7 +974,6 @@ contains
                   alfa_B = 6_I4P
                   beta_B = 4_I4P
                   gamma_B = 5_I4P
-                  jref = nj
                case(5)
                   s1 = -1.0_R8P
                   alfa_D = 1_I4P
@@ -879,7 +982,6 @@ contains
                   alfa_B = 4_I4P
                   beta_B = 5_I4P
                   gamma_B = 6_I4P
-                  kref = 1_I4P
                case(6)
                   s1 = 1.0_R8P
                   alfa_D = 1_I4P
@@ -888,7 +990,6 @@ contains
                   alfa_B = 4_I4P
                   beta_B = 5_I4P
                   gamma_B = 6_I4P
-                  kref = nk
                endselect
                q_gpu(b,i,j,k,alfa_D ) =  s1*C0*q_gpu(b,iref,jref,kref,beta_B )*EPS0
                q_gpu(b,i,j,k,beta_D ) = -s1*C0*q_gpu(b,iref,jref,kref,alfa_B)*EPS0
@@ -897,34 +998,37 @@ contains
                q_gpu(b,i,j,k,beta_B ) =  s1/C0*q_gpu(b,iref,jref,kref,alfa_D)/EPS0
                q_gpu(b,i,j,k,gamma_B) =       q_gpu(b,iref,jref,kref,gamma_B)
                do v=nv_c-nv_cl+1, nv
-                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+                  q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
                enddo
             elseif (bc_type == BC_PEC) then
+               call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                i_d=iref, j_d=jref, k_d=kref)
                do v=1, nv
-                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+                  q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
                enddo
                select case(fec_1_6)
                case(1, 2)
-                  q_gpu(b,i,j,k,VAR_DX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
-                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
-                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
-                  q_gpu(b,i,j,k,VAR_BX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
-                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
-                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+                  q_gpu(b,i,j,k,VAR_DX) =  q_gpu(b,iref,jref,kref,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,iref,jref,kref,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,iref,jref,kref,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) = -q_gpu(b,iref,jref,kref,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,iref,jref,kref,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,iref,jref,kref,VAR_BZ)
                case(3, 4)
-                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
-                  q_gpu(b,i,j,k,VAR_DY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
-                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
-                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
-                  q_gpu(b,i,j,k,VAR_BY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
-                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,iref,jref,kref,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) =  q_gpu(b,iref,jref,kref,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) = -q_gpu(b,iref,jref,kref,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,iref,jref,kref,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) = -q_gpu(b,iref,jref,kref,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) =  q_gpu(b,iref,jref,kref,VAR_BZ)
                case(5, 6)
-                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DX)
-                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DY)
-                  q_gpu(b,i,j,k,VAR_DZ) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_DZ)
-                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BX)
-                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BY)
-                  q_gpu(b,i,j,k,VAR_BZ) = -q_gpu(b,i-idelta,j-jdelta,k-kdelta,VAR_BZ)
+                  q_gpu(b,i,j,k,VAR_DX) = -q_gpu(b,iref,jref,kref,VAR_DX)
+                  q_gpu(b,i,j,k,VAR_DY) = -q_gpu(b,iref,jref,kref,VAR_DY)
+                  q_gpu(b,i,j,k,VAR_DZ) =  q_gpu(b,iref,jref,kref,VAR_DZ)
+                  q_gpu(b,i,j,k,VAR_BX) =  q_gpu(b,iref,jref,kref,VAR_BX)
+                  q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,iref,jref,kref,VAR_BY)
+                  q_gpu(b,i,j,k,VAR_BZ) = -q_gpu(b,iref,jref,kref,VAR_BZ)
                endselect
             elseif (bc_type == BC_DIRICHLET) then
                do v=1, nv
@@ -964,6 +1068,356 @@ contains
          endif
       enddo
       endsubroutine set_boundary_conditions_kernel
+
+      subroutine compute_face_mirror_indexes(face, ni, nj, nk, i_gc, j_gc, k_gc, idelta, jdelta, kdelta, i_d, j_d, k_d)
+      !$acc routine seq
+      !< Return the donor indexes mirrored across the selected boundary face.
+      integer(I4P), intent(in)  :: face                       !< Boundary face index in [1, 6].
+      integer(I4P), intent(in)  :: ni, nj, nk                !< Interior grid extents.
+      integer(I4P), intent(in)  :: i_gc, j_gc, k_gc         !< Ghost-cell indexes.
+      integer(I4P), intent(in)  :: idelta, jdelta, kdelta   !< One-step inward deltas.
+      integer(I4P), intent(out) :: i_d, j_d, k_d            !< Mirrored donor indexes.
+
+      i_d = i_gc - idelta
+      j_d = j_gc - jdelta
+      k_d = k_gc - kdelta
+
+      select case(face)
+      case(1)
+         i_d = 1_I4P - i_gc
+      case(2)
+         i_d = 2_I4P * ni + 1_I4P - i_gc
+      case(3)
+         j_d = 1_I4P - j_gc
+      case(4)
+         j_d = 2_I4P * nj + 1_I4P - j_gc
+      case(5)
+         k_d = 1_I4P - k_gc
+      case(6)
+         k_d = 2_I4P * nk + 1_I4P - k_gc
+      endselect
+      endsubroutine compute_face_mirror_indexes
+
+      subroutine enforce_silver_muller_normal_bc_fnl(ni, nj, nk, ngc, nv, hs, has_rho, var_rho, local_map_bc_crown_gpu, dxyz_gpu, q_gpu)
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, nv, hs, has_rho, var_rho
+      integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      integer(I4P)                :: c
+
+      if (hs <= 0_I4P) return
+      if (ngc < hs) call mpih_fnl%error_stop(msg='Silver_Muller requires ngc >= fdv_half_stencils(1)')
+
+      !$acc parallel loop independent gang vector &
+      !$acc& DEVICEVAR(local_map_bc_crown_gpu, dxyz_gpu, q_gpu) firstprivate(ni, nj, nk, ngc, nv, hs, has_rho, var_rho)
+      do c=1, size(local_map_bc_crown_gpu, dim=1)
+         call enforce_silver_muller_normal_line_kernel(c=c, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, hs=hs,     &
+                                                       has_rho=has_rho, var_rho=var_rho,                      &
+                                                       local_map_bc_crown_gpu=local_map_bc_crown_gpu,         &
+                                                       dxyz_gpu=dxyz_gpu, q_gpu=q_gpu)
+      enddo
+      endsubroutine enforce_silver_muller_normal_bc_fnl
+
+      subroutine enforce_silver_muller_normal_line_kernel(c, ni, nj, nk, ngc, nv, hs, has_rho, var_rho, local_map_bc_crown_gpu, dxyz_gpu, q_gpu)
+      !$acc routine seq
+      integer(I4P), intent(in)    :: c, ni, nj, nk, ngc, nv, hs, has_rho, var_rho
+      integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      integer(I4P)                :: b, i, j, k, face
+
+      b = local_map_bc_crown_gpu(c, 1, 1)
+      if (b <= 0_I4P) return
+      if (local_map_bc_crown_gpu(c, 8, 1) /= BC_SILVER_MULLER) return
+      if (local_map_bc_crown_gpu(c, 9, 1) > 6_I4P) return
+
+      i = local_map_bc_crown_gpu(c, 2, 1)
+      j = local_map_bc_crown_gpu(c, 3, 1)
+      k = local_map_bc_crown_gpu(c, 4, 1)
+      face = local_map_bc_crown_gpu(c, 9, 1)
+      if (.not. is_face_line_seed_fnl(face=face, i=i, j=j, k=k, ni=ni, nj=nj, nk=nk)) return
+
+      call solve_silver_muller_normal_line_fnl(q_gpu=q_gpu, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face, &
+                                               i_seed=i, j_seed=j, k_seed=k, hs=hs, dxyz_gpu=dxyz_gpu,     &
+                                               has_rho=has_rho, var_rho=var_rho)
+      endsubroutine enforce_silver_muller_normal_line_kernel
+
+      logical function is_face_line_seed_fnl(face, i, j, k, ni, nj, nk)
+      !$acc routine seq
+      integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
+
+      is_face_line_seed_fnl = .false.
+      select case(face)
+      case(1)
+         is_face_line_seed_fnl = i == 0_I4P      .and. j >= 1_I4P .and. j <= nj .and. k >= 1_I4P .and. k <= nk
+      case(2)
+         is_face_line_seed_fnl = i == ni + 1_I4P .and. j >= 1_I4P .and. j <= nj .and. k >= 1_I4P .and. k <= nk
+      case(3)
+         is_face_line_seed_fnl = j == 0_I4P      .and. i >= 1_I4P .and. i <= ni .and. k >= 1_I4P .and. k <= nk
+      case(4)
+         is_face_line_seed_fnl = j == nj + 1_I4P .and. i >= 1_I4P .and. i <= ni .and. k >= 1_I4P .and. k <= nk
+      case(5)
+         is_face_line_seed_fnl = k == 0_I4P      .and. i >= 1_I4P .and. i <= ni .and. j >= 1_I4P .and. j <= nj
+      case(6)
+         is_face_line_seed_fnl = k == nk + 1_I4P .and. i >= 1_I4P .and. i <= ni .and. j >= 1_I4P .and. j <= nj
+      endselect
+      endfunction is_face_line_seed_fnl
+
+      subroutine solve_silver_muller_normal_line_fnl(q_gpu, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz_gpu, has_rho, var_rho)
+      !$acc routine seq
+      integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, has_rho, var_rho
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      integer(I4P)                :: dir_t1, dir_t2
+      integer(I4P)                :: var_d_t1, var_d_t2, var_d_n
+      integer(I4P)                :: var_b_t1, var_b_t2, var_b_n
+
+      call silver_muller_face_metadata_fnl(face=face, dir_t1=dir_t1, dir_t2=dir_t2,                              &
+                                           var_d_t1=var_d_t1, var_d_t2=var_d_t2, var_d_n=var_d_n,               &
+                                           var_b_t1=var_b_t1, var_b_t2=var_b_t2, var_b_n=var_b_n)
+
+      call solve_silver_muller_normal_field_fnl(q_gpu=q_gpu, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,         &
+                                                i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, hs=hs, dxyz_gpu=dxyz_gpu, &
+                                                dir_t1=dir_t1, dir_t2=dir_t2, var_t1=var_d_t1, var_t2=var_d_t2,      &
+                                                var_n=var_d_n, has_target=has_rho, target_var=var_rho)
+
+      call solve_silver_muller_normal_field_fnl(q_gpu=q_gpu, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,         &
+                                                i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, hs=hs, dxyz_gpu=dxyz_gpu, &
+                                                dir_t1=dir_t1, dir_t2=dir_t2, var_t1=var_b_t1, var_t2=var_b_t2,      &
+                                                var_n=var_b_n, has_target=0_I4P, target_var=0_I4P)
+      endsubroutine solve_silver_muller_normal_line_fnl
+
+      subroutine silver_muller_face_metadata_fnl(face, dir_t1, dir_t2, var_d_t1, var_d_t2, var_d_n, var_b_t1, var_b_t2, var_b_n)
+      !$acc routine seq
+      integer(I4P), intent(in)  :: face
+      integer(I4P), intent(out) :: dir_t1, dir_t2
+      integer(I4P), intent(out) :: var_d_t1, var_d_t2, var_d_n
+      integer(I4P), intent(out) :: var_b_t1, var_b_t2, var_b_n
+
+      select case(face)
+      case(1, 2)
+         dir_t1 = 2_I4P ; dir_t2 = 3_I4P
+         var_d_t1 = VAR_DY ; var_d_t2 = VAR_DZ ; var_d_n = VAR_DX
+         var_b_t1 = VAR_BY ; var_b_t2 = VAR_BZ ; var_b_n = VAR_BX
+      case(3, 4)
+         dir_t1 = 3_I4P ; dir_t2 = 1_I4P
+         var_d_t1 = VAR_DZ ; var_d_t2 = VAR_DX ; var_d_n = VAR_DY
+         var_b_t1 = VAR_BZ ; var_b_t2 = VAR_BX ; var_b_n = VAR_BY
+      case(5, 6)
+         dir_t1 = 1_I4P ; dir_t2 = 2_I4P
+         var_d_t1 = VAR_DX ; var_d_t2 = VAR_DY ; var_d_n = VAR_DZ
+         var_b_t1 = VAR_BX ; var_b_t2 = VAR_BY ; var_b_n = VAR_BZ
+      case default
+         dir_t1 = 0_I4P ; dir_t2 = 0_I4P
+         var_d_t1 = 0_I4P ; var_d_t2 = 0_I4P ; var_d_n = 0_I4P
+         var_b_t1 = 0_I4P ; var_b_t2 = 0_I4P ; var_b_n = 0_I4P
+      endselect
+      endsubroutine silver_muller_face_metadata_fnl
+
+      subroutine solve_silver_muller_normal_field_fnl(q_gpu, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz_gpu, &
+                                                      dir_t1, dir_t2, var_t1, var_t2, var_n, has_target, target_var)
+      !$acc routine seq
+      integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs
+      integer(I4P), intent(in)    :: dir_t1, dir_t2, var_t1, var_t2, var_n, has_target, target_var
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P)                   :: unknown(FDV_S_MAX)
+      real(R8P)                   :: rhs, coeff, target
+      integer(I4P)                :: eq, u, u_new, m, dir_n
+      integer(I4P)                :: ic, jc, kc
+
+      unknown = 0._R8P
+      dir_n = face_normal_direction_fnl(face)
+
+      do eq=hs, 1, -1
+         call interior_cell_from_face_fnl(face=face, eq=eq, ni=ni, nj=nj, nk=nk, i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, &
+                                          ic=ic, jc=jc, kc=kc)
+
+         if (has_target /= 0_I4P) then
+            target = q_gpu(b, ic, jc, kc, target_var)
+         else
+            target = 0._R8P
+         endif
+
+         rhs = target
+         rhs = rhs - tangential_divergence_at_cell_fnl(q_gpu=q_gpu, ngc=ngc, b=b, i=ic, j=jc, k=kc, hs=hs, dxyz_gpu=dxyz_gpu, &
+                                                       dir_t1=dir_t1, dir_t2=dir_t2, var_t1=var_t1, var_t2=var_t2)
+         rhs = rhs - normal_known_contribution_fnl(q_gpu=q_gpu, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face, i=ic, j=jc, k=kc, &
+                                                   hs=hs, dxyz_gpu=dxyz_gpu, var_n=var_n)
+
+         u_new = hs - eq + 1_I4P
+         do u=1, u_new-1
+            m = eq + u - 1_I4P
+            coeff = silver_muller_unknown_coefficient_fnl(face=face, m=m, hs=hs, ds=dxyz_gpu(b,dir_n))
+            rhs = rhs - coeff * unknown(u)
+         enddo
+
+         coeff = silver_muller_unknown_coefficient_fnl(face=face, m=hs, hs=hs, ds=dxyz_gpu(b,dir_n))
+         unknown(u_new) = rhs / coeff
+      enddo
+
+      do u=1, hs
+         call ghost_cell_from_face_fnl(face=face, ghost_layer=u, ni=ni, nj=nj, nk=nk, i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, &
+                                       ic=ic, jc=jc, kc=kc)
+         q_gpu(b, ic, jc, kc, var_n) = unknown(u)
+      enddo
+      endsubroutine solve_silver_muller_normal_field_fnl
+
+      integer(I4P) function face_normal_direction_fnl(face)
+      !$acc routine seq
+      integer(I4P), intent(in) :: face
+      select case(face)
+      case(1, 2)
+         face_normal_direction_fnl = 1_I4P
+      case(3, 4)
+         face_normal_direction_fnl = 2_I4P
+      case(5, 6)
+         face_normal_direction_fnl = 3_I4P
+      case default
+         face_normal_direction_fnl = 0_I4P
+      endselect
+      endfunction face_normal_direction_fnl
+
+      real(R8P) function silver_muller_unknown_coefficient_fnl(face, m, hs, ds)
+      !$acc routine seq
+      integer(I4P), intent(in) :: face, m, hs
+      real(R8P),    intent(in) :: ds
+      silver_muller_unknown_coefficient_fnl = FD1_CC(m, hs) / ds
+      if (face == 1_I4P .or. face == 3_I4P .or. face == 5_I4P) then
+         silver_muller_unknown_coefficient_fnl = -silver_muller_unknown_coefficient_fnl
+      endif
+      endfunction silver_muller_unknown_coefficient_fnl
+
+      subroutine interior_cell_from_face_fnl(face, eq, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
+      !$acc routine seq
+      integer(I4P), intent(in)  :: face, eq, ni, nj, nk, i_seed, j_seed, k_seed
+      integer(I4P), intent(out) :: ic, jc, kc
+      select case(face)
+      case(1)
+         ic = eq ; jc = j_seed ; kc = k_seed
+      case(2)
+         ic = ni - eq + 1_I4P ; jc = j_seed ; kc = k_seed
+      case(3)
+         ic = i_seed ; jc = eq ; kc = k_seed
+      case(4)
+         ic = i_seed ; jc = nj - eq + 1_I4P ; kc = k_seed
+      case(5)
+         ic = i_seed ; jc = j_seed ; kc = eq
+      case(6)
+         ic = i_seed ; jc = j_seed ; kc = nk - eq + 1_I4P
+      case default
+         ic = 0_I4P ; jc = 0_I4P ; kc = 0_I4P
+      endselect
+      endsubroutine interior_cell_from_face_fnl
+
+      subroutine ghost_cell_from_face_fnl(face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
+      !$acc routine seq
+      integer(I4P), intent(in)  :: face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed
+      integer(I4P), intent(out) :: ic, jc, kc
+      select case(face)
+      case(1)
+         ic = 1_I4P - ghost_layer ; jc = j_seed ; kc = k_seed
+      case(2)
+         ic = ni + ghost_layer    ; jc = j_seed ; kc = k_seed
+      case(3)
+         ic = i_seed ; jc = 1_I4P - ghost_layer ; kc = k_seed
+      case(4)
+         ic = i_seed ; jc = nj + ghost_layer    ; kc = k_seed
+      case(5)
+         ic = i_seed ; jc = j_seed ; kc = 1_I4P - ghost_layer
+      case(6)
+         ic = i_seed ; jc = j_seed ; kc = nk + ghost_layer
+      case default
+         ic = 0_I4P ; jc = 0_I4P ; kc = 0_I4P
+      endselect
+      endsubroutine ghost_cell_from_face_fnl
+
+      real(R8P) function tangential_divergence_at_cell_fnl(q_gpu, ngc, b, i, j, k, hs, dxyz_gpu, dir_t1, dir_t2, var_t1, var_t2)
+      !$acc routine seq
+      integer(I4P), intent(in) :: ngc, b, i, j, k, hs, dir_t1, dir_t2, var_t1, var_t2
+      real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(in) :: dxyz_gpu(1:,1:)
+      integer(I4P)             :: m
+      tangential_divergence_at_cell_fnl = 0._R8P
+      do m=1, hs
+         tangential_divergence_at_cell_fnl = tangential_divergence_at_cell_fnl + FD1_CC(m, hs) * &
+            (component_along_direction_fnl(q_gpu, ngc, b, var_t1, dir_t1, i, j, k,  m) - &
+             component_along_direction_fnl(q_gpu, ngc, b, var_t1, dir_t1, i, j, k, -m)) / dxyz_gpu(b,dir_t1)
+         tangential_divergence_at_cell_fnl = tangential_divergence_at_cell_fnl + FD1_CC(m, hs) * &
+            (component_along_direction_fnl(q_gpu, ngc, b, var_t2, dir_t2, i, j, k,  m) - &
+             component_along_direction_fnl(q_gpu, ngc, b, var_t2, dir_t2, i, j, k, -m)) / dxyz_gpu(b,dir_t2)
+      enddo
+      endfunction tangential_divergence_at_cell_fnl
+
+      real(R8P) function normal_known_contribution_fnl(q_gpu, ngc, ni, nj, nk, b, face, i, j, k, hs, dxyz_gpu, var_n)
+      !$acc routine seq
+      integer(I4P), intent(in) :: ngc, ni, nj, nk, b, face, i, j, k, hs, var_n
+      real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(in) :: dxyz_gpu(1:,1:)
+      integer(I4P)             :: dir_n, m, depth
+
+      dir_n = face_normal_direction_fnl(face)
+      depth = normal_depth_from_cell_fnl(face=face, i=i, j=j, k=k, ni=ni, nj=nj, nk=nk)
+      normal_known_contribution_fnl = 0._R8P
+
+      select case(face)
+      case(1, 3, 5)
+         do m=1, hs
+            normal_known_contribution_fnl = normal_known_contribution_fnl + FD1_CC(m, hs) * &
+               component_along_direction_fnl(q_gpu, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz_gpu(b,dir_n)
+         enddo
+         do m=1, depth-1
+            normal_known_contribution_fnl = normal_known_contribution_fnl - FD1_CC(m, hs) * &
+               component_along_direction_fnl(q_gpu, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz_gpu(b,dir_n)
+         enddo
+      case(2, 4, 6)
+         do m=1, depth-1
+            normal_known_contribution_fnl = normal_known_contribution_fnl + FD1_CC(m, hs) * &
+               component_along_direction_fnl(q_gpu, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz_gpu(b,dir_n)
+         enddo
+         do m=1, hs
+            normal_known_contribution_fnl = normal_known_contribution_fnl - FD1_CC(m, hs) * &
+               component_along_direction_fnl(q_gpu, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz_gpu(b,dir_n)
+         enddo
+      endselect
+      endfunction normal_known_contribution_fnl
+
+      integer(I4P) function normal_depth_from_cell_fnl(face, i, j, k, ni, nj, nk)
+      !$acc routine seq
+      integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
+      select case(face)
+      case(1)
+         normal_depth_from_cell_fnl = i
+      case(2)
+         normal_depth_from_cell_fnl = ni - i + 1_I4P
+      case(3)
+         normal_depth_from_cell_fnl = j
+      case(4)
+         normal_depth_from_cell_fnl = nj - j + 1_I4P
+      case(5)
+         normal_depth_from_cell_fnl = k
+      case(6)
+         normal_depth_from_cell_fnl = nk - k + 1_I4P
+      case default
+         normal_depth_from_cell_fnl = 0_I4P
+      endselect
+      endfunction normal_depth_from_cell_fnl
+
+      real(R8P) function component_along_direction_fnl(q_gpu, ngc, b, var, dir, i, j, k, offset)
+      !$acc routine seq
+      integer(I4P), intent(in) :: ngc, b, var, dir, i, j, k, offset
+      real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      select case(dir)
+      case(1)
+         component_along_direction_fnl = q_gpu(b, i + offset, j, k, var)
+      case(2)
+         component_along_direction_fnl = q_gpu(b, i, j + offset, k, var)
+      case(3)
+         component_along_direction_fnl = q_gpu(b, i, j, k + offset, var)
+      case default
+         component_along_direction_fnl = 0._R8P
+      endselect
+      endfunction component_along_direction_fnl
    endsubroutine set_boundary_conditions
 
    subroutine set_initial_conditions(self, is_restart)
@@ -985,6 +1439,9 @@ contains
    call self%copy_cpu_gpu
 
    call self%apply_fWL_correction(q_gpu=self%q_gpu)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                   dt=0._R8P, time=0._R8P, q_gpu=self%q_gpu)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q,src=self%q_gpu,buf=self%buf_5D_R8P)
       call self%weight_pic_fields_time_zero()
@@ -3529,6 +3986,8 @@ contains
       call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                               q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
                                               q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+      call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), check_current=.true., &
+                                                      context='integrate_rk_ssp_pic(stage current)')
       call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
@@ -3563,6 +4022,8 @@ contains
                                            q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
    call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                             q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+   call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
+                                                   context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ssp_pic
 
@@ -3732,6 +4193,7 @@ contains
    integer(I4P)                                     :: i             !< Counter.
    integer(I4P)                                     :: n             !< Coil counter.
    integer(I4P)                                     :: b             !< Block counter.
+   integer(I4P)                                     :: ind           !< Charge-density variable index for PIC diagnostics.
 
    call self%initialize_prism(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
@@ -3759,6 +4221,20 @@ contains
       self%time%it = 0
       call mpih_fnl%print_message('impose initial conditions finish')
    endif
+
+   associate(hs => self%fdv_half_stencils(1))
+   call self%compute_divergence(hs=hs, ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=1_I4P, q=self%q(VAR_BX:VAR_BZ,:,:,:,:), divergence=self%divergence(2,:,:,:,:))
+   endassociate
+   call mpih_fnl%print_message('Initial conditions setting completed')
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      call mpih_fnl%print_message('   max div(D) at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      ind = size(self%q(:,1,1,1,1))
+      call mpih_fnl%print_message('   max div(D)-rho at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
+   endif
+   call mpih_fnl%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+
    call self%update_ghost(q_gpu=self%q_gpu)
 
    call mpih_fnl%print_message('Coils initialization values')
@@ -3774,11 +4250,25 @@ contains
       call mpih_fnl%print_message('  b='//trim(str(b,.true.))//' code='//trim(str(self%adam%field%code(b))))
    enddo
 
-   ! associate(hs => self%fdv_half_stencil)
-   ! call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
-   ! call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
-   ! call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
-   ! endassociate
+   if (.not.self%io%restart .and. self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      call initialize_single_particle_output(filename='single_particle_output.dat')
+   endif
+
+   call self%copy_gpu_cpu
+   associate(hs => self%fdv_half_stencils(1))
+   call self%compute_divergence(hs=hs, ivar=1_I4P, q=self%q, divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=4_I4P, q=self%q, divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
+   endassociate
+
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      call mpih_fnl%print_message('   max div(D) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      ind = size(self%q(:,1,1,1,1))
+      call mpih_fnl%print_message('   max div(D)-rho at t0 after update ghost='// &
+                                  trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
+   endif
+   call mpih_fnl%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
@@ -4548,10 +5038,15 @@ contains
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    real(R8P)                              :: max_div(3) !< Maximum divergence.
    integer(I4P), allocatable              :: fwl_cells(:,:) !< Block-local fWLayer cell counts; zero when layer is disabled.
+   integer(I4P)                           :: rho_ivar   !< Charge-density slot for PIC, appended at the end of q.
+   integer(I4P)                           :: use_rho    !< Integerized PIC flag for OpenACC firstprivate handling.
 
    allocate(fwl_cells(1:self%blocks_number,1:6))
    fwl_cells = 0_I4P
    if (allocated(self%fWLayer%C)) fwl_cells = self%fWLayer%C(1:self%blocks_number,1:6)
+   rho_ivar = self%nv
+   use_rho = 0_I4P
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) use_rho = 1_I4P
 
 	call compute_max_divergence_dev_kernel(ni            = self%ni                  ,&
                                           nj            = self%nj                  ,&
@@ -4561,6 +5056,8 @@ contains
                                           var_jx        = self%physics%var_jx      ,&
                                           var_jy        = self%physics%var_jy      ,&
                                           var_jz        = self%physics%var_jz      ,&
+                                          rho_ivar      = rho_ivar                 ,&
+                                          use_rho       = use_rho                  ,&
                                           s1            = self%fdv_half_stencils(1),&
                                           fwl_c         = fwl_cells                ,&
                                           dxyz_gpu      = self%field_fnl%dxyz_gpu  ,&
@@ -4573,14 +5070,16 @@ contains
 	self%max_divergence_J = max_div(3)
    contains
       subroutine compute_max_divergence_dev_kernel(ni, nj, nk, blocks_number, ngc, &
-                                                   var_Jx, var_Jy, var_Jz, s1, fwl_c,     &
+                                                   var_Jx, var_Jy, var_Jz, rho_ivar, use_rho, s1, fwl_c, &
                                                    dxyz_gpu, q_gpu, max_div)
 
 			!< Compute maximum divergence of D, B and J fields, device kernel.
 			integer(I4P), intent(in)  :: ni, nj, nk, blocks_number, ngc        !< Grids dimensions.
 			integer(I4P), intent(in)  :: var_Jx, var_Jy, var_Jz                !< Current variables indices.
+			integer(I4P), intent(in)  :: rho_ivar                              !< Charge-density slot for PIC.
+			integer(I4P), intent(in)  :: use_rho                               !< Integerized PIC flag.
 			integer(I4P), intent(in)  :: s1                                    !< FDV half stencil.
-				integer(I4P), intent(in)  :: fwl_c(1:,1:)                          !< fWLayer cell counts [nb,6].
+			integer(I4P), intent(in)  :: fwl_c(1:,1:)                          !< fWLayer cell counts [nb,6].
 			real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Delta cells GPU [nb,3].
 			real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
 			real(R8P),    intent(out) :: max_div(3)                            !< Maximum divergence of D, B and J fields.
@@ -4593,13 +5092,13 @@ contains
 			real(R8P)                 :: max_divD, max_divB, max_divJ			 !< Maximum divergence of D, B and J fields.
 			real(R8P)                 :: dxyz_b(3)                             !< Per-block deltas, PRIVATE copy (no strided-section temp: issue #22 F1-bis).
 			integer(I4P)              :: i,j,k,b,s                             !< Counter.
-				integer(I4P)              :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k    !< fWLayer skin-exclusion bounds (CPU-parity).
+			integer(I4P)              :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k    !< fWLayer skin-exclusion bounds (CPU-parity).
 
-				max_divD = 0.0_R8P
-				max_divB = 0.0_R8P
-				max_divJ = 0.0_R8P
+			max_divD = 0.0_R8P
+			max_divB = 0.0_R8P
+			max_divJ = 0.0_R8P
 		      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) copyin(fwl_c) &
-	         !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                               &
+	         !$acc& firstprivate(var_jx,var_jy,var_jz,rho_ivar,use_rho,s1)                             &
 	         !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b,lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
 				!$acc& reduction(max: max_divD, max_divB, max_divJ)
 		      !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) map(to:fwl_c) &
@@ -4641,6 +5140,7 @@ contains
                                                        + (q_gpu(b,i,j+s,k,var_Jy) - q_gpu(b,i,j-s,k,var_Jy))/dxyz_b(2)  &
                                                        + (q_gpu(b,i,j,k+s,var_Jz) - q_gpu(b,i,j,k-s,var_Jz))/dxyz_b(3))
             enddo
+            if (use_rho /= 0_I4P) divergenceD = divergenceD - q_gpu(b,i,j,k,rho_ivar)
 	            ! fWLayer-skin exclusion (CPU-parity): only cells outside the local block's
 	            ! layer skin contribute to the reported maximum.
 	            if (i >= lo_i .and. i <= hi_i .and. j >= lo_j .and. j <= hi_j .and. k >= lo_k .and. k <= hi_k) then

@@ -399,10 +399,20 @@ contains
       end if
       if (self%coil%total_coils_number >= 1_I4P) then
 
-         ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
-         q(var_Jx,:,:,:,:) = 0._R8P
-         q(var_Jy,:,:,:,:) = 0._R8P
-         q(var_Jz,:,:,:,:) = 0._R8P
+         ! Azzeramento limitato al supporto coil: preserva il contributo PIC fuori dalle bobine.
+         do b=1, blocks_number
+            do k=1-self%ngc, nk+self%ngc
+               do j=1-self%ngc, nj+self%ngc
+                  do i=1-self%ngc, ni+self%ngc
+                     if (any(J_vec(:,i,j,k,b,:) /= 0._R8P)) then
+                        q(var_Jx,i,j,k,b) = 0._R8P
+                        q(var_Jy,i,j,k,b) = 0._R8P
+                        q(var_Jz,i,j,k,b) = 0._R8P
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
 
          ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
          if (td > 0._R8P) then
@@ -498,7 +508,6 @@ contains
    integer(I4P),  optional, intent(in)    :: s                            !< Stage counter.
    integer(I4P)                           :: b, c, i, j, k, v             !< Counter.
    integer(I4P)                           :: idelta,jdelta,kdelta         !< IJK delta step for extrapolation.
-   integer(I4P)                           :: idelta_n, jdelta_n, kdelta_n !< IJK delta step for Neumann BC.
    integer(I4P)                           :: bc_type                      !< Boundary condition type.
    integer(I4P)                           :: crown                        !< Crown counter.
    integer(I4P)                           :: fec                          !< Boundary fec (1 to 26).
@@ -529,61 +538,26 @@ contains
                kdelta  = local_map_bc_crown(c, 7 ,crown)
                bc_type = local_map_bc_crown(c, 8 ,crown)
                fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
+               if (fec > 6_I4P) cycle
                fec_1_6 = fec_1_6_array(fec)
                if (bc_type == BC_EXTRAPOLATION) then
                   do v=1, nv!(nv_c-nv_cl)
                      q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b) !ni,j,k coordinate della cella da cui prendo i valori
                   enddo
                elseif (bc_type == BC_NEUMANN) then
-                  if (fec == 1) then
-                     idelta_n = nint(abs(real(i))*idelta,kind=I4P) - 1_I4P
-                     jdelta_n = jdelta
-                     kdelta_n = kdelta
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,-idelta_n,j-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  elseif (fec == 2) then
-                     idelta_n = 2_I4P*nint(abs(real(i-ni))*idelta,kind=I4P) - 1_I4P
-                     jdelta_n = jdelta
-                     kdelta_n = kdelta
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  elseif (fec == 3) then
-                     idelta_n = idelta
-                     jdelta_n = nint(abs(real(j))*jdelta,kind=I4P) - 1_I4P
-                     kdelta_n = kdelta
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  elseif (fec == 4) then
-                     idelta_n = idelta
-                     jdelta_n = 2_I4P*nint(abs(real(j-nj))*jdelta,kind=I4P) - 1_I4P
-                     kdelta_n = kdelta
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  elseif (fec == 5) then
-                     idelta_n = idelta
-                     jdelta_n = jdelta
-                     kdelta_n = nint(abs(real(k))*kdelta,kind=I4P) - 1_I4P
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,-kdelta_n,b)
-                     enddo
-                  elseif (fec == 6) then
-                     idelta_n = idelta
-                     jdelta_n = jdelta
-                     kdelta_n = 2_I4P*nint(abs(real(k-nk))*kdelta,kind=I4P) - 1_I4P
-                     do v=1, nv!(nv_c-nv_cl)
-                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
-                     enddo
-                  endif
+                  call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                   idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                   i_d=iref, j_d=jref, k_d=kref)
+                  do v=1, nv!(nv_c-nv_cl)
+                     q(v,i,j,k,b) = q(v,iref,jref,kref,b)
+                  enddo
                elseif (bc_type == BC_SILVER_MULLER) then
                   ! With outward normal n, the Silver-Muller conditions are
                   ! B_t = (n x E_d) / c, B_n = B_n,d, E_t = c (B_d x n), E_n = E_n,d.
-                  iref = min(max(i, 1_I4P), ni)
-                  jref = min(max(j, 1_I4P), nj)
-                  kref = min(max(k, 1_I4P), nk)
+                  call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                   idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                   i_d=iref, j_d=jref, k_d=kref)
+                  ref = q(:,iref,jref,kref,b)
                   select case(fec_1_6)
                   case(1)
                      s1 = -1.0_R8P
@@ -593,7 +567,6 @@ contains
                      alfa_B = 5_I4P
                      beta_B = 6_I4P
                      gamma_B = 4_I4P
-                     ref = q(:,1,jref,kref,b)
                   case(2)
                      s1 = 1.0_R8P
                      alfa_D = 2_I4P
@@ -602,7 +575,6 @@ contains
                      alfa_B = 5_I4P
                      beta_B = 6_I4P
                      gamma_B = 4_I4P
-                     ref = q(:,ni,jref,kref,b)
                   case(3)
                      s1 = -1.0_R8P
                      alfa_D = 3_I4P
@@ -611,7 +583,6 @@ contains
                      alfa_B = 6_I4P
                      beta_B = 4_I4P
                      gamma_B = 5_I4P
-                     ref = q(:,iref,1,kref,b)
                   case(4)
                      s1 = 1.0_R8P
                      alfa_D = 3_I4P
@@ -620,7 +591,6 @@ contains
                      alfa_B = 6_I4P
                      beta_B = 4_I4P
                      gamma_B = 5_I4P
-                     ref = q(:,iref,nj,kref,b)
                   case(5)
                      s1 = -1.0_R8P
                      alfa_D = 1_I4P
@@ -629,7 +599,6 @@ contains
                      alfa_B = 4_I4P
                      beta_B = 5_I4P
                      gamma_B = 6_I4P
-                     ref = q(:,iref,jref,1,b)
                   case(6)
                      s1 = 1.0_R8P
                      alfa_D = 1_I4P
@@ -638,7 +607,6 @@ contains
                      alfa_B = 4_I4P
                      beta_B = 5_I4P
                      gamma_B = 6_I4P
-                     ref = q(:,iref,jref,nk,b)
                   endselect
                   q(alfa_D, i,j,k,b) =  s1*C0*ref(beta_B)*EPS0
                   q(beta_D, i,j,k,b) = -s1*C0*ref(alfa_B)*EPS0
@@ -648,10 +616,13 @@ contains
                   q(gamma_B,i,j,k,b) = ref(gamma_B)
 
                   do v=(nv_c-nv_cl+1), nv
-                     q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b)
+                     q(v,i,j,k,b) = q(v,iref,jref,kref,b)
                   enddo
                elseif (bc_type == BC_PEC) then
-                  ref = q(:,i-idelta,j-jdelta,k-kdelta,b)
+                  call compute_face_mirror_indexes(face=fec_1_6, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
+                                                   idelta=idelta, jdelta=jdelta, kdelta=kdelta,               &
+                                                   i_d=iref, j_d=jref, k_d=kref)
+                  ref = q(:,iref,jref,kref,b)
                   q(:,i,j,k,b) = ref
                   select case(fec_1_6)
                   case(1, 2)
@@ -701,6 +672,8 @@ contains
          enddo
       enddo
    endif
+
+   call enforce_silver_muller_normal_bc_cpu(self=self, q=q)
 
    if (self%bc%bc_type(1) == BC_radiative .or. self%bc%bc_type(2) == BC_radiative &
        .or. self%bc%bc_type(3) == BC_radiative .or. self%bc%bc_type(4) == BC_radiative &
@@ -771,6 +744,374 @@ contains
    endif
    endassociate
    endsubroutine set_boundary_conditions
+
+   subroutine compute_face_mirror_indexes(face, ni, nj, nk, i_gc, j_gc, k_gc, idelta, jdelta, kdelta, i_d, j_d, k_d)
+   !< Return the donor indexes mirrored across the selected boundary face.
+   integer(I4P), intent(in)  :: face                     !< Face index in 1:6 numbering.
+   integer(I4P), intent(in)  :: ni, nj, nk               !< Grid dimensions.
+   integer(I4P), intent(in)  :: i_gc, j_gc, k_gc         !< Ghost-cell indexes.
+   integer(I4P), intent(in)  :: idelta, jdelta, kdelta   !< One-step inward deltas.
+   integer(I4P), intent(out) :: i_d, j_d, k_d            !< Mirrored donor indexes.
+
+   i_d = i_gc - idelta
+   j_d = j_gc - jdelta
+   k_d = k_gc - kdelta
+
+   select case(face)
+   case(1)
+      i_d = 1_I4P - i_gc
+   case(2)
+      i_d = 2_I4P * ni + 1_I4P - i_gc
+   case(3)
+      j_d = 1_I4P - j_gc
+   case(4)
+      j_d = 2_I4P * nj + 1_I4P - j_gc
+   case(5)
+      k_d = 1_I4P - k_gc
+   case(6)
+      k_d = 2_I4P * nk + 1_I4P - k_gc
+   case default
+      call mpih%error_stop(msg='compute_face_mirror_indexes: invalid face index '//trim(str(face)))
+   endselect
+   endsubroutine compute_face_mirror_indexes
+
+   subroutine enforce_silver_muller_normal_bc_cpu(self, q)
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(inout) :: q(1:,         &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,1:)
+   integer(I4P)                           :: b, c, face, hs, var_rho
+   integer(I4P)                           :: i, j, k
+   logical                                :: has_rho
+
+   if (.not. allocated(self%adam%maps%local_map_bc_crown)) return
+   if (.not. any(self%bc%bc_type == BC_SILVER_MULLER)) return
+
+   hs = self%fdv_half_stencils(1)
+   if (hs <= 0) return
+   if (self%ngc < hs) call mpih%error_stop(msg='Silver_Muller requires ngc >= fdv_half_stencils(1)')
+
+   has_rho = self%physics%physical_model == PIC_PHYSICAL_MODEL
+   if (has_rho) then
+      var_rho = self%nv
+   else
+      var_rho = 0_I4P
+   endif
+
+   do c=1, size(self%adam%maps%local_map_bc_crown, dim=1)
+      b = self%adam%maps%local_map_bc_crown(c, 1, 1)
+      if (b <= 0) cycle
+      if (self%adam%maps%local_map_bc_crown(c, 8, 1) /= BC_SILVER_MULLER) cycle
+      if (self%adam%maps%local_map_bc_crown(c, 9, 1) > 6_I4P) cycle
+
+      i = self%adam%maps%local_map_bc_crown(c, 2, 1)
+      j = self%adam%maps%local_map_bc_crown(c, 3, 1)
+      k = self%adam%maps%local_map_bc_crown(c, 4, 1)
+      face = fec_1_6_array(self%adam%maps%local_map_bc_crown(c, 9, 1))
+      if (.not. is_face_line_seed_cpu(face=face, i=i, j=j, k=k, ni=self%ni, nj=self%nj, nk=self%nk)) cycle
+
+      call solve_silver_muller_normal_line_cpu(q=q, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk,         &
+                                               b=b, face=face, i_seed=i, j_seed=j, k_seed=k, hs=hs,            &
+                                               dxyz=self%adam%field%dxyz(:,b), has_rho=has_rho, var_rho=var_rho)
+   enddo
+   endsubroutine enforce_silver_muller_normal_bc_cpu
+
+   logical pure function is_face_line_seed_cpu(face, i, j, k, ni, nj, nk) result(is_seed)
+   integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
+
+   is_seed = .false.
+   select case(face)
+   case(1)
+      is_seed = i == 0_I4P      .and. j >= 1_I4P .and. j <= nj .and. k >= 1_I4P .and. k <= nk
+   case(2)
+      is_seed = i == ni + 1_I4P .and. j >= 1_I4P .and. j <= nj .and. k >= 1_I4P .and. k <= nk
+   case(3)
+      is_seed = j == 0_I4P      .and. i >= 1_I4P .and. i <= ni .and. k >= 1_I4P .and. k <= nk
+   case(4)
+      is_seed = j == nj + 1_I4P .and. i >= 1_I4P .and. i <= ni .and. k >= 1_I4P .and. k <= nk
+   case(5)
+      is_seed = k == 0_I4P      .and. i >= 1_I4P .and. i <= ni .and. j >= 1_I4P .and. j <= nj
+   case(6)
+      is_seed = k == nk + 1_I4P .and. i >= 1_I4P .and. i <= ni .and. j >= 1_I4P .and. j <= nj
+   endselect
+   endfunction is_face_line_seed_cpu
+
+   subroutine solve_silver_muller_normal_line_cpu(q, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz, has_rho, var_rho)
+   integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, var_rho
+   real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(in)    :: dxyz(3)
+   logical,      intent(in)    :: has_rho
+   integer(I4P)                :: dir_t1, dir_t2
+   integer(I4P)                :: var_d_t1, var_d_t2, var_d_n
+   integer(I4P)                :: var_b_t1, var_b_t2, var_b_n
+
+   call silver_muller_face_metadata_cpu(face=face, dir_t1=dir_t1, dir_t2=dir_t2,                              &
+                                        var_d_t1=var_d_t1, var_d_t2=var_d_t2, var_d_n=var_d_n,               &
+                                        var_b_t1=var_b_t1, var_b_t2=var_b_t2, var_b_n=var_b_n)
+
+   call solve_silver_muller_normal_field_cpu(q=q, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,            &
+                                             i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, hs=hs,            &
+                                             dxyz=dxyz, dir_t1=dir_t1, dir_t2=dir_t2,                        &
+                                             var_t1=var_d_t1, var_t2=var_d_t2, var_n=var_d_n,               &
+                                             use_target_var=has_rho, target_var=var_rho)
+
+   call solve_silver_muller_normal_field_cpu(q=q, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,            &
+                                             i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, hs=hs,            &
+                                             dxyz=dxyz, dir_t1=dir_t1, dir_t2=dir_t2,                        &
+                                             var_t1=var_b_t1, var_t2=var_b_t2, var_n=var_b_n,               &
+                                             use_target_var=.false., target_var=0_I4P)
+   endsubroutine solve_silver_muller_normal_line_cpu
+
+   subroutine silver_muller_face_metadata_cpu(face, dir_t1, dir_t2, var_d_t1, var_d_t2, var_d_n, var_b_t1, var_b_t2, var_b_n)
+   integer(I4P), intent(in)  :: face
+   integer(I4P), intent(out) :: dir_t1, dir_t2
+   integer(I4P), intent(out) :: var_d_t1, var_d_t2, var_d_n
+   integer(I4P), intent(out) :: var_b_t1, var_b_t2, var_b_n
+
+   select case(face)
+   case(1, 2)
+      dir_t1 = 2_I4P ; dir_t2 = 3_I4P
+      var_d_t1 = VAR_DY ; var_d_t2 = VAR_DZ ; var_d_n = VAR_DX
+      var_b_t1 = VAR_BY ; var_b_t2 = VAR_BZ ; var_b_n = VAR_BX
+   case(3, 4)
+      dir_t1 = 3_I4P ; dir_t2 = 1_I4P
+      var_d_t1 = VAR_DZ ; var_d_t2 = VAR_DX ; var_d_n = VAR_DY
+      var_b_t1 = VAR_BZ ; var_b_t2 = VAR_BX ; var_b_n = VAR_BY
+   case(5, 6)
+      dir_t1 = 1_I4P ; dir_t2 = 2_I4P
+      var_d_t1 = VAR_DX ; var_d_t2 = VAR_DY ; var_d_n = VAR_DZ
+      var_b_t1 = VAR_BX ; var_b_t2 = VAR_BY ; var_b_n = VAR_BZ
+   case default
+      call mpih%error_stop(msg='silver_muller_face_metadata_cpu: invalid face index '//trim(str(face)))
+   endselect
+   endsubroutine silver_muller_face_metadata_cpu
+
+   subroutine solve_silver_muller_normal_field_cpu(q, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz, &
+                                                   dir_t1, dir_t2, var_t1, var_t2, var_n, use_target_var, target_var)
+   integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs
+   integer(I4P), intent(in)    :: dir_t1, dir_t2, var_t1, var_t2, var_n, target_var
+   real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(in)    :: dxyz(3)
+   logical,      intent(in)    :: use_target_var
+   real(R8P)                   :: unknown(FDV_S_MAX)
+   real(R8P)                   :: rhs, coeff, target
+   integer(I4P)                :: eq, u, u_new, m, dir_n
+   integer(I4P)                :: ic, jc, kc
+
+   if (hs > FDV_S_MAX) call mpih%error_stop(msg='Silver_Muller hs exceeds FDV_S_MAX')
+
+   unknown = 0._R8P
+   dir_n = face_normal_direction_cpu(face)
+
+   do eq=hs, 1, -1
+      call interior_cell_from_face_cpu(face=face, eq=eq, ni=ni, nj=nj, nk=nk,                                 &
+                                       i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, ic=ic, jc=jc, kc=kc)
+
+      if (use_target_var) then
+         target = q(target_var, ic, jc, kc, b)
+      else
+         target = 0._R8P
+      endif
+
+      rhs = target
+      rhs = rhs - tangential_divergence_at_cell_cpu(q=q, ngc=ngc, b=b, i=ic, j=jc, k=kc, hs=hs, dxyz=dxyz, &
+                                                    dir_t1=dir_t1, dir_t2=dir_t2, var_t1=var_t1, var_t2=var_t2)
+      rhs = rhs - normal_known_contribution_cpu(q=q, ngc=ngc, ni=ni, nj=nj, nk=nk, b=b, face=face,          &
+                                                i=ic, j=jc, k=kc, hs=hs, dxyz=dxyz, var_n=var_n)
+
+      u_new = hs - eq + 1_I4P
+      do u=1, u_new-1
+         m = eq + u - 1_I4P
+         coeff = silver_muller_unknown_coefficient_cpu(face=face, m=m, hs=hs, ds=dxyz(dir_n))
+         rhs = rhs - coeff * unknown(u)
+      enddo
+
+      coeff = silver_muller_unknown_coefficient_cpu(face=face, m=hs, hs=hs, ds=dxyz(dir_n))
+      unknown(u_new) = rhs / coeff
+   enddo
+
+   do u=1, hs
+      call ghost_cell_from_face_cpu(face=face, ghost_layer=u, ni=ni, nj=nj, nk=nk,                             &
+                                    i_seed=i_seed, j_seed=j_seed, k_seed=k_seed, ic=ic, jc=jc, kc=kc)
+      q(var_n, ic, jc, kc, b) = unknown(u)
+   enddo
+   endsubroutine solve_silver_muller_normal_field_cpu
+
+   integer(I4P) pure function face_normal_direction_cpu(face) result(dir_n)
+   integer(I4P), intent(in) :: face
+
+   select case(face)
+   case(1, 2)
+      dir_n = 1_I4P
+   case(3, 4)
+      dir_n = 2_I4P
+   case(5, 6)
+      dir_n = 3_I4P
+   case default
+      dir_n = 0_I4P
+   endselect
+   endfunction face_normal_direction_cpu
+
+   real(R8P) pure function silver_muller_unknown_coefficient_cpu(face, m, hs, ds) result(coeff)
+   integer(I4P), intent(in) :: face, m, hs
+   real(R8P),    intent(in) :: ds
+
+   coeff = FD1_CC(m, hs) / ds
+   if (face == 1_I4P .or. face == 3_I4P .or. face == 5_I4P) coeff = -coeff
+   endfunction silver_muller_unknown_coefficient_cpu
+
+   subroutine interior_cell_from_face_cpu(face, eq, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
+   integer(I4P), intent(in)  :: face, eq, ni, nj, nk, i_seed, j_seed, k_seed
+   integer(I4P), intent(out) :: ic, jc, kc
+
+   select case(face)
+   case(1)
+      ic = eq
+      jc = j_seed
+      kc = k_seed
+   case(2)
+      ic = ni - eq + 1_I4P
+      jc = j_seed
+      kc = k_seed
+   case(3)
+      ic = i_seed
+      jc = eq
+      kc = k_seed
+   case(4)
+      ic = i_seed
+      jc = nj - eq + 1_I4P
+      kc = k_seed
+   case(5)
+      ic = i_seed
+      jc = j_seed
+      kc = eq
+   case(6)
+      ic = i_seed
+      jc = j_seed
+      kc = nk - eq + 1_I4P
+   case default
+      ic = 0_I4P
+      jc = 0_I4P
+      kc = 0_I4P
+   endselect
+   endsubroutine interior_cell_from_face_cpu
+
+   subroutine ghost_cell_from_face_cpu(face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
+   integer(I4P), intent(in)  :: face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed
+   integer(I4P), intent(out) :: ic, jc, kc
+
+   select case(face)
+   case(1)
+      ic = 1_I4P - ghost_layer
+      jc = j_seed
+      kc = k_seed
+   case(2)
+      ic = ni + ghost_layer
+      jc = j_seed
+      kc = k_seed
+   case(3)
+      ic = i_seed
+      jc = 1_I4P - ghost_layer
+      kc = k_seed
+   case(4)
+      ic = i_seed
+      jc = nj + ghost_layer
+      kc = k_seed
+   case(5)
+      ic = i_seed
+      jc = j_seed
+      kc = 1_I4P - ghost_layer
+   case(6)
+      ic = i_seed
+      jc = j_seed
+      kc = nk + ghost_layer
+   case default
+      ic = 0_I4P
+      jc = 0_I4P
+      kc = 0_I4P
+   endselect
+   endsubroutine ghost_cell_from_face_cpu
+
+   real(R8P) pure function tangential_divergence_at_cell_cpu(q, ngc, b, i, j, k, hs, dxyz, dir_t1, dir_t2, var_t1, var_t2) result(div_t)
+   integer(I4P), intent(in) :: ngc, b, i, j, k, hs, dir_t1, dir_t2, var_t1, var_t2
+   real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(in) :: dxyz(3)
+   integer(I4P)             :: m
+
+   div_t = 0._R8P
+   do m=1, hs
+      div_t = div_t + FD1_CC(m, hs) * (component_along_direction_cpu(q, ngc, b, var_t1, dir_t1, i, j, k,  m) - &
+                                       component_along_direction_cpu(q, ngc, b, var_t1, dir_t1, i, j, k, -m)) / dxyz(dir_t1)
+      div_t = div_t + FD1_CC(m, hs) * (component_along_direction_cpu(q, ngc, b, var_t2, dir_t2, i, j, k,  m) - &
+                                       component_along_direction_cpu(q, ngc, b, var_t2, dir_t2, i, j, k, -m)) / dxyz(dir_t2)
+   enddo
+   endfunction tangential_divergence_at_cell_cpu
+
+   real(R8P) pure function normal_known_contribution_cpu(q, ngc, ni, nj, nk, b, face, i, j, k, hs, dxyz, var_n) result(div_n_known)
+   integer(I4P), intent(in) :: ngc, ni, nj, nk, b, face, i, j, k, hs, var_n
+   real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    intent(in) :: dxyz(3)
+   integer(I4P)             :: dir_n, m, depth
+
+   dir_n = face_normal_direction_cpu(face)
+   depth = normal_depth_from_cell_cpu(face=face, i=i, j=j, k=k, ni=ni, nj=nj, nk=nk)
+   div_n_known = 0._R8P
+
+   select case(face)
+   case(1, 3, 5)
+      do m=1, hs
+         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz(dir_n)
+      enddo
+      do m=1, depth-1
+         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz(dir_n)
+      enddo
+   case(2, 4, 6)
+      do m=1, depth-1
+         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz(dir_n)
+      enddo
+      do m=1, hs
+         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz(dir_n)
+      enddo
+   endselect
+   endfunction normal_known_contribution_cpu
+
+   integer(I4P) pure function normal_depth_from_cell_cpu(face, i, j, k, ni, nj, nk) result(depth)
+   integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
+
+   select case(face)
+   case(1)
+      depth = i
+   case(2)
+      depth = ni - i + 1_I4P
+   case(3)
+      depth = j
+   case(4)
+      depth = nj - j + 1_I4P
+   case(5)
+      depth = k
+   case(6)
+      depth = nk - k + 1_I4P
+   case default
+      depth = 0_I4P
+   endselect
+   endfunction normal_depth_from_cell_cpu
+
+   real(R8P) pure function component_along_direction_cpu(q, ngc, b, var, dir, i, j, k, offset) result(value_)
+   integer(I4P), intent(in) :: ngc, b, var, dir, i, j, k, offset
+   real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+
+   select case(dir)
+   case(1)
+      value_ = q(var, i + offset, j, k, b)
+   case(2)
+      value_ = q(var, i, j + offset, k, b)
+   case(3)
+      value_ = q(var, i, j, k + offset, b)
+   case default
+      value_ = 0._R8P
+   endselect
+   endfunction component_along_direction_cpu
 
    !subroutine compute_residuals_BC(self,s)
    !!< Compute residuals BCs.
@@ -874,6 +1215,9 @@ contains
                                  call self%impose_pic_fields_time_zero(ivar=VAR_BX)
 
    call self%apply_fWL_correction(q=self%q)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=0._R8P, dt=0._R8P, q=self%q)
    call self%weight_pic_fields_time_zero()
 
    call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), &
@@ -989,6 +1333,10 @@ contains
       call mpih%print_message('  b='//trim(str(b,.true.))//' code='//trim(str(self%adam%field%code(b))))
    enddo
 
+   if (.not.self%io%restart .and. self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      call initialize_single_particle_output(filename='single_particle_output.dat')
+   endif
+
    associate(hs => self%fdv_half_stencil)
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
@@ -1002,7 +1350,7 @@ contains
       call mpih%print_message('   max div(D)-rho at t0 after update ghost='// &
                                     trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
    endif
-   call mpih%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+   call mpih%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
 
    call self%save_simulation_data
    call self%compute_energy
@@ -1472,7 +1820,7 @@ contains
    !< Invoked by forest%finalize. v1 implementation is the verbatim post-
    !< loop block formerly inline in `simulate`. Behavior unchanged.
    class(prism_cpu_object), intent(inout) :: self !< The realm.
-   real(R8P)                              :: max_div_D, max_div_B, max_div_J
+   logical                                :: is_open !< Guard close() against unopened units.
    !call self%compute_energy_error
    call self%save_simulation_data
    call self%io%close_file_residuals
@@ -1483,17 +1831,15 @@ contains
    !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_B))))))
    !call mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
    !call mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
-   call self%save_energy_history(is_to_close=.true.)
-   call self%update_ghost(q=self%q)
-   associate(hs => self%fdv_half_stencil)
-   call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
-   endassociate
-
-   call compute_max_divergence_outside_fwl(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
-                                           max_div_B=max_div_B, max_div_J=max_div_J)
-   call self%save_divergence_history(is_to_close=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
+   ! The final post_step_forest already writes the terminal energy/divergence row when
+   ! the stop criterion is hit. finalize_forest must only close the files, otherwise the
+   ! last iteration is appended twice in the CPU backend.
+   if (mpih%myrank == 0) then
+      inquire(unit=self%io%energy_history_unit, opened=is_open)
+      if (is_open) close(self%io%energy_history_unit)
+      inquire(unit=self%io%divergence_history_unit, opened=is_open)
+      if (is_open) close(self%io%divergence_history_unit)
+   endif
 
    ! NB: MPI_FINALIZE is NOT called here — it is process-global and runs once via
    ! forest%finalize -> finalize_mpi_forest after ALL realms finish.
@@ -1723,10 +2069,12 @@ contains
    real(R8P),               intent(out) :: max_div_J
    integer(I4P)                         :: b
    integer(I4P)                         :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k
+   integer(I4P)                         :: rho_ivar
 
    max_div_D = 0._R8P
    max_div_B = 0._R8P
    max_div_J = 0._R8P
+   rho_ivar = self%nv
    do b = 1, self%blocks_number
       lo_i = 1_I4P ; hi_i = self%ni
       lo_j = 1_I4P ; hi_j = self%nj
@@ -1740,7 +2088,14 @@ contains
          if (self%fWLayer%C(b,6) > 0_I4P) hi_k = self%nk - (self%fWLayer%C(b,6) + hs - 1_I4P)
       endif
       if (lo_i > hi_i .or. lo_j > hi_j .or. lo_k > hi_k) cycle
-      max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+         ! In PIC runs rho is appended as the last state variable, so the most useful
+         ! electric-field constraint monitor is max|div(D) - rho|.
+         max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b) - &
+                                               self%q(rho_ivar,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      else
+         max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      endif
       max_div_B = max(max_div_B, maxval(abs(self%divergence(2,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
       max_div_J = max(max_div_J, maxval(abs(self%divergence(3,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
    enddo
@@ -2619,6 +2974,8 @@ contains
    !< Maxwell source terms computation: particles and coils
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., &
+                                               context='integrate_leapfrog_pic(current)')
    call self%compute_coils_current(q=self%q)
    !< Maxwell residuals computation
    call self%compute_residuals(q=self%q, dq=self%dq)
@@ -2701,6 +3058,7 @@ contains
    !< SSP RK working on q_rk as stages.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
+   real(R8P), allocatable                 :: q_stage(:,:,:,:,:) !< Contiguous stage scratch to avoid huge slice temporaries.
 
    !call sub_external_fields(self = self%external_fields, field = field, &
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
@@ -2708,6 +3066,13 @@ contains
    !Inizializzo stadi RK per campi e PIC
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
+   call allocate_variable(var=q_stage,                              &
+                          ulb=reshape([1,self%nv,                   &
+                                       1-self%ngc,self%ni+self%ngc, &
+                                       1-self%ngc,self%nj+self%ngc, &
+                                       1-self%ngc,self%nk+self%ngc, &
+                                       1,self%nb],[2,5]),           &
+                          msg=mpih%myrankstr//'integrate_rk_ssp_pic allocate q_stage')
 
    do s=1, self%rk%nrk
       !Calcolo stadio RK per campi e PIC
@@ -2717,17 +3082,20 @@ contains
          call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       endif
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
+      q_stage = self%rk%q_rk(:,:,:,:,:,s)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
-      call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%rk%q_rk(:,:,:,:,:,s), &
+      call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
-      call self%compute_coils_current(q=self%rk%q_rk(:,:,:,:,:,s), gamma=self%rk%gamm(s))
+      call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
+                                                  context='integrate_rk_ssp_pic(stage current)')
+      call self%compute_coils_current(q=q_stage, gamma=self%rk%gamm(s))
       !Calcolo residui Maxwell
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+      call self%compute_residuals(q=q_stage, dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
-      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%rk%q_rk(:,:,:,:,:,s), &
+      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                     q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (self%ib%solids_number>0) then
@@ -2752,6 +3120,8 @@ contains
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
+                                               context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q=self%q)
    !call add_external_fields(self = self%external_fields, field = field, &
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
@@ -3085,24 +3455,6 @@ contains
    write(iu,'(ES24.16,a,ES24.16)') time, TAB, current_density
    close(iu)
    endsubroutine write_current_behavior_tab
-
-   subroutine write_single_particle_output(filename, time, q_pic)
-   character(len=1), parameter  :: TAB = achar(9)
-   character(len=*), intent(in) :: filename
-   real(R8P),        intent(in) :: q_pic(1:,1:)
-   real(R8P),        intent(in) :: time
-   integer(I4P)                 :: iu, ios, l, j
-
-   l = size(q_pic, dim=1)
-   open(newunit=iu, file=trim(filename), status='unknown', action='write', &
-        form='formatted', position='append', iostat=ios)
-   if (ios /= 0) then
-     write(*,'(a,i0)') 'write_current_tab: errore open(), iostat=', ios
-     error stop
-   end if
-   write(iu,'(ES24.16,8(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l)
-   close(iu)
-   endsubroutine write_single_particle_output
 
    subroutine compute_field_mean_value(self, q, n_x, n_y, n_z, n_b, mean_value)
    !< Compute mean value of the field in a certain region of the domain.

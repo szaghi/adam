@@ -246,7 +246,7 @@ contains
    endif
    endsubroutine save_energy_history
 
-   subroutine save_divergence_history(self,it,time,blocks_number,div_D,div_B,div_J,is_to_open,is_to_close)
+   subroutine save_divergence_history(self,it,time,blocks_number,div_D,div_B,div_J,div_D_name,is_to_open,is_to_close)
    !< Save energy history.
    class(io_object), intent(inout)        :: self              !< IO handler.
    integer(I4P),     intent(in)           :: it                !< Current iteration.
@@ -255,18 +255,22 @@ contains
    real(R8P),        intent(in)           :: div_D             !< Energy history of B.
    real(R8P),        intent(in)           :: div_B             !< Coil power history.
    real(R8P),        intent(in)           :: div_J             !< Poynting flux history.
+   character(*),     intent(in), optional :: div_D_name        !< Header label for the first divergence monitor.
    logical,          intent(in), optional :: is_to_open        !< Flag to open  file before first saving.
    logical,          intent(in), optional :: is_to_close       !< Flag to close file after last saving.
    logical                                :: is_to_open_       !< Flag to open  file before first saving, local var.
    logical                                :: is_to_close_      !< Flag to close file after last saving, local var.
+   character(len=:), allocatable          :: div_D_name_       !< Resolved header label for the first divergence monitor.
 
    if (mpih%myrank==0.and.it>=0) then !>= aggiunto da FN, era solo >
       is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
       is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
+      div_D_name_ = 'D_divergence'
+      if (present(div_D_name)) div_D_name_ = trim(div_D_name)
       if (is_to_open_) then
          open(newunit=self%divergence_history_unit, file=self%output_basename//'-divergence_history.dat')
          write(self%divergence_history_unit,'(A)')&
-               '%VARIABLES="it" "blocks_number" "time" "D_divergence" "B_divergence" "J_divergence"'
+               '%VARIABLES="it" "blocks_number" "time" "'//div_D_name_//'" "B_divergence" "J_divergence"'
       endif
       if (it>0) then
          write(self%divergence_history_unit, '(A)') trim(str(it               ))//' '//&
