@@ -17,6 +17,13 @@ public :: prism_cpu_object
 ! pointer (abstract) procedures
 procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_maxwell=>null() !< Compute convective fluxes.
 
+integer(I4P), parameter :: PML_FACE_X_M = 1_I4P
+integer(I4P), parameter :: PML_FACE_X_P = 2_I4P
+integer(I4P), parameter :: PML_FACE_Y_M = 3_I4P
+integer(I4P), parameter :: PML_FACE_Y_P = 4_I4P
+integer(I4P), parameter :: PML_FACE_Z_M = 5_I4P
+integer(I4P), parameter :: PML_FACE_Z_P = 6_I4P
+
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
    real(R8P), allocatable :: flxyz_c(:,:,:,:,:,:,:) !< Fluxes at cell center with +/- decomposition for all directions.
@@ -315,8 +322,37 @@ contains
       endselect
    endselect
 
+   call check_pml_configuration()
+
    print '(A)', mpih%description()
    call mpih%print_message('prism_cpu_object%initialize finish')
+   contains
+      subroutine check_pml_configuration()
+      !< The first CPU implementation supports only classic/Bermudez/CFS ADE-PML on the pure-Maxwell SSP FD path.
+      logical :: is_supported_ssp
+
+      if (.not. self%pml%enabled) return
+
+      is_supported_ssp = trim(self%rk%scheme) == RK_SSP_11 .or. trim(self%rk%scheme) == RK_SSP_22 .or. &
+                         trim(self%rk%scheme) == RK_SSP_33 .or. trim(self%rk%scheme) == RK_SSP_54
+
+      if (trim(self%pml%pml_type) /= 'CLASSIC' .and. trim(self%pml%pml_type) /= 'BERMUDEZ' .and. &
+          trim(self%pml%pml_type) /= 'CFS') then
+         call mpih%error_stop(msg=': CPU PML time integration is currently implemented only for PML_type = CLASSIC, BERMUDEZ or CFS')
+      endif
+      if (trim(self%numerics%scheme_space) /= NUM_SCHEME_SPACE_FD_CENTERED) then
+         call mpih%error_stop(msg=': CPU PML is currently implemented only for scheme_space = fd_centered')
+      endif
+      if (trim(adjustl(self%numerics%div_corr_var)) /= 'No') then
+         call mpih%error_stop(msg=': CPU PML is currently implemented only without divergence correction')
+      endif
+      if (self%numerics%constrained_transport_D .or. self%numerics%constrained_transport_B) then
+         call mpih%error_stop(msg=': CPU PML is currently implemented only for pure Maxwell states without CT variables')
+      endif
+      if (trim(self%numerics%scheme_time) /= NUM_SCHEME_TIME_RUNGE_KUTTA .or. .not. is_supported_ssp) then
+         call mpih%error_stop(msg=': CPU PML is currently implemented only for SSP Runge-Kutta time integration')
+      endif
+   endsubroutine check_pml_configuration
    endsubroutine initialize_prism
 
    ! IO methods
@@ -1200,7 +1236,9 @@ contains
    !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
-   integer(I4P)                           :: ind
+   real(R8P)                              :: max_div_D
+   real(R8P)                              :: max_div_B
+   real(R8P)                              :: max_div_J
 
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, &
                                                             grid=self%adam%grid, q=self%q)
@@ -1224,14 +1262,15 @@ contains
                                    divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_BX:VAR_BZ,:,:,:,:), &
                                    divergence=self%divergence(2,:,:,:,:))
+   call compute_max_divergence_outside_absorbing_layers(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
+                                                        max_div_B=max_div_B, max_div_J=max_div_J)
    call mpih%print_message('Initial conditions setting completed')
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
-      call mpih%print_message('   max div(D) at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+      call mpih%print_message('   max div(D) outside absorbing layers at t0='//trim(str(max_div_D)))
    elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-      ind = size(self%q(:,1,1,1,1))
-      call mpih%print_message('   max div(D)-rho at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
+      call mpih%print_message('   max div(D)-rho outside absorbing layers at t0='//trim(str(max_div_D)))
    endif
-   call mpih%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+   call mpih%print_message('   max div(B) outside absorbing layers at t0='//trim(str(max_div_B)))
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q, step, s)
@@ -1343,21 +1382,19 @@ contains
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
 
+   call compute_max_divergence_outside_absorbing_layers(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
+                                                        max_div_B=max_div_B, max_div_J=max_div_J)
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
-      call mpih%print_message('   max div(D) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+      call mpih%print_message('   max div(D) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_D)))
    elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-      ind = size(self%q(:,1,1,1,1))
-      call mpih%print_message('   max div(D)-rho at t0 after update ghost='// &
-                                    trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
+      call mpih%print_message('   max div(D)-rho outside absorbing layers at t0 after update ghost='//trim(str(max_div_D)))
    endif
-   call mpih%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+   call mpih%print_message('   max div(B) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_B)))
 
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.)
-   call compute_max_divergence_outside_fwl(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
-                                           max_div_B=max_div_B, max_div_J=max_div_J)
    call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
    call self%io%open_file_residuals(nv=self%nv)
 
@@ -1788,8 +1825,8 @@ contains
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
-   call compute_max_divergence_outside_fwl(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
-                                           max_div_B=max_div_B, max_div_J=max_div_J)
+   call compute_max_divergence_outside_absorbing_layers(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
+                                                        max_div_B=max_div_B, max_div_J=max_div_J)
    call self%save_divergence_history(div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
    endsubroutine post_step_forest
 
@@ -2060,8 +2097,9 @@ contains
    endif
    endsubroutine compute_energy_error
 
-   subroutine compute_max_divergence_outside_fwl(self, hs, max_div_D, max_div_B, max_div_J)
-   !< Compute divergence maxima excluding the local fWLayer skin block by block.
+   subroutine compute_max_divergence_outside_absorbing_layers(self, hs, max_div_D, max_div_B, max_div_J)
+   !< Compute divergence maxima excluding absorbing layers and any cell whose
+   !< centered-divergence stencil intersects them.
    class(prism_cpu_object), intent(in)  :: self
    integer(I4P),            intent(in)  :: hs
    real(R8P),               intent(out) :: max_div_D
@@ -2079,13 +2117,33 @@ contains
       lo_i = 1_I4P ; hi_i = self%ni
       lo_j = 1_I4P ; hi_j = self%nj
       lo_k = 1_I4P ; hi_k = self%nk
-      if (allocated(self%fWLayer%C)) then
-         if (self%fWLayer%C(b,1) > 0_I4P) lo_i = 1_I4P + self%fWLayer%C(b,1) + hs
-         if (self%fWLayer%C(b,2) > 0_I4P) hi_i = self%ni - (self%fWLayer%C(b,2) + hs - 1_I4P)
-         if (self%fWLayer%C(b,3) > 0_I4P) lo_j = 1_I4P + self%fWLayer%C(b,3) + hs
-         if (self%fWLayer%C(b,4) > 0_I4P) hi_j = self%nj - (self%fWLayer%C(b,4) + hs - 1_I4P)
-         if (self%fWLayer%C(b,5) > 0_I4P) lo_k = 1_I4P + self%fWLayer%C(b,5) + hs
-         if (self%fWLayer%C(b,6) > 0_I4P) hi_k = self%nk - (self%fWLayer%C(b,6) + hs - 1_I4P)
+      if (allocated(self%fWLayer%ni_fWL)) then
+         call exclude_stencil_contaminated_face(lo=lo_i, hi=hi_i, face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_M), &
+                                                face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_i, hi=hi_i, face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_P), &
+                                                face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_P), is_minus=.false., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_j, hi=hi_j, face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_M), &
+                                                face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_j, hi=hi_j, face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_P), &
+                                                face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_P), is_minus=.false., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_k, hi=hi_k, face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_M), &
+                                                face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_k, hi=hi_k, face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_P), &
+                                                face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_P), is_minus=.false., hs=hs)
+      endif
+      if (allocated(self%pml%ni_pml)) then
+         call exclude_stencil_contaminated_face(lo=lo_i, hi=hi_i, face_first=self%pml%ni_pml(1,b,PML_FACE_X_M), &
+                                                face_last=self%pml%ni_pml(2,b,PML_FACE_X_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_i, hi=hi_i, face_first=self%pml%ni_pml(1,b,PML_FACE_X_P), &
+                                                face_last=self%pml%ni_pml(2,b,PML_FACE_X_P), is_minus=.false., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_j, hi=hi_j, face_first=self%pml%nj_pml(1,b,PML_FACE_Y_M), &
+                                                face_last=self%pml%nj_pml(2,b,PML_FACE_Y_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_j, hi=hi_j, face_first=self%pml%nj_pml(1,b,PML_FACE_Y_P), &
+                                                face_last=self%pml%nj_pml(2,b,PML_FACE_Y_P), is_minus=.false., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_k, hi=hi_k, face_first=self%pml%nk_pml(1,b,PML_FACE_Z_M), &
+                                                face_last=self%pml%nk_pml(2,b,PML_FACE_Z_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_k, hi=hi_k, face_first=self%pml%nk_pml(1,b,PML_FACE_Z_P), &
+                                                face_last=self%pml%nk_pml(2,b,PML_FACE_Z_P), is_minus=.false., hs=hs)
       endif
       if (lo_i > hi_i .or. lo_j > hi_j .or. lo_k > hi_k) cycle
       if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -2099,7 +2157,26 @@ contains
       max_div_B = max(max_div_B, maxval(abs(self%divergence(2,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
       max_div_J = max(max_div_J, maxval(abs(self%divergence(3,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
    enddo
-   endsubroutine compute_max_divergence_outside_fwl
+   endsubroutine compute_max_divergence_outside_absorbing_layers
+
+   pure subroutine exclude_stencil_contaminated_face(lo, hi, face_first, face_last, is_minus, hs)
+   !< Shrink a 1D diagnostic window so that no retained cell uses a centered
+   !< divergence stencil intersecting the selected absorbing layer face.
+   integer(I4P), intent(inout) :: lo
+   integer(I4P), intent(inout) :: hi
+   integer(I4P), intent(in)    :: face_first
+   integer(I4P), intent(in)    :: face_last
+   logical,      intent(in)    :: is_minus
+   integer(I4P), intent(in)    :: hs
+
+   if (face_first <= 0_I4P .or. face_last <= 0_I4P) return
+
+   if (is_minus) then
+      lo = max(lo, face_last + hs + 1_I4P)
+   else
+      hi = min(hi, face_first - hs - 1_I4P)
+   endif
+   endsubroutine exclude_stencil_contaminated_face
 
    subroutine impose_div_free(self)
    !< Impose divergence-free property.
@@ -2512,7 +2589,512 @@ contains
    ! seam derivative primitives live in adam_fdv_operators_library. The standing seam
    ! div(B) fix is fix-class A (SBP-norm-compatible seam + weak SAT), still to build.
    endassociate
+   if (self%pml%enabled) call apply_pml_fd_centered_ade(self=self, q=q, dq=dq, s=s)
    endsubroutine compute_residuals_fd_centered
+
+   subroutine apply_pml_fd_centered_ade(self, q, dq, s)
+   !< Add ADE-PML source terms to the FD-centered Maxwell residuals and build the 12 auxiliary RHSs.
+   class(prism_cpu_object), intent(inout)           :: self
+   real(R8P),               intent(in)              :: q(1:,          &
+                                                         1-self%ngc:, &
+                                                         1-self%ngc:, &
+                                                         1-self%ngc:, &
+                                                         1:)
+   real(R8P),               intent(inout)           :: dq(1:,          &
+                                                          1-self%ngc:, &
+                                                          1-self%ngc:, &
+                                                          1-self%ngc:, &
+                                                          1:)
+   integer(I4P),            intent(in), optional    :: s
+   real(R8P)                                      :: inv_eps_scale
+   real(R8P)                                      :: inv_mu_scale
+
+   if (.not. self%pml%enabled) return
+
+   call select_pml_field_scales(self=self, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+   call self%rk_pml%reset_rhs()
+
+   if (present(s)) then
+      if (allocated(self%rk_pml%q_pml_x_m_rk)) then
+         call apply_x_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_x_m_rk(:,:,:,:,:,s), dq=dq, &
+                                            block_ids=self%pml%blocks_x_m, face=PML_FACE_X_M, inv_eps_scale=inv_eps_scale, &
+                                            inv_mu_scale=inv_mu_scale)
+         call compute_x_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_x_m_rk(:,:,:,:,:,s), &
+                                     dq_face=self%rk_pml%dq_pml_x_m, block_ids=self%pml%blocks_x_m, face=PML_FACE_X_M, &
+                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%rk_pml%q_pml_x_p_rk)) then
+         call apply_x_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_x_p_rk(:,:,:,:,:,s), dq=dq, &
+                                            block_ids=self%pml%blocks_x_p, face=PML_FACE_X_P, inv_eps_scale=inv_eps_scale, &
+                                            inv_mu_scale=inv_mu_scale)
+         call compute_x_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_x_p_rk(:,:,:,:,:,s), &
+                                     dq_face=self%rk_pml%dq_pml_x_p, block_ids=self%pml%blocks_x_p, face=PML_FACE_X_P, &
+                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%rk_pml%q_pml_y_m_rk)) then
+         call apply_y_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_y_m_rk(:,:,:,:,:,s), dq=dq, &
+                                            block_ids=self%pml%blocks_y_m, face=PML_FACE_Y_M, inv_eps_scale=inv_eps_scale, &
+                                            inv_mu_scale=inv_mu_scale)
+         call compute_y_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_y_m_rk(:,:,:,:,:,s), &
+                                     dq_face=self%rk_pml%dq_pml_y_m, block_ids=self%pml%blocks_y_m, face=PML_FACE_Y_M, &
+                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%rk_pml%q_pml_y_p_rk)) then
+         call apply_y_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_y_p_rk(:,:,:,:,:,s), dq=dq, &
+                                            block_ids=self%pml%blocks_y_p, face=PML_FACE_Y_P, inv_eps_scale=inv_eps_scale, &
+                                            inv_mu_scale=inv_mu_scale)
+         call compute_y_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_y_p_rk(:,:,:,:,:,s), &
+                                     dq_face=self%rk_pml%dq_pml_y_p, block_ids=self%pml%blocks_y_p, face=PML_FACE_Y_P, &
+                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%rk_pml%q_pml_z_m_rk)) then
+         call apply_z_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_z_m_rk(:,:,:,:,:,s), dq=dq, &
+                                            block_ids=self%pml%blocks_z_m, face=PML_FACE_Z_M, inv_eps_scale=inv_eps_scale, &
+                                            inv_mu_scale=inv_mu_scale)
+         call compute_z_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_z_m_rk(:,:,:,:,:,s), &
+                                     dq_face=self%rk_pml%dq_pml_z_m, block_ids=self%pml%blocks_z_m, face=PML_FACE_Z_M, &
+                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%rk_pml%q_pml_z_p_rk)) then
+         call apply_z_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_z_p_rk(:,:,:,:,:,s), dq=dq, &
+                                            block_ids=self%pml%blocks_z_p, face=PML_FACE_Z_P, inv_eps_scale=inv_eps_scale, &
+                                            inv_mu_scale=inv_mu_scale)
+         call compute_z_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_z_p_rk(:,:,:,:,:,s), &
+                                     dq_face=self%rk_pml%dq_pml_z_p, block_ids=self%pml%blocks_z_p, face=PML_FACE_Z_P, &
+                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+      endif
+   else
+      if (allocated(self%pml%q_pml_x_m)) then
+         call apply_x_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_x_m, dq=dq, block_ids=self%pml%blocks_x_m, &
+                                            face=PML_FACE_X_M, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+         call compute_x_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_x_m, dq_face=self%rk_pml%dq_pml_x_m, &
+                                     block_ids=self%pml%blocks_x_m, face=PML_FACE_X_M, inv_eps_scale=inv_eps_scale, &
+                                     inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%pml%q_pml_x_p)) then
+         call apply_x_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_x_p, dq=dq, block_ids=self%pml%blocks_x_p, &
+                                            face=PML_FACE_X_P, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+         call compute_x_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_x_p, dq_face=self%rk_pml%dq_pml_x_p, &
+                                     block_ids=self%pml%blocks_x_p, face=PML_FACE_X_P, inv_eps_scale=inv_eps_scale, &
+                                     inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%pml%q_pml_y_m)) then
+         call apply_y_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_y_m, dq=dq, block_ids=self%pml%blocks_y_m, &
+                                            face=PML_FACE_Y_M, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+         call compute_y_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_y_m, dq_face=self%rk_pml%dq_pml_y_m, &
+                                     block_ids=self%pml%blocks_y_m, face=PML_FACE_Y_M, inv_eps_scale=inv_eps_scale, &
+                                     inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%pml%q_pml_y_p)) then
+         call apply_y_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_y_p, dq=dq, block_ids=self%pml%blocks_y_p, &
+                                            face=PML_FACE_Y_P, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+         call compute_y_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_y_p, dq_face=self%rk_pml%dq_pml_y_p, &
+                                     block_ids=self%pml%blocks_y_p, face=PML_FACE_Y_P, inv_eps_scale=inv_eps_scale, &
+                                     inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%pml%q_pml_z_m)) then
+         call apply_z_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_z_m, dq=dq, block_ids=self%pml%blocks_z_m, &
+                                            face=PML_FACE_Z_M, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+         call compute_z_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_z_m, dq_face=self%rk_pml%dq_pml_z_m, &
+                                     block_ids=self%pml%blocks_z_m, face=PML_FACE_Z_M, inv_eps_scale=inv_eps_scale, &
+                                     inv_mu_scale=inv_mu_scale)
+      endif
+      if (allocated(self%pml%q_pml_z_p)) then
+         call apply_z_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_z_p, dq=dq, block_ids=self%pml%blocks_z_p, &
+                                            face=PML_FACE_Z_P, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+         call compute_z_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_z_p, dq_face=self%rk_pml%dq_pml_z_p, &
+                                     block_ids=self%pml%blocks_z_p, face=PML_FACE_Z_P, inv_eps_scale=inv_eps_scale, &
+                                     inv_mu_scale=inv_mu_scale)
+      endif
+   endif
+   endsubroutine apply_pml_fd_centered_ade
+
+   subroutine select_pml_field_scales(self, inv_eps_scale, inv_mu_scale)
+   !< Convert D/B derivatives into E/H derivatives for the current physical scaling.
+   class(prism_cpu_object), intent(in)  :: self
+   real(R8P),               intent(out) :: inv_eps_scale
+   real(R8P),               intent(out) :: inv_mu_scale
+
+   select case (self%physics%physical_model)
+   case (ADIM_EM_PHYSICAL_MODEL)
+      inv_eps_scale = 1._R8P
+      inv_mu_scale  = 1._R8P
+   case default
+      inv_eps_scale = 1._R8P / EPS0
+      inv_mu_scale  = 1._R8P / MU0
+   endselect
+   endsubroutine select_pml_field_scales
+
+   subroutine apply_x_face_field_correction(self, q, q_face, dq, block_ids, face, inv_eps_scale, inv_mu_scale)
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(in)    :: q(1:,          &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)
+   real(R8P),               intent(in)    :: q_face(1:,1:,1:,1:,1:)
+   real(R8P),               intent(inout) :: dq(1:,          &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1:)
+   integer(I4P),            intent(in)    :: block_ids(1:)
+   integer(I4P),            intent(in)    :: face
+   real(R8P),               intent(in)    :: inv_eps_scale
+   real(R8P),               intent(in)    :: inv_mu_scale
+   integer(I4P)                           :: b, i, j, k, lid, li
+   integer(I4P)                           :: cells
+   integer(I4P)                           :: i0
+   integer(I4P)                           :: s1
+   real(R8P)                              :: d_field
+   real(R8P)                              :: kappa
+
+   s1 = self%fdv_half_stencils(1)
+   do lid=1, size(block_ids) !itero sul numero di blocchi che hanno PML sul lato x
+      b     = block_ids(lid) !ottengo l'id globale del blocco lid-esimo di pml
+      i0    = self%pml%ni_pml(1,b,face) !ottengo l'indice di cella in cui il pml inizia nel blocco lid-esimo
+      cells = self%pml%ni_pml(2,b,face) - i0 + 1_I4P !calcolo il numero di celle del pml nel blocco lid-esimo
+      do k=1, self%nk
+         do j=1, self%nj
+            do li=1, cells
+               i = i0 + li - 1_I4P !ottengo l'indice globale della cella li-esima del pml nel blocco lid-esimo.
+                                   ! Ho così ottenuto l'indice globale della cella in cui applicare la correzione del pml
+               kappa = compute_pml_kappa(self=self, face=face, local_idx=li, cells=cells)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale)
+               dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) + q_face(4,li,j,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BY,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale)
+               dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q_face(3,li,j,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_eps_scale)
+               dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) - q_face(2,li,j,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DY,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_eps_scale)
+               dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) + q_face(1,li,j,k,lid)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine apply_x_face_field_correction
+
+   subroutine apply_y_face_field_correction(self, q, q_face, dq, block_ids, face, inv_eps_scale, inv_mu_scale)
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(in)    :: q(1:,          &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)
+   real(R8P),               intent(in)    :: q_face(1:,1:,1:,1:,1:)
+   real(R8P),               intent(inout) :: dq(1:,          &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1:)
+   integer(I4P),            intent(in)    :: block_ids(1:)
+   integer(I4P),            intent(in)    :: face
+   real(R8P),               intent(in)    :: inv_eps_scale
+   real(R8P),               intent(in)    :: inv_mu_scale
+   integer(I4P)                           :: b, i, j, k, lid, lj
+   integer(I4P)                           :: cells
+   integer(I4P)                           :: j0
+   integer(I4P)                           :: s1
+   real(R8P)                              :: d_field
+   real(R8P)                              :: kappa
+
+   s1 = self%fdv_half_stencils(1)
+   do lid=1, size(block_ids)
+      b     = block_ids(lid)
+      j0    = self%pml%nj_pml(1,b,face)
+      cells = self%pml%nj_pml(2,b,face) - j0 + 1_I4P
+      do k=1, self%nk
+         do lj=1, cells
+            j = j0 + lj - 1_I4P
+            kappa = compute_pml_kappa(self=self, face=face, local_idx=lj, cells=cells)
+            do i=1, self%ni
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale)
+               dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - q_face(4,i,lj,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BX,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale)
+               dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) + q_face(3,i,lj,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_eps_scale)
+               dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) + q_face(2,i,lj,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DX,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_eps_scale)
+               dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) - q_face(1,i,lj,k,lid)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine apply_y_face_field_correction
+
+   subroutine apply_z_face_field_correction(self, q, q_face, dq, block_ids, face, inv_eps_scale, inv_mu_scale)
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(in)    :: q(1:,          &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)
+   real(R8P),               intent(in)    :: q_face(1:,1:,1:,1:,1:)
+   real(R8P),               intent(inout) :: dq(1:,          &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1:)
+   integer(I4P),            intent(in)    :: block_ids(1:)
+   integer(I4P),            intent(in)    :: face
+   real(R8P),               intent(in)    :: inv_eps_scale
+   real(R8P),               intent(in)    :: inv_mu_scale
+   integer(I4P)                           :: b, i, j, k, lid, lk
+   integer(I4P)                           :: cells
+   integer(I4P)                           :: k0
+   integer(I4P)                           :: s1
+   real(R8P)                              :: d_field
+   real(R8P)                              :: kappa
+
+   s1 = self%fdv_half_stencils(1)
+   do lid=1, size(block_ids)
+      b     = block_ids(lid)
+      k0    = self%pml%nk_pml(1,b,face)
+      cells = self%pml%nk_pml(2,b,face) - k0 + 1_I4P
+      do lk=1, cells
+         k = k0 + lk - 1_I4P
+         kappa = compute_pml_kappa(self=self, face=face, local_idx=lk, cells=cells)
+         do j=1, self%nj
+            do i=1, self%ni
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BY,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale)
+               dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) + q_face(4,i,j,lk,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BX,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale)
+               dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - q_face(3,i,j,lk,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DY,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_eps_scale)
+               dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) - q_face(2,i,j,lk,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DX,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_eps_scale)
+               dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) + q_face(1,i,j,lk,lid)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine apply_z_face_field_correction
+
+   subroutine compute_x_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale)
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(in)    :: q(1:,          &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)
+   real(R8P),               intent(in)    :: q_face(1:,1:,1:,1:,1:)
+   real(R8P),               intent(inout) :: dq_face(1:,1:,1:,1:,1:)
+   integer(I4P),            intent(in)    :: block_ids(1:)
+   integer(I4P),            intent(in)    :: face
+   real(R8P),               intent(in)    :: inv_eps_scale
+   real(R8P),               intent(in)    :: inv_mu_scale
+   integer(I4P)                           :: b, i, j, k, lid, li
+   integer(I4P)                           :: cells
+   integer(I4P)                           :: i0
+   integer(I4P)                           :: s1
+   real(R8P)                              :: gamma
+   real(R8P)                              :: alpha
+   real(R8P)                              :: kappa
+   real(R8P)                              :: d_field
+
+   s1 = self%fdv_half_stencils(1)
+   do lid=1, size(block_ids)
+      b     = block_ids(lid)
+      i0    = self%pml%ni_pml(1,b,face)
+      cells = self%pml%ni_pml(2,b,face) - i0 + 1_I4P
+      do k=1, self%nk
+         do j=1, self%nj
+            do li=1, cells
+               i     = i0 + li - 1_I4P
+               call compute_pml_coefficients(self=self, face=face, local_idx=li, cells=cells, gamma=gamma, alpha=alpha, kappa=kappa)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DY,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               dq_face(1,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,li,j,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               dq_face(2,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,li,j,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BY,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               dq_face(3,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,li,j,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               dq_face(4,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(4,li,j,k,lid)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_x_face_pml_rhs
+
+   subroutine compute_y_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale)
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(in)    :: q(1:,          &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)
+   real(R8P),               intent(in)    :: q_face(1:,1:,1:,1:,1:)
+   real(R8P),               intent(inout) :: dq_face(1:,1:,1:,1:,1:)
+   integer(I4P),            intent(in)    :: block_ids(1:)
+   integer(I4P),            intent(in)    :: face
+   real(R8P),               intent(in)    :: inv_eps_scale
+   real(R8P),               intent(in)    :: inv_mu_scale
+   integer(I4P)                           :: b, i, j, k, lid, lj
+   integer(I4P)                           :: cells
+   integer(I4P)                           :: j0
+   integer(I4P)                           :: s1
+   real(R8P)                              :: gamma
+   real(R8P)                              :: alpha
+   real(R8P)                              :: kappa
+   real(R8P)                              :: d_field
+
+   s1 = self%fdv_half_stencils(1)
+   do lid=1, size(block_ids)
+      b     = block_ids(lid)
+      j0    = self%pml%nj_pml(1,b,face)
+      cells = self%pml%nj_pml(2,b,face) - j0 + 1_I4P
+      do k=1, self%nk
+         do lj=1, cells
+            j     = j0 + lj - 1_I4P
+            call compute_pml_coefficients(self=self, face=face, local_idx=lj, cells=cells, gamma=gamma, alpha=alpha, kappa=kappa)
+            do i=1, self%ni
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DX,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               dq_face(1,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,i,lj,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               dq_face(2,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,i,lj,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BX,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               dq_face(3,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,i,lj,k,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               dq_face(4,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(4,i,lj,k,lid)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_y_face_pml_rhs
+
+   subroutine compute_z_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale)
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(in)    :: q(1:,          &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)
+   real(R8P),               intent(in)    :: q_face(1:,1:,1:,1:,1:)
+   real(R8P),               intent(inout) :: dq_face(1:,1:,1:,1:,1:)
+   integer(I4P),            intent(in)    :: block_ids(1:)
+   integer(I4P),            intent(in)    :: face
+   real(R8P),               intent(in)    :: inv_eps_scale
+   real(R8P),               intent(in)    :: inv_mu_scale
+   integer(I4P)                           :: b, i, j, k, lid, lk
+   integer(I4P)                           :: cells
+   integer(I4P)                           :: k0
+   integer(I4P)                           :: s1
+   real(R8P)                              :: gamma
+   real(R8P)                              :: alpha
+   real(R8P)                              :: kappa
+   real(R8P)                              :: d_field
+
+   s1 = self%fdv_half_stencils(1)
+   do lid=1, size(block_ids)
+      b     = block_ids(lid)
+      k0    = self%pml%nk_pml(1,b,face)
+      cells = self%pml%nk_pml(2,b,face) - k0 + 1_I4P
+      do lk=1, cells
+         k     = k0 + lk - 1_I4P
+         call compute_pml_coefficients(self=self, face=face, local_idx=lk, cells=cells, gamma=gamma, alpha=alpha, kappa=kappa)
+         do j=1, self%nj
+            do i=1, self%ni
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DX,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               dq_face(1,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,i,j,lk,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DY,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               dq_face(2,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,i,j,lk,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BX,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               dq_face(3,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,i,j,lk,lid)
+               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BY,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               dq_face(4,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(4,i,j,lk,lid)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_z_face_pml_rhs
+
+   pure subroutine compute_pml_coefficients(self, face, local_idx, cells, gamma, alpha, kappa)
+   !< Return the face-local ADE-PML coefficients for the supported variants.
+   class(prism_cpu_object), intent(in) :: self
+   integer(I4P),            intent(in) :: face
+   integer(I4P),            intent(in) :: local_idx
+   integer(I4P),            intent(in) :: cells
+   real(R8P),               intent(out):: gamma
+   real(R8P),               intent(out):: alpha
+   real(R8P),               intent(out):: kappa
+   real(R8P)                           :: depth
+   real(R8P)                           :: distance_to_outer
+   real(R8P), parameter                :: BERMUDEZ_EPS = 1.e-6_R8P
+   integer(I4P), parameter             :: CFS_PROFILE_EXPONENT = 2_I4P
+   integer(I4P)                        :: layer_idx
+
+   if (cells <= 0_I4P) then
+      gamma = 0._R8P
+      alpha = 0._R8P
+      kappa = 1._R8P
+      return
+   endif
+
+   select case (face)
+   case (PML_FACE_X_M, PML_FACE_Y_M, PML_FACE_Z_M)
+      layer_idx = cells - local_idx + 1_I4P
+   case default
+      layer_idx = local_idx
+   endselect
+   gamma = 0._R8P
+   alpha = 0._R8P
+   kappa = 1._R8P
+
+   select case (trim(self%pml%pml_type))
+   case ('CLASSIC')
+      if (cells > 1_I4P) then
+         depth = real(layer_idx - 1_I4P, R8P) / real(cells - 1_I4P, R8P)
+      else
+         depth = 0._R8P
+      endif
+      depth = max(0._R8P, min(1._R8P, depth))
+      gamma = self%pml%gamma_max * depth**self%pml%gamma_exponent
+   case ('BERMUDEZ')
+      if (cells > 1_I4P) then
+         depth = real(layer_idx - 1_I4P, R8P) / real(cells - 1_I4P, R8P)
+      else
+         depth = 1._R8P
+      endif
+      depth = max(0._R8P, min(1._R8P, depth))
+      distance_to_outer = self%pml%width * (1._R8P - depth) + BERMUDEZ_EPS
+      gamma = self%pml%beta / distance_to_outer**self%pml%gamma_exponent
+   case ('CFS')
+      if (cells > 1_I4P) then
+         depth = real(layer_idx - 1_I4P, R8P) / real(cells - 1_I4P, R8P)
+      else
+         depth = 1._R8P
+      endif
+      depth = max(0._R8P, min(1._R8P, depth))
+      gamma = self%pml%gamma_max * depth**CFS_PROFILE_EXPONENT
+      alpha = self%pml%alpha_max * (1._R8P - depth)**CFS_PROFILE_EXPONENT
+      kappa = 1._R8P + (self%pml%k_max - 1._R8P) * depth**CFS_PROFILE_EXPONENT
+   case default
+      gamma = 0._R8P
+   endselect
+   endsubroutine compute_pml_coefficients
+
+   pure real(R8P) function compute_pml_kappa(self, face, local_idx, cells) result(kappa)
+   class(prism_cpu_object), intent(in) :: self
+   integer(I4P),            intent(in) :: face
+   integer(I4P),            intent(in) :: local_idx
+   integer(I4P),            intent(in) :: cells
+   real(R8P)                           :: gamma
+   real(R8P)                           :: alpha
+
+   call compute_pml_coefficients(self=self, face=face, local_idx=local_idx, cells=cells, gamma=gamma, alpha=alpha, kappa=kappa)
+   endfunction compute_pml_kappa
 
    subroutine compute_residuals_fv_centered(self, q, dq, s, flux_register)
    !< Compute residuals of equation, space operator, centered finite volume schemes.
@@ -3022,12 +3604,14 @@ contains
       call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
                                                       time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
+   if (self%pml%enabled) call self%rk_pml%initialize_stages(pml=self%pml)
    do s=1, self%rk%nrk
       if (self%ib%solids_number>0) then
          call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
       else
          call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       endif
+      if (self%pml%enabled) call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
       !call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s)) !Spostato in update_ghost
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       !if (s==1) call self%save_residuals
@@ -3036,6 +3620,7 @@ contains
       else
          call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
       endif
+      if (self%pml%enabled) call self%rk_pml%assign_stage(s=s)
    enddo
    if (self%ib%solids_number>0) then
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
@@ -3045,6 +3630,7 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
+   if (self%pml%enabled) call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
@@ -3066,6 +3652,7 @@ contains
    !Inizializzo stadi RK per campi e PIC
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
+   if (self%pml%enabled) call self%rk_pml%initialize_stages(pml=self%pml)
    call allocate_variable(var=q_stage,                              &
                           ulb=reshape([1,self%nv,                   &
                                        1-self%ngc,self%ni+self%ngc, &
@@ -3082,6 +3669,7 @@ contains
          call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       endif
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
+      if (self%pml%enabled) call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
       q_stage = self%rk%q_rk(:,:,:,:,:,s)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
@@ -3104,6 +3692,7 @@ contains
          call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
       endif
       call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
+      if (self%pml%enabled) call self%rk_pml%assign_stage(s=s)
    enddo
    ! Completo l'integrazione temporale
    if (self%ib%solids_number>0) then
@@ -3114,6 +3703,7 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
+   if (self%pml%enabled) call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%apply_fWL_correction(q=self%q)
    call self%impose_div_free

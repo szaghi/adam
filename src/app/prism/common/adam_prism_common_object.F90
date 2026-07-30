@@ -14,8 +14,10 @@ use :: adam_prism_numerics_object
 use :: adam_prism_parameters
 use :: adam_prism_physics_object
 use :: adam_prism_pic_object
+use :: adam_prism_pml_object
 use :: adam_prism_particle_injection_object
 use :: adam_prism_rk_pic_object
+use :: adam_prism_rk_pml_object
 !use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! third party modules
@@ -71,8 +73,10 @@ type, extends(realm_object) :: prism_common_object
    type(prism_particle_injection_object) :: particle_injection !< Particle injection.
    type(prism_physics_object)            :: physics            !< Physics configuration.
    type(prism_pic_object)                :: pic                !< PIC state.
+   type(prism_pml_object)                :: pml                !< Perfectly matched layer.
    !type(prism_rk_bc_object)              :: rk_bc              !< Runge-Kutta BC handler.
    type(prism_rk_pic_object)             :: rk_pic             !< Runge-Kutta PIC handler.
+   type(prism_rk_pml_object)             :: rk_pml             !< Runge-Kutta PML auxiliary handler.
    type(prism_time_object)               :: time               !< Time integration state.
    contains
       ! AMR methods (issue #22 F0: promoted from prism_cpu_object — host-side, backend-agnostic)
@@ -350,6 +354,9 @@ contains
    endif
    call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, &
                   tree=self%adam%tree, file_parameters=file_parameters, physics=self%physics)
+   call self%pml%initialize(field=self%adam%field, grid=self%adam%grid, tree=self%adam%tree, &
+                            file_parameters=file_parameters)
+   if (self%pml%enabled) call self%rk_pml%initialize(rk=self%rk, pml=self%pml)
    call io_initialize
    endassociate
    if (verbose_) call mpih%print_message('prism_common_object%initialize finish')
