@@ -1,5 +1,5 @@
 [modes]
-modes = chase-cpu-gnu chase-cpu-gnu-debug chase-fnl-nvf chase-fnl-nvf-debug
+modes = chase-cpu-gnu chase-cpu-gnu-debug chase-fnl-nvf chase-fnl-nvf-debug chase-fnl-omp-amd chase-fnl-omp-amd-debug
 
 [chase-cpu-gnu]
 template = template-gnu
@@ -19,4 +19,14 @@ target   = adam_chase_fnl.F90
 [chase-fnl-nvf-debug]
 template = template-nvf-debug
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_chase_fnl.F90
+
+[chase-fnl-omp-amd]
+template = template-omp-amd
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+target   = adam_chase_fnl.F90
+
+[chase-fnl-omp-amd-debug]
+template = template-omp-amd-debug
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
 target   = adam_chase_fnl.F90

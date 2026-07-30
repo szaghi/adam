@@ -40,7 +40,7 @@ contains
 
    gradient = 0._R8P
    !$acc parallel loop independent DEVICEVAR(q_gpu) reduction(max:gradient)
-   !$omp OMPLOOP DEVICEVAR(q_gpu) reduction(max:gradient)
+   !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu) reduction(max:gradient)
    do k=1, nk
       do j=1, nj
          do i=1, ni
@@ -70,7 +70,7 @@ contains
    do v=1, nv
       norm_gpu = 0._R8P
       !$acc parallel loop independent DEVICEVAR(dq_gpu) reduction(+:norm_gpu)
-      !$omp OMPLOOP DEVICEVAR(dq_gpu) reduction(+:norm_gpu)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dq_gpu) reduction(+:norm_gpu)
       do k=1, nk
          do j=1, nj
             do i=1, ni
@@ -103,7 +103,7 @@ contains
 
    if (associated(comm_map_send_ghost_cell_gpu)) then
       !$acc parallel loop independent DEVICEVAR(comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu)
-      !$omp OMPLOOP DEVICEVAR(comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu)
+      !$omp OMPLOOP DEVICEPTR(comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu)
       do sf=1, size(comm_map_send_ghost_cell_gpu, dim=1)
          b_send       = comm_map_send_ghost_cell_gpu(sf,1)
          i_send       = comm_map_send_ghost_cell_gpu(sf,2)
@@ -148,7 +148,7 @@ contains
 
    if (associated(comm_map_recv_ghost_cell_gpu)) then
       !$acc parallel loop independent DEVICEVAR(comm_map_recv_ghost_cell_gpu, recv_buffer_ghost_gpu, q_gpu)
-      !$omp OMPLOOP DEVICEVAR(comm_map_recv_ghost_cell_gpu, recv_buffer_ghost_gpu, q_gpu)
+      !$omp OMPLOOP DEVICEPTR(comm_map_recv_ghost_cell_gpu, recv_buffer_ghost_gpu, q_gpu)
       do rf=1, size(comm_map_recv_ghost_cell_gpu, dim=1)
          c_send = comm_map_recv_ghost_cell_gpu(rf,1)
          b_recv = comm_map_recv_ghost_cell_gpu(rf,2)
@@ -183,7 +183,7 @@ contains
 
    if (.not.associated(l_map_ghost_cell_gpu)) return
    !$acc parallel loop independent DEVICEVAR(l_map_ghost_cell_gpu, q_gpu)
-   !$omp OMPLOOP DEVICEVAR(l_map_ghost_cell_gpu, q_gpu)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(l_map_ghost_cell_gpu, q_gpu)
    do v=1, size(q_gpu, dim=5)
       do mf=1, size(l_map_ghost_cell_gpu, dim=1)
          b_send       = l_map_ghost_cell_gpu(mf,1)
@@ -248,6 +248,7 @@ contains
    integer(I4P)             :: p3(1:3)          !< Compatible anchor position per direction.
    integer(I4P)             :: ii, jj, kk       !< Footprint counters.
    !$acc routine seq
+   !$omp declare target
 
    call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3)
    if (regime == SEAM_FILL_COMPATIBLE) then

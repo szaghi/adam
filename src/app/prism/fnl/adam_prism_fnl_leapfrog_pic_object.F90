@@ -60,6 +60,7 @@ contains
    q_pic_old_gpu => self%q_pic_old_gpu
 
    !$acc parallel loop collapse(2) independent DEVICEVAR(q_pic_gpu, q_pic_old_gpu)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(q_pic_gpu, q_pic_old_gpu)
    do v = 1, PIC_VARIABLES_NUMBER
       do n = 1, self%particle_number
          q_pic_old_gpu(n,v,s) = q_pic_gpu(n,v)
@@ -82,6 +83,8 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_pic_gpu, pic_fields_gpu)&
    !$acc& private(vx, vy, vz, fx, fy, fz, charge_mass_ratio)
+   !$omp OMPLOOP DEVICEPTR(q_pic_gpu, pic_fields_gpu) &
+   !$omp& private(vx, vy, vz, fx, fy, fz, charge_mass_ratio)
    do n = 1, self%particle_number
       vx = q_pic_gpu(n,4)
       vy = q_pic_gpu(n,5)
@@ -125,6 +128,9 @@ contains
    !$acc parallel loop independent DEVICEVAR(q_pic_gpu, pic_fields_gpu, q_pic_old_gpu)&
    !$acc& private(charge_mass_ratio, t1, t2, t3, s1, s2, s3, w1, w2, w3, v_star_1, v_star_2, v_star_3, &
    !$acc&         v_star_star_1, v_star_star_2, v_star_star_3, t_norm2)
+   !$omp OMPLOOP DEVICEPTR(q_pic_gpu, pic_fields_gpu, q_pic_old_gpu) &
+   !$omp& private(charge_mass_ratio, t1, t2, t3, s1, s2, s3, w1, w2, w3, v_star_1, v_star_2, v_star_3, &
+   !$omp&         v_star_star_1, v_star_star_2, v_star_star_3, t_norm2)
    do n = 1, self%particle_number
       charge_mass_ratio = q_pic_gpu(n,7) / q_pic_gpu(n,8)
 
@@ -171,6 +177,8 @@ contains
    if (self%is_filtered) then
       !$acc parallel loop collapse(2) independent DEVICEVAR(q_pic_gpu, q_pic_old_gpu)&
       !$acc& private(filter)
+      !$omp OMPLOOP collapse(2) DEVICEPTR(q_pic_gpu, q_pic_old_gpu) &
+      !$omp& private(filter)
       do v = 1, PIC_VARIABLES_NUMBER
          do n = 1, self%particle_number
             filter = (q_pic_old_gpu(n,v,1) - 2._R8P * q_pic_old_gpu(n,v,2) + q_pic_gpu(n,v)) * self%nu * 0.5_R8P

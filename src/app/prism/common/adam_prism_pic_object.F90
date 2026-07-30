@@ -85,8 +85,8 @@ character(len=12), parameter :: UNIFORM_CELL                     = 'Uniform_cell
 type :: prism_pic_object
    real(R8P)                 :: plasma_density              !< Plasma density
    real(R8P)                 :: neutral_fraction = 0.0_R8P  !< Neutral fraction
-   real(R8P)		           :: cilinder_length = 0.0_R8P   !< 
-   real(R8P)		           :: cilinder_radius = 0.0_R8P   !< 
+   real(R8P)		           :: cilinder_length = 0.0_R8P   !<
+   real(R8P)		           :: cilinder_radius = 0.0_R8P   !<
    real(R8P)                 :: cilinder_center(3)          !<
    character(len=1)          :: cilinder_axis               !<
    real(R8P)                 :: sigma = 0.0_R8P             !< Standard deviation for a gaussian weighting
@@ -511,7 +511,7 @@ contains
    type(field_object),      intent(in)    :: field              !< The field.
    type(grid_object),       intent(in)    :: grid               !< Grid (sibling realm component, threaded in)
    real(R8P),               intent(in)    :: q_pic(1:,1:)       !< PIC variables.
-   real(R8P)                              :: n, b               !< Counters
+   integer(I4P)                           :: n, b               !< Counters
    integer(I4P)                           :: i_p, j_p, k_p, b_p !< Particle grid indices
 
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                                   &
@@ -526,7 +526,7 @@ contains
          i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
          j_p = ceiling((q_pic(2,n) - emin(2,b)) / dy(b))
          k_p = ceiling((q_pic(3,n) - emin(3,b)) / dz(b))
-         b_p = b 
+         b_p = b
          if (i_p >= 1_I4P .and. i_p <= ni .and. &
              j_p >= 1_I4P .and. j_p <= nj .and. &
              k_p >= 1_I4P .and. k_p <= nk) then
@@ -551,7 +551,7 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n, i, j, k ,b        !< Particle counter
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
    integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: dx, dy, dz           !< Cell dimensions
@@ -585,7 +585,7 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_PIC(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n, i, j, k ,b        !< Particle counter
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
    integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: dx, dy, dz           !< Grid spacing
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
@@ -1095,8 +1095,8 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   real(R8P)                              :: n, i, j, k ,b        !< Particle counter
-   real(R8P)                              :: i_p, j_p, k_p, b_p   !< Particle grid indices
+   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
+   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
    real(R8P)                              :: dx, dy, dz           !< Grid spacing
    real(R8P)                              :: wx, wy, wz           !< Weighting factors
    real(R8P)                              :: cell_coord(3)        !< Cell coordinates
@@ -1685,7 +1685,6 @@ contains
                                 order      = 0_I4P)
    endsubroutine zeroD_field_weighting
 
-
    subroutine oneD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    !< First-order spatial interpolation of cell-centered fields to particle locations.
    class(prism_pic_object), intent(inout) :: self
@@ -1707,7 +1706,6 @@ contains
                                 nv         = nv,         &
                                 order      = 1_I4P)
    endsubroutine oneD_field_weighting
-
 
    subroutine twoD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    !< Second-order spatial interpolation of cell-centered fields to particle locations.
@@ -1731,7 +1729,6 @@ contains
                                 order      = 2_I4P)
    endsubroutine twoD_field_weighting
 
-
    subroutine threeD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    !< Third-order spatial interpolation of cell-centered fields to particle locations.
    class(prism_pic_object), intent(inout) :: self
@@ -1754,7 +1751,6 @@ contains
                                 order      = 3_I4P)
    endsubroutine threeD_field_weighting
 
-
    subroutine fourD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    !< Fourth-order spatial interpolation of cell-centered fields to particle locations.
    class(prism_pic_object), intent(inout) :: self
@@ -1776,7 +1772,6 @@ contains
                                 nv         = nv,         &
                                 order      = 4_I4P)
    endsubroutine fourD_field_weighting
-
 
    subroutine fiveD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
    !< Fifth-order spatial interpolation of cell-centered fields to particle locations.

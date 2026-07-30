@@ -684,6 +684,7 @@ contains
    real(R8P),    intent(out) :: dq_ds   !< Derivative of order 1 of q, dq/ds.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    dq_ds = 0.0_R8P
    do m=1, s
@@ -700,6 +701,7 @@ contains
    real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    d2q_ds2 = FD2_CC(1,s)*q(1)
    do m=1, s
@@ -716,6 +718,7 @@ contains
    real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    d3q_ds3 = 0.0_R8P
    do m=1, s
@@ -732,6 +735,7 @@ contains
    real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    d4q_ds4 = FD4_CC(1,s)*q(1)
    do m=1, s
@@ -748,6 +752,7 @@ contains
    real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    d5q_ds5 = 0.0_R8P
    do m=1, s
@@ -764,6 +769,7 @@ contains
    real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q, d6q/ds6.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    d6q_ds6 = FD6_CC(1,s)*q(1)
    do m=1, s
@@ -780,6 +786,7 @@ contains
    real(R8P),    intent(out) :: divergence           !< Divergence of q.
    real(R8P)                 :: div_x, div_y, div_z  !< Divergence components.
    !$acc routine seq
+   !$omp declare target
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=q(1,1-s:1+s,1,1),dq_ds=div_x)
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(2,1,1-s:1+s,1),dq_ds=div_y)
@@ -820,6 +827,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction at right interface of field.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -861,6 +869,7 @@ contains
    real(R8P),    intent(out) :: dq_ds   !< Derivative of order 1 of q, dq/ds.
    real(R8P)                 :: ql,qr   !< Reconstruction of field at left and righ interfaces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_centered(s=s,q=q(1-s:  s),qr=ql)
    call compute_reconstruction_r_fv_centered(s=s,q=q(2-s:1+s),qr=qr)
@@ -878,6 +887,7 @@ contains
    real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
    real(R8P)                 :: gl,gr   !< d1 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_centered_d1(s=s,q=q(1-s:  s),qr=gl)
    call compute_reconstruction_r_fv_centered_d1(s=s,q=q(2-s:1+s),qr=gr)
@@ -893,6 +903,7 @@ contains
    real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
    real(R8P)                 :: gl,gr   !< d2 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_centered_d2(s=s,q=q(1-s:  s),qr=gl)
    call compute_reconstruction_r_fv_centered_d2(s=s,q=q(2-s:1+s),qr=gr)
@@ -908,6 +919,7 @@ contains
    real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
    real(R8P)                 :: gl,gr   !< d3 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_centered_d3(s=s,q=q(1-s:  s),qr=gl)
    call compute_reconstruction_r_fv_centered_d3(s=s,q=q(2-s:1+s),qr=gr)
@@ -923,6 +935,7 @@ contains
    real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
    real(R8P)                 :: gl,gr   !< d4 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_centered_d4(s=s,q=q(1-s:  s),qr=gl)
    call compute_reconstruction_r_fv_centered_d4(s=s,q=q(2-s:1+s),qr=gr)
@@ -938,6 +951,7 @@ contains
    real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q, d6q/ds6.
    real(R8P)                 :: gl,gr   !< d5 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_centered_d5(s=s,q=q(1-s:  s),qr=gl)
    call compute_reconstruction_r_fv_centered_d5(s=s,q=q(2-s:1+s),qr=gr)
@@ -991,6 +1005,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction at right interface of field.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1007,6 +1022,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d1 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1021,6 +1037,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d2 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1035,6 +1052,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d3 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1049,6 +1067,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d4 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1063,6 +1082,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction of d5 at right interface.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1079,6 +1099,7 @@ contains
    real(R8P),    intent(out) :: qp      !< Cell-center point value at cell i.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qp = DECONV_A2P(1,s)*q(1)
    do m=1, s
@@ -1094,6 +1115,7 @@ contains
    real(R8P),    intent(out) :: qa      !< Cell average at cell i.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qa = DECONV_P2A(1,s)*q(1)
    do m=1, s
@@ -1110,6 +1132,7 @@ contains
    real(R8P),    intent(out) :: dq_ds !< Derivative of order 1 of q, dq/ds.
    real(R8P)                 :: ql,qr !< Reconstruction of field at left and righ interfaces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_rupwind(s=s,q=q(0:  s),qr=ql)
    call compute_reconstruction_r_fv_rupwind(s=s,q=q(1:1+s),qr=qr)
@@ -1126,6 +1149,7 @@ contains
    real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
    real(R8P)                 :: gl,gr   !< d1 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_rupwind_d1(s=s,q=q(2-s:1),qr=gr)
    call compute_reconstruction_r_fv_rupwind_d1(s=s,q=q(1-s:0),qr=gl)
@@ -1140,6 +1164,7 @@ contains
    real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
    real(R8P)                 :: gl,gr   !< d2 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_rupwind_d2(s=s,q=q(2-s:1),qr=gr)
    call compute_reconstruction_r_fv_rupwind_d2(s=s,q=q(1-s:0),qr=gl)
@@ -1154,6 +1179,7 @@ contains
    real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
    real(R8P)                 :: gl,gr   !< d3 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_rupwind_d3(s=s,q=q(2-s:1),qr=gr)
    call compute_reconstruction_r_fv_rupwind_d3(s=s,q=q(1-s:0),qr=gl)
@@ -1168,6 +1194,7 @@ contains
    real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
    real(R8P)                 :: gl,gr   !< d4 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_rupwind_d4(s=s,q=q(2-s:1),qr=gr)
    call compute_reconstruction_r_fv_rupwind_d4(s=s,q=q(1-s:0),qr=gl)
@@ -1184,6 +1211,7 @@ contains
    real(R8P),    intent(in)  :: ds      !< Space step.
    real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q (returns 0: unsupported at S_MAX=5).
    !$acc routine seq
+   !$omp declare target
 
    associate(unused_s=>s, unused_q=>q, unused_ds=>ds); end associate
    d6q_ds6 = 0.0_R8P
@@ -1196,6 +1224,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction at right interface of field.
    integer(I4P)              :: m     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1212,6 +1241,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d1 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1226,6 +1256,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d2 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1240,6 +1271,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d3 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1254,6 +1286,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d4 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1270,6 +1303,7 @@ contains
    real(R8P),    intent(out) :: dq_ds  !< Derivative of order 1 of q, dq/ds.
    real(R8P)                 :: ql,qr  !< Reconstruction of field at left and righ interfaces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_lupwind(s=s,q=q(0-s:-1),qr=ql)
    call compute_reconstruction_r_fv_lupwind(s=s,q=q(1-s:0 ),qr=qr)
@@ -1286,6 +1320,7 @@ contains
    real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
    real(R8P)                 :: gl,gr   !< d1 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_lupwind_d1(s=s,q=q(1:s),qr=gr)
    call compute_reconstruction_r_fv_lupwind_d1(s=s,q=q(0:s-1),qr=gl)
@@ -1300,6 +1335,7 @@ contains
    real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
    real(R8P)                 :: gl,gr   !< d2 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_lupwind_d2(s=s,q=q(1:s),qr=gr)
    call compute_reconstruction_r_fv_lupwind_d2(s=s,q=q(0:s-1),qr=gl)
@@ -1314,6 +1350,7 @@ contains
    real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
    real(R8P)                 :: gl,gr   !< d3 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_lupwind_d3(s=s,q=q(1:s),qr=gr)
    call compute_reconstruction_r_fv_lupwind_d3(s=s,q=q(0:s-1),qr=gl)
@@ -1328,6 +1365,7 @@ contains
    real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
    real(R8P)                 :: gl,gr   !< d4 reconstructed at left/right faces.
    !$acc routine seq
+   !$omp declare target
 
    call compute_reconstruction_r_fv_lupwind_d4(s=s,q=q(1:s),qr=gr)
    call compute_reconstruction_r_fv_lupwind_d4(s=s,q=q(0:s-1),qr=gl)
@@ -1343,6 +1381,7 @@ contains
    real(R8P),    intent(in)  :: ds      !< Space step.
    real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q (returns 0: unsupported at S_MAX=5).
    !$acc routine seq
+   !$omp declare target
 
    associate(unused_s=>s, unused_q=>q, unused_ds=>ds); end associate
    d6q_ds6 = 0.0_R8P
@@ -1355,6 +1394,7 @@ contains
    real(R8P),    intent(out) :: qr      !< Reconstruction at right interface of field.
    integer(I4P)              :: m       !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do m=1, s
@@ -1370,6 +1410,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d1 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1384,6 +1425,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d2 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1398,6 +1440,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d3 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s
@@ -1412,6 +1455,7 @@ contains
    real(R8P),    intent(out) :: qr    !< Reconstruction of d4 at the face.
    integer(I4P)              :: k     !< Counter.
    !$acc routine seq
+   !$omp declare target
 
    qr = 0.0_R8P
    do k=1, s

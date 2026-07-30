@@ -8,7 +8,7 @@ quiet        = False
 log          = True
 jobs         = 4
 mpi          = True
-ext_libs     = z hdf5_fortran
+ext_libs     = z hdf5_fortran dl
 libs         = $HDF5_PREFIX/lib/libhdf5_fortran.a $HDF5_PREFIX/lib/libhdf5_f90cstub.a $HDF5_PREFIX/lib/libhdf5.a
 lib_dir      = $HDF5_PREFIX/lib
 include      = $HDF5_PREFIX/include
@@ -70,3 +70,33 @@ mod_dir  = ./mod/nvf/debug/
 obj_dir  = ./obj/nvf/debug/
 cflags   = -cpp -c -acc -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -Mchkptr -Mchkstk -Ktrap=fp -g -O0
 lflags   =         -acc -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -Mchkptr -Mchkstk -Ktrap=fp -g -O0
+
+[template-amd]
+template = template-base
+mod_dir  = ./mod/amd/
+obj_dir  = ./obj/amd/
+compiler = amd
+cflags   = -cpp -c -O2 -fopenmp
+lflags   =         -O2 -fopenmp -Wl,-rpath,$HDF5_PREFIX/lib -Wl,-z,execstack
+
+[template-amd-debug]
+template = template-base
+mod_dir  = ./mod/amd/
+obj_dir  = ./obj/amd/
+compiler = amd
+cflags   = -cpp -c -g -O0 -fopenmp
+lflags   =         -g -O0 -fopenmp -Wl,-rpath,$HDF5_PREFIX/lib -Wl,-z,execstack
+
+[template-omp-amd]
+template = template-amd
+mod_dir  = ./mod/amd/omp/
+obj_dir  = ./obj/amd/omp/
+cflags   = -cpp -c -O2 -fopenmp --offload-arch=$GPU_ARCH
+lflags   =         -O2 -fopenmp --offload-arch=$GPU_ARCH -lamdhip64 -Wl,-rpath,$HDF5_PREFIX/lib -Wl,-z,execstack
+
+[template-omp-amd-debug]
+template = template-amd
+mod_dir  = ./mod/amd/omp/
+obj_dir  = ./obj/amd/omp/
+cflags   = -cpp -c -g -O0 -fopenmp --offload-arch=$GPU_ARCH
+lflags   =         -g -O0 -fopenmp --offload-arch=$GPU_ARCH -lamdhip64 -Wl,-rpath,$HDF5_PREFIX/lib -Wl,-z,execstack

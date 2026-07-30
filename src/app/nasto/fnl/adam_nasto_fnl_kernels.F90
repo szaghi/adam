@@ -58,7 +58,7 @@ contains
       sir = [1._R8P,0._R8P,0._R8P]
       !$acc parallel loop independent DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
       !$acc                                     q_aux_gpu,fluxes_gpu,si,sir)
-      !$omp OMPLOOP DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
+      !$omp OMPLOOP collapse(4) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
       !$omp                   q_aux_gpu,fluxes_gpu,si,sir)
       do b=1, blocks_number
       do k=1, nk
@@ -80,7 +80,7 @@ contains
       sir = [0._R8P,1._R8P,0._R8P]
       !$acc parallel loop independent DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
       !$acc                                     q_aux_gpu,fluxes_gpu,si,sir)
-      !$omp OMPLOOP DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
+      !$omp OMPLOOP collapse(4) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
       !$omp                   q_aux_gpu,fluxes_gpu,si,sir)
       do b=1, blocks_number
       do k=1, nk
@@ -102,7 +102,7 @@ contains
       sir = [0._R8P,0._R8P,1._R8P]
       !$acc parallel loop independent DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
       !$acc                                     q_aux_gpu,fluxes_gpu,si,sir)
-      !$omp OMPLOOP DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
+      !$omp OMPLOOP collapse(4) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
       !$omp                   q_aux_gpu,fluxes_gpu,si,sir)
       do b=1, blocks_number
       do j=1, nj
@@ -151,7 +151,7 @@ contains
    if (present(phi_gpu)) then
       all_solids = ubound(phi_gpu, dim=5)
       !$acc parallel loop independent DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
-      !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
       do k=1,nk
       do j=1,nj
       do i=1,ni
@@ -206,7 +206,7 @@ contains
       enddo
    else
       !$acc parallel loop independent DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
-      !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
       do k=1,nk
       do j=1,nj
       do i=1,ni
@@ -253,7 +253,7 @@ contains
 
    if (.not.null_x) then
       !$acc parallel loop independent DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu)
-      !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu)
       do k=1,nk
          do j=1,nj
             do i=0,ni ! loop on interfaces
@@ -299,7 +299,7 @@ contains
 
    if (.not.null_y) then
       !$acc parallel loop independent DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu)
-      !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu)
       do k=1,nk
          do j=0,nj ! loop on interfaces
             do i=1,ni
@@ -345,7 +345,7 @@ contains
 
    if (.not.null_z) then
       !$acc parallel loop independent DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu)
-      !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu)
       do k=0,nk ! loop on interfaces
          do j=1,nj
             do i=1,ni
@@ -410,7 +410,7 @@ contains
    ! TODO: check for phi inside, umax could be wrong otherwise
    umax = 0._R8P
    !$acc parallel loop independent DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu)
-   !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dx_gpu, dy_gpu, dz_gpu, q_aux_gpu) reduction(max:umax)
    do k=1, nk
       do j=1, nj
          do i=1, ni
@@ -456,7 +456,7 @@ contains
 
    do crown=1, ngc
       !$acc parallel loop independent DEVICEVAR(l_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
-      !$omp OMPLOOP DEVICEVAR(l_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
+      !$omp OMPLOOP DEVICEPTR(l_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
       do c=1, size(l_map_bc_gpu, dim=1)
          b = l_map_bc_gpu(c, 1 ,crown)
          if (b>0) then

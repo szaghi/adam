@@ -136,15 +136,23 @@ contains
    integer(I4P)                           :: i, j, k, b, v, ss !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
+   ! The stage assembly accumulates the previous stages `ss=1..s-1` into
+   ! q_rk(...,s): that inner reduction MUST stay sequential and only the
+   ! spatial/variable loops may be parallelised. The old collapse(6) folded
+   ! `ss` into the parallel region, so every thread read-modified-wrote the same
+   ! q_rk(v,i,j,k,b,s) -> a data race that silently corrupts the stage RHS under
+   ! any real OpenMP build (inert only because the GNU regression template omits
+   ! -fopenmp). Per-point the ss-order is unchanged, so the serial result is
+   ! bit-identical to the previous loop nest.
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(6) default(firstprivate) shared(phi,self)
-      do ss=1, s-1
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     do v=1, nv
+      !$omp parallel do collapse(5) default(firstprivate) shared(phi,self)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     do ss=1, s-1
                         if (phi(all_solids,i,j,k,b) < 0._R8P) then
                            self%q_rk(v,i,j,k,b,s) = self%q_rk(v,i,j,k,b,s) + dt * self%alph(s,ss) * self%q_rk(v,i,j,k,b,ss)
                         endif
@@ -156,13 +164,13 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(6) default(firstprivate) shared(self)
-      do ss=1, s-1
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     do v=1, nv
+      !$omp parallel do collapse(5) default(firstprivate) shared(self)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     do ss=1, s-1
                         self%q_rk(v,i,j,k,b,s) = self%q_rk(v,i,j,k,b,s) + dt * self%alph(s, ss) * self%q_rk(v,i,j,k,b,ss)
                      enddo
                   enddo
@@ -517,15 +525,24 @@ contains
    integer(I4P)                              :: i, j, k, b, v, s     !< Counter.
 
    associate(nrk=>self%nrk, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
+   ! The RK combination over stages `s` is a per-point reduction into q (and dq):
+   ! `s` MUST be the innermost, sequential loop and only the spatial/variable
+   ! loops may be parallelised. Parallelising `s` (the old collapse(6)) races
+   ! every thread on the same q(v,i,j,k,b)/dq(v,i,j,k,b). dq must also be shared:
+   ! under default(firstprivate) an unlisted dq becomes firstprivate and its
+   ! accumulation is discarded at the end of the region -- the residual history
+   ! then reads back all zeros (silent under the -fopenmp-less GNU build, live
+   ! under any real OpenMP build). Per-point the s-order is unchanged, so the
+   ! serial result is bit-identical to the previous loop nest.
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(6) default(firstprivate) shared(phi,q,self)
-      do s=1, nrk
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     do v=1, nv
+      !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,self)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     do s=1, nrk
                         if (phi(all_solids,i,j,k,b) < 0._R8P) then
                            q(v,i,j,k,b) = q(v,i,j,k,b) + dt * self%beta(s) * self%q_rk(v,i,j,k,b,s)
                         endif
@@ -537,14 +554,14 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
       if (present(dq)) dq = 0._R8P
-      do s=1, nrk
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     do v=1, nv
+      !$omp parallel do collapse(5) default(firstprivate) shared(q,dq,self)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     do s=1, nrk
                         if (present(dq)) dq(v,i,j,k,b) = dq(v,i,j,k,b) + self%beta(s)*self%q_rk(v,i,j,k,b,s)
                         q(v,i,j,k,b) = q(v,i,j,k,b) + dt * self%beta(s) * self%q_rk(v,i,j,k,b,s)
                      enddo

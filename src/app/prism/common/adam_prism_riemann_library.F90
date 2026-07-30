@@ -98,6 +98,7 @@ contains
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi (non usato)
    !$acc routine seq
+   !$omp declare target
 
    f(VAR_DX) =  0.0_R8P        * sir(1) + -q(VAR_BZ)/MU0  * sir(2) +  q(VAR_BY)/MU0  * sir(3)
    f(VAR_DY) =  q(VAR_BZ)/MU0  * sir(1) +  0.0_R8P        * sir(2) + -q(VAR_BX)/MU0  * sir(3)
@@ -136,6 +137,7 @@ contains
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi (non usato)
    !$acc routine seq
+   !$omp declare target
 
    f(VAR_DX) =  0.0_R8P      * sir(1) + -q(VAR_BZ) * sir(2) +  q(VAR_BY) * sir(3)
    f(VAR_DY) =  q(VAR_BZ)    * sir(1) +  0.0_R8P   * sir(2) + -q(VAR_BX) * sir(3)
@@ -166,6 +168,7 @@ contains
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
    real(R8P)                :: ch     !< Velocità trasporto errori divergenza campi modello iperbolico
    !$acc routine seq
+   !$omp declare target
 
    ch = chi/sqrt(EPS0*MU0)
    f(VAR_DX) =  q(7_I4P)        * sir(1) + -q(VAR_BZ)/MU0   * sir(2) +  q(VAR_BY)/MU0   * sir(3)
@@ -219,6 +222,7 @@ contains
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
    !$acc routine seq
+   !$omp declare target
 
    f(VAR_DX) =  q(7_I4P)        * sir(1) + -q(VAR_BZ)     * sir(2) +  q(VAR_BY)     * sir(3)
    f(VAR_DY) =  q(VAR_BZ)       * sir(1) +  q(7_I4P)      * sir(2) + -q(VAR_BX)     * sir(3)
@@ -250,6 +254,7 @@ contains
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
    real(R8P)                :: ch     !< Velocità trasporto errori divergenza campi modello iperbolico
    !$acc routine seq
+   !$omp declare target
 
    ch = chi/sqrt(EPS0*MU0)
    f(VAR_DX) =  0.0_R8P         * sir(1) + -q(VAR_BZ)/MU0   * sir(2) +  q(VAR_BY)/MU0   * sir(3)
@@ -303,6 +308,7 @@ contains
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
    !$acc routine seq
+   !$omp declare target
 
    f(VAR_DX) =  0.0_R8P         * sir(1) + -q(VAR_BZ)     * sir(2) +  q(VAR_BY)     * sir(3)
    f(VAR_DY) =  q(VAR_BZ)       * sir(1) +  0.0_R8P       * sir(2) + -q(VAR_BX)     * sir(3)
@@ -335,6 +341,7 @@ contains
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
    real(R8P)                :: ch     !< Velocità trasporto errori divergenza campi modello iperbolico
    !$acc routine seq
+   !$omp declare target
 
    ch = chi/sqrt(EPS0*MU0)
    f(VAR_DX) =  q(7_I4P)        * sir(1) + -q(VAR_BZ)/MU0   * sir(2) +  q(VAR_BY)/MU0   * sir(3)
@@ -392,6 +399,7 @@ contains
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
    real(R8P), intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
    !$acc routine seq
+   !$omp declare target
 
    f(VAR_DX) =  q(7_I4P)        * sir(1) + -q(VAR_BZ)     * sir(2) +  q(VAR_BY)     * sir(3)
    f(VAR_DY) =  q(VAR_BZ)       * sir(1) +  q(7_I4P)      * sir(2) + -q(VAR_BX)     * sir(3)

@@ -34,6 +34,15 @@ paths =  fobos.d/templates.fobos
         ?fobos.d/tests_fdv.fobos
         ?fobos.d/tests_amr.fobos
 
+# user-tunable variables (FoBiS fobos variables)
+[common-variables]
+# AMD GPU target architecture for amdflang OpenMP offload (FNL/FUNDAL backend
+# built with DEV_OMP). Set to match your GPU, e.g. gfx90a (MI200), gfx942 (MI300),
+# gfx1100 (RDNA3). This is the default; override it from the CLI by selecting one
+# of the [varset:gfx*] sections below, e.g.
+#   fobis build --mode nasto-fnl-omp-amd --varset "local_amd gfx1100"
+$GPU_ARCH = gfx942
+
 [varsets]
 default = local_gnu
 
@@ -43,6 +52,38 @@ $HDF5_PREFIX = lib/hdf5/develop/gnu/14.2.0
 [varset:local_nvf]
 $HDF5_PREFIX = lib/hdf5/develop/nvf/26.1
 $NVF_CC      = cc89
+
+[varset:local_amd]
+$HDF5_PREFIX = lib/hdf5/develop/amd/latest
+
+[varset:thera_amd]
+$HDF5_PREFIX = /home/mbycklin/code/spack/install/linux-zen4/hdf5-1.14.6-lzzz7d3z2qel7lvfkcgyeqtpwycivdlz
+
+# CLI-selectable AMD GPU architecture overrides (set only $GPU_ARCH, so combine
+# with a varset that provides $HDF5_PREFIX, e.g. --varset "local_amd gfx90a").
+[varset:gfx906]
+$GPU_ARCH = gfx906
+
+[varset:gfx908]
+$GPU_ARCH = gfx908
+
+[varset:gfx90a]
+$GPU_ARCH = gfx90a
+
+[varset:gfx940]
+$GPU_ARCH = gfx940
+
+[varset:gfx942]
+$GPU_ARCH = gfx942
+
+[varset:gfx950]
+$GPU_ARCH = gfx950
+
+[varset:gfx1030]
+$GPU_ARCH = gfx1030
+
+[varset:gfx1100]
+$GPU_ARCH = gfx1100
 
 [varset:leonardo]
 $HDF5_PREFIX = /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/nvhpc-24.5/hdf5-1.14.3-2soj72l4cjp6mx7chrqu3h2qxzmrugnc

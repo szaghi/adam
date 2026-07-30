@@ -45,17 +45,40 @@ while [[ $# -gt 0 ]]; do
    shift
 done
 
+# GOLDEN_BACKEND selects which golden/<dir> a run is diffed against. It is
+# usually the same as BACKEND, but the AMD backends reuse an existing golden:
+# they exercise the *same* Fortran code path as an already-anchored backend and
+# only swap the compiler/offload runtime, so the committed golden is the correct
+# cross-compiler / cross-runtime reference (digest.py tolerances are calibrated
+# for exactly this).
 case "$BACKEND" in
    cpu)
       MODE="prism-cpu-gnu"
       EXE="exe/adam_prism_cpu"
+      GOLDEN_BACKEND="cpu"
       ;;
    fnl)
       MODE="prism-fnl-nvf"
       EXE="exe/adam_prism_fnl"
+      GOLDEN_BACKEND="fnl"
+      ;;
+   amd)
+      # AMD CPU backend (amdflang). Same source as prism-cpu-gnu (no _FNL, no
+      # offload), so it validates against the committed CPU golden.
+      MODE="prism-cpu-amd"
+      EXE="exe/adam_prism_cpu"
+      GOLDEN_BACKEND="cpu"
+      ;;
+   amd-omp)
+      # AMD GPU backend: OpenMP target offload through the FNL/FUNDAL DEV_OMP
+      # path — the same _FNL source as the NVIDIA OpenACC build, so it validates
+      # against the committed FNL golden.
+      MODE="prism-fnl-omp-amd"
+      EXE="exe/adam_prism_fnl"
+      GOLDEN_BACKEND="fnl"
       ;;
    *)
-      echo "Usage: $0 {cpu|fnl} [--no-build] [--varset <name>]" >&2
+      echo "Usage: $0 {cpu|fnl|amd|amd-omp} [--no-build] [--varset <name>]" >&2
       exit 2
       ;;
 esac
@@ -151,7 +174,7 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    # So SKIP goldenless cases by default. To run one anyway — the initial
    # golden-capture workflow — set REGRESSION_RUN_GOLDENLESS=1, which runs the
    # case and produces work-<backend>/digest.txt for promotion into golden/.
-   golden_dir="${case_dir%/}/golden/$BACKEND"
+   golden_dir="${case_dir%/}/golden/$GOLDEN_BACKEND"
    if [[ ! -d "$golden_dir" ]]; then
       if [[ "${REGRESSION_RUN_GOLDENLESS:-0}" == "1" ]]; then
          echo "!! [$case_name/$BACKEND] no golden at $golden_dir — running anyway"
@@ -197,11 +220,78 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    echo "============================================================"
    echo "== [$case_name/$BACKEND] running"
    echo "============================================================"
+   # Run the case, tolerant of a hung MPI/GPU finalize. On the GPU-aware-MPI
+   # backends (fnl, amd-omp) the ROCm/UCX teardown can deadlock in MPI_Finalize
+   # *after* the run is otherwise complete (all checkpoints and residuals
+   # flushed). A hung/non-zero mpirun must NOT abort the sweep — the
+   # digest/residual comparison below is the real pass/fail gate (a genuinely
+   # failed run leaves no/partial checkpoints and fails there). Output goes to
+   # work-<backend>/run.log, mirrored live.
+   #
+   # Two bounds on a hung finalize:
+   #   * end-of-run marker detector (REGRESSION_TEARDOWN_DETECT, default 1; 0
+   #     disables). The forest driver prints "ADAM run complete ..." to stdout
+   #     right before the process-global MPI_Finalize, once every realm has
+   #     flushed its IO. When that line appears the simulation is provably done,
+   #     so we give it REGRESSION_TEARDOWN_GRACE seconds (default 15) to exit
+   #     cleanly and then terminate a still-alive process (the finalize
+   #     deadlock). This keys on an explicit completion signal, so it never
+   #     fires during the long silent GPU-JIT phase at init.
+   #   * REGRESSION_MPIRUN_TIMEOUT (seconds, default 300; 0 disables) — the hard
+   #     backstop for a hang that never reaches the marker (e.g. a crash/stall
+   #     before end-of-run).
+   mpirun_timeout="${REGRESSION_MPIRUN_TIMEOUT:-300}"
+   teardown_detect="${REGRESSION_TEARDOWN_DETECT:-1}"
+   teardown_grace="${REGRESSION_TEARDOWN_GRACE:-15}"
+   mpirun_cmd=(mpirun -np 2 "$EXE_ABS")
+   if [[ "$mpirun_timeout" != "0" ]]; then
+      mpirun_cmd=(timeout --signal=TERM --kill-after=30s "$mpirun_timeout" "${mpirun_cmd[@]}")
+   fi
    pushd "$workdir" >/dev/null
    t0=$(date +%s)
-   mpirun -np 2 "$EXE_ABS" 2>&1 | tail -20
+   : >run.log
+   set +e
+   "${mpirun_cmd[@]}" >run.log 2>&1 &
+   run_pid=$!
+   tail -n +1 -f --pid="$run_pid" run.log 2>/dev/null &   # live console mirror
+   tail_pid=$!
+   detector_pid=""
+   if [[ "$teardown_detect" != "0" ]]; then
+      (
+         while kill -0 "$run_pid" 2>/dev/null; do
+            sleep 3
+            if grep -q 'ADAM run complete' run.log 2>/dev/null; then
+               sleep "$teardown_grace"   # let a clean run finalize on its own first
+               if kill -0 "$run_pid" 2>/dev/null; then
+                  echo "[detector] end-of-run marker seen; still alive after ${teardown_grace}s — terminating hung MPI_Finalize" >>run.log
+                  # timeout forwards TERM to the launcher (same path as its own
+                  # expiry); follow with a delayed KILL since --kill-after only
+                  # applies to timeout's clock, not a forwarded signal.
+                  kill -TERM "$run_pid" 2>/dev/null
+                  ( sleep 30 ; kill -KILL "$run_pid" 2>/dev/null ) &
+               fi
+               exit 0
+            fi
+         done
+      ) &
+      detector_pid=$!
+   fi
+   wait "$run_pid"
+   mpirun_rc=$?
+   [[ -n "$detector_pid" ]] && { kill "$detector_pid" 2>/dev/null ; wait "$detector_pid" 2>/dev/null ; }
+   kill "$tail_pid" 2>/dev/null ; wait "$tail_pid" 2>/dev/null
+   set -e
    t1=$(date +%s)
+   detector_fired=0
+   grep -q '^\[detector\]' run.log 2>/dev/null && detector_fired=1
    popd >/dev/null
+   if [[ "$detector_fired" -eq 1 ]]; then
+      echo ">> [$case_name/$BACKEND] run complete; hung MPI_Finalize terminated after ${teardown_grace}s — continuing to digest"
+   elif [[ "$mpirun_rc" -eq 124 ]]; then
+      echo ">> [$case_name/$BACKEND] mpirun hit the ${mpirun_timeout}s hard timeout — continuing to digest produced output"
+   elif [[ "$mpirun_rc" -ne 0 ]]; then
+      echo ">> [$case_name/$BACKEND] mpirun exited non-zero ($mpirun_rc) — continuing to digest (checkpoints decide pass/fail)"
+   fi
    echo ">> [$case_name/$BACKEND] runtime: $((t1 - t0))s"
 
    # ----- Compare outputs against golden -----
@@ -279,7 +369,7 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    # (hardcoded for this single case; if a second case ever needs cross-
    # config equivalence, generalise to a per-case `equiv_to` annotation).
    if [[ "$case_name" == "rmf-2realm-stagesync" && -f "$workdir/digest.txt" ]]; then
-      rmf_golden="${REGRESSION_DIR}/rmf/golden/${BACKEND}/digest.txt"
+      rmf_golden="${REGRESSION_DIR}/rmf/golden/${GOLDEN_BACKEND}/digest.txt"
       if [[ ! -f "$rmf_golden" ]]; then
          echo "FAIL [$case_name/$BACKEND] β cross-config oracle: missing single-realm reference $rmf_golden"
          case_failed=1

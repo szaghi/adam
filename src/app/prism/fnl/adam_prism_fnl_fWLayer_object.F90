@@ -40,6 +40,9 @@ contains
    !$acc parallel loop independent gang vector collapse(3) &
    !$acc& DEVICEVAR(dxyz_gpu,q_gpu) private(f_value,fm1,fp1,D_alfa,D_beta,B_alfa,B_beta,ds_b,offset) &
    !$acc& firstprivate(block_idx,ni1,ni2,nj1,nj2,nk1,nk2,n,s2,alfa_D,beta_D,alfa_B,beta_B,C_face)
+   !$omp OMPLOOP collapse(3) &
+   !$omp& DEVICEPTR(dxyz_gpu,q_gpu) private(f_value,fm1,fp1,D_alfa,D_beta,B_alfa,B_beta,ds_b,offset) &
+   !$omp& firstprivate(block_idx,ni1,ni2,nj1,nj2,nk1,nk2,n,s2,alfa_D,beta_D,alfa_B,beta_B,C_face)
    do k=nk1, nk2
    do j=nj1, nj2
    do i=ni1, ni2

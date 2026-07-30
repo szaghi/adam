@@ -1,5 +1,5 @@
 [modes]
-modes = patch-cpu-gnu patch-cpu-gnu-debug patch-fnl-nvf patch-fnl-nvf-debug
+modes = patch-cpu-gnu patch-cpu-gnu-debug patch-fnl-nvf patch-fnl-nvf-debug patch-fnl-omp-amd patch-fnl-omp-amd-debug
 
 [patch-cpu-gnu]
 template = template-gnu
@@ -19,4 +19,14 @@ target   = adam_patch_fnl.F90
 [patch-fnl-nvf-debug]
 template = template-nvf-debug
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_patch_fnl.F90
+
+[patch-fnl-omp-amd]
+template = template-omp-amd
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+target   = adam_patch_fnl.F90
+
+[patch-fnl-omp-amd-debug]
+template = template-omp-amd-debug
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
 target   = adam_patch_fnl.F90

@@ -27,13 +27,15 @@ endtype mpih_gmp_object
 
 contains
     ! override methods
-   subroutine initialize(self, do_mpi_init, do_device_init)
+   subroutine initialize(self, do_mpi_init, do_device_init, myrankstr_char_length, verbose)
    !< Initialize MPI handler data.
-   class(mpih_gmp_object) , intent(inout)        :: self              !< MPI handler.
-   logical,                 intent(in), optional :: do_mpi_init       !< Flag to activate MPI init call.
-   logical,                 intent(in), optional :: do_device_init    !< Flag to activate device init call.
+   class(mpih_gmp_object) , intent(inout)        :: self                  !< MPI handler.
+   logical,                 intent(in), optional :: do_mpi_init           !< Flag to activate MPI init call.
+   logical,                 intent(in), optional :: do_device_init        !< Flag to activate device init call.
+   integer(I4P),            intent(in), optional :: myrankstr_char_length !< MPI ID string length.
+   logical,                 intent(in), optional :: verbose               !< Trigger verbose output.
 
-   call self%mpih_object%initialize(do_mpi_init=do_mpi_init)
+   call self%mpih_object%initialize(do_mpi_init=do_mpi_init, myrankstr_char_length=myrankstr_char_length, verbose=verbose)
    call self%print_message('mpih_gmp_object%initialize start')
    if (present(do_device_init)) then
       if (do_device_init) then

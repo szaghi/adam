@@ -218,7 +218,7 @@ contains
    integer(I4P)                    				:: p, v, s 		 !< Counter.
 
    associate(particle_number => self%particle_number)
-   !$omp parallel do collapse(6) default(firstprivate) shared(q_pic,self)
+   !$omp parallel do collapse(3) default(firstprivate) shared(q_pic,self)
    do s=lbound(self%q_pic_rk,dim=3),ubound(self%q_pic_rk,dim=3)
       do p=1, particle_number
          do v=1, 8
@@ -265,10 +265,14 @@ contains
       !enddo
       !!$omp end parallel do
    !else
-   !$omp parallel do collapse(3) default(firstprivate) shared(self)
-   do ss=1, s-1
-      do p=1, particle_number
-         do v=1, 6
+   ! The ss reduction into q_pic_rk(:,p,s) must stay the inner sequential loop;
+   ! only the particle/variable loops may be parallelised. Folding `ss` into the
+   ! collapse races every thread on the same q_pic_rk(v,p,s). Serially
+   ! bit-identical (per-point ss-order unchanged).
+   !$omp parallel do collapse(2) default(firstprivate) shared(self)
+   do p=1, particle_number
+      do v=1, 6
+         do ss=1, s-1
             self%q_pic_rk(v,p,s) = self%q_pic_rk(v,p,s) + dt * self%alph(s, ss) * self%q_pic_rk(v,p,ss)
          enddo
       enddo
@@ -375,10 +379,13 @@ contains
    !   enddo
    !   !$omp end parallel do
    !else
-   !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
-   do s=1, nrk
-      do p=1, particle_number
-         do v=1, 6
+   ! The stage sum over `s` into q_pic(:,p) must stay the inner sequential loop;
+   ! only the particle/variable loops may be parallelised. Folding `s` into the
+   ! collapse races every thread on the same q_pic(v,p). Serially bit-identical.
+   !$omp parallel do collapse(2) default(firstprivate) shared(q_pic,self)
+   do p=1, particle_number
+      do v=1, 6
+         do s=1, nrk
             q_pic(v,p) = q_pic(v,p) + dt * self%beta(s) * self%q_pic_rk(v,p,s)
          enddo
       enddo

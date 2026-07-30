@@ -246,7 +246,7 @@ contains
       enddo
    enddo
    !$omp end parallel do
-   !$omp parallel do collapse(6) default(firstprivate) shared(self)
+   !$omp parallel do collapse(5) default(firstprivate) shared(self)
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -278,15 +278,21 @@ contains
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, nv_c=>self%nv_c, &
              blocks_number=>field%blocks_number)
+   ! The stage assembly accumulates the previous stages `ss=1..s-1` into
+   ! q_bc_rk(...,s): the ss reduction MUST stay the inner, sequential loop and
+   ! only the spatial/variable loops may be parallelised. Folding `ss` into the
+   ! collapse (the old collapse(6)) races every thread on the same
+   ! q_bc_rk(v,i,j,k,b,s). Per-point the ss-order is unchanged (serially
+   ! bit-identical). See adam_rk_object%compute_stage for the same fix.
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(6) default(firstprivate) shared(phi,self)
-      do ss=1, s-1
-         do b=1, blocks_number
-            do k=1-ngc, nk+ngc
-               do j=1-ngc, nj+ngc
-                  do i=1-ngc, ni+ngc
-                     do v=1, nv_c
+      !$omp parallel do collapse(5) default(firstprivate) shared(phi,self)
+      do b=1, blocks_number
+         do k=1-ngc, nk+ngc
+            do j=1-ngc, nj+ngc
+               do i=1-ngc, ni+ngc
+                  do v=1, nv_c
+                     do ss=1, s-1
                         if (phi(all_solids,i,j,k,b) < 0._R8P) then
                            self%q_bc_rk(v,i,j,k,b,s) = self%q_bc_rk(v,i,j,k,b,s) + &
                                                          dt * self%alph(s,ss) * self%q_bc_rk(v,i,j,k,b,ss)
@@ -299,13 +305,13 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(6) default(firstprivate) shared(self)
-      do ss=1, s-1
-         do b=1, blocks_number
-            do k=1-ngc, nk+ngc
-               do j=1-ngc, nj+ngc
-                  do i=1-ngc, ni+ngc
-                     do v=1, nv_c
+      !$omp parallel do collapse(5) default(firstprivate) shared(self)
+      do b=1, blocks_number
+         do k=1-ngc, nk+ngc
+            do j=1-ngc, nj+ngc
+               do i=1-ngc, ni+ngc
+                  do v=1, nv_c
+                     do ss=1, s-1
                         self%q_bc_rk(v,i,j,k,b,s) = self%q_bc_rk(v,i,j,k,b,s) + &
                                                       dt * self%alph(s,ss) * self%q_bc_rk(v,i,j,k,b,ss)
                      enddo
@@ -335,7 +341,7 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c, blocks_number=>field%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,self)
+      !$omp parallel do collapse(5) default(firstprivate) shared(phi,self)
       do b=1, blocks_number
          do k=1-ngc, nk+ngc
             do j=1-ngc, nj+ngc
@@ -351,7 +357,7 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(5) default(firstprivate) shared(q,self)
+      !$omp parallel do collapse(5) default(firstprivate) shared(self)
       do b=1, blocks_number
          do k=1-ngc, nk+ngc
             do j=1-ngc, nj+ngc

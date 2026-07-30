@@ -97,6 +97,7 @@ contains
    integer(I4P), intent(in) :: sub !< Octant sub-position (1 => eta=-1/4, 2 => eta=+1/4).
    integer(I4P)             :: p   !< Anchor position in the 4-node footprint.
    !$acc routine seq
+   !$omp declare target
 
    p = 4_I4P - sub
    endfunction seam_tricubic_centered_pos
@@ -106,6 +107,7 @@ contains
    integer(I4P), intent(in) :: sub !< Octant sub-position (unused: symmetric footprint).
    integer(I4P)             :: p   !< Anchor position in the 3-node footprint.
    !$acc routine seq
+   !$omp declare target
 
    p = 2_I4P + 0_I4P*sub
    endfunction seam_compatible_centered_pos
@@ -122,6 +124,7 @@ contains
    real(R8P)                :: wyz                    !< Tangential weight product.
    integer(I4P)             :: i, j, k                !< Footprint counters.
    !$acc routine seq
+   !$omp declare target
 
    value_ = 0._R8P
    do k = 1, 4
@@ -144,6 +147,7 @@ contains
    real(R8P)                :: wyz                    !< Tangential weight product.
    integer(I4P)             :: i, j, k                !< Footprint counters.
    !$acc routine seq
+   !$omp declare target
 
    value_ = 0._R8P
    do k = 1, 3
@@ -168,6 +172,7 @@ contains
    integer(I4P), intent(in) :: footprint_n !< Footprint width (4 tricubic, 3 compatible).
    integer(I4P)             :: p           !< Shifted anchor position (1..footprint_n).
    !$acc routine seq
+   !$omp declare target
 
    p = min(max(p_centered, anchor + footprint_n - n_cells), anchor)
    endfunction seam_shift_anchor_pos
@@ -185,6 +190,7 @@ contains
    integer(I4P), intent(in) :: p3(1:3)  !< Compatible anchor position per direction (1..3).
    integer(I4P)             :: meta     !< Packed metadata.
    !$acc routine seq
+   !$omp declare target
 
    meta = (sub(1) - 1) + 2_I4P*(sub(2) - 1) + 4_I4P*(sub(3) - 1) + &
           ishft(p4(1) - 1,  3) + ishft(p4(2) - 1,  5) + ishft(p4(3) - 1,  7) + &
@@ -200,6 +206,7 @@ contains
    integer(I4P), intent(out) :: p3(1:3)  !< Compatible anchor position per direction (1..3).
    integer(I4P)              :: d        !< Direction counter.
    !$acc routine seq
+   !$omp declare target
 
    do d=1, 3
       sub(d) = 1_I4P + ibits(meta, d - 1,      1)
@@ -217,6 +224,7 @@ contains
    real(R8P)                :: wyz                    !< Tangential weight product.
    integer(I4P)             :: i, j, k                !< Footprint counters.
    !$acc routine seq
+   !$omp declare target
 
    value_ = 0._R8P
    do k = 1, 3

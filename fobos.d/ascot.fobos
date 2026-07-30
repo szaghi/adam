@@ -1,10 +1,20 @@
 [modes]
-modes = ascot-nvf-cuda
+modes = ascot-nvf-cuda ascot-omp-amd ascot-omp-amd-debug
 
 [ascot-nvf-cuda]
 template = template-nvf-cuda
 target   = ascot.F90
 preproc  = -D_NVF
+
+[ascot-omp-amd]
+template = template-omp-amd
+target   = ascot.F90
+preproc  = -DDEV_OMP -DDEV_HIP
+
+[ascot-omp-amd-debug]
+template = template-omp-amd-debug
+target   = ascot.F90
+preproc  = -DDEV_OMP -DDEV_HIP
 
 [template-nvf-cuda]
 template = template-base
