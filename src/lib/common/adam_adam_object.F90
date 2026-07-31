@@ -3,17 +3,17 @@ module adam_adam_object
 !< ADAM, ADAM class definition.
 
 ! ADAM classes, libraries, parameters
-use :: adam_field_object,           only : field_object
-use :: adam_grid_object,            only : grid_object
-use :: adam_maps_object,            only : maps_object
+use :: adam_field_object,               only : field_object
+use :: adam_grid_object,                only : grid_object
+use :: adam_maps_object,                only : maps_object
 use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC
-use :: adam_refinement_plan_object, only : refinement_plan_object
+use :: adam_refinement_plan_object,     only : refinement_plan_object
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
-use :: adam_tree_object,            only : tree_object, tree_iterator_object
+use :: adam_tree_object,                only : tree_object, tree_iterator_object
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_mpih_global,  only : mpih
+use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer, only : file_ini
 use :: motion
@@ -67,7 +67,7 @@ contains
                                           1-self%grid%ngc:,&
                                           1-self%grid%ngc:,&
                                           1:) !< Field cell centered variables.
-   type(refinement_plan_object) :: plan !< Refinement plan produced by tree, consumed by field.
+   type(refinement_plan_object)      :: plan  !< Refinement plan produced by tree, consumed by field.
 
    call self%tree%adapt(grid=self%grid, plan=plan)
 
@@ -132,7 +132,7 @@ contains
    !< Check if blocks number is groving too much.
    class(adam_object), intent(inout) :: self             !< ADAM.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
-   type(tree_iterator_object)                      :: iter                 !< Tree traversal cursor (re-entrant).
+   type(tree_iterator_object)        :: iter             !< Tree traversal cursor (re-entrant).
    integer(I8P)                      :: max_nb           !< Maximum number of blocks desidered.
    character(len=1), parameter       :: NL=new_line('a') !< New line character.
 
@@ -141,23 +141,24 @@ contains
    do while(self%tree%loop(iter, node_ptr=node_ptr))
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
-   if (max_nb > self%field%nb) then
+   if (max_nb > mpih%procs_number*self%field%nb) then
       call mpih%abort(error_code=-101, msg='ERROR: the number of new blocks after AMR is greater than Nb'//NL//&
-                                                'max blocks numer available [Nb]: '//trim(str(self%field%nb))//NL//&
-                                                'blocks numer required after AMR: '//trim(str(max_nb)))
+                                           'max blocks numer available [Nb]: '//trim(str(self%field%nb))//NL// &
+                                           'blocks numer required after AMR: '//trim(str(max_nb)))
    endif
-   call mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb))
+   call mpih%print_message('maximum number of blocks created after AMR update: '//&
+                           str(max_nb)//'/'//str(mpih%procs_number*self%field%nb))
    endsubroutine check_blocks_number
 
    subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
    !< Compute maximum blocks number allocatable on memory available.
-   class(adam_object), intent(in)           :: self          !< ADAM.
-   real(R8P),          intent(in)           :: memory_avail  !< Memory available for single MPI process (GBytes).
-   integer(I4P),       intent(in)           :: fields_number !< Fields number.
-   integer(I4P),       intent(out)          :: nb            !< Maximum blocks number for single MPI process.
-   integer(I8P),       intent(out)          :: nodes_number  !< Maximum blocks number for all MPI processes (nodes).
-   real(R8P)                                :: size_of_block !< Size (bytes) of (one) block.
-   real(R8P)                                :: save_factor   !< Factor to avoid memory completely full.
+   class(adam_object), intent(in)  :: self          !< ADAM.
+   real(R8P),          intent(in)  :: memory_avail  !< Memory available for single MPI process (GBytes).
+   integer(I4P),       intent(in)  :: fields_number !< Fields number.
+   integer(I4P),       intent(out) :: nb            !< Maximum blocks number for single MPI process.
+   integer(I8P),       intent(out) :: nodes_number  !< Maximum blocks number for all MPI processes (nodes).
+   real(R8P)                       :: size_of_block !< Size (bytes) of (one) block.
+   real(R8P)                       :: save_factor   !< Factor to avoid memory completely full.
 
    size_of_block = (storage_size(1._R8P)/8._R8P) * self%grid%block_weight
    save_factor = 0.4_R8P
