@@ -817,7 +817,8 @@ contains
                                                1-self%ngc:,&
                                                1-self%ngc:,&
                                                1-self%ngc:,1:)
-   integer(I4P)                           :: b, c, face, hs, var_rho
+   integer(I4P), parameter                :: sm_face_sweeps = 2_I4P
+   integer(I4P)                           :: b, c, face, face_stage, hs, sweep, var_rho
    integer(I4P)                           :: i, j, k
    logical                                :: has_rho
 
@@ -835,21 +836,45 @@ contains
       var_rho = 0_I4P
    endif
 
-   do c=1, size(self%adam%maps%local_map_bc_crown, dim=1)
-      b = self%adam%maps%local_map_bc_crown(c, 1, 1)
-      if (b <= 0) cycle
-      if (self%adam%maps%local_map_bc_crown(c, 8, 1) /= BC_SILVER_MULLER) cycle
-      if (self%adam%maps%local_map_bc_crown(c, 9, 1) > 6_I4P) cycle
+   do sweep=1, sm_face_sweeps
+      do face_stage=1, 6
+         do c=1, size(self%adam%maps%local_map_bc_crown, dim=1)
+            b = self%adam%maps%local_map_bc_crown(c, 1, 1)
+            if (b <= 0) cycle
+            if (self%adam%maps%local_map_bc_crown(c, 8, 1) /= BC_SILVER_MULLER) cycle
+            if (self%adam%maps%local_map_bc_crown(c, 9, 1) > 6_I4P) cycle
 
-      i = self%adam%maps%local_map_bc_crown(c, 2, 1)
-      j = self%adam%maps%local_map_bc_crown(c, 3, 1)
-      k = self%adam%maps%local_map_bc_crown(c, 4, 1)
-      face = fec_1_6_array(self%adam%maps%local_map_bc_crown(c, 9, 1))
-      if (.not. is_face_line_seed_cpu(face=face, i=i, j=j, k=k, ni=self%ni, nj=self%nj, nk=self%nk)) cycle
+            i = self%adam%maps%local_map_bc_crown(c, 2, 1)
+            j = self%adam%maps%local_map_bc_crown(c, 3, 1)
+            k = self%adam%maps%local_map_bc_crown(c, 4, 1)
+            face = fec_1_6_array(self%adam%maps%local_map_bc_crown(c, 9, 1))
+            if (face /= face_stage) cycle
+            if (.not. is_face_line_seed_cpu(face=face, i=i, j=j, k=k, ni=self%ni, nj=self%nj, nk=self%nk)) cycle
 
-      call solve_silver_muller_normal_line_cpu(q=q, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk,         &
-                                               b=b, face=face, i_seed=i, j_seed=j, k_seed=k, hs=hs,            &
-                                               dxyz=self%adam%field%dxyz(:,b), has_rho=has_rho, var_rho=var_rho)
+            call solve_silver_muller_normal_line_cpu(q=q, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk,      &
+                                                     b=b, face=face, i_seed=i, j_seed=j, k_seed=k, hs=hs,         &
+                                                     dxyz=self%adam%field%dxyz(:,b), has_rho=has_rho, var_rho=var_rho)
+         enddo
+      enddo
+      do face_stage=6, 1, -1
+         do c=1, size(self%adam%maps%local_map_bc_crown, dim=1)
+            b = self%adam%maps%local_map_bc_crown(c, 1, 1)
+            if (b <= 0) cycle
+            if (self%adam%maps%local_map_bc_crown(c, 8, 1) /= BC_SILVER_MULLER) cycle
+            if (self%adam%maps%local_map_bc_crown(c, 9, 1) > 6_I4P) cycle
+
+            i = self%adam%maps%local_map_bc_crown(c, 2, 1)
+            j = self%adam%maps%local_map_bc_crown(c, 3, 1)
+            k = self%adam%maps%local_map_bc_crown(c, 4, 1)
+            face = fec_1_6_array(self%adam%maps%local_map_bc_crown(c, 9, 1))
+            if (face /= face_stage) cycle
+            if (.not. is_face_line_seed_cpu(face=face, i=i, j=j, k=k, ni=self%ni, nj=self%nj, nk=self%nk)) cycle
+
+            call solve_silver_muller_normal_line_cpu(q=q, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk,      &
+                                                     b=b, face=face, i_seed=i, j_seed=j, k_seed=k, hs=hs,         &
+                                                     dxyz=self%adam%field%dxyz(:,b), has_rho=has_rho, var_rho=var_rho)
+         enddo
+      enddo
    enddo
    endsubroutine enforce_silver_muller_normal_bc_cpu
 

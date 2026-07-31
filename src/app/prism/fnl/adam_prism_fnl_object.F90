@@ -1106,7 +1106,7 @@ contains
       integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-      integer(I4P), parameter     :: sm_face_sweeps = 1_I4P
+      integer(I4P), parameter     :: sm_face_sweeps = 2_I4P
       integer(I4P)                :: c, face_stage, sweep
 
       if (hs <= 0_I4P) return
