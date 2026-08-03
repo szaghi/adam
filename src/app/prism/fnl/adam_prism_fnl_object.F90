@@ -2819,10 +2819,13 @@ contains
       integer(I4P)                :: b, cells, i, i0, j, k, lid, li, ss
       real(R8P)                   :: d_field, dxyz
       real(R8P)                   :: kappa
-      !$acc parallel loop collapse(3) independent DEVICEVAR(q_gpu, dq_gpu, q_face_gpu, blocks_gpu, start_gpu, cells_gpu, kappa_gpu, dxyz_gpu) &
-      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,kappa,ss)
+      real(R8P)                   :: q_line(1-FDV_S_MAX:1+FDV_S_MAX)
+      !$acc routine(compute_derivative1_fd_centered)
+      !$omp declare target(compute_derivative1_fd_centered)
+      !$acc parallel loop gang collapse(3) independent DEVICEVAR(q_gpu, dq_gpu, q_face_gpu, blocks_gpu, start_gpu, cells_gpu, kappa_gpu, dxyz_gpu) &
+      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,kappa,ss,q_line)
       !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu, dq_gpu, q_face_gpu, blocks_gpu, start_gpu, cells_gpu, kappa_gpu, dxyz_gpu) &
-      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,kappa,ss)
+      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,kappa,ss,q_line)
       do lid = 1, size(blocks_gpu)
          do k = 1, nk
             do j = 1, nj
@@ -2834,29 +2837,29 @@ contains
                do li = 1, cells
                   i = i0 + li - 1_I4P
                   kappa = kappa_gpu(lid,li)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i+ss,j,k,VAR_BZ) - q_gpu(b,i-ss,j,k,VAR_BZ)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_BZ)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_DY) = dq_gpu(b,i,j,k,VAR_DY) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale) + q_face_gpu(lid,li,j,k,4)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i+ss,j,k,VAR_BY) - q_gpu(b,i-ss,j,k,VAR_BY)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_BY)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_DZ) = dq_gpu(b,i,j,k,VAR_DZ) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale) - q_face_gpu(lid,li,j,k,3)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i+ss,j,k,VAR_DZ) - q_gpu(b,i-ss,j,k,VAR_DZ)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_DZ)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_BY) = dq_gpu(b,i,j,k,VAR_BY) + (1._R8P / kappa - 1._R8P) * (d_field * inv_eps_scale) - q_face_gpu(lid,li,j,k,2)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i+ss,j,k,VAR_DY) - q_gpu(b,i-ss,j,k,VAR_DY)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_DY)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_BZ) = dq_gpu(b,i,j,k,VAR_BZ) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_eps_scale) + q_face_gpu(lid,li,j,k,1)
                enddo
             enddo
@@ -2871,10 +2874,13 @@ contains
       real(R8P),    intent(in)    :: gamma_gpu(:,:), alpha_gpu(:,:), kappa_gpu(:,:)
       integer(I4P)                :: b, cells, i, i0, j, k, lid, li, ss
       real(R8P)                   :: alpha, d_field, dxyz, gamma, kappa
-      !$acc parallel loop collapse(3) independent DEVICEVAR(q_gpu, q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, kappa_gpu, dxyz_gpu) &
-      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss)
+      real(R8P)                   :: q_line(1-FDV_S_MAX:1+FDV_S_MAX)
+      !$acc routine(compute_derivative1_fd_centered)
+      !$omp declare target(compute_derivative1_fd_centered)
+      !$acc parallel loop gang collapse(3) independent DEVICEVAR(q_gpu, q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, kappa_gpu, dxyz_gpu) &
+      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu, q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, kappa_gpu, dxyz_gpu) &
-      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss)
+      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       do lid = 1, size(blocks_gpu)
          do k = 1, nk
             do j = 1, nj
@@ -2888,29 +2894,29 @@ contains
                   gamma = gamma_gpu(lid,li)
                   alpha = alpha_gpu(lid,li)
                   kappa = kappa_gpu(lid,li)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i+ss,j,k,VAR_DY) - q_gpu(b,i-ss,j,k,VAR_DY)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_DY)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,li,j,k,1) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face_gpu(lid,li,j,k,1)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i+ss,j,k,VAR_DZ) - q_gpu(b,i-ss,j,k,VAR_DZ)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_DZ)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,li,j,k,2) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face_gpu(lid,li,j,k,2)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i+ss,j,k,VAR_BY) - q_gpu(b,i-ss,j,k,VAR_BY)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_BY)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,li,j,k,3) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face_gpu(lid,li,j,k,3)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i+ss,j,k,VAR_BZ) - q_gpu(b,i-ss,j,k,VAR_BZ)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_BZ)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,li,j,k,4) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face_gpu(lid,li,j,k,4)
                enddo
             enddo
@@ -2924,10 +2930,13 @@ contains
       real(R8P),    intent(in)    :: kappa_gpu(:,:)
       integer(I4P)                :: b, cells, i, j, j0, k, lid, lj, ss
       real(R8P)                   :: d_field, dxyz, kappa
-      !$acc parallel loop collapse(3) independent DEVICEVAR(q_gpu, dq_gpu, q_face_gpu, blocks_gpu, start_gpu, cells_gpu, kappa_gpu, dxyz_gpu) &
-      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,kappa,ss)
+      real(R8P)                   :: q_line(1-FDV_S_MAX:1+FDV_S_MAX)
+      !$acc routine(compute_derivative1_fd_centered)
+      !$omp declare target(compute_derivative1_fd_centered)
+      !$acc parallel loop gang collapse(3) independent DEVICEVAR(q_gpu, dq_gpu, q_face_gpu, blocks_gpu, start_gpu, cells_gpu, kappa_gpu, dxyz_gpu) &
+      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,kappa,ss,q_line)
       !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu, dq_gpu, q_face_gpu, blocks_gpu, start_gpu, cells_gpu, kappa_gpu, dxyz_gpu) &
-      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,kappa,ss)
+      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,kappa,ss,q_line)
       do lid = 1, size(blocks_gpu)
          do k = 1, nk
             do i = 1, ni
@@ -2939,29 +2948,29 @@ contains
                do lj = 1, cells
                   j = j0 + lj - 1_I4P
                   kappa = kappa_gpu(lid,lj)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j+ss,k,VAR_BZ) - q_gpu(b,i,j-ss,k,VAR_BZ)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_BZ)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_DX) = dq_gpu(b,i,j,k,VAR_DX) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale) - q_face_gpu(lid,i,lj,k,4)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j+ss,k,VAR_BX) - q_gpu(b,i,j-ss,k,VAR_BX)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_BX)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_DZ) = dq_gpu(b,i,j,k,VAR_DZ) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale) + q_face_gpu(lid,i,lj,k,3)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j+ss,k,VAR_DZ) - q_gpu(b,i,j-ss,k,VAR_DZ)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_DZ)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_BX) = dq_gpu(b,i,j,k,VAR_BX) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_eps_scale) + q_face_gpu(lid,i,lj,k,2)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j+ss,k,VAR_DX) - q_gpu(b,i,j-ss,k,VAR_DX)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_DX)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_BZ) = dq_gpu(b,i,j,k,VAR_BZ) + (1._R8P / kappa - 1._R8P) * (d_field * inv_eps_scale) - q_face_gpu(lid,i,lj,k,1)
                enddo
             enddo
@@ -2976,10 +2985,13 @@ contains
       real(R8P),    intent(in)    :: gamma_gpu(:,:), alpha_gpu(:,:), kappa_gpu(:,:)
       integer(I4P)                :: b, cells, i, j, j0, k, lid, lj, ss
       real(R8P)                   :: alpha, d_field, dxyz, gamma, kappa
-      !$acc parallel loop collapse(3) independent DEVICEVAR(q_gpu, q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, kappa_gpu, dxyz_gpu) &
-      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,gamma,alpha,kappa,ss)
+      real(R8P)                   :: q_line(1-FDV_S_MAX:1+FDV_S_MAX)
+      !$acc routine(compute_derivative1_fd_centered)
+      !$omp declare target(compute_derivative1_fd_centered)
+      !$acc parallel loop gang collapse(3) independent DEVICEVAR(q_gpu, q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, kappa_gpu, dxyz_gpu) &
+      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu, q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, kappa_gpu, dxyz_gpu) &
-      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,gamma,alpha,kappa,ss)
+      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       do lid = 1, size(blocks_gpu)
          do k = 1, nk
             do i = 1, ni
@@ -2993,29 +3005,29 @@ contains
                   gamma = gamma_gpu(lid,lj)
                   alpha = alpha_gpu(lid,lj)
                   kappa = kappa_gpu(lid,lj)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j+ss,k,VAR_DX) - q_gpu(b,i,j-ss,k,VAR_DX)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_DX)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,i,lj,k,1) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face_gpu(lid,i,lj,k,1)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j+ss,k,VAR_DZ) - q_gpu(b,i,j-ss,k,VAR_DZ)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_DZ)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,i,lj,k,2) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face_gpu(lid,i,lj,k,2)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j+ss,k,VAR_BX) - q_gpu(b,i,j-ss,k,VAR_BX)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_BX)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,i,lj,k,3) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face_gpu(lid,i,lj,k,3)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j+ss,k,VAR_BZ) - q_gpu(b,i,j-ss,k,VAR_BZ)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_BZ)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,i,lj,k,4) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face_gpu(lid,i,lj,k,4)
                enddo
             enddo
@@ -3029,10 +3041,13 @@ contains
       real(R8P),    intent(in)    :: kappa_gpu(:,:)
       integer(I4P)                :: b, cells, i, j, k, k0, lid, lk, ss
       real(R8P)                   :: d_field, dxyz, kappa
-      !$acc parallel loop collapse(3) independent DEVICEVAR(q_gpu, dq_gpu, q_face_gpu, blocks_gpu, start_gpu, cells_gpu, kappa_gpu, dxyz_gpu) &
-      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,kappa,ss)
+      real(R8P)                   :: q_line(1-FDV_S_MAX:1+FDV_S_MAX)
+      !$acc routine(compute_derivative1_fd_centered)
+      !$omp declare target(compute_derivative1_fd_centered)
+      !$acc parallel loop gang collapse(3) independent DEVICEVAR(q_gpu, dq_gpu, q_face_gpu, blocks_gpu, start_gpu, cells_gpu, kappa_gpu, dxyz_gpu) &
+      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,kappa,ss,q_line)
       !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu, dq_gpu, q_face_gpu, blocks_gpu, start_gpu, cells_gpu, kappa_gpu, dxyz_gpu) &
-      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,kappa,ss)
+      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,kappa,ss,q_line)
       do lid = 1, size(blocks_gpu)
          do j = 1, nj
             do i = 1, ni
@@ -3044,29 +3059,29 @@ contains
                do lk = 1, cells
                   k = k0 + lk - 1_I4P
                   kappa = kappa_gpu(lid,lk)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j,k+ss,VAR_BY) - q_gpu(b,i,j,k-ss,VAR_BY)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_BY)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_DX) = dq_gpu(b,i,j,k,VAR_DX) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale) + q_face_gpu(lid,i,j,lk,4)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j,k+ss,VAR_BX) - q_gpu(b,i,j,k-ss,VAR_BX)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_BX)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_DY) = dq_gpu(b,i,j,k,VAR_DY) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale) - q_face_gpu(lid,i,j,lk,3)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j,k+ss,VAR_DY) - q_gpu(b,i,j,k-ss,VAR_DY)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_DY)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_BX) = dq_gpu(b,i,j,k,VAR_BX) + (1._R8P / kappa - 1._R8P) * (d_field * inv_eps_scale) - q_face_gpu(lid,i,j,lk,2)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j,k+ss,VAR_DX) - q_gpu(b,i,j,k-ss,VAR_DX)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_DX)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_gpu(b,i,j,k,VAR_BY) = dq_gpu(b,i,j,k,VAR_BY) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_eps_scale) + q_face_gpu(lid,i,j,lk,1)
                enddo
             enddo
@@ -3081,10 +3096,13 @@ contains
       real(R8P),    intent(in)    :: gamma_gpu(:,:), alpha_gpu(:,:), kappa_gpu(:,:)
       integer(I4P)                :: b, cells, i, j, k, k0, lid, lk, ss
       real(R8P)                   :: alpha, d_field, dxyz, gamma, kappa
-      !$acc parallel loop collapse(3) independent DEVICEVAR(q_gpu, q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, kappa_gpu, dxyz_gpu) &
-      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,gamma,alpha,kappa,ss)
+      real(R8P)                   :: q_line(1-FDV_S_MAX:1+FDV_S_MAX)
+      !$acc routine(compute_derivative1_fd_centered)
+      !$omp declare target(compute_derivative1_fd_centered)
+      !$acc parallel loop gang collapse(3) independent DEVICEVAR(q_gpu, q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, kappa_gpu, dxyz_gpu) &
+      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu, q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, kappa_gpu, dxyz_gpu) &
-      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,gamma,alpha,kappa,ss)
+      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       do lid = 1, size(blocks_gpu)
          do j = 1, nj
             do i = 1, ni
@@ -3098,29 +3116,29 @@ contains
                   gamma = gamma_gpu(lid,lk)
                   alpha = alpha_gpu(lid,lk)
                   kappa = kappa_gpu(lid,lk)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j,k+ss,VAR_DX) - q_gpu(b,i,j,k-ss,VAR_DX)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_DX)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,i,j,lk,1) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face_gpu(lid,i,j,lk,1)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j,k+ss,VAR_DY) - q_gpu(b,i,j,k-ss,VAR_DY)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_DY)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,i,j,lk,2) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face_gpu(lid,i,j,lk,2)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j,k+ss,VAR_BX) - q_gpu(b,i,j,k-ss,VAR_BX)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_BX)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,i,j,lk,3) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face_gpu(lid,i,j,lk,3)
-                  d_field = 0._R8P
                   !$acc loop seq
-                  do ss = 1, s1
-                     d_field = d_field + FD1_CC(ss,s1) * (q_gpu(b,i,j,k+ss,VAR_BY) - q_gpu(b,i,j,k-ss,VAR_BY)) / dxyz
+                  do ss = 1 - s1, 1 + s1
+                     q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_BY)
                   enddo
+                  call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
                   dq_face_gpu(lid,i,j,lk,4) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face_gpu(lid,i,j,lk,4)
                enddo
             enddo
