@@ -509,7 +509,8 @@ contains
    integer(I4P)                           :: face            !< Counter
 
    associate(ngc=>self%ngc, blocks_number=>self%blocks_number, dxyz=>self%adam%field%dxyz, layer=>self%fWLayer%layer, &
-            C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL,                                                     &
+            ni_fWL=>self%fWLayer%ni_fWL, emin=>self%adam%field%emin, emax=>self%adam%field%emax,              &
+            profile_extent=>self%fWLayer%profile_extent, profile_cells=>self%fWLayer%profile_cells,           &
             nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, s2=>self%fWLayer%s2, &
             alfa_D=>self%fWLayer%alfa_D, alfa_B=>self%fWLayer%alfa_B, beta_D=>self%fWLayer%beta_D,            &
             beta_B=>self%fWLayer%beta_B)
@@ -517,7 +518,12 @@ contains
       do face=1, 6
          if (layer(face)) call apply_fWL_correction_fun(blocks_number = blocks_number,        &
                                                         ngc           = ngc,                  &
-                                                        C             = C(:,face),           &
+                                                        ni            = self%ni,             &
+                                                        nj            = self%nj,             &
+                                                        nk            = self%nk,             &
+                                                        face          = face,                 &
+                                                        profile_extent= profile_extent(face), &
+                                                        profile_cells = profile_cells(face),  &
                                                         ni_fWL        = ni_fWL(:,:,face),    &
                                                         nj_fWL        = nj_fWL(:,:,face),    &
                                                         nk_fWL        = nk_fWL(:,:,face),    &
@@ -527,6 +533,10 @@ contains
                                                         beta_D        = beta_D(face),        &
                                                         alfa_B        = alfa_B(face),        &
                                                         beta_B        = beta_B(face),        &
+                                                        domain_emin   = self%adam%grid%domain_emin, &
+                                                        domain_emax   = self%adam%grid%domain_emax, &
+                                                        emin          = emin,                &
+                                                        emax          = emax,                &
                                                         dxyz          = dxyz,                &
                                                         q             = q)
       enddo
@@ -2771,10 +2781,13 @@ contains
    integer(I4P)                           :: cells
    integer(I4P)                           :: i0
    integer(I4P)                           :: s1
+   real(R8P)                              :: center_distance
    real(R8P)                              :: d_field
    real(R8P)                              :: kappa
+   real(R8P)                              :: span
 
    s1 = self%fdv_half_stencils(1)
+   span = self%pml%profile_span(face)
    do lid=1, size(block_ids) !itero sul numero di blocchi che hanno PML sul lato x
       b     = block_ids(lid) !ottengo l'id globale del blocco lid-esimo di pml
       i0    = self%pml%ni_pml(1,b,face) !ottengo l'indice di cella in cui il pml inizia nel blocco lid-esimo
@@ -2784,7 +2797,11 @@ contains
             do li=1, cells
                i = i0 + li - 1_I4P !ottengo l'indice globale della cella li-esima del pml nel blocco lid-esimo.
                                    ! Ho così ottenuto l'indice globale della cella in cui applicare la correzione del pml
-               kappa = compute_pml_kappa(self=self, face=face, local_idx=li, cells=cells)
+               center_distance = merge(self%adam%field%emin(1,b) - self%adam%grid%domain_emin(1) + real(i - 1_I4P, R8P) * &
+                                       self%adam%field%dxyz(1,b),                                                          &
+                                       self%adam%grid%domain_emax(1) - self%adam%field%emax(1,b) + real(self%ni - i, R8P) * &
+                                       self%adam%field%dxyz(1,b), face == PML_FACE_X_M)
+               kappa = compute_pml_kappa(self=self, center_distance=center_distance, span=span)
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
                dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale)
                dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) + q_face(4,li,j,k,lid)
@@ -2824,10 +2841,13 @@ contains
    integer(I4P)                           :: cells
    integer(I4P)                           :: j0
    integer(I4P)                           :: s1
+   real(R8P)                              :: center_distance
    real(R8P)                              :: d_field
    real(R8P)                              :: kappa
+   real(R8P)                              :: span
 
    s1 = self%fdv_half_stencils(1)
+   span = self%pml%profile_span(face)
    do lid=1, size(block_ids)
       b     = block_ids(lid)
       j0    = self%pml%nj_pml(1,b,face)
@@ -2835,7 +2855,11 @@ contains
       do k=1, self%nk
          do lj=1, cells
             j = j0 + lj - 1_I4P
-            kappa = compute_pml_kappa(self=self, face=face, local_idx=lj, cells=cells)
+            center_distance = merge(self%adam%field%emin(2,b) - self%adam%grid%domain_emin(2) + real(j - 1_I4P, R8P) * &
+                                    self%adam%field%dxyz(2,b),                                                          &
+                                    self%adam%grid%domain_emax(2) - self%adam%field%emax(2,b) + real(self%nj - j, R8P) * &
+                                    self%adam%field%dxyz(2,b), face == PML_FACE_Y_M)
+            kappa = compute_pml_kappa(self=self, center_distance=center_distance, span=span)
             do i=1, self%ni
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
                dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale)
@@ -2876,17 +2900,24 @@ contains
    integer(I4P)                           :: cells
    integer(I4P)                           :: k0
    integer(I4P)                           :: s1
+   real(R8P)                              :: center_distance
    real(R8P)                              :: d_field
    real(R8P)                              :: kappa
+   real(R8P)                              :: span
 
    s1 = self%fdv_half_stencils(1)
+   span = self%pml%profile_span(face)
    do lid=1, size(block_ids)
       b     = block_ids(lid)
       k0    = self%pml%nk_pml(1,b,face)
       cells = self%pml%nk_pml(2,b,face) - k0 + 1_I4P
       do lk=1, cells
          k = k0 + lk - 1_I4P
-         kappa = compute_pml_kappa(self=self, face=face, local_idx=lk, cells=cells)
+         center_distance = merge(self%adam%field%emin(3,b) - self%adam%grid%domain_emin(3) + real(k - 1_I4P, R8P) * &
+                                 self%adam%field%dxyz(3,b),                                                          &
+                                 self%adam%grid%domain_emax(3) - self%adam%field%emax(3,b) + real(self%nk - k, R8P) * &
+                                 self%adam%field%dxyz(3,b), face == PML_FACE_Z_M)
+         kappa = compute_pml_kappa(self=self, center_distance=center_distance, span=span)
          do j=1, self%nj
             do i=1, self%ni
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BY,i,j,k-s1:k+s1,b), dq_ds=d_field)
@@ -2924,12 +2955,15 @@ contains
    integer(I4P)                           :: cells
    integer(I4P)                           :: i0
    integer(I4P)                           :: s1
+   real(R8P)                              :: center_distance
    real(R8P)                              :: gamma
    real(R8P)                              :: alpha
    real(R8P)                              :: kappa
    real(R8P)                              :: d_field
+   real(R8P)                              :: span
 
    s1 = self%fdv_half_stencils(1)
+   span = self%pml%profile_span(face)
    do lid=1, size(block_ids)
       b     = block_ids(lid)
       i0    = self%pml%ni_pml(1,b,face)
@@ -2938,7 +2972,12 @@ contains
          do j=1, self%nj
             do li=1, cells
                i     = i0 + li - 1_I4P
-               call compute_pml_coefficients(self=self, face=face, local_idx=li, cells=cells, gamma=gamma, alpha=alpha, kappa=kappa)
+               center_distance = merge(self%adam%field%emin(1,b) - self%adam%grid%domain_emin(1) + real(i - 1_I4P, R8P) * &
+                                       self%adam%field%dxyz(1,b),                                                          &
+                                       self%adam%grid%domain_emax(1) - self%adam%field%emax(1,b) + real(self%ni - i, R8P) * &
+                                       self%adam%field%dxyz(1,b), face == PML_FACE_X_M)
+               call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, &
+                                             kappa=kappa)
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DY,i-s1:i+s1,j,k,b), dq_ds=d_field)
                dq_face(1,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,li,j,k,lid)
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
@@ -2970,12 +3009,15 @@ contains
    integer(I4P)                           :: cells
    integer(I4P)                           :: j0
    integer(I4P)                           :: s1
+   real(R8P)                              :: center_distance
    real(R8P)                              :: gamma
    real(R8P)                              :: alpha
    real(R8P)                              :: kappa
    real(R8P)                              :: d_field
+   real(R8P)                              :: span
 
    s1 = self%fdv_half_stencils(1)
+   span = self%pml%profile_span(face)
    do lid=1, size(block_ids)
       b     = block_ids(lid)
       j0    = self%pml%nj_pml(1,b,face)
@@ -2983,7 +3025,12 @@ contains
       do k=1, self%nk
          do lj=1, cells
             j     = j0 + lj - 1_I4P
-            call compute_pml_coefficients(self=self, face=face, local_idx=lj, cells=cells, gamma=gamma, alpha=alpha, kappa=kappa)
+            center_distance = merge(self%adam%field%emin(2,b) - self%adam%grid%domain_emin(2) + real(j - 1_I4P, R8P) * &
+                                    self%adam%field%dxyz(2,b),                                                          &
+                                    self%adam%grid%domain_emax(2) - self%adam%field%emax(2,b) + real(self%nj - j, R8P) * &
+                                    self%adam%field%dxyz(2,b), face == PML_FACE_Y_M)
+            call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, &
+                                          kappa=kappa)
             do i=1, self%ni
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DX,i,j-s1:j+s1,k,b), dq_ds=d_field)
                dq_face(1,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,i,lj,k,lid)
@@ -3016,19 +3063,27 @@ contains
    integer(I4P)                           :: cells
    integer(I4P)                           :: k0
    integer(I4P)                           :: s1
+   real(R8P)                              :: center_distance
    real(R8P)                              :: gamma
    real(R8P)                              :: alpha
    real(R8P)                              :: kappa
    real(R8P)                              :: d_field
+   real(R8P)                              :: span
 
    s1 = self%fdv_half_stencils(1)
+   span = self%pml%profile_span(face)
    do lid=1, size(block_ids)
       b     = block_ids(lid)
       k0    = self%pml%nk_pml(1,b,face)
       cells = self%pml%nk_pml(2,b,face) - k0 + 1_I4P
       do lk=1, cells
          k     = k0 + lk - 1_I4P
-         call compute_pml_coefficients(self=self, face=face, local_idx=lk, cells=cells, gamma=gamma, alpha=alpha, kappa=kappa)
+         center_distance = merge(self%adam%field%emin(3,b) - self%adam%grid%domain_emin(3) + real(k - 1_I4P, R8P) * &
+                                 self%adam%field%dxyz(3,b),                                                          &
+                                 self%adam%grid%domain_emax(3) - self%adam%field%emax(3,b) + real(self%nk - k, R8P) * &
+                                 self%adam%field%dxyz(3,b), face == PML_FACE_Z_M)
+         call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, &
+                                       kappa=kappa)
          do j=1, self%nj
             do i=1, self%ni
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DX,i,j,k-s1:k+s1,b), dq_ds=d_field)
@@ -3045,12 +3100,11 @@ contains
    enddo
    endsubroutine compute_z_face_pml_rhs
 
-   pure subroutine compute_pml_coefficients(self, face, local_idx, cells, gamma, alpha, kappa)
+   pure subroutine compute_pml_coefficients(self, center_distance, span, gamma, alpha, kappa)
    !< Return the face-local ADE-PML coefficients for the supported variants.
    class(prism_cpu_object), intent(in) :: self
-   integer(I4P),            intent(in) :: face
-   integer(I4P),            intent(in) :: local_idx
-   integer(I4P),            intent(in) :: cells
+   real(R8P),               intent(in) :: center_distance
+   real(R8P),               intent(in) :: span
    real(R8P),               intent(out):: gamma
    real(R8P),               intent(out):: alpha
    real(R8P),               intent(out):: kappa
@@ -3058,46 +3112,40 @@ contains
    real(R8P)                           :: distance_to_outer
    real(R8P), parameter                :: BERMUDEZ_EPS = 1.e-6_R8P
    integer(I4P), parameter             :: CFS_PROFILE_EXPONENT = 2_I4P
-   integer(I4P)                        :: layer_idx
 
-   if (cells <= 0_I4P) then
+   if (span < 0._R8P) then
       gamma = 0._R8P
       alpha = 0._R8P
       kappa = 1._R8P
       return
    endif
 
-   select case (face)
-   case (PML_FACE_X_M, PML_FACE_Y_M, PML_FACE_Z_M)
-      layer_idx = cells - local_idx + 1_I4P
-   case default
-      layer_idx = local_idx
-   endselect
    gamma = 0._R8P
    alpha = 0._R8P
    kappa = 1._R8P
 
    select case (trim(self%pml%pml_type))
    case ('CLASSIC')
-      if (cells > 1_I4P) then
-         depth = real(layer_idx - 1_I4P, R8P) / real(cells - 1_I4P, R8P)
-      else
-         depth = 0._R8P
-      endif
-      depth = max(0._R8P, min(1._R8P, depth))
-      gamma = self%pml%gamma_max * depth**self%pml%gamma_exponent
-   case ('BERMUDEZ')
-      if (cells > 1_I4P) then
-         depth = real(layer_idx - 1_I4P, R8P) / real(cells - 1_I4P, R8P)
+      if (span > 0._R8P) then
+         depth = 1._R8P - center_distance / span
       else
          depth = 1._R8P
       endif
       depth = max(0._R8P, min(1._R8P, depth))
-      distance_to_outer = self%pml%width * (1._R8P - depth) + BERMUDEZ_EPS
+      gamma = self%pml%gamma_max * depth**self%pml%gamma_exponent
+   case ('BERMUDEZ')
+      if (span > 0._R8P) then
+         depth = 1._R8P - center_distance / span
+         distance_to_outer = self%pml%width * center_distance / span + BERMUDEZ_EPS
+      else
+         depth = 1._R8P
+         distance_to_outer = BERMUDEZ_EPS
+      endif
+      depth = max(0._R8P, min(1._R8P, depth))
       gamma = self%pml%beta / distance_to_outer**self%pml%gamma_exponent
    case ('CFS')
-      if (cells > 1_I4P) then
-         depth = real(layer_idx - 1_I4P, R8P) / real(cells - 1_I4P, R8P)
+      if (span > 0._R8P) then
+         depth = 1._R8P - center_distance / span
       else
          depth = 1._R8P
       endif
@@ -3110,15 +3158,14 @@ contains
    endselect
    endsubroutine compute_pml_coefficients
 
-   pure real(R8P) function compute_pml_kappa(self, face, local_idx, cells) result(kappa)
+   pure real(R8P) function compute_pml_kappa(self, center_distance, span) result(kappa)
    class(prism_cpu_object), intent(in) :: self
-   integer(I4P),            intent(in) :: face
-   integer(I4P),            intent(in) :: local_idx
-   integer(I4P),            intent(in) :: cells
+   real(R8P),               intent(in) :: center_distance
+   real(R8P),               intent(in) :: span
    real(R8P)                           :: gamma
    real(R8P)                           :: alpha
 
-   call compute_pml_coefficients(self=self, face=face, local_idx=local_idx, cells=cells, gamma=gamma, alpha=alpha, kappa=kappa)
+   call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, kappa=kappa)
    endfunction compute_pml_kappa
 
    subroutine compute_residuals_fv_centered(self, q, dq, s, flux_register)

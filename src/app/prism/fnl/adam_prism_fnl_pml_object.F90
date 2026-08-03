@@ -114,43 +114,49 @@ contains
    call initialize_x_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
                           beta=self%beta, face=PML_FACE_X_M, q_face_cpu=pml%q_pml_x_m, blocks_cpu=pml%blocks_x_m,  &
-                          range_cpu=pml%ni_pml, nj=grid%nj, nk=grid%nk, blocks_gpu=self%blocks_x_m_gpu,            &
+                          range_cpu=pml%ni_pml, profile_span=pml%profile_span(PML_FACE_X_M), grid=grid, field=field, &
+                          blocks_gpu=self%blocks_x_m_gpu,            &
                           start_gpu=self%start_x_m_gpu, cells_gpu=self%cells_x_m_gpu, gamma_gpu=self%gamma_x_m_gpu,&
                           alpha_gpu=self%alpha_x_m_gpu, kappa_gpu=self%kappa_x_m_gpu, q_face_gpu=self%q_pml_x_m_gpu)
    call initialize_x_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
                           beta=self%beta, face=PML_FACE_X_P, q_face_cpu=pml%q_pml_x_p, blocks_cpu=pml%blocks_x_p,  &
-                          range_cpu=pml%ni_pml, nj=grid%nj, nk=grid%nk, blocks_gpu=self%blocks_x_p_gpu,            &
+                          range_cpu=pml%ni_pml, profile_span=pml%profile_span(PML_FACE_X_P), grid=grid, field=field, &
+                          blocks_gpu=self%blocks_x_p_gpu,            &
                           start_gpu=self%start_x_p_gpu, cells_gpu=self%cells_x_p_gpu, gamma_gpu=self%gamma_x_p_gpu,&
                           alpha_gpu=self%alpha_x_p_gpu, kappa_gpu=self%kappa_x_p_gpu, q_face_gpu=self%q_pml_x_p_gpu)
    call initialize_y_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
                           beta=self%beta, face=PML_FACE_Y_M, q_face_cpu=pml%q_pml_y_m, blocks_cpu=pml%blocks_y_m,  &
-                          range_cpu=pml%nj_pml, ni=grid%ni, nk=grid%nk, blocks_gpu=self%blocks_y_m_gpu,            &
+                          range_cpu=pml%nj_pml, profile_span=pml%profile_span(PML_FACE_Y_M), grid=grid, field=field, &
+                          blocks_gpu=self%blocks_y_m_gpu,            &
                           start_gpu=self%start_y_m_gpu, cells_gpu=self%cells_y_m_gpu, gamma_gpu=self%gamma_y_m_gpu,&
                           alpha_gpu=self%alpha_y_m_gpu, kappa_gpu=self%kappa_y_m_gpu, q_face_gpu=self%q_pml_y_m_gpu)
    call initialize_y_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
                           beta=self%beta, face=PML_FACE_Y_P, q_face_cpu=pml%q_pml_y_p, blocks_cpu=pml%blocks_y_p,  &
-                          range_cpu=pml%nj_pml, ni=grid%ni, nk=grid%nk, blocks_gpu=self%blocks_y_p_gpu,            &
+                          range_cpu=pml%nj_pml, profile_span=pml%profile_span(PML_FACE_Y_P), grid=grid, field=field, &
+                          blocks_gpu=self%blocks_y_p_gpu,            &
                           start_gpu=self%start_y_p_gpu, cells_gpu=self%cells_y_p_gpu, gamma_gpu=self%gamma_y_p_gpu,&
                           alpha_gpu=self%alpha_y_p_gpu, kappa_gpu=self%kappa_y_p_gpu, q_face_gpu=self%q_pml_y_p_gpu)
    call initialize_z_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
                           beta=self%beta, face=PML_FACE_Z_M, q_face_cpu=pml%q_pml_z_m, blocks_cpu=pml%blocks_z_m,  &
-                          range_cpu=pml%nk_pml, ni=grid%ni, nj=grid%nj, blocks_gpu=self%blocks_z_m_gpu,            &
+                          range_cpu=pml%nk_pml, profile_span=pml%profile_span(PML_FACE_Z_M), grid=grid, field=field, &
+                          blocks_gpu=self%blocks_z_m_gpu,            &
                           start_gpu=self%start_z_m_gpu, cells_gpu=self%cells_z_m_gpu, gamma_gpu=self%gamma_z_m_gpu,&
                           alpha_gpu=self%alpha_z_m_gpu, kappa_gpu=self%kappa_z_m_gpu, q_face_gpu=self%q_pml_z_m_gpu)
    call initialize_z_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
                           beta=self%beta, face=PML_FACE_Z_P, q_face_cpu=pml%q_pml_z_p, blocks_cpu=pml%blocks_z_p,  &
-                          range_cpu=pml%nk_pml, ni=grid%ni, nj=grid%nj, blocks_gpu=self%blocks_z_p_gpu,            &
+                          range_cpu=pml%nk_pml, profile_span=pml%profile_span(PML_FACE_Z_P), grid=grid, field=field, &
+                          blocks_gpu=self%blocks_z_p_gpu,            &
                           start_gpu=self%start_z_p_gpu, cells_gpu=self%cells_z_p_gpu, gamma_gpu=self%gamma_z_p_gpu,&
                           alpha_gpu=self%alpha_z_p_gpu, kappa_gpu=self%kappa_z_p_gpu, q_face_gpu=self%q_pml_z_p_gpu)
    endsubroutine initialize
 
    subroutine initialize_x_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, q_face_cpu, &
-                                blocks_cpu, range_cpu, nj, nk, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
+                                blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
                                 kappa_gpu, q_face_gpu)
    character(len=*),       intent(in)    :: pml_type
    real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta
@@ -158,7 +164,9 @@ contains
    real(R8P), allocatable,  intent(in)    :: q_face_cpu(:,:,:,:,:)
    integer(I4P), allocatable, intent(in)  :: blocks_cpu(:)
    integer(I4P),            intent(in)    :: range_cpu(:,:,:)
-   integer(I4P),            intent(in)    :: nj, nk
+   real(R8P),               intent(in)    :: profile_span
+   type(grid_object),       intent(in)    :: grid
+   type(field_object),      intent(in)    :: field
    integer(I4P), pointer,   intent(inout) :: blocks_gpu(:)
    integer(I4P), pointer,   intent(inout) :: start_gpu(:)
    integer(I4P), pointer,   intent(inout) :: cells_gpu(:)
@@ -182,7 +190,8 @@ contains
       cells_host(lid) = range_cpu(2,b,face) - start_host(lid) + 1_I4P
       call fill_face_coefficients(pml_type=pml_type, width=width, gamma_max=gamma_max,                                    &
                                   gamma_exponent=gamma_exponent, alpha_max=alpha_max, k_max=k_max, beta=beta,            &
-                                  face=face, cells=cells_host(lid), gamma=gamma_host(lid,:),                              &
+                                  face=face, profile_span=profile_span, grid=grid, field=field, block_id=b,             &
+                                  start_idx=start_host(lid), cells=cells_host(lid), gamma=gamma_host(lid,:),             &
                                   alpha=alpha_host(lid,:), kappa=kappa_host(lid,:))
    enddo
    call dev_assign_to_device(src=blocks_cpu,  dst=blocks_gpu)
@@ -191,14 +200,14 @@ contains
    call dev_assign_to_device(src=gamma_host,  dst=gamma_gpu)
    call dev_assign_to_device(src=alpha_host,  dst=alpha_gpu)
    call dev_assign_to_device(src=kappa_host,  dst=kappa_gpu)
-   call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,cmax,nj,nk,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
+   call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,cmax,grid%nj,grid%nk,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate x-face GPU PML state')
    call copy_face_state_cpu_gpu(q_cpu=q_face_cpu, q_gpu=q_face_gpu)
    endsubroutine initialize_x_face
 
    subroutine initialize_y_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, q_face_cpu, &
-                                blocks_cpu, range_cpu, ni, nk, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
+                                blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
                                 kappa_gpu, q_face_gpu)
    character(len=*),       intent(in)    :: pml_type
    real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta
@@ -206,7 +215,9 @@ contains
    real(R8P), allocatable,  intent(in)    :: q_face_cpu(:,:,:,:,:)
    integer(I4P), allocatable, intent(in)  :: blocks_cpu(:)
    integer(I4P),            intent(in)    :: range_cpu(:,:,:)
-   integer(I4P),            intent(in)    :: ni, nk
+   real(R8P),               intent(in)    :: profile_span
+   type(grid_object),       intent(in)    :: grid
+   type(field_object),      intent(in)    :: field
    integer(I4P), pointer,   intent(inout) :: blocks_gpu(:)
    integer(I4P), pointer,   intent(inout) :: start_gpu(:)
    integer(I4P), pointer,   intent(inout) :: cells_gpu(:)
@@ -230,7 +241,8 @@ contains
       cells_host(lid) = range_cpu(2,b,face) - start_host(lid) + 1_I4P
       call fill_face_coefficients(pml_type=pml_type, width=width, gamma_max=gamma_max,                                    &
                                   gamma_exponent=gamma_exponent, alpha_max=alpha_max, k_max=k_max, beta=beta,            &
-                                  face=face, cells=cells_host(lid), gamma=gamma_host(lid,:),                              &
+                                  face=face, profile_span=profile_span, grid=grid, field=field, block_id=b,             &
+                                  start_idx=start_host(lid), cells=cells_host(lid), gamma=gamma_host(lid,:),             &
                                   alpha=alpha_host(lid,:), kappa=kappa_host(lid,:))
    enddo
    call dev_assign_to_device(src=blocks_cpu,  dst=blocks_gpu)
@@ -239,14 +251,14 @@ contains
    call dev_assign_to_device(src=gamma_host,  dst=gamma_gpu)
    call dev_assign_to_device(src=alpha_host,  dst=alpha_gpu)
    call dev_assign_to_device(src=kappa_host,  dst=kappa_gpu)
-   call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,ni,cmax,nk,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
+   call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,grid%ni,cmax,grid%nk,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate y-face GPU PML state')
    call copy_face_state_cpu_gpu(q_cpu=q_face_cpu, q_gpu=q_face_gpu)
    endsubroutine initialize_y_face
 
    subroutine initialize_z_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, q_face_cpu, &
-                                blocks_cpu, range_cpu, ni, nj, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
+                                blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
                                 kappa_gpu, q_face_gpu)
    character(len=*),       intent(in)    :: pml_type
    real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta
@@ -254,7 +266,9 @@ contains
    real(R8P), allocatable,  intent(in)    :: q_face_cpu(:,:,:,:,:)
    integer(I4P), allocatable, intent(in)  :: blocks_cpu(:)
    integer(I4P),            intent(in)    :: range_cpu(:,:,:)
-   integer(I4P),            intent(in)    :: ni, nj
+   real(R8P),               intent(in)    :: profile_span
+   type(grid_object),       intent(in)    :: grid
+   type(field_object),      intent(in)    :: field
    integer(I4P), pointer,   intent(inout) :: blocks_gpu(:)
    integer(I4P), pointer,   intent(inout) :: start_gpu(:)
    integer(I4P), pointer,   intent(inout) :: cells_gpu(:)
@@ -278,7 +292,8 @@ contains
       cells_host(lid) = range_cpu(2,b,face) - start_host(lid) + 1_I4P
       call fill_face_coefficients(pml_type=pml_type, width=width, gamma_max=gamma_max,                                    &
                                   gamma_exponent=gamma_exponent, alpha_max=alpha_max, k_max=k_max, beta=beta,            &
-                                  face=face, cells=cells_host(lid), gamma=gamma_host(lid,:),                              &
+                                  face=face, profile_span=profile_span, grid=grid, field=field, block_id=b,             &
+                                  start_idx=start_host(lid), cells=cells_host(lid), gamma=gamma_host(lid,:),             &
                                   alpha=alpha_host(lid,:), kappa=kappa_host(lid,:))
    enddo
    call dev_assign_to_device(src=blocks_cpu,  dst=blocks_gpu)
@@ -287,7 +302,7 @@ contains
    call dev_assign_to_device(src=gamma_host,  dst=gamma_gpu)
    call dev_assign_to_device(src=alpha_host,  dst=alpha_gpu)
    call dev_assign_to_device(src=kappa_host,  dst=kappa_gpu)
-   call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,ni,nj,cmax,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
+   call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,grid%ni,grid%nj,cmax,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate z-face GPU PML state')
    call copy_face_state_cpu_gpu(q_cpu=q_face_cpu, q_gpu=q_face_gpu)
@@ -315,7 +330,8 @@ contains
    deallocate(q_t)
    endsubroutine copy_face_state_cpu_gpu
 
-   subroutine fill_face_coefficients(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, cells, &
+   subroutine fill_face_coefficients(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, profile_span, grid, &
+                                     field, block_id, start_idx, cells, &
                                      gamma, alpha, kappa)
    character(len=*), intent(in) :: pml_type
    real(R8P),        intent(in) :: width
@@ -324,15 +340,23 @@ contains
    real(R8P),        intent(in) :: alpha_max
    real(R8P),        intent(in) :: k_max
    real(R8P),        intent(in) :: beta
-   integer(I4P), intent(in)  :: face
-   integer(I4P), intent(in)  :: cells
+    integer(I4P),    intent(in) :: face
+   real(R8P),        intent(in) :: profile_span
+   type(grid_object), intent(in) :: grid
+   type(field_object), intent(in) :: field
+   integer(I4P),     intent(in) :: block_id
+   integer(I4P),     intent(in) :: start_idx
+   integer(I4P),     intent(in) :: cells
    real(R8P),    intent(out) :: gamma(1:)
    real(R8P),    intent(out) :: alpha(1:)
    real(R8P),    intent(out) :: kappa(1:)
+   real(R8P)                 :: center_distance
    real(R8P)                 :: depth
    real(R8P)                 :: distance_to_outer
+   real(R8P)                 :: ds
+   real(R8P)                 :: distance0
+   integer(I4P)              :: idx
    integer(I4P)              :: li
-   integer(I4P)              :: layer_idx
 
    gamma = 0._R8P
    alpha = 0._R8P
@@ -341,32 +365,59 @@ contains
 
    do li = 1, min(cells, size(gamma))
       select case (face)
-      case (PML_FACE_X_M, PML_FACE_Y_M, PML_FACE_Z_M)
-         layer_idx = cells - li + 1_I4P
+      case (PML_FACE_X_M)
+         ds = field%dxyz(1,block_id)
+         distance0 = field%emin(1,block_id) - grid%domain_emin(1)
+         idx = start_idx + li - 1_I4P
+         center_distance = distance0 + real(idx - 1_I4P, R8P) * ds
+      case (PML_FACE_X_P)
+         ds = field%dxyz(1,block_id)
+         distance0 = grid%domain_emax(1) - field%emax(1,block_id)
+         idx = start_idx + li - 1_I4P
+         center_distance = distance0 + real(grid%ni - idx, R8P) * ds
+      case (PML_FACE_Y_M)
+         ds = field%dxyz(2,block_id)
+         distance0 = field%emin(2,block_id) - grid%domain_emin(2)
+         idx = start_idx + li - 1_I4P
+         center_distance = distance0 + real(idx - 1_I4P, R8P) * ds
+      case (PML_FACE_Y_P)
+         ds = field%dxyz(2,block_id)
+         distance0 = grid%domain_emax(2) - field%emax(2,block_id)
+         idx = start_idx + li - 1_I4P
+         center_distance = distance0 + real(grid%nj - idx, R8P) * ds
+      case (PML_FACE_Z_M)
+         ds = field%dxyz(3,block_id)
+         distance0 = field%emin(3,block_id) - grid%domain_emin(3)
+         idx = start_idx + li - 1_I4P
+         center_distance = distance0 + real(idx - 1_I4P, R8P) * ds
       case default
-         layer_idx = li
+         ds = field%dxyz(3,block_id)
+         distance0 = grid%domain_emax(3) - field%emax(3,block_id)
+         idx = start_idx + li - 1_I4P
+         center_distance = distance0 + real(grid%nk - idx, R8P) * ds
       end select
       select case (trim(pml_type))
       case (PML_TYPE_CLASSIC)
-         if (cells > 1_I4P) then
-            depth = real(layer_idx - 1_I4P, R8P) / real(cells - 1_I4P, R8P)
-         else
-            depth = 0._R8P
-         endif
-         depth = max(0._R8P, min(1._R8P, depth))
-         gamma(li) = gamma_max * depth**gamma_exponent
-      case (PML_TYPE_BERMUDEZ)
-         if (cells > 1_I4P) then
-            depth = real(layer_idx - 1_I4P, R8P) / real(cells - 1_I4P, R8P)
+         if (profile_span > 0._R8P) then
+            depth = 1._R8P - center_distance / profile_span
          else
             depth = 1._R8P
          endif
          depth = max(0._R8P, min(1._R8P, depth))
-         distance_to_outer = width * (1._R8P - depth) + BERMUDEZ_EPS
+         gamma(li) = gamma_max * depth**gamma_exponent
+      case (PML_TYPE_BERMUDEZ)
+         if (profile_span > 0._R8P) then
+            depth = 1._R8P - center_distance / profile_span
+            distance_to_outer = width * center_distance / profile_span + BERMUDEZ_EPS
+         else
+            depth = 1._R8P
+            distance_to_outer = BERMUDEZ_EPS
+         endif
+         depth = max(0._R8P, min(1._R8P, depth))
          gamma(li) = beta / distance_to_outer**gamma_exponent
       case (PML_TYPE_CFS)
-         if (cells > 1_I4P) then
-            depth = real(layer_idx - 1_I4P, R8P) / real(cells - 1_I4P, R8P)
+         if (profile_span > 0._R8P) then
+            depth = 1._R8P - center_distance / profile_span
          else
             depth = 1._R8P
          endif

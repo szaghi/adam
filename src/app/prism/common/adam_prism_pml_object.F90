@@ -5,8 +5,8 @@ module adam_prism_pml_object
 use :: adam_mpih_global,      only : mpih
 use :: adam_grid_object,      only : grid_object
 use :: adam_field_object,     only : field_object
-use :: adam_tree_object,      only : tree_object, NODE_BOUNDARY_CONDITION
-use :: adam_tree_node_object, only : tree_node_object
+use :: adam_tree_object,      only : tree_object
+use :: adam_prism_absorbing_layer_geometry, only : compute_absorbing_face_range
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
@@ -48,6 +48,7 @@ type :: prism_pml_object
    real(R8P)                 :: alpha_max = 0._R8P
    real(R8P)                 :: k_max     = 1._R8P
    real(R8P)                 :: beta      = 0._R8P
+   real(R8P)                 :: profile_span(6) = 0._R8P !< Face-wise maximum center distance inside the PML.
    integer(I4P), allocatable :: ni_pml(:,:,:)  !< Local i-range of active PML support [2,nb,6].
    integer(I4P), allocatable :: nj_pml(:,:,:)  !< Local j-range of active PML support [2,nb,6].
    integer(I4P), allocatable :: nk_pml(:,:,:)  !< Local k-range of active PML support [2,nb,6].
@@ -117,15 +118,15 @@ contains
    type(grid_object),       intent(in)    :: grid
    type(tree_object),       intent(in)    :: tree
    type(file_ini),          intent(in)    :: file_parameters
-   type(tree_node_object),  pointer       :: node_ptr
    integer(I4P)                           :: alloc_error
    integer(I4P)                           :: b
    integer(I4P)                           :: face
    integer(I4P)                           :: face_cells
    integer(I4P)                           :: face_counter(6)
-   integer(I4P)                           :: neighbor_type
+   integer(I4P)                           :: range_i(2), range_j(2), range_k(2)
    character(len=256)                     :: alloc_message
-   real(R8P)                              :: ds
+   real(R8P)                              :: face_last_center_distance
+   real(R8P)                              :: face_profile_extent
 
    print '(A)', mpih%myrankstr//'prism_pml_object%initialize start'
    call reset_pml_object(self=self)
@@ -155,46 +156,26 @@ contains
    self%block_lid    = 0_I4P
    self%max_cells    = 0_I4P
    self%active_blocks = 0_I4P
+   self%profile_span = 0._R8P
 
    do b=1, field%blocks_number
-      node_ptr => tree%node(code=field%code(b))
       do face=1, 6
          if (.not. self%layer(face)) cycle
-         neighbor_type = node_ptr%neighbor(face)%ntype
-         if (neighbor_type /= NODE_BOUNDARY_CONDITION) cycle
+         call compute_absorbing_face_range(face=face, width=self%width, ni=grid%ni, nj=grid%nj, nk=grid%nk,          &
+                                           domain_emin=grid%domain_emin, domain_emax=grid%domain_emax,               &
+                                           block_emin=field%emin(:,b), block_emax=field%emax(:,b),                   &
+                                           dxyz=field%dxyz(:,b), ni_range=range_i, nj_range=range_j, nk_range=range_k, &
+                                           cells=face_cells, last_center_distance=face_last_center_distance,         &
+                                           profile_extent=face_profile_extent)
+         if (face_cells <= 0_I4P) cycle
 
-         select case (face)
-         case (PML_FACE_X_M, PML_FACE_X_P)
-            ds = field%dxyz(1,b)
-            face_cells = min(grid%ni, ceiling(self%width / ds, kind=I4P))
-            self%ni_pml(1,b,face) = merge(1_I4P, grid%ni-face_cells+1_I4P, face == PML_FACE_X_M)
-            self%ni_pml(2,b,face) = merge(face_cells, grid%ni, face == PML_FACE_X_M)
-            self%nj_pml(1,b,face) = 1_I4P
-            self%nj_pml(2,b,face) = grid%nj
-            self%nk_pml(1,b,face) = 1_I4P
-            self%nk_pml(2,b,face) = grid%nk
-         case (PML_FACE_Y_M, PML_FACE_Y_P)
-            ds = field%dxyz(2,b)
-            face_cells = min(grid%nj, ceiling(self%width / ds, kind=I4P))
-            self%ni_pml(1,b,face) = 1_I4P
-            self%ni_pml(2,b,face) = grid%ni
-            self%nj_pml(1,b,face) = merge(1_I4P, grid%nj-face_cells+1_I4P, face == PML_FACE_Y_M)
-            self%nj_pml(2,b,face) = merge(face_cells, grid%nj, face == PML_FACE_Y_M)
-            self%nk_pml(1,b,face) = 1_I4P
-            self%nk_pml(2,b,face) = grid%nk
-         case (PML_FACE_Z_M, PML_FACE_Z_P)
-            ds = field%dxyz(3,b)
-            face_cells = min(grid%nk, ceiling(self%width / ds, kind=I4P))
-            self%ni_pml(1,b,face) = 1_I4P
-            self%ni_pml(2,b,face) = grid%ni
-            self%nj_pml(1,b,face) = 1_I4P
-            self%nj_pml(2,b,face) = grid%nj
-            self%nk_pml(1,b,face) = merge(1_I4P, grid%nk-face_cells+1_I4P, face == PML_FACE_Z_M)
-            self%nk_pml(2,b,face) = merge(face_cells, grid%nk, face == PML_FACE_Z_M)
-         endselect
+         self%ni_pml(:,b,face) = range_i
+         self%nj_pml(:,b,face) = range_j
+         self%nk_pml(:,b,face) = range_k
 
          self%active_blocks(face) = self%active_blocks(face) + 1_I4P
          self%max_cells(face) = max(self%max_cells(face), face_cells)
+         self%profile_span(face) = max(self%profile_span(face), face_last_center_distance)
       enddo
    enddo
 
@@ -447,6 +428,7 @@ contains
    self%alpha_max = 0._R8P
    self%k_max     = 1._R8P
    self%beta      = 0._R8P
+   self%profile_span = 0._R8P
    endsubroutine reset_pml_configuration
 
    subroutine reset_pml_object(self)

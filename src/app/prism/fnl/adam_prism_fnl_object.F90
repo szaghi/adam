@@ -635,19 +635,26 @@ contains
    associate(layer=>self%fWLayer%layer, C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL, &
             nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, &
             s2=>self%fWLayer%s2, alfa_D=>self%fWLayer%alfa_D, beta_D=>self%fWLayer%beta_D, &
-            alfa_B=>self%fWLayer%alfa_B, beta_B=>self%fWLayer%beta_B, dxyz_gpu=>self%field_fnl%dxyz_gpu)
+            alfa_B=>self%fWLayer%alfa_B, beta_B=>self%fWLayer%beta_B, profile_extent=>self%fWLayer%profile_extent, &
+            profile_cells=>self%fWLayer%profile_cells, dxyz_gpu=>self%field_fnl%dxyz_gpu, x_cell_gpu=>self%field_fnl%x_cell_gpu, &
+            y_cell_gpu=>self%field_fnl%y_cell_gpu, z_cell_gpu=>self%field_fnl%z_cell_gpu)
    if (allocated(self%fWLayer%C)) then
       do face=1, 6
          if (.not. layer(face)) cycle
          do b=1, self%blocks_number
             if (C(b,face) <= 0_I4P) cycle
-            call apply_fwl_correction_dev_kernel(block_idx=b, ngc=self%ngc,                  &
+            call apply_fwl_correction_dev_kernel(block_idx=b, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, &
                                                  ni1=ni_fWL(1,b,face), ni2=ni_fWL(2,b,face), &
                                                  nj1=nj_fWL(1,b,face), nj2=nj_fWL(2,b,face), &
                                                  nk1=nk_fWL(1,b,face), nk2=nk_fWL(2,b,face), &
+                                                 face=face,                                    &
                                                  n=n(face), s2=s2(face), alfa_D=alfa_D(face), beta_D=beta_D(face), &
                                                  alfa_B=alfa_B(face), beta_B=beta_B(face),    &
-                                                 C_face=C(b,face), dxyz_gpu=dxyz_gpu, q_gpu=q_gpu)
+                                                 domain_emin_n=self%adam%grid%domain_emin(n(face)),                  &
+                                                 domain_emax_n=self%adam%grid%domain_emax(n(face)),                  &
+                                                 profile_extent=profile_extent(face), profile_cells=profile_cells(face), &
+                                                 x_cell_gpu=x_cell_gpu, y_cell_gpu=y_cell_gpu, z_cell_gpu=z_cell_gpu, &
+                                                 dxyz_gpu=dxyz_gpu, q_gpu=q_gpu)
          enddo
       enddo
    endif

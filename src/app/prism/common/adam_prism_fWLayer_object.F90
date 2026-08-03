@@ -10,8 +10,8 @@ module adam_prism_fWLayer_object
 use :: adam_mpih_global,       only : mpih
 use :: adam_grid_object,       only : grid_object
 use :: adam_field_object,      only : field_object
-use :: adam_tree_object,       only : tree_object, NODE_BOUNDARY_CONDITION
-use :: adam_tree_node_object,  only : tree_node_object
+use :: adam_tree_object,       only : tree_object
+use :: adam_prism_absorbing_layer_geometry, only : compute_absorbing_face_range
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_physics_object, only : prism_physics_object
@@ -33,6 +33,8 @@ type :: prism_fWLayer_object
    real(R8P)                 :: width    = 0._R8P                        !< Requested physical layer width.
    integer(I4P), allocatable :: C(:,:)                                   !< Derived layer width in cells for each block/face [nb,6].
    integer(I4P), allocatable :: ni_fWL(:,:,:), nj_fWL(:,:,:), nk_fWL(:,:,:) !< FWL bounds for each block/face [2,nb,6].
+   real(R8P)                 :: profile_extent(6) = 0._R8P               !< Face-wise discrete profile extent measured from the boundary-cell center.
+   integer(I4P)              :: profile_cells(6) = 0_I4P                 !< Effective face-wise layer thickness in cells for the f profile.
    real(R8P)                 :: s2(6)                                    !< Side coefficient.
    integer(I4P)              :: n(6)                                     !< FWL f function index.
    integer(I4P)              :: alfa_D(6), beta_D(6)                     !< Corrected var index of D (Barbas' notation).
@@ -74,11 +76,13 @@ contains
    type(tree_object),           intent(in)    :: tree            !< Tree (sibling realm component, threaded in).
    type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(prism_physics_object),  intent(in)    :: physics         !< Physics.
-   type(tree_node_object),      pointer       :: node_ptr        !< Pointer to current node.
    integer(I4P)                               :: b,fec           !< Counters.
-   integer(I4P)                               :: neighbor_type   !< Neighbors type.
    integer(I4P)                               :: C_face          !< Number of cells covering the requested width on this face/block.
+   integer(I4P)                               :: range_i(2), range_j(2), range_k(2)
    real(R8P)                                  :: ds              !< Cells distance in x, y or z.
+   real(R8P)                                  :: face_last_center_distance
+   real(R8P)                                  :: face_profile_extent
+   real(R8P)                                  :: min_ds(6)
    integer(I4P)                               :: alloc_error     !< Allocation status.
    character(len=256)                         :: alloc_message   !< Allocation error message.
 
@@ -107,6 +111,9 @@ contains
    self%ni_fWL = 0_I4P
    self%nj_fWL = 0_I4P
    self%nk_fWL = 0_I4P
+   self%profile_extent = 0._R8P
+   self%profile_cells  = 0_I4P
+   min_ds = huge(1._R8P)
 
    associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, blocks_number=>field%blocks_number,          &
             dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:),                       &
@@ -132,44 +139,29 @@ contains
    beta_B(4)=4_I4P; beta_B(5)=5_I4P; beta_B(6)=5_I4P
 
    do b=1, blocks_number
-      node_ptr => tree%node(code=field%code(b))
       do fec=1, 6
          if (.not. self%layer(fec)) cycle
-         neighbor_type = node_ptr%neighbor(fec)%ntype
-         if (neighbor_type /= NODE_BOUNDARY_CONDITION) cycle
+         ds = field%dxyz(n(fec),b)
+         call compute_absorbing_face_range(face=fec, width=self%width, ni=ni, nj=nj, nk=nk,                    &
+                                           domain_emin=grid%domain_emin, domain_emax=grid%domain_emax,         &
+                                           block_emin=field%emin(:,b), block_emax=field%emax(:,b),             &
+                                           dxyz=field%dxyz(:,b), ni_range=range_i, nj_range=range_j, nk_range=range_k, &
+                                           cells=C_face, last_center_distance=face_last_center_distance,        &
+                                           profile_extent=face_profile_extent)
+         if (C_face <= 0_I4P) cycle
 
-         select case(fec)
-         case(1, 2)
-            ds = dx(b)
-            C_face = min(ni, ceiling(self%width / ds, kind=I4P))
-            ni_fWL(1,b,fec) = merge(1_I4P, ni-C_face+1_I4P, fec == 1)
-            ni_fWL(2,b,fec) = merge(C_face, ni, fec == 1)
-            nj_fWL(1,b,fec) = 1_I4P
-            nj_fWL(2,b,fec) = nj
-            nk_fWL(1,b,fec) = 1_I4P
-            nk_fWL(2,b,fec) = nk
-         case(3, 4)
-            ds = dy(b)
-            C_face = min(nj, ceiling(self%width / ds, kind=I4P))
-            ni_fWL(1,b,fec) = 1_I4P
-            ni_fWL(2,b,fec) = ni
-            nj_fWL(1,b,fec) = merge(1_I4P, nj-C_face+1_I4P, fec == 3)
-            nj_fWL(2,b,fec) = merge(C_face, nj, fec == 3)
-            nk_fWL(1,b,fec) = 1_I4P
-            nk_fWL(2,b,fec) = nk
-         case(5, 6)
-            ds = dz(b)
-            C_face = min(nk, ceiling(self%width / ds, kind=I4P))
-            ni_fWL(1,b,fec) = 1_I4P
-            ni_fWL(2,b,fec) = ni
-            nj_fWL(1,b,fec) = 1_I4P
-            nj_fWL(2,b,fec) = nj
-            nk_fWL(1,b,fec) = merge(1_I4P, nk-C_face+1_I4P, fec == 5)
-            nk_fWL(2,b,fec) = merge(C_face, nk, fec == 5)
-         endselect
+         ni_fWL(:,b,fec) = range_i
+         nj_fWL(:,b,fec) = range_j
+         nk_fWL(:,b,fec) = range_k
 
          C(b,fec) = C_face
+         self%profile_extent(fec) = max(self%profile_extent(fec), face_profile_extent)
+         min_ds(fec) = min(min_ds(fec), ds)
       enddo
+   enddo
+   do fec=1, 6
+      if (self%profile_extent(fec) <= 0._R8P) cycle
+      self%profile_cells(fec) = max(1_I4P, ceiling(self%profile_extent(fec) / min_ds(fec), kind=I4P))
    enddo
    endassociate
    print '(A)', mpih%myrankstr//'prism_fWLayer_object%initialize finish'
@@ -257,77 +249,82 @@ contains
    endselect
    endsubroutine load_from_file
 
-   pure real(R8P) function compute_fwl_factor(offset, cells_number, ds) result(f_value)
-   !< Return the local fWLayer damping factor for a cell at integer offset from the boundary.
-   integer(I4P), intent(in) :: offset       !< Cell offset from the boundary, 0 at the boundary cell.
-   integer(I4P), intent(in) :: cells_number !< Layer thickness in cells.
-   real(R8P),    intent(in) :: ds           !< Cell size along the layer-normal direction.
+   pure real(R8P) function compute_fwl_factor(center_distance, profile_extent, profile_cells) result(f_value)
+   !< Return the local fWLayer damping factor for a cell at distance from the boundary-cell center.
+   real(R8P),    intent(in) :: center_distance !< Physical distance from the boundary-cell center along the layer normal.
+   real(R8P),    intent(in) :: profile_extent  !< Discrete face-wise profile extent; matches C*ds on uniform meshes.
+   integer(I4P), intent(in) :: profile_cells   !< Effective face-wise layer thickness in cells.
    real(R8P)                :: C_r          !< Layer thickness in reals.
    real(R8P)                :: fi           !< Profile-shape coefficient.
-   real(R8P)                :: distance     !< Physical distance from the boundary.
+   real(R8P)                :: distance_ratio !< Normalized physical distance inside the layer profile.
    !$acc routine seq
    !$omp declare target
 
-   if (cells_number <= 0_I4P) then
+   if (profile_cells <= 0_I4P .or. profile_extent <= 0._R8P) then
       f_value = 1._R8P
       return
    endif
 
-   C_r = real(cells_number, R8P)
-   if (cells_number < 40_I4P) then
+   C_r = real(profile_cells, R8P)
+   if (profile_cells < 40_I4P) then
       fi = 1._R8P / 150._R8P * (-7._R8P * C_r**2 + 255._R8P * C_r + 250._R8P)
    else
       fi = 25._R8P
    endif
-   distance = real(offset, R8P) * ds
-   f_value = 1._R8P / fi * log10(distance / (C_r * ds) * (10._R8P**fi - 1._R8P) + 1._R8P)
+   distance_ratio = max(0._R8P, min(1._R8P, center_distance / profile_extent))
+   f_value = 1._R8P / fi * log10(distance_ratio * (10._R8P**fi - 1._R8P) + 1._R8P)
    endfunction compute_fwl_factor
 
-   subroutine apply_fWL_correction_fun(blocks_number,ngc,C,ni_fWL,nj_fWL,nk_fWL,n,s2,alfa_D,beta_D,alfa_B,beta_B,dxyz,q)
+   subroutine apply_fWL_correction_fun(blocks_number, ngc, ni, nj, nk, face, profile_extent, profile_cells, ni_fWL, nj_fWL, nk_fWL, n, &
+                                       s2, alfa_D, beta_D, alfa_B, beta_B, domain_emin, domain_emax, emin, emax, dxyz, q)
    !< Applay FWL correction, direction agnostic.
    integer(I4P), intent(in)    :: blocks_number                     !< Blocks number.
    integer(I4P), intent(in)    :: ngc                               !< Number of ghost cells.
-   integer(I4P), intent(in)    :: C(1:)                             !< Layer width in cells for each block on the current face.
+   integer(I4P), intent(in)    :: ni                                !< Cells number in i direction.
+   integer(I4P), intent(in)    :: nj                                !< Cells number in j direction.
+   integer(I4P), intent(in)    :: nk                                !< Cells number in k direction.
+   integer(I4P), intent(in)    :: face                              !< Boundary face identifier.
+   real(R8P),    intent(in)    :: profile_extent                    !< Discrete face-wise profile extent.
+   integer(I4P), intent(in)    :: profile_cells                     !< Effective face-wise layer thickness in cells.
    integer(I4P), intent(in)    :: ni_fWL(1:,1:), nj_fWL(1:,1:), nk_fWL(1:,1:) !< FWL bounds for each block on the current face.
    integer(I4P), intent(in)    :: n                                 !< f component.
    real(R8P),    intent(in)    :: s2                                !< Side coefficient.
    integer(I4P), intent(in)    :: alfa_D, beta_D                    !< Corrected var index of D (Barbas' notation).
    integer(I4P), intent(in)    :: alfa_B, beta_B                    !< Corrected var index of D (Barbas' notation).
+   real(R8P),    intent(in)    :: domain_emin(3)                    !< Domain minimum coordinates.
+   real(R8P),    intent(in)    :: domain_emax(3)                    !< Domain maximum coordinates.
+   real(R8P),    intent(in)    :: emin(1:,1:)                       !< Block minimum coordinates [3,nb].
+   real(R8P),    intent(in)    :: emax(1:,1:)                       !< Block maximum coordinates [3,nb].
    real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Block mesh spacing [3,nb].
    real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Field variables.
    real(R8P)                   :: f_value                           !< Local fWLayer factor.
    real(R8P)                   :: fm1, fp1                          !< fWLayer function values in -+ cell.
    real(R8P)                   :: D_alfa, D_beta                    !< components of tangential fields before correction
    real(R8P)                   :: B_alfa, B_beta                    !< components of tangential fields before correction
+   real(R8P)                   :: center_distance                   !< Distance from the boundary-cell center.
    integer(I4P)                :: b,i,j,k                           !< Counter.
-   integer(I4P)                :: offset                            !< Cell offset from the active boundary.
 
    do b=1,blocks_number
-      if (C(b) <= 0_I4P) cycle
+      if (ni_fWL(1,b) <= 0_I4P .or. nj_fWL(1,b) <= 0_I4P .or. nk_fWL(1,b) <= 0_I4P) cycle
       do k=nk_fWL(1,b), nk_fWL(2,b)
          do j=nj_fWL(1,b), nj_fWL(2,b)
             do i=ni_fWL(1,b), ni_fWL(2,b)
-               select case(n)
+               select case(face)
                case(1)
-                  if (s2 > 0._R8P) then
-                     offset = i - ni_fWL(1,b)
-                  else
-                     offset = ni_fWL(2,b) - i
-                  endif
+                  center_distance = emin(1,b) - domain_emin(1) + real(i - 1_I4P, R8P) * dxyz(1,b)
                case(2)
-                  if (s2 > 0._R8P) then
-                     offset = j - nj_fWL(1,b)
-                  else
-                     offset = nj_fWL(2,b) - j
-                  endif
+                  center_distance = domain_emax(1) - emax(1,b) + real(ni - i, R8P) * dxyz(1,b)
+               case(3)
+                  center_distance = emin(2,b) - domain_emin(2) + real(j - 1_I4P, R8P) * dxyz(2,b)
+               case(4)
+                  center_distance = domain_emax(2) - emax(2,b) + real(nj - j, R8P) * dxyz(2,b)
+               case(5)
+                  center_distance = emin(3,b) - domain_emin(3) + real(k - 1_I4P, R8P) * dxyz(3,b)
                case default
-                  if (s2 > 0._R8P) then
-                     offset = k - nk_fWL(1,b)
-                  else
-                     offset = nk_fWL(2,b) - k
-                  endif
+                  center_distance = domain_emax(3) - emax(3,b) + real(nk - k, R8P) * dxyz(3,b)
                endselect
-               f_value = compute_fwl_factor(offset=offset, cells_number=C(b), ds=dxyz(n,b))
+               f_value = compute_fwl_factor(center_distance=center_distance, profile_extent=profile_extent, &
+                                            profile_cells=profile_cells)
                fm1 = f_value - 1._R8P
                fp1 = f_value + 1._R8P
                D_alfa = q(alfa_D,i,j,k,b)
