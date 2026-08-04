@@ -1279,21 +1279,23 @@ contains
 
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, &
                                                             grid=self%adam%grid, q=self%q)
-   call self%initialize_pic_time_zero()
+   if (.not.is_restart) call self%initialize_pic_time_zero()
 
    call self%initialize_coils
-   call self%compute_coils_current_time_zero()
+   if (.not.is_restart) then
+      call self%compute_coils_current_time_zero()
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
-                                 call self%impose_pic_fields_time_zero(ivar=VAR_DX)
-   if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0.0_R8P) &
-                                 call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+         call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+      if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0.0_R8P) &
+         call self%impose_pic_fields_time_zero(ivar=VAR_BX)
 
-   call self%apply_fWL_correction(q=self%q)
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                    time=0._R8P, dt=0._R8P, q=self%q)
-   call self%weight_pic_fields_time_zero()
+      call self%apply_fWL_correction(q=self%q)
+      if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+         call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                       time=0._R8P, dt=0._R8P, q=self%q)
+      call self%weight_pic_fields_time_zero()
+   endif
 
    call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), &
                                    divergence=self%divergence(1,:,:,:,:))
@@ -1301,13 +1303,23 @@ contains
                                    divergence=self%divergence(2,:,:,:,:))
    call compute_max_divergence_outside_absorbing_layers(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
                                                         max_div_B=max_div_B, max_div_J=max_div_J)
-   call mpih%print_message('Initial conditions setting completed')
-   if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
-      call mpih%print_message('   max div(D) outside absorbing layers at t0='//trim(str(max_div_D)))
-   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call mpih%print_message('   max div(D)-rho outside absorbing layers at t0='//trim(str(max_div_D)))
+   if (is_restart) then
+      call mpih%print_message('Restart state ancillary initialization completed')
+      if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+         call mpih%print_message('   max div(D) outside absorbing layers on restart state='//trim(str(max_div_D)))
+      elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+         call mpih%print_message('   max div(D)-rho outside absorbing layers on restart state='//trim(str(max_div_D)))
+      endif
+      call mpih%print_message('   max div(B) outside absorbing layers on restart state='//trim(str(max_div_B)))
+   else
+      call mpih%print_message('Initial conditions setting completed')
+      if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+         call mpih%print_message('   max div(D) outside absorbing layers at t0='//trim(str(max_div_D)))
+      elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+         call mpih%print_message('   max div(D)-rho outside absorbing layers at t0='//trim(str(max_div_D)))
+      endif
+      call mpih%print_message('   max div(B) outside absorbing layers at t0='//trim(str(max_div_B)))
    endif
-   call mpih%print_message('   max div(B) outside absorbing layers at t0='//trim(str(max_div_B)))
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q, step, s)
@@ -1437,7 +1449,7 @@ contains
    call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
    call self%io%open_file_residuals(nv=self%nv)
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (.not.self%io%restart .and. self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! first time integration done apart with explicit euler scheme to iniziale leapfrog
          call self%leapfrog_pic%assign_step(grid=self%adam%grid, s=1, q_pic=self%q_pic)

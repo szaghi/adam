@@ -327,6 +327,8 @@ contains
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
                                      verbose=verbose)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
+      call self%leapfrog_pic_fnl%copy_cpu_gpu(q_pic_old=self%leapfrog_pic%q_pic_old, verbose=verbose)
    call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid)
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
@@ -348,6 +350,8 @@ contains
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
                                      verbose=verbose)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
+      call self%leapfrog_pic_fnl%copy_gpu_cpu(q_pic_old=self%leapfrog_pic%q_pic_old, verbose=verbose)
    call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid)
    endsubroutine copy_gpu_cpu
 
@@ -1491,25 +1495,29 @@ contains
 
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, &
                                                             q=self%q)
-   call self%initialize_pic_time_zero()
+   if (.not.is_restart) call self%initialize_pic_time_zero()
 
    call self%initialize_coils
-   call self%compute_coils_current_time_zero()
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
-      call self%impose_pic_fields_time_zero(ivar=VAR_DX)
-   if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0._R8P) &
-      call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+   if (.not.is_restart) then
+      call self%compute_coils_current_time_zero()
+      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+         call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+      if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0._R8P) &
+         call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+   endif
 
    call self%copy_cpu_gpu
 
-   call self%apply_fWL_correction(q_gpu=self%q_gpu)
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                   dt=0._R8P, time=0._R8P, q_gpu=self%q_gpu)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q,src=self%q_gpu,buf=self%buf_5D_R8P)
-      call self%weight_pic_fields_time_zero()
-      call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+   if (.not.is_restart) then
+      call self%apply_fWL_correction(q_gpu=self%q_gpu)
+      if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+         call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                      dt=0._R8P, time=0._R8P, q_gpu=self%q_gpu)
+      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+         call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q,src=self%q_gpu,buf=self%buf_5D_R8P)
+         call self%weight_pic_fields_time_zero()
+         call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+      endif
    endif
    endsubroutine set_initial_conditions
 

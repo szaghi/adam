@@ -554,8 +554,57 @@ contains
    real(R8P),                  intent(out)   :: time !< Time.
 
    call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
+   call load_pic_restart_files(self=self)
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
+
+   subroutine load_pic_restart_files(self)
+   !< Load PIC restart data stored outside the ADAM field restart.
+   class(prism_common_object), intent(inout) :: self                  !< The equation.
+   character(:), allocatable                 :: filename              !< PIC restart file name.
+   integer(I4P)                              :: file_unit             !< Restart file unit.
+   integer(I4P)                              :: particle_variables    !< Stored PIC state width.
+   integer(I4P)                              :: particle_number       !< Stored particle count.
+   integer(I4P)                              :: history_slots         !< Stored leapfrog history depth.
+   logical                                   :: file_exist            !< File-existence flag.
+
+   if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
+
+   filename = trim(adjustl(self%io%restart_basename))//'-proc'//trim(strz(mpih%myrank,6))//'.pbd'
+   inquire(file=filename, exist=file_exist)
+   if (.not. file_exist) then
+      call mpih%error_stop(msg=': PIC restart file "'//filename//'" does not exist')
+   endif
+
+   open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM')
+   read(unit=file_unit) particle_variables, particle_number, history_slots
+
+   if (particle_variables /= size(self%q_pic, dim=1)) then
+      call mpih%error_stop(msg=': PIC restart variable count "'//trim(str(particle_variables))// &
+                               '" differs from allocated q_pic width "'//trim(str(size(self%q_pic, dim=1)))//'"')
+   endif
+   if (particle_number /= self%pic%particle_number) then
+      call mpih%error_stop(msg=': PIC restart particle count "'//trim(str(particle_number))// &
+                               '" differs from configured particle count "'//trim(str(self%pic%particle_number))//'"')
+   endif
+
+   read(unit=file_unit) self%q_pic
+
+   if (history_slots > 0_I4P) then
+      if (.not. allocated(self%leapfrog_pic%q_pic_old)) then
+         call mpih%error_stop(msg=': PIC restart contains leapfrog history but host leapfrog storage is not allocated')
+      endif
+      if (history_slots /= size(self%leapfrog_pic%q_pic_old, dim=3)) then
+         call mpih%error_stop(msg=': PIC restart leapfrog history depth "'//trim(str(history_slots))// &
+                                  '" differs from allocated depth "'//trim(str(size(self%leapfrog_pic%q_pic_old, dim=3)))//'"')
+      endif
+      read(unit=file_unit) self%leapfrog_pic%q_pic_old
+   elseif (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) then
+      call mpih%error_stop(msg=': PIC leapfrog restart requires q_pic_old history, but the restart file contains none')
+   endif
+
+   close(file_unit)
+   endsubroutine load_pic_restart_files
 
    subroutine save_divergence_history(self, is_to_open, is_to_close, div_D, div_B, div_J)
    !< Save divergence history.
@@ -651,9 +700,35 @@ contains
    call mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                     trim(str(self%time%time,.true.)))
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
+   call save_pic_restart_files(self=self)
    call self%save_xh5f(output_basename=self%io%restart_basename)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
+
+   subroutine save_pic_restart_files(self)
+   !< Save PIC restart data stored outside the ADAM field restart.
+   class(prism_common_object), intent(in) :: self                  !< The equation.
+   character(:), allocatable              :: filename              !< PIC restart file name.
+   integer(I4P)                           :: file_unit             !< Restart file unit.
+   integer(I4P)                           :: history_slots         !< Stored leapfrog history depth.
+
+   if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
+
+   history_slots = 0_I4P
+   if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) then
+      if (.not. allocated(self%leapfrog_pic%q_pic_old)) then
+         call mpih%error_stop(msg=': PIC leapfrog restart save requested without allocated q_pic_old history')
+      endif
+      history_slots = size(self%leapfrog_pic%q_pic_old, dim=3)
+   endif
+
+   filename = trim(adjustl(self%io%restart_basename))//'-proc'//trim(strz(mpih%myrank,6))//'.pbd'
+   open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM')
+   write(unit=file_unit) size(self%q_pic, dim=1), self%pic%particle_number, history_slots
+   write(unit=file_unit) self%q_pic
+   if (history_slots > 0_I4P) write(unit=file_unit) self%leapfrog_pic%q_pic_old
+   close(file_unit)
+   endsubroutine save_pic_restart_files
 
    subroutine save_xh5f(self, output_basename, with_ghost)
    !< Save simulation data in HDF5 format.

@@ -18,11 +18,14 @@ integer(I4P), parameter :: PIC_VARIABLES_NUMBER = 8_I4P
 
 type :: prism_fnl_leapfrog_pic_object
    real(R8P),    pointer :: q_pic_old_gpu(:,:,:) => null() !< Leapfrog history [particle, variable, step].
+   real(R8P), allocatable :: buf_q_pic_old_R8P(:,:,:)      !< Host buffer with device layout for q_pic_old copies.
    real(R8P)             :: nu = 0.01_R8P                    !< RAW filter coefficient.
    real(R8P)             :: alpha = 0.53_R8P                !< RAW-Williams coefficient.
    logical               :: is_filtered = .false.           !< Enable RAW filter.
    integer(I4P)          :: particle_number = 0_I4P         !< Total number of particles.
 contains
+   procedure, pass(self) :: copy_cpu_gpu
+   procedure, pass(self) :: copy_gpu_cpu
    procedure, pass(self) :: initialize
    procedure, pass(self) :: assign_step
    procedure, pass(self) :: prime_step
@@ -44,9 +47,57 @@ contains
 
    if (self%particle_number == 0) return
 
+   call allocate_variable(var=self%buf_q_pic_old_R8P, ulb=reshape([1_I4P, self%particle_number, &
+                                                                   1_I4P, PIC_VARIABLES_NUMBER, &
+                                                                   1_I4P, 2_I4P], [2,3]),       &
+                          msg=mpih%myrankstr//'prism_fnl_leapfrog_pic_object%initialize allocate buf_q_pic_old_R8P')
    call dev_alloc(fptr_dev=self%q_pic_old_gpu, ubounds=[self%particle_number, PIC_VARIABLES_NUMBER, 2_I4P], &
                   lbounds=[1,1,1], init_value=0._R8P, ierr=ierr)
    endsubroutine initialize
+
+   subroutine copy_cpu_gpu(self, q_pic_old, verbose)
+   !< Copy host leapfrog PIC history to the device mirror.
+   class(prism_fnl_leapfrog_pic_object), intent(inout)        :: self           !< FNL PIC leapfrog object.
+   real(R8P),                            intent(in), target    :: q_pic_old(1:,1:,1:) !< Host leapfrog history.
+   logical,                              intent(in), optional  :: verbose        !< Trigger verbose output.
+   logical                                                  :: verbose_       !< Trigger verbose output, local var.
+   integer(I4P)                                            :: n, v, s       !< Counters.
+
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (.not.associated(self%q_pic_old_gpu)) return
+   if (verbose_) call mpih_fnl%print_message('prism_fnl_leapfrog_pic_object%copy_cpu_gpu start')
+   do s = 1, 2
+      do v = 1, PIC_VARIABLES_NUMBER
+         do n = 1, self%particle_number
+            self%buf_q_pic_old_R8P(n,v,s) = q_pic_old(v,n,s)
+         enddo
+      enddo
+   enddo
+   call dev_memcpy_to_device(dst=self%q_pic_old_gpu, src=self%buf_q_pic_old_R8P)
+   if (verbose_) call mpih_fnl%print_message('prism_fnl_leapfrog_pic_object%copy_cpu_gpu finish')
+   endsubroutine copy_cpu_gpu
+
+   subroutine copy_gpu_cpu(self, q_pic_old, verbose)
+   !< Copy device leapfrog PIC history back to the host mirror.
+   class(prism_fnl_leapfrog_pic_object), intent(inout)         :: self           !< FNL PIC leapfrog object.
+   real(R8P),                            intent(inout), target  :: q_pic_old(1:,1:,1:) !< Host leapfrog history.
+   logical,                              intent(in), optional   :: verbose        !< Trigger verbose output.
+   logical                                                   :: verbose_       !< Trigger verbose output, local var.
+   integer(I4P)                                             :: n, v, s       !< Counters.
+
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (.not.associated(self%q_pic_old_gpu)) return
+   if (verbose_) call mpih_fnl%print_message('prism_fnl_leapfrog_pic_object%copy_gpu_cpu start')
+   call dev_memcpy_from_device(dst=self%buf_q_pic_old_R8P, src=self%q_pic_old_gpu)
+   do s = 1, 2
+      do n = 1, self%particle_number
+         do v = 1, PIC_VARIABLES_NUMBER
+            q_pic_old(v,n,s) = self%buf_q_pic_old_R8P(n,v,s)
+         enddo
+      enddo
+   enddo
+   if (verbose_) call mpih_fnl%print_message('prism_fnl_leapfrog_pic_object%copy_gpu_cpu finish')
+   endsubroutine copy_gpu_cpu
 
    subroutine assign_step(self, s, q_pic_gpu)
    !< Store one PIC state in the device leapfrog history buffer.
