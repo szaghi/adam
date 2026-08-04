@@ -35,7 +35,6 @@ public :: UNIFORM_CELL
 !public :: ONED_FIELDS_WEIGHTING_MODEL
 public :: NUM_SCHEME_TIME_PIC_LEAPFROG
 public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
-public :: STANDARD_INITIALIZATION
 public :: COHERENT_INITIALIZATION
 !public :: CIC_charge_weighting
 !public :: NGP_charge_weighting
@@ -48,8 +47,7 @@ public :: COHERENT_INITIALIZATION
 
 character(len=3 ), parameter :: INI_SECTION_NAME                 = 'PIC'              !< INI file section name for PIC configuration.
 character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'           !< Analyzing physical problem involving the presence of plasma
-character(len=8 ), parameter :: STANDARD_INITIALIZATION          = 'standard'         !< Field initialization through elliptic solver wuth standard laplacian scheme (7-points)
-character(len=8 ), parameter :: COHERENT_INITIALIZATION          = 'coherent'         !< Field initialization through elliptic solver wuth laplacian scheme coherent with centerd difference scheme (implemented only for 6th order)
+character(len=8 ), parameter :: COHERENT_INITIALIZATION          = 'coherent'         !< Field initialization through elliptic solver with the coherent laplacian scheme.
 character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle'  !< Analyzing physical problem involving the presence of a single particle
 character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'              !< NGP weighting model.
 character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'              !< CIC weighting model.
@@ -98,7 +96,7 @@ type :: prism_pic_object
    integer(I4P), allocatable :: neighbour_list(:,:)         !< Particle grid positions array.
    character(len=99)         :: problem_type = ''           !< Type of problem analyzed
    character(len=99)         :: plasma_domain = ''          !< Domain of plasma at t0
-   character(len=99)         :: initialization = ''         !< field initialization solver
+   character(len=99)         :: initialization = COHERENT_INITIALIZATION !< Field initialization solver.
    logical                   :: elliptic_correction=.false. !< elliptic correction for the initial fields
    character(len=99)         :: particle_weighting_model    !< Particle weighting model.
    character(len=99)         :: current_weighting_model     !< Current weighting model.
@@ -390,12 +388,21 @@ contains
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
    endif
 
-   buff = ''
+   buff = COHERENT_INITIALIZATION
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='initialization', &
    val=buff, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(initialization)')
-   self%initialization = trim(adjustl(buff))
+   if (error > 0) then
+      self%initialization = COHERENT_INITIALIZATION
+   else
+      buff = trim(adjustl(buff))
+      select case(trim(adjustl(buff)))
+      case('', 'COHERENT', 'coherent', 'Coherent')
+         self%initialization = COHERENT_INITIALIZATION
+      case default
+         call mpih%error_stop(msg=': invalid PIC field initialization ['//trim(buff)//']; only "'// &
+                              COHERENT_INITIALIZATION//'" is supported')
+      endselect
+   endif
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='elliptic_correction', &
    val=self%elliptic_correction, error=error)

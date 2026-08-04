@@ -1070,165 +1070,83 @@ contains
       if (.not. allocated(self%adam%maps%local_map_bc_crown)) call self%adam%make_comm_local_maps_ghost_bc
       call self%bc%build_elliptic_bc_types(ivar=ivar, ell_bc_type=elliptic_bc_type)
       if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-         if (self%pic%initialization == COHERENT_INITIALIZATION) then
-            if (ivar == VAR_DX) then
-               allocate(phi(1:1,        &
-                            1-ngc:ni+ngc, &
-                            1-ngc:nj+ngc, &
-                            1-ngc:nk+ngc, &
-                            1:nb))
-               allocate(dphi(1:1,       &
-                             1-ngc:ni+ngc, &
-                             1-ngc:nj+ngc, &
-                             1-ngc:nk+ngc, &
-                             1:nb))
-               allocate(f(1:1,          &
+         if (ivar == VAR_DX) then
+            allocate(phi(1:1,        &
+                         1-ngc:ni+ngc, &
+                         1-ngc:nj+ngc, &
+                         1-ngc:nk+ngc, &
+                         1:nb))
+            allocate(dphi(1:1,       &
                           1-ngc:ni+ngc, &
                           1-ngc:nj+ngc, &
                           1-ngc:nk+ngc, &
                           1:nb))
-               phi(:,:,:,:,:)  = 0._R8P
-               dphi(:,:,:,:,:) = 0._R8P
-               f(:,:,:,:,:)    = 0._R8P
-               ind = size(self%q(:,1,1,1,1))
-               f(1,:,:,:,:) = -self%q(ind,:,:,:,:)/EPS0
-               if (blocks_number > 0) then
-                  call solve_pic_elliptic(nv_solve=1_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                          dphi_max=dphi_max, eps=EPS0)
-                  call mpih%print_message('FLAIL convergence for electric displacement field at t0 '// &
-                                          'reached at iteration '//trim(str(iter,.true.)))
-                  call self%compute_gradient_extended(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
-                  do b=1, blocks_number
-                     do k=1-ngc/2, nk+ngc/2
-                        do j=1-ngc/2, nj+ngc/2
-                           do i=1-ngc/2, ni+ngc/2
-                              do v=1, 3
-                                 self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*EPS0
-                              enddo
+            allocate(f(1:1,          &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            phi(:,:,:,:,:)  = 0._R8P
+            dphi(:,:,:,:,:) = 0._R8P
+            f(:,:,:,:,:)    = 0._R8P
+            ind = size(self%q(:,1,1,1,1))
+            f(1,:,:,:,:) = -self%q(ind,:,:,:,:)/EPS0
+            if (blocks_number > 0) then
+               call solve_pic_elliptic(nv_solve=1_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
+                                       dphi_max=dphi_max, eps=EPS0)
+               call mpih%print_message('FLAIL convergence for electric displacement field at t0 '// &
+                                       'reached at iteration '//trim(str(iter,.true.)))
+               call self%compute_gradient_extended(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
+               do b=1, blocks_number
+                  do k=1-ngc/2, nk+ngc/2
+                     do j=1-ngc/2, nj+ngc/2
+                        do i=1-ngc/2, ni+ngc/2
+                           do v=1, 3
+                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*EPS0
                            enddo
                         enddo
                      enddo
                   enddo
-                  if (self%pic%elliptic_correction) call self%impose_ct_correction(ivar=VAR_DX)
-               endif
-            elseif (ivar == VAR_BX) then
-               allocate(phi(1:3,        &
-                            1-ngc:ni+ngc, &
-                            1-ngc:nj+ngc, &
-                            1-ngc:nk+ngc, &
-                            1:nb))
-               allocate(dphi(1:3,       &
-                             1-ngc:ni+ngc, &
-                             1-ngc:nj+ngc, &
-                             1-ngc:nk+ngc, &
-                             1:nb))
-               allocate(f(1:3,          &
-                          1-ngc:ni+ngc, &
-                          1-ngc:nj+ngc, &
-                          1-ngc:nk+ngc, &
-                          1:nb))
-               phi(:,:,:,:,:)  = 0._R8P
-               dphi(:,:,:,:,:) = 0._R8P
-               f(:,:,:,:,:)    = 0._R8P
-               f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
-               if (blocks_number > 0) then
-                  call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                          dphi_max=dphi_max, mu=MU0)
-                  call mpih%print_message('FLAIL convergence for magnetic field at t0 reached at iteration '// &
-                                          trim(str(iter,.true.)))
-                  call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
-                  do b=1, blocks_number
-                     do k=1-ngc/2, nk+ngc/2
-                        do j=1-ngc/2, nj+ngc/2
-                           do i=1-ngc/2, ni+ngc/2
-                              do v=1, 3
-                                 self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
-                              enddo
-                           enddo
-                        enddo
-                     enddo
-                  enddo
-               endif
+               enddo
+               if (self%pic%elliptic_correction) call self%impose_ct_correction(ivar=VAR_DX)
             endif
-         elseif (self%pic%initialization == STANDARD_INITIALIZATION) then
-            if (ivar == VAR_DX) then
-               allocate(phi(1:1,        &
-                            1-ngc:ni+ngc, &
-                            1-ngc:nj+ngc, &
-                            1-ngc:nk+ngc, &
-                            1:nb))
-               allocate(dphi(1:1,       &
-                             1-ngc:ni+ngc, &
-                             1-ngc:nj+ngc, &
-                             1-ngc:nk+ngc, &
-                             1:nb))
-               allocate(f(1:1,          &
+         elseif (ivar == VAR_BX) then
+            allocate(phi(1:3,        &
+                         1-ngc:ni+ngc, &
+                         1-ngc:nj+ngc, &
+                         1-ngc:nk+ngc, &
+                         1:nb))
+            allocate(dphi(1:3,       &
                           1-ngc:ni+ngc, &
                           1-ngc:nj+ngc, &
                           1-ngc:nk+ngc, &
                           1:nb))
-               phi(:,:,:,:,:)  = 0._R8P
-               dphi(:,:,:,:,:) = 0._R8P
-               f(:,:,:,:,:)    = 0._R8P
-               ind = size(self%q(:,1,1,1,1))
-               f(1,:,:,:,:) = -self%q(ind,:,:,:,:)/EPS0
-               if (blocks_number > 0) then
-                  call solve_pic_elliptic(nv_solve=1_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                          dphi_max=dphi_max, eps=EPS0)
-                  call mpih%print_message('FLAIL convergence for electric displacement field at t0 '// &
-                                          'reached at iteration '//trim(str(iter,.true.)))
-                  call self%compute_gradient(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
-                  do b=1, blocks_number
-                     do k=1, nk
-                        do j=1, nj
-                           do i=1, ni
-                              do v=1, 3
-                                 self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*EPS0
-                              enddo
+            allocate(f(1:3,          &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, &
+                       1:nb))
+            phi(:,:,:,:,:)  = 0._R8P
+            dphi(:,:,:,:,:) = 0._R8P
+            f(:,:,:,:,:)    = 0._R8P
+            f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+            if (blocks_number > 0) then
+               call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
+                                       dphi_max=dphi_max, mu=MU0)
+               call mpih%print_message('FLAIL convergence for magnetic field at t0 reached at iteration '// &
+                                       trim(str(iter,.true.)))
+               call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               do b=1, blocks_number
+                  do k=1-ngc/2, nk+ngc/2
+                     do j=1-ngc/2, nj+ngc/2
+                        do i=1-ngc/2, ni+ngc/2
+                           do v=1, 3
+                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
                            enddo
                         enddo
                      enddo
                   enddo
-                  if (self%pic%elliptic_correction) call self%impose_ct_correction(ivar=VAR_DX)
-               endif
-            elseif (ivar == VAR_BX) then
-               allocate(phi(1:3,        &
-                            1-ngc:ni+ngc, &
-                            1-ngc:nj+ngc, &
-                            1-ngc:nk+ngc, &
-                            1:nb))
-               allocate(dphi(1:3,       &
-                             1-ngc:ni+ngc, &
-                             1-ngc:nj+ngc, &
-                             1-ngc:nk+ngc, &
-                             1:nb))
-               allocate(f(1:3,          &
-                          1-ngc:ni+ngc, &
-                          1-ngc:nj+ngc, &
-                          1-ngc:nk+ngc, &
-                          1:nb))
-               phi(:,:,:,:,:)  = 0._R8P
-               dphi(:,:,:,:,:) = 0._R8P
-               f(:,:,:,:,:)    = 0._R8P
-               f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
-               if (blocks_number > 0) then
-                  call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                          dphi_max=dphi_max, mu=MU0)
-                  call mpih%print_message('FLAIL convergence for magnetic field at t0 reached at iteration '// &
-                                          trim(str(iter,.true.)))
-                  call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
-                  do b=1, blocks_number
-                     do k=1, nk
-                        do j=1, nj
-                           do i=1, ni
-                              do v=1, 3
-                                 self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
-                              enddo
-                           enddo
-                        enddo
-                     enddo
-                  enddo
-               endif
+               enddo
             endif
          endif
       elseif (self%physics%physical_model == EM_PHYSICAL_MODEL) then
