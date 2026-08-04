@@ -39,6 +39,7 @@ integer(I4P), parameter :: PML_FACE_Y_M = 3_I4P
 integer(I4P), parameter :: PML_FACE_Y_P = 4_I4P
 integer(I4P), parameter :: PML_FACE_Z_M = 5_I4P
 integer(I4P), parameter :: PML_FACE_Z_P = 6_I4P
+real(R8P),    parameter :: GRMS_3DB_RATIO = 10.0_R8P**(-3.0_R8P/20.0_R8P)
 
 type, extends(prism_common_object) :: prism_fnl_object
    !< PRISM equations system class definition, GPU (FNL) backend.
@@ -152,6 +153,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_dt             !< Compute time step.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
+      procedure, pass(self) :: compute_grms           !< Compute Grms of the rotating magnetic-field amplitude.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
       procedure, pass(self) :: impose_ct_correction_dev  !< Device-side constrained-transport correction on q_gpu.
       procedure, pass(self) :: impose_div_free      	!< Impose divergence-free property.
@@ -4706,10 +4708,21 @@ contains
    !< Shut this realm down: final state dump, close residuals file, finalize
    !< MPI handler.
    class(prism_fnl_object), intent(inout) :: self !< The realm.
+   logical                                :: is_open
 
    !call self%compute_energy_error !Cazzo
    call self%save_simulation_data
    call self%io%close_file_residuals
+   if (mpih_fnl%myrank == 0) then
+      inquire(unit=self%io%energy_history_unit, opened=is_open)
+      if (is_open) close(self%io%energy_history_unit)
+      if (self%grms%history_unit > 0_I4P) then
+         inquire(unit=self%grms%history_unit, opened=is_open)
+         if (is_open) close(self%grms%history_unit)
+      endif
+      inquire(unit=self%io%divergence_history_unit, opened=is_open)
+      if (is_open) close(self%io%divergence_history_unit)
+   endif
    endsubroutine finalize_forest
 
    subroutine finalize_mpi_forest(self)
@@ -4836,8 +4849,10 @@ contains
    call mpih_fnl%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
    call self%save_simulation_data
    call self%compute_energy
+   if (self%grms%do_save_history) call self%compute_grms
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.) !Cazzo
+   call self%save_grms_history(is_to_open=.true.)
    call self%compute_max_divergence
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(is_to_open=.true., div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
@@ -5323,8 +5338,10 @@ contains
       endblock
    endif
    call self%compute_energy
+   if (self%grms%do_save_history) call self%compute_grms
    !call self%save_energy_error !Cazzo
    call self%save_energy_history !Cazzo
+   call self%save_grms_history
    call self%compute_max_divergence
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
@@ -5601,6 +5618,276 @@ contains
       self%rms_energy_error_B = sqrt(sum(error_B)/size(error_B))
    endif
    endsubroutine compute_energy_error
+
+   subroutine compute_grms(self)
+   !< Compute the RMS gradient of the rotating magnetic-field amplitude over the selected domain
+   !< and over its -3 dB subset.
+   class(prism_fnl_object), intent(inout) :: self
+   integer(I4P), allocatable              :: hi_i(:), hi_j(:), hi_k(:), lo_i(:), lo_j(:), lo_k(:)
+   integer(I4P)                           :: b, i, j, k
+   integer(I4P)                           :: b_ref, i_ref, j_ref, k_ref
+   integer(I8P)                           :: cells_domain
+   integer(I8P)                           :: cells_3db
+   real(R8P)                              :: best_r2_global, best_r2_local
+   real(R8P)                              :: bref_candidate, bref_global, bref_local
+   real(R8P)                              :: cells_count_3db
+   real(R8P)                              :: cells_count_domain
+   real(R8P)                              :: domain_center(3)
+   real(R8P)                              :: half_length, radius2
+   real(R8P)                              :: measure_3db
+   real(R8P)                              :: measure_domain
+   real(R8P)                              :: threshold
+   real(R8P)                              :: weighted_sum_3db
+   real(R8P)                              :: weighted_sum_domain
+   real(R8P)                              :: x, y, z
+   logical                                :: use_cylinder
+
+   use_cylinder = self%grms%use_cylindrical_region
+   domain_center = [0._R8P, 0._R8P, 0._R8P]
+   if (use_cylinder) domain_center = self%grms%center
+   half_length = 0.5_R8P * self%grms%length
+   radius2 = self%grms%radius * self%grms%radius
+   allocate(lo_i(1:self%blocks_number), hi_i(1:self%blocks_number), lo_j(1:self%blocks_number), hi_j(1:self%blocks_number), &
+            lo_k(1:self%blocks_number), hi_k(1:self%blocks_number))
+   do b = 1, self%blocks_number
+      call get_valid_window(self=self, hs=self%fdv_half_stencils(1), b=b, lo_i=lo_i(b), hi_i=hi_i(b), lo_j=lo_j(b), &
+                            hi_j=hi_j(b), lo_k=lo_k(b), hi_k=hi_k(b))
+   enddo
+
+   best_r2_local = huge(1.0_R8P)
+   bref_local = 0.0_R8P
+   b_ref = 0_I4P ; i_ref = 1_I4P ; j_ref = 1_I4P ; k_ref = 1_I4P
+   do b = 1, self%blocks_number
+      if (lo_i(b) > hi_i(b) .or. lo_j(b) > hi_j(b) .or. lo_k(b) > hi_k(b)) cycle
+      do k = lo_k(b), hi_k(b)
+         z = self%adam%field%z_cell(k,b)
+         do j = lo_j(b), hi_j(b)
+            y = self%adam%field%y_cell(j,b)
+            do i = lo_i(b), hi_i(b)
+               x = self%adam%field%x_cell(i,b)
+               if (.not. is_inside_selected_domain(x=x, y=y, z=z)) cycle
+               if (reference_distance2(x=x, y=y, z=z) < best_r2_local) then
+                  best_r2_local = reference_distance2(x=x, y=y, z=z)
+                  b_ref = b ; i_ref = i ; j_ref = j ; k_ref = k
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   if (best_r2_local < huge(1.0_R8P)) then
+      call compute_bref_dev_kernel(b_ref=b_ref, i_ref=i_ref, j_ref=j_ref, k_ref=k_ref, ngc=self%ngc, q_gpu=self%q_gpu, bref=bref_local)
+   endif
+   call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
+   bref_candidate = 0.0_R8P
+   if (abs(best_r2_local - best_r2_global) <= 1.0E-12_R8P * max(1.0_R8P, abs(best_r2_global))) bref_candidate = bref_local
+   bref_global = bref_candidate
+   call MPI_ALLREDUCE(MPI_IN_PLACE, bref_global, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+
+   threshold = GRMS_3DB_RATIO * bref_global
+   call compute_grms_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                s1=self%fdv_half_stencils(1), threshold=threshold, use_cylinder=use_cylinder, &
+                                center_x=self%grms%center(1), center_y=self%grms%center(2), center_z=self%grms%center(3), &
+                                axis_x=self%grms%axis(1), axis_y=self%grms%axis(2), axis_z=self%grms%axis(3), &
+                                half_length=half_length, radius2=radius2, lo_i=lo_i, hi_i=hi_i, lo_j=lo_j, hi_j=hi_j, &
+                                lo_k=lo_k, hi_k=hi_k, x_cell_gpu=self%field_fnl%x_cell_gpu, y_cell_gpu=self%field_fnl%y_cell_gpu, &
+                                z_cell_gpu=self%field_fnl%z_cell_gpu, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu, &
+                                weighted_sum_domain=weighted_sum_domain, measure_domain=measure_domain, &
+                                cells_count_domain=cells_count_domain, weighted_sum_3db=weighted_sum_3db, &
+                                measure_3db=measure_3db, cells_count_3db=cells_count_3db)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, measure_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, measure_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, cells_count_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, cells_count_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+
+   cells_domain = int(nint(cells_count_domain), I8P)
+   cells_3db = int(nint(cells_count_3db), I8P)
+   self%grms%reference_B = bref_global
+   self%grms%threshold_B = threshold
+   self%grms%domain_measure = measure_domain
+   self%grms%measure_3db = measure_3db
+   self%grms%domain_cells_number = cells_domain
+   self%grms%cells_number_3db = cells_3db
+   self%grms%grms_domain_B = 0.0_R8P
+   self%grms%grms_3db_B = 0.0_R8P
+   if (measure_domain > 0.0_R8P) self%grms%grms_domain_B = sqrt(weighted_sum_domain / measure_domain)
+   if (measure_3db > 0.0_R8P) self%grms%grms_3db_B = sqrt(weighted_sum_3db / measure_3db)
+   deallocate(lo_i, hi_i, lo_j, hi_j, lo_k, hi_k)
+   contains
+      subroutine get_valid_window(self, hs, b, lo_i, hi_i, lo_j, hi_j, lo_k, hi_k)
+      class(prism_fnl_object), intent(in)  :: self
+      integer(I4P),            intent(in)  :: hs
+      integer(I4P),            intent(in)  :: b
+      integer(I4P),            intent(out) :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k
+
+      lo_i = 1_I4P ; hi_i = self%ni
+      lo_j = 1_I4P ; hi_j = self%nj
+      lo_k = 1_I4P ; hi_k = self%nk
+      if (allocated(self%fWLayer%ni_fWL)) then
+         call exclude_face(lo=lo_i, hi=hi_i, face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_M), &
+                           face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_M), is_minus=.true., hs=hs)
+         call exclude_face(lo=lo_i, hi=hi_i, face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_P), &
+                           face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_P), is_minus=.false., hs=hs)
+         call exclude_face(lo=lo_j, hi=hi_j, face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_M), &
+                           face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_M), is_minus=.true., hs=hs)
+         call exclude_face(lo=lo_j, hi=hi_j, face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_P), &
+                           face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_P), is_minus=.false., hs=hs)
+         call exclude_face(lo=lo_k, hi=hi_k, face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_M), &
+                           face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_M), is_minus=.true., hs=hs)
+         call exclude_face(lo=lo_k, hi=hi_k, face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_P), &
+                           face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_P), is_minus=.false., hs=hs)
+      endif
+      if (allocated(self%pml%ni_pml)) then
+         call exclude_face(lo=lo_i, hi=hi_i, face_first=self%pml%ni_pml(1,b,PML_FACE_X_M), &
+                           face_last=self%pml%ni_pml(2,b,PML_FACE_X_M), is_minus=.true., hs=hs)
+         call exclude_face(lo=lo_i, hi=hi_i, face_first=self%pml%ni_pml(1,b,PML_FACE_X_P), &
+                           face_last=self%pml%ni_pml(2,b,PML_FACE_X_P), is_minus=.false., hs=hs)
+         call exclude_face(lo=lo_j, hi=hi_j, face_first=self%pml%nj_pml(1,b,PML_FACE_Y_M), &
+                           face_last=self%pml%nj_pml(2,b,PML_FACE_Y_M), is_minus=.true., hs=hs)
+         call exclude_face(lo=lo_j, hi=hi_j, face_first=self%pml%nj_pml(1,b,PML_FACE_Y_P), &
+                           face_last=self%pml%nj_pml(2,b,PML_FACE_Y_P), is_minus=.false., hs=hs)
+         call exclude_face(lo=lo_k, hi=hi_k, face_first=self%pml%nk_pml(1,b,PML_FACE_Z_M), &
+                           face_last=self%pml%nk_pml(2,b,PML_FACE_Z_M), is_minus=.true., hs=hs)
+         call exclude_face(lo=lo_k, hi=hi_k, face_first=self%pml%nk_pml(1,b,PML_FACE_Z_P), &
+                           face_last=self%pml%nk_pml(2,b,PML_FACE_Z_P), is_minus=.false., hs=hs)
+      endif
+      endsubroutine get_valid_window
+
+      pure subroutine exclude_face(lo, hi, face_first, face_last, is_minus, hs)
+      integer(I4P), intent(inout) :: lo
+      integer(I4P), intent(inout) :: hi
+      integer(I4P), intent(in)    :: face_first
+      integer(I4P), intent(in)    :: face_last
+      logical,      intent(in)    :: is_minus
+      integer(I4P), intent(in)    :: hs
+
+      if (face_first <= 0_I4P .or. face_last <= 0_I4P) return
+      if (is_minus) then
+         lo = max(lo, face_last + hs + 1_I4P)
+      else
+         hi = min(hi, face_first - hs - 1_I4P)
+      endif
+      endsubroutine exclude_face
+
+      subroutine compute_bref_dev_kernel(b_ref, i_ref, j_ref, k_ref, ngc, q_gpu, bref)
+      integer(I4P), intent(in)  :: b_ref, i_ref, j_ref, k_ref, ngc
+      real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(out) :: bref
+      integer(I4P)              :: one
+
+      bref = 0.0_R8P
+      !$acc parallel loop independent DEVICEVAR(q_gpu) private(one) reduction(max:bref)
+      !$omp OMPLOOP DEVICEPTR(q_gpu) private(one) reduction(max:bref)
+      do one = 1, 1
+         bref = sqrt(q_gpu(b_ref,i_ref,j_ref,k_ref,VAR_BX)**2 + q_gpu(b_ref,i_ref,j_ref,k_ref,VAR_BY)**2)
+      enddo
+      endsubroutine compute_bref_dev_kernel
+
+      logical function is_inside_selected_domain(x, y, z)
+      real(R8P), intent(in) :: x, y, z
+      real(R8P)             :: axial_distance, radial2_local
+
+      if (.not. use_cylinder) then
+         is_inside_selected_domain = .true.
+         return
+      endif
+      axial_distance = (x - self%grms%center(1)) * self%grms%axis(1) + &
+                       (y - self%grms%center(2)) * self%grms%axis(2) + &
+                       (z - self%grms%center(3)) * self%grms%axis(3)
+      if (abs(axial_distance) > half_length) then
+         is_inside_selected_domain = .false.
+         return
+      endif
+      radial2_local = (x - self%grms%center(1))**2 + (y - self%grms%center(2))**2 + (z - self%grms%center(3))**2 - &
+                      axial_distance * axial_distance
+      is_inside_selected_domain = radial2_local <= radius2
+      endfunction is_inside_selected_domain
+
+      real(R8P) function reference_distance2(x, y, z)
+      real(R8P), intent(in) :: x, y, z
+
+      reference_distance2 = (x - domain_center(1))**2 + (y - domain_center(2))**2 + (z - domain_center(3))**2
+      endfunction reference_distance2
+
+      subroutine compute_grms_dev_kernel(ni, nj, nk, ngc, blocks_number, s1, threshold, use_cylinder, center_x, center_y, center_z, &
+                                         axis_x, axis_y, axis_z, half_length, radius2, lo_i, hi_i, lo_j, hi_j, lo_k, hi_k, &
+                                         x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, q_gpu, weighted_sum_domain, measure_domain, &
+                                         cells_count_domain, weighted_sum_3db, measure_3db, cells_count_3db)
+      integer(I4P), intent(in)  :: ni, nj, nk, ngc, blocks_number, s1
+      integer(I4P), intent(in)  :: lo_i(1:), hi_i(1:), lo_j(1:), hi_j(1:), lo_k(1:), hi_k(1:)
+      real(R8P),    intent(in)  :: threshold
+      logical,      intent(in)  :: use_cylinder
+      real(R8P),    intent(in)  :: center_x, center_y, center_z, axis_x, axis_y, axis_z, half_length, radius2
+      real(R8P),    intent(in)  :: x_cell_gpu(1:,1-ngc:)
+      real(R8P),    intent(in)  :: y_cell_gpu(1:,1-ngc:)
+      real(R8P),    intent(in)  :: z_cell_gpu(1:,1-ngc:)
+      real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(out) :: weighted_sum_domain, measure_domain, cells_count_domain
+      real(R8P),    intent(out) :: weighted_sum_3db, measure_3db, cells_count_3db
+      real(R8P)                 :: axial_distance, b_amp, b_minus, b_plus, dBdx, dBdy, dBdz, grad2, radial2_local
+      integer(I4P)              :: b, i, j, k, s
+
+      weighted_sum_domain = 0.0_R8P
+      weighted_sum_3db = 0.0_R8P
+      measure_domain = 0.0_R8P
+      measure_3db = 0.0_R8P
+      cells_count_domain = 0.0_R8P
+      cells_count_3db = 0.0_R8P
+      !$acc parallel loop collapse(4) DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) copyin(lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
+      !$acc& firstprivate(ni,nj,nk,blocks_number,s1,threshold,use_cylinder,center_x,center_y,center_z,axis_x,axis_y,axis_z,half_length,radius2) &
+      !$acc& private(axial_distance,b_amp,b_minus,b_plus,dBdx,dBdy,dBdz,grad2,radial2_local,s) &
+      !$acc& reduction(+: weighted_sum_domain, measure_domain, cells_count_domain, weighted_sum_3db, measure_3db, cells_count_3db)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) map(to:lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
+      !$omp& firstprivate(ni,nj,nk,blocks_number,s1,threshold,use_cylinder,center_x,center_y,center_z,axis_x,axis_y,axis_z,half_length,radius2) &
+      !$omp& private(axial_distance,b_amp,b_minus,b_plus,dBdx,dBdy,dBdz,grad2,radial2_local,s) &
+      !$omp& reduction(+: weighted_sum_domain, measure_domain, cells_count_domain, weighted_sum_3db, measure_3db, cells_count_3db)
+      do b = 1, blocks_number
+      do k = 1, nk
+      do j = 1, nj
+      do i = 1, ni
+         if (i < lo_i(b) .or. i > hi_i(b) .or. j < lo_j(b) .or. j > hi_j(b) .or. k < lo_k(b) .or. k > hi_k(b)) cycle
+         if (use_cylinder) then
+            axial_distance = (x_cell_gpu(b,i) - center_x) * axis_x + (y_cell_gpu(b,j) - center_y) * axis_y + &
+                             (z_cell_gpu(b,k) - center_z) * axis_z
+            if (abs(axial_distance) > half_length) cycle
+            radial2_local = (x_cell_gpu(b,i) - center_x)**2 + (y_cell_gpu(b,j) - center_y)**2 + (z_cell_gpu(b,k) - center_z)**2 - &
+                            axial_distance * axial_distance
+            if (radial2_local > radius2) cycle
+         endif
+         b_amp = sqrt(q_gpu(b,i,j,k,VAR_BX)**2 + q_gpu(b,i,j,k,VAR_BY)**2)
+         dBdx = 0.0_R8P
+         dBdy = 0.0_R8P
+         dBdz = 0.0_R8P
+         !$acc loop seq
+         do s = 1, s1
+            b_plus = sqrt(q_gpu(b,i+s,j,k,VAR_BX)**2 + q_gpu(b,i+s,j,k,VAR_BY)**2)
+            b_minus = sqrt(q_gpu(b,i-s,j,k,VAR_BX)**2 + q_gpu(b,i-s,j,k,VAR_BY)**2)
+            dBdx = dBdx + FD1_CC(s,s1) * (b_plus - b_minus) / dxyz_gpu(b,1)
+            b_plus = sqrt(q_gpu(b,i,j+s,k,VAR_BX)**2 + q_gpu(b,i,j+s,k,VAR_BY)**2)
+            b_minus = sqrt(q_gpu(b,i,j-s,k,VAR_BX)**2 + q_gpu(b,i,j-s,k,VAR_BY)**2)
+            dBdy = dBdy + FD1_CC(s,s1) * (b_plus - b_minus) / dxyz_gpu(b,2)
+            b_plus = sqrt(q_gpu(b,i,j,k+s,VAR_BX)**2 + q_gpu(b,i,j,k+s,VAR_BY)**2)
+            b_minus = sqrt(q_gpu(b,i,j,k-s,VAR_BX)**2 + q_gpu(b,i,j,k-s,VAR_BY)**2)
+            dBdz = dBdz + FD1_CC(s,s1) * (b_plus - b_minus) / dxyz_gpu(b,3)
+         enddo
+         grad2 = dBdx*dBdx + dBdy*dBdy + dBdz*dBdz
+         weighted_sum_domain = weighted_sum_domain + grad2 * (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
+         measure_domain = measure_domain + (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
+         cells_count_domain = cells_count_domain + 1.0_R8P
+         if (b_amp >= threshold) then
+            weighted_sum_3db = weighted_sum_3db + grad2 * (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
+            measure_3db = measure_3db + (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
+            cells_count_3db = cells_count_3db + 1.0_R8P
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine compute_grms_dev_kernel
+   endsubroutine compute_grms
 
    subroutine compute_max_divergence(self)
    !< Compute maximum divergence.

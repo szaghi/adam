@@ -8,6 +8,7 @@ use :: adam_prism_coil_object
 use :: adam_prism_common_object
 use :: adam_prism_external_fields_object
 use :: adam_prism_fWLayer_object
+use :: adam_prism_grms_object
 use :: adam_prism_ic_object
 use :: adam_prism_io_object
 use :: adam_prism_leapfrog_pic_object

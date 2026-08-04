@@ -23,6 +23,7 @@ integer(I4P), parameter :: PML_FACE_Y_M = 3_I4P
 integer(I4P), parameter :: PML_FACE_Y_P = 4_I4P
 integer(I4P), parameter :: PML_FACE_Z_M = 5_I4P
 integer(I4P), parameter :: PML_FACE_Z_P = 6_I4P
+real(R8P),    parameter :: GRMS_3DB_RATIO = 10.0_R8P**(-3.0_R8P/20.0_R8P)
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
@@ -73,6 +74,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_dt                   !< Compute time step.
       procedure, pass(self) :: compute_energy               !< Compute energy.
       procedure, pass(self) :: compute_energy_error         !< Compute energy error.
+      procedure, pass(self) :: compute_grms                 !< Compute Grms of the rotating magnetic-field amplitude.
       procedure, pass(self) :: impose_div_free              !< Impose divergence-free property.
       procedure, pass(self) :: simulate                     !< Perform the simulation.
 endtype prism_cpu_object
@@ -1428,8 +1430,10 @@ contains
 
    call self%save_simulation_data
    call self%compute_energy
+   if (self%grms%do_save_history) call self%compute_grms
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.)
+   call self%save_grms_history(is_to_open=.true.)
    call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
    call self%io%open_file_residuals(nv=self%nv)
 
@@ -1854,8 +1858,10 @@ contains
       endblock
    endif
    call self%compute_energy
+   if (self%grms%do_save_history) call self%compute_grms
    !call self%save_energy_error
    call self%save_energy_history
+   call self%save_grms_history
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
@@ -1909,6 +1915,10 @@ contains
    if (mpih%myrank == 0) then
       inquire(unit=self%io%energy_history_unit, opened=is_open)
       if (is_open) close(self%io%energy_history_unit)
+      if (self%grms%history_unit > 0_I4P) then
+         inquire(unit=self%grms%history_unit, opened=is_open)
+         if (is_open) close(self%grms%history_unit)
+      endif
       inquire(unit=self%io%divergence_history_unit, opened=is_open)
       if (is_open) close(self%io%divergence_history_unit)
    endif
@@ -2131,6 +2141,205 @@ contains
       self%rms_energy_error_B = sqrt(sum(error_B)/size(error_B))
    endif
    endsubroutine compute_energy_error
+
+   subroutine compute_grms(self)
+   !< Compute the RMS gradient of the rotating magnetic-field amplitude over the selected domain
+   !< and over its -3 dB subset.
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P)                          :: b, i, j, k, s
+   integer(I4P)                          :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k
+   integer(I4P)                          :: b_ref, i_ref, j_ref, k_ref
+   integer(I8P)                          :: cells_local_3db, cells_global_3db
+   integer(I8P)                          :: cells_local_domain, cells_global_domain
+   real(R8P)                             :: b_amp
+   real(R8P)                             :: b_minus, b_plus
+   real(R8P)                             :: best_r2_local, best_r2_global
+   real(R8P)                             :: bref_candidate, bref_local, bref_global
+   real(R8P)                             :: dBdx, dBdy, dBdz
+   real(R8P)                             :: domain_center(3)
+   real(R8P)                             :: grad2
+   real(R8P)                             :: half_length, radius2
+   real(R8P)                             :: measure_local_3db, measure_global_3db
+   real(R8P)                             :: measure_local_domain, measure_global_domain
+   real(R8P)                             :: threshold
+   real(R8P)                             :: weighted_sum_local_3db, weighted_sum_global_3db
+   real(R8P)                             :: weighted_sum_local_domain, weighted_sum_global_domain
+   real(R8P)                             :: x, y, z
+   logical                               :: use_cylinder
+
+   use_cylinder = self%grms%use_cylindrical_region
+   domain_center = [0._R8P, 0._R8P, 0._R8P]
+   if (use_cylinder) domain_center = self%grms%center
+   half_length = 0.5_R8P * self%grms%length
+   radius2 = self%grms%radius * self%grms%radius
+   best_r2_local = huge(1.0_R8P)
+   bref_local = 0.0_R8P
+   b_ref = 0_I4P ; i_ref = 1_I4P ; j_ref = 1_I4P ; k_ref = 1_I4P
+   do b = 1, self%blocks_number
+      call get_valid_window(self=self, hs=self%fdv_half_stencils(1), b=b, lo_i=lo_i, hi_i=hi_i, lo_j=lo_j, hi_j=hi_j, &
+                            lo_k=lo_k, hi_k=hi_k)
+      if (lo_i > hi_i .or. lo_j > hi_j .or. lo_k > hi_k) cycle
+      do k = lo_k, hi_k
+         z = self%adam%field%z_cell(k,b)
+         do j = lo_j, hi_j
+            y = self%adam%field%y_cell(j,b)
+            do i = lo_i, hi_i
+               x = self%adam%field%x_cell(i,b)
+               if (.not. is_inside_selected_domain(x=x, y=y, z=z)) cycle
+               if (reference_distance2(x=x, y=y, z=z) < best_r2_local) then
+                  best_r2_local = reference_distance2(x=x, y=y, z=z)
+                  b_ref = b ; i_ref = i ; j_ref = j ; k_ref = k
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   if (best_r2_local < huge(1.0_R8P)) then
+      bref_local = sqrt(self%q(VAR_BX,i_ref,j_ref,k_ref,b_ref)**2 + self%q(VAR_BY,i_ref,j_ref,k_ref,b_ref)**2)
+   endif
+   call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+   bref_candidate = 0.0_R8P
+   if (abs(best_r2_local - best_r2_global) <= 1.0E-12_R8P * max(1.0_R8P, abs(best_r2_global))) bref_candidate = bref_local
+   bref_global = bref_candidate
+   call MPI_ALLREDUCE(MPI_IN_PLACE, bref_global, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+
+   threshold = GRMS_3DB_RATIO * bref_global
+   weighted_sum_local_domain = 0.0_R8P
+   weighted_sum_local_3db = 0.0_R8P
+   measure_local_domain = 0.0_R8P
+   measure_local_3db = 0.0_R8P
+   cells_local_domain = 0_I8P
+   cells_local_3db = 0_I8P
+   do b = 1, self%blocks_number
+      call get_valid_window(self=self, hs=self%fdv_half_stencils(1), b=b, lo_i=lo_i, hi_i=hi_i, lo_j=lo_j, hi_j=hi_j, &
+                            lo_k=lo_k, hi_k=hi_k)
+      if (lo_i > hi_i .or. lo_j > hi_j .or. lo_k > hi_k) cycle
+      do k = lo_k, hi_k
+         z = self%adam%field%z_cell(k,b)
+         do j = lo_j, hi_j
+            y = self%adam%field%y_cell(j,b)
+            do i = lo_i, hi_i
+               x = self%adam%field%x_cell(i,b)
+               if (.not. is_inside_selected_domain(x=x, y=y, z=z)) cycle
+               b_amp = sqrt(self%q(VAR_BX,i,j,k,b)**2 + self%q(VAR_BY,i,j,k,b)**2)
+               dBdx = 0.0_R8P
+               dBdy = 0.0_R8P
+               dBdz = 0.0_R8P
+               do s = 1, self%fdv_half_stencils(1)
+                  b_plus = sqrt(self%q(VAR_BX,i+s,j,k,b)**2 + self%q(VAR_BY,i+s,j,k,b)**2)
+                  b_minus = sqrt(self%q(VAR_BX,i-s,j,k,b)**2 + self%q(VAR_BY,i-s,j,k,b)**2)
+                  dBdx = dBdx + FD1_CC(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(1,b)
+                  b_plus = sqrt(self%q(VAR_BX,i,j+s,k,b)**2 + self%q(VAR_BY,i,j+s,k,b)**2)
+                  b_minus = sqrt(self%q(VAR_BX,i,j-s,k,b)**2 + self%q(VAR_BY,i,j-s,k,b)**2)
+                  dBdy = dBdy + FD1_CC(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(2,b)
+                  b_plus = sqrt(self%q(VAR_BX,i,j,k+s,b)**2 + self%q(VAR_BY,i,j,k+s,b)**2)
+                  b_minus = sqrt(self%q(VAR_BX,i,j,k-s,b)**2 + self%q(VAR_BY,i,j,k-s,b)**2)
+                  dBdz = dBdz + FD1_CC(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(3,b)
+               enddo
+               grad2 = dBdx*dBdx + dBdy*dBdy + dBdz*dBdz
+               weighted_sum_local_domain = weighted_sum_local_domain + grad2 * product(self%adam%field%dxyz(:,b))
+               measure_local_domain = measure_local_domain + product(self%adam%field%dxyz(:,b))
+               cells_local_domain = cells_local_domain + 1_I8P
+               if (b_amp >= threshold) then
+                  weighted_sum_local_3db = weighted_sum_local_3db + grad2 * product(self%adam%field%dxyz(:,b))
+                  measure_local_3db = measure_local_3db + product(self%adam%field%dxyz(:,b))
+                  cells_local_3db = cells_local_3db + 1_I8P
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   weighted_sum_global_domain = weighted_sum_local_domain
+   weighted_sum_global_3db = weighted_sum_local_3db
+   measure_global_domain = measure_local_domain
+   measure_global_3db = measure_local_3db
+   cells_global_domain = cells_local_domain
+   cells_global_3db = cells_local_3db
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_global_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_global_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, measure_global_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, measure_global_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, cells_global_domain, 1, MPI_INTEGER8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, cells_global_3db, 1, MPI_INTEGER8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+
+   self%grms%reference_B = bref_global
+   self%grms%threshold_B = threshold
+   self%grms%domain_measure = measure_global_domain
+   self%grms%measure_3db = measure_global_3db
+   self%grms%domain_cells_number = cells_global_domain
+   self%grms%cells_number_3db = cells_global_3db
+   self%grms%grms_domain_B = 0.0_R8P
+   self%grms%grms_3db_B = 0.0_R8P
+   if (measure_global_domain > 0.0_R8P) self%grms%grms_domain_B = sqrt(weighted_sum_global_domain / measure_global_domain)
+   if (measure_global_3db > 0.0_R8P) self%grms%grms_3db_B = sqrt(weighted_sum_global_3db / measure_global_3db)
+   contains
+      subroutine get_valid_window(self, hs, b, lo_i, hi_i, lo_j, hi_j, lo_k, hi_k)
+      class(prism_cpu_object), intent(in)  :: self
+      integer(I4P),            intent(in)  :: hs
+      integer(I4P),            intent(in)  :: b
+      integer(I4P),            intent(out) :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k
+
+      lo_i = 1_I4P ; hi_i = self%ni
+      lo_j = 1_I4P ; hi_j = self%nj
+      lo_k = 1_I4P ; hi_k = self%nk
+      if (allocated(self%fWLayer%ni_fWL)) then
+         call exclude_stencil_contaminated_face(lo=lo_i, hi=hi_i, face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_M), &
+                                                face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_i, hi=hi_i, face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_P), &
+                                                face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_P), is_minus=.false., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_j, hi=hi_j, face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_M), &
+                                                face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_j, hi=hi_j, face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_P), &
+                                                face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_P), is_minus=.false., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_k, hi=hi_k, face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_M), &
+                                                face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_k, hi=hi_k, face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_P), &
+                                                face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_P), is_minus=.false., hs=hs)
+      endif
+      if (allocated(self%pml%ni_pml)) then
+         call exclude_stencil_contaminated_face(lo=lo_i, hi=hi_i, face_first=self%pml%ni_pml(1,b,PML_FACE_X_M), &
+                                                face_last=self%pml%ni_pml(2,b,PML_FACE_X_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_i, hi=hi_i, face_first=self%pml%ni_pml(1,b,PML_FACE_X_P), &
+                                                face_last=self%pml%ni_pml(2,b,PML_FACE_X_P), is_minus=.false., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_j, hi=hi_j, face_first=self%pml%nj_pml(1,b,PML_FACE_Y_M), &
+                                                face_last=self%pml%nj_pml(2,b,PML_FACE_Y_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_j, hi=hi_j, face_first=self%pml%nj_pml(1,b,PML_FACE_Y_P), &
+                                                face_last=self%pml%nj_pml(2,b,PML_FACE_Y_P), is_minus=.false., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_k, hi=hi_k, face_first=self%pml%nk_pml(1,b,PML_FACE_Z_M), &
+                                                face_last=self%pml%nk_pml(2,b,PML_FACE_Z_M), is_minus=.true., hs=hs)
+         call exclude_stencil_contaminated_face(lo=lo_k, hi=hi_k, face_first=self%pml%nk_pml(1,b,PML_FACE_Z_P), &
+                                                face_last=self%pml%nk_pml(2,b,PML_FACE_Z_P), is_minus=.false., hs=hs)
+      endif
+      endsubroutine get_valid_window
+
+      logical function is_inside_selected_domain(x, y, z)
+      real(R8P), intent(in) :: x, y, z
+      real(R8P)             :: axial_distance, radial2_local
+
+      if (.not. use_cylinder) then
+         is_inside_selected_domain = .true.
+         return
+      endif
+      axial_distance = (x - self%grms%center(1)) * self%grms%axis(1) + &
+                       (y - self%grms%center(2)) * self%grms%axis(2) + &
+                       (z - self%grms%center(3)) * self%grms%axis(3)
+      if (abs(axial_distance) > half_length) then
+         is_inside_selected_domain = .false.
+         return
+      endif
+      radial2_local = (x - self%grms%center(1))**2 + (y - self%grms%center(2))**2 + (z - self%grms%center(3))**2 - &
+                      axial_distance * axial_distance
+      is_inside_selected_domain = radial2_local <= radius2
+      endfunction is_inside_selected_domain
+
+      real(R8P) function reference_distance2(x, y, z)
+      real(R8P), intent(in) :: x, y, z
+
+      reference_distance2 = (x - domain_center(1))**2 + (y - domain_center(2))**2 + (z - domain_center(3))**2
+      endfunction reference_distance2
+   endsubroutine compute_grms
 
    subroutine compute_max_divergence_outside_absorbing_layers(self, hs, max_div_D, max_div_B, max_div_J)
    !< Compute divergence maxima excluding absorbing layers and any cell whose
