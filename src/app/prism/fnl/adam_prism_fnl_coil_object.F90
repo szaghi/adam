@@ -143,11 +143,17 @@ contains
                                                                   1:,1:) !< Buffer (host memory, device shape), rank 6D.
    integer(I4P),                 intent(in),    optional :: db6(2,6) !< Device data bounds, rank 6.
    integer(I4P),                 intent(in),    optional :: hb6(2,6) !< Host data bounds, rank 6.
-   integer(I4P)                                     :: nv   !< Counter.
-   integer(I4P)                                     :: ierr !< Error status.
+   integer(I4P)                                     :: nv             !< Counter.
+   integer(I4P)                                     :: ierr           !< Error status.
+   integer(I8P)                                     :: j_vec_bytes    !< Requested j_vec_gpu bytes.
+   integer(I8P)                                     :: j_vec_elements !< Requested j_vec_gpu elements.
+   real(R8P)                                        :: j_vec_gib      !< Requested j_vec_gpu GiB.
+   real(R8P)                                        :: dev_free_gib   !< Device memory reported at device init, GiB.
+   character(len=:), allocatable                    :: alloc_msg      !< Allocation diagnostic.
 
    call self%destroy()
-   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nb=>field%nb, nc=>coil%total_coils_number)
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nb=>field%nb, blocks_number=>field%blocks_number, &
+             nc=>coil%total_coils_number)
    print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize start'
    ! Zero-coil case (issue #22 F1): host j_vec is unallocated (size() on it is illegal)
    ! and every device twin would be zero-size. Leave the device pointers null; all the
@@ -157,6 +163,11 @@ contains
       return
    endif
    nv = size(coil%j_vec,dim=1)
+   j_vec_elements = int(nb, I8P) * int(ni + 2_I4P * ngc, I8P) * int(nj + 2_I4P * ngc, I8P) * &
+                    int(nk + 2_I4P * ngc, I8P) * int(nv, I8P) * int(nc, I8P)
+   j_vec_bytes = j_vec_elements * int(storage_size(0._R8P) / 8, I8P)
+   j_vec_gib = real(j_vec_bytes, R8P) / 1024._R8P**3
+   dev_free_gib = real(mpih_fnl%dev_memory_avail, R8P) / 1024._R8P**3
    call dev_alloc(fptr_dev=self%A_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate A_gpu in prism_fnl_coil_object%initialize')
    call dev_alloc(fptr_dev=self%f_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
@@ -164,7 +175,18 @@ contains
    call dev_alloc(fptr_dev=self%phase_gpu    ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate phase_gpu in prism_fnl_coil_object%initialize')
    call dev_alloc(fptr_dev=self%j_vec_gpu    ,ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv,nc],lbounds=[1,1-ngc,1-ngc,1-ngc,1,1],ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate j_vec_gpu in prism_fnl_coil_object%initialize')
+   if (ierr /= 0_I4P) then
+      alloc_msg = ': failed to allocate j_vec_gpu in prism_fnl_coil_object%initialize'// &
+                  ' ierr='//trim(str(ierr))// &
+                  ' requested_GiB='//trim(str(j_vec_gib))// &
+                  ' device_init_free_GiB='//trim(str(dev_free_gib))// &
+                  ' device='//trim(str(mpih_fnl%mydev))// &
+                  ' nb='//trim(str(nb))// &
+                  ' blocks_number='//trim(str(blocks_number))// &
+                  ' ni='//trim(str(ni))//' nj='//trim(str(nj))//' nk='//trim(str(nk))// &
+                  ' ngc='//trim(str(ngc))//' nv_coil='//trim(str(nv))//' coils='//trim(str(nc))
+      call mpih_fnl%error_stop(msg=alloc_msg)
+   endif
    if (present(buf6D) .and. present(db6) .and. present(hb6)) then
       call self%copy_cpu_gpu(coil=coil, grid=grid, buf6D=buf6D, db6=db6, hb6=hb6)
    elseif (present(buf6D)) then
