@@ -26,6 +26,7 @@ type :: prism_fnl_leapfrog_pic_object
 contains
    procedure, pass(self) :: copy_cpu_gpu
    procedure, pass(self) :: copy_gpu_cpu
+   procedure, pass(self) :: destroy
    procedure, pass(self) :: initialize
    procedure, pass(self) :: assign_step
    procedure, pass(self) :: prime_step
@@ -33,6 +34,18 @@ contains
 endtype prism_fnl_leapfrog_pic_object
 
 contains
+   subroutine destroy(self)
+   !< Free device and host staging data owned by this object.
+   class(prism_fnl_leapfrog_pic_object), intent(inout) :: self !< FNL PIC leapfrog object.
+
+   if (associated(self%q_pic_old_gpu)) then
+      call dev_free(self%q_pic_old_gpu, mydev)
+      nullify(self%q_pic_old_gpu)
+   endif
+   if (allocated(self%buf_q_pic_old_R8P)) deallocate(self%buf_q_pic_old_R8P)
+   self%particle_number = 0_I4P
+   endsubroutine destroy
+
    subroutine initialize(self, pic, leapfrog_pic)
    !< Initialize device-side PIC leapfrog state.
    class(prism_fnl_leapfrog_pic_object), intent(inout) :: self         !< FNL PIC leapfrog object.
@@ -40,6 +53,7 @@ contains
    type(prism_leapfrog_pic_object),      intent(in)    :: leapfrog_pic !< Host PIC leapfrog object.
    integer(I4P)                                        :: ierr         !< Error status.
 
+   call self%destroy()
    self%particle_number = pic%particle_number
    self%nu              = leapfrog_pic%nu
    self%alpha           = leapfrog_pic%alpha
@@ -53,6 +67,7 @@ contains
                           msg=mpih%myrankstr//'prism_fnl_leapfrog_pic_object%initialize allocate buf_q_pic_old_R8P')
    call dev_alloc(fptr_dev=self%q_pic_old_gpu, ubounds=[self%particle_number, PIC_VARIABLES_NUMBER, 2_I4P], &
                   lbounds=[1,1,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_pic_old_gpu in prism_fnl_leapfrog_pic_object%initialize')
    endsubroutine initialize
 
    subroutine copy_cpu_gpu(self, q_pic_old, verbose)

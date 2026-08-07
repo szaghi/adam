@@ -85,10 +85,189 @@ type :: prism_fnl_pml_object
    real(R8P),    pointer     :: q_pml_z_m_gpu(:,:,:,:,:) => null()
    real(R8P),    pointer     :: q_pml_z_p_gpu(:,:,:,:,:) => null()
 contains
+   procedure, pass(self) :: destroy
    procedure, pass(self) :: initialize
 endtype prism_fnl_pml_object
 
 contains
+   subroutine destroy(self)
+   !< Free device data owned by the PML FNL object.
+   class(prism_fnl_pml_object), intent(inout) :: self
+
+   if (associated(self%blocks_x_m_gpu)) then
+      call dev_free(self%blocks_x_m_gpu, mydev)
+      nullify(self%blocks_x_m_gpu)
+   endif
+   if (associated(self%blocks_x_p_gpu)) then
+      call dev_free(self%blocks_x_p_gpu, mydev)
+      nullify(self%blocks_x_p_gpu)
+   endif
+   if (associated(self%blocks_y_m_gpu)) then
+      call dev_free(self%blocks_y_m_gpu, mydev)
+      nullify(self%blocks_y_m_gpu)
+   endif
+   if (associated(self%blocks_y_p_gpu)) then
+      call dev_free(self%blocks_y_p_gpu, mydev)
+      nullify(self%blocks_y_p_gpu)
+   endif
+   if (associated(self%blocks_z_m_gpu)) then
+      call dev_free(self%blocks_z_m_gpu, mydev)
+      nullify(self%blocks_z_m_gpu)
+   endif
+   if (associated(self%blocks_z_p_gpu)) then
+      call dev_free(self%blocks_z_p_gpu, mydev)
+      nullify(self%blocks_z_p_gpu)
+   endif
+   if (associated(self%start_x_m_gpu)) then
+      call dev_free(self%start_x_m_gpu, mydev)
+      nullify(self%start_x_m_gpu)
+   endif
+   if (associated(self%start_x_p_gpu)) then
+      call dev_free(self%start_x_p_gpu, mydev)
+      nullify(self%start_x_p_gpu)
+   endif
+   if (associated(self%start_y_m_gpu)) then
+      call dev_free(self%start_y_m_gpu, mydev)
+      nullify(self%start_y_m_gpu)
+   endif
+   if (associated(self%start_y_p_gpu)) then
+      call dev_free(self%start_y_p_gpu, mydev)
+      nullify(self%start_y_p_gpu)
+   endif
+   if (associated(self%start_z_m_gpu)) then
+      call dev_free(self%start_z_m_gpu, mydev)
+      nullify(self%start_z_m_gpu)
+   endif
+   if (associated(self%start_z_p_gpu)) then
+      call dev_free(self%start_z_p_gpu, mydev)
+      nullify(self%start_z_p_gpu)
+   endif
+   if (associated(self%cells_x_m_gpu)) then
+      call dev_free(self%cells_x_m_gpu, mydev)
+      nullify(self%cells_x_m_gpu)
+   endif
+   if (associated(self%cells_x_p_gpu)) then
+      call dev_free(self%cells_x_p_gpu, mydev)
+      nullify(self%cells_x_p_gpu)
+   endif
+   if (associated(self%cells_y_m_gpu)) then
+      call dev_free(self%cells_y_m_gpu, mydev)
+      nullify(self%cells_y_m_gpu)
+   endif
+   if (associated(self%cells_y_p_gpu)) then
+      call dev_free(self%cells_y_p_gpu, mydev)
+      nullify(self%cells_y_p_gpu)
+   endif
+   if (associated(self%cells_z_m_gpu)) then
+      call dev_free(self%cells_z_m_gpu, mydev)
+      nullify(self%cells_z_m_gpu)
+   endif
+   if (associated(self%cells_z_p_gpu)) then
+      call dev_free(self%cells_z_p_gpu, mydev)
+      nullify(self%cells_z_p_gpu)
+   endif
+   if (associated(self%gamma_x_m_gpu)) then
+      call dev_free(self%gamma_x_m_gpu, mydev)
+      nullify(self%gamma_x_m_gpu)
+   endif
+   if (associated(self%gamma_x_p_gpu)) then
+      call dev_free(self%gamma_x_p_gpu, mydev)
+      nullify(self%gamma_x_p_gpu)
+   endif
+   if (associated(self%gamma_y_m_gpu)) then
+      call dev_free(self%gamma_y_m_gpu, mydev)
+      nullify(self%gamma_y_m_gpu)
+   endif
+   if (associated(self%gamma_y_p_gpu)) then
+      call dev_free(self%gamma_y_p_gpu, mydev)
+      nullify(self%gamma_y_p_gpu)
+   endif
+   if (associated(self%gamma_z_m_gpu)) then
+      call dev_free(self%gamma_z_m_gpu, mydev)
+      nullify(self%gamma_z_m_gpu)
+   endif
+   if (associated(self%gamma_z_p_gpu)) then
+      call dev_free(self%gamma_z_p_gpu, mydev)
+      nullify(self%gamma_z_p_gpu)
+   endif
+   if (associated(self%alpha_x_m_gpu)) then
+      call dev_free(self%alpha_x_m_gpu, mydev)
+      nullify(self%alpha_x_m_gpu)
+   endif
+   if (associated(self%alpha_x_p_gpu)) then
+      call dev_free(self%alpha_x_p_gpu, mydev)
+      nullify(self%alpha_x_p_gpu)
+   endif
+   if (associated(self%alpha_y_m_gpu)) then
+      call dev_free(self%alpha_y_m_gpu, mydev)
+      nullify(self%alpha_y_m_gpu)
+   endif
+   if (associated(self%alpha_y_p_gpu)) then
+      call dev_free(self%alpha_y_p_gpu, mydev)
+      nullify(self%alpha_y_p_gpu)
+   endif
+   if (associated(self%alpha_z_m_gpu)) then
+      call dev_free(self%alpha_z_m_gpu, mydev)
+      nullify(self%alpha_z_m_gpu)
+   endif
+   if (associated(self%alpha_z_p_gpu)) then
+      call dev_free(self%alpha_z_p_gpu, mydev)
+      nullify(self%alpha_z_p_gpu)
+   endif
+   if (associated(self%kappa_x_m_gpu)) then
+      call dev_free(self%kappa_x_m_gpu, mydev)
+      nullify(self%kappa_x_m_gpu)
+   endif
+   if (associated(self%kappa_x_p_gpu)) then
+      call dev_free(self%kappa_x_p_gpu, mydev)
+      nullify(self%kappa_x_p_gpu)
+   endif
+   if (associated(self%kappa_y_m_gpu)) then
+      call dev_free(self%kappa_y_m_gpu, mydev)
+      nullify(self%kappa_y_m_gpu)
+   endif
+   if (associated(self%kappa_y_p_gpu)) then
+      call dev_free(self%kappa_y_p_gpu, mydev)
+      nullify(self%kappa_y_p_gpu)
+   endif
+   if (associated(self%kappa_z_m_gpu)) then
+      call dev_free(self%kappa_z_m_gpu, mydev)
+      nullify(self%kappa_z_m_gpu)
+   endif
+   if (associated(self%kappa_z_p_gpu)) then
+      call dev_free(self%kappa_z_p_gpu, mydev)
+      nullify(self%kappa_z_p_gpu)
+   endif
+   if (associated(self%q_pml_x_m_gpu)) then
+      call dev_free(self%q_pml_x_m_gpu, mydev)
+      nullify(self%q_pml_x_m_gpu)
+   endif
+   if (associated(self%q_pml_x_p_gpu)) then
+      call dev_free(self%q_pml_x_p_gpu, mydev)
+      nullify(self%q_pml_x_p_gpu)
+   endif
+   if (associated(self%q_pml_y_m_gpu)) then
+      call dev_free(self%q_pml_y_m_gpu, mydev)
+      nullify(self%q_pml_y_m_gpu)
+   endif
+   if (associated(self%q_pml_y_p_gpu)) then
+      call dev_free(self%q_pml_y_p_gpu, mydev)
+      nullify(self%q_pml_y_p_gpu)
+   endif
+   if (associated(self%q_pml_z_m_gpu)) then
+      call dev_free(self%q_pml_z_m_gpu, mydev)
+      nullify(self%q_pml_z_m_gpu)
+   endif
+   if (associated(self%q_pml_z_p_gpu)) then
+      call dev_free(self%q_pml_z_p_gpu, mydev)
+      nullify(self%q_pml_z_p_gpu)
+   endif
+   self%enabled = .false.
+   self%pml_type = PML_TYPE_NONE
+   self%layer = .false.
+   self%active_blocks = 0_I4P
+   self%max_cells = 0_I4P
+   endsubroutine destroy
 
    subroutine initialize(self, pml, grid, field)
    !< Initialize the GPU-side PML support from the host compact PML object.
@@ -97,6 +276,7 @@ contains
    type(grid_object),           intent(in)    :: grid
    type(field_object),          intent(in)    :: field
 
+   call self%destroy()
    self%enabled         = pml%enabled
    self%pml_type        = pml%pml_type
    self%layer           = pml%layer

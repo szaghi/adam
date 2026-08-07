@@ -23,6 +23,7 @@ type :: prism_fnl_rk_pic_object
    integer(I4P)          :: particle_number = 0_I4P       !< Total number of particles.
    integer(I4P)          :: nrk             = 0_I4P       !< Number of stages.
 contains
+   procedure, pass(self) :: destroy
    procedure, pass(self) :: initialize
    procedure, pass(self) :: initialize_stages
    procedure, pass(self) :: compute_stage
@@ -31,6 +32,26 @@ contains
 endtype prism_fnl_rk_pic_object
 
 contains
+   subroutine destroy(self)
+   !< Free device data owned by this object.
+   class(prism_fnl_rk_pic_object), intent(inout) :: self !< FNL PIC RK object.
+
+   if (associated(self%alph_gpu)) then
+      call dev_free(self%alph_gpu, mydev)
+      nullify(self%alph_gpu)
+   endif
+   if (associated(self%beta_gpu)) then
+      call dev_free(self%beta_gpu, mydev)
+      nullify(self%beta_gpu)
+   endif
+   if (associated(self%q_pic_rk_gpu)) then
+      call dev_free(self%q_pic_rk_gpu, mydev)
+      nullify(self%q_pic_rk_gpu)
+   endif
+   self%particle_number = 0_I4P
+   self%nrk = 0_I4P
+   endsubroutine destroy
+
    subroutine initialize(self, pic, rk_pic)
    !< Initialize device-side PIC RK state.
    class(prism_fnl_rk_pic_object), intent(inout) :: self   !< FNL PIC RK object.
@@ -38,6 +59,7 @@ contains
    type(prism_rk_pic_object),      intent(in)    :: rk_pic !< Host PIC RK object.
    integer(I4P)                                  :: ierr   !< Error status.
 
+   call self%destroy()
    self%particle_number = pic%particle_number
    self%nrk             = rk_pic%nrk
 
@@ -47,6 +69,7 @@ contains
    if (allocated(rk_pic%beta)) call dev_assign_to_device(src=rk_pic%beta, dst=self%beta_gpu)
    call dev_alloc(fptr_dev=self%q_pic_rk_gpu, ubounds=[self%particle_number, PIC_VARIABLES_NUMBER, self%nrk], &
                   lbounds=[1,1,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_pic_rk_gpu in prism_fnl_rk_pic_object%initialize')
    endsubroutine initialize
 
    subroutine initialize_stages(self, q_pic_gpu)

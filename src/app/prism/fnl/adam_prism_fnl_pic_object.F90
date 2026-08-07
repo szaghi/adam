@@ -50,6 +50,7 @@ contains
    procedure, pass(self) :: copy_cpu_gpu
    procedure, pass(self) :: copy_gpu_cpu
    procedure, pass(self) :: copy_q_pic_gpu_cpu
+   procedure, pass(self) :: destroy
    procedure, pass(self) :: initialize
    procedure, pass(self) :: particle_cartesian_grid_index_dev_impl
    procedure, pass(self) :: NGP_charge_weighting_dev
@@ -130,6 +131,41 @@ interface
 endinterface
 
 contains
+   subroutine destroy(self)
+   !< Free device and host staging data owned by this object.
+   class(prism_fnl_pic_object), intent(inout) :: self !< PIC object on device.
+
+   if (associated(self%q_pic_gpu)) then
+      call dev_free(self%q_pic_gpu, mydev)
+      nullify(self%q_pic_gpu)
+   endif
+   if (associated(self%pic_fields_gpu)) then
+      call dev_free(self%pic_fields_gpu, mydev)
+      nullify(self%pic_fields_gpu)
+   endif
+   if (associated(self%neighbour_list_gpu)) then
+      call dev_free(self%neighbour_list_gpu, mydev)
+      nullify(self%neighbour_list_gpu)
+   endif
+   if (allocated(self%buf_q_pic_R8P)) deallocate(self%buf_q_pic_R8P)
+   if (allocated(self%buf_pic_fields_R8P)) deallocate(self%buf_pic_fields_R8P)
+   if (allocated(self%buf_neighbour_list_I4P)) deallocate(self%buf_neighbour_list_I4P)
+   self%db2_q_pic = 0_I4P
+   self%hb2_q_pic = 0_I4P
+   self%db2_pic_fields = 0_I4P
+   self%hb2_pic_fields = 0_I4P
+   self%db2_neighbour_list = 0_I4P
+   self%hb2_neighbour_list = 0_I4P
+   self%particle_number = 0_I4P
+   self%n_ions = 0_I4P
+   self%n_electrons = 0_I4P
+   self%n_neutrals = 0_I4P
+   nullify(self%particle_cartesian_grid_index_dev)
+   nullify(self%particle_weighting_dev)
+   nullify(self%current_weighting_dev)
+   nullify(self%field_weighting_dev)
+   endsubroutine destroy
+
    subroutine copy_cpu_gpu(self, pic, q_pic, pic_fields, verbose)
    !< Copy PIC data from CPU to GPU.
    class(prism_fnl_pic_object), intent(inout)         :: self             !< PIC object on device.
@@ -201,6 +237,7 @@ contains
    integer(I4P)                                :: ierr              !< Error status.
 
    call mpih_fnl%print_message('prism_fnl_pic_object%initialize start')
+   call self%destroy()
 
    self%particle_number = pic%particle_number
    self%n_ions          = pic%n_ions
@@ -275,10 +312,13 @@ contains
 
    call dev_alloc(fptr_dev=self%q_pic_gpu,          ubounds=[self%particle_number, PIC_VARIABLES_NUMBER ], &
                   lbounds=[1,1], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_pic_gpu in prism_fnl_pic_object%initialize')
    call dev_alloc(fptr_dev=self%pic_fields_gpu,     ubounds=[self%particle_number, PIC_FIELDS_NUMBER    ], &
                   lbounds=[1,1], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate pic_fields_gpu in prism_fnl_pic_object%initialize')
    call dev_alloc(fptr_dev=self%neighbour_list_gpu, ubounds=[self%particle_number, PIC_NEIGHBOURS_NUMBER], &
                   lbounds=[1,1], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate neighbour_list_gpu in prism_fnl_pic_object%initialize')
    allocate(self%buf_q_pic_R8P(1:self%particle_number,1:PIC_VARIABLES_NUMBER), stat=ierr)
    if (ierr /= 0) call mpih_fnl%error_stop(msg=': failed host allocation of buf_q_pic_R8P in prism_fnl_pic_object%initialize')
    allocate(self%buf_pic_fields_R8P(1:self%particle_number,1:PIC_FIELDS_NUMBER), stat=ierr)

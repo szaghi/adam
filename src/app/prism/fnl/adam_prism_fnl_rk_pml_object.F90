@@ -33,6 +33,7 @@ type :: prism_fnl_rk_pml_object
    real(R8P), pointer     :: dq_pml_z_m_gpu(:,:,:,:,:) => null()
    real(R8P), pointer     :: dq_pml_z_p_gpu(:,:,:,:,:) => null()
 contains
+   procedure, pass(self) :: destroy
    procedure, pass(self) :: initialize
    procedure, pass(self) :: initialize_stages
    procedure, pass(self) :: reset_rhs
@@ -43,12 +44,80 @@ endtype prism_fnl_rk_pml_object
 
 contains
 
+   subroutine destroy(self)
+   !< Free device data owned by the RK-PML FNL object.
+   class(prism_fnl_rk_pml_object), intent(inout) :: self
+
+   if (associated(self%alph_gpu)) then
+      call dev_free(self%alph_gpu, mydev)
+      nullify(self%alph_gpu)
+   endif
+   if (associated(self%beta_gpu)) then
+      call dev_free(self%beta_gpu, mydev)
+      nullify(self%beta_gpu)
+   endif
+   if (associated(self%gamm_gpu)) then
+      call dev_free(self%gamm_gpu, mydev)
+      nullify(self%gamm_gpu)
+   endif
+   if (associated(self%q_pml_x_m_rk_gpu)) then
+      call dev_free(self%q_pml_x_m_rk_gpu, mydev)
+      nullify(self%q_pml_x_m_rk_gpu)
+   endif
+   if (associated(self%q_pml_x_p_rk_gpu)) then
+      call dev_free(self%q_pml_x_p_rk_gpu, mydev)
+      nullify(self%q_pml_x_p_rk_gpu)
+   endif
+   if (associated(self%q_pml_y_m_rk_gpu)) then
+      call dev_free(self%q_pml_y_m_rk_gpu, mydev)
+      nullify(self%q_pml_y_m_rk_gpu)
+   endif
+   if (associated(self%q_pml_y_p_rk_gpu)) then
+      call dev_free(self%q_pml_y_p_rk_gpu, mydev)
+      nullify(self%q_pml_y_p_rk_gpu)
+   endif
+   if (associated(self%q_pml_z_m_rk_gpu)) then
+      call dev_free(self%q_pml_z_m_rk_gpu, mydev)
+      nullify(self%q_pml_z_m_rk_gpu)
+   endif
+   if (associated(self%q_pml_z_p_rk_gpu)) then
+      call dev_free(self%q_pml_z_p_rk_gpu, mydev)
+      nullify(self%q_pml_z_p_rk_gpu)
+   endif
+   if (associated(self%dq_pml_x_m_gpu)) then
+      call dev_free(self%dq_pml_x_m_gpu, mydev)
+      nullify(self%dq_pml_x_m_gpu)
+   endif
+   if (associated(self%dq_pml_x_p_gpu)) then
+      call dev_free(self%dq_pml_x_p_gpu, mydev)
+      nullify(self%dq_pml_x_p_gpu)
+   endif
+   if (associated(self%dq_pml_y_m_gpu)) then
+      call dev_free(self%dq_pml_y_m_gpu, mydev)
+      nullify(self%dq_pml_y_m_gpu)
+   endif
+   if (associated(self%dq_pml_y_p_gpu)) then
+      call dev_free(self%dq_pml_y_p_gpu, mydev)
+      nullify(self%dq_pml_y_p_gpu)
+   endif
+   if (associated(self%dq_pml_z_m_gpu)) then
+      call dev_free(self%dq_pml_z_m_gpu, mydev)
+      nullify(self%dq_pml_z_m_gpu)
+   endif
+   if (associated(self%dq_pml_z_p_gpu)) then
+      call dev_free(self%dq_pml_z_p_gpu, mydev)
+      nullify(self%dq_pml_z_p_gpu)
+   endif
+   self%enabled = .false.
+   self%nrk = 0_I4P
+   endsubroutine destroy
+
    subroutine initialize(self, rk, pml_fnl)
    class(prism_fnl_rk_pml_object), intent(inout) :: self
    type(rk_object),                intent(in)    :: rk
    type(prism_fnl_pml_object),     intent(in)    :: pml_fnl
-   integer(I4P)                                  :: ierr
 
+   call self%destroy()
    if (.not. pml_fnl%enabled) return
    self%enabled = .true.
    self%nrk = rk%nrk
@@ -68,7 +137,6 @@ contains
                               dq_face_gpu=self%dq_pml_z_m_gpu, label='z-')
    call allocate_face_buffers(q_face_gpu=pml_fnl%q_pml_z_p_gpu, nrk=self%nrk, q_face_rk_gpu=self%q_pml_z_p_rk_gpu, &
                               dq_face_gpu=self%dq_pml_z_p_gpu, label='z+')
-   if (ierr /= 0_I4P) continue
    endsubroutine initialize
 
    subroutine initialize_stages(self, pml_fnl)

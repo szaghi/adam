@@ -66,6 +66,9 @@ type, extends(prism_common_object) :: prism_fnl_object
    integer(I4P)           :: db5(2,5)              !< Device data bounds (rank 5): bb(1,:)=lower, bb(2,:)=upper.
    integer(I4P)           :: hb5(2,5)              !< Host buffer data bounds (rank 5): bb(1,:)=lower, bb(2,:)=upper.
    real(R8P), allocatable :: buf_5D_R8P(:,:,:,:,:) !< Buffer (host memory, device shape), rank 5, R8P.
+   integer(I4P)           :: db6(2,6)              !< Device data bounds (rank 6): bb(1,:)=lower, bb(2,:)=upper.
+   integer(I4P)           :: hb6(2,6)              !< Host buffer data bounds (rank 6): bb(1,:)=lower, bb(2,:)=upper.
+   real(R8P), allocatable :: buf_6D_R8P(:,:,:,:,:,:) !< Buffer (host memory, device shape), rank 6, R8P.
    integer(I4P)          :: fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL !< FV Maxwell-flux variant selector.
    logical               :: fv_add_phi_damping = .false.                  !< Apply phi damping in FV residuals.
    logical               :: fv_add_psi_damping = .false.                  !< Apply psi damping in FV residuals.
@@ -93,6 +96,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: allocate_gpu     !< Allocate GPU data.
       procedure, pass(self) :: copy_cpu_gpu     !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_gpu_cpu     !< Copy data from GPU to CPU.
+      procedure, pass(self) :: destroy          !< Free device data owned by this realm.
       procedure, pass(self) :: initialize_prism !< Initialize PRISM equation.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
@@ -273,30 +277,273 @@ interface
 endinterface
 
 contains
+   subroutine destroy(self)
+   !< Free device data owned by this PRISM FNL realm.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%rk_pml_fnl%destroy()
+   call self%pml_fnl%destroy()
+   call self%rk_pic_fnl%destroy()
+   call self%leapfrog_pic_fnl%destroy()
+   call self%pic_fnl%destroy()
+   call self%coil_fnl%destroy()
+   call destroy_rk_fnl_device(self%rk_fnl)
+   call destroy_weno_fnl_device(self%weno_fnl)
+   call destroy_ib_fnl_device(self%ib_fnl)
+   call destroy_field_fnl_device(self%field_fnl)
+   call free_prism_core_gpu(self)
+   nullify(self%compute_curl_dev)
+   nullify(self%compute_derivative1_dev)
+   nullify(self%compute_derivative2_dev)
+   nullify(self%compute_derivative4_dev)
+   nullify(self%compute_divergence_dev)
+   nullify(self%compute_gradient_dev)
+   nullify(self%compute_laplacian_dev)
+   nullify(self%compute_residuals_dev)
+   nullify(self%integrate_dev)
+   endsubroutine destroy
+
+   subroutine free_prism_core_gpu(self)
+   !< Free raw device buffers allocated directly by prism_fnl_object%allocate_gpu.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   if (associated(self%q_gpu)) then
+      call dev_free(self%q_gpu, mydev)
+      nullify(self%q_gpu)
+   endif
+   if (associated(self%dq_gpu)) then
+      call dev_free(self%dq_gpu, mydev)
+      nullify(self%dq_gpu)
+   endif
+   if (associated(self%flxyz_c_gpu)) then
+      call dev_free(self%flxyz_c_gpu, mydev)
+      nullify(self%flxyz_c_gpu)
+   endif
+   if (associated(self%flx_f_gpu)) then
+      call dev_free(self%flx_f_gpu, mydev)
+      nullify(self%flx_f_gpu)
+   endif
+   if (associated(self%fly_f_gpu)) then
+      call dev_free(self%fly_f_gpu, mydev)
+      nullify(self%fly_f_gpu)
+   endif
+   if (associated(self%flz_f_gpu)) then
+      call dev_free(self%flz_f_gpu, mydev)
+      nullify(self%flz_f_gpu)
+   endif
+   if (associated(self%curl_gpu)) then
+      call dev_free(self%curl_gpu, mydev)
+      nullify(self%curl_gpu)
+   endif
+   if (associated(self%divergence_gpu)) then
+      call dev_free(self%divergence_gpu, mydev)
+      nullify(self%divergence_gpu)
+   endif
+   if (allocated(self%buf_5D_R8P)) deallocate(self%buf_5D_R8P)
+   if (allocated(self%buf_6D_R8P)) deallocate(self%buf_6D_R8P)
+   self%db5 = 0_I4P
+   self%hb5 = 0_I4P
+   self%db6 = 0_I4P
+   self%hb6 = 0_I4P
+   endsubroutine free_prism_core_gpu
+
+   subroutine destroy_field_fnl_device(field_fnl)
+   !< Free device data owned by the field FNL component used by this PRISM realm.
+   type(field_fnl_object), intent(inout) :: field_fnl !< FNL field helper.
+
+   call destroy_maps_fnl_device(field_fnl%maps)
+   if (associated(field_fnl%fec_1_6_array_gpu)) then
+      call dev_free(field_fnl%fec_1_6_array_gpu, mydev)
+      nullify(field_fnl%fec_1_6_array_gpu)
+   endif
+   if (associated(field_fnl%x_cell_gpu)) then
+      call dev_free(field_fnl%x_cell_gpu, mydev)
+      nullify(field_fnl%x_cell_gpu)
+   endif
+   if (associated(field_fnl%y_cell_gpu)) then
+      call dev_free(field_fnl%y_cell_gpu, mydev)
+      nullify(field_fnl%y_cell_gpu)
+   endif
+   if (associated(field_fnl%z_cell_gpu)) then
+      call dev_free(field_fnl%z_cell_gpu, mydev)
+      nullify(field_fnl%z_cell_gpu)
+   endif
+   if (associated(field_fnl%dxyz_gpu)) then
+      call dev_free(field_fnl%dxyz_gpu, mydev)
+      nullify(field_fnl%dxyz_gpu)
+   endif
+   nullify(field_fnl%ngc)
+   nullify(field_fnl%ni)
+   nullify(field_fnl%nj)
+   nullify(field_fnl%nk)
+   nullify(field_fnl%nb)
+   nullify(field_fnl%blocks_number)
+   nullify(field_fnl%nv)
+   endsubroutine destroy_field_fnl_device
+
+   subroutine destroy_maps_fnl_device(maps_fnl)
+   !< Free device data owned by the maps FNL component used by this PRISM realm.
+   type(maps_fnl_object), intent(inout) :: maps_fnl !< FNL maps helper.
+
+   if (associated(maps_fnl%local_map_ghost_cell_gpu)) then
+      call dev_free(maps_fnl%local_map_ghost_cell_gpu, mydev)
+      nullify(maps_fnl%local_map_ghost_cell_gpu)
+   endif
+   if (associated(maps_fnl%comm_map_recv_ghost_cell_gpu)) then
+      call dev_free(maps_fnl%comm_map_recv_ghost_cell_gpu, mydev)
+      nullify(maps_fnl%comm_map_recv_ghost_cell_gpu)
+   endif
+   if (associated(maps_fnl%comm_map_send_ghost_cell_gpu)) then
+      call dev_free(maps_fnl%comm_map_send_ghost_cell_gpu, mydev)
+      nullify(maps_fnl%comm_map_send_ghost_cell_gpu)
+   endif
+   if (associated(maps_fnl%send_buffer_ghost_gpu)) then
+      call dev_free(maps_fnl%send_buffer_ghost_gpu, mydev)
+      nullify(maps_fnl%send_buffer_ghost_gpu)
+   endif
+   if (associated(maps_fnl%recv_buffer_ghost_gpu)) then
+      call dev_free(maps_fnl%recv_buffer_ghost_gpu, mydev)
+      nullify(maps_fnl%recv_buffer_ghost_gpu)
+   endif
+   if (associated(maps_fnl%local_map_bc_crown_gpu)) then
+      call dev_free(maps_fnl%local_map_bc_crown_gpu, mydev)
+      nullify(maps_fnl%local_map_bc_crown_gpu)
+   endif
+   if (associated(maps_fnl%seam_local_map_ghost_cell_gpu)) then
+      call dev_free(maps_fnl%seam_local_map_ghost_cell_gpu, mydev)
+      nullify(maps_fnl%seam_local_map_ghost_cell_gpu)
+   endif
+   if (associated(maps_fnl%seam_local_send_buf_gpu)) then
+      call dev_free(maps_fnl%seam_local_send_buf_gpu, mydev)
+      nullify(maps_fnl%seam_local_send_buf_gpu)
+   endif
+   if (associated(maps_fnl%seam_local_recv_buf_gpu)) then
+      call dev_free(maps_fnl%seam_local_recv_buf_gpu, mydev)
+      nullify(maps_fnl%seam_local_recv_buf_gpu)
+   endif
+   if (associated(maps_fnl%seam_comm_map_send_ghost_cell_gpu)) then
+      call dev_free(maps_fnl%seam_comm_map_send_ghost_cell_gpu, mydev)
+      nullify(maps_fnl%seam_comm_map_send_ghost_cell_gpu)
+   endif
+   if (associated(maps_fnl%seam_comm_map_recv_ghost_cell_gpu)) then
+      call dev_free(maps_fnl%seam_comm_map_recv_ghost_cell_gpu, mydev)
+      nullify(maps_fnl%seam_comm_map_recv_ghost_cell_gpu)
+   endif
+   if (associated(maps_fnl%seam_mpi_send_buf_gpu)) then
+      call dev_free(maps_fnl%seam_mpi_send_buf_gpu, mydev)
+      nullify(maps_fnl%seam_mpi_send_buf_gpu)
+   endif
+   if (associated(maps_fnl%seam_mpi_recv_buf_gpu)) then
+      call dev_free(maps_fnl%seam_mpi_recv_buf_gpu, mydev)
+      nullify(maps_fnl%seam_mpi_recv_buf_gpu)
+   endif
+   endsubroutine destroy_maps_fnl_device
+
+   subroutine destroy_ib_fnl_device(ib_fnl)
+   !< Free device data owned by the IB FNL component used by this PRISM realm.
+   type(ib_fnl_object), intent(inout) :: ib_fnl !< FNL IB helper.
+
+   if (associated(ib_fnl%q_bcs_vars_gpu)) then
+      call dev_free(ib_fnl%q_bcs_vars_gpu, mydev)
+      nullify(ib_fnl%q_bcs_vars_gpu)
+   endif
+   if (associated(ib_fnl%phi_gpu)) then
+      call dev_free(ib_fnl%phi_gpu, mydev)
+      nullify(ib_fnl%phi_gpu)
+   endif
+   endsubroutine destroy_ib_fnl_device
+
+   subroutine destroy_rk_fnl_device(rk_fnl)
+   !< Free device data owned by the RK FNL component used by this PRISM realm.
+   type(rk_fnl_object), intent(inout) :: rk_fnl !< FNL RK helper.
+
+   if (associated(rk_fnl%alph_gpu)) then
+      call dev_free(rk_fnl%alph_gpu, mydev)
+      nullify(rk_fnl%alph_gpu)
+   endif
+   if (associated(rk_fnl%beta_gpu)) then
+      call dev_free(rk_fnl%beta_gpu, mydev)
+      nullify(rk_fnl%beta_gpu)
+   endif
+   if (associated(rk_fnl%gamm_gpu)) then
+      call dev_free(rk_fnl%gamm_gpu, mydev)
+      nullify(rk_fnl%gamm_gpu)
+   endif
+   if (associated(rk_fnl%q_rk_gpu)) then
+      call dev_free(rk_fnl%q_rk_gpu, mydev)
+      nullify(rk_fnl%q_rk_gpu)
+   endif
+   endsubroutine destroy_rk_fnl_device
+
+   subroutine destroy_weno_fnl_device(weno_fnl)
+   !< Free device data owned by the WENO FNL component used by this PRISM realm.
+   type(weno_fnl_object), intent(inout) :: weno_fnl !< FNL WENO helper.
+
+   if (associated(weno_fnl%a_gpu)) then
+      call dev_free(weno_fnl%a_gpu, mydev)
+      nullify(weno_fnl%a_gpu)
+   endif
+   if (associated(weno_fnl%p_gpu)) then
+      call dev_free(weno_fnl%p_gpu, mydev)
+      nullify(weno_fnl%p_gpu)
+   endif
+   if (associated(weno_fnl%d_gpu)) then
+      call dev_free(weno_fnl%d_gpu, mydev)
+      nullify(weno_fnl%d_gpu)
+   endif
+   if (associated(weno_fnl%ror_schemes_gpu)) then
+      call dev_free(weno_fnl%ror_schemes_gpu, mydev)
+      nullify(weno_fnl%ror_schemes_gpu)
+   endif
+   if (associated(weno_fnl%ror_ivar_gpu)) then
+      call dev_free(weno_fnl%ror_ivar_gpu, mydev)
+      nullify(weno_fnl%ror_ivar_gpu)
+   endif
+   if (associated(weno_fnl%ror_stats_gpu)) then
+      call dev_free(weno_fnl%ror_stats_gpu, mydev)
+      nullify(weno_fnl%ror_stats_gpu)
+   endif
+   if (associated(weno_fnl%cell_scheme_gpu)) then
+      call dev_free(weno_fnl%cell_scheme_gpu, mydev)
+      nullify(weno_fnl%cell_scheme_gpu)
+   endif
+   endsubroutine destroy_weno_fnl_device
+
    ! auxiliary methods
    subroutine allocate_gpu(self)
    !< Allocate GPU data.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: ierr !< Error status.
+   integer(I4P)                           :: nc   !< Number of coils.
+   integer(I4P)                           :: nv_coil !< Number of coil vector components.
 
    call mpih_fnl%print_message('prism_fnl_object%allocate_gpu start')
+   call free_prism_core_gpu(self)
    associate(nv=>self%nv, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
    call dev_alloc(fptr_dev=self%q_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_gpu in prism_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%dq_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate dq_gpu in prism_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%flxyz_c_gpu, &
                   ubounds=[nb,3,3,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1,1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flxyz_c_gpu in prism_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%flx_f_gpu, &
                   ubounds=[nb,ni,nj,nk,nv], lbounds=[1,0,1,1,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flx_f_gpu in prism_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%fly_f_gpu, &
                   ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,0,1,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate fly_f_gpu in prism_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%flz_f_gpu, &
                   ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,1,0,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flz_f_gpu in prism_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%curl_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate curl_gpu in prism_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%divergence_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate divergence_gpu in prism_fnl_object%allocate_gpu')
    ! buffer for transposed copy
    call allocate_variable(var=self%buf_5D_R8P,       &
                           ulb=reshape([1,nb,         &
@@ -309,6 +556,22 @@ contains
    self%db5(2,:) = [nb,ni+ngc,nj+ngc,nk+ngc,nv] ! upper device bounds, rank 5D
    self%hb5(1,:) = [1 ,1-ngc ,1-ngc ,1-ngc ,1 ] ! lower host   bounds, rank 5D
    self%hb5(2,:) = [nv,ni+ngc,nj+ngc,nk+ngc,nb] ! upper host   bounds, rank 5D
+   nc = self%coil%total_coils_number
+   if (nc > 0_I4P) then
+      nv_coil = int(size(self%coil%j_vec, dim=1), I4P)
+      call allocate_variable(var=self%buf_6D_R8P,       &
+                             ulb=reshape([1,nb,         &
+                                          1-ngc,ni+ngc, &
+                                          1-ngc,nj+ngc, &
+                                          1-ngc,nk+ngc, &
+                                          1,nv_coil,    &
+                                          1,nc],[2,6]), &
+                             msg=mpih%myrankstr//'prism_fnl_object%allocate_common(buf_6D_R8P_hh) ', verbose=.true.)
+      self%db6(1,:) = [1 ,1-ngc ,1-ngc ,1-ngc ,1      ,1 ] ! lower device bounds, rank 6D
+      self%db6(2,:) = [nb,ni+ngc,nj+ngc,nk+ngc,nv_coil,nc] ! upper device bounds, rank 6D
+      self%hb6(1,:) = [1      ,1-ngc ,1-ngc ,1-ngc ,1 ,1 ] ! lower host   bounds, rank 6D
+      self%hb6(2,:) = [nv_coil,ni+ngc,nj+ngc,nk+ngc,nb,nc] ! upper host   bounds, rank 6D
+   endif
    endassociate
    call mpih_fnl%print_message('prism_fnl_object%allocate_gpu finish')
    endsubroutine allocate_gpu
@@ -329,7 +592,11 @@ contains
                                      verbose=verbose)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
       call self%leapfrog_pic_fnl%copy_cpu_gpu(q_pic_old=self%leapfrog_pic%q_pic_old, verbose=verbose)
-   call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid)
+   if (allocated(self%buf_6D_R8P)) then
+      call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid, buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
+   else
+      call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid)
+   endif
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
 
@@ -352,7 +619,11 @@ contains
                                      verbose=verbose)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
       call self%leapfrog_pic_fnl%copy_gpu_cpu(q_pic_old=self%leapfrog_pic%q_pic_old, verbose=verbose)
-   call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid)
+   if (allocated(self%buf_6D_R8P)) then
+      call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid, buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
+   else
+      call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid)
+   endif
    endsubroutine copy_gpu_cpu
 
    subroutine initialize_prism(self, filename, realms_number)
@@ -383,7 +654,12 @@ contains
    call self%pml_fnl%initialize(pml=self%pml, grid=self%adam%grid, field=self%adam%field)
    if (self%pml_fnl%enabled) call self%rk_pml_fnl%initialize(rk=self%rk, pml_fnl=self%pml_fnl)
    call self%allocate_gpu
-   call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid)
+   if (allocated(self%buf_6D_R8P)) then
+      call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid, &
+                                    buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
+   else
+      call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid)
+   endif
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       call self%pic_fnl%initialize(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
       if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
@@ -4306,6 +4582,7 @@ contains
          end select
 
          call dev_alloc(fptr_dev=skin_gpu, lbounds=[1,1], ubounds=[inner_n*outer_n, nv_c], ierr=ierr)
+         if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate skin_gpu in accumulate_seam_fluxes_fv')
          call fv_pack_face_skin_dev_kernel(fec=fec, ni=ni, nj=nj, nk=nk, nv_c=nv_c, b=b,       &
                                            inner_n=inner_n, outer_n=outer_n,                   &
                                            flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
@@ -4731,6 +5008,7 @@ contains
       inquire(unit=self%io%divergence_history_unit, opened=is_open)
       if (is_open) close(self%io%divergence_history_unit)
    endif
+   call self%destroy()
    endsubroutine finalize_forest
 
    subroutine finalize_mpi_forest(self)
@@ -5273,6 +5551,7 @@ contains
                allocate(delta(1:nv_reg, 1:nface_cells))
                delta = face_f%F_coarse(:,:,1) - face_f%F_fine_sum(:,:,1)
                call dev_alloc(fptr_dev=delta_gpu, lbounds=[1,1], ubounds=[nv_reg,nface_cells], ierr=ierr)
+               if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate delta_gpu in apply_reflux_to_stage_forest')
                call dev_memcpy_to_device(dst=delta_gpu, src=delta)
                call fv_apply_reflux_face_dev_kernel(axis=axis, sgn=sgn, b=face_f%coarse_block,          &
                                                     ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,   &
