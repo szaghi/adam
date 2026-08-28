@@ -75,6 +75,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_energy               !< Compute energy.
       procedure, pass(self) :: compute_energy_error         !< Compute energy error.
       procedure, pass(self) :: compute_grms                 !< Compute Grms of the rotating magnetic-field amplitude.
+      procedure, pass(self) :: compute_magnetic_field_at_center_domain !< Compute B at the domain center.
       procedure, pass(self) :: impose_div_free              !< Impose divergence-free property.
       procedure, pass(self) :: simulate                     !< Perform the simulation.
 endtype prism_cpu_object
@@ -1443,9 +1444,11 @@ contains
    call self%save_simulation_data
    call self%compute_energy
    if (self%grms%do_save_history) call self%compute_grms
+   if (self%magnetic_field_at_center_domain%do_save_history) call self%compute_magnetic_field_at_center_domain
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.)
    call self%save_grms_history(is_to_open=.true.)
+   call self%save_magnetic_field_at_center_domain_history(is_to_open=.true.)
    call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
    call self%io%open_file_residuals(nv=self%nv)
 
@@ -1871,9 +1874,11 @@ contains
    endif
    call self%compute_energy
    if (self%grms%do_save_history) call self%compute_grms
+   if (self%magnetic_field_at_center_domain%do_save_history) call self%compute_magnetic_field_at_center_domain
    !call self%save_energy_error
    call self%save_energy_history
    call self%save_grms_history
+   call self%save_magnetic_field_at_center_domain_history
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
@@ -1930,6 +1935,10 @@ contains
       if (self%grms%history_unit > 0_I4P) then
          inquire(unit=self%grms%history_unit, opened=is_open)
          if (is_open) close(self%grms%history_unit)
+      endif
+      if (self%magnetic_field_at_center_domain%history_unit > 0_I4P) then
+         inquire(unit=self%magnetic_field_at_center_domain%history_unit, opened=is_open)
+         if (is_open) close(self%magnetic_field_at_center_domain%history_unit)
       endif
       inquire(unit=self%io%divergence_history_unit, opened=is_open)
       if (is_open) close(self%io%divergence_history_unit)
@@ -2352,6 +2361,53 @@ contains
       reference_distance2 = (x - domain_center(1))**2 + (y - domain_center(2))**2 + (z - domain_center(3))**2
       endfunction reference_distance2
    endsubroutine compute_grms
+
+   subroutine compute_magnetic_field_at_center_domain(self)
+   !< Compute the magnetic field in the cell center closest to the geometrical domain center.
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P)                          :: b, i, j, k
+   integer(I4P)                          :: owner_rank
+   real(R8P)                             :: best_r2_global(2)
+   real(R8P)                             :: best_r2_local(2)
+   real(R8P)                             :: center(3)
+   real(R8P)                             :: distance2
+   real(R8P)                             :: magnetic_field(3)
+   real(R8P)                             :: sample_point(3)
+   real(R8P)                             :: x, y, z
+
+   center = 0.5_R8P * (self%adam%grid%domain_emin + self%adam%grid%domain_emax)
+   best_r2_local = [huge(1.0_R8P), real(mpih%myrank, R8P)]
+   magnetic_field = 0.0_R8P
+   sample_point = center
+
+   do b = 1, self%blocks_number
+      do k = 1, self%nk
+         z = self%adam%field%z_cell(k,b)
+         do j = 1, self%nj
+            y = self%adam%field%y_cell(j,b)
+            do i = 1, self%ni
+               x = self%adam%field%x_cell(i,b)
+               distance2 = (x - center(1))**2 + (y - center(2))**2 + (z - center(3))**2
+               if (distance2 < best_r2_local(1)) then
+                  best_r2_local(1) = distance2
+                  magnetic_field = [self%q(VAR_BX,i,j,k,b), self%q(VAR_BY,i,j,k,b), self%q(VAR_BZ,i,j,k,b)]
+                  sample_point = [x, y, z]
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_2DOUBLE_PRECISION, MPI_MINLOC, MPI_COMM_WORLD, mpih%error)
+   owner_rank = nint(best_r2_global(2), I4P)
+   call MPI_BCAST(magnetic_field, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih%error)
+   call MPI_BCAST(sample_point, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih%error)
+
+   self%magnetic_field_at_center_domain%center = center
+   self%magnetic_field_at_center_domain%sample_point = sample_point
+   self%magnetic_field_at_center_domain%magnetic_field = magnetic_field
+   self%magnetic_field_at_center_domain%distance = sqrt(best_r2_global(1))
+   endsubroutine compute_magnetic_field_at_center_domain
 
    subroutine compute_max_divergence_outside_absorbing_layers(self, hs, max_div_D, max_div_B, max_div_J)
    !< Compute divergence maxima excluding absorbing layers and any cell whose

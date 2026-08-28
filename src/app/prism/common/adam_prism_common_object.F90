@@ -11,6 +11,7 @@ use :: adam_prism_fWLayer_object
 use :: adam_prism_grms_object
 use :: adam_prism_ic_object
 use :: adam_prism_leapfrog_pic_object
+use :: adam_prism_magnetic_field_at_center_domain_object
 use :: adam_prism_numerics_object
 use :: adam_prism_parameters
 use :: adam_prism_physics_object
@@ -71,6 +72,7 @@ type, extends(realm_object) :: prism_common_object
    type(prism_grms_object)               :: grms               !< Grms diagnostic.
    type(prism_ic_object)                 :: ic                 !< Initial conditions.
    type(prism_leapfrog_pic_object)       :: leapfrog_pic       !< Leapfrog PIC integrator.
+   type(prism_magnetic_field_at_center_domain_object) :: magnetic_field_at_center_domain !< Domain-center B diagnostic.
    type(prism_numerics_object)           :: numerics           !< Numerics configuration.
    type(prism_particle_injection_object) :: particle_injection !< Particle injection.
    type(prism_physics_object)            :: physics            !< Physics configuration.
@@ -100,6 +102,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: save_energy_history     !< Save energy history.
       procedure, pass(self) :: save_divergence_history !< Save divergence history.
       procedure, pass(self) :: save_grms_history       !< Save Grms history.
+      procedure, pass(self) :: save_magnetic_field_at_center_domain_history !< Save domain-center B history.
       procedure, pass(self) :: save_restart_files      !< Save restart files.
       procedure, pass(self) :: save_xh5f               !< Save simulation data in XH5F format.
       ! coils initialization methods
@@ -341,6 +344,8 @@ contains
    call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, physics=self%physics, file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    call self%grms%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, verbose=verbose_)
+   call self%magnetic_field_at_center_domain%initialize(file_parameters=file_parameters, &
+                                                        output_basename=self%io%output_basename, verbose=verbose_)
    !if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
    !   call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
    !                              rk=self%rk, physics=self%physics)
@@ -663,6 +668,20 @@ contains
                                   is_to_open=is_to_open, is_to_close=is_to_close)
    endif
    endsubroutine save_grms_history
+
+   subroutine save_magnetic_field_at_center_domain_history(self, is_to_open, is_to_close)
+   !< Save domain-center magnetic-field history.
+   class(prism_common_object), intent(inout)        :: self        !< The equation.
+   logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
+   logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
+
+   if (self%magnetic_field_at_center_domain%do_save_history .and. &
+       self%time%is_to_save(it_save=self%magnetic_field_at_center_domain%history_save)) then
+      call self%magnetic_field_at_center_domain%save_history(it=self%time%it, time=self%time%time, &
+                                                             blocks_number=self%blocks_number, &
+                                                             is_to_open=is_to_open, is_to_close=is_to_close)
+   endif
+   endsubroutine save_magnetic_field_at_center_domain_history
 
    subroutine save_energy_error(self, is_to_open, is_to_close)
    !< Save energy error history.

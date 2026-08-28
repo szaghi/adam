@@ -158,6 +158,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
       procedure, pass(self) :: compute_grms           !< Compute Grms of the rotating magnetic-field amplitude.
+      procedure, pass(self) :: compute_magnetic_field_at_center_domain !< Compute B at the domain center.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
       procedure, pass(self) :: impose_ct_correction_dev  !< Device-side constrained-transport correction on q_gpu.
       procedure, pass(self) :: impose_div_free      	!< Impose divergence-free property.
@@ -5005,6 +5006,10 @@ contains
          inquire(unit=self%grms%history_unit, opened=is_open)
          if (is_open) close(self%grms%history_unit)
       endif
+      if (self%magnetic_field_at_center_domain%history_unit > 0_I4P) then
+         inquire(unit=self%magnetic_field_at_center_domain%history_unit, opened=is_open)
+         if (is_open) close(self%magnetic_field_at_center_domain%history_unit)
+      endif
       inquire(unit=self%io%divergence_history_unit, opened=is_open)
       if (is_open) close(self%io%divergence_history_unit)
    endif
@@ -5136,9 +5141,11 @@ contains
    call self%save_simulation_data
    call self%compute_energy
    if (self%grms%do_save_history) call self%compute_grms
+   if (self%magnetic_field_at_center_domain%do_save_history) call self%compute_magnetic_field_at_center_domain
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.) !Cazzo
    call self%save_grms_history(is_to_open=.true.)
+   call self%save_magnetic_field_at_center_domain_history(is_to_open=.true.)
    call self%compute_max_divergence
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(is_to_open=.true., div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
@@ -5626,9 +5633,11 @@ contains
    endif
    call self%compute_energy
    if (self%grms%do_save_history) call self%compute_grms
+   if (self%magnetic_field_at_center_domain%do_save_history) call self%compute_magnetic_field_at_center_domain
    !call self%save_energy_error !Cazzo
    call self%save_energy_history !Cazzo
    call self%save_grms_history
+   call self%save_magnetic_field_at_center_domain_history
    call self%compute_max_divergence
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
@@ -6175,6 +6184,76 @@ contains
       enddo
       endsubroutine compute_grms_dev_kernel
    endsubroutine compute_grms
+
+   subroutine compute_magnetic_field_at_center_domain(self)
+   !< Compute the magnetic field in the cell center closest to the geometrical domain center.
+   class(prism_fnl_object), intent(inout) :: self
+   integer(I4P)                          :: b, i, j, k
+   integer(I4P)                          :: b_ref, i_ref, j_ref, k_ref
+   integer(I4P)                          :: owner_rank
+   real(R8P)                             :: best_r2_global(2)
+   real(R8P)                             :: best_r2_local(2)
+   real(R8P)                             :: center(3)
+   real(R8P)                             :: distance2
+   real(R8P)                             :: magnetic_field(3)
+   real(R8P)                             :: sample_point(3)
+   real(R8P)                             :: x, y, z
+
+   center = 0.5_R8P * (self%adam%grid%domain_emin + self%adam%grid%domain_emax)
+   best_r2_local = [huge(1.0_R8P), real(mpih_fnl%myrank, R8P)]
+   magnetic_field = 0.0_R8P
+   sample_point = center
+   b_ref = 0_I4P ; i_ref = 1_I4P ; j_ref = 1_I4P ; k_ref = 1_I4P
+
+   do b = 1, self%blocks_number
+      do k = 1, self%nk
+         z = self%adam%field%z_cell(k,b)
+         do j = 1, self%nj
+            y = self%adam%field%y_cell(j,b)
+            do i = 1, self%ni
+               x = self%adam%field%x_cell(i,b)
+               distance2 = (x - center(1))**2 + (y - center(2))**2 + (z - center(3))**2
+               if (distance2 < best_r2_local(1)) then
+                  best_r2_local(1) = distance2
+                  b_ref = b ; i_ref = i ; j_ref = j ; k_ref = k
+                  sample_point = [x, y, z]
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   if (b_ref > 0_I4P) then
+      call compute_magnetic_field_at_center_domain_dev_kernel(b_ref=b_ref, i_ref=i_ref, j_ref=j_ref, k_ref=k_ref, &
+                                                              ngc=self%ngc, q_gpu=self%q_gpu, bx=magnetic_field(1), &
+                                                              by=magnetic_field(2), bz=magnetic_field(3))
+   endif
+   call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_2DOUBLE_PRECISION, MPI_MINLOC, MPI_COMM_WORLD, mpih_fnl%error)
+   owner_rank = nint(best_r2_global(2), I4P)
+   call MPI_BCAST(magnetic_field, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_BCAST(sample_point, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih_fnl%error)
+
+   self%magnetic_field_at_center_domain%center = center
+   self%magnetic_field_at_center_domain%sample_point = sample_point
+   self%magnetic_field_at_center_domain%magnetic_field = magnetic_field
+   self%magnetic_field_at_center_domain%distance = sqrt(best_r2_global(1))
+   contains
+      subroutine compute_magnetic_field_at_center_domain_dev_kernel(b_ref, i_ref, j_ref, k_ref, ngc, q_gpu, bx, by, bz)
+      integer(I4P), intent(in)  :: b_ref, i_ref, j_ref, k_ref, ngc
+      real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(out) :: bx, by, bz
+      integer(I4P)              :: one
+
+      bx = 0.0_R8P ; by = 0.0_R8P ; bz = 0.0_R8P
+      !$acc parallel loop independent DEVICEVAR(q_gpu) private(one) reduction(+:bx,by,bz)
+      !$omp OMPLOOP DEVICEPTR(q_gpu) private(one) reduction(+:bx,by,bz)
+      do one = 1, 1
+         bx = q_gpu(b_ref,i_ref,j_ref,k_ref,VAR_BX)
+         by = q_gpu(b_ref,i_ref,j_ref,k_ref,VAR_BY)
+         bz = q_gpu(b_ref,i_ref,j_ref,k_ref,VAR_BZ)
+      enddo
+      endsubroutine compute_magnetic_field_at_center_domain_dev_kernel
+   endsubroutine compute_magnetic_field_at_center_domain
 
    subroutine compute_max_divergence(self)
    !< Compute maximum divergence.
