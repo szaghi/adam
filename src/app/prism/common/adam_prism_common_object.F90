@@ -1398,6 +1398,15 @@ contains
       !Diagnostic
       dtheta_seg = wrap_to_pi(theta_p2_prime-theta_p1_prime)
       if (abs(r_p1-Radius)>1.0E-6_R8P .or. abs(r_p2-Radius)>1.0E-6_R8P) then
+         print '(A)', mpih%myrankstr//'helicon cylinder-surface diagnostic'
+         print '(A)', mpih%myrankstr//'  coil: '//trim(str(n,.true.))//', segment: '//trim(str(p,.true.))
+         print '(A)', mpih%myrankstr//'  normal: '//trim(normal)
+         print '(A)', mpih%myrankstr//'  center: '//trim(str(x_c))//', '//trim(str(y_c))//', '//trim(str(z_c))
+         print '(A)', mpih%myrankstr//'  expected radius: '//trim(str(Radius))
+         print '(A)', mpih%myrankstr//'  p1: '//trim(str(x_p1))//', '//trim(str(y_p1))//', '//trim(str(z_p1))
+         print '(A)', mpih%myrankstr//'  p1 radius: '//trim(str(r_p1))//', diff: '//trim(str(abs(r_p1-Radius)))
+         print '(A)', mpih%myrankstr//'  p2: '//trim(str(x_p2))//', '//trim(str(y_p2))//', '//trim(str(z_p2))
+         print '(A)', mpih%myrankstr//'  p2 radius: '//trim(str(r_p2))//', diff: '//trim(str(abs(r_p2-Radius)))
          call mpih%error_stop(msg=mpih%myrankstr & 
                //'prism_common_object%set_helicon_coil: error, coil points are not on cylinder surface')
       elseif (abs(dtheta_seg) < 1.0E-6_R8P .and. abs(csi_p1-csi_p2) < 1.0E-6_R8P) then
