@@ -1366,8 +1366,7 @@ contains
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,      &
              nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, x_c=>self%coil%x_center(n),                      &
              y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), normal=>self%coil%normal(n),             &
-             Radius=>self%coil%r_coil(n), N_points=>self%coil%N_points(n), x_points=>self%coil%x_points(n,:), &
-             y_points=>self%coil%y_points(n,:), z_points=>self%coil%z_points(n,:),                            &
+             Radius=>self%coil%r_coil(n), N_points=>self%coil%N_points(n),                                    &
              nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,          &
              z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,               &
              dxyz=>self%adam%field%dxyz, hs=>self%fdv_half_stencil)
@@ -1383,12 +1382,12 @@ contains
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
    do p=1, N_points-1 !Porto tutto in coordinate locali e coordinate cilindriche, per poi mappare tutto nel piano srotolato (s,csi)
-      x_p1 = x_points(p)
-      y_p1 = y_points(p)
-      z_p1 = z_points(p)
-      x_p2 = x_points(p+1)
-      y_p2 = y_points(p+1)
-      z_p2 = z_points(p+1)
+      x_p1 = self%coil%x_points(n,p)
+      y_p1 = self%coil%y_points(n,p)
+      z_p1 = self%coil%z_points(n,p)
+      x_p2 = self%coil%x_points(n,p+1)
+      y_p2 = self%coil%y_points(n,p+1)
+      z_p2 = self%coil%z_points(n,p+1)
 
       call cartesian_to_cylindrical(x=x_p1, y=y_p1, z=z_p1, x_c=x_c, y_c=y_c, &
                            z_c=z_c, normal=normal, r=r_p1, theta=theta_p1_prime, axial=csi_p1)
