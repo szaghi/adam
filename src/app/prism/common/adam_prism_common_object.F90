@@ -1314,38 +1314,50 @@ contains
    endif
    endsubroutine print_elliptic_progress
 
+   subroutine print_source_progress(label, progress_done, progress_total, last_percent)
+   character(*), intent(in)    :: label
+   integer(I4P), intent(in)    :: progress_done
+   integer(I4P), intent(in)    :: progress_total
+   integer(I4P), intent(inout) :: last_percent
+   integer(I4P), parameter     :: progress_step = 10_I4P
+   integer(I4P)                :: percent
+
+   if (progress_total <= 0_I4P) return
+   percent = int(100._R8P * real(progress_done, R8P) / real(progress_total, R8P), I4P)
+   percent = max(0_I4P, min(100_I4P, percent))
+   if (progress_done >= progress_total) percent = 100_I4P
+
+   if (percent == 0_I4P .or. percent == 100_I4P .or. percent >= last_percent + progress_step) then
+      call mpih%print_message(trim(label)//': '//trim(str(percent))//'%')
+      last_percent = percent
+   endif
+   endsubroutine print_source_progress
+
    subroutine set_helicon_coil(self, n)
    !< Set helicon coil.
    class(prism_common_object), intent(inout) :: self                                    !< Cpu object.
    integer(I4P),               intent(in)    :: n                                       !< Coil number.
    real(R8P), allocatable                    :: A(:,:,:,:,:)                            !< Total coil vector potential field.
-   real(R8P) :: A_r
    real(R8P), allocatable                    :: A_gc(:,:,:,:)                           !< Coil vector potential field at ghost cells, used for boundary condition application.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:)                 !< Buffer variable for self%coil%J_vec.
-   real(R8P), allocatable                    :: xpoints(:), ypoints(:), zpoints(:)
    real(R8P)                                 :: r_p1, theta_p1, csi_p1                  !< Cylindrical coordinates of the first coil point.
    real(R8P)                                 :: r_p2, theta_p2, csi_p2                  !< Cylindrical coordinates of the second coil point.
-   real(R8P)                                 :: e1(3), e2(3), csi(3)                    !< Terna di assi ortonormale all'asse del cilindro centrata in x_c
-   real(R8P)                                 :: r_p, theta_p                            !< Coordinate del punto in coordinate cilindriche
-   real(R8P)                                 :: s_p, csi_p                              !< Coordinate del secondo punto nel s.d.r. sull'asse del cilindro
    real(R8P)                                 :: theta_p1_prime, theta_p2_prime          !< Coordinata azimuthale da atan2
-   real(R8P)                                 :: theta_p_prime, theta_c
+   real(R8P)                                 :: theta_c
    real(R8P)                                 :: dtheta_seg                              !<Delta teta tra due punti della spira
    real(R8P), allocatable                    :: s_map(:), csi_map(:)                    !< Coordinate dei punti nella spira nel piano cilindrico srotolato s=R*theta; csi = axial
    real(R8P)                                 :: area_signed, eta
-   real(R8P)                                 :: lambda, v_hat(2), p_near(2), p_nearest(2) !<Parametro di proiezione
-   real(R8P)                                 :: d_p, d_p_0, p_star, w_n
-   real(R8P)                                 :: chi, W_r
    real(R8P)                                 :: cell_coord(3)                           !< Cartesian coordinates of the cell center.
    real(R8P)                                 :: x_p1, y_p1, z_p1
    real(R8P)                                 :: x_p2, y_p2, z_p2
    integer(I4P)                              :: b,i,j,k,p,f                             !< Counters.   
    real(R8P)                                 :: gc_coord(3)
-   integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b               !< Normal and tangential directions indices for ghost cell reconstruction
    integer(I4P), parameter                   :: n_faces = 6_I4P                         !< Number of ghost-cell face slabs.
    integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
    integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
    integer(I4P)                              :: k1_f(n_faces), k2_f(n_faces)
+   integer(I4P)                              :: progress_done, progress_total, progress_percent
+   character(len=:), allocatable             :: progress_label
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,      &
@@ -1414,57 +1426,38 @@ contains
    area_signed = compute_signed_area(N_points=N_points, x_points=s_map, y_points=csi_map)
    eta = sign(1.0_R8P, area_signed)
    theta_c = 0.5_R8P * (minval(s_map/Radius) + maxval(s_map/Radius))
+
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P + n_faces*blocks_number
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' helicon'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
    
-   !Mappatura funzione indicatrice del bordo Chi
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
                cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-               call cartesian_to_cylindrical(x=cell_coord(1), y=cell_coord(2), z=cell_coord(3),     &
-                                            x_c=x_c, y_c=y_c, z_c=z_c,                              &
-                                            normal=normal, r=r_p, theta=theta_p_prime, axial=csi_p)
-               theta_p = theta_c + wrap_to_pi(theta_p_prime - theta_c)
-               s_p = Radius * theta_p
-               d_p = huge(1.0_R8P)
-               do p=1, N_points-1 !Calcolo distanza minima nel piano
-                  v_hat  = [s_map(p+1)-s_map(p), csi_map(p+1)-csi_map(p)]
-                  lambda = dot_product([s_p-s_map(p), csi_p-csi_map(p)], v_hat)/dot_product(v_hat,v_hat)
-                  lambda = min(1.0_R8P, max(0.0_R8P, lambda))
-                  p_near = [s_map(p), csi_map(p)] + lambda*v_hat
-                  d_p_0  = sqrt((s_p - p_near(1))**2 + (csi_p - p_near(2))**2)
-                  if (d_p_0 < d_p) then
-                     p_nearest = p_near
-                     d_p = d_p_0
-                     p_star = p
-                  endif
-               enddo
-               !Calcolo segno distanza firmata
-               w_n = compute_windings_number(N_points=N_points, x_points=s_map, y_points=csi_map, coord=[s_p, csi_p])
-               if (w_n /= 0.0_R8P) then !Il punto è dentro la superficie racchiusa dalla spezzata
-                  d_p = d_p
-               else !Il punto è fuori la superficie racchiusa dalla spezzata
-                  d_p = -d_p
-               endif
-               !definisco funzioni per il calcolo del campo ausiliario
-               chi = 0.5*(1+erf_function(s=d_p, mu=0.0_R8P, sigma=sigma))
-               W_r = tangential_window(s=r_p, smin=Radius-sigma, smax=Radius+sigma, sigma=sigma)
-               A_r = eta*W_r*chi
-               call cylindrical_vector_to_cartesian(A_r = A_r, A_theta = 0.0_R8P, A_axial = 0.0_R8P,           &
-                                                   theta = theta_p, normal = normal,                           &
-                                                   A_x = A(1,i,j,k,b), A_y = A(2,i,j,k,b), A_z = A(3,i,j,k,b))
+               A(:,i,j,k,b) = helicon_coil_A_at_point(hs=hs, dxyz=dxyz(:,b), cell_coord=cell_coord, &
+                                                       x_c=x_c, y_c=y_c, z_c=z_c, normal=normal,    &
+                                                       Radius=Radius, N_points=N_points,            &
+                                                       s_map=s_map, csi_map=csi_map, eta=eta,       &
+                                                       theta_c=theta_c, sigma=sigma)
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    !Parte relativa alle ghost cells, visto che compute_curl lavora solo
    !sui punti interni del dominio.
-   i_dir_n = 1_I4P
-   i_dir_a = 2_I4P
-   i_dir_b = 3_I4P
-
    ! Faccia -x
    i1_f(1) = 1_I4P - ngc
    i2_f(1) = 0_I4P
@@ -1513,13 +1506,6 @@ contains
    k1_f(6) = nk + 1_I4P
    k2_f(6) = nk + ngc
   
-   allocate(xpoints(1:N_points))
-   allocate(ypoints(1:N_points))
-   allocate(zpoints(1:N_points))
-   xpoints = x_points(1:N_points)
-   ypoints = y_points(1:N_points)
-   zpoints = z_points(1:N_points)
-!
    select case (self%fdv_scheme)
    case ('FD')
       do f = 1_I4P, n_faces
@@ -1529,16 +1515,19 @@ contains
                   do i = i1_f(f), i2_f(f)
                      gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,                    &
-                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,                      &
-                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b,           &
-                                                  N_Points=N_Points, r_coil=Radius, normal=normal,             &
-                                                  s_map=s_map, csi_map=csi_map, eta=eta,                       &
-                                                  area_signed=area_signed, theta_c=theta_c, coil_type=4.0_R8P)
+                     A_gc = build_A_ghost_stencil_helicon(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
+                                                          x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
+                                                          N_points=N_points, s_map=s_map,          &
+                                                          csi_map=csi_map, eta=eta,                &
+                                                          theta_c=theta_c, r_coil=Radius,          &
+                                                          normal=normal)
                      call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
                   enddo
                enddo
             enddo
+            progress_done = progress_done + 1_I4P
+            call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                       progress_total=progress_total, last_percent=progress_percent)
          enddo
       enddo
    case ('FV')
@@ -1549,33 +1538,24 @@ contains
                   do i = i1_f(f), i2_f(f)
                      gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,                    &
-                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,                      &
-                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b,           &
-                                                  N_Points=N_Points, r_coil=Radius, normal=normal,             &
-                                                  s_map=s_map, csi_map=csi_map, eta=eta,                       &
-                                                  area_signed=area_signed, theta_c=theta_c, coil_type=4.0_R8P)
+                     A_gc = build_A_ghost_stencil_helicon(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
+                                                          x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
+                                                          N_points=N_points, s_map=s_map,          &
+                                                          csi_map=csi_map, eta=eta,                &
+                                                          theta_c=theta_c, r_coil=Radius,          &
+                                                          normal=normal)
                      call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
                   enddo
                enddo
             enddo
+            progress_done = progress_done + 1_I4P
+            call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                       progress_total=progress_total, last_percent=progress_percent)
          enddo
       enddo
    case default
       call mpih%error_stop(msg='set_helicon_coil: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
    endselect
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1.0e-12_R8P) then
-                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
 
    J_vec(1:3,:,:,:,:,n) = J_vec_buffer
    endassociate
@@ -1614,9 +1594,78 @@ contains
    print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(amplitude*flux))
    endsubroutine compute_Helicon_coil_amplitude
 
-   function helicon_coil_A_at_point(cell_coord, x_c, y_c, z_c, normal, Radius, & 
-                           N_points, s_map, csi_map, area_signed, eta, theta_c, sigma) result(Ap)
+   function helicon_radial_primitive(r, Radius, sigma) result(G)
+   !< Primitive of the radial helicon window.
+   !<
+   !< G'(r) = W_r(r)
+   !<
+   !< W_r(r) = 0.5 * [E(r; R - sigma) - E(r; R + sigma)].
+   real(R8P), intent(in) :: r
+   real(R8P), intent(in) :: Radius
+   real(R8P), intent(in) :: sigma
+   real(R8P)             :: G
+
+   G = 0.5_R8P * (erf_primitive_function(s=r, mu=Radius-sigma, sigma=sigma) &
+                - erf_primitive_function(s=r, mu=Radius+sigma, sigma=sigma))
+   endfunction helicon_radial_primitive
+
+   subroutine compute_helicon_radial_gradient_centered(hs, dxyz, cell_coord, x_c, y_c, z_c, normal, &
+                                                       Radius, sigma, grad_G)
+   !< Compute the discrete centered gradient of the radial helicon primitive.
+   integer(I4P),      intent(in)  :: hs
+   real(R8P),         intent(in)  :: dxyz(1:3)
+   real(R8P),         intent(in)  :: cell_coord(1:3)
+   real(R8P),         intent(in)  :: x_c, y_c, z_c
+   character(len=2 ), intent(in)  :: normal
+   real(R8P),         intent(in)  :: Radius
+   real(R8P),         intent(in)  :: sigma
+   real(R8P),         intent(out) :: grad_G(1:3)
+   real(R8P)                      :: G_x(1-hs:1+hs)
+   real(R8P)                      :: G_y(1-hs:1+hs)
+   real(R8P)                      :: G_z(1-hs:1+hs)
+   real(R8P)                      :: coord_tmp(3)
+   real(R8P)                      :: r_tmp
+   real(R8P)                      :: theta_tmp
+   real(R8P)                      :: axial_tmp
+   integer(I4P)                   :: m
+
+   do m=-hs, hs
+      coord_tmp = cell_coord
+      coord_tmp(1) = coord_tmp(1) + real(m, kind=R8P) * dxyz(1)
+      call cartesian_to_cylindrical(x=coord_tmp(1), y=coord_tmp(2), z=coord_tmp(3), &
+                                    x_c=x_c, y_c=y_c, z_c=z_c, normal=normal,      &
+                                    r=r_tmp, theta=theta_tmp, axial=axial_tmp)
+      G_x(1+m) = helicon_radial_primitive(r=r_tmp, Radius=Radius, sigma=sigma)
+   enddo
+
+   do m=-hs, hs
+      coord_tmp = cell_coord
+      coord_tmp(2) = coord_tmp(2) + real(m, kind=R8P) * dxyz(2)
+      call cartesian_to_cylindrical(x=coord_tmp(1), y=coord_tmp(2), z=coord_tmp(3), &
+                                    x_c=x_c, y_c=y_c, z_c=z_c, normal=normal,      &
+                                    r=r_tmp, theta=theta_tmp, axial=axial_tmp)
+      G_y(1+m) = helicon_radial_primitive(r=r_tmp, Radius=Radius, sigma=sigma)
+   enddo
+
+   do m=-hs, hs
+      coord_tmp = cell_coord
+      coord_tmp(3) = coord_tmp(3) + real(m, kind=R8P) * dxyz(3)
+      call cartesian_to_cylindrical(x=coord_tmp(1), y=coord_tmp(2), z=coord_tmp(3), &
+                                    x_c=x_c, y_c=y_c, z_c=z_c, normal=normal,      &
+                                    r=r_tmp, theta=theta_tmp, axial=axial_tmp)
+      G_z(1+m) = helicon_radial_primitive(r=r_tmp, Radius=Radius, sigma=sigma)
+   enddo
+
+   call compute_derivative1_fd_centered(s=hs, ds=dxyz(1), q=G_x, dq_ds=grad_G(1))
+   call compute_derivative1_fd_centered(s=hs, ds=dxyz(2), q=G_y, dq_ds=grad_G(2))
+   call compute_derivative1_fd_centered(s=hs, ds=dxyz(3), q=G_z, dq_ds=grad_G(3))
+   endsubroutine compute_helicon_radial_gradient_centered
+
+   function helicon_coil_A_at_point(hs, dxyz, cell_coord, x_c, y_c, z_c, normal, Radius, &
+                                    N_points, s_map, csi_map, eta, theta_c, sigma) result(Ap)
    !< Compute helicon/saddle coil auxiliary vector potential A at one point.
+   integer(I4P),      intent(in) :: hs
+   real(R8P),         intent(in) :: dxyz(3)
    real(R8P),         intent(in) :: cell_coord(3)                             !< Coordinate cartesiane del punto di valutazione.
    real(R8P),         intent(in) :: x_c                                       !< Coordinata x centro cilindro.
    real(R8P),         intent(in) :: y_c                                       !< Coordinata x centro cilindro.
@@ -1626,19 +1675,16 @@ contains
    integer(I4P),      intent(in) :: N_points                                  !< Numero di punti della spline.
    real(R8P),         intent(in) :: s_map(1:N_points)                         !< s coordinates of the spline points for the helicon coil case.
    real(R8P),         intent(in) :: csi_map(1:N_points)                       !< csi coordinates of the spline points for the helicon coil case.
-   real(R8P),         intent(in) :: area_signed                               !< 
    real(R8P),         intent(in) :: eta                  
    real(R8P),         intent(in) :: theta_c                 
    real(R8P),         intent(in) :: sigma                                     !< Smearing.
    real(R8P)                     :: Ap(3)                                     !< Output vector potential at the evaluation point.
-   real(R8P)                     :: r_p1, theta_p1, csi_p1                    !< Cylindrical coordinates of the first coil point.
-   real(R8P)                     :: r_p2, theta_p2, csi_p2                    !< Cylindrical coordinates of the second coil point.
-   real(R8P)                     :: e1(3), e2(3), csi(3)                      !< Terna di assi ortonormale all'asse del cilindro centrata in x_c
    real(R8P)                     :: r_p, theta_p, theta_p_prime               !< Coordinate del punto in coordinate cilindriche
    real(R8P)                     :: s_p, csi_p                                !< Coordinate del secondo punto nel s.d.r. sull'asse del cilindro
-   real(R8P)                     :: lambda, v_hat(2), p_near(2), p_nearest(2) !<
-   real(R8P)                     :: d_p, d_p_0, p_star, w_n
-   real(R8P)                     :: chi, W_r, A_r
+   real(R8P)                     :: lambda, v_hat(2), p_near(2)               !<
+   real(R8P)                     :: d_p, d_p_0, w_n
+   real(R8P)                     :: chi, grad_G(3)
+   real(R8P), parameter          :: chi_cut_sigma = 8.0_R8P
    integer(I4P)                  :: p                            !< Counters.
 !
    Ap(:) = 0.0_R8P
@@ -1655,25 +1701,26 @@ contains
       p_near = [s_map(p), csi_map(p)] + lambda*v_hat
       d_p_0  = sqrt((s_p - p_near(1))**2 + (csi_p - p_near(2))**2)
       if (d_p_0 < d_p) then
-         p_nearest = p_near
          d_p = d_p_0
-         p_star = p
       endif
    enddo
    !Calcolo segno distanza firmata
    w_n = compute_windings_number(N_points=N_points, x_points=s_map, y_points=csi_map, coord=[s_p, csi_p])
-   if (w_n /= 0.0_R8P) then !Il punto è dentro la superficie racchiusa dalla spezzata
-      d_p = d_p
-   else !Il punto è fuori la superficie racchiusa dalla spezzata
+   if (w_n == 0.0_R8P) then !Il punto è fuori la superficie racchiusa dalla spezzata
       d_p = -d_p
    endif
    !definisco funzioni per il calcolo del campo ausiliario
-   chi = 0.5*(1+erf_function(s=d_p, mu=0.0_R8P, sigma=sigma))
-   W_r = tangential_window(s=r_p, smin=Radius-sigma, smax=Radius+sigma, sigma=sigma)
-   A_r = eta*W_r*chi
-   call cylindrical_vector_to_cartesian(A_r = A_r, A_theta = 0.0_R8P, A_axial = 0.0_R8P,           &
-                                       theta = theta_p, normal = normal,                           &
-                                       A_x = Ap(1), A_y = Ap(2), A_z = Ap(3))
+   if (d_p >= chi_cut_sigma*sigma) then
+      chi = 1.0_R8P
+   elseif (d_p <= -chi_cut_sigma*sigma) then
+      chi = 0.0_R8P
+   else
+      chi = 0.5_R8P * (1.0_R8P + erf_function(s=d_p, mu=0.0_R8P, sigma=sigma))
+   endif
+   call compute_helicon_radial_gradient_centered(hs=hs, dxyz=dxyz, cell_coord=cell_coord, &
+                                                 x_c=x_c, y_c=y_c, z_c=z_c, normal=normal, &
+                                                 Radius=Radius, sigma=sigma, grad_G=grad_G)
+   Ap = eta * chi * grad_G
 
    endfunction helicon_coil_A_at_point
 
@@ -1844,6 +1891,10 @@ contains
    integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
    integer(I4P)                              :: k1_f(n_faces), k2_f(n_faces)
    integer(I4P)                              :: b,i,j,k,f               !< Counters.
+   integer(I4P)                              :: progress_done           !< Completed source-term progress units.
+   integer(I4P)                              :: progress_total          !< Total source-term progress units.
+   integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
+   character(len=:), allocatable             :: progress_label          !< Source-term progress label.
 
    ! Schema locale nel piano della spira (y,z):
    !
@@ -1892,6 +1943,14 @@ contains
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P + n_faces*blocks_number
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' rectangular-x'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
+
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -1926,9 +1985,15 @@ contains
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    ! Parte relativa alle ghost cells, visto che compute_curl lavora solo
    ! sui punti interni del dominio.
@@ -1995,17 +2060,20 @@ contains
 
                      gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
-                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
-                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                                  a1=y_1, a2=y_2, b1=z_1, b2=z_2,                    &
-                                                  coil_type=1.0_R8P, N_points=0_I4P)
+                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
+                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
+                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
+                                                              i_dir_b=i_dir_b, a1=y_1, a2=y_2,         &
+                                                              b1=z_1, b2=z_2)
 
                      call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                   enddo
                enddo
             enddo
+            progress_done = progress_done + 1_I4P
+            call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                       progress_total=progress_total, last_percent=progress_percent)
          enddo
       enddo
    case ('FV')
@@ -2017,17 +2085,20 @@ contains
 
                      gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
-                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
-                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                                  a1=y_1, a2=y_2, b1=z_1, b2=z_2,                    &
-                                                  coil_type=1.0_R8P, N_points=0_I4P)
+                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
+                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
+                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
+                                                              i_dir_b=i_dir_b, a1=y_1, a2=y_2,         &
+                                                              b1=z_1, b2=z_2)
 
                      call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                   enddo
                enddo
             enddo
+            progress_done = progress_done + 1_I4P
+            call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                       progress_total=progress_total, last_percent=progress_percent)
          enddo
       enddo
    case default
@@ -2231,6 +2302,10 @@ contains
    integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
    integer(I4P)                              :: k1_f(n_faces), k2_f(n_faces)
    integer(I4P)                              :: b,i,j,k,f               !< Counters.
+   integer(I4P)                              :: progress_done           !< Completed source-term progress units.
+   integer(I4P)                              :: progress_total          !< Total source-term progress units.
+   integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
+   character(len=:), allocatable             :: progress_label          !< Source-term progress label.
 
    ! Schema locale nel piano della spira (z,x):
    !
@@ -2286,6 +2361,13 @@ contains
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P + n_faces*blocks_number
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' rectangular-y'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
+
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -2320,9 +2402,15 @@ contains
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    ! Parte relativa alle ghost cells, visto che compute_curl lavora solo
    ! sui punti interni del dominio.
@@ -2389,17 +2477,20 @@ contains
 
                      gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
-                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
-                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                                  a1=z_1, a2=z_2, b1=x_1, b2=x_2,                    &
-                                                  coil_type=1.0_R8P, N_points=0_I4P)
+                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
+                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
+                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
+                                                              i_dir_b=i_dir_b, a1=z_1, a2=z_2,         &
+                                                              b1=x_1, b2=x_2)
 
                      call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                   enddo
                enddo
             enddo
+            progress_done = progress_done + 1_I4P
+            call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                       progress_total=progress_total, last_percent=progress_percent)
          enddo
       enddo
    case ('FV')
@@ -2411,17 +2502,20 @@ contains
 
                      gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
 
-                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
-                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
-                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                                  a1=z_1, a2=z_2, b1=x_1, b2=x_2,                    &
-                                                  coil_type=1.0_R8P, N_points=0_I4P)
+                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
+                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
+                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
+                                                              i_dir_b=i_dir_b, a1=z_1, a2=z_2,         &
+                                                              b1=x_1, b2=x_2)
 
                      call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                   enddo
                enddo
             enddo
+            progress_done = progress_done + 1_I4P
+            call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                       progress_total=progress_total, last_percent=progress_percent)
          enddo
       enddo
    case default
@@ -2632,6 +2726,10 @@ contains
    integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
    integer(I4P)                              :: k1_f(n_faces), k2_f(n_faces)
    integer(I4P)                              :: b,i,j,k,f               !< Counters.
+   integer(I4P)                              :: progress_done           !< Completed source-term progress units.
+   integer(I4P)                              :: progress_total          !< Total source-term progress units.
+   integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
+   character(len=:), allocatable             :: progress_label          !< Source-term progress label.
 
    ! Schema locale nel piano della spira (x,y):
    !
@@ -2681,6 +2779,13 @@ contains
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P + n_faces*blocks_number
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' rectangular-z'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
+
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -2715,9 +2820,15 @@ contains
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    ! Parte relativa alle ghost cells, visto che compute_curl lavora solo
    ! sui punti interni del dominio.
@@ -2782,16 +2893,19 @@ contains
                do j = j1_f(f), j2_f(f)
                   do i = i1_f(f), i2_f(f)
                      gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
-                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
-                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                                  a1=x_1, a2=x_2, b1=y_1, b2=y_2,                    &
-                                                  coil_type=1.0_R8P, N_points=0_I4P)
+                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
+                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
+                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
+                                                              i_dir_b=i_dir_b, a1=x_1, a2=x_2,         &
+                                                              b1=y_1, b2=y_2)
                      call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                   enddo
                enddo
             enddo
+            progress_done = progress_done + 1_I4P
+            call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                       progress_total=progress_total, last_percent=progress_percent)
          enddo
       enddo
    case ('FV')
@@ -2801,16 +2915,19 @@ contains
                do j = j1_f(f), j2_f(f)
                   do i = i1_f(f), i2_f(f)
                      gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-                     A_gc = build_A_ghost_stencil(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord,          &
-                                                  x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,            &
-                                                  i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
-                                                  a1=x_1, a2=x_2, b1=y_1, b2=y_2,                    &
-                                                  coil_type=1.0_R8P, N_points=0_I4P)
+                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
+                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
+                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
+                                                              i_dir_b=i_dir_b, a1=x_1, a2=x_2,         &
+                                                              b1=y_1, b2=y_2)
                      call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
 
                   enddo
                enddo
             enddo
+            progress_done = progress_done + 1_I4P
+            call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                       progress_total=progress_total, last_percent=progress_percent)
          enddo
       enddo
    case default
@@ -3069,6 +3186,10 @@ contains
    real(R8P)                                 :: F_r                     !< Radial error-function profile.
    real(R8P)                                 :: W_x                     !< Coil thickness window function along x.
    integer(I4P)                              :: b,i,j,k                 !< Counters.
+   integer(I4P)                              :: progress_done           !< Completed source-term progress units.
+   integer(I4P)                              :: progress_total          !< Total source-term progress units.
+   integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
+   character(len=:), allocatable             :: progress_label          !< Source-term progress label.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -3083,6 +3204,13 @@ contains
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' circular-x'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
@@ -3106,9 +3234,15 @@ contains
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -3242,6 +3376,10 @@ contains
    real(R8P)                                 :: F_r                     !< Radial error-function profile.
    real(R8P)                                 :: W_y                     !< Coil thickness window function along y.
    integer(I4P)                              :: b,i,j,k                 !< Counters.
+   integer(I4P)                              :: progress_done           !< Completed source-term progress units.
+   integer(I4P)                              :: progress_total          !< Total source-term progress units.
+   integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
+   character(len=:), allocatable             :: progress_label          !< Source-term progress label.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -3256,6 +3394,13 @@ contains
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' circular-y'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
@@ -3279,9 +3424,15 @@ contains
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -3415,6 +3566,10 @@ contains
    real(R8P)                                 :: F_r                     !< Radial error-function profile.
    real(R8P)                                 :: W_z                     !< Coil thickness window function along z.
    integer(I4P)                              :: b,i,j,k                 !< Counters.
+   integer(I4P)                              :: progress_done           !< Completed source-term progress units.
+   integer(I4P)                              :: progress_total          !< Total source-term progress units.
+   integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
+   character(len=:), allocatable             :: progress_label          !< Source-term progress label.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -3429,6 +3584,13 @@ contains
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' circular-z'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
@@ -3452,9 +3614,15 @@ contains
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -3588,6 +3756,10 @@ contains
    real(R8P)                                 :: F_n                     !< Radial error-function profile.
    real(R8P)                                 :: W_x                     !< Axial window function along x.
    integer(I4P)                              :: b,i,j,k                 !< Counters.
+   integer(I4P)                              :: progress_done           !< Completed source-term progress units.
+   integer(I4P)                              :: progress_total          !< Total source-term progress units.
+   integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
+   character(len=:), allocatable             :: progress_label          !< Source-term progress label.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -3603,6 +3775,13 @@ contains
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' solenoid-x'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
@@ -3623,9 +3802,15 @@ contains
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -3756,6 +3941,10 @@ contains
    real(R8P)                                 :: F_n                     !< Radial error-function profile.
    real(R8P)                                 :: W_y                     !< Axial window function along y.
    integer(I4P)                              :: b,i,j,k                 !< Counters.
+   integer(I4P)                              :: progress_done           !< Completed source-term progress units.
+   integer(I4P)                              :: progress_total          !< Total source-term progress units.
+   integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
+   character(len=:), allocatable             :: progress_label          !< Source-term progress label.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -3771,6 +3960,13 @@ contains
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' solenoid-y'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
@@ -3791,9 +3987,15 @@ contains
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -3926,6 +4128,10 @@ contains
    real(R8P)                                 :: F_n                     !< Radial error-function profile.
    real(R8P)                                 :: W_z                     !< Axial window function along z.
    integer(I4P)                              :: b,i,j,k                 !< Counters.
+   integer(I4P)                              :: progress_done           !< Completed source-term progress units.
+   integer(I4P)                              :: progress_total          !< Total source-term progress units.
+   integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
+   character(len=:), allocatable             :: progress_label          !< Source-term progress label.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -3941,6 +4147,13 @@ contains
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   progress_done = 0_I4P
+   progress_total = blocks_number + 1_I4P
+   progress_percent = -10_I4P
+   progress_label = 'source coil '//trim(str(n,.true.))//' solenoid-z'
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
@@ -3961,9 +4174,15 @@ contains
             enddo
          enddo
       enddo
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+   progress_done = progress_done + 1_I4P
+   call print_source_progress(label=progress_label, progress_done=progress_done, &
+                              progress_total=progress_total, last_percent=progress_percent)
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -4132,30 +4351,20 @@ contains
 
    endfunction erf_primitive_function
 
-   function build_A_ghost_stencil(hs, dxyz, gc_coord, x_c, y_c, z_c, sigma, i_dir_n, &
-                     i_dir_a, i_dir_b, a1, a2, b1, b2, N_Points, s_map, csi_map, area_signed, &
-                     eta, theta_c, r_coil, normal, coil_type) result(A_gc)
-   !< Build ghost cell A array to compute J_vec value through the curl, useful in multiblock application
+   function build_A_ghost_stencil_rectangular(hs, dxyz, gc_coord, x_c, y_c, z_c, sigma, i_dir_n, &
+                                              i_dir_a, i_dir_b, a1, a2, b1, b2) result(A_gc)
+   !< Build rectangular-coil ghost cell A array to compute J_vec value through the curl.
    integer(I4P),     intent(in)            :: hs                                    !< Half-stencil size for the curl computation.
    real(R8P),        intent(in)            :: dxyz(3)                               !< Space steps.
    real(R8P),        intent(in)            :: gc_coord(3)                           !< Ghost cell coordinates.
    real(R8P),        intent(in)            :: x_c, y_c, z_c                         !< Center coordinates.
    real(R8P),        intent(in)            :: sigma                                 !< Width of the Gaussian profile.
-   real(R8P),        intent(in), optional  :: a1, a2           
+   real(R8P),        intent(in)            :: a1, a2           
                                                                                     !< Local coordinates of the rectangular coil along the first
                                                                                     !< tangential direction.
-   real(R8P),        intent(in), optional  :: b1, b2               
+   real(R8P),        intent(in)            :: b1, b2               
                                                                                     !< Local coordinates of the rectangular coil along the second
                                                                                     !< tangential direction.
-   integer(I4P),     intent(in)            :: N_Points
-   real(R8P),        intent(in), optional  :: s_map(1:N_points)                     !< s coordinates of the spline points for the helicon coil case.
-   real(R8P),        intent(in), optional  :: csi_map(1:N_points)                   !< csi coordinates of the spline points for the helicon coil case.
-   real(R8P),        intent(in), optional  :: area_signed                           !< 
-   real(R8P),        intent(in), optional  :: eta                  
-   real(R8P),        intent(in), optional  :: theta_c                 
-   real(R8P),        intent(in), optional  :: r_coil                                !< Radius of the helicon coil.
-   character(len=2), intent(in), optional  :: normal                                !< Normal vector for the helicon coil case.
-   real(R8P),        intent(in)            :: coil_type                             !< Coil type.
    integer(I4P),     intent(in)            :: i_dir_n, i_dir_a, i_dir_b             !< Direction indices for the normal and tangential directions.
    real(R8P)                               :: A_gc(3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1) !< Output ghost cell A array for the curl stencil.
    real(R8P),        allocatable           :: coordinates_matrix(:,:,:,:)           !< Coordinates matrix for the ghost cell stencil.
@@ -4173,26 +4382,56 @@ contains
    do i = 1, 2*hs+1
       do j = 1, 2*hs+1
          do k = 1, 2*hs+1
-            if (coil_type == 1.0_R8P) then
-               A_gc(:,i,j,k) = rectangular_coil_A_at_point(xp=coordinates_matrix(:,i,j,k),                 &
-                                                           xc=[x_c, y_c, z_c],                             &
-                                                           idir_n=i_dir_n, idir_a=i_dir_a, idir_b=i_dir_b, &
-                                                           a1=a1, a2=a2, b1=b1, b2=b2,                     &
-                                                           sigma=sigma)
-            else if (coil_type == 4.0_R8P) then
-               A_gc(:,i,j,k) = helicon_coil_A_at_point(cell_coord=coordinates_matrix(:,i,j,k),        &
-                                                        x_c=x_c, y_c=y_c, z_c=z_c,                    &
-                                                        normal=normal, Radius=r_coil,                 &
-                                                        N_points=N_Points, s_map=s_map,               &
-                                                        csi_map=csi_map, area_signed=area_signed,     &
-                                                        eta=eta, theta_c=theta_c, sigma=sigma)
-            else
-               error stop 'build_A_ghost_stencil: unknown coil type'
-            endif
+            A_gc(:,i,j,k) = rectangular_coil_A_at_point(xp=coordinates_matrix(:,i,j,k),                 &
+                                                        xc=[x_c, y_c, z_c],                             &
+                                                        idir_n=i_dir_n, idir_a=i_dir_a, idir_b=i_dir_b, &
+                                                        a1=a1, a2=a2, b1=b1, b2=b2,                     &
+                                                        sigma=sigma)
          enddo
       enddo
    enddo
-   endfunction build_A_ghost_stencil
+   endfunction build_A_ghost_stencil_rectangular
+
+   function build_A_ghost_stencil_helicon(hs, dxyz, gc_coord, x_c, y_c, z_c, sigma, &
+                                          N_points, s_map, csi_map, eta, theta_c,  &
+                                          r_coil, normal) result(A_gc)
+   !< Build the helicon A stencil at a ghost cell without reading outside allocated arrays.
+   integer(I4P),      intent(in) :: hs
+   real(R8P),         intent(in) :: dxyz(3)
+   real(R8P),         intent(in) :: gc_coord(3)
+   real(R8P),         intent(in) :: x_c
+   real(R8P),         intent(in) :: y_c
+   real(R8P),         intent(in) :: z_c
+   real(R8P),         intent(in) :: sigma
+   integer(I4P),      intent(in) :: N_points
+   real(R8P),         intent(in) :: s_map(1:N_points)
+   real(R8P),         intent(in) :: csi_map(1:N_points)
+   real(R8P),         intent(in) :: eta
+   real(R8P),         intent(in) :: theta_c
+   real(R8P),         intent(in) :: r_coil
+   character(len=2 ), intent(in) :: normal
+   real(R8P)                    :: A_gc(3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1)
+   real(R8P)                    :: coord(3)
+   integer(I4P)                 :: i
+   integer(I4P)                 :: j
+   integer(I4P)                 :: k
+
+   do k=1, 2*hs+1
+      do j=1, 2*hs+1
+         do i=1, 2*hs+1
+            coord = gc_coord + [real(i-1-hs, kind=R8P)*dxyz(1), &
+                                real(j-1-hs, kind=R8P)*dxyz(2), &
+                                real(k-1-hs, kind=R8P)*dxyz(3)]
+            A_gc(:,i,j,k) = helicon_coil_A_at_point(hs=hs, dxyz=dxyz, cell_coord=coord, &
+                                                     x_c=x_c, y_c=y_c, z_c=z_c,         &
+                                                     normal=normal, Radius=r_coil,      &
+                                                     N_points=N_points, s_map=s_map,    &
+                                                     csi_map=csi_map, eta=eta,          &
+                                                     theta_c=theta_c, sigma=sigma)
+         enddo
+      enddo
+   enddo
+   endfunction build_A_ghost_stencil_helicon
 
    function crossproduct(a, b) result(cross)
    real(R8P), intent(in) :: a(3)     !< Left hand side.

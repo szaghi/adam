@@ -248,7 +248,6 @@ contains
    integer(I4P)                                     :: i,j             !< Counter.
    integer(I4P)                                     :: error           !< Error status.
    character(99)                                    :: buff_char       !< Option character buffer.
-   real(R8P), allocatable                           :: buff_vec(:)     !< Option real buffer.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
@@ -387,8 +386,6 @@ contains
          if (self%N_points(i) > 50.0_R8P) then
             call mpih%error_stop(msg=': too many points for ['//sname//'].(N_points). Max allowed is 50.')
          end if
-
-         allocate(buff_vec(1:self%N_points(i)))
 
          do j=1, self%N_points(i)
             call file_parameters%get(section_name=sname, option_name='x_point_'//trim(str(j,.true.)), &
