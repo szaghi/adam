@@ -5,6 +5,8 @@ module adam_flail_object
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_field_object
+use :: adam_grid_object
+use :: adam_maps_object
 use :: adam_parameters, only : FEC_1_6_ARRAY
 ! third party modules
 use :: finer
@@ -53,9 +55,9 @@ endtype flail_object
 interface
    subroutine compute_smoothing_interface(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                           iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
-                                          ell_bc_type, local_map_bc_crown)
+                                          ell_bc_type, local_map_bc_crown, grid, maps)
    !< Compute smoothing, abstract interface for face-based elliptic BCs.
-   import :: I4P, I8P, R8P, field_object
+   import :: I4P, I8P, R8P, field_object, grid_object, maps_object
    integer(I4P), intent(in)              :: ni,nj,nk,ngc      !< Grid dimensions.
    integer(I4P), intent(in)              :: nv                !< Number of q variables.
    integer(I4P), intent(in)              :: blocks_number     !< Number of current blocks.
@@ -84,6 +86,8 @@ interface
    type(field_object), intent(in)        :: field             !< Field (sibling realm component, threaded in).
    integer(I4P), intent(in)              :: ell_bc_type(6)    !< Elliptic BC type for each face.
    integer(I8P), intent(in)              :: local_map_bc_crown(:,:,:) !< BC crown map.
+   type(grid_object),  intent(in), optional :: grid           !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),  intent(in), optional :: maps           !< Maps, used to synchronize inter-block elliptic ghosts.
    endsubroutine compute_smoothing_interface
 endinterface
 contains
@@ -168,6 +172,21 @@ contains
       enddo
    enddo
    endsubroutine zero_ghost_cells
+
+   subroutine sync_elliptic_block_ghosts(field, grid, maps, q)
+   !< Refresh same-realm inter-block ghosts for elliptic work arrays. Physical
+   !< boundary ghosts are still stamped by apply_bc_elliptic immediately after.
+   type(field_object), intent(in)    :: field
+   type(grid_object),  intent(in)    :: grid
+   type(maps_object),  intent(in)    :: maps
+   real(R8P),          intent(inout) :: q(1:,          &
+                                          1-grid%ngc:, &
+                                          1-grid%ngc:, &
+                                          1-grid%ngc:, &
+                                          1:)
+
+   call field%update_ghost_local(grid=grid, maps=maps, q=q)
+   endsubroutine sync_elliptic_block_ghosts
 
    subroutine apply_bc_elliptic_from_faces(ni, nj, nk, ngc, blocks_number, ell_bc_type, local_map_bc_crown, ivar, mu, eps, field, &
                                            f, q, rebuild_exact_open)
@@ -549,8 +568,8 @@ contains
 
    subroutine compute_smoothing_gauss_seidel_centered_dg(ni, nj, nk, ngc, nv, blocks_number, order, dxyz, f, q, dq, dq_max, &
                                                          iterations_init, iterations_fine, iterations_coarse, ivar,          &
-                                                         mu, eps, field, ell_bc_type, local_map_bc_crown, progress_label,     &
-                                                         progress_counter, progress_total, progress_last_percent)
+                                                         mu, eps, field, ell_bc_type, local_map_bc_crown, grid, maps,        &
+                                                         progress_label, progress_counter, progress_total, progress_last_percent)
    !< Compute smoothing by Gauss-Seidel for the centered `D(G)` elliptic operator.
    !<
    !< On the uniform Cartesian blocks used here, centered FD and centered FV share
@@ -585,6 +604,8 @@ contains
    type(field_object), intent(in)              :: field             !< Field (sibling realm component, threaded in).
    integer(I4P),       intent(in)              :: ell_bc_type(6)    !< Elliptic BC type for each face.
    integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:) !< BC crown map.
+   type(grid_object),   intent(in),    optional :: grid              !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),   intent(in),    optional :: maps              !< Maps, used to synchronize inter-block elliptic ghosts.
    character(len=*),   intent(in),    optional :: progress_label    !< Progress message label.
    integer(I4P),       intent(inout), optional :: progress_counter  !< Completed smoothing sweeps.
    integer(I4P),       intent(in),    optional :: progress_total    !< Planned smoothing sweeps.
@@ -597,7 +618,8 @@ contains
                                               iterations_init=iterations_init, iterations_fine=iterations_fine,   &
                                               iterations_coarse=iterations_coarse, ivar=ivar,                    &
                                               mu=mu, eps=eps, field=field, ell_bc_type=ell_bc_type,              &
-                                              local_map_bc_crown=local_map_bc_crown, progress_label=progress_label, &
+                                              local_map_bc_crown=local_map_bc_crown, grid=grid, maps=maps,        &
+                                              progress_label=progress_label,                                      &
                                               progress_counter=progress_counter, progress_total=progress_total,     &
                                               progress_last_percent=progress_last_percent)
    case(4_I4P)
@@ -606,7 +628,8 @@ contains
                                               iterations_init=iterations_init, iterations_fine=iterations_fine,   &
                                               iterations_coarse=iterations_coarse, ivar=ivar,                    &
                                               mu=mu, eps=eps, field=field, ell_bc_type=ell_bc_type,              &
-                                              local_map_bc_crown=local_map_bc_crown, progress_label=progress_label, &
+                                              local_map_bc_crown=local_map_bc_crown, grid=grid, maps=maps,        &
+                                              progress_label=progress_label,                                      &
                                               progress_counter=progress_counter, progress_total=progress_total,     &
                                               progress_last_percent=progress_last_percent)
    case(6_I4P)
@@ -615,7 +638,8 @@ contains
                                               iterations_init=iterations_init, iterations_fine=iterations_fine,   &
                                               iterations_coarse=iterations_coarse, ivar=ivar,                    &
                                               mu=mu, eps=eps, field=field, ell_bc_type=ell_bc_type,              &
-                                              local_map_bc_crown=local_map_bc_crown, progress_label=progress_label, &
+                                              local_map_bc_crown=local_map_bc_crown, grid=grid, maps=maps,        &
+                                              progress_label=progress_label,                                      &
                                               progress_counter=progress_counter, progress_total=progress_total,     &
                                               progress_last_percent=progress_last_percent)
    case(8_I4P)
@@ -624,7 +648,8 @@ contains
                                               iterations_init=iterations_init, iterations_fine=iterations_fine,   &
                                               iterations_coarse=iterations_coarse, ivar=ivar,                    &
                                               mu=mu, eps=eps, field=field, ell_bc_type=ell_bc_type,              &
-                                              local_map_bc_crown=local_map_bc_crown, progress_label=progress_label, &
+                                              local_map_bc_crown=local_map_bc_crown, grid=grid, maps=maps,        &
+                                              progress_label=progress_label,                                      &
                                               progress_counter=progress_counter, progress_total=progress_total,     &
                                               progress_last_percent=progress_last_percent)
    case default
@@ -707,7 +732,7 @@ contains
 
    subroutine compute_smoothing_gauss_seidel_2nd(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                              iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
-                                             ell_bc_type, local_map_bc_crown, progress_label, progress_counter, progress_total, &
+                                             ell_bc_type, local_map_bc_crown, grid, maps, progress_label, progress_counter, progress_total, &
                                              progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with second-order
    !< centered first-derivative operators.
@@ -739,6 +764,8 @@ contains
    type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
    integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
    integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
+   type(grid_object),   intent(in),    optional :: grid                       !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),   intent(in),    optional :: maps                       !< Maps, used to synchronize inter-block elliptic ghosts.
    character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
    integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
    integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
@@ -756,10 +783,12 @@ contains
 
    iterations_ = 1_I4P; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
+   if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
    call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                           ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                           field=field, rebuild_exact_open=.true.)
    do iter=1, iterations_
+      if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
       call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                              ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                              field=field, rebuild_exact_open=.false.)
@@ -782,9 +811,10 @@ contains
                dq_max_ = max(dq_max_, abs(q(v,i,j,k,b) - q_old))
             enddo
          enddo
-         enddo
-         enddo
       enddo
+      enddo
+      enddo
+      if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
       call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                              ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                              field=field, rebuild_exact_open=.false.)
@@ -797,7 +827,7 @@ contains
 
    subroutine compute_smoothing_gauss_seidel_4th(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                              iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
-                                             ell_bc_type, local_map_bc_crown, progress_label, progress_counter, progress_total, &
+                                             ell_bc_type, local_map_bc_crown, grid, maps, progress_label, progress_counter, progress_total, &
                                              progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with fourth-order
    !< centered first-derivative operators.
@@ -829,6 +859,8 @@ contains
    type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
    integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
    integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
+   type(grid_object),   intent(in),    optional :: grid                       !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),   intent(in),    optional :: maps                       !< Maps, used to synchronize inter-block elliptic ghosts.
    character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
    integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
    integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
@@ -849,10 +881,12 @@ contains
 
    iterations_ = 1_I4P; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
+   if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
    call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                           ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                           field=field, rebuild_exact_open=.true.)
    do iter=1, iterations_
+      if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
       call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                              ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                              field=field, rebuild_exact_open=.false.)
@@ -884,9 +918,10 @@ contains
                dq_max_ = max(dq_max_, abs(q(v,i,j,k,b) - q_old))
             enddo
          enddo
-         enddo
-         enddo
       enddo
+      enddo
+      enddo
+      if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
       call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                              ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                              field=field, rebuild_exact_open=.false.)
@@ -899,7 +934,7 @@ contains
 
    subroutine compute_smoothing_gauss_seidel_6th(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                              iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
-                                             ell_bc_type, local_map_bc_crown, progress_label, progress_counter, progress_total, &
+                                             ell_bc_type, local_map_bc_crown, grid, maps, progress_label, progress_counter, progress_total, &
                                              progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with sixth-order
    !< centered first-derivative operators.
@@ -931,6 +966,8 @@ contains
    type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
    integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
    integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
+   type(grid_object),   intent(in),    optional :: grid                       !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),   intent(in),    optional :: maps                       !< Maps, used to synchronize inter-block elliptic ghosts.
    character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
    integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
    integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
@@ -953,10 +990,12 @@ contains
 
    iterations_ = 1_I4P; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
+   if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
    call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                           ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                           field=field, rebuild_exact_open=.true.)
    do iter=1, iterations_
+      if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
       call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                              ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                              field=field, rebuild_exact_open=.false.)
@@ -994,9 +1033,10 @@ contains
                dq_max_ = max(dq_max_, abs(q(v,i,j,k,b) - q_old))
             enddo
          enddo
-         enddo
-         enddo
       enddo
+      enddo
+      enddo
+      if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
       call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                              ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                              field=field, rebuild_exact_open=.false.)
@@ -1010,7 +1050,7 @@ contains
    subroutine compute_smoothing_gauss_seidel_8th(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                                  iterations_init, iterations_fine, iterations_coarse, ivar,    &
                                                  mu, eps, field, ell_bc_type, local_map_bc_crown,             &
-                                                 progress_label, progress_counter, progress_total,             &
+                                                 grid, maps, progress_label, progress_counter, progress_total, &
                                                  progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with eighth-order
    !< centered first-derivative operators.
@@ -1042,6 +1082,8 @@ contains
    type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
    integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
    integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
+   type(grid_object),   intent(in),    optional :: grid                       !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),   intent(in),    optional :: maps                       !< Maps, used to synchronize inter-block elliptic ghosts.
    character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
    integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
    integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
@@ -1066,10 +1108,12 @@ contains
 
    iterations_ = 1_I4P; if (present(iterations_fine)) iterations_ = iterations_fine
    dq_max_ = 0._R8P
+   if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
    call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                           ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                           field=field, rebuild_exact_open=.true.)
    do iter=1, iterations_
+      if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
       call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                              ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                              field=field, rebuild_exact_open=.false.)
@@ -1116,6 +1160,7 @@ contains
          enddo
          enddo
       enddo
+      if (present(grid).and.present(maps)) call sync_elliptic_block_ghosts(field=field, grid=grid, maps=maps, q=q)
       call apply_bc_elliptic(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, f=f, q=q,                     &
                              ell_bc_type=ell_bc_type, local_map_bc_crown=local_map_bc_crown, ivar=ivar, mu=mu, eps=eps, &
                              field=field, rebuild_exact_open=.false.)

@@ -980,6 +980,7 @@ contains
                                                          ivar=1_I4P, field=self%adam%field,                                     &
                                                          ell_bc_type=elliptic_bc_type,                                          &
                                                          local_map_bc_crown=self%adam%maps%local_map_bc_crown,                  &
+                                                         grid=self%adam%grid, maps=self%adam%maps,                              &
                                                          progress_label='Elliptic CT divD-rho correction',                      &
                                                          progress_counter=progress_counter, progress_total=progress_total,       &
                                                          progress_last_percent=last_progress_percent)
@@ -1040,6 +1041,7 @@ contains
                                                        ivar=1_I4P, field=self%adam%field,                                     &
                                                        ell_bc_type=elliptic_bc_type,                                          &
                                                        local_map_bc_crown=self%adam%maps%local_map_bc_crown,                  &
+                                                       grid=self%adam%grid, maps=self%adam%maps,                              &
                                                        progress_label='Elliptic CT divB correction',                          &
                                                        progress_counter=progress_counter, progress_total=progress_total,       &
                                                        progress_last_percent=last_progress_percent)
@@ -1280,6 +1282,7 @@ contains
                                                          ivar=ivar, mu=mu, eps=eps, field=self%adam%field,   &
                                                          ell_bc_type=ell_bc_type,                             &
                                                          local_map_bc_crown=self%adam%maps%local_map_bc_crown, &
+                                                         grid=self%adam%grid, maps=self%adam%maps,            &
                                                          progress_label='Elliptic BC initialization',        &
                                                          progress_counter=progress_counter, progress_total=progress_total, &
                                                          progress_last_percent=last_progress_percent)
