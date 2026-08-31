@@ -2363,7 +2363,7 @@ contains
    endsubroutine compute_grms
 
    subroutine compute_magnetic_field_at_center_domain(self)
-   !< Compute the magnetic field in the cell center closest to the geometrical domain center.
+   !< Compute the magnetic field interpolated at the geometrical domain center.
    class(prism_cpu_object), intent(inout) :: self
    integer(I4P)                          :: b, i, j, k
    integer(I4P)                          :: owner_rank
@@ -2373,12 +2373,17 @@ contains
    real(R8P)                             :: distance2
    real(R8P)                             :: magnetic_field(3)
    real(R8P)                             :: sample_point(3)
+   real(R8P)                             :: weighted_field_global(4)
+   real(R8P)                             :: weighted_field_local(4)
+   real(R8P)                             :: weight
+   real(R8P)                             :: wx, wy, wz
    real(R8P)                             :: x, y, z
 
    center = 0.5_R8P * (self%adam%grid%domain_emin + self%adam%grid%domain_emax)
    best_r2_local = [huge(1.0_R8P), real(mpih%myrank, R8P)]
    magnetic_field = 0.0_R8P
    sample_point = center
+   weighted_field_local = 0.0_R8P
 
    do b = 1, self%blocks_number
       do k = 1, self%nk
@@ -2393,20 +2398,37 @@ contains
                   magnetic_field = [self%q(VAR_BX,i,j,k,b), self%q(VAR_BY,i,j,k,b), self%q(VAR_BZ,i,j,k,b)]
                   sample_point = [x, y, z]
                endif
+               wx = max(0.0_R8P, 1.0_R8P - abs(x - center(1)) / self%adam%field%dxyz(1,b))
+               wy = max(0.0_R8P, 1.0_R8P - abs(y - center(2)) / self%adam%field%dxyz(2,b))
+               wz = max(0.0_R8P, 1.0_R8P - abs(z - center(3)) / self%adam%field%dxyz(3,b))
+               weight = wx * wy * wz
+               if (weight > 0.0_R8P) then
+                  weighted_field_local(1) = weighted_field_local(1) + weight * self%q(VAR_BX,i,j,k,b)
+                  weighted_field_local(2) = weighted_field_local(2) + weight * self%q(VAR_BY,i,j,k,b)
+                  weighted_field_local(3) = weighted_field_local(3) + weight * self%q(VAR_BZ,i,j,k,b)
+                  weighted_field_local(4) = weighted_field_local(4) + weight
+               endif
             enddo
          enddo
       enddo
    enddo
 
-   call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_2DOUBLE_PRECISION, MPI_MINLOC, MPI_COMM_WORLD, mpih%error)
-   owner_rank = nint(best_r2_global(2), I4P)
-   call MPI_BCAST(magnetic_field, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih%error)
-   call MPI_BCAST(sample_point, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih%error)
-
    self%magnetic_field_at_center_domain%center = center
-   self%magnetic_field_at_center_domain%sample_point = sample_point
-   self%magnetic_field_at_center_domain%magnetic_field = magnetic_field
-   self%magnetic_field_at_center_domain%distance = sqrt(best_r2_global(1))
+   weighted_field_global = weighted_field_local
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_field_global, 4, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (weighted_field_global(4) > 100.0_R8P * epsilon(1.0_R8P)) then
+      self%magnetic_field_at_center_domain%sample_point = center
+      self%magnetic_field_at_center_domain%magnetic_field = weighted_field_global(1:3) / weighted_field_global(4)
+      self%magnetic_field_at_center_domain%distance = 0.0_R8P
+   else
+      call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_2DOUBLE_PRECISION, MPI_MINLOC, MPI_COMM_WORLD, mpih%error)
+      owner_rank = nint(best_r2_global(2), I4P)
+      call MPI_BCAST(magnetic_field, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih%error)
+      call MPI_BCAST(sample_point, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih%error)
+      self%magnetic_field_at_center_domain%sample_point = sample_point
+      self%magnetic_field_at_center_domain%magnetic_field = magnetic_field
+      self%magnetic_field_at_center_domain%distance = sqrt(best_r2_global(1))
+   endif
    endsubroutine compute_magnetic_field_at_center_domain
 
    subroutine compute_max_divergence_outside_absorbing_layers(self, hs, max_div_D, max_div_B, max_div_J)

@@ -6186,7 +6186,7 @@ contains
    endsubroutine compute_grms
 
    subroutine compute_magnetic_field_at_center_domain(self)
-   !< Compute the magnetic field in the cell center closest to the geometrical domain center.
+   !< Compute the magnetic field interpolated at the geometrical domain center.
    class(prism_fnl_object), intent(inout) :: self
    integer(I4P)                          :: b, i, j, k
    integer(I4P)                          :: b_ref, i_ref, j_ref, k_ref
@@ -6197,12 +6197,15 @@ contains
    real(R8P)                             :: distance2
    real(R8P)                             :: magnetic_field(3)
    real(R8P)                             :: sample_point(3)
+   real(R8P)                             :: weighted_field_global(4)
+   real(R8P)                             :: weighted_field_local(4)
    real(R8P)                             :: x, y, z
 
    center = 0.5_R8P * (self%adam%grid%domain_emin + self%adam%grid%domain_emax)
    best_r2_local = [huge(1.0_R8P), real(mpih_fnl%myrank, R8P)]
    magnetic_field = 0.0_R8P
    sample_point = center
+   weighted_field_local = 0.0_R8P
    b_ref = 0_I4P ; i_ref = 1_I4P ; j_ref = 1_I4P ; k_ref = 1_I4P
 
    do b = 1, self%blocks_number
@@ -6223,22 +6226,85 @@ contains
       enddo
    enddo
 
-   if (b_ref > 0_I4P) then
-      call compute_magnetic_field_at_center_domain_dev_kernel(b_ref=b_ref, i_ref=i_ref, j_ref=j_ref, k_ref=k_ref, &
-                                                              ngc=self%ngc, q_gpu=self%q_gpu, bx=magnetic_field(1), &
-                                                              by=magnetic_field(2), bz=magnetic_field(3))
-   endif
-   call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_2DOUBLE_PRECISION, MPI_MINLOC, MPI_COMM_WORLD, mpih_fnl%error)
-   owner_rank = nint(best_r2_global(2), I4P)
-   call MPI_BCAST(magnetic_field, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_BCAST(sample_point, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih_fnl%error)
+   call compute_magnetic_field_at_center_domain_interp_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                                  blocks_number=self%blocks_number,                &
+                                                                  center_x=center(1), center_y=center(2),          &
+                                                                  center_z=center(3),                              &
+                                                                  x_cell_gpu=self%field_fnl%x_cell_gpu,            &
+                                                                  y_cell_gpu=self%field_fnl%y_cell_gpu,            &
+                                                                  z_cell_gpu=self%field_fnl%z_cell_gpu,            &
+                                                                  dxyz_gpu=self%field_fnl%dxyz_gpu,                &
+                                                                  q_gpu=self%q_gpu,                                &
+                                                                  weighted_bx=weighted_field_local(1),             &
+                                                                  weighted_by=weighted_field_local(2),             &
+                                                                  weighted_bz=weighted_field_local(3),             &
+                                                                  weight_sum=weighted_field_local(4))
+   weighted_field_global = weighted_field_local
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_field_global, 4, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
 
    self%magnetic_field_at_center_domain%center = center
-   self%magnetic_field_at_center_domain%sample_point = sample_point
-   self%magnetic_field_at_center_domain%magnetic_field = magnetic_field
-   self%magnetic_field_at_center_domain%distance = sqrt(best_r2_global(1))
+   if (weighted_field_global(4) > 100.0_R8P * epsilon(1.0_R8P)) then
+      self%magnetic_field_at_center_domain%sample_point = center
+      self%magnetic_field_at_center_domain%magnetic_field = weighted_field_global(1:3) / weighted_field_global(4)
+      self%magnetic_field_at_center_domain%distance = 0.0_R8P
+   else
+      if (b_ref > 0_I4P) then
+         call compute_magnetic_field_at_center_domain_sample_dev_kernel(b_ref=b_ref, i_ref=i_ref, j_ref=j_ref, k_ref=k_ref, &
+                                                                        ngc=self%ngc, q_gpu=self%q_gpu, bx=magnetic_field(1), &
+                                                                        by=magnetic_field(2), bz=magnetic_field(3))
+      endif
+      call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_2DOUBLE_PRECISION, MPI_MINLOC, MPI_COMM_WORLD, mpih_fnl%error)
+      owner_rank = nint(best_r2_global(2), I4P)
+      call MPI_BCAST(magnetic_field, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih_fnl%error)
+      call MPI_BCAST(sample_point, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih_fnl%error)
+      self%magnetic_field_at_center_domain%sample_point = sample_point
+      self%magnetic_field_at_center_domain%magnetic_field = magnetic_field
+      self%magnetic_field_at_center_domain%distance = sqrt(best_r2_global(1))
+   endif
    contains
-      subroutine compute_magnetic_field_at_center_domain_dev_kernel(b_ref, i_ref, j_ref, k_ref, ngc, q_gpu, bx, by, bz)
+      subroutine compute_magnetic_field_at_center_domain_interp_dev_kernel(ni, nj, nk, ngc, blocks_number, center_x, center_y, &
+                                                                           center_z, x_cell_gpu, y_cell_gpu, z_cell_gpu,     &
+                                                                           dxyz_gpu, q_gpu, weighted_bx, weighted_by,        &
+                                                                           weighted_bz, weight_sum)
+      integer(I4P), intent(in)  :: ni, nj, nk, ngc, blocks_number
+      real(R8P),    intent(in)  :: center_x, center_y, center_z
+      real(R8P),    intent(in)  :: x_cell_gpu(1:,1-ngc:)
+      real(R8P),    intent(in)  :: y_cell_gpu(1:,1-ngc:)
+      real(R8P),    intent(in)  :: z_cell_gpu(1:,1-ngc:)
+      real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(out) :: weighted_bx, weighted_by, weighted_bz, weight_sum
+      integer(I4P)              :: b, i, j, k
+      real(R8P)                 :: weight, wx, wy, wz
+
+      weighted_bx = 0.0_R8P ; weighted_by = 0.0_R8P ; weighted_bz = 0.0_R8P ; weight_sum = 0.0_R8P
+      !$acc parallel loop collapse(4) DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) &
+      !$acc& firstprivate(ni,nj,nk,blocks_number,center_x,center_y,center_z)                     &
+      !$acc& private(wx,wy,wz,weight) reduction(+:weighted_bx,weighted_by,weighted_bz,weight_sum)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu)        &
+      !$omp& firstprivate(ni,nj,nk,blocks_number,center_x,center_y,center_z)                      &
+      !$omp& private(wx,wy,wz,weight) reduction(+:weighted_bx,weighted_by,weighted_bz,weight_sum)
+      do b = 1, blocks_number
+         do k = 1, nk
+            do j = 1, nj
+               do i = 1, ni
+                  wx = max(0.0_R8P, 1.0_R8P - abs(x_cell_gpu(b,i) - center_x) / dxyz_gpu(b,1))
+                  wy = max(0.0_R8P, 1.0_R8P - abs(y_cell_gpu(b,j) - center_y) / dxyz_gpu(b,2))
+                  wz = max(0.0_R8P, 1.0_R8P - abs(z_cell_gpu(b,k) - center_z) / dxyz_gpu(b,3))
+                  weight = wx * wy * wz
+                  if (weight > 0.0_R8P) then
+                     weighted_bx = weighted_bx + weight * q_gpu(b,i,j,k,VAR_BX)
+                     weighted_by = weighted_by + weight * q_gpu(b,i,j,k,VAR_BY)
+                     weighted_bz = weighted_bz + weight * q_gpu(b,i,j,k,VAR_BZ)
+                     weight_sum = weight_sum + weight
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+      endsubroutine compute_magnetic_field_at_center_domain_interp_dev_kernel
+
+      subroutine compute_magnetic_field_at_center_domain_sample_dev_kernel(b_ref, i_ref, j_ref, k_ref, ngc, q_gpu, bx, by, bz)
       integer(I4P), intent(in)  :: b_ref, i_ref, j_ref, k_ref, ngc
       real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
       real(R8P),    intent(out) :: bx, by, bz
@@ -6252,7 +6318,7 @@ contains
          by = q_gpu(b_ref,i_ref,j_ref,k_ref,VAR_BY)
          bz = q_gpu(b_ref,i_ref,j_ref,k_ref,VAR_BZ)
       enddo
-      endsubroutine compute_magnetic_field_at_center_domain_dev_kernel
+      endsubroutine compute_magnetic_field_at_center_domain_sample_dev_kernel
    endsubroutine compute_magnetic_field_at_center_domain
 
    subroutine compute_max_divergence(self)

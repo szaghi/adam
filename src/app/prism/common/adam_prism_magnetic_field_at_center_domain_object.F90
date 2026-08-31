@@ -19,9 +19,9 @@ type :: prism_magnetic_field_at_center_domain_object
    integer(I4P) :: history_unit = -1_I4P              !< History file unit.
    character(:), allocatable :: output_basename       !< Basename of output files.
    real(R8P) :: center(3) = [0._R8P, 0._R8P, 0._R8P]  !< Geometrical domain center.
-   real(R8P) :: sample_point(3) = [0._R8P, 0._R8P, 0._R8P] !< Cell center used for sampling.
+   real(R8P) :: sample_point(3) = [0._R8P, 0._R8P, 0._R8P] !< Point used for sampling.
    real(R8P) :: magnetic_field(3) = [0._R8P, 0._R8P, 0._R8P] !< B at sample point.
-   real(R8P) :: distance = huge(1._R8P)               !< Distance from sample point to center.
+   real(R8P) :: distance = huge(1._R8P)               !< Distance from sample point to the geometrical center.
    contains
       procedure, pass(self) :: initialize
       procedure, pass(self) :: load_from_file
