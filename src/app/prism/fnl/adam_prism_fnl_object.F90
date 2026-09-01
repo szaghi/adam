@@ -1394,6 +1394,7 @@ contains
 
       subroutine compute_face_mirror_indexes(face, ni, nj, nk, i_gc, j_gc, k_gc, idelta, jdelta, kdelta, i_d, j_d, k_d)
       !$acc routine seq
+      !$omp declare target
       !< Return the donor indexes mirrored across the selected boundary face.
       integer(I4P), intent(in)  :: face                       !< Boundary face index in [1, 6].
       integer(I4P), intent(in)  :: ni, nj, nk                !< Interior grid extents.
@@ -1462,6 +1463,7 @@ contains
 
       subroutine enforce_silver_muller_normal_line_kernel(c, ni, nj, nk, ngc, nv, hs, has_rho, var_rho, local_map_bc_crown_gpu, dxyz_gpu, face_filter, q_gpu)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in)    :: c, ni, nj, nk, ngc, nv, hs, has_rho, var_rho, face_filter
       integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
@@ -1489,6 +1491,7 @@ contains
 
       logical function is_face_line_seed_fnl(face, i, j, k, ni, nj, nk)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
 
       is_face_line_seed_fnl = .false.
@@ -1510,6 +1513,7 @@ contains
 
       subroutine solve_silver_muller_normal_line_fnl(q_gpu, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz, has_rho, var_rho)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, has_rho, var_rho
       real(R8P),    intent(in)    :: dxyz(3)
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
@@ -1534,6 +1538,7 @@ contains
 
       subroutine silver_muller_face_metadata_fnl(face, dir_t1, dir_t2, var_d_t1, var_d_t2, var_d_n, var_b_t1, var_b_t2, var_b_n)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in)  :: face
       integer(I4P), intent(out) :: dir_t1, dir_t2
       integer(I4P), intent(out) :: var_d_t1, var_d_t2, var_d_n
@@ -1562,6 +1567,7 @@ contains
       subroutine solve_silver_muller_normal_field_fnl(q_gpu, ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, dxyz, &
                                                       dir_t1, dir_t2, var_t1, var_t2, var_n, has_target, target_var)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs
       integer(I4P), intent(in)    :: dir_t1, dir_t2, var_t1, var_t2, var_n, has_target, target_var
       real(R8P),    intent(in)    :: dxyz(3)
@@ -1610,6 +1616,7 @@ contains
 
       integer(I4P) function face_normal_direction_fnl(face)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in) :: face
       select case(face)
       case(1, 2)
@@ -1625,6 +1632,7 @@ contains
 
       real(R8P) function silver_muller_unknown_coefficient_fnl(face, m, hs, ds)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in) :: face, m, hs
       real(R8P),    intent(in) :: ds
       silver_muller_unknown_coefficient_fnl = FD1_CC(m, hs) / ds
@@ -1635,6 +1643,7 @@ contains
 
       subroutine interior_cell_from_face_fnl(face, eq, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in)  :: face, eq, ni, nj, nk, i_seed, j_seed, k_seed
       integer(I4P), intent(out) :: ic, jc, kc
       select case(face)
@@ -1657,6 +1666,7 @@ contains
 
       subroutine ghost_cell_from_face_fnl(face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in)  :: face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed
       integer(I4P), intent(out) :: ic, jc, kc
       select case(face)
@@ -1679,6 +1689,7 @@ contains
 
       real(R8P) function tangential_divergence_at_cell_fnl(q_gpu, ngc, b, i, j, k, hs, dxyz, dir_t1, dir_t2, var_t1, var_t2)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in) :: ngc, b, i, j, k, hs, dir_t1, dir_t2, var_t1, var_t2
       real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
       real(R8P),    intent(in) :: dxyz(3)
@@ -1696,6 +1707,7 @@ contains
 
       real(R8P) function normal_known_contribution_fnl(q_gpu, ngc, ni, nj, nk, b, face, i, j, k, hs, dxyz, var_n)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in) :: ngc, ni, nj, nk, b, face, i, j, k, hs, var_n
       real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
       real(R8P),    intent(in) :: dxyz(3)
@@ -1729,6 +1741,7 @@ contains
 
       integer(I4P) function normal_depth_from_cell_fnl(face, i, j, k, ni, nj, nk)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in) :: face, i, j, k, ni, nj, nk
       select case(face)
       case(1)
@@ -1750,6 +1763,7 @@ contains
 
       real(R8P) function component_along_direction_fnl(q_gpu, ngc, b, var, dir, i, j, k, offset)
       !$acc routine seq
+      !$omp declare target
       integer(I4P), intent(in) :: ngc, b, var, dir, i, j, k, offset
       real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
       select case(dir)

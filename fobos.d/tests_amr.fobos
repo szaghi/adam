@@ -3,6 +3,7 @@ modes = test-amr-geo-box-gnu                          test-amr-geo-box-gnu-debug
         test-amr-reflux-restrict-gnu                   test-amr-reflux-restrict-gnu-debug
         test-seam-interpolation-gnu                    test-seam-interpolation-gnu-debug
         test-seam-interpolation-fnl-nvf
+        test-seam-interpolation-fnl-omp-amd
 
 [test-amr-geo-box-gnu]
 template = template-gnu
@@ -37,4 +38,9 @@ target   = test_seam_interpolation.F90
 [test-seam-interpolation-fnl-nvf]
 template = template-nvf
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = test_seam_interpolation_fnl.F90
+
+[test-seam-interpolation-fnl-omp-amd]
+template = template-omp-amd
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
 target   = test_seam_interpolation_fnl.F90

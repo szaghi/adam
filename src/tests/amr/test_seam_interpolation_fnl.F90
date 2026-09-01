@@ -36,6 +36,8 @@ contains
 
    !$acc parallel loop independent collapse(3) gang vector &
    !$acc& DEVICEVAR(w4_dev)
+   !$omp OMPLOOP collapse(3) &
+   !$omp& DEVICEPTR(w4_dev)
    do p=1, 4
       do s=1, 2
          do i=1, 4
@@ -45,6 +47,8 @@ contains
    enddo
    !$acc parallel loop independent collapse(3) gang vector &
    !$acc& DEVICEVAR(w3_dev)
+   !$omp OMPLOOP collapse(3) &
+   !$omp& DEVICEPTR(w3_dev)
    do p=1, 3
       do s=1, 2
          do i=1, 3
@@ -54,6 +58,8 @@ contains
    enddo
    !$acc parallel loop independent collapse(2) gang vector &
    !$acc& DEVICEVAR(wq_dev)
+   !$omp OMPLOOP collapse(2) &
+   !$omp& DEVICEPTR(wq_dev)
    do s=1, 2
       do i=1, 3
          wq_dev(i,s) = SEAM_W_QUADRATIC(i,s)
@@ -77,6 +83,9 @@ contains
    !$acc parallel loop independent gang vector              &
    !$acc& DEVICEVAR(fp_dev, sub_dev, pos_dev, got_dev)      &
    !$acc& firstprivate(ncase) private(fp, sub, pos)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(fp_dev, sub_dev, pos_dev, got_dev) &
+   !$omp& firstprivate(ncase) private(fp, sub, pos)
    do ic=1, ncase
       !$acc loop seq
       do d=1, 3
@@ -110,6 +119,9 @@ contains
    !$acc parallel loop independent gang vector              &
    !$acc& DEVICEVAR(fp_dev, sub_dev, pos_dev, got_dev)      &
    !$acc& firstprivate(ncase) private(fp, sub, pos)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(fp_dev, sub_dev, pos_dev, got_dev) &
+   !$omp& firstprivate(ncase) private(fp, sub, pos)
    do ic=1, ncase
       !$acc loop seq
       do d=1, 3
@@ -141,6 +153,9 @@ contains
    !$acc parallel loop independent gang vector &
    !$acc& DEVICEVAR(fp_dev, sub_dev, got_dev)  &
    !$acc& firstprivate(ncase) private(fp, sub)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(fp_dev, sub_dev, got_dev) &
+   !$omp& firstprivate(ncase) private(fp, sub)
    do ic=1, ncase
       !$acc loop seq
       do d=1, 3
@@ -180,6 +195,9 @@ contains
    !$acc parallel loop independent gang vector                                     &
    !$acc& DEVICEVAR(sub_dev, p4_dev, p3_dev, meta_dev, osub_dev, op4_dev, op3_dev) &
    !$acc& firstprivate(ncase) private(sub, p4, p3, usub, up4, up3)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(sub_dev, p4_dev, p3_dev, meta_dev, osub_dev, op4_dev, op3_dev) &
+   !$omp& firstprivate(ncase) private(sub, p4, p3, usub, up4, up3)
    do ic=1, ncase
       !$acc loop seq
       do d=1, 3
@@ -213,6 +231,9 @@ contains
    !$acc parallel loop independent gang vector                                &
    !$acc& DEVICEVAR(anchor_dev, ncell_dev, subv_dev, fpn_dev, pc_dev, p_dev)  &
    !$acc& firstprivate(ncase)
+   !$omp OMPLOOP &
+   !$omp& DEVICEPTR(anchor_dev, ncell_dev, subv_dev, fpn_dev, pc_dev, p_dev) &
+   !$omp& firstprivate(ncase)
    do ic=1, ncase
       if (fpn_dev(ic) == 4_I4P) then
          pc_dev(ic) = seam_tricubic_centered_pos(sub=subv_dev(ic))
