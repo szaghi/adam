@@ -1568,28 +1568,43 @@ contains
       call mpih%error_stop(msg='set_helicon_coil: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
    endselect
 
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1.0e-12_R8P) then
+                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
    J_vec(1:3,:,:,:,:,n) = J_vec_buffer
    endassociate
 
-   call compute_Helicon_coil_amplitude(I_target = self%coil%A(n),                           &
-                                       rb = self%coil%r_coil(n)+3.5_R8P*self%coil%sigma(n), &
-                                       ra = self%coil%r_coil(n)-3.5_R8P*self%coil%sigma(n), &
-                                       r1 = self%coil%r_coil(n)-self%coil%sigma(n),         &
-                                       r2 = self%coil%r_coil(n)+self%coil%sigma(n),         &
-                                       sigma = self%coil%sigma(n), n=n,                     &
+   call compute_Helicon_coil_amplitude(I_target = self%coil%A(n), radius = self%coil%r_coil(n), &
+                                       sigma = self%coil%sigma(n), n=n,                         &
                                        amplitude = self%coil%coil_amplitude(n))
    endsubroutine set_helicon_coil
 
-   subroutine compute_Helicon_coil_amplitude(I_target, rb, ra, r1, r2, sigma, n, amplitude)
+   subroutine compute_Helicon_coil_amplitude(I_target, radius, sigma, n, amplitude)
    !< Compute amplitude correction for helicon coil
    real(R8P),    intent(in)  :: I_target
-   real(R8P),    intent(in)  :: rb, ra
-   real(R8P),    intent(in)  :: r1, r2
+   real(R8P),    intent(in)  :: radius
    real(R8P),    intent(in)  :: sigma
    integer(I4P), intent(in)  :: n
    real(R8P),    intent(out) :: amplitude
+   real(R8P), parameter      :: wire_support_sigma = 8.0_R8P
+   real(R8P)                 :: rb, ra
+   real(R8P)                 :: r1, r2
    real(R8P)                 :: flux
    real(R8P)                 :: P1, P2, P3, P4
+
+   rb = radius + wire_support_sigma*sigma
+   ra = max(0.0_R8P, radius - wire_support_sigma*sigma)
+   r1 = radius - sigma
+   r2 = radius + sigma
 
    P1 = erf_primitive_function(s=rb, mu=r1, sigma=sigma)
    P2 = erf_primitive_function(s=ra, mu=r1, sigma=sigma)
@@ -1600,6 +1615,7 @@ contains
 
    print '(A)', mpih%myrankstr//'Current before correction: '//trim(str(flux*I_target))
    print '(A)', mpih%myrankstr//trim(str(I_target))//' Amplitude A('//trim(str(n))//') before correction'
+   print '(A)', mpih%myrankstr//'Helicon amplitude radial support: ['//trim(str(ra))//', '//trim(str(rb))//']'
    print '(A)', mpih%myrankstr//'Amplitude scaling factor: '//trim(str(1/flux))
    print '(A)', mpih%myrankstr//trim(str(amplitude))//' Amplitude A('//trim(str(n))//') after correction'
    print '(A)', mpih%myrankstr//'Final coil current '//trim(str(n))//': '//trim(str(amplitude*flux))
