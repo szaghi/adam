@@ -11,6 +11,8 @@ use :: adam_parameters, only : FEC_1_6_ARRAY
 ! third party modules
 use :: finer
 use :: penf
+! sdk modules
+use :: mpi
 
 implicit none
 private
@@ -186,7 +188,143 @@ contains
                                           1:)
 
    call field%update_ghost_local(grid=grid, maps=maps, q=q)
+   call sync_elliptic_block_ghosts_mpi(grid=grid, maps=maps, q=q)
    endsubroutine sync_elliptic_block_ghosts
+
+   subroutine sync_elliptic_block_ghosts_mpi(grid, maps, q)
+   !< MPI ghost refresh for elliptic work arrays. The standard MPI cell maps
+   !< are expanded with the PRISM state-vector nv, so using them directly on
+   !< phi/A buffers with nv_solve=1 or 3 is unsafe. This routine reuses the
+   !< geometric face maps and packs only size(q, dim=1) variables.
+   type(grid_object), intent(in)    :: grid
+   type(maps_object), intent(in)    :: maps
+   real(R8P),         intent(inout) :: q(1:,          &
+                                         1-grid%ngc:, &
+                                         1-grid%ngc:, &
+                                         1-grid%ngc:, &
+                                         1:)
+   real(R8P), allocatable           :: send_buffer(:)
+   real(R8P), allocatable           :: recv_buffer(:)
+   integer(I4P), allocatable        :: send_ptr(:)
+   integer(I4P), allocatable        :: recv_ptr(:)
+   integer(I4P), allocatable        :: send_ctr(:)
+   integer(I4P), allocatable        :: recv_ctr(:)
+   integer(I4P), allocatable        :: req_send_recv(:)
+   integer(I4P)                     :: nvq
+   integer(I4P)                     :: p
+   integer(I4P)                     :: ptr_start, ptr_end
+   integer(I4P)                     :: n_send, n_recv
+   integer(I4P)                     :: sf, rf
+   integer(I4P)                     :: b_send, b_recv
+   integer(I4P)                     :: i_send, j_send, k_send
+   integer(I4P)                     :: i_recv, j_recv, k_recv
+   integer(I4P)                     :: imin, jmin, kmin
+   integer(I4P)                     :: imax, jmax, kmax
+   integer(I4P)                     :: idelta, jdelta, kdelta
+   integer(I4P)                     :: portion
+   integer(I4P)                     :: i, j, k, v
+   integer(I4P)                     :: c
+
+   if (mpih%procs_number <= 1_I4P) return
+   if (.not.allocated(maps%comm_map_n_send_ghost)) return
+   if (.not.allocated(maps%comm_map_n_recv_ghost)) return
+
+   nvq = int(size(q, dim=1), I4P)
+   allocate(send_ptr(0:mpih%procs_number))
+   allocate(recv_ptr(0:mpih%procs_number))
+   allocate(send_ctr(0:mpih%procs_number-1))
+   allocate(recv_ctr(0:mpih%procs_number-1))
+   allocate(req_send_recv(0:2*mpih%procs_number-1))
+   send_ptr = 0_I4P
+   recv_ptr = 0_I4P
+   send_ctr = 0_I4P
+   recv_ctr = 0_I4P
+   req_send_recv = MPI_REQUEST_NULL
+
+   do p=1, mpih%procs_number
+      send_ptr(p) = send_ptr(p-1) + maps%comm_map_n_send_ghost(p-1) * nvq
+      recv_ptr(p) = recv_ptr(p-1) + maps%comm_map_n_recv_ghost(p-1) * nvq
+   enddo
+   if (send_ptr(mpih%procs_number) > 0_I4P) allocate(send_buffer(1:send_ptr(mpih%procs_number)))
+   if (recv_ptr(mpih%procs_number) > 0_I4P) allocate(recv_buffer(1:recv_ptr(mpih%procs_number)))
+
+   if (allocated(maps%comm_map_send_ghost)) then
+      do sf=1, size(maps%comm_map_send_ghost, dim=1)
+         p        = int(maps%comm_map_send_ghost(sf, 3), I4P)
+         portion  = int(maps%comm_map_send_ghost(sf, 5), I4P)
+         b_send   = int(maps%comm_map_send_ghost(sf, 2), I4P)
+         imin     = int(maps%comm_map_send_ghost(sf, 6), I4P)
+         jmin     = int(maps%comm_map_send_ghost(sf, 7), I4P)
+         kmin     = int(maps%comm_map_send_ghost(sf, 8), I4P)
+         imax     = int(maps%comm_map_send_ghost(sf, 9), I4P)
+         jmax     = int(maps%comm_map_send_ghost(sf,10), I4P)
+         kmax     = int(maps%comm_map_send_ghost(sf,11), I4P)
+         idelta   = int(maps%comm_map_send_ghost(sf,12), I4P)
+         jdelta   = int(maps%comm_map_send_ghost(sf,13), I4P)
+         kdelta   = int(maps%comm_map_send_ghost(sf,14), I4P)
+         if (portion /= 0_I4P) call mpih%error_stop(msg='sync_elliptic_block_ghosts_mpi: AMR MPI seams are not supported yet')
+         do k=kmin, kmax
+            do j=jmin, jmax
+               do i=imin, imax
+                  i_send = i + idelta
+                  j_send = j + jdelta
+                  k_send = k + kdelta
+                  do v=1, nvq
+                     c = send_ptr(p) + send_ctr(p) + 1_I4P
+                     send_buffer(c) = q(v,i_send,j_send,k_send,b_send)
+                     send_ctr(p) = send_ctr(p) + 1_I4P
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   endif
+
+   do p=0, mpih%procs_number - 1_I4P
+      ptr_start = recv_ptr(p) + 1_I4P
+      ptr_end   = recv_ptr(p+1)
+      n_recv    = ptr_end - ptr_start + 1_I4P
+      if (n_recv > 0_I4P) then
+         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_send_recv(p), mpih%error)
+      endif
+   enddo
+   do p=0, mpih%procs_number - 1_I4P
+      ptr_start = send_ptr(p) + 1_I4P
+      ptr_end   = send_ptr(p+1)
+      n_send    = ptr_end - ptr_start + 1_I4P
+      if (n_send > 0_I4P) then
+         call MPI_ISEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+                        req_send_recv(p+mpih%procs_number), mpih%error)
+      endif
+   enddo
+   call MPI_WAITALL(mpih%procs_number * 2_I4P, req_send_recv, MPI_STATUSES_IGNORE, mpih%error)
+
+   if (allocated(maps%comm_map_recv_ghost)) then
+      do rf=1, size(maps%comm_map_recv_ghost, dim=1)
+         p        = int(maps%comm_map_recv_ghost(rf, 3), I4P)
+         portion  = int(maps%comm_map_recv_ghost(rf, 5), I4P)
+         b_recv   = int(maps%comm_map_recv_ghost(rf, 1), I4P)
+         imin     = int(maps%comm_map_recv_ghost(rf, 6), I4P)
+         jmin     = int(maps%comm_map_recv_ghost(rf, 7), I4P)
+         kmin     = int(maps%comm_map_recv_ghost(rf, 8), I4P)
+         imax     = int(maps%comm_map_recv_ghost(rf, 9), I4P)
+         jmax     = int(maps%comm_map_recv_ghost(rf,10), I4P)
+         kmax     = int(maps%comm_map_recv_ghost(rf,11), I4P)
+         if (portion /= 0_I4P) call mpih%error_stop(msg='sync_elliptic_block_ghosts_mpi: AMR MPI seams are not supported yet')
+         do k=kmin, kmax
+            do j=jmin, jmax
+               do i=imin, imax
+                  do v=1, nvq
+                     c = recv_ptr(p) + recv_ctr(p) + 1_I4P
+                     q(v,i,j,k,b_recv) = recv_buffer(c)
+                     recv_ctr(p) = recv_ctr(p) + 1_I4P
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   endif
+   endsubroutine sync_elliptic_block_ghosts_mpi
 
    subroutine apply_bc_elliptic_from_faces(ni, nj, nk, ngc, blocks_number, ell_bc_type, local_map_bc_crown, ivar, mu, eps, field, &
                                            f, q, rebuild_exact_open)
