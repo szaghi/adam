@@ -354,10 +354,40 @@ contains
    integer(I4P)                      :: i_d, j_d, k_d         !< Mirror donor indexes.
    integer(I4P)                      :: face                   !< Face index in 1:6 numbering.
    integer(I4P)                      :: ip, jp, kp            !< Periodic source indexes.
+   integer(I4P)                      :: progress              !< Exact/open rebuild progress percentage.
+   integer(I4P)                      :: last_progress         !< Last printed exact/open rebuild progress percentage.
+   integer(I8P)                      :: exact_open_done       !< Completed exact/open ghost-cell rebuilds.
+   integer(I8P)                      :: exact_open_total      !< Total exact/open ghost-cell rebuilds.
+   integer(I8P)                      :: source_cells          !< Interior source cells visited for each ghost cell.
+   integer(I8P)                      :: interactions          !< Total source-target interactions.
+   real(R8P)                         :: time_start            !< Exact/open rebuild start time.
+   real(R8P)                         :: time_now              !< Exact/open rebuild current time.
+   real(R8P)                         :: time_last             !< Exact/open rebuild last report time.
    logical                           :: rebuild_exact_open_    !< Rebuild exact/open BC values, local var.
 
    rebuild_exact_open_ = .true.
    if (present(rebuild_exact_open)) rebuild_exact_open_ = rebuild_exact_open
+
+   exact_open_total = 0_I8P
+   if (rebuild_exact_open_ .and. any(ell_bc_type == ELL_BC_EXACT_OPEN)) then
+      do crown=1, ngc
+         do c=1, size(local_map_bc_crown, dim=1)
+            b = int(local_map_bc_crown(c, 1, crown), I4P)
+            if (b <= 0_I4P) cycle
+            face = FEC_1_6_ARRAY(int(local_map_bc_crown(c, 9, crown), I4P))
+            if (ell_bc_type(face) == ELL_BC_EXACT_OPEN) exact_open_total = exact_open_total + 1_I8P
+         enddo
+      enddo
+      source_cells = int(blocks_number, I8P) * int(ni, I8P) * int(nj, I8P) * int(nk, I8P)
+      interactions = exact_open_total * source_cells
+      time_start = MPI_WTIME()
+      time_last = time_start
+      last_progress = -1_I4P
+      exact_open_done = 0_I8P
+      call mpih%print_message('elliptic exact/open BC rebuild start: ghost_cells='//trim(str(exact_open_total,.true.))// &
+                              ', source_cells_per_ghost='//trim(str(source_cells,.true.))// &
+                              ', source_target_interactions='//trim(str(interactions,.true.)))
+   endif
 
    do crown=1, ngc
       do c=1, size(local_map_bc_crown, dim=1)
@@ -387,6 +417,20 @@ contains
                call apply_bc_elliptic_face_exact_open(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, face=face, &
                                                       ivar=ivar, mu=mu, eps=eps, field=field, f=f, i_gc=i, j_gc=j, k_gc=k, &
                                                       b_gc=b, q=q)
+               if (exact_open_total > 0_I8P) then
+                  exact_open_done = exact_open_done + 1_I8P
+                  progress = int(100._R8P * real(exact_open_done, R8P) / real(exact_open_total, R8P), kind=I4P)
+                  if (progress > last_progress) then
+                     time_now = MPI_WTIME()
+                     call mpih%print_message('elliptic exact/open BC rebuild progress: '//trim(str(progress,.true.))// &
+                                             '% ('//trim(str(exact_open_done,.true.))//'/'// &
+                                             trim(str(exact_open_total,.true.))//'), elapsed='// &
+                                             trim(str(time_now - time_start))//' s, delta='// &
+                                             trim(str(time_now - time_last))//' s')
+                     last_progress = progress
+                     time_last = time_now
+                  endif
+               endif
             endif
          case(ELL_BC_PEC)
             call compute_face_mirror_indexes(face=face, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, idelta=idelta, &
@@ -398,6 +442,11 @@ contains
          endselect
       enddo
    enddo
+   if (exact_open_total > 0_I8P) then
+      time_now = MPI_WTIME()
+      call mpih%print_message('elliptic exact/open BC rebuild finish: ghost_cells='// &
+                              trim(str(exact_open_done,.true.))//', elapsed='//trim(str(time_now - time_start))//' s')
+   endif
    endsubroutine apply_bc_elliptic_from_faces
 
    subroutine compute_face_mirror_indexes(face, ni, nj, nk, i_gc, j_gc, k_gc, idelta, jdelta, kdelta, i_d, j_d, k_d)

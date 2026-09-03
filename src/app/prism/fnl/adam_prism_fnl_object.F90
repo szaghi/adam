@@ -5948,14 +5948,15 @@ contains
    real(R8P)                              :: measure_3db
    real(R8P)                              :: measure_domain
    real(R8P)                              :: threshold
+   real(R8P)                              :: weighted_absdiff_3db
+   real(R8P)                              :: weighted_absdiff_domain
    real(R8P)                              :: weighted_sum_3db
    real(R8P)                              :: weighted_sum_domain
    real(R8P)                              :: x, y, z
    logical                                :: use_cylinder
 
    use_cylinder = self%grms%use_cylindrical_region
-   domain_center = [0._R8P, 0._R8P, 0._R8P]
-   if (use_cylinder) domain_center = self%grms%center
+   domain_center = 0.5_R8P * (self%adam%grid%domain_emin + self%adam%grid%domain_emax)
    half_length = 0.5_R8P * self%grms%length
    radius2 = self%grms%radius * self%grms%radius
    allocate(lo_i(1:self%blocks_number), hi_i(1:self%blocks_number), lo_j(1:self%blocks_number), hi_j(1:self%blocks_number), &
@@ -5976,7 +5977,6 @@ contains
             y = self%adam%field%y_cell(j,b)
             do i = lo_i(b), hi_i(b)
                x = self%adam%field%x_cell(i,b)
-               if (.not. is_inside_selected_domain(x=x, y=y, z=z)) cycle
                if (reference_distance2(x=x, y=y, z=z) < best_r2_local) then
                   best_r2_local = reference_distance2(x=x, y=y, z=z)
                   b_ref = b ; i_ref = i ; j_ref = j ; k_ref = k
@@ -5997,17 +5997,22 @@ contains
 
    threshold = GRMS_3DB_RATIO * bref_global
    call compute_grms_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                                s1=self%fdv_half_stencils(1), threshold=threshold, use_cylinder=use_cylinder, &
+                                s1=self%fdv_half_stencils(1), reference_B=bref_global, threshold=threshold, &
+                                use_cylinder=use_cylinder, &
                                 center_x=self%grms%center(1), center_y=self%grms%center(2), center_z=self%grms%center(3), &
                                 axis_x=self%grms%axis(1), axis_y=self%grms%axis(2), axis_z=self%grms%axis(3), &
                                 half_length=half_length, radius2=radius2, lo_i=lo_i, hi_i=hi_i, lo_j=lo_j, hi_j=hi_j, &
                                 lo_k=lo_k, hi_k=hi_k, x_cell_gpu=self%field_fnl%x_cell_gpu, y_cell_gpu=self%field_fnl%y_cell_gpu, &
                                 z_cell_gpu=self%field_fnl%z_cell_gpu, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu, &
                                 weighted_sum_domain=weighted_sum_domain, measure_domain=measure_domain, &
-                                cells_count_domain=cells_count_domain, weighted_sum_3db=weighted_sum_3db, &
+                                cells_count_domain=cells_count_domain, weighted_absdiff_domain=weighted_absdiff_domain, &
+                                weighted_sum_3db=weighted_sum_3db, &
+                                weighted_absdiff_3db=weighted_absdiff_3db, &
                                 measure_3db=measure_3db, cells_count_3db=cells_count_3db)
    call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_absdiff_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_absdiff_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, measure_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, measure_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, cells_count_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
@@ -6023,8 +6028,22 @@ contains
    self%grms%cells_number_3db = cells_3db
    self%grms%grms_domain_B = 0.0_R8P
    self%grms%grms_3db_B = 0.0_R8P
+   self%grms%grms_domain_B_normalized = 0.0_R8P
+   self%grms%grms_3db_B_normalized = 0.0_R8P
+   self%grms%absdiff_domain_B = 0.0_R8P
+   self%grms%absdiff_3db_B = 0.0_R8P
+   self%grms%absdiff_domain_B_normalized = 0.0_R8P
+   self%grms%absdiff_3db_B_normalized = 0.0_R8P
    if (measure_domain > 0.0_R8P) self%grms%grms_domain_B = sqrt(weighted_sum_domain / measure_domain)
    if (measure_3db > 0.0_R8P) self%grms%grms_3db_B = sqrt(weighted_sum_3db / measure_3db)
+   if (measure_domain > 0.0_R8P) self%grms%absdiff_domain_B = weighted_absdiff_domain / measure_domain
+   if (measure_3db > 0.0_R8P) self%grms%absdiff_3db_B = weighted_absdiff_3db / measure_3db
+   if (bref_global > 0.0_R8P) then
+      self%grms%grms_domain_B_normalized = self%grms%grms_domain_B / bref_global
+      self%grms%grms_3db_B_normalized = self%grms%grms_3db_B / bref_global
+      self%grms%absdiff_domain_B_normalized = self%grms%absdiff_domain_B / bref_global
+      self%grms%absdiff_3db_B_normalized = self%grms%absdiff_3db_B / bref_global
+   endif
    deallocate(lo_i, hi_i, lo_j, hi_j, lo_k, hi_k)
    contains
       subroutine get_valid_window(self, hs, b, lo_i, hi_i, lo_j, hi_j, lo_k, hi_k)
@@ -6122,13 +6141,15 @@ contains
       reference_distance2 = (x - domain_center(1))**2 + (y - domain_center(2))**2 + (z - domain_center(3))**2
       endfunction reference_distance2
 
-      subroutine compute_grms_dev_kernel(ni, nj, nk, ngc, blocks_number, s1, threshold, use_cylinder, center_x, center_y, center_z, &
+      subroutine compute_grms_dev_kernel(ni, nj, nk, ngc, blocks_number, s1, reference_B, threshold, use_cylinder, &
+                                         center_x, center_y, center_z, &
                                          axis_x, axis_y, axis_z, half_length, radius2, lo_i, hi_i, lo_j, hi_j, lo_k, hi_k, &
                                          x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, q_gpu, weighted_sum_domain, measure_domain, &
-                                         cells_count_domain, weighted_sum_3db, measure_3db, cells_count_3db)
+                                         cells_count_domain, weighted_absdiff_domain, weighted_sum_3db, weighted_absdiff_3db, &
+                                         measure_3db, cells_count_3db)
       integer(I4P), intent(in)  :: ni, nj, nk, ngc, blocks_number, s1
       integer(I4P), intent(in)  :: lo_i(1:), hi_i(1:), lo_j(1:), hi_j(1:), lo_k(1:), hi_k(1:)
-      real(R8P),    intent(in)  :: threshold
+      real(R8P),    intent(in)  :: reference_B, threshold
       logical,      intent(in)  :: use_cylinder
       real(R8P),    intent(in)  :: center_x, center_y, center_z, axis_x, axis_y, axis_z, half_length, radius2
       real(R8P),    intent(in)  :: x_cell_gpu(1:,1-ngc:)
@@ -6137,24 +6158,31 @@ contains
       real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)
       real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
       real(R8P),    intent(out) :: weighted_sum_domain, measure_domain, cells_count_domain
-      real(R8P),    intent(out) :: weighted_sum_3db, measure_3db, cells_count_3db
-      real(R8P)                 :: axial_distance, b_amp, b_minus, b_plus, dBdx, dBdy, dBdz, grad2, radial2_local
+      real(R8P),    intent(out) :: weighted_absdiff_domain, weighted_sum_3db, weighted_absdiff_3db
+      real(R8P),    intent(out) :: measure_3db, cells_count_3db
+      real(R8P)                 :: absdiff, axial_distance, b_amp, b_minus, b_plus, dBdx, dBdy, dBdz, grad2, radial2_local
       integer(I4P)              :: b, i, j, k, s
 
       weighted_sum_domain = 0.0_R8P
       weighted_sum_3db = 0.0_R8P
+      weighted_absdiff_domain = 0.0_R8P
+      weighted_absdiff_3db = 0.0_R8P
       measure_domain = 0.0_R8P
       measure_3db = 0.0_R8P
       cells_count_domain = 0.0_R8P
       cells_count_3db = 0.0_R8P
       !$acc parallel loop collapse(4) DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) copyin(lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
-      !$acc& firstprivate(ni,nj,nk,blocks_number,s1,threshold,use_cylinder,center_x,center_y,center_z,axis_x,axis_y,axis_z,half_length,radius2) &
-      !$acc& private(axial_distance,b_amp,b_minus,b_plus,dBdx,dBdy,dBdz,grad2,radial2_local,s) &
-      !$acc& reduction(+: weighted_sum_domain, measure_domain, cells_count_domain, weighted_sum_3db, measure_3db, cells_count_3db)
+      !$acc& firstprivate(ni,nj,nk,blocks_number,s1,reference_B,threshold,use_cylinder,center_x,center_y,center_z) &
+      !$acc& firstprivate(axis_x,axis_y,axis_z,half_length,radius2) &
+      !$acc& private(absdiff,axial_distance,b_amp,b_minus,b_plus,dBdx,dBdy,dBdz,grad2,radial2_local,s) &
+      !$acc& reduction(+: weighted_sum_domain, measure_domain, cells_count_domain, weighted_absdiff_domain) &
+      !$acc& reduction(+: weighted_sum_3db, weighted_absdiff_3db, measure_3db, cells_count_3db)
       !$omp OMPLOOP collapse(4) DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) map(to:lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
-      !$omp& firstprivate(ni,nj,nk,blocks_number,s1,threshold,use_cylinder,center_x,center_y,center_z,axis_x,axis_y,axis_z,half_length,radius2) &
-      !$omp& private(axial_distance,b_amp,b_minus,b_plus,dBdx,dBdy,dBdz,grad2,radial2_local,s) &
-      !$omp& reduction(+: weighted_sum_domain, measure_domain, cells_count_domain, weighted_sum_3db, measure_3db, cells_count_3db)
+      !$omp& firstprivate(ni,nj,nk,blocks_number,s1,reference_B,threshold,use_cylinder,center_x,center_y,center_z) &
+      !$omp& firstprivate(axis_x,axis_y,axis_z,half_length,radius2) &
+      !$omp& private(absdiff,axial_distance,b_amp,b_minus,b_plus,dBdx,dBdy,dBdz,grad2,radial2_local,s) &
+      !$omp& reduction(+: weighted_sum_domain, measure_domain, cells_count_domain, weighted_absdiff_domain) &
+      !$omp& reduction(+: weighted_sum_3db, weighted_absdiff_3db, measure_3db, cells_count_3db)
       do b = 1, blocks_number
       do k = 1, nk
       do j = 1, nj
@@ -6185,11 +6213,14 @@ contains
             dBdz = dBdz + FD1_CC(s,s1) * (b_plus - b_minus) / dxyz_gpu(b,3)
          enddo
          grad2 = dBdx*dBdx + dBdy*dBdy + dBdz*dBdz
+         absdiff = abs(b_amp - reference_B)
          weighted_sum_domain = weighted_sum_domain + grad2 * (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
+         weighted_absdiff_domain = weighted_absdiff_domain + absdiff * (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
          measure_domain = measure_domain + (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
          cells_count_domain = cells_count_domain + 1.0_R8P
          if (b_amp >= threshold) then
             weighted_sum_3db = weighted_sum_3db + grad2 * (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
+            weighted_absdiff_3db = weighted_absdiff_3db + absdiff * (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
             measure_3db = measure_3db + (dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3))
             cells_count_3db = cells_count_3db + 1.0_R8P
          endif

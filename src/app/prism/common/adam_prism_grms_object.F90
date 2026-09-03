@@ -23,14 +23,20 @@ type :: prism_grms_object
    real(R8P) :: radius = -1._R8P                   !< Cylinder radius.
    real(R8P) :: length = -1._R8P                   !< Cylinder length.
    character(:), allocatable :: output_basename    !< Basename of output files.
-   real(R8P)    :: grms_domain_B = 0._R8P          !< Grms over the selected domain.
-   real(R8P)    :: grms_3db_B = 0._R8P             !< Grms over the -3 dB subset of the selected domain.
-   real(R8P)    :: reference_B = 0._R8P            !< Reference rotating magnetic field amplitude.
-   real(R8P)    :: threshold_B = 0._R8P            !< -3 dB threshold amplitude.
-   real(R8P)    :: domain_measure = 0._R8P         !< Measure of the selected domain.
-   real(R8P)    :: measure_3db = 0._R8P            !< Measure of the -3 dB subset.
-   integer(I8P) :: domain_cells_number = 0_I8P     !< Number of cells in the selected domain.
-   integer(I8P) :: cells_number_3db = 0_I8P        !< Number of cells in the -3 dB subset.
+   real(R8P)    :: grms_domain_B = 0._R8P                  !< Grms over the selected domain.
+   real(R8P)    :: grms_3db_B = 0._R8P                     !< Grms over the -3 dB subset of the selected domain.
+   real(R8P)    :: grms_domain_B_normalized = 0._R8P       !< Grms over the selected domain, normalized by reference_B.
+   real(R8P)    :: grms_3db_B_normalized = 0._R8P          !< Grms over the -3 dB subset, normalized by reference_B.
+   real(R8P)    :: absdiff_domain_B = 0._R8P               !< Mean abs(B_amp-reference_B) over the selected domain.
+   real(R8P)    :: absdiff_3db_B = 0._R8P                  !< Mean abs(B_amp-reference_B) over the -3 dB subset.
+   real(R8P)    :: absdiff_domain_B_normalized = 0._R8P    !< absdiff_domain_B normalized by reference_B.
+   real(R8P)    :: absdiff_3db_B_normalized = 0._R8P       !< absdiff_3db_B normalized by reference_B.
+   real(R8P)    :: reference_B = 0._R8P                    !< Reference rotating magnetic field amplitude.
+   real(R8P)    :: threshold_B = 0._R8P                    !< -3 dB threshold amplitude.
+   real(R8P)    :: domain_measure = 0._R8P                 !< Measure of the selected domain.
+   real(R8P)    :: measure_3db = 0._R8P                    !< Measure of the -3 dB subset.
+   integer(I8P) :: domain_cells_number = 0_I8P             !< Number of cells in the selected domain.
+   integer(I8P) :: cells_number_3db = 0_I8P                !< Number of cells in the -3 dB subset.
    contains
       procedure, pass(self) :: initialize
       procedure, pass(self) :: load_from_file
@@ -131,7 +137,10 @@ contains
    if (is_to_open_) then
       open(newunit=self%history_unit, file=self%output_basename//'-grms_history.dat')
       write(self%history_unit,'(A)') &
-            '%VARIABLES="it" "blocks_number" "time" "G_rms_domain [T/m]" "G_rms_-3dB [T/m]" "B_ref [T]" ' // &
+            '%VARIABLES="it" "blocks_number" "time" "G_rms_domain [T/m]" "G_rms_-3dB [T/m]" ' // &
+            '"G_rms_domain/B_ref [1/m]" "G_rms_-3dB/B_ref [1/m]" ' // &
+            '"mean_abs(B-B_ref)_domain [T]" "mean_abs(B-B_ref)_-3dB [T]" ' // &
+            '"mean_abs(B-B_ref)_domain/B_ref" "mean_abs(B-B_ref)_-3dB/B_ref" "B_ref [T]" ' // &
             '"B_-3dB [T]" "measure_domain" "cells_domain" "measure_-3dB" "cells_-3dB"'
    endif
    write(self%history_unit, '(A)') trim(str(it                     ))//' '//&
@@ -139,12 +148,18 @@ contains
                                    trim(str(time                   ))//' '//&
                                    trim(str(self%grms_domain_B     ))//' '//&
                                    trim(str(self%grms_3db_B        ))//' '//&
-                                   trim(str(self%reference_B       ))//' '//&
-                                   trim(str(self%threshold_B       ))//' '//&
-                                   trim(str(self%domain_measure    ))//' '//&
-                                   trim(str(self%domain_cells_number))//' '//&
-                                   trim(str(self%measure_3db       ))//' '//&
-                                   trim(str(self%cells_number_3db  ))
+                                   trim(str(self%grms_domain_B_normalized   ))//' '//&
+                                   trim(str(self%grms_3db_B_normalized      ))//' '//&
+                                   trim(str(self%absdiff_domain_B           ))//' '//&
+                                   trim(str(self%absdiff_3db_B              ))//' '//&
+                                   trim(str(self%absdiff_domain_B_normalized))//' '//&
+                                   trim(str(self%absdiff_3db_B_normalized   ))//' '//&
+                                   trim(str(self%reference_B                ))//' '//&
+                                   trim(str(self%threshold_B                ))//' '//&
+                                   trim(str(self%domain_measure             ))//' '//&
+                                   trim(str(self%domain_cells_number        ))//' '//&
+                                   trim(str(self%measure_3db                ))//' '//&
+                                   trim(str(self%cells_number_3db           ))
    if (is_to_close_) close(self%history_unit)
    endsubroutine save_history
 

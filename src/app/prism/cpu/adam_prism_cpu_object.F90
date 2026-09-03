@@ -2169,6 +2169,7 @@ contains
    integer(I4P)                          :: b_ref, i_ref, j_ref, k_ref
    integer(I8P)                          :: cells_local_3db, cells_global_3db
    integer(I8P)                          :: cells_local_domain, cells_global_domain
+   real(R8P)                             :: absdiff
    real(R8P)                             :: b_amp
    real(R8P)                             :: b_minus, b_plus
    real(R8P)                             :: best_r2_local, best_r2_global
@@ -2180,14 +2181,15 @@ contains
    real(R8P)                             :: measure_local_3db, measure_global_3db
    real(R8P)                             :: measure_local_domain, measure_global_domain
    real(R8P)                             :: threshold
+   real(R8P)                             :: weighted_absdiff_local_3db, weighted_absdiff_global_3db
+   real(R8P)                             :: weighted_absdiff_local_domain, weighted_absdiff_global_domain
    real(R8P)                             :: weighted_sum_local_3db, weighted_sum_global_3db
    real(R8P)                             :: weighted_sum_local_domain, weighted_sum_global_domain
    real(R8P)                             :: x, y, z
    logical                               :: use_cylinder
 
    use_cylinder = self%grms%use_cylindrical_region
-   domain_center = [0._R8P, 0._R8P, 0._R8P]
-   if (use_cylinder) domain_center = self%grms%center
+   domain_center = 0.5_R8P * (self%adam%grid%domain_emin + self%adam%grid%domain_emax)
    half_length = 0.5_R8P * self%grms%length
    radius2 = self%grms%radius * self%grms%radius
    best_r2_local = huge(1.0_R8P)
@@ -2203,7 +2205,6 @@ contains
             y = self%adam%field%y_cell(j,b)
             do i = lo_i, hi_i
                x = self%adam%field%x_cell(i,b)
-               if (.not. is_inside_selected_domain(x=x, y=y, z=z)) cycle
                if (reference_distance2(x=x, y=y, z=z) < best_r2_local) then
                   best_r2_local = reference_distance2(x=x, y=y, z=z)
                   b_ref = b ; i_ref = i ; j_ref = j ; k_ref = k
@@ -2225,6 +2226,8 @@ contains
    threshold = GRMS_3DB_RATIO * bref_global
    weighted_sum_local_domain = 0.0_R8P
    weighted_sum_local_3db = 0.0_R8P
+   weighted_absdiff_local_domain = 0.0_R8P
+   weighted_absdiff_local_3db = 0.0_R8P
    measure_local_domain = 0.0_R8P
    measure_local_3db = 0.0_R8P
    cells_local_domain = 0_I8P
@@ -2256,11 +2259,14 @@ contains
                   dBdz = dBdz + FD1_CC(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(3,b)
                enddo
                grad2 = dBdx*dBdx + dBdy*dBdy + dBdz*dBdz
+               absdiff = abs(b_amp - bref_global)
                weighted_sum_local_domain = weighted_sum_local_domain + grad2 * product(self%adam%field%dxyz(:,b))
+               weighted_absdiff_local_domain = weighted_absdiff_local_domain + absdiff * product(self%adam%field%dxyz(:,b))
                measure_local_domain = measure_local_domain + product(self%adam%field%dxyz(:,b))
                cells_local_domain = cells_local_domain + 1_I8P
                if (b_amp >= threshold) then
                   weighted_sum_local_3db = weighted_sum_local_3db + grad2 * product(self%adam%field%dxyz(:,b))
+                  weighted_absdiff_local_3db = weighted_absdiff_local_3db + absdiff * product(self%adam%field%dxyz(:,b))
                   measure_local_3db = measure_local_3db + product(self%adam%field%dxyz(:,b))
                   cells_local_3db = cells_local_3db + 1_I8P
                endif
@@ -2271,12 +2277,16 @@ contains
 
    weighted_sum_global_domain = weighted_sum_local_domain
    weighted_sum_global_3db = weighted_sum_local_3db
+   weighted_absdiff_global_domain = weighted_absdiff_local_domain
+   weighted_absdiff_global_3db = weighted_absdiff_local_3db
    measure_global_domain = measure_local_domain
    measure_global_3db = measure_local_3db
    cells_global_domain = cells_local_domain
    cells_global_3db = cells_local_3db
    call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_global_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_global_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_absdiff_global_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_absdiff_global_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, measure_global_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, measure_global_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, cells_global_domain, 1, MPI_INTEGER8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
@@ -2290,8 +2300,22 @@ contains
    self%grms%cells_number_3db = cells_global_3db
    self%grms%grms_domain_B = 0.0_R8P
    self%grms%grms_3db_B = 0.0_R8P
+   self%grms%grms_domain_B_normalized = 0.0_R8P
+   self%grms%grms_3db_B_normalized = 0.0_R8P
+   self%grms%absdiff_domain_B = 0.0_R8P
+   self%grms%absdiff_3db_B = 0.0_R8P
+   self%grms%absdiff_domain_B_normalized = 0.0_R8P
+   self%grms%absdiff_3db_B_normalized = 0.0_R8P
    if (measure_global_domain > 0.0_R8P) self%grms%grms_domain_B = sqrt(weighted_sum_global_domain / measure_global_domain)
    if (measure_global_3db > 0.0_R8P) self%grms%grms_3db_B = sqrt(weighted_sum_global_3db / measure_global_3db)
+   if (measure_global_domain > 0.0_R8P) self%grms%absdiff_domain_B = weighted_absdiff_global_domain / measure_global_domain
+   if (measure_global_3db > 0.0_R8P) self%grms%absdiff_3db_B = weighted_absdiff_global_3db / measure_global_3db
+   if (bref_global > 0.0_R8P) then
+      self%grms%grms_domain_B_normalized = self%grms%grms_domain_B / bref_global
+      self%grms%grms_3db_B_normalized = self%grms%grms_3db_B / bref_global
+      self%grms%absdiff_domain_B_normalized = self%grms%absdiff_domain_B / bref_global
+      self%grms%absdiff_3db_B_normalized = self%grms%absdiff_3db_B / bref_global
+   endif
    contains
       subroutine get_valid_window(self, hs, b, lo_i, hi_i, lo_j, hi_j, lo_k, hi_k)
       class(prism_cpu_object), intent(in)  :: self
