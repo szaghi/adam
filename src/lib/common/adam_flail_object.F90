@@ -870,8 +870,8 @@ contains
 
    subroutine compute_smoothing_gauss_seidel_2nd(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                              iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
-                                             ell_bc_type, local_map_bc_crown, grid, maps, progress_label, progress_counter, progress_total, &
-                                             progress_last_percent)
+                                             ell_bc_type, local_map_bc_crown, grid, maps, progress_label, progress_counter, & 
+                                             progress_total, progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with second-order
    !< centered first-derivative operators.
    integer(I4P),       intent(in)              :: ni,nj,nk,ngc               !< Grid dimensions.
@@ -965,8 +965,8 @@ contains
 
    subroutine compute_smoothing_gauss_seidel_4th(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                              iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
-                                             ell_bc_type, local_map_bc_crown, grid, maps, progress_label, progress_counter, progress_total, &
-                                             progress_last_percent)
+                                             ell_bc_type, local_map_bc_crown, grid, maps, progress_label, progress_counter, &
+                                             progress_total, progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with fourth-order
    !< centered first-derivative operators.
    integer(I4P),       intent(in)              :: ni,nj,nk,ngc               !< Grid dimensions.
@@ -1072,8 +1072,8 @@ contains
 
    subroutine compute_smoothing_gauss_seidel_6th(ni, nj, nk, ngc, nv, blocks_number, dxyz, f, q, dq, dq_max, &
                                              iterations_init, iterations_fine, iterations_coarse, ivar, mu, eps, field, &
-                                             ell_bc_type, local_map_bc_crown, grid, maps, progress_label, progress_counter, progress_total, &
-                                             progress_last_percent)
+                                             ell_bc_type, local_map_bc_crown, grid, maps, progress_label, progress_counter, & 
+                                             progress_total, progress_last_percent)
    !< Compute smoothing by Gauss-Seidel using L = D(G), with sixth-order
    !< centered first-derivative operators.
    integer(I4P),       intent(in)              :: ni,nj,nk,ngc               !< Grid dimensions.

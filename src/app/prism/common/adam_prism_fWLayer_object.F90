@@ -275,8 +275,9 @@ contains
    f_value = 1._R8P / fi * log10(distance_ratio * (10._R8P**fi - 1._R8P) + 1._R8P)
    endfunction compute_fwl_factor
 
-   subroutine apply_fWL_correction_fun(blocks_number, ngc, ni, nj, nk, face, profile_extent, profile_cells, ni_fWL, nj_fWL, nk_fWL, n, &
-                                       s2, alfa_D, beta_D, alfa_B, beta_B, domain_emin, domain_emax, emin, emax, dxyz, q)
+   subroutine apply_fWL_correction_fun(blocks_number, ngc, ni, nj, nk, face, profile_extent, profile_cells, ni_fWL, nj_fWL, &
+                                       nk_fWL, n, s2, alfa_D, beta_D, alfa_B, beta_B, domain_emin, domain_emax, emin, emax, & 
+                                       dxyz, q)
    !< Applay FWL correction, direction agnostic.
    integer(I4P), intent(in)    :: blocks_number                     !< Blocks number.
    integer(I4P), intent(in)    :: ngc                               !< Number of ghost cells.

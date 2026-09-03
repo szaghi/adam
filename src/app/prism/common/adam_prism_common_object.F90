@@ -24,6 +24,7 @@ use :: adam_prism_rk_pml_object
 use :: adam_prism_time_object
 ! third party modules
 use :: motion
+use :: mpi
 use :: penf
 use :: stringifor
 
@@ -100,6 +101,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: load_restart_files      !< Load restart files.
       procedure, pass(self) :: save_energy_error       !< Save energy error history.
       procedure, pass(self) :: save_energy_history     !< Save energy history.
+      procedure, pass(self) :: save_coils_current_diagnostics !< Save instantaneous coil-current diagnostics.
       procedure, pass(self) :: save_divergence_history !< Save divergence history.
       procedure, pass(self) :: save_grms_history       !< Save Grms history.
       procedure, pass(self) :: save_magnetic_field_at_center_domain_history !< Save domain-center B history.
@@ -120,6 +122,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: set_solenoid_y         !< Subroutine to set a solenoid source with +-y normal
       procedure, pass(self) :: set_solenoid_z         !< Subroutine to set a solenoid source with +-z normal
       procedure, pass(self) :: set_helicon_coil       !< Subroutine to set a helicon coil source.
+      procedure, pass(self) :: compute_helicon_current_flux_segments !< Precompute helicon segment-current fluxes.
       procedure, pass(self) :: coupling_descriptor_forest !< Report (scheme_time, rk_scheme, nv) for β admissibility.
 endtype prism_common_object
 
@@ -710,6 +713,47 @@ contains
                                        is_to_open=is_to_open,is_to_close=is_to_close)
    endif
    endsubroutine save_energy_history
+
+   subroutine save_coils_current_diagnostics(self)
+   !< Save instantaneous coil-current diagnostics.
+   class(prism_common_object), intent(inout) :: self          !< The equation.
+   character(len=128)                        :: fname         !< Diagnostic file name.
+   real(R8P)                                 :: current       !< Instantaneous current density coefficient.
+   real(R8P)                                 :: phi_rad       !< Phase in radians.
+   real(R8P)                                 :: omega         !< Angular frequency.
+   real(R8P)                                 :: theta         !< Current phase.
+   real(R8P)                                 :: f_abs         !< Absolute frequency.
+   real(R8P)                                 :: s, g          !< Smooth-start variables.
+   integer(I4P)                              :: n             !< Coil counter.
+   integer(I4P)                              :: w_ac          !< AC/DC selector.
+   real(R8P), parameter                      :: f_tol = 1.0e-30_R8P !< Frequency tolerance.
+
+   if (self%coil%total_coils_number <= 0_I4P) return
+
+   if (self%coil%td > 0.0_R8P) then
+      s = self%time%time / self%coil%td
+   else
+      s = 1.0_R8P
+   endif
+   s = max(0.0_R8P, min(1.0_R8P, s))
+   g = 10.0_R8P*s**3 - 15.0_R8P*s**4 + 6.0_R8P*s**5
+
+   do n = 1_I4P, self%coil%total_coils_number
+      phi_rad = self%coil%phase(n) * PI / 180.0_R8P
+      omega = 2.0_R8P * PI * self%coil%f(n)
+      f_abs = abs(self%coil%f(n))
+      w_ac = nint((sign(1.0_R8P, f_abs - f_tol) + 1.0_R8P) * 0.5_R8P)
+      theta = w_ac * omega * (self%time%time - self%coil%td) + phi_rad
+      current = self%coil%coil_amplitude(n) * g * cos(theta)
+      write(fname,'(A,SS,I0,A)') 'current_density_coil_', n, '.dat'
+      call write_current_density_tab(filename=trim(fname), time=self%time%time, current_density=current)
+      if (trim(self%coil%coil_type(n)) == COIL_TYPE_HELICON) then
+         write(fname,'(A,SS,I0,A)') 'helicon_current_coil_', n, '.dat'
+         call write_helicon_current_tab(self=self, filename=trim(fname), coil_id=n, &
+                                        time=self%time%time, current_density=current)
+      endif
+   enddo
+   endsubroutine save_coils_current_diagnostics
 
    subroutine save_restart_files(self)
    !< Save restart files.
@@ -1586,6 +1630,7 @@ contains
    call compute_Helicon_coil_amplitude(I_target = self%coil%A(n), radius = self%coil%r_coil(n), &
                                        sigma = self%coil%sigma(n), n=n,                         &
                                        amplitude = self%coil%coil_amplitude(n))
+   call self%compute_helicon_current_flux_segments(coil_id=n)
    endsubroutine set_helicon_coil
 
    subroutine compute_Helicon_coil_amplitude(I_target, radius, sigma, n, amplitude)
@@ -1884,6 +1929,207 @@ contains
       endif
    enddo
    endfunction compute_windings_number
+
+   subroutine write_current_density_tab(filename, current_density, time)
+   !< Append scalar instantaneous coil-current coefficient.
+   character(len=1), parameter  :: TAB = achar(9)       !< Tab separator.
+   character(len=*), intent(in) :: filename              !< Output file name.
+   real(R8P),        intent(in) :: current_density       !< Current density coefficient.
+   real(R8P),        intent(in) :: time                  !< Current time.
+   logical                      :: exists                !< File-exists flag.
+   integer(I4P)                 :: iu, ios               !< File unit and status.
+
+   if (mpih%myrank /= 0_I4P) return
+
+   inquire(file=trim(filename), exist=exists)
+   open(newunit=iu, file=trim(filename), status='unknown', action='write', &
+        form='formatted', position='append', iostat=ios)
+   if (ios /= 0_I4P) then
+      write(*,'(A,I0)') 'write_current_density_tab: open() failed, iostat=', ios
+      error stop
+   endif
+   if (.not. exists) write(iu,'(A)') 'time'//TAB//'current_density'
+   write(iu,'(ES24.16,A,ES24.16)') time, TAB, current_density
+   close(iu)
+   endsubroutine write_current_density_tab
+
+   subroutine write_helicon_current_tab(self, filename, coil_id, current_density, time)
+   !< Append numerical per-segment helicon current measured from the analytic J_vec support.
+   class(prism_common_object), intent(inout) :: self            !< The equation.
+   character(len=*),          intent(in)    :: filename        !< Output file name.
+   integer(I4P),              intent(in)    :: coil_id         !< Coil index.
+   real(R8P),                 intent(in)    :: current_density !< Current density coefficient.
+   real(R8P),                 intent(in)    :: time            !< Current time.
+   character(len=1), parameter              :: TAB = achar(9)  !< Tab separator.
+   integer(I4P)                             :: segments_number !< Number of helicon segments.
+   logical                                  :: exists          !< File-exists flag.
+   integer(I4P)                             :: iu, ios, p      !< File unit, status, counter.
+
+   segments_number = self%coil%N_points(coil_id) - 1_I4P
+   if (segments_number <= 0_I4P) return
+
+   if (mpih%myrank == 0_I4P) then
+      inquire(file=trim(filename), exist=exists)
+      open(newunit=iu, file=trim(filename), status='unknown', action='write', &
+           form='formatted', position='append', iostat=ios)
+      if (ios /= 0_I4P) then
+         write(*,'(A,I0)') 'write_helicon_current_tab: open() failed, iostat=', ios
+         error stop
+      endif
+      if (.not. exists) then
+         write(iu,'(A)', advance='no') 'time'
+         do p = 1_I4P, segments_number
+            write(iu,'(A,A,I0)', advance='no') TAB, 'segment_', p
+         enddo
+         write(iu,*)
+      endif
+      write(iu,'(ES24.16)', advance='no') time
+      do p = 1_I4P, segments_number
+         write(iu,'(A,ES24.16)', advance='no') TAB, current_density * self%coil%helicon_current_flux(p, coil_id)
+      enddo
+      write(iu,*)
+      close(iu)
+   endif
+   endsubroutine write_helicon_current_tab
+
+   subroutine compute_helicon_current_flux_segments(self, coil_id)
+   !< Numerically measure the current crossing each local segment-normal section.
+   class(prism_common_object), intent(inout) :: self               !< The equation.
+   integer(I4P),              intent(in)    :: coil_id            !< Coil index.
+   real(R8P), allocatable                   :: s_map(:)          !< Unwrapped azimuthal coil points.
+   real(R8P), allocatable                   :: csi_map(:)        !< Unwrapped axial coil points.
+   real(R8P)                                :: r_p1, r_p2         !< Endpoint cylindrical radii.
+   real(R8P)                                :: theta_p1, theta_p2 !< Endpoint unwrapped angles.
+   real(R8P)                                :: theta_p1_prime     !< Endpoint wrapped angle.
+   real(R8P)                                :: theta_p2_prime     !< Endpoint wrapped angle.
+   real(R8P)                                :: csi_p1, csi_p2     !< Endpoint axial coordinates.
+   real(R8P)                                :: dtheta_seg         !< Segment angle increment.
+   real(R8P)                                :: x_p1, y_p1, z_p1   !< First endpoint.
+   real(R8P)                                :: x_p2, y_p2, z_p2   !< Second endpoint.
+   real(R8P)                                :: coord(3)           !< Cell-center coordinate.
+   real(R8P)                                :: r_cell             !< Cell cylindrical radius.
+   real(R8P)                                :: theta_cell_prime   !< Cell wrapped angle.
+   real(R8P)                                :: theta_cell         !< Cell locally unwrapped angle.
+   real(R8P)                                :: axial_cell         !< Cell axial coordinate.
+   real(R8P)                                :: s_cell             !< Cell unwrapped azimuthal coordinate.
+   real(R8P)                                :: ds, da, length     !< Segment tangent data in unrolled plane.
+   real(R8P)                                :: s_mid, a_mid       !< Segment midpoint in unrolled plane.
+   real(R8P)                                :: theta_mid          !< Segment midpoint angle.
+   real(R8P)                                :: xi, normal_dist    !< Local segment coordinates.
+   real(R8P)                                :: h, weight          !< Slice width and Gaussian delta.
+   real(R8P)                                :: t_hat(3)           !< Segment tangent unit vector.
+   real(R8P)                                :: cell_volume        !< Cell volume.
+   integer(I4P)                             :: b, i, j, k, p      !< Counters.
+
+   associate(ni=>self%adam%grid%ni, nj=>self%adam%grid%nj, nk=>self%adam%grid%nk, ngc=>self%adam%grid%ngc, &
+             blocks_number=>self%adam%field%blocks_number, x_c=>self%coil%x_center(coil_id),              &
+             y_c=>self%coil%y_center(coil_id), z_c=>self%coil%z_center(coil_id),                          &
+             radius=>self%coil%r_coil(coil_id), normal=>self%coil%normal(coil_id),                        &
+             sigma=>self%coil%sigma(coil_id), n_points=>self%coil%N_points(coil_id),                      &
+             x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,                              &
+             z_cell=>self%adam%field%z_cell, dxyz=>self%adam%field%dxyz, j_vec=>self%coil%J_vec)
+
+   self%coil%helicon_current_flux(:, coil_id) = 0.0_R8P
+   allocate(s_map(1:n_points))
+   allocate(csi_map(1:n_points))
+
+   do p = 1_I4P, n_points - 1_I4P
+      x_p1 = self%coil%x_points(coil_id,p)
+      y_p1 = self%coil%y_points(coil_id,p)
+      z_p1 = self%coil%z_points(coil_id,p)
+      x_p2 = self%coil%x_points(coil_id,p+1_I4P)
+      y_p2 = self%coil%y_points(coil_id,p+1_I4P)
+      z_p2 = self%coil%z_points(coil_id,p+1_I4P)
+
+      call cartesian_to_cylindrical(x=x_p1, y=y_p1, z=z_p1, x_c=x_c, y_c=y_c, z_c=z_c, &
+                                    normal=normal, r=r_p1, theta=theta_p1_prime, axial=csi_p1)
+      call cartesian_to_cylindrical(x=x_p2, y=y_p2, z=z_p2, x_c=x_c, y_c=y_c, z_c=z_c, &
+                                    normal=normal, r=r_p2, theta=theta_p2_prime, axial=csi_p2)
+
+      if (p == 1_I4P) then
+         theta_p1 = theta_p1_prime
+         dtheta_seg = wrap_to_pi(theta_p2_prime - theta_p1_prime)
+         theta_p2 = theta_p1 + dtheta_seg
+      else
+         dtheta_seg = wrap_to_pi(theta_p1_prime - s_map(p-1_I4P) / radius)
+         theta_p1 = s_map(p-1_I4P) / radius + dtheta_seg
+         dtheta_seg = wrap_to_pi(theta_p2_prime - theta_p1)
+         theta_p2 = theta_p1 + dtheta_seg
+      endif
+      s_map(p) = radius * theta_p1
+      s_map(p+1_I4P) = radius * theta_p2
+      csi_map(p) = csi_p1
+      csi_map(p+1_I4P) = csi_p2
+   enddo
+
+   do p = 1_I4P, n_points - 1_I4P
+      ds = s_map(p+1_I4P) - s_map(p)
+      da = csi_map(p+1_I4P) - csi_map(p)
+      length = sqrt(ds**2 + da**2)
+      if (length <= tiny(1.0_R8P)) cycle
+      s_mid = 0.5_R8P * (s_map(p) + s_map(p+1_I4P))
+      a_mid = 0.5_R8P * (csi_map(p) + csi_map(p+1_I4P))
+      theta_mid = s_mid / radius
+      call helicon_segment_tangent(normal=normal, theta=theta_mid, ds=ds, da=da, length=length, t_hat=t_hat)
+
+      do b = 1_I4P, blocks_number
+         h = minval(dxyz(:,b))
+         cell_volume = product(dxyz(:,b))
+         do k = 1_I4P, nk
+            do j = 1_I4P, nj
+               do i = 1_I4P, ni
+                  coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                  call cartesian_to_cylindrical(x=coord(1), y=coord(2), z=coord(3), x_c=x_c, y_c=y_c, z_c=z_c, &
+                                                normal=normal, r=r_cell, theta=theta_cell_prime, axial=axial_cell)
+                  theta_cell = theta_mid + wrap_to_pi(theta_cell_prime - theta_mid)
+                  s_cell = radius * theta_cell
+                  xi = ((s_cell - s_mid) * ds + (axial_cell - a_mid) * da) / length
+                  normal_dist = abs((s_cell - s_mid) * da - (axial_cell - a_mid) * ds) / length
+                  if (abs(xi) <= 4.0_R8P*h .and. normal_dist <= 8.0_R8P*sigma .and. &
+                      abs(r_cell - radius) <= 8.0_R8P*sigma) then
+                     weight = exp(-(xi/h)**2) / (sqrt(PI) * h)
+                     self%coil%helicon_current_flux(p, coil_id) = self%coil%helicon_current_flux(p, coil_id) + &
+                                                                  dot_product(j_vec(:,i,j,k,b,coil_id), t_hat) * &
+                                                                  weight * cell_volume
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+
+   if (n_points > 1_I4P) then
+      call MPI_ALLREDUCE(MPI_IN_PLACE, self%coil%helicon_current_flux(1:n_points-1_I4P, coil_id), &
+                         n_points-1_I4P, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   endif
+   endassociate
+   endsubroutine compute_helicon_current_flux_segments
+
+   pure subroutine helicon_segment_tangent(normal, theta, ds, da, length, t_hat)
+   !< Build the local 3D unit tangent of a helicon segment from its unrolled-cylinder tangent.
+   character(len=2), intent(in)  :: normal    !< Coil normal.
+   real(R8P),        intent(in)  :: theta     !< Segment midpoint angle.
+   real(R8P),        intent(in)  :: ds, da    !< Unrolled segment increments.
+   real(R8P),        intent(in)  :: length    !< Segment length.
+   real(R8P),        intent(out) :: t_hat(3)  !< Cartesian tangent.
+   real(R8P)                     :: e_theta(3), e_axis(3)
+
+   select case (normal)
+   case (NORMAL_P_X, NORMAL_M_X)
+      e_theta = [0.0_R8P, -sin(theta), cos(theta)]
+      e_axis  = [1.0_R8P, 0.0_R8P, 0.0_R8P]
+   case (NORMAL_P_Y, NORMAL_M_Y)
+      e_theta = [cos(theta), 0.0_R8P, -sin(theta)]
+      e_axis  = [0.0_R8P, 1.0_R8P, 0.0_R8P]
+   case (NORMAL_P_Z, NORMAL_M_Z)
+      e_theta = [-sin(theta), cos(theta), 0.0_R8P]
+      e_axis  = [0.0_R8P, 0.0_R8P, 1.0_R8P]
+   case default
+      e_theta = 0.0_R8P
+      e_axis  = 0.0_R8P
+   endselect
+   t_hat = (ds * e_theta + da * e_axis) / length
+   endsubroutine helicon_segment_tangent
 
    subroutine set_rectangular_coil_x(self, n, verse)
    !< Set rectangular coil with normal direction parallel to x.

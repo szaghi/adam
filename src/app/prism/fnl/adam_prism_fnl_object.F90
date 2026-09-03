@@ -5650,6 +5650,7 @@ contains
    if (self%magnetic_field_at_center_domain%do_save_history) call self%compute_magnetic_field_at_center_domain
    !call self%save_energy_error !Cazzo
    call self%save_energy_history !Cazzo
+   call self%save_coils_current_diagnostics
    call self%save_grms_history
    call self%save_magnetic_field_at_center_domain_history
    call self%compute_max_divergence

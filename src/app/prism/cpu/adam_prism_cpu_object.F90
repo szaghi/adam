@@ -341,7 +341,8 @@ contains
 
       if (trim(self%pml%pml_type) /= 'CLASSIC' .and. trim(self%pml%pml_type) /= 'BERMUDEZ' .and. &
           trim(self%pml%pml_type) /= 'CFS') then
-         call mpih%error_stop(msg=': CPU PML time integration is currently implemented only for PML_type = CLASSIC, BERMUDEZ or CFS')
+         call mpih%error_stop(msg= &
+                        ': CPU PML time integration is currently implemented only for PML_type = CLASSIC, BERMUDEZ or CFS')
       endif
       if (trim(self%numerics%scheme_space) /= NUM_SCHEME_SPACE_FD_CENTERED) then
          call mpih%error_stop(msg=': CPU PML is currently implemented only for scheme_space = fd_centered')
@@ -414,9 +415,7 @@ contains
                                                       1-self%ngc:, &
                                                       1:)
    real(R8P),               intent(in), optional :: gamma
-   character(len=128)                            :: fname
    real(R8P)                                     :: current_density
-   real(R8P)                                     :: current_density_o
    real(R8P)                                     :: time_s
    real(R8P)                                     :: s, g
    real(R8P)                                     :: phi_rad, omega, theta
@@ -488,14 +487,6 @@ contains
                   enddo
                enddo
             enddo
-         enddo
-         ! Diagnostiche
-         do n = 1, self%coil%total_coils_number
-            theta = nint( (sign(1._R8P, abs(f(n)) - f_tol) + 1._R8P) * 0.5_R8P ) * (2._R8P*PI*f(n)) * (time_s - td) + &
-                    phase(n)*PI/180._R8P
-            current_density_o = A(n) * g * cos(theta)
-            write(fname,'(A,SS,I0,A)') 'current_density_coil_', n, '.dat'
-            call write_current_behavior_tab(trim(fname), time=time_s, current_density=current_density_o)
          enddo
       endif
    endassociate
@@ -1107,7 +1098,8 @@ contains
    endselect
    endsubroutine ghost_cell_from_face_cpu
 
-   real(R8P) pure function tangential_divergence_at_cell_cpu(q, ngc, b, i, j, k, hs, dxyz, dir_t1, dir_t2, var_t1, var_t2) result(div_t)
+   real(R8P) pure function tangential_divergence_at_cell_cpu(q, ngc, b, i, j, k, hs, dxyz, dir_t1, dir_t2, var_t1, var_t2) &
+                                                             result(div_t)
    integer(I4P), intent(in) :: ngc, b, i, j, k, hs, dir_t1, dir_t2, var_t1, var_t2
    real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(in) :: dxyz(3)
@@ -1135,17 +1127,21 @@ contains
    select case(face)
    case(1, 3, 5)
       do m=1, hs
-         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz(dir_n)
+         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) &
+                                     / dxyz(dir_n)
       enddo
       do m=1, depth-1
-         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz(dir_n)
+         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) &
+                                     / dxyz(dir_n)
       enddo
    case(2, 4, 6)
       do m=1, depth-1
-         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) / dxyz(dir_n)
+         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) &
+                                     / dxyz(dir_n)
       enddo
       do m=1, hs
-         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) / dxyz(dir_n)
+         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) &
+                                     / dxyz(dir_n)
       enddo
    endselect
    endfunction normal_known_contribution_cpu
@@ -1877,6 +1873,7 @@ contains
    if (self%magnetic_field_at_center_domain%do_save_history) call self%compute_magnetic_field_at_center_domain
    !call self%save_energy_error
    call self%save_energy_history
+   call self%save_coils_current_diagnostics
    call self%save_grms_history
    call self%save_magnetic_field_at_center_domain_history
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
@@ -4399,23 +4396,6 @@ contains
       enddo
    enddo
    endsubroutine decompose_fluxes_convective
-
-   subroutine write_current_behavior_tab(filename, current_density, time)
-   character(len=1), parameter  :: TAB = achar(9)
-   character(len=*), intent(in) :: filename
-   real(R8P),        intent(in) :: current_density
-   real(R8P),        intent(in) :: time
-   integer(I4P)                 :: iu, ios
-
-   open(newunit=iu, file=trim(filename), status='unknown', action='write', &
-        form='formatted', position='append', iostat=ios)
-   if (ios /= 0) then
-     write(*,'(a,i0)') 'write_current_tab: errore open(), iostat=', ios
-     error stop
-   end if
-   write(iu,'(ES24.16,a,ES24.16)') time, TAB, current_density
-   close(iu)
-   endsubroutine write_current_behavior_tab
 
    subroutine compute_field_mean_value(self, q, n_x, n_y, n_z, n_b, mean_value)
    !< Compute mean value of the field in a certain region of the domain.
