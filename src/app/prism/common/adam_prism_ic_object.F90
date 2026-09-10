@@ -310,19 +310,22 @@ contains
          enddo
       enddo
    case(IC_TYPE_GAUSSIAN_PULSE)
-      if (self%pulse_direction == '+x') then
+      select case(self%pulse_direction)
+      case('+x')
          i_dir = 1_I4P
-      elseif (self%pulse_direction == '-x') then
+      case('-x')
          i_dir = -1_I4P
-      elseif (self%pulse_direction == '+y') then
+      case('+y')
          i_dir = 2_I4P
-      elseif (self%pulse_direction == '-y') then
+      case('-y')
          i_dir = -2_I4P
-      elseif (self%pulse_direction == '+z') then
+      case('+z')
          i_dir = 3_I4P
-      elseif (self%pulse_direction == '-z') then
+      case('-z')
          i_dir = -3_I4P
-      endif
+      case default
+         call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(pulse_direction): '//trim(self%pulse_direction))
+      endselect
       do b=1, blocks_number
          call grid%cell_xyz(coordinates = field%coordinates(:,b), &
                x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
@@ -337,6 +340,9 @@ contains
                                                B0=self%B0,       &
                                                sigma=self%sigma, &
                                                q=q(1:6,i,j,k,b))
+                  do var = 7_I4P, nv
+                     q(var,i,j,k,b) = 0.0_R8P
+                  enddo
                enddo
             enddo
          enddo
@@ -403,6 +409,7 @@ contains
    real(R8P)                   :: E_wave, n_sigma !< Electric-field profile and tolerance value
 
    n_sigma = 5.0_R8P
+   q = 0.0_R8P
    i_axis = abs(i_dir)
    verse  = sign(1.0_R8P, real(i_dir, R8P))
    s = x(i_axis) - x0

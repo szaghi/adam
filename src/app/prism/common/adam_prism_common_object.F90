@@ -122,6 +122,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: set_solenoid_y         !< Subroutine to set a solenoid source with +-y normal
       procedure, pass(self) :: set_solenoid_z         !< Subroutine to set a solenoid source with +-z normal
       procedure, pass(self) :: set_helicon_coil       !< Subroutine to set a helicon coil source.
+      procedure, pass(self) :: compute_rectangular_current_flux_sides !< Precompute rectangular side-current fluxes.
       procedure, pass(self) :: compute_helicon_current_flux_segments !< Precompute helicon segment-current fluxes.
       procedure, pass(self) :: coupling_descriptor_forest !< Report (scheme_time, rk_scheme, nv) for β admissibility.
 endtype prism_common_object
@@ -368,7 +369,7 @@ contains
                   tree=self%adam%tree, file_parameters=file_parameters, physics=self%physics)
    call self%pml%initialize(field=self%adam%field, grid=self%adam%grid, tree=self%adam%tree, &
                             file_parameters=file_parameters)
-   if (self%pml%enabled) call self%rk_pml%initialize(rk=self%rk, pml=self%pml)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize(rk=self%rk, pml=self%pml)
    call io_initialize
    endassociate
    if (verbose_) call mpih%print_message('prism_common_object%initialize finish')
@@ -745,8 +746,11 @@ contains
       w_ac = nint((sign(1.0_R8P, f_abs - f_tol) + 1.0_R8P) * 0.5_R8P)
       theta = w_ac * omega * (self%time%time - self%coil%td) + phi_rad
       current = self%coil%coil_amplitude(n) * g * cos(theta)
-      write(fname,'(A,SS,I0,A)') 'current_density_coil_', n, '.dat'
-      call write_current_density_tab(filename=trim(fname), time=self%time%time, current_density=current)
+      if (trim(self%coil%coil_type(n)) == COIL_TYPE_RECTANGULAR) then
+         write(fname,'(A,SS,I0,A)') 'rectangular_current_coil_', n, '.dat'
+         call write_rectangular_current_tab(self=self, filename=trim(fname), coil_id=n, &
+                                            time=self%time%time, current_density=current)
+      endif
       if (trim(self%coil%coil_type(n)) == COIL_TYPE_HELICON) then
          write(fname,'(A,SS,I0,A)') 'helicon_current_coil_', n, '.dat'
          call write_helicon_current_tab(self=self, filename=trim(fname), coil_id=n, &
@@ -1930,28 +1934,40 @@ contains
    enddo
    endfunction compute_windings_number
 
-   subroutine write_current_density_tab(filename, current_density, time)
-   !< Append scalar instantaneous coil-current coefficient.
-   character(len=1), parameter  :: TAB = achar(9)       !< Tab separator.
-   character(len=*), intent(in) :: filename              !< Output file name.
-   real(R8P),        intent(in) :: current_density       !< Current density coefficient.
-   real(R8P),        intent(in) :: time                  !< Current time.
-   logical                      :: exists                !< File-exists flag.
-   integer(I4P)                 :: iu, ios               !< File unit and status.
+   subroutine write_rectangular_current_tab(self, filename, coil_id, current_density, time)
+   !< Append numerical per-side rectangular current measured from the analytic J_vec support.
+   class(prism_common_object), intent(inout) :: self            !< The equation.
+   character(len=*),          intent(in)    :: filename        !< Output file name.
+   integer(I4P),              intent(in)    :: coil_id         !< Coil index.
+   real(R8P),                 intent(in)    :: current_density !< Current density coefficient.
+   real(R8P),                 intent(in)    :: time            !< Current time.
+   character(len=1), parameter              :: TAB = achar(9)  !< Tab separator.
+   logical                                  :: exists          !< File-exists flag.
+   integer(I4P)                             :: iu, ios, p      !< File unit, status, counter.
 
-   if (mpih%myrank /= 0_I4P) return
-
-   inquire(file=trim(filename), exist=exists)
-   open(newunit=iu, file=trim(filename), status='unknown', action='write', &
-        form='formatted', position='append', iostat=ios)
-   if (ios /= 0_I4P) then
-      write(*,'(A,I0)') 'write_current_density_tab: open() failed, iostat=', ios
-      error stop
+   if (mpih%myrank == 0_I4P) then
+      inquire(file=trim(filename), exist=exists)
+      open(newunit=iu, file=trim(filename), status='unknown', action='write', &
+           form='formatted', position='append', iostat=ios)
+      if (ios /= 0_I4P) then
+         write(*,'(A,I0)') 'write_rectangular_current_tab: open() failed, iostat=', ios
+         error stop
+      endif
+      if (.not. exists) then
+         write(iu,'(A)', advance='no') 'time'
+         do p = 1_I4P, 4_I4P
+            write(iu,'(A,A,I0)', advance='no') TAB, 'side_', p
+         enddo
+         write(iu,*)
+      endif
+      write(iu,'(ES24.16)', advance='no') time
+      do p = 1_I4P, 4_I4P
+         write(iu,'(A,ES24.16)', advance='no') TAB, current_density * self%coil%rectangular_current_flux(p, coil_id)
+      enddo
+      write(iu,*)
+      close(iu)
    endif
-   if (.not. exists) write(iu,'(A)') 'time'//TAB//'current_density'
-   write(iu,'(ES24.16,A,ES24.16)') time, TAB, current_density
-   close(iu)
-   endsubroutine write_current_density_tab
+   endsubroutine write_rectangular_current_tab
 
    subroutine write_helicon_current_tab(self, filename, coil_id, current_density, time)
    !< Append numerical per-segment helicon current measured from the analytic J_vec support.
@@ -1991,6 +2007,89 @@ contains
       close(iu)
    endif
    endsubroutine write_helicon_current_tab
+
+   subroutine compute_rectangular_current_flux_sides(self, coil_id, i_dir_n, i_dir_a, i_dir_b, a1, a2, b1, b2, verse)
+   !< Numerically measure the current crossing each local side-normal section of a rectangular coil.
+   class(prism_common_object), intent(inout) :: self       !< The equation.
+   integer(I4P),              intent(in)    :: coil_id    !< Coil index.
+   integer(I4P),              intent(in)    :: i_dir_n    !< Coil-normal direction.
+   integer(I4P),              intent(in)    :: i_dir_a    !< First in-plane direction.
+   integer(I4P),              intent(in)    :: i_dir_b    !< Second in-plane direction.
+   real(R8P),                 intent(in)    :: a1, a2     !< Bounds along the local a direction.
+   real(R8P),                 intent(in)    :: b1, b2     !< Bounds along the local b direction.
+   real(R8P),                 intent(in)    :: verse      !< Coil orientation sign.
+   real(R8P), parameter                     :: cut_sigma = 8.0_R8P !< Transverse cutoff in sigma units.
+   real(R8P)                                :: coord(3)   !< Cell-center coordinate.
+   real(R8P)                                :: x_side(4)  !< Side coordinate on its normal in-plane direction.
+   real(R8P)                                :: x_mid(4)   !< Side midpoint on its tangential direction.
+   real(R8P)                                :: xi         !< Tangential distance from the side midpoint.
+   real(R8P)                                :: normal_dist !< In-plane normal distance from the side.
+   real(R8P)                                :: normal_center !< Coil center coordinate along the normal direction.
+   real(R8P)                                :: h, weight  !< Slice width and Gaussian delta.
+   real(R8P)                                :: t_hat(3,4) !< Side tangents.
+   real(R8P)                                :: cell_volume !< Cell volume.
+   integer(I4P)                             :: b, i, j, k, p !< Counters.
+
+   associate(ni=>self%adam%grid%ni, nj=>self%adam%grid%nj, nk=>self%adam%grid%nk, &
+             blocks_number=>self%adam%field%blocks_number,                       &
+             x_c=>self%coil%x_center(coil_id), y_c=>self%coil%y_center(coil_id), &
+             z_c=>self%coil%z_center(coil_id), sigma=>self%coil%sigma(coil_id),  &
+             x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
+             z_cell=>self%adam%field%z_cell, dxyz=>self%adam%field%dxyz,         &
+             j_vec=>self%coil%J_vec)
+
+   self%coil%rectangular_current_flux(:, coil_id) = 0.0_R8P
+
+   t_hat = 0.0_R8P
+   t_hat(i_dir_a,1) =  verse
+   t_hat(i_dir_b,2) =  verse
+   t_hat(i_dir_a,3) = -verse
+   t_hat(i_dir_b,4) = -verse
+
+   x_side = [b1, a2, b2, a1]
+   x_mid  = [0.5_R8P*(a1+a2), 0.5_R8P*(b1+b2), 0.5_R8P*(a1+a2), 0.5_R8P*(b1+b2)]
+   select case (i_dir_n)
+   case (1_I4P)
+      normal_center = x_c
+   case (2_I4P)
+      normal_center = y_c
+   case default
+      normal_center = z_c
+   endselect
+
+   do p = 1_I4P, 4_I4P
+      do b = 1_I4P, blocks_number
+         h = minval(dxyz(:,b))
+         cell_volume = product(dxyz(:,b))
+         do k = 1_I4P, nk
+            do j = 1_I4P, nj
+               do i = 1_I4P, ni
+                  coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                  select case (p)
+                  case (1_I4P, 3_I4P)
+                     xi = coord(i_dir_a) - x_mid(p)
+                     normal_dist = abs(coord(i_dir_b) - x_side(p))
+                  case default
+                     xi = coord(i_dir_b) - x_mid(p)
+                     normal_dist = abs(coord(i_dir_a) - x_side(p))
+                  endselect
+                  if (abs(xi) <= 4.0_R8P*h .and. normal_dist <= cut_sigma*sigma .and. &
+                      abs(coord(i_dir_n) - normal_center) <= cut_sigma*sigma) then
+                     weight = exp(-(xi/h)**2) / (sqrt(PI) * h)
+                     self%coil%rectangular_current_flux(p, coil_id) = self%coil%rectangular_current_flux(p, coil_id) + &
+                                                                      dot_product(j_vec(:,i,j,k,b,coil_id), t_hat(:,p)) * &
+                                                                      weight * cell_volume
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%coil%rectangular_current_flux(1:4_I4P, coil_id), &
+                      4_I4P, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   endassociate
+   endsubroutine compute_rectangular_current_flux_sides
 
    subroutine compute_helicon_current_flux_segments(self, coil_id)
    !< Numerically measure the current crossing each local segment-normal section.
@@ -2405,6 +2504,9 @@ contains
                                                         z_2=z_2, A=self%coil%A(n), amplitude=self%coil%coil_amplitude(n), &
                                                         sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
+
+   call self%compute_rectangular_current_flux_sides(coil_id=n, i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
+                                                    a1=y_1, a2=y_2, b1=z_1, b2=z_2, verse=verse)
 
    endassociate
 
@@ -2823,6 +2925,9 @@ contains
                                                         sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
 
+   call self%compute_rectangular_current_flux_sides(coil_id=n, i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
+                                                    a1=z_1, a2=z_2, b1=x_1, b2=x_2, verse=verse)
+
    endassociate
 
    contains
@@ -3234,6 +3339,9 @@ contains
                                                         y_2=y_2, A=self%coil%A(n), amplitude=self%coil%coil_amplitude(n), &
                                                         sigma=sigma, n=n, adjust_amplitude=.false.)
    endif
+
+   call self%compute_rectangular_current_flux_sides(coil_id=n, i_dir_n=i_dir_n, i_dir_a=i_dir_a, i_dir_b=i_dir_b, &
+                                                    a1=x_1, a2=x_2, b1=y_1, b2=y_2, verse=verse)
 
    endassociate
 

@@ -25,10 +25,11 @@ integer(I4P), parameter :: PML_FACE_Z_P = 6_I4P
 integer(I4P), parameter :: PML_VARS_PER_FACE = 4_I4P
 integer(I4P), parameter :: CFS_PROFILE_EXPONENT = 2_I4P
 real(R8P),    parameter :: BERMUDEZ_EPS = 1.e-6_R8P
-character(len=8), parameter :: PML_TYPE_NONE     = 'NONE'
-character(len=8), parameter :: PML_TYPE_CLASSIC  = 'CLASSIC'
-character(len=8), parameter :: PML_TYPE_CFS      = 'CFS'
-character(len=8), parameter :: PML_TYPE_BERMUDEZ = 'BERMUDEZ'
+character(len=14), parameter :: PML_TYPE_NONE           = 'NONE'
+character(len=14), parameter :: PML_TYPE_CLASSIC        = 'CLASSIC'
+character(len=14), parameter :: PML_TYPE_CLASSIC_DIRECT = 'CLASSIC_DIRECT'
+character(len=14), parameter :: PML_TYPE_CFS            = 'CFS'
+character(len=14), parameter :: PML_TYPE_BERMUDEZ       = 'BERMUDEZ'
 
 type :: prism_fnl_pml_object
    logical                   :: enabled = .false.
@@ -358,9 +359,14 @@ contains
    integer(I4P), allocatable              :: start_host(:), cells_host(:)
    real(R8P), allocatable                 :: gamma_host(:,:), alpha_host(:,:), kappa_host(:,:)
 
-   if (.not. allocated(q_face_cpu)) return
-   nblocks = size(q_face_cpu, dim=5)
-   cmax = size(q_face_cpu, dim=2)
+   if (.not. allocated(blocks_cpu)) return
+   nblocks = size(blocks_cpu)
+   cmax = 0_I4P
+   do lid = 1, nblocks
+      b = blocks_cpu(lid)
+      cmax = max(cmax, range_cpu(2,b,face) - range_cpu(1,b,face) + 1_I4P)
+   enddo
+   if (cmax <= 0_I4P) return
    allocate(start_host(1:nblocks), cells_host(1:nblocks))
    allocate(gamma_host(1:nblocks,1:cmax), alpha_host(1:nblocks,1:cmax), kappa_host(1:nblocks,1:cmax))
    gamma_host = 0._R8P ; alpha_host = 0._R8P ; kappa_host = 1._R8P
@@ -378,8 +384,10 @@ contains
    call dev_assign_to_device(src=start_host,  dst=start_gpu)
    call dev_assign_to_device(src=cells_host,  dst=cells_gpu)
    call dev_assign_to_device(src=gamma_host,  dst=gamma_gpu)
+   if (trim(pml_type) == PML_TYPE_CLASSIC_DIRECT) return
    call dev_assign_to_device(src=alpha_host,  dst=alpha_gpu)
    call dev_assign_to_device(src=kappa_host,  dst=kappa_gpu)
+   if (.not. allocated(q_face_cpu)) return
    call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,cmax,grid%nj,grid%nk,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate x-face GPU PML state')
@@ -409,9 +417,14 @@ contains
    integer(I4P), allocatable              :: start_host(:), cells_host(:)
    real(R8P), allocatable                 :: gamma_host(:,:), alpha_host(:,:), kappa_host(:,:)
 
-   if (.not. allocated(q_face_cpu)) return
-   nblocks = size(q_face_cpu, dim=5)
-   cmax = size(q_face_cpu, dim=3)
+   if (.not. allocated(blocks_cpu)) return
+   nblocks = size(blocks_cpu)
+   cmax = 0_I4P
+   do lid = 1, nblocks
+      b = blocks_cpu(lid)
+      cmax = max(cmax, range_cpu(2,b,face) - range_cpu(1,b,face) + 1_I4P)
+   enddo
+   if (cmax <= 0_I4P) return
    allocate(start_host(1:nblocks), cells_host(1:nblocks))
    allocate(gamma_host(1:nblocks,1:cmax), alpha_host(1:nblocks,1:cmax), kappa_host(1:nblocks,1:cmax))
    gamma_host = 0._R8P ; alpha_host = 0._R8P ; kappa_host = 1._R8P
@@ -429,8 +442,10 @@ contains
    call dev_assign_to_device(src=start_host,  dst=start_gpu)
    call dev_assign_to_device(src=cells_host,  dst=cells_gpu)
    call dev_assign_to_device(src=gamma_host,  dst=gamma_gpu)
+   if (trim(pml_type) == PML_TYPE_CLASSIC_DIRECT) return
    call dev_assign_to_device(src=alpha_host,  dst=alpha_gpu)
    call dev_assign_to_device(src=kappa_host,  dst=kappa_gpu)
+   if (.not. allocated(q_face_cpu)) return
    call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,grid%ni,cmax,grid%nk,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate y-face GPU PML state')
@@ -460,9 +475,14 @@ contains
    integer(I4P), allocatable              :: start_host(:), cells_host(:)
    real(R8P), allocatable                 :: gamma_host(:,:), alpha_host(:,:), kappa_host(:,:)
 
-   if (.not. allocated(q_face_cpu)) return
-   nblocks = size(q_face_cpu, dim=5)
-   cmax = size(q_face_cpu, dim=4)
+   if (.not. allocated(blocks_cpu)) return
+   nblocks = size(blocks_cpu)
+   cmax = 0_I4P
+   do lid = 1, nblocks
+      b = blocks_cpu(lid)
+      cmax = max(cmax, range_cpu(2,b,face) - range_cpu(1,b,face) + 1_I4P)
+   enddo
+   if (cmax <= 0_I4P) return
    allocate(start_host(1:nblocks), cells_host(1:nblocks))
    allocate(gamma_host(1:nblocks,1:cmax), alpha_host(1:nblocks,1:cmax), kappa_host(1:nblocks,1:cmax))
    gamma_host = 0._R8P ; alpha_host = 0._R8P ; kappa_host = 1._R8P
@@ -480,8 +500,10 @@ contains
    call dev_assign_to_device(src=start_host,  dst=start_gpu)
    call dev_assign_to_device(src=cells_host,  dst=cells_gpu)
    call dev_assign_to_device(src=gamma_host,  dst=gamma_gpu)
+   if (trim(pml_type) == PML_TYPE_CLASSIC_DIRECT) return
    call dev_assign_to_device(src=alpha_host,  dst=alpha_gpu)
    call dev_assign_to_device(src=kappa_host,  dst=kappa_gpu)
+   if (.not. allocated(q_face_cpu)) return
    call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,grid%ni,grid%nj,cmax,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate z-face GPU PML state')
@@ -577,7 +599,7 @@ contains
          center_distance = distance0 + real(grid%nk - idx, R8P) * ds
       end select
       select case (trim(pml_type))
-      case (PML_TYPE_CLASSIC)
+      case (PML_TYPE_CLASSIC, PML_TYPE_CLASSIC_DIRECT)
          if (profile_span > 0._R8P) then
             depth = 1._R8P - center_distance / profile_span
          else

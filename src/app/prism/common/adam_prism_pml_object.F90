@@ -17,10 +17,11 @@ private
 public :: prism_pml_object
 
 character(len=3), parameter :: INI_SECTION_NAME  = 'PML'
-character(len=8), parameter :: PML_TYPE_NONE     = 'NONE'
-character(len=8), parameter :: PML_TYPE_CLASSIC  = 'CLASSIC'
-character(len=8), parameter :: PML_TYPE_CFS      = 'CFS'
-character(len=8), parameter :: PML_TYPE_BERMUDEZ = 'BERMUDEZ'
+character(len=14), parameter :: PML_TYPE_NONE           = 'NONE'
+character(len=14), parameter :: PML_TYPE_CLASSIC        = 'CLASSIC'
+character(len=14), parameter :: PML_TYPE_CLASSIC_DIRECT = 'CLASSIC_DIRECT'
+character(len=14), parameter :: PML_TYPE_CFS            = 'CFS'
+character(len=14), parameter :: PML_TYPE_BERMUDEZ       = 'BERMUDEZ'
 integer(I4P),     parameter :: PML_VARS_PER_FACE = 4_I4P
 integer(I4P),     parameter :: PML_FACE_X_M      = 1_I4P
 integer(I4P),     parameter :: PML_FACE_X_P      = 2_I4P
@@ -90,7 +91,7 @@ contains
    desc = desc//NL//mpih%myrankstr//'      PML type: '//trim(self%pml_type)
    desc = desc//NL//mpih%myrankstr//'      Layer physical width: '//trim(str(self%width))
    select case (trim(self%pml_type))
-   case (PML_TYPE_CLASSIC)
+   case (PML_TYPE_CLASSIC, PML_TYPE_CLASSIC_DIRECT)
       desc = desc//NL//mpih%myrankstr//'      gamma_max: '//trim(str(self%gamma_max))
       desc = desc//NL//mpih%myrankstr//'      gamma exponent: '//trim(str(self%gamma_exponent))
    case (PML_TYPE_CFS)
@@ -228,6 +229,8 @@ contains
       self%pml_type = PML_TYPE_NONE
    case ('PML', 'pml', 'Pml', 'CLASSIC', 'classic', 'Classic', 'STANDARD', 'standard', 'Standard')
       self%pml_type = PML_TYPE_CLASSIC
+   case ('CLASSIC_DIRECT', 'classic_direct', 'Classic_Direct', 'CLASSIC-DIRECT', 'classic-direct', 'DIRECT', 'direct')
+      self%pml_type = PML_TYPE_CLASSIC_DIRECT
    case ('CFS', 'cfs', 'Cfs', 'CFS_PML', 'cfs_pml', 'CPML', 'cpml')
       self%pml_type = PML_TYPE_CFS
    case ('BERMUDEZ', 'bermudez', 'Bermudez')
@@ -268,7 +271,7 @@ contains
    endif
 
    select case (trim(self%pml_type))
-   case (PML_TYPE_CLASSIC)
+   case (PML_TYPE_CLASSIC, PML_TYPE_CLASSIC_DIRECT)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gamma_max', val=self%gamma_max, error=error)
       if (.not. go_on_fail_ .and. error > 0_I4P) &
          call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(gamma_max)')
@@ -313,6 +316,8 @@ contains
    class(prism_pml_object), intent(inout) :: self
    integer(I4P)                           :: alloc_error
    character(len=256)                     :: alloc_message
+
+   if (trim(self%pml_type) == PML_TYPE_CLASSIC_DIRECT) return
 
    if (self%active_blocks(PML_FACE_X_M) > 0_I4P) then
       allocate(self%blocks_x_m(1:self%active_blocks(PML_FACE_X_M)), stat=alloc_error, errmsg=alloc_message)

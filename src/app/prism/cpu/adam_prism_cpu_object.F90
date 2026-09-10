@@ -339,10 +339,11 @@ contains
       is_supported_ssp = trim(self%rk%scheme) == RK_SSP_11 .or. trim(self%rk%scheme) == RK_SSP_22 .or. &
                          trim(self%rk%scheme) == RK_SSP_33 .or. trim(self%rk%scheme) == RK_SSP_54
 
-      if (trim(self%pml%pml_type) /= 'CLASSIC' .and. trim(self%pml%pml_type) /= 'BERMUDEZ' .and. &
+      if (trim(self%pml%pml_type) /= 'CLASSIC' .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT' .and. &
+          trim(self%pml%pml_type) /= 'BERMUDEZ' .and. &
           trim(self%pml%pml_type) /= 'CFS') then
          call mpih%error_stop(msg= &
-                        ': CPU PML time integration is currently implemented only for PML_type = CLASSIC, BERMUDEZ or CFS')
+                        ': CPU PML time integration is currently implemented only for PML_type = CLASSIC, CLASSIC_DIRECT, BERMUDEZ or CFS')
       endif
       if (trim(self%numerics%scheme_space) /= NUM_SCHEME_SPACE_FD_CENTERED) then
          call mpih%error_stop(msg=': CPU PML is currently implemented only for scheme_space = fd_centered')
@@ -2966,6 +2967,16 @@ contains
 
    if (.not. self%pml%enabled) return
 
+   if (trim(self%pml%pml_type) == 'CLASSIC_DIRECT') then
+      if (allocated(self%pml%blocks_x_m)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_x_m, face=PML_FACE_X_M)
+      if (allocated(self%pml%blocks_x_p)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_x_p, face=PML_FACE_X_P)
+      if (allocated(self%pml%blocks_y_m)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_y_m, face=PML_FACE_Y_M)
+      if (allocated(self%pml%blocks_y_p)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_y_p, face=PML_FACE_Y_P)
+      if (allocated(self%pml%blocks_z_m)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_z_m, face=PML_FACE_Z_M)
+      if (allocated(self%pml%blocks_z_p)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_z_p, face=PML_FACE_Z_P)
+      return
+   endif
+
    call select_pml_field_scales(self=self, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
    call self%rk_pml%reset_rhs()
 
@@ -3063,6 +3074,92 @@ contains
       endif
    endif
    endsubroutine apply_pml_fd_centered_ade
+
+   subroutine apply_direct_damping(self, q, dq, block_ids, face)
+   !< Apply diagnostic direct damping on components transverse to the selected PML normal.
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(in)    :: q(1:,          &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)
+   real(R8P),               intent(inout) :: dq(1:,          &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1:)
+   integer(I4P),            intent(in)    :: block_ids(1:)
+   integer(I4P),            intent(in)    :: face
+   integer(I4P)                           :: b, cells, i, i0, j, j0, k, k0, lid, li, lj, lk
+   real(R8P)                              :: alpha, center_distance, gamma, kappa, span
+
+   span = self%pml%profile_span(face)
+   do lid = 1, size(block_ids)
+      b = block_ids(lid)
+      select case (face)
+      case (PML_FACE_X_M, PML_FACE_X_P)
+         i0 = self%pml%ni_pml(1,b,face)
+         cells = self%pml%ni_pml(2,b,face) - i0 + 1_I4P
+         do k = 1, self%nk
+            do j = 1, self%nj
+               do li = 1, cells
+                  i = i0 + li - 1_I4P
+                  center_distance = merge(self%adam%field%emin(1,b) - self%adam%grid%domain_emin(1) + real(i - 1_I4P, R8P) * &
+                                          self%adam%field%dxyz(1,b),                                                          &
+                                          self%adam%grid%domain_emax(1) - self%adam%field%emax(1,b) + real(self%ni - i, R8P) * &
+                                          self%adam%field%dxyz(1,b), face == PML_FACE_X_M)
+                  call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, &
+                                                kappa=kappa)
+                  dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - gamma * q(VAR_DY,i,j,k,b)
+                  dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - gamma * q(VAR_DZ,i,j,k,b)
+                  dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) - gamma * q(VAR_BY,i,j,k,b)
+                  dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) - gamma * q(VAR_BZ,i,j,k,b)
+               enddo
+            enddo
+         enddo
+      case (PML_FACE_Y_M, PML_FACE_Y_P)
+         j0 = self%pml%nj_pml(1,b,face)
+         cells = self%pml%nj_pml(2,b,face) - j0 + 1_I4P
+         do k = 1, self%nk
+            do lj = 1, cells
+               j = j0 + lj - 1_I4P
+               center_distance = merge(self%adam%field%emin(2,b) - self%adam%grid%domain_emin(2) + real(j - 1_I4P, R8P) * &
+                                       self%adam%field%dxyz(2,b),                                                          &
+                                       self%adam%grid%domain_emax(2) - self%adam%field%emax(2,b) + real(self%nj - j, R8P) * &
+                                       self%adam%field%dxyz(2,b), face == PML_FACE_Y_M)
+               call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, &
+                                             kappa=kappa)
+               do i = 1, self%ni
+                  dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - gamma * q(VAR_DX,i,j,k,b)
+                  dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - gamma * q(VAR_DZ,i,j,k,b)
+                  dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) - gamma * q(VAR_BX,i,j,k,b)
+                  dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) - gamma * q(VAR_BZ,i,j,k,b)
+               enddo
+            enddo
+         enddo
+      case (PML_FACE_Z_M, PML_FACE_Z_P)
+         k0 = self%pml%nk_pml(1,b,face)
+         cells = self%pml%nk_pml(2,b,face) - k0 + 1_I4P
+         do lk = 1, cells
+            k = k0 + lk - 1_I4P
+            center_distance = merge(self%adam%field%emin(3,b) - self%adam%grid%domain_emin(3) + real(k - 1_I4P, R8P) * &
+                                    self%adam%field%dxyz(3,b),                                                          &
+                                    self%adam%grid%domain_emax(3) - self%adam%field%emax(3,b) + real(self%nk - k, R8P) * &
+                                    self%adam%field%dxyz(3,b), face == PML_FACE_Z_M)
+            call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, &
+                                          kappa=kappa)
+            do j = 1, self%nj
+               do i = 1, self%ni
+                  dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - gamma * q(VAR_DX,i,j,k,b)
+                  dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - gamma * q(VAR_DY,i,j,k,b)
+                  dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) - gamma * q(VAR_BX,i,j,k,b)
+                  dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) - gamma * q(VAR_BY,i,j,k,b)
+               enddo
+            enddo
+         enddo
+      endselect
+   enddo
+   endsubroutine apply_direct_damping
 
    subroutine select_pml_field_scales(self, inv_eps_scale, inv_mu_scale)
    !< Convert D/B derivatives into E/H derivatives for the current physical scaling.
@@ -3445,7 +3542,7 @@ contains
    kappa = 1._R8P
 
    select case (trim(self%pml%pml_type))
-   case ('CLASSIC')
+   case ('CLASSIC', 'CLASSIC_DIRECT')
       if (span > 0._R8P) then
          depth = 1._R8P - center_distance / span
       else
@@ -3996,14 +4093,14 @@ contains
       call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
                                                       time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
-   if (self%pml%enabled) call self%rk_pml%initialize_stages(pml=self%pml)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
    do s=1, self%rk%nrk
       if (self%ib%solids_number>0) then
          call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
       else
          call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       endif
-      if (self%pml%enabled) call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
+      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
       !call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s)) !Spostato in update_ghost
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       !if (s==1) call self%save_residuals
@@ -4012,7 +4109,7 @@ contains
       else
          call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
       endif
-      if (self%pml%enabled) call self%rk_pml%assign_stage(s=s)
+      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=s)
    enddo
    if (self%ib%solids_number>0) then
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
@@ -4022,7 +4119,7 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
-   if (self%pml%enabled) call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
@@ -4044,7 +4141,7 @@ contains
    !Inizializzo stadi RK per campi e PIC
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
-   if (self%pml%enabled) call self%rk_pml%initialize_stages(pml=self%pml)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
    call allocate_variable(var=q_stage,                              &
                           ulb=reshape([1,self%nv,                   &
                                        1-self%ngc,self%ni+self%ngc, &
@@ -4061,7 +4158,7 @@ contains
          call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       endif
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
-      if (self%pml%enabled) call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
+      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
       q_stage = self%rk%q_rk(:,:,:,:,:,s)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
@@ -4084,7 +4181,7 @@ contains
          call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
       endif
       call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
-      if (self%pml%enabled) call self%rk_pml%assign_stage(s=s)
+      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=s)
    enddo
    ! Completo l'integrazione temporale
    if (self%ib%solids_number>0) then
@@ -4095,7 +4192,7 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
-   if (self%pml%enabled) call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%apply_fWL_correction(q=self%q)
    call self%impose_div_free

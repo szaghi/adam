@@ -63,6 +63,8 @@ type :: prism_coil_object
    real(R8P),         allocatable :: windings(:)                                 !< Windings number (if solenoidal coil)
    integer(I4P),      allocatable :: N_points(:)                                 !< Number of points for coil representation (for helicon coil setting)
    real(R8P),         allocatable :: x_points(:,:), y_points(:,:), z_points(:,:) !< Coil points coordinates (for helicon coil setting)
+   real(R8P),         allocatable :: rectangular_current_flux(:,:)
+                                                                                 !< Per-side unit-current flux for rectangular coils.
    real(R8P),         allocatable :: helicon_current_flux(:,:)                   !< Per-segment unit-current flux for helicon coils.
    real(R8P),         allocatable :: sigma(:)                                    !< Gaussian current distribution sigma
    real(R8P),         allocatable :: J_vec(:,:,:,:,:,:)                          !< Matrice contenente versori corrente spire (se assente
@@ -120,7 +122,8 @@ contains
    allocate(self%x_points            (0:total_coils_number,50)) ; self%x_points = 0.0_R8P
    allocate(self%y_points            (0:total_coils_number,50)) ; self%y_points = 0.0_R8P
    allocate(self%z_points            (0:total_coils_number,50)) ; self%z_points = 0.0_R8P
-   allocate(self%helicon_current_flux(50,0:total_coils_number)) ; self%helicon_current_flux = 0.0_R8P
+   allocate(self%rectangular_current_flux(4, 0:total_coils_number)) ; self%rectangular_current_flux = 0.0_R8P
+   allocate(self%helicon_current_flux    (50,0:total_coils_number)) ; self%helicon_current_flux     = 0.0_R8P
    allocate(self%sigma               (0:total_coils_number))    ; self%sigma = 0.0_R8P
    allocate(self%x_center            (0:total_coils_number))    ; self%x_center = 0.0_R8P
    allocate(self%y_center            (0:total_coils_number))    ; self%y_center = 0.0_R8P
