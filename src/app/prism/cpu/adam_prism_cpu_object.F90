@@ -1499,6 +1499,8 @@ contains
    umax = evmax
    dt_local = self%time%CFL*dxyz_min / umax
    endassociate
+   if (self%pml%enabled .and. self%pml%gamma_eff_max > 0._R8P) &
+      dt_local = min(dt_local, self%pml%C_gamma / self%pml%gamma_eff_max)
    endsubroutine compute_local_dt_forest
 
    subroutine advance_one_step_forest(self, dt)

@@ -5321,6 +5321,8 @@ contains
    call compute_dxyz_min_kernel(blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, dxyz_min=dxyz_min)
    dxyz_min = dxyz_min * 0.5_R8P
    dt_local = self%time%CFL*dxyz_min / self%physics%evmax
+   if (self%pml%enabled .and. self%pml%gamma_eff_max > 0._R8P) &
+      dt_local = min(dt_local, self%pml%C_gamma / self%pml%gamma_eff_max)
    contains
       subroutine compute_dxyz_min_kernel(blocks_number, dxyz_gpu, dxyz_min)
       !< Compute minimum space step accordingly, kernel device.

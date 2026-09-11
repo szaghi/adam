@@ -29,6 +29,8 @@ integer(I4P),     parameter :: PML_FACE_Y_M      = 3_I4P
 integer(I4P),     parameter :: PML_FACE_Y_P      = 4_I4P
 integer(I4P),     parameter :: PML_FACE_Z_M      = 5_I4P
 integer(I4P),     parameter :: PML_FACE_Z_P      = 6_I4P
+integer(I4P),     parameter :: CFS_PROFILE_EXPONENT = 2_I4P
+real(R8P),        parameter :: BERMUDEZ_EPS = 1.e-6_R8P
 character(len=2), parameter :: FACE_LABEL(6)     = ['-x', '+x', '-y', '+y', '-z', '+z']
 character(len=8), parameter :: PML_X_VAR_NAME(4) = ['psi_Ey_x', 'psi_Ez_x', 'psi_Hy_x', 'psi_Hz_x']
 character(len=8), parameter :: PML_Y_VAR_NAME(4) = ['psi_Ex_y', 'psi_Ez_y', 'psi_Hx_y', 'psi_Hz_y']
@@ -45,6 +47,8 @@ type :: prism_pml_object
    logical                   :: layer(6) = .false.
    real(R8P)                 :: width     = 0._R8P
    real(R8P)                 :: gamma_max = 0._R8P
+   real(R8P)                 :: gamma_eff_max = 0._R8P
+   real(R8P)                 :: C_gamma = 0.1_R8P
    real(R8P)                 :: gamma_exponent = 0._R8P
    real(R8P)                 :: alpha_max = 0._R8P
    real(R8P)                 :: k_max     = 1._R8P
@@ -90,6 +94,8 @@ contains
    desc = mpih%myrankstr//'   PML data:'
    desc = desc//NL//mpih%myrankstr//'      PML type: '//trim(self%pml_type)
    desc = desc//NL//mpih%myrankstr//'      Layer physical width: '//trim(str(self%width))
+   desc = desc//NL//mpih%myrankstr//'      C_gamma: '//trim(str(self%C_gamma))
+   desc = desc//NL//mpih%myrankstr//'      gamma_eff_max: '//trim(str(self%gamma_eff_max))
    select case (trim(self%pml_type))
    case (PML_TYPE_CLASSIC, PML_TYPE_CLASSIC_DIRECT)
       desc = desc//NL//mpih%myrankstr//'      gamma_max: '//trim(str(self%gamma_max))
@@ -180,6 +186,7 @@ contains
       enddo
    enddo
 
+   self%gamma_eff_max = compute_gamma_eff_max(self=self, field=field, grid=grid)
    call allocate_face_metadata(self=self)
 
    face_counter = 0_I4P
@@ -246,6 +253,10 @@ contains
    if (.not. go_on_fail_ .and. error > 0_I4P) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(width)')
    if (self%width <= 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(width), must be > 0')
 
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='C_gamma', val=self%C_gamma, error=error)
+   if (error > 0_I4P) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='c_gamma', val=self%C_gamma, error=error)
+   if (self%C_gamma <= 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(C_gamma), must be > 0')
+
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_minus_layer', val=self%layer(PML_FACE_X_M), error=error)
    if (.not. go_on_fail_ .and. error > 0_I4P) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_minus_layer)')
@@ -281,6 +292,7 @@ contains
          call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(gamma_exponent)')
       if (self%gamma_exponent <= 0._R8P) &
          call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(gamma_exponent), must be > 0')
+      self%gamma_eff_max = self%gamma_max
    case (PML_TYPE_CFS)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gamma_max', val=self%gamma_max, error=error)
       if (.not. go_on_fail_ .and. error > 0_I4P) &
@@ -296,6 +308,7 @@ contains
       if (.not. go_on_fail_ .and. error > 0_I4P) &
          call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(k_max)')
       if (self%k_max <= 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(k_max), must be > 0')
+      self%gamma_eff_max = self%gamma_max
    case (PML_TYPE_BERMUDEZ)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='beta', val=self%beta, error=error)
       if (.not. go_on_fail_ .and. error > 0_I4P) &
@@ -420,6 +433,114 @@ contains
    endif
    endsubroutine allocate_face_storage
 
+   pure real(R8P) function compute_gamma_eff_max(self, field, grid) result(gamma_eff_max)
+   !< Return the maximum damping coefficient over the local PML profiles.
+   class(prism_pml_object), intent(in) :: self
+   type(field_object),      intent(in) :: field
+   type(grid_object),       intent(in) :: grid
+   real(R8P)                           :: center_distance
+   real(R8P)                           :: distance0
+   real(R8P)                           :: ds
+   integer(I4P)                        :: b
+   integer(I4P)                        :: cells
+   integer(I4P)                        :: face
+   integer(I4P)                        :: idx
+   integer(I4P)                        :: l
+   integer(I4P)                        :: start_idx
+
+   gamma_eff_max = 0._R8P
+   if (.not. self%enabled) return
+
+   do b=1, field%blocks_number
+      do face=1, 6
+         if (.not. face_is_active(self=self, block_id=b, face=face)) cycle
+         select case (face)
+         case (PML_FACE_X_M)
+            ds = field%dxyz(1,b)
+            distance0 = field%emin(1,b) - grid%domain_emin(1)
+            start_idx = self%ni_pml(1,b,face)
+            cells = self%ni_pml(2,b,face) - start_idx + 1_I4P
+         case (PML_FACE_X_P)
+            ds = field%dxyz(1,b)
+            distance0 = grid%domain_emax(1) - field%emax(1,b)
+            start_idx = self%ni_pml(1,b,face)
+            cells = self%ni_pml(2,b,face) - start_idx + 1_I4P
+         case (PML_FACE_Y_M)
+            ds = field%dxyz(2,b)
+            distance0 = field%emin(2,b) - grid%domain_emin(2)
+            start_idx = self%nj_pml(1,b,face)
+            cells = self%nj_pml(2,b,face) - start_idx + 1_I4P
+         case (PML_FACE_Y_P)
+            ds = field%dxyz(2,b)
+            distance0 = grid%domain_emax(2) - field%emax(2,b)
+            start_idx = self%nj_pml(1,b,face)
+            cells = self%nj_pml(2,b,face) - start_idx + 1_I4P
+         case (PML_FACE_Z_M)
+            ds = field%dxyz(3,b)
+            distance0 = field%emin(3,b) - grid%domain_emin(3)
+            start_idx = self%nk_pml(1,b,face)
+            cells = self%nk_pml(2,b,face) - start_idx + 1_I4P
+         case default
+            ds = field%dxyz(3,b)
+            distance0 = grid%domain_emax(3) - field%emax(3,b)
+            start_idx = self%nk_pml(1,b,face)
+            cells = self%nk_pml(2,b,face) - start_idx + 1_I4P
+         endselect
+         do l=1, cells
+            idx = start_idx + l - 1_I4P
+            select case (face)
+            case (PML_FACE_X_P)
+               center_distance = distance0 + real(grid%ni - idx, R8P) * ds
+            case (PML_FACE_Y_P)
+               center_distance = distance0 + real(grid%nj - idx, R8P) * ds
+            case (PML_FACE_Z_P)
+               center_distance = distance0 + real(grid%nk - idx, R8P) * ds
+            case default
+               center_distance = distance0 + real(idx - 1_I4P, R8P) * ds
+            endselect
+            gamma_eff_max = max(gamma_eff_max, compute_gamma_profile(self=self, center_distance=center_distance, &
+                                                                     span=self%profile_span(face)))
+         enddo
+      enddo
+   enddo
+   endfunction compute_gamma_eff_max
+
+   pure real(R8P) function compute_gamma_profile(self, center_distance, span) result(gamma)
+   !< Return the scalar damping profile value at one normal PML coordinate.
+   class(prism_pml_object), intent(in) :: self
+   real(R8P),               intent(in) :: center_distance
+   real(R8P),               intent(in) :: span
+   real(R8P)                           :: depth
+   real(R8P)                           :: distance_to_outer
+
+   gamma = 0._R8P
+   select case (trim(self%pml_type))
+   case (PML_TYPE_CLASSIC, PML_TYPE_CLASSIC_DIRECT)
+      if (span > 0._R8P) then
+         depth = 1._R8P - center_distance / span
+      else
+         depth = 1._R8P
+      endif
+      depth = max(0._R8P, min(1._R8P, depth))
+      gamma = self%gamma_max * depth**self%gamma_exponent
+   case (PML_TYPE_CFS)
+      if (span > 0._R8P) then
+         depth = 1._R8P - center_distance / span
+      else
+         depth = 1._R8P
+      endif
+      depth = max(0._R8P, min(1._R8P, depth))
+      gamma = self%gamma_max * depth**CFS_PROFILE_EXPONENT
+   case (PML_TYPE_BERMUDEZ)
+      if (span > 0._R8P) then
+         distance_to_outer = self%width * center_distance / span + BERMUDEZ_EPS
+      else
+         distance_to_outer = BERMUDEZ_EPS
+      endif
+      gamma = self%beta / distance_to_outer**self%gamma_exponent
+   endselect
+   endfunction compute_gamma_profile
+
    subroutine reset_pml_configuration(self)
    !< Reset the input-driven configuration, leaving storage handling to reset_pml_object.
    class(prism_pml_object), intent(inout) :: self
@@ -429,6 +550,8 @@ contains
    self%layer     = .false.
    self%width     = 0._R8P
    self%gamma_max = 0._R8P
+   self%gamma_eff_max = 0._R8P
+   self%C_gamma = 0.1_R8P
    self%gamma_exponent = 0._R8P
    self%alpha_max = 0._R8P
    self%k_max     = 1._R8P
