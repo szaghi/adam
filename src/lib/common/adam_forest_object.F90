@@ -68,7 +68,8 @@ type :: forest_object
       procedure, pass(self) :: simulate_from_manifest !< Main entry point (per-realm INIs via forest manifest).
       ! private methods
       procedure, pass(self), private :: populate_inter_realm_topology   !< Translate manifest face-pairs into maps of neighbors.
-      procedure, pass(self), private :: register_intra_realm_amr_seams  !< Register intra-realm AMR coarse-fine faces in the flux register.
+      procedure, pass(self), private :: register_intra_realm_amr_seams !< Register intra-realm AMR coarse-fine faces in the flux
+         !< register.
       procedure, pass(self), private :: apply_reflux_corrections        !< Apply Berger-Colella reflux to coarse-side.
 endtype forest_object
 

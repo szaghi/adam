@@ -946,13 +946,13 @@ contains
    integer(I4P),       intent(in),    optional :: iterations_init            !< Smoothing iterations to initialize guess.
    integer(I4P),       intent(in),    optional :: iterations_fine            !< Smoothing iterations for fine grid.
    integer(I4P),       intent(in),    optional :: iterations_coarse          !< Smoothing iterations for coarse grid.
-   real(R8P),          intent(in),    optional :: mu, eps                    !< Constant of electromagnetism, =1 in adimensional case
+   real(R8P),          intent(in),    optional :: mu, eps !< Constant of electromagnetism, =1 in adimensional case
    integer(I4P),       intent(in)              :: ivar                       !< Variable (start) index in q.
    type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
    integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
    integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
-   type(grid_object),   intent(in),    optional :: grid                       !< Grid, used to synchronize inter-block elliptic ghosts.
-   type(maps_object),   intent(in),    optional :: maps                       !< Maps, used to synchronize inter-block elliptic ghosts.
+   type(grid_object),   intent(in),    optional :: grid !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),   intent(in),    optional :: maps !< Maps, used to synchronize inter-block elliptic ghosts.
    character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
    integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
    integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
@@ -1041,13 +1041,13 @@ contains
    integer(I4P),       intent(in),    optional :: iterations_init            !< Smoothing iterations to initialize guess.
    integer(I4P),       intent(in),    optional :: iterations_fine            !< Smoothing iterations for fine grid.
    integer(I4P),       intent(in),    optional :: iterations_coarse          !< Smoothing iterations for coarse grid.
-   real(R8P),          intent(in),    optional :: mu, eps                    !< Constant of electromagnetism, =1 in adimensional case
+   real(R8P),          intent(in),    optional :: mu, eps !< Constant of electromagnetism, =1 in adimensional case
    integer(I4P),       intent(in)              :: ivar                       !< Variable (start) index in q.
    type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
    integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
    integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
-   type(grid_object),   intent(in),    optional :: grid                       !< Grid, used to synchronize inter-block elliptic ghosts.
-   type(maps_object),   intent(in),    optional :: maps                       !< Maps, used to synchronize inter-block elliptic ghosts.
+   type(grid_object),   intent(in),    optional :: grid !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),   intent(in),    optional :: maps !< Maps, used to synchronize inter-block elliptic ghosts.
    character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
    integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
    integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
@@ -1148,13 +1148,13 @@ contains
    integer(I4P),       intent(in),    optional :: iterations_init            !< Smoothing iterations to initialize guess.
    integer(I4P),       intent(in),    optional :: iterations_fine            !< Smoothing iterations for fine grid.
    integer(I4P),       intent(in),    optional :: iterations_coarse          !< Smoothing iterations for coarse grid.
-   real(R8P),          intent(in),    optional :: mu, eps                    !< Constant of electromagnetism, =1 in adimensional case
+   real(R8P),          intent(in),    optional :: mu, eps !< Constant of electromagnetism, =1 in adimensional case
    integer(I4P),       intent(in)              :: ivar                       !< Variable (start) index in q.
    type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
    integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
    integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
-   type(grid_object),   intent(in),    optional :: grid                       !< Grid, used to synchronize inter-block elliptic ghosts.
-   type(maps_object),   intent(in),    optional :: maps                       !< Maps, used to synchronize inter-block elliptic ghosts.
+   type(grid_object),   intent(in),    optional :: grid !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),   intent(in),    optional :: maps !< Maps, used to synchronize inter-block elliptic ghosts.
    character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
    integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
    integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.
@@ -1265,12 +1265,12 @@ contains
    integer(I4P),       intent(in),    optional :: iterations_fine            !< Smoothing iterations for fine grid.
    integer(I4P),       intent(in),    optional :: iterations_coarse          !< Smoothing iterations for coarse grid.
    integer(I4P),       intent(in)              :: ivar                       !< Variable (start) index in q.
-   real(R8P),          intent(in),    optional :: mu, eps                    !< Constant of electromagnetism, =1 in adimensional case.
+   real(R8P),          intent(in),    optional :: mu, eps !< Constant of electromagnetism, =1 in adimensional case.
    type(field_object), intent(in)              :: field                      !< Field (sibling realm component, threaded in).
    integer(I4P),       intent(in)              :: ell_bc_type(6)             !< Elliptic BC type for each face.
    integer(I8P),       intent(in)              :: local_map_bc_crown(:,:,:)  !< BC crown map.
-   type(grid_object),   intent(in),    optional :: grid                       !< Grid, used to synchronize inter-block elliptic ghosts.
-   type(maps_object),   intent(in),    optional :: maps                       !< Maps, used to synchronize inter-block elliptic ghosts.
+   type(grid_object),   intent(in),    optional :: grid !< Grid, used to synchronize inter-block elliptic ghosts.
+   type(maps_object),   intent(in),    optional :: maps !< Maps, used to synchronize inter-block elliptic ghosts.
    character(len=*),   intent(in),    optional :: progress_label             !< Progress message label.
    integer(I4P),       intent(inout), optional :: progress_counter           !< Completed smoothing sweeps.
    integer(I4P),       intent(in),    optional :: progress_total             !< Planned smoothing sweeps.

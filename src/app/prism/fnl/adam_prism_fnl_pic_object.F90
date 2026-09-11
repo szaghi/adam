@@ -324,7 +324,8 @@ contains
    allocate(self%buf_pic_fields_R8P(1:self%particle_number,1:PIC_FIELDS_NUMBER), stat=ierr)
    if (ierr /= 0) call mpih_fnl%error_stop(msg=': failed host allocation of buf_pic_fields_R8P in prism_fnl_pic_object%initialize')
    allocate(self%buf_neighbour_list_I4P(1:self%particle_number,1:PIC_NEIGHBOURS_NUMBER), stat=ierr)
-   if (ierr /= 0) call mpih_fnl%error_stop(msg=': failed host allocation of buf_neighbour_list_I4P in prism_fnl_pic_object%initialize')
+   if (ierr /= 0) &
+      call mpih_fnl%error_stop(msg=': failed host allocation of buf_neighbour_list_I4P in prism_fnl_pic_object%initialize')
    self%db2_q_pic(1,:)          = [1_I4P, 1_I4P]
    self%db2_q_pic(2,:)          = [self%particle_number, PIC_VARIABLES_NUMBER]
    self%hb2_q_pic(1,:)          = [1_I4P, 1_I4P]
@@ -613,7 +614,8 @@ contains
    real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
    integer(I4P),                intent(in)    :: nv
 
-   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, order=0_I4P)
+   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, &
+        q_pic_gpu=q_pic_gpu, order=0_I4P)
    endsubroutine zeroD_field_weighting_dev
 
    subroutine oneD_field_weighting_dev(self, field_fnl, field, grid, pic_fields_gpu, q_gpu, q_pic_gpu, nv)
@@ -627,7 +629,8 @@ contains
    real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
    integer(I4P),                intent(in)    :: nv
 
-   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, order=1_I4P)
+   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, &
+        q_pic_gpu=q_pic_gpu, order=1_I4P)
    endsubroutine oneD_field_weighting_dev
 
    subroutine twoD_field_weighting_dev(self, field_fnl, field, grid, pic_fields_gpu, q_gpu, q_pic_gpu, nv)
@@ -641,7 +644,8 @@ contains
    real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
    integer(I4P),                intent(in)    :: nv
 
-   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, order=2_I4P)
+   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, &
+        q_pic_gpu=q_pic_gpu, order=2_I4P)
    endsubroutine twoD_field_weighting_dev
 
    subroutine threeD_field_weighting_dev(self, field_fnl, field, grid, pic_fields_gpu, q_gpu, q_pic_gpu, nv)
@@ -655,7 +659,8 @@ contains
    real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
    integer(I4P),                intent(in)    :: nv
 
-   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, order=3_I4P)
+   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, &
+        q_pic_gpu=q_pic_gpu, order=3_I4P)
    endsubroutine threeD_field_weighting_dev
 
    subroutine fourD_field_weighting_dev(self, field_fnl, field, grid, pic_fields_gpu, q_gpu, q_pic_gpu, nv)
@@ -669,7 +674,8 @@ contains
    real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
    integer(I4P),                intent(in)    :: nv
 
-   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, order=4_I4P)
+   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, &
+        q_pic_gpu=q_pic_gpu, order=4_I4P)
    endsubroutine fourD_field_weighting_dev
 
    subroutine fiveD_field_weighting_dev(self, field_fnl, field, grid, pic_fields_gpu, q_gpu, q_pic_gpu, nv)
@@ -683,7 +689,8 @@ contains
    real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
    integer(I4P),                intent(in)    :: nv
 
-   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, order=5_I4P)
+   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, &
+        q_pic_gpu=q_pic_gpu, order=5_I4P)
    endsubroutine fiveD_field_weighting_dev
 
    subroutine Gaussian_field_weighting_dev(self, field_fnl, field, grid, pic_fields_gpu, q_gpu, q_pic_gpu, nv)
@@ -697,7 +704,8 @@ contains
    real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
    integer(I4P),                intent(in)    :: nv
 
-   call gather_gaussian_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu)
+   call gather_gaussian_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, &
+        q_pic_gpu=q_pic_gpu)
    endsubroutine Gaussian_field_weighting_dev
 
    subroutine deposit_bspline_charge_dev(self, field_fnl, grid, q_gpu, q_pic_gpu, nv, order)
@@ -826,10 +834,10 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$acc&         dx, dy, dz, sigma_x, sigma_y, sigma_z, inverse_cell_volume, charge_prefactor, rx, ry, rz, wx, wy, wz, weight, weight_sum)
+   !$acc&         dx,dy,dz,sigma_x,sigma_y,sigma_z,inverse_cell_volume,charge_prefactor, rx, ry, rz, wx, wy, wz, weight, weight_sum)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$omp&         dx, dy, dz, sigma_x, sigma_y, sigma_z, inverse_cell_volume, charge_prefactor, rx, ry, rz, wx, wy, wz, weight, weight_sum)
+   !$omp&         dx,dy,dz,sigma_x,sigma_y,sigma_z,inverse_cell_volume,charge_prefactor, rx, ry, rz, wx, wy, wz, weight, weight_sum)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -940,9 +948,9 @@ contains
    enddo
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
-   !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, prefactor, wx, wy, wz, weight, jx, jy, jz)
+   !$acc& private(block_p,i_p,j_p,k_p,i_min,i_max,j_min,j_max, k_min, k_max, dx, dy, dz, prefactor, wx, wy, wz, weight, jx, jy, jz)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
-   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, prefactor, wx, wy, wz, weight, jx, jy, jz)
+   !$omp& private(block_p,i_p,j_p,k_p,i_min,i_max,j_min, j_max, k_min, k_max, dx, dy, dz, prefactor, wx, wy, wz, weight, jx, jy, jz)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -1036,10 +1044,10 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$acc&         dx, dy, dz, sigma_x, sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, jx, jy, jz)
+   !$acc&         dx,dy,dz,sigma_x, sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, jx, jy, jz)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$omp&         dx, dy, dz, sigma_x, sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, jx, jy, jz)
+   !$omp&         dx,dy,dz,sigma_x,sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, jx, jy, jz)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -1141,10 +1149,11 @@ contains
    dxyz_gpu   => field_fnl%dxyz_gpu
    neighbour_list_gpu => self%neighbour_list_gpu
 
-   !$acc parallel loop independent DEVICEVAR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
-   !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, wx, wy, wz, weight, f1, f2, f3, f4, f5, f6)
+   !$acc parallel loop independent &
+   !$acc& DEVICEVAR(pic_fields_gpu,q_gpu,q_pic_gpu,x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,neighbour_list_gpu)&
+   !$acc& private(block_p,i_p,j_p,k_p,i_min,i_max,j_min,j_max,k_min,k_max, dx, dy, dz, wx, wy, wz, weight, f1, f2, f3, f4, f5, f6)
    !$omp OMPLOOP DEVICEPTR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
-   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, wx, wy, wz, weight, f1, f2, f3, f4, f5, f6)
+   !$omp& private(block_p,i_p,j_p,k_p,i_min,i_max,j_min,j_max,k_min,k_max, dx, dy, dz, wx, wy, wz, weight, f1, f2, f3, f4, f5, f6)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) then
@@ -1233,8 +1242,9 @@ contains
    dxyz_gpu   => field_fnl%dxyz_gpu
    neighbour_list_gpu => self%neighbour_list_gpu
 
-   !$acc parallel loop independent DEVICEVAR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
-   !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
+   !$acc parallel loop independent &
+   !$acc& DEVICEVAR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
+   !$acc& private(block_p,i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$acc&         dx, dy, dz, sigma_x, sigma_y, sigma_z, rx, ry, rz, wx, wy, wz, weight, weight_sum, f1, f2, f3, f4, f5, f6)
    !$omp OMPLOOP DEVICEPTR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &

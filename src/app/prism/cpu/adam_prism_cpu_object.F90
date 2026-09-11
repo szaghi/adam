@@ -343,7 +343,8 @@ contains
           trim(self%pml%pml_type) /= 'BERMUDEZ' .and. &
           trim(self%pml%pml_type) /= 'CFS') then
          call mpih%error_stop(msg= &
-                        ': CPU PML time integration is currently implemented only for PML_type = CLASSIC, CLASSIC_DIRECT, BERMUDEZ or CFS')
+                                                ': CPU PML time integration is currently implemented only for PML_type ='// &
+                             ' CLASSIC, CLASSIC_DIRECT, BERMUDEZ or CFS')
       endif
       if (trim(self%numerics%scheme_space) /= NUM_SCHEME_SPACE_FD_CENTERED) then
          call mpih%error_stop(msg=': CPU PML is currently implemented only for scheme_space = fd_centered')
@@ -2624,7 +2625,7 @@ contains
    real(R8P)                                                    :: KO_Bz_x,KO_Bz_y,KO_Bz_z  !< Buffer for KO correction, B z.
    real(R8P), parameter                                         :: sigma = 1000.01_R8P
    real(R8P)                                                    :: min_curlD,max_curlD
-   real(R8P)                                                    :: damping_coeff            !< Optional GLM parabolic damping coefficient.
+   real(R8P)                                                    :: damping_coeff !< Optional GLM parabolic damping coefficient.
 
    min_curlD =  huge(1._R8P)
    max_curlD = -huge(1._R8P)
@@ -2970,12 +2971,18 @@ contains
    if (.not. self%pml%enabled) return
 
    if (trim(self%pml%pml_type) == 'CLASSIC_DIRECT') then
-      if (allocated(self%pml%blocks_x_m)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_x_m, face=PML_FACE_X_M)
-      if (allocated(self%pml%blocks_x_p)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_x_p, face=PML_FACE_X_P)
-      if (allocated(self%pml%blocks_y_m)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_y_m, face=PML_FACE_Y_M)
-      if (allocated(self%pml%blocks_y_p)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_y_p, face=PML_FACE_Y_P)
-      if (allocated(self%pml%blocks_z_m)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_z_m, face=PML_FACE_Z_M)
-      if (allocated(self%pml%blocks_z_p)) call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_z_p, face=PML_FACE_Z_P)
+      if (allocated(self%pml%blocks_x_m)) &
+         call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_x_m, face=PML_FACE_X_M)
+      if (allocated(self%pml%blocks_x_p)) &
+         call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_x_p, face=PML_FACE_X_P)
+      if (allocated(self%pml%blocks_y_m)) &
+         call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_y_m, face=PML_FACE_Y_M)
+      if (allocated(self%pml%blocks_y_p)) &
+         call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_y_p, face=PML_FACE_Y_P)
+      if (allocated(self%pml%blocks_z_m)) &
+         call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_z_m, face=PML_FACE_Z_M)
+      if (allocated(self%pml%blocks_z_p)) &
+         call apply_direct_damping(self=self, q=q, dq=dq, block_ids=self%pml%blocks_z_p, face=PML_FACE_Z_P)
       return
    endif
 
@@ -4121,7 +4128,8 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
       call self%save_residuals
    endif
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
+      call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
@@ -4194,7 +4202,8 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
+      call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%apply_fWL_correction(q=self%q)
    call self%impose_div_free

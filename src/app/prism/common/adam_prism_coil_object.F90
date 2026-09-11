@@ -49,11 +49,11 @@ type :: prism_coil_object
    !< ADAM, PRISM coil source definition, CPU backend.
    character(len=99), allocatable :: coil_type(:)                                !< Coil type.
    character(len=99), allocatable :: current_type(:)                             !< Current type.
-   character(len=2 ), allocatable :: normal(:)                                   !< Versore normale alla spira, che identifica anche verso
+   character(len=2 ), allocatable :: normal(:) !< Versore normale alla spira, che identifica anche verso
    real(R8P),         allocatable :: A(:)                                        !< Current amplitude (A)
    real(R8P),         allocatable :: coil_amplitude(:)      
-                                                                                 !< Current amplitude (A) for each coil, corrected for
-                                                                                 !< Gaussian current distribution.
+                                                                                 !< Current amplitude (A) for each coil, corrected
+                                                                                 !< for Gaussian current distribution.
    real(R8P),         allocatable :: f(:)                                        !< Current frequency, if AC (Hz)
    real(R8P),         allocatable :: phase(:)                                    !< Current initial phase, if AC
    real(R8P),         allocatable :: x_center(:), y_center(:), z_center(:)       !< Coil center
@@ -61,13 +61,15 @@ type :: prism_coil_object
    real(R8P),         allocatable :: r_coil(:)                                   !< Circle's radius (if circular coil)
    real(R8P),         allocatable :: l_solenoid(:)                               !< Solenoid length (if solenoidal coil)
    real(R8P),         allocatable :: windings(:)                                 !< Windings number (if solenoidal coil)
-   integer(I4P),      allocatable :: N_points(:)                                 !< Number of points for coil representation (for helicon coil setting)
-   real(R8P),         allocatable :: x_points(:,:), y_points(:,:), z_points(:,:) !< Coil points coordinates (for helicon coil setting)
+   integer(I4P),      allocatable :: N_points(:) !< Number of points for coil representation (for helicon coil setting)
+   real(R8P),         allocatable :: x_points(:,:), y_points(:,:), z_points(:,:) !< Coil points coordinates (for helicon coil
+      !< setting)
    real(R8P),         allocatable :: rectangular_current_flux(:,:)
-                                                                                 !< Per-side unit-current flux for rectangular coils.
+                                                                                 !< Per-side unit-current flux for rectangular
+                                                                                 !< coils.
    real(R8P),         allocatable :: helicon_current_flux(:,:)                   !< Per-segment unit-current flux for helicon coils.
    real(R8P),         allocatable :: sigma(:)                                    !< Gaussian current distribution sigma
-   real(R8P),         allocatable :: J_vec(:,:,:,:,:,:)                          !< Matrice contenente versori corrente spire (se assente
+   real(R8P),         allocatable :: J_vec(:,:,:,:,:,:) !< Matrice contenente versori corrente spire (se assente
    real(R8P)                      :: td                                          !< Delay di accensione della spira
    integer(I4P)                   :: circular_coils_number=0_I4P                 !< Number of circular coils
    integer(I4P)                   :: rectangular_coils_number=0_I4P              !< Number of rectangular coils

@@ -84,10 +84,14 @@ type :: prism_particle_injection_object
    logical        	 :: v_av_correction = .false.	       !< Flag to correct the average v
 
    !< Pointer (abstract) TBP.
-   procedure(particle_space_injection_interface),	   pass(self), pointer :: particle_space_injection 	 => null() !< Particle space injection.
-	procedure(electrons_velocity_injection_interface), pass(self), pointer :: electrons_velocity_injection => null() !< Electrons velocity injection.
-	procedure(ions_velocity_injection_interface),      pass(self), pointer :: ions_velocity_injection      => null() !< Ions velocity injection.
-	procedure(neutrals_velocity_injection_interface),  pass(self), pointer :: neutrals_velocity_injection  => null() !< Neutrals velocity injection.
+   procedure(particle_space_injection_interface),	   pass(self), pointer :: particle_space_injection 	 => null()
+      !< Particle space injection.
+	procedure(electrons_velocity_injection_interface), pass(self), pointer :: electrons_velocity_injection => null()
+    !< Electrons velocity injection.
+	procedure(ions_velocity_injection_interface),      pass(self), pointer :: ions_velocity_injection      => null()
+    !< Ions velocity injection.
+	procedure(neutrals_velocity_injection_interface),  pass(self), pointer :: neutrals_velocity_injection  => null()
+    !< Neutrals velocity injection.
 contains
    procedure, pass(self) :: description    !< Return pretty-printed object description.
    procedure, pass(self) :: initialize     !< Initialize IC.

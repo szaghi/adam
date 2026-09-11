@@ -33,8 +33,9 @@ type :: prism_fWLayer_object
    real(R8P)                 :: width    = 0._R8P                        !< Requested physical layer width.
    integer(I4P), allocatable :: C(:,:)                                   !< Derived layer width in cells for each block/face [nb,6].
    integer(I4P), allocatable :: ni_fWL(:,:,:), nj_fWL(:,:,:), nk_fWL(:,:,:) !< FWL bounds for each block/face [2,nb,6].
-   real(R8P)                 :: profile_extent(6) = 0._R8P               !< Face-wise discrete profile extent measured from the boundary-cell center.
-   integer(I4P)              :: profile_cells(6) = 0_I4P                 !< Effective face-wise layer thickness in cells for the f profile.
+   real(R8P)                 :: profile_extent(6) = 0._R8P !< Face-wise discrete profile extent measured from the boundary-cell
+      !< center.
+   integer(I4P)              :: profile_cells(6) = 0_I4P !< Effective face-wise layer thickness in cells for the f profile.
    real(R8P)                 :: s2(6)                                    !< Side coefficient.
    integer(I4P)              :: n(6)                                     !< FWL f function index.
    integer(I4P)              :: alfa_D(6), beta_D(6)                     !< Corrected var index of D (Barbas' notation).

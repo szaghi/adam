@@ -1389,14 +1389,16 @@ contains
    class(prism_common_object), intent(inout) :: self                                    !< Cpu object.
    integer(I4P),               intent(in)    :: n                                       !< Coil number.
    real(R8P), allocatable                    :: A(:,:,:,:,:)                            !< Total coil vector potential field.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:)                           !< Coil vector potential field at ghost cells, used for boundary condition application.
+   real(R8P), allocatable                    :: A_gc(:,:,:,:) !< Coil vector potential field at ghost cells, used for boundary
+      !< condition application.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:)                 !< Buffer variable for self%coil%J_vec.
-   real(R8P)                                 :: r_p1, theta_p1, csi_p1                  !< Cylindrical coordinates of the first coil point.
-   real(R8P)                                 :: r_p2, theta_p2, csi_p2                  !< Cylindrical coordinates of the second coil point.
+   real(R8P)                                 :: r_p1, theta_p1, csi_p1 !< Cylindrical coordinates of the first coil point.
+   real(R8P)                                 :: r_p2, theta_p2, csi_p2 !< Cylindrical coordinates of the second coil point.
    real(R8P)                                 :: theta_p1_prime, theta_p2_prime          !< Coordinata azimuthale da atan2
    real(R8P)                                 :: theta_c
    real(R8P)                                 :: dtheta_seg                              !<Delta teta tra due punti della spira
-   real(R8P), allocatable                    :: s_map(:), csi_map(:)                    !< Coordinate dei punti nella spira nel piano cilindrico srotolato s=R*theta; csi = axial
+   real(R8P), allocatable                    :: s_map(:), csi_map(:) !< Coordinate dei punti nella spira nel piano cilindrico
+      !< srotolato s=R*theta; csi = axial
    real(R8P)                                 :: area_signed, eta
    real(R8P)                                 :: cell_coord(3)                           !< Cartesian coordinates of the cell center.
    real(R8P)                                 :: x_p1, y_p1, z_p1
@@ -1749,14 +1751,14 @@ contains
    character(len=2 ), intent(in) :: normal                                    !< Asse cilindro.
    real(R8P),         intent(in) :: Radius                                    !< Raggio cilindro.
    integer(I4P),      intent(in) :: N_points                                  !< Numero di punti della spline.
-   real(R8P),         intent(in) :: s_map(1:N_points)                         !< s coordinates of the spline points for the helicon coil case.
-   real(R8P),         intent(in) :: csi_map(1:N_points)                       !< csi coordinates of the spline points for the helicon coil case.
+   real(R8P),         intent(in) :: s_map(1:N_points) !< s coordinates of the spline points for the helicon coil case.
+   real(R8P),         intent(in) :: csi_map(1:N_points) !< csi coordinates of the spline points for the helicon coil case.
    real(R8P),         intent(in) :: eta                  
    real(R8P),         intent(in) :: theta_c                 
    real(R8P),         intent(in) :: sigma                                     !< Smearing.
    real(R8P)                     :: Ap(3)                                     !< Output vector potential at the evaluation point.
    real(R8P)                     :: r_p, theta_p, theta_p_prime               !< Coordinate del punto in coordinate cilindriche
-   real(R8P)                     :: s_p, csi_p                                !< Coordinate del secondo punto nel s.d.r. sull'asse del cilindro
+   real(R8P)                     :: s_p, csi_p !< Coordinate del secondo punto nel s.d.r. sull'asse del cilindro
    real(R8P)                     :: lambda, v_hat(2), p_near(2)               !<
    real(R8P)                     :: d_p, d_p_0, w_n
    real(R8P)                     :: chi, grad_G(3)
@@ -4741,14 +4743,16 @@ contains
    real(R8P),        intent(in)            :: x_c, y_c, z_c                         !< Center coordinates.
    real(R8P),        intent(in)            :: sigma                                 !< Width of the Gaussian profile.
    real(R8P),        intent(in)            :: a1, a2           
-                                                                                    !< Local coordinates of the rectangular coil along the first
-                                                                                    !< tangential direction.
+                                                                                    !< Local coordinates of the rectangular coil
+                                                                                    !< along the first tangential direction.
    real(R8P),        intent(in)            :: b1, b2               
-                                                                                    !< Local coordinates of the rectangular coil along the second
-                                                                                    !< tangential direction.
-   integer(I4P),     intent(in)            :: i_dir_n, i_dir_a, i_dir_b             !< Direction indices for the normal and tangential directions.
-   real(R8P)                               :: A_gc(3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1) !< Output ghost cell A array for the curl stencil.
-   real(R8P),        allocatable           :: coordinates_matrix(:,:,:,:)           !< Coordinates matrix for the ghost cell stencil.
+                                                                                    !< Local coordinates of the rectangular coil
+                                                                                    !< along the second tangential direction.
+   integer(I4P),     intent(in)            :: i_dir_n, i_dir_a, i_dir_b !< Direction indices for the normal and tangential
+      !< directions.
+   real(R8P)                               :: A_gc(3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1) !< Output ghost cell A array for the curl
+      !< stencil.
+   real(R8P),        allocatable           :: coordinates_matrix(:,:,:,:) !< Coordinates matrix for the ghost cell stencil.
    integer(I4P)                            :: i,j,k                                 !< Counters.
 
    allocate(coordinates_matrix(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))

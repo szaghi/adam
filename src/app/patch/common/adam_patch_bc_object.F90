@@ -15,7 +15,8 @@ public :: BC_DIRICHLET
 
 character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
                                                      "bc_y_min", "bc_y_max", &
-                                                     "bc_z_min", "bc_z_max"] !< INI (config) file section name containing BC configs.
+                                                     "bc_z_min", "bc_z_max"] !< INI (config) file section name containing BC
+                                                        !< configs.
 
 integer(I4P), parameter :: BC_DIRICHLET     = 1_I4P              !< Dirichlet, phi = c (0).
 character(9), parameter :: BC_DIRICHLET_STR = 'dirichlet'        !< Dirichlet, string input.

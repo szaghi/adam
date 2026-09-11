@@ -46,13 +46,15 @@ contains
    integer(I4P)                :: i,j,k                             !< Counter.
 
    !$acc parallel loop independent gang vector collapse(3) &
-   !$acc& DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) private(center_distance,f_value,fm1,fp1,D_alfa,D_beta,B_alfa,B_beta) &
-   !$acc& firstprivate(block_idx,ni,nj,nk,ni1,ni2,nj1,nj2,nk1,nk2,face,n,s2,alfa_D,beta_D,alfa_B,beta_B,domain_emin_n,domain_emax_n, &
-   !$acc& profile_extent, profile_cells)
+   !$acc& DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) &
+   !$acc& private(center_distance,f_value,fm1,fp1,D_alfa,D_beta,B_alfa,B_beta) &
+   !$acc& firstprivate(block_idx,ni,nj,nk,ni1,ni2,nj1,nj2,nk1,nk2,face,n,s2,alfa_D,&
+   !$acc&              beta_D,alfa_B,beta_B,domain_emin_n,domain_emax_n,profile_extent,profile_cells)
    !$omp OMPLOOP collapse(3) &
-   !$omp& DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) private(center_distance,f_value,fm1,fp1,D_alfa,D_beta,B_alfa,B_beta) &
-   !$omp& firstprivate(block_idx,ni,nj,nk,ni1,ni2,nj1,nj2,nk1,nk2,face,n,s2,alfa_D,beta_D,alfa_B,beta_B,domain_emin_n,domain_emax_n, &
-   !$omp& profile_extent, profile_cells)
+   !$omp& DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) &
+   !$omp& private(center_distance,f_value,fm1,fp1,D_alfa,D_beta,B_alfa,B_beta) &
+   !$omp& firstprivate(block_idx,ni,nj,nk,ni1,ni2,nj1,nj2,nk1,nk2,face,n,s2,alfa_D,&
+   !$omp& beta_D,alfa_B,beta_B,domain_emin_n,domain_emax_n,profile_extent,profile_cells)
    do k=nk1, nk2
    do j=nj1, nj2
    do i=ni1, ni2

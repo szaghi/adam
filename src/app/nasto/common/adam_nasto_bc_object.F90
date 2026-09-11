@@ -15,7 +15,8 @@ public :: BC_WALL_INVISCID
 
 character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
                                                      "bc_y_min", "bc_y_max", &
-                                                     "bc_z_min", "bc_z_max"] !< INI (config) file section name containing BC configs.
+                                                     "bc_z_min", "bc_z_max"] !< INI (config) file section name containing BC
+                                                        !< configs.
 
 integer(I4P), parameter :: BC_EXTRAPOLATION   = 1_I4P !< Extrapolation.
 integer(I4P), parameter :: BC_INFLOW          = 2_I4P !< Supersonic inflow.

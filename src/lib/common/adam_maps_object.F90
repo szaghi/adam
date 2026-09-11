@@ -240,8 +240,8 @@ type :: maps_object
    ! are SORTED BY peer_realm so per-peer row ranges can be extracted in
    ! O(1) via the seam_local_peer_* index arrays below.
    integer(I4P), allocatable :: seam_local_map_ghost_cell(:,:)
-                                                                     !< Per-cell same-rank inter-realm ghost map; layout per the comment
-                                                                     !< above; rows sorted by peer_realm.
+                                                                     !< Per-cell same-rank inter-realm ghost map; layout per the
+                                                                     !< comment above; rows sorted by peer_realm.
    integer(I4P), allocatable :: seam_local_peer_realm(:)     !< Peer realm index for each row range (one entry per distinct peer).
    integer(I4P), allocatable :: seam_local_peer_row_start(:) !< First row index in seam_local_map_ghost_cell for each peer.
    integer(I4P), allocatable :: seam_local_peer_row_count(:) !< Row count in seam_local_map_ghost_cell for each peer.

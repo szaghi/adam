@@ -252,7 +252,7 @@ contains
       class(prism_ic_object),     intent(in)         :: self                                    !< IC.
       type(prism_physics_object), intent(in)         :: physics                                 !< Fluids physiscs.
       type(field_object),         intent(in)         :: field                                   !< Field object.
-      type(grid_object),          intent(in), target :: grid                                    !< Grid (sibling realm component, threaded in).
+      type(grid_object),          intent(in), target :: grid !< Grid (sibling realm component, threaded in).
       real(R8P),                  intent(inout)      :: q(1:,          &
                                                           1-grid%ngc:, &
                                                           1-grid%ngc:, &
@@ -260,9 +260,10 @@ contains
                                                           1:)                                   !< Field cell centered variables.
       real(R8P)                                      :: x_cell(1-grid%ngc:grid%ni+grid%ngc), &
                                                         y_cell(1-grid%ngc:grid%nj+grid%ngc), &
-                                                        z_cell(1-grid%ngc:grid%nk+grid%ngc)     !< Vettori posizione centro celle del blocco b
+                                                        z_cell(1-grid%ngc:grid%nk+grid%ngc) !< Vettori posizione centro celle del
+                                                           !< blocco b
       integer(I4P)                                   :: b, i, j, k, ri, var                     !< Counter.
-	   real(R8P) 										        :: B_r, B_theta 			                  !< Radial and azimuthal components of the rotating magnetic field
+	   real(R8P) 										        :: B_r, B_theta !< Radial and azimuthal components of the rotating magnetic field
 	   real(R8P)										        :: theta                                   !< Angles in cylindrical coordinates
 	   real(R8P)										        :: cell_coord(3)
       integer(I4P)                                   :: i_dir

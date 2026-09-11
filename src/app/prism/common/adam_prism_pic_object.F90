@@ -45,10 +45,13 @@ public :: COHERENT_INITIALIZATION
 !public :: zeroD_field_weighting
 !public :: oneD_field_weighting
 
-character(len=3 ), parameter :: INI_SECTION_NAME                 = 'PIC'              !< INI file section name for PIC configuration.
-character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'           !< Analyzing physical problem involving the presence of plasma
-character(len=8 ), parameter :: COHERENT_INITIALIZATION          = 'coherent'         !< Field initialization through elliptic solver with the coherent laplacian scheme.
-character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle'  !< Analyzing physical problem involving the presence of a single particle
+character(len=3 ), parameter :: INI_SECTION_NAME                 = 'PIC' !< INI file section name for PIC configuration.
+character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma' !< Analyzing physical problem involving the presence of
+   !< plasma
+character(len=8 ), parameter :: COHERENT_INITIALIZATION          = 'coherent' !< Field initialization through elliptic solver with
+   !< the coherent laplacian scheme.
+character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle' !< Analyzing physical problem involving the
+   !< presence of a single particle
 character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'              !< NGP weighting model.
 character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'              !< CIC weighting model.
 character(len=3 ), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'              !< TSC weighting model.
@@ -62,8 +65,8 @@ character(len=2 ), parameter :: TWOD_FIELDS_WEIGHTING_MODEL      = '2D'         
 character(len=2 ), parameter :: THREED_FIELDS_WEIGHTING_MODEL    = '3D'               !< 3D field weighting.
 character(len=2 ), parameter :: FOURD_FIELDS_WEIGHTING_MODEL     = '4D'               !< 4D field weighting.
 character(len=2 ), parameter :: FIVED_FIELDS_WEIGHTING_MODEL     = '5D'               !< 5D field weighting.
-character(len=8 ), parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG'         !< Leapfrog numerical scheme for time operator.
-character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'      !< Runge-Kutta numerical scheme for time operator.
+character(len=8 ), parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG' !< Leapfrog numerical scheme for time operator.
+character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA' !< Runge-Kutta numerical scheme for time operator.
 character(len=14), parameter :: UNIFORM_DOMAIN                   = 'Uniform_domain'   !<
 character(len=16), parameter :: UNIFORM_CILINDER                 = 'Uniform_cilinder' !<
 character(len=12), parameter :: UNIFORM_CELL                     = 'Uniform_cell'     !<
@@ -527,7 +530,8 @@ contains
             emin => field%emin, emax => field%emax, neighbour_list => self%neighbour_list)
 
    !Di sicuro va considerata una parte relativa alle particelle che escono dal dominio
-   !Rivedi con Stefano, molto dipende se quei min max contano pure le gc. In tal caso a emin devi sommare ngc*dx o dx o dz (non dovrebbero contare)
+   ! Rivedi con Stefano, molto dipende se quei min max contano pure le gc. In tal caso a emin devi sommare ngc*dx o dx o dz (non
+   ! dovrebbero contare)
    do n = 1, np
       do b = 1, blocks_number
          i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
@@ -1044,7 +1048,8 @@ contains
       nj_sigma = ceiling(cutoff_sigma*sigma_y/dy, kind=I4P)
       nk_sigma = ceiling(cutoff_sigma*sigma_z/dz, kind=I4P)
 
-      ! Restrict the support to the locally available grid, including ghost cells. !Parte da rivedere, perchè alla frontiera hai una distribuzione asimmetrica, che taglia e riscala di conseguenza
+      ! Restrict the support to the locally available grid, including ghost cells. !Parte da rivedere, perchè alla frontiera hai una
+      ! distribuzione asimmetrica, che taglia e riscala di conseguenza
       i_min = max(i_p-ni_sigma, lbound(q,dim=2))
       i_max = min(i_p+ni_sigma, ubound(q,dim=2))
 

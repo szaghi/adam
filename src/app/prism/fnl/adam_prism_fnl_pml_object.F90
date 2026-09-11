@@ -337,7 +337,8 @@ contains
    endsubroutine initialize
 
    subroutine initialize_x_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, q_face_cpu, &
-                                blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
+                                blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, &
+                                     alpha_gpu, &
                                 kappa_gpu, q_face_gpu)
    character(len=*),       intent(in)    :: pml_type
    real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta
@@ -395,7 +396,8 @@ contains
    endsubroutine initialize_x_face
 
    subroutine initialize_y_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, q_face_cpu, &
-                                blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
+                                blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, &
+                                     alpha_gpu, &
                                 kappa_gpu, q_face_gpu)
    character(len=*),       intent(in)    :: pml_type
    real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta
@@ -453,7 +455,8 @@ contains
    endsubroutine initialize_y_face
 
    subroutine initialize_z_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, q_face_cpu, &
-                                blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
+                                blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, &
+                                     alpha_gpu, &
                                 kappa_gpu, q_face_gpu)
    character(len=*),       intent(in)    :: pml_type
    real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta

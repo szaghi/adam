@@ -136,13 +136,15 @@ type :: realm_object
    !< Procedure pointer TBPs for FDV operators (set at initialization by backend).
    procedure(compute_block_total_variation_interface), pass(self),pointer :: compute_block_total_variation=>null()!< Compute TV.
    procedure(compute_curl_interface),                  pass(self),pointer :: compute_curl                 =>null()!< Compute curl.
-   procedure(compute_curl_interface),                  pass(self),pointer :: compute_curl_extended        =>null()!< Compute curl on extended support.
+   procedure(compute_curl_interface),                  pass(self),pointer :: compute_curl_extended        =>null()
+      !< Compute curl on extended support.
    procedure(compute_derivative1_interface),           pass(self),pointer :: compute_derivative1          =>null()!< Compute deriv1.
    procedure(compute_derivative2_interface),           pass(self),pointer :: compute_derivative2          =>null()!< Compute deriv2.
    procedure(compute_derivative4_interface),           pass(self),pointer :: compute_derivative4          =>null()!< Compute deriv4.
    procedure(compute_divergence_interface),            pass(self),pointer :: compute_divergence           =>null()!< Compute dive.
    procedure(compute_gradient_interface),              pass(self),pointer :: compute_gradient             =>null()!< Compute grad.
-   procedure(compute_gradient_interface),              pass(self),pointer :: compute_gradient_extended    =>null()!< Compute gradient on extended support.
+   procedure(compute_gradient_interface),              pass(self),pointer :: compute_gradient_extended    =>null()
+      !< Compute gradient on extended support.
    procedure(compute_laplacian_interface),             pass(self),pointer :: compute_laplacian            =>null()!< Compute laplac.
    contains
       ! public methods
@@ -173,13 +175,13 @@ type :: realm_object
       procedure, pass(self) :: open_file_xh5f   !< Open file XH5F.
       procedure, pass(self) :: save_q_xh5f      !< Save in XH5F (XDMF/HDF5) format.
       ! public FDV operators
-      procedure, pass(self)  :: compute_curl_fd_extended         !< Compute curl of vector field, finite difference, even for half gcs.
-      procedure, pass(self)  :: compute_gradient_fd_extended     !< Compute gradient of scalar field, finite difference, even for half gcs.
-      ! private FDV operators
+      procedure, pass(self)  :: compute_curl_fd_extended !< Compute curl of vector field, finite difference, even for half gcs.
+      procedure, pass(self)  :: compute_gradient_fd_extended !< Compute gradient of scalar field, finite difference, even for half
+         !< gcs. private FDV operators
       procedure, pass(self), private :: compute_block_total_variation_fd !< Return the max of block total variation for a given var.
       procedure, pass(self), private :: compute_curl_fd                  !< Compute curl of vector field, finite difference.
       procedure, pass(self), private :: compute_curl_fv                  !< Compute curl of vector field, finite volume.
-      procedure, pass(self), private :: compute_curl_fv_extended         !< Compute curl of vector field, finite volume, even for half gcs.
+      procedure, pass(self), private :: compute_curl_fv_extended !< Compute curl of vector field, finite volume, even for half gcs.
       procedure, pass(self), private :: compute_derivative1_fd           !< Compute derivative1 of scalar field, finite difference.
       procedure, pass(self), private :: compute_derivative1_fv           !< Compute derivative1 of scalar field, finite volume.
       procedure, pass(self), private :: compute_derivative2_fd           !< Compute derivative2 of scalar field, finite difference.
@@ -189,7 +191,8 @@ type :: realm_object
       procedure, pass(self), private :: compute_divergence_fv            !< Compute divergence of vector field, finite volume.
       procedure, pass(self), private :: compute_gradient_fd              !< Compute gradient of scalar field, finite difference.
       procedure, pass(self), private :: compute_gradient_fv              !< Compute gradient of scalar field, finite volume.
-      procedure, pass(self), private :: compute_gradient_fv_extended     !< Compute gradient of scalar field, finite volume, even for half gcs.
+      procedure, pass(self), private :: compute_gradient_fv_extended !< Compute gradient of scalar field, finite volume, even for
+         !< half gcs.
       procedure, pass(self), private :: compute_laplacian_fd             !< Compute laplacian of scalar field, finite difference.
       procedure, pass(self), private :: compute_laplacian_fv             !< Compute laplacian of scalar field, finite volume.
 endtype realm_object
