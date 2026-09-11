@@ -252,6 +252,7 @@ def cmd_write(out_path: str, h5_paths: list[str], ngc: int) -> int:
         return 2
     # step_acc[(step, variable)] -> [count, min, max, sum, sum_sq]
     step_acc: dict[tuple[str, str], np.ndarray] = {}
+    skipped = 0
     for h5_path in sorted(h5_paths):
         p = Path(h5_path)
         if not p.is_file():
@@ -259,8 +260,15 @@ def cmd_write(out_path: str, h5_paths: list[str], ngc: int) -> int:
             return 2
         step = _step_index_of(p.name)
         if step is None:
-            print(f"ERROR: cannot parse step index from filename: {p.name}", file=sys.stderr)
-            return 2
+            # Not a `<basename>-<step>-proc<rank>.h5` checkpoint. The restart
+            # dump is the common case: PRISM writes `<restart_basename>-proc
+            # <rank>.h5` with no step index, and a caller globbing loosely (or
+            # a case whose restart_basename extends its output_basename) hands
+            # it to us. It is not a regression checkpoint, so skip it rather
+            # than failing the whole digest.
+            print(f">> skipping non-checkpoint file: {p.name}", file=sys.stderr)
+            skipped += 1
+            continue
         file_acc = _reduce_file(p, ngc=ngc)
         for var, stats in file_acc.items():
             key = (step, var)
@@ -278,6 +286,18 @@ def cmd_write(out_path: str, h5_paths: list[str], ngc: int) -> int:
                 )
             else:
                 step_acc[key] = stats
+    if not step_acc:
+        # Every input was skipped (or yielded nothing). Writing a header-only
+        # digest here would turn a broken run into a silent pass, so fail
+        # loudly instead -- the caller globbed the wrong files.
+        print(
+            f"ERROR: no digestible checkpoints among {len(h5_paths)} file(s); "
+            f"{skipped} skipped as non-checkpoints",
+            file=sys.stderr,
+        )
+        return 2
+    if skipped:
+        print(f">> skipped {skipped} non-checkpoint file(s)", file=sys.stderr)
     rows = [_format_row(step, var, step_acc[(step, var)]) for (step, var) in sorted(step_acc)]
     header = "# step\tvariable\tcount\tmin\tmax\tsum\tsum_sq"
     Path(out_path).write_text(header + "\n" + "\n".join(rows) + "\n")

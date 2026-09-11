@@ -11,12 +11,16 @@ doc/html/
 .DS_Store
 *-energy_error.dat
 *-residuals.dat
-*-restart-proc000000.fbd
-*-restart-proc000000.h5
+*-restart-proc*.fbd
+*-restart-proc*.h5
 *-restart.time
 *-restart.tnd
 *-restart.xdmf
 gmon.out
+
+# Python bytecode (digest.py, scripts/*.py, tooling)
+__pycache__/
+*.py[cod]
 untracked/
 docs/node_modules/
 docs/.vitepress/dist/

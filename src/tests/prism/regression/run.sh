@@ -304,10 +304,16 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    # initial setup this is what gets copied into golden/. Only the
    # output_basename checkpoints are digested; the restart dump is excluded.
    # For multi-realm cases we glob across every realm's output_basename.
+   # Match ONLY `<output_basename>-<step>-proc<rank>.h5`. A bare prefix glob
+   # also catches the restart dump whenever restart_basename extends
+   # output_basename (as rmf-fwl's once did), and that file carries no step
+   # index for digest.py to key on. Filter on the full checkpoint shape so the
+   # exclusion is structural rather than a naming convention.
    shopt -s nullglob
    produced_h5=()
    for ob in "${output_basenames[@]}"; do
       for h5 in "$workdir/$ob"-*.h5; do
+         [[ "$(basename "$h5")" =~ -[0-9]+-proc[0-9]+\.h5$ ]] || continue
          produced_h5+=("$h5")
       done
    done
