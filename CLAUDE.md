@@ -484,7 +484,59 @@ The fWLayer field is stored transposed on the FNL device (`f_gpu(nb,i,j,k,3)` vs
 
 **⚠️ The fWLayer input key changed (`8e05d363`) and this anchor is still un-migrated.** `[fWLayer]` now takes a **physical** `width` (real); the cell count `C` became a derived per-block/face array (`C_face = min(ni, ceiling(width/ds))`, `adam_prism_fWLayer_object.F90:144`). The old `C < ni` footgun is gone (the `min` clamps it), but `load_from_file` reads `width` unconditionally with `go_on_fail = .false.` (`:86`, `:189`), so **any** case lacking the key dies at init — even one that uses no layer. `cf16e20d` migrated the eight inactive-layer regression cases (`C = 0` → `width = 0.0`, goldens unaffected); **`rmf-fwl` was deliberately left out** because its layer is active, so translating `C = 6` to a physical width is not a guaranteed round-trip under the `ceiling` and its FNL golden must be re-verified. Until then `rmf-fwl` still `error_stop`s.
 
-**Unrelated open item:** `rmf-amr` — the only `fv_centered` regression case — now fails its digest golden. Its golden dates from `d15fed4c` (2026-07-04) and `28625dbf` has since reworked FV coil initialisation; the input changed only in comments. This was masked while the fWLayer breakage had the whole suite down. Adjudicate the FV behaviour change before refreshing the golden.
+**Resolved (`bad09954`, 2026-07-28):** `rmf-amr` — the only `fv_centered` regression case — briefly failed its digest golden after `28625dbf` made coil current-density stamping **scheme-aware** (four call sites that unconditionally used `compute_curl_fd_centered` now dispatch on `fdv_scheme`, so FV cases stamp with `compute_curl_fv_centered`; before the fix an FV solve evolved an FD-built source). The change was adjudicated, not rubber-stamped: step 0 is bit-identical including all twelve `coil_*_j_vec_*` rows, divergence appears only at step 5 confined to evolved fields, magnitudes are coherent (max ratios 1.2–1.5), and CPU and FNL show the same `By` shift to 8 digits. Goldens refreshed on both backends. **Caveat on record:** the bump rests on the new path being consistent by construction, not on a measured accuracy win — confirming that needs a refinement study against a coil case with a known analytic vector potential.
+
+### PML: `[PML]` input contract, and `CLASSIC_DIRECT` bypasses the RK-PML path
+
+The perfectly-matched-layer absorbing boundary lives in `prism_pml_object` (+ `prism_rk_pml_object` for the auxiliary-variable time integration), with FNL device twins. Storage is **face-local and reduced** — only boundary blocks carry it, compacted face by face, four split variables per face ordered *electric first, magnetic second* (e.g. `q_pml_x_* = [psi_Ey_x, psi_Ez_x, psi_Hy_x, psi_Hz_x]`).
+
+`[PML] PML_type` accepts five kinds (`adam_prism_pml_object.F90:229-241`), each with its **own required parameter set** — supplying the wrong set is a hard `error_stop`, not a default:
+
+| `PML_type` | Accepted spellings | Required params (beyond `width` + face flags) |
+|---|---|---|
+| `NONE` | `NO`/`no`/`None`/`NONE`… | — (PML disabled) |
+| `CLASSIC` | `PML`, `classic`, `STANDARD` | `gamma_max` (≥0), `gamma_exponent` (>0) |
+| `CLASSIC_DIRECT` | `direct`, `CLASSIC-DIRECT` | `gamma_max`, `gamma_exponent` |
+| `CFS` (CPML) | `cfs`, `CPML` | `gamma_max`, **`alfa_max`** (note the spelling), `k_max` (>0) |
+| `BERMUDEZ` | `bermudez` | `beta` (≥0), `gamma_exponent` (>0) |
+
+All kinds also require a **physical** `width` (>0, an `error_stop` otherwise) and the six face flags `{x,y,z}_{minus,plus}_layer`. Enabling the section with **all six flags false** is an `error_stop` ("enable at least one").
+
+Two traps:
+
+1. **An unrecognised `PML_type` warns and silently disables the PML** (`case default` → `print` + `PML_TYPE_NONE`) rather than erroring. A typo gives you a run with no absorbing layer and a reflecting boundary, not a crash — the same silent-misconfiguration shape as the `[bc_*]` gap below.
+2. **`CLASSIC_DIRECT` is not an RK-integrated PML.** Every `rk_pml` call site is guarded `/= 'CLASSIC_DIRECT'` — `initialize`, `initialize_stages`, `compute_stage`, `assign_stage`, `update_q_pml` are all skipped (`adam_prism_cpu_object.F90:4096-4195`, `adam_prism_fnl_object.F90:657`). It instead applies direct per-face damping kernels (`apply_{x,y,z}_face_direct_damping_dev`). It exists **for testing** (`d64369b5`); treat it as an instrument, not the production path, and do not assume PML auxiliary state advances under it.
+
+CPU time integration is implemented only for `CLASSIC`, `CLASSIC_DIRECT`, `BERMUDEZ` and `CFS` — anything else `error_stop`s at `adam_prism_cpu_object.F90:342-346`.
+
+### PIC: `physical_model = PIC` widens `nv` by one (`rho`) — gated on ONE flag, unlike the `phi`/`psi` hazard
+
+`[physics] physical_model` selects `EM` (default), `ADIM_EM` (non-dimensional), or `PIC`; an unknown string **does** `error_stop` here (`adam_prism_physics_object.F90:447`). Under `PIC`, `nv_pic = 1` and the state vector widens — `nv = nv_c + nv_s + nv_cl + nv_pic`, so a plain `PIC` run is `nv = 10`, carrying charge density `rho` as the extra slot (`:410-414`).
+
+**This is deliberately *not* the issue #11 hazard**, and the contrast is worth internalising: `io_initialize`'s `add_rho` is gated on `physics%physical_model == PIC_PHYSICAL_MODEL` — the **same** predicate that set `nv_pic`. One source of truth, so the names array and the allocation cannot disagree. The `phi`/`psi` slots above are gated on `numerics%constrained_transport_*` while `nv_cl` is derived from `divergence_correction` — **two** sources, which is exactly why they can disagree and corrupt the heap. When adding a new state variable, follow the `rho` pattern (one predicate drives both width and names), never the `phi`/`psi` one.
+
+PIC configuration lives in its own `[PIC]` section (`adam_prism_pic_object.F90`, 2114 lines — the largest PRISM common file):
+
+- `problem_type` — `plasma` or `single_particle`; `plasma_domain` ∈ `Uniform_domain` / `Uniform_cilinder` / `Uniform_cell` (note the spelling **`cilinder`**), with `cilinder_{radius,length,x_center,y_center,z_center,axis}` when cylindrical, plus `plasma_density` and `neutral_fraction`.
+- `scheme_time` — `LEAPFROG` or Runge-Kutta; each has its own object pair (`prism_leapfrog_pic_object` / `prism_rk_pic_object`) on both backends.
+- `particle_weighting_model` / `current_weighting_model` / `field_weighting_model` — the full ladder (NGP, CIC, TSC, cubic, quartic, quintic, Gaussian for charge and current; 0D–5D, Gaussian and bspline for fields), every one mirrored as a `_dev` device routine in `prism_fnl_pic_object`. Gaussian kinds additionally read `sigma` and `cutoff_sigma`.
+- `initialization` (`coherent` → elliptic-solver field init) and `elliptic_correction` tie PIC into the FLAIL elliptic solver.
+
+Particle state is `q_pic(8, particle_number)` with `pic_fields(6, particle_number)`, allocated only under PIC (`adam_prism_common_object.F90:275-285`).
+
+### `[bc_*] type` has no `default` branch — a misspelt BC is silently undefined
+
+The six face sections `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]`, `[bc_z_max]` each take a `type`. The parser (`adam_prism_bc_object.F90:85-101`) accepts exactly seven spellings:
+
+`extrapolation` · `Neumann` · `Dirichlet` · `Silver_Muller` · `periodic` · `radiative` · `PEC` (or `pec`)
+
+Matching is **case-sensitive** and the `select case` has **no `case default`**. Worse, `prism_bc_object` declares `integer(I4P) :: bc_type(6)` with **no default initializer** and `initialize` only allocates `q` before calling the parser — so an unrecognised string leaves `bc_type(b)` **undefined**, not merely wrong. (Contrast `grid_object`, which does initialise `bc_type(6) = 0_I4P`.) The downstream apply path is an `if/elseif` chain with no final `else`, so an unmatched value silently applies **no boundary condition at all** on that face.
+
+Note the underscore spelling `Silver_Muller` — the hyphenated form appears only in directory names (`BC_tests/Silver_Muller/`), never as an accepted input value. `PEC` is the only kind with a lowercase alias.
+
+There is a **second, derived** taxonomy for the elliptic solver: `build_elliptic_bc_types` maps each face BC into `ELL_BC_{DIRICHLET,PERIODIC,EXACT_OPEN,PEC}` (`Neumann`, `Silver_Muller` and `radiative` all collapse to `EXACT_OPEN`). Unlike the EM parser, **this mapping is total** — `BC_EXTRAPOLATION` and any unmapped value both `error_stop`. So a misconfigured face can pass EM setup silently and only fail later, when an elliptic solve (PIC initialisation, divergence correction) first touches it.
+
+When adding a BC kind, update **both** `select case`s, and prefer adding the missing `case default` to the parser over relying on callers to notice.
 
 ## Development Environment: WSL2 GPU+MPI Caveats
 
