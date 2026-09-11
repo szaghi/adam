@@ -43,7 +43,7 @@ integer(I4P), parameter :: ELL_BC_PEC       = 4_I4P !< Elliptic Perfect Electric
 
 type :: prism_bc_object
    !< Boundary Conditions class definition, CPU backend.
-   integer(I4P)           :: bc_type(6) !< Boundary condition type.
+   integer(I4P)           :: bc_type(6)=0_I4P !< Boundary condition type (0 = unset until load_from_file).
    real(R8P), allocatable :: q(:,:)     !< Primitive variables (Dx,Dy,Dz,Bx,By,Bz,Jx,Jy,Jz) at BC.
    contains
       ! public methods
@@ -82,7 +82,7 @@ contains
       sname = INI_SECTION_NAMES(b)
       call file_parameters%get(section_name=sname, option_name='type', val=buff_c, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
-      select case(trim(adjustl(buff_c)))
+      select case(trim(adjustl(strip_control(buff_c))))
       case('extrapolation')
          self%bc_type(b) = BC_EXTRAPOLATION
       case('Neumann')
@@ -97,6 +97,10 @@ contains
          self%bc_type(b) = BC_radiative
       case('PEC', 'pec')
          self%bc_type(b) = BC_PEC
+      case default
+         call mpih%error_stop(msg=': unknown boundary condition "'//trim(adjustl(strip_control(buff_c)))//'" in ['// &
+                                  sname//'].(type); '//&
+                                  'expected one of extrapolation, Neumann, Dirichlet, Silver_Muller, periodic, radiative, PEC')
       endselect
    enddo
    endsubroutine load_from_file
@@ -135,4 +139,21 @@ contains
       call mpih%error_stop(msg=': unsupported EM BC for elliptic solve on q('//trim(str(ivar))//')')
    endselect
    endsubroutine map_face_bc_to_elliptic
+
+   pure function strip_control(string) result(cleaned)
+   !< Return `string` with control characters (CR, TAB, ...) replaced by blanks.
+   !<
+   !< INI files authored on Windows carry a trailing CR that `trim`/`adjustl` do
+   !< not remove, so a value would miss every `case` and hit the `case default`
+   !< error path purely because of its line ending. Blank them first: the
+   !< subsequent trim/adjustl then yields the intended token.
+   character(len=*), intent(in)  :: string          !< Raw value as read from the INI file.
+   character(len=len(string))    :: cleaned         !< Value with control characters blanked.
+   integer(I4P)                  :: c               !< Counter.
+
+   cleaned = string
+   do c=1, len(cleaned)
+      if (iachar(cleaned(c:c)) < 32_I4P) cleaned(c:c) = ' '
+   enddo
+   endfunction strip_control
 endmodule adam_prism_bc_object

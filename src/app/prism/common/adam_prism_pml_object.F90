@@ -231,7 +231,7 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='PML_type', val=buff, error=error)
    if (error > 0_I4P) return
 
-   select case (trim(adjustl(buff)))
+   select case (trim(adjustl(strip_control(buff))))
    case ('NO', 'no', 'No', 'nO', 'NONE', 'none', 'None')
       self%pml_type = PML_TYPE_NONE
    case ('PML', 'pml', 'Pml', 'CLASSIC', 'classic', 'Classic', 'STANDARD', 'standard', 'Standard')
@@ -243,8 +243,9 @@ contains
    case ('BERMUDEZ', 'bermudez', 'Bermudez')
       self%pml_type = PML_TYPE_BERMUDEZ
    case default
-      call mpih%print_message(msg='warning: PML type "'//trim(adjustl(buff))//'" unknown, PML disabled')
-      self%pml_type = PML_TYPE_NONE
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(PML_type) "'//trim(adjustl(strip_control(buff)))// &
+                               '"; expected one of '//&
+                               'no, CLASSIC, CLASSIC_DIRECT, CFS or BERMUDEZ')
    endselect
 
    if (trim(self%pml_type) == PML_TYPE_NONE) return
@@ -594,4 +595,21 @@ contains
                self%nk_pml(1,block_id,face) > 0_I4P
    endfunction face_is_active
 
+
+   pure function strip_control(string) result(cleaned)
+   !< Return `string` with control characters (CR, TAB, ...) replaced by blanks.
+   !<
+   !< INI files authored on Windows carry a trailing CR that `trim`/`adjustl` do
+   !< not remove, so a value would miss every `case` and hit the `case default`
+   !< error path purely because of its line ending. Blank them first: the
+   !< subsequent trim/adjustl then yields the intended token.
+   character(len=*), intent(in)  :: string          !< Raw value as read from the INI file.
+   character(len=len(string))    :: cleaned         !< Value with control characters blanked.
+   integer(I4P)                  :: c               !< Counter.
+
+   cleaned = string
+   do c=1, len(cleaned)
+      if (iachar(cleaned(c:c)) < 32_I4P) cleaned(c:c) = ' '
+   enddo
+   endfunction strip_control
 endmodule adam_prism_pml_object
