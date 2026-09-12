@@ -18,7 +18,9 @@ type :: mpih_object
    !< MPI handler class.
    integer(I4P)              :: myrank=0_I4P        !< MPI rank process.
    character(:), allocatable :: myrankstr           !< MPI rank process stringified.
-   integer(I4P)              :: procs_number=1_I4P  !< Number of MPI processes.
+   integer(I4P)              :: procs_number=1_I4P  !< Number of MPI processes (MPI_COMM_WORLD).
+   integer(I4P)              :: node_comm=0_I4P     !< Node-local (shared-memory) communicator.
+   integer(I4P)              :: node_procs_number=1_I4P !< Number of MPI processes sharing THIS node's RAM.
    real(R8P)                 :: memory_avail=0._R8P !< CPU memory available (GB) for each process.
    integer(I4P)              :: error=0_I4P         !< Error traping flag.
    real(R8P)                 :: timing(1:2)         !< Tic toc timing.
@@ -87,6 +89,7 @@ contains
    desc =       self%myrankstr//'MPIH main data'//NL
    desc = desc//self%myrankstr//'  myrank:            '//trim(str(self%myrank      ))//NL
    desc = desc//self%myrankstr//'  procs_number:      '//trim(str(self%procs_number))//NL
+   desc = desc//self%myrankstr//'  node procs_number: '//trim(str(self%node_procs_number))//NL
    desc = desc//self%myrankstr//'  memory_avail [GB]: '//trim(str(self%memory_avail))
    endfunction description
 
@@ -132,8 +135,19 @@ contains
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    self%myrankstr = '[mpi-'//trim(strz(self%myrank,myrankstr_char_length_))//']'
    if (verbose_) call self%print_message('mpih_object%initialize start')
+   ! Node-local rank count. get_memory_info reads /proc/meminfo (PENF
+   ! penf_allocatable_memory.F90:3799), i.e. THIS node's RAM -- a quantity shared
+   ! only by the ranks resident on this node. Dividing it by the WORLD size
+   ! under-estimates every rank's share by the number of nodes: at 2 nodes x 4
+   ! ranks each rank computed mem/8 when its true share is mem/4, so adding nodes
+   ! bought no capacity at all. Split by MPI_COMM_TYPE_SHARED and divide by that
+   ! communicator's size instead -- the same primitive the device backends already
+   ! use to bind one GPU per node-local rank (adam_mpih_nvf_object.F90:58).
+   call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%node_comm, self%error)
+   call MPI_COMM_SIZE(self%node_comm, self%node_procs_number, self%error)
+   if (self%node_procs_number < 1_I4P) self%node_procs_number = 1_I4P
    call get_memory_info(mem_free=mem_free, mem_total=mem_total)
-   self%memory_avail = real(mem_total, R8P)/1e6/self%procs_number
+   self%memory_avail = real(mem_total, R8P)/1e6/self%node_procs_number
    if (verbose_) then
       print '(A)', self%description()
       call self%print_message('mpih_object%initialize finish')
