@@ -65,8 +65,14 @@ All cases share `physical_model = EM`, `nv = 9`, `fdv_order = 6`, `ngc = 3`, `co
 
 `rmf-2realm-fd-pulse` — a source-free Gaussian pulse split at x=0 into two same-resolution realms glued by a **β** mirror seam. It isolates the seam *mechanism* (inter-realm peer copy) from any resolution *jump*: a 1:1 seam must be div-free exactly like a 1:1 intra-block interface, and it holds `div(B) = div(D) = 0` — **but only under β**. Under α the seam ghosts go unfilled during RK substages and div(B) leaks (this is the [#31](https://github.com/szaghi/adam/issues/31) diagnosis). For a 1:1 same-`dt` seam, β is correct and required.
 
-::: warning Not automatically enforced
-This case carries **no golden and no `check.sh`**, so `run.sh` skips it and nothing in CI or the local sweep checks the div-free property it documents. It is a **manual reproducer** for [#31](https://github.com/szaghi/adam/issues/31), not an enforced anchor. To make it a real guard it needs either a committed digest golden (both backends) or a `check.sh` asserting `max|div(B)|` and `max|div(D)|` at round-off, in the style of the AMR-seam oracles.
+It now carries a **`check.sh` oracle** (three legs, `-np 1`, CPU by default, `PRISM_EXE=` to override):
+
+1. **β cadence, as committed** — `max|div(D)|` and `max|div(B)|` must both sit at round-off (`1.0E-13`) on **both** realms. Measured: **exactly `0.0`** for all four quantities.
+2. **Health** — both realms reach 100% with no error/abort/NaN and both divergence histories exist.
+3. **α cadence, negative control** — rewriting `coupling_cadence` to `end_of_step` must push `div(B)` *above* tolerance. Measured: **`4.56E+02`**, identically on both realms. Without this leg the first two could pass vacuously (a seam that stopped being exercised would also read zero), so it is what gives the oracle teeth. It asserts only *that* α leaks, not a magnitude — α's drift is not a quantity this suite has reason to hold fixed.
+
+::: warning Still not run by `run.sh`
+Like the AMR-seam oracles, this `check.sh` is invoked **by hand**, not by the sweep — and the case still has no digest golden, so `run.sh` continues to report it as a SKIP. Run it directly after touching `fill_seam_from_peer_forest`, `post_step_forest`, or any forest seam path.
 :::
 
 ### AMR-seam cases (digest-goldened **and** `check.sh`-driven)
