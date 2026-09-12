@@ -204,8 +204,10 @@ contains
    self%nv            => field%nv
    call self%maps%initialize(maps=maps)
    associate(nb=>field%nb, ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nv=>field%nv)
-      if (present(q_gpu)) &
+      if (present(q_gpu)) then
          call dev_alloc(fptr_dev=q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
+         if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_gpu in field_fnl_object%initialize')
+      endif
       call dev_assign_to_device(dst=self%fec_1_6_array_gpu, src=FEC_1_6_ARRAY)
       nv_aux_ = field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    endassociate

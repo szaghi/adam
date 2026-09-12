@@ -242,7 +242,7 @@ The 34-step initialization sequence called by both backends:
 | Condition | Registered field | Names |
 |-----------|-----------------|-------|
 | `io%save_residual_fields` | `dq` | `res_Dx` … `res_Jz` [± `res_ph`/`res_ps`/`res_rh`] |
-| `io%save_divergence_fields` | `divergence` | `div_D`, `div_B`, `div_J`, `fWL_x/y/z`, … |
+| `io%save_divergence_fields` | `divergence` | `div_D`, `div_B`, `div_J`, `totvar`, `div_05`, `div_06`, `div_09`…`div_11` [± `div_07`/`div_08`/`div_12`] |
 | `coil%total_coils_number > 0` | `coil%j_vec`, `coil%coil_flag` | `j_vec_1/2/3`, `f_Gauss`, `coil_flag` |
 | `io%save_curl_fields` | `curl` | `curlD_x/y/z`, `curlB_x/y/z`, `curlJ_x/y/z` |
 
@@ -419,13 +419,27 @@ Implements a sponge-like damping layer at domain boundaries to absorb outgoing e
 
 ### Damping Function
 
-The damping function `f(3, ni, nj, nk, nb)` is initialized once at startup. For a layer of width `C` cells:
+The damping factor is **not** stored: `compute_fwl_factor` evaluates it per cell, on demand, from the
+cell's distance to the boundary and the face's profile geometry. It is declared `!$acc routine seq` /
+`!$omp declare target`, so one function serves both the CPU and the device backend.
 
-$$f_i = \begin{cases} \frac{1}{150}(-7C^2 + 255C + 250) & C < 40 \\ 25 & C \geq 40 \end{cases}$$
+For a face spanning `profile_cells` cells over a physical `profile_extent`, a cell at `center_distance`
+from the boundary-cell center gets the profile-*shape* coefficient
 
-The values decay smoothly from the interior (where `f = 1`) toward the boundary. The three components of `f` correspond to the x, y, z sides of the layer, enabling correct treatment of corner and edge regions.
+$$f_i = \begin{cases} \frac{1}{150}(-7C_r^2 + 255C_r + 250) & C_r < 40 \\ 25 & C_r \geq 40 \end{cases}$$
 
-The `divergence` array is initialized with `fWLayer%f` components at indices 4–6, making the layer damping coefficients available as output fields (`fWL_x`, `fWL_y`, `fWL_z`).
+with `C_r = profile_cells`, and from it the damping factor
+
+$$f = \frac{1}{f_i}\log_{10}\!\left[r\left(10^{f_i} - 1\right) + 1\right], \qquad
+r = \mathrm{clamp}\!\left(\frac{\texttt{center\_distance}}{\texttt{profile\_extent}},\, 0,\, 1\right)$$
+
+A face with `profile_cells <= 0` or `profile_extent <= 0` returns `f = 1` (no damping). `profile_cells`
+and `profile_extent` are derived per face at initialization from the requested physical `width` (see
+`compute_absorbing_face_range`); on a uniform mesh `profile_extent` equals `C*ds`, which is what the
+former cell-count `C` input expressed directly.
+
+`7e39318b` removed the `f` array from `prism_fWLayer_object` together with its HDF5 save block, so
+`fWL_x`, `fWL_y` and `fWL_z` are no longer emitted as output fields.
 
 ---
 

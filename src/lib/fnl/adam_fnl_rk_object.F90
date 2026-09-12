@@ -143,6 +143,7 @@ contains
                   lbounds=[1,1-ngc,1-ngc,1-ngc,1,1],        &
                   init_value=0._R8P,                        &
                   ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_rk_gpu in rk_fnl_object%initialize')
    endassociate
    call mpih_fnl%print_message('rk_fnl_object%initialize finish')
    endsubroutine initialize

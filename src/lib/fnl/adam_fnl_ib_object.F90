@@ -89,6 +89,7 @@ contains
                      ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,solids_number+1], &
                      lbounds=[1, 1-ngc, 1-ngc, 1-ngc, 1              ], &
                      ierr=ierr, init_value=-1._R8P)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate phi_gpu in ib_fnl_object%initialize')
    endif
    endassociate
    endsubroutine initialize

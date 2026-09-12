@@ -72,7 +72,6 @@ host↔device transfer via `field_gpu%copy_transpose_cpu_gpu` / `copy_transpose_
 | Member | Type | Description |
 |--------|------|-------------|
 | `coil_gpu` | `prism_fnl_coil_object` | Coil J-vector and flag arrays on device (transposed layout) |
-| `fwlayer_gpu` | `prism_fnl_fwlayer_object` | fWLayer damping function `f_gpu` on device |
 
 ### Device data pointers
 
@@ -105,7 +104,6 @@ rk_gpu%initialize               ← allocate q_rk_gpu stages
 weno_gpu%initialize             ← copy WENO coefficients to device
 allocate_gpu                    ← allocate all device data pointers
 coil_gpu%initialize             ← allocate and transpose coil arrays
-fwlayer_gpu%initialize          ← allocate f_gpu
 external_fields_initialize_dev  ← copy external field data to device
 set procedure pointers          ← based on scheme_space / scheme_time
 ```
@@ -171,13 +169,13 @@ Allocates all device pointers using `dev_alloc` from FUNDAL. `q_gpu` is a pointe
 
 #### `copy_cpu_gpu`
 Transfers state from CPU to device after initial conditions or restart load:
-- `field_gpu%copy_transpose_cpu_gpu` — transposes and uploads `q`, `curl`, `divergence`, `fWLayer%f`
+- `field_gpu%copy_transpose_cpu_gpu` — transposes and uploads `q`, `curl`, `divergence`
 - `field_gpu%copy_cpu_gpu` — uploads grid metadata (dxyz, cell coordinates, BC maps)
 - `coil_gpu%copy_cpu_gpu` — uploads coil amplitude, frequency, phase, J-vector (with transposition)
 
 #### `copy_gpu_cpu`
 Downloads state from device to CPU before I/O:
-- `field_gpu%copy_transpose_gpu_cpu` — downloads and un-transposes `q`, `curl`, `divergence`, `fWLayer%f`
+- `field_gpu%copy_transpose_gpu_cpu` — downloads and un-transposes `q`, `curl`, `divergence`
 - `coil_gpu%copy_gpu_cpu` — downloads coil arrays
 
 ### Simulation loop (`simulate`)
@@ -260,9 +258,11 @@ SSP RK stages.
 
 ### Far-wave layer (`apply_fwl_correction`)
 
-Computes per-face index ranges from `fWLayer%C` (layer cell width) and calls
-`apply_fwl_correction_dev` for each active face. The device kernel applies the impedance-matching
-correction to `(alfa_D, beta_D, alfa_B, beta_B)` component pairs using the fWLayer function `f_gpu`:
+Computes per-face index ranges from `fWLayer%C` (derived layer cell width, per block and face) and
+calls `apply_fwl_correction_dev_kernel` for each active face. There is no `f_gpu` array: the kernel
+receives the face's `profile_extent` and `profile_cells` as scalars and evaluates the damping factor
+per cell via `compute_fwl_factor` (`!$acc routine seq`), the same function the CPU backend uses. It
+applies the impedance-matching correction to `(alfa_D, beta_D, alfa_B, beta_B)` component pairs:
 
 $$q_{α_D}' = \frac{1}{2\sqrt{\mu_0}}\!\left[s_2(f-1)\,q_{β_B}\sqrt{\varepsilon_0} + (f+1)\,q_{α_D}\sqrt{\mu_0}\right]$$
 
@@ -360,11 +360,14 @@ Manages device-resident coil data. `initialize` allocates device arrays via `dev
 `copy_cpu_gpu` manually transposes `coil%J_vec(nv,i,j,k,nb)` → `J_vec_gpu(nb,i,j,k,nv)` and
 `coil%coil_flag(i,j,k,nb)` → `coil_flag_gpu(nb,i,j,k)` before uploading.
 
-### `prism_fnl_fwlayer_object`
+### `adam_prism_fnl_fWLayer_object`
 
-Stores `f_gpu(nb,i,j,k,3)` (three directional fWLayer function values) allocated on device.
-The `apply_fwl_correction_dev` kernel is direction-agnostic: the caller passes the appropriate
-index ranges and Barbas-notation field indices for the target face.
+Holds no state: the module exposes a single public kernel, `apply_fwl_correction_dev_kernel`.
+`7e39318b` removed the stored `f` array, so there is no `f_gpu` and nothing to upload; the kernel
+receives the face's `profile_extent` and `profile_cells` as scalars and evaluates the damping
+factor per cell through `compute_fwl_factor` (`!$acc routine seq`), shared with the CPU backend.
+The kernel is direction-agnostic: the caller passes the index ranges and Barbas-notation field
+indices for the target face.
 
 ### `adam_prism_fnl_kernels`
 
