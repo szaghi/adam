@@ -34,12 +34,11 @@
 # NOT a golden test: no field values are compared, and run.sh skips this case
 # (no golden/<backend>/). Run it by hand, like the check.sh oracles.
 #
-# CAVEAT recorded, not asserted: the device budget is FREE memory, not total —
-# FUNDAL's dev_init passes dev_memory_avail positionally into
-# dev_get_device_memory_info(mem_free, mem_total) (fundal_dev_handling.F90:97),
-# binding it to ACC_PROPERTY_FREE_MEMORY. GPU `nb` therefore depends on whatever
-# else is resident at startup. The probe prints the budget so drift is visible,
-# but asserts only the SCALING RATIO, never an absolute value.
+# NOTE: the budget is TOTAL device memory. It was FREE until dev_memory_total was
+# added to FUNDAL (dev_init now keyword-passes both); free made nb depend on
+# whatever was resident at init, so capacity was not reproducible. On this box the
+# switch moved nb from 682 to 756 (11.625 -> 12.878 GB). dev_memory_avail (free) is
+# still correct for the j_vec_gpu OOM diagnostic in prism_fnl_coil_object.
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -57,7 +56,7 @@ done
 
 if [[ "$backend" == "fnl" ]]; then
    EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_fnl}"
-   BUDGET_RE='device memory_avail \[GB\]'
+   BUDGET_RE='device memory_total \[GB\]'   # the budget is TOTAL; memory_avail is free, used only by the OOM diagnostic
 else
    EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_cpu}"
    BUDGET_RE='\]  memory_avail \[GB\]'
@@ -77,10 +76,10 @@ command -v mpirun >/dev/null 2>&1 || { echo "ERROR: mpirun not on PATH" >&2; exi
 
 # nb is printed by field_object%description() as:
 #     [mpi-00000]  all blocks number (nb):          +682
-nb_of()     { grep -m1 'all blocks number (nb)' "$1" | grep -oE '[+-]?[0-9]+$'; }
-nodeproc_of() { grep -m1 'node procs_number' "$1" | grep -oE '[+-]?[0-9]+$'; }
-worldproc_of(){ grep -m1 -E '\]  procs_number:' "$1" | grep -oE '[+-]?[0-9]+$'; }
-budget_of() { grep -m1 -E "$BUDGET_RE" "$1" | grep -oE '[+-]?0\.[0-9]+E[+-][0-9]+' | head -1; }
+nb_of()     { grep -a -m1 'all blocks number (nb)' "$1" | grep -oE '[+-]?[0-9]+$'; }
+nodeproc_of() { grep -a -m1 'node procs_number' "$1" | grep -oE '[+-]?[0-9]+$'; }
+worldproc_of(){ grep -a -m1 -E '\]  procs_number:' "$1" | grep -oE '[+-]?[0-9]+$'; }
+budget_of() { grep -a -m1 -E "$BUDGET_RE" "$1" | grep -oE '[+-]?0\.[0-9]+E[+-][0-9]+' | head -1; }
 
 run_np() { # rank count -> echoes workdir
    local np="$1" wd="$CASE_DIR/work-${backend}-np${np}"
@@ -96,9 +95,9 @@ declare -A NB BUDGET NODEP WORLDP
 
 for np in 1 2; do
    wd="$(run_np "$np")"
-   if grep -qiE 'error stop|abort|segfault' "$wd/run.log"; then
+   if grep -aqiE 'error stop|abort|segfault' "$wd/run.log"; then
       echo "FAIL [memory-scaling/$backend] np$np run reported an error/abort"
-      grep -iE 'error stop|abort|segfault' "$wd/run.log" | head -3 | sed 's/^/       /'
+      grep -aiE 'error stop|abort|segfault' "$wd/run.log" | head -3 | sed 's/^/       /'
       fail=1 ; continue
    fi
    nb="$(nb_of "$wd/run.log" || true)"

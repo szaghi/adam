@@ -55,7 +55,7 @@ done
 
 if [[ "$backend" == "fnl" ]]; then
    EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_fnl}"
-   BUDGET_RE='device memory_avail \[GB\]'
+   BUDGET_RE='device memory_total \[GB\]'   # the budget is TOTAL; memory_avail is free, used only by the OOM diagnostic
 else
    EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_cpu}"
    BUDGET_RE='\]  memory_avail \[GB\]'
@@ -72,8 +72,8 @@ fi
 [[ -f "$BASE_DIR/input.ini" ]] || { echo "ERROR: base case missing: $BASE_DIR/input.ini" >&2; exit 2; }
 command -v mpirun >/dev/null 2>&1 || { echo "ERROR: mpirun not on PATH" >&2; exit 2; }
 
-nb_of()     { grep -m1 'all blocks number (nb)' "$1" | grep -oE '[+-]?[0-9]+$' | tr -d '+'; }
-budget_of() { grep -m1 -E "$BUDGET_RE" "$1" | grep -oE '[+-]?0\.[0-9]+E[+-][0-9]+' | head -1; }
+nb_of()     { grep -a -m1 'all blocks number (nb)' "$1" | grep -oE '[+-]?[0-9]+$' | tr -d '+'; }
+budget_of() { grep -a -m1 -E "$BUDGET_RE" "$1" | grep -oE '[+-]?0\.[0-9]+E[+-][0-9]+' | head -1; }
 ini_int()   { grep -m1 -E "^\s*$2\s*=" "$1" | grep -oE '[0-9]+' | head -1; }
 
 run_case() { # label, case-dir -> echoes workdir
@@ -94,10 +94,10 @@ WD4="$(run_case coils  "$CASE_DIR")"
 
 for spec in "0:$WD0" "4:$WD4"; do
    n="${spec%%:*}" ; wd="${spec#*:}"
-   if grep -qiE 'error stop|segfault' "$wd/run.log"; then
+   if grep -aqiE 'error stop|segfault' "$wd/run.log"; then
       echo "FAIL [memory-scaling-coils/$backend] the ${n}-coil run failed:"
-      grep -iE 'error stop|segfault' "$wd/run.log" | head -2 | sed 's/^/       /'
-      if [[ "$n" == "4" ]] && grep -qi 'failed to allocate j_vec_gpu' "$wd/run.log"; then
+      grep -aiE 'error stop|segfault' "$wd/run.log" | head -2 | sed 's/^/       /'
+      if [[ "$n" == "4" ]] && grep -aqi 'failed to allocate j_vec_gpu' "$wd/run.log"; then
          echo "       ^ THE INTERESTING FAILURE: the uncounted coil memory exhausted the"
          echo "         save_factor=0.4 margin. nb was chosen without it (fields_number=80,"
          echo "         adam_adam_object.F90:221), so the real ceiling arrived before nb predicted."

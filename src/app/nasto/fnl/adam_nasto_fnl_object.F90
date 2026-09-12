@@ -123,7 +123,8 @@ contains
 
    call mpih_fnl%initialize(do_mpi_init=.true., do_device_init=.true., verbose=.true.)
    call mpih_fnl%print_message('nasto_fnl_object%initialize start')
-   call self%initialize_common(filename=filename, memory_avail=real(mpih_fnl%dev_memory_avail,R8P), verbose=.true.)
+   ! TOTAL, not free -- see adam_prism_fnl_object: the budget is a machine property.
+   call self%initialize_common(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total,R8P), verbose=.true.)
    ib = self%ib
    rk = self%rk
    weno = self%weno
