@@ -107,6 +107,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: apply_fwl_correction    !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current   !< Compute current coils sources.
       procedure, pass(self) :: verify_no_pic_deposition_on_coils_dev !< Guard against PIC deposition on coil cells.
+      procedure, pass(self) :: mark_by_j_vec_total_variation !< Override: device TV marker (common default error_stops).
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
@@ -1187,6 +1188,172 @@ contains
       enddo
       endsubroutine verify_no_pic_deposition_on_coils_dev_kernel
    endsubroutine verify_no_pic_deposition_on_coils_dev
+
+   subroutine mark_by_j_vec_total_variation(self, tv_tol, delta_type, delta_fine, delta_coarse, threshold, do_init)
+   !< Mark blocks to be refined/derefined by the value of total variation of j_vec, FNL (device) backend.
+   !<
+   !< Device twin of prism_cpu_object%mark_by_j_vec_total_variation. The TV reduction runs on the device, where
+   !< `j_vec_gpu` lives: routing it through the host implementation would cost a full transposed D2H of the
+   !< largest array in the run to produce one scalar per block. Only `tv(1:blocks_number)` crosses back, and the
+   !< refinement decision stays on the host because the tree/AMR state is host-side anyway.
+   !<
+   !< Contiguity discipline (adam_fnl_fdv_operators_library): the device operators take PRE-GATHERED contiguous
+   !< 1D stencils, they never slice inside an `acc routine seq`. Hence the nine `qs*` buffers below, mirroring
+   !< compute_curl_fd_dev_kernel. `dxyz_b` is a private copy for the same reason as issue #26 G1.b: the strided
+   !< section dxyz_gpu(b,1:3) materializes a compiler temporary that is NOT privatized and threads race on it.
+   !<
+   !< Two deliberate divergences from the host original, both behaviour-preserving today:
+   !< 1. The host reduces via realm_object%compute_block_total_variation, which is parameterised on `ivar` and
+   !<    reads components (ivar, ivar+1, ivar+2). The only call site passes ivar=1, so the kernel below gathers
+   !<    components 1..3 of j_vec directly rather than carrying an offset through nine stencil gathers. Restore
+   !<    the parameter here if a caller ever needs a vector field that does not start at component 1.
+   !< 2. `tot_var_field` is stamped into divergence row 4, matching the host verbatim. Row 4 is NOT a spare
+   !<    slot: divergence is allocated (nv,...) and div_name(v) = q_name(v), so this overwrites the divergence
+   !<    row of state variable 4 for the rest of the step. That trade is the host's, inherited unchanged.
+   !<
+   !< `j_vec_gpu` ghosts are valid without any exchange: set_*_coil_* writes J_vec over the full ghosted extent
+   !< (1-ngc:n+ngc) with explicit face-slab ghost reconstruction, and set_initial_conditions pushes it to device
+   !< via copy_cpu_gpu immediately before every amr_update in the IC/AMR loop.
+   class(prism_fnl_object), intent(inout)        :: self                     !< The equation.
+   real(R8P),               intent(in)           :: tv_tol                   !< Total variation tolerance value.
+   character(*),            intent(in)           :: delta_type               !< Delta criterion type.
+   real(R8P),               intent(in)           :: delta_fine               !< Maximum cell delta in fine grids.
+   real(R8P),               intent(in)           :: delta_coarse             !< Minimum cell delta in coarse grids.
+   real(R8P),               intent(in), optional :: threshold                !< Threshold for sphere proximity.
+   logical,                 intent(in), optional :: do_init                  !< Re-initialize refinements queries.
+   logical                                       :: do_init_                 !< Re-initialize refinements queries, local var.
+   real(R8P)                                     :: threshold_               !< Threshold for sphere proximity, local var.
+   real(R8P)                                     :: max_cell_delta           !< Maximum cell delta.
+   real(R8P)                                     :: max_total_variation      !< Total variation of j_vec, max on all coils.
+   real(R8P), allocatable                        :: tv(:)                    !< Per-block total variation, host copy.
+   real(R8P), pointer                            :: tv_gpu(:)=>null()        !< Per-block total variation, device scratch.
+   integer(I4P)                                  :: b                        !< Counter.
+   integer(I4P)                                  :: ierr                     !< Device allocation error status.
+   real(R8P)                                     :: dc(1:self%blocks_number) !< Delta criterion.
+
+   do_init_   = .true.  ; if (present(do_init  )) do_init_   = do_init
+   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   if (do_init_) self%adam%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
+   associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc,                      &
+              blocks_number=>self%blocks_number, hs=>self%fdv_half_stencils(1),          &
+              dxyz=>self%adam%field%dxyz, dxyz_gpu=>self%field_fnl%dxyz_gpu)
+      select case(delta_type)
+      case(AMR_DELTA_T_X) ; dc(1:blocks_number) = dxyz(1,1:blocks_number)
+      case(AMR_DELTA_T_Y) ; dc(1:blocks_number) = dxyz(2,1:blocks_number)
+      case(AMR_DELTA_T_Z) ; dc(1:blocks_number) = dxyz(3,1:blocks_number)
+      case(AMR_DELTA_T_MAX)
+         do b=1, blocks_number
+            dc(b) = maxval(dxyz(:,b))
+         enddo
+      endselect
+      ! CPU-parity preamble: the host marker refreshes ghosts (whose trailing compute_coils_current stamps the
+      ! J rows of q) before reducing. initialize_coils is deliberately NOT called here: it recomputes the HOST
+      ! j_vec only, and the device copy is already current (see the header note).
+      call self%update_ghost(q_gpu=self%q_gpu)
+      allocate(tv(1:blocks_number))
+      call dev_alloc(fptr_dev=tv_gpu, lbounds=[1], ubounds=[blocks_number], init_value=-huge(1._R8P), ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate tv_gpu in '// &
+                                                      'prism_fnl_object%mark_by_j_vec_total_variation')
+      ! Coil 1 only, replicating the host marker's `do c=1, 1!self%coil%total_coils_number`. Reducing over every
+      ! coil here would silently diverge from the CPU backend; widening it is a deliberate change for both.
+      call mark_by_j_vec_total_variation_kernel(ni=ni, nj=nj, nk=nk, blocks_number=blocks_number, s1=hs,       &
+                                                icoil=1_I4P, dxyz_gpu=dxyz_gpu, j_vec_gpu=self%coil_fnl%j_vec_gpu, &
+                                                divergence_gpu=self%divergence_gpu, tv_gpu=tv_gpu)
+      call dev_memcpy_from_device(src=tv_gpu, dst=tv)
+      do b=1, blocks_number
+         max_total_variation = tv(b)
+         call mpih%print_message('Block '//trim(str(b))//': max_total_variation = '//trim(str(max_total_variation)))
+         max_cell_delta = max_cell_delta_tv(tv=max_total_variation)
+         if ((dc(b)) > max_cell_delta) then
+            self%adam%field%refinements_needed(b) = TO_BE_REFINED
+         elseif ((dc(b)) * threshold_ < max_cell_delta) then
+            self%adam%field%refinements_needed(b) = max(self%adam%field%refinements_needed(b), TO_BE_DEREFINED)
+         else
+            self%adam%field%refinements_needed(b) = max(self%adam%field%refinements_needed(b), TO_NOT_TOUCH)
+         endif
+      enddo
+      call dev_free(tv_gpu, mydev)
+      nullify(tv_gpu)
+      deallocate(tv)
+   endassociate
+   contains
+      function max_cell_delta_tv(tv) result(delta)
+      !< Return the maximum cell delta given a total variation tollerance.
+      real(R8P), intent(in) :: tv    !< Total variation value.
+      real(R8P)             :: delta !< Maximum cell delta admissible.
+
+      if (tv > tv_tol) then
+         delta = delta_fine
+      else
+         delta = delta_coarse
+      endif
+      endfunction max_cell_delta_tv
+
+      subroutine mark_by_j_vec_total_variation_kernel(ni, nj, nk, blocks_number, s1, icoil, dxyz_gpu, j_vec_gpu, &
+                                                      divergence_gpu, tv_gpu)
+      !< Reduce the per-block max total variation of j_vec on device, and stamp the TV field into the
+      !< `totvar` divergence row (index 4), which the host marker fills via its `tot_var_field` argument
+      !< and which io saves as a named output field.
+      integer(I4P), intent(in)    :: ni, nj, nk              !< Grid sizes.
+      integer(I4P), intent(in)    :: blocks_number           !< Blocks number.
+      integer(I4P), intent(in)    :: s1                      !< FDV half stencil length.
+      integer(I4P), intent(in)    :: icoil                   !< Coil index to reduce.
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)         !< Delta cells GPU [nb,3].
+      real(R8P),    intent(in)    :: j_vec_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:,1:) !< Coil current versors.
+      real(R8P),    intent(inout) :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence fields.
+      real(R8P),    intent(inout) :: tv_gpu(1:)              !< Per-block total variation.
+      integer(I4P)                :: i,j,k,b,s               !< Counters.
+      real(R8P)                   :: qs1x(1-s1:1+s1)         !< X stencil of j_vec component 1.
+      real(R8P)                   :: qs1y(1-s1:1+s1)         !< Y stencil of j_vec component 1.
+      real(R8P)                   :: qs1z(1-s1:1+s1)         !< Z stencil of j_vec component 1.
+      real(R8P)                   :: qs2x(1-s1:1+s1)         !< X stencil of j_vec component 2.
+      real(R8P)                   :: qs2y(1-s1:1+s1)         !< Y stencil of j_vec component 2.
+      real(R8P)                   :: qs2z(1-s1:1+s1)         !< Z stencil of j_vec component 2.
+      real(R8P)                   :: qs3x(1-s1:1+s1)         !< X stencil of j_vec component 3.
+      real(R8P)                   :: qs3y(1-s1:1+s1)         !< Y stencil of j_vec component 3.
+      real(R8P)                   :: qs3z(1-s1:1+s1)         !< Z stencil of j_vec component 3.
+      real(R8P)                   :: gradient(3,3)           !< Gradient of the three j_vec components.
+      real(R8P)                   :: dxyz_b(3)               !< Per-block deltas, PRIVATE copy (issue #26 G1.b).
+      real(R8P)                   :: tv                      !< Total variation buffer.
+
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,j_vec_gpu,divergence_gpu,tv_gpu) &
+      !$acc& firstprivate(ni,nj,nk,blocks_number,icoil,s1)                                                        &
+      !$acc& private(qs1x,qs1y,qs1z,qs2x,qs2y,qs2z,qs3x,qs3y,qs3z,gradient,dxyz_b,tv)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,j_vec_gpu,divergence_gpu,tv_gpu) &
+      !$omp& firstprivate(ni,nj,nk,blocks_number,icoil,s1) &
+      !$omp& private(qs1x,qs1y,qs1z,qs2x,qs2y,qs2z,qs3x,qs3y,qs3z,gradient,dxyz_b,tv)
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+         !$acc loop seq
+         do s=1-s1, 1+s1
+            qs1x(s) = j_vec_gpu(b,i+s-1,j    ,k    ,1,icoil)
+            qs1y(s) = j_vec_gpu(b,i    ,j+s-1,k    ,1,icoil)
+            qs1z(s) = j_vec_gpu(b,i    ,j    ,k+s-1,1,icoil)
+            qs2x(s) = j_vec_gpu(b,i+s-1,j    ,k    ,2,icoil)
+            qs2y(s) = j_vec_gpu(b,i    ,j+s-1,k    ,2,icoil)
+            qs2z(s) = j_vec_gpu(b,i    ,j    ,k+s-1,2,icoil)
+            qs3x(s) = j_vec_gpu(b,i+s-1,j    ,k    ,3,icoil)
+            qs3y(s) = j_vec_gpu(b,i    ,j+s-1,k    ,3,icoil)
+            qs3z(s) = j_vec_gpu(b,i    ,j    ,k+s-1,3,icoil)
+         enddo
+         call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,qsx=qs1x,qsy=qs1y,qsz=qs1z,gradient=gradient(:,1))
+         call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,qsx=qs2x,qsy=qs2y,qsz=qs2z,gradient=gradient(:,2))
+         call compute_gradient_fd_centered_dev(s=s1,dxyz=dxyz_b,qsx=qs3x,qsy=qs3y,qsz=qs3z,gradient=gradient(:,3))
+         tv = sqrt(gradient(1,1)*gradient(1,1) + gradient(2,1)*gradient(2,1) + gradient(3,1)*gradient(3,1) + &
+                   gradient(1,2)*gradient(1,2) + gradient(2,2)*gradient(2,2) + gradient(3,2)*gradient(3,2) + &
+                   gradient(1,3)*gradient(1,3) + gradient(2,3)*gradient(2,3) + gradient(3,3)*gradient(3,3))
+         divergence_gpu(b,i,j,k,4) = tv
+         !$acc atomic update
+         tv_gpu(b) = max(tv_gpu(b), tv)
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine mark_by_j_vec_total_variation_kernel
+   endsubroutine mark_by_j_vec_total_variation
 
    subroutine set_boundary_conditions(self, q_gpu)
    !< Set boundary conditions of equation.
