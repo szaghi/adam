@@ -1347,6 +1347,7 @@ contains
                    gradient(1,3)*gradient(1,3) + gradient(2,3)*gradient(2,3) + gradient(3,3)*gradient(3,3))
          divergence_gpu(b,i,j,k,4) = tv
          !$acc atomic update
+         !$omp atomic update
          tv_gpu(b) = max(tv_gpu(b), tv)
       enddo
       enddo
