@@ -7,11 +7,14 @@ src/tests/backup
 src/tests/euler_cpu
 *.xdmf 
 *.h5
+*.sh
+*.log
 doc/html/
 .DS_Store
 *-energy_error.dat
 *-residuals.dat
 *-restart-proc*.fbd
+*-restart-proc*.pbd
 *-restart-proc*.h5
 *-restart.time
 *-restart.tnd
