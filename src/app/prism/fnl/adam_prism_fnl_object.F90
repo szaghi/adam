@@ -886,6 +886,11 @@ contains
    subroutine save_simulation_data(self)
    !< Save all simulation data.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: iu, ios
+   real(R8P), allocatable                 :: pic_fields_dev(:,:)
+   real(R8P), allocatable                 :: pic_fields_host(:,:)
+   integer(I4P), allocatable              :: neighbour_list_dev(:,:)
+   integer(I4P), allocatable              :: neighbour_list_host(:,:)
 
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
@@ -907,9 +912,55 @@ contains
       !                              q_name=self%q_name)
       ! endif
    endif
-   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
-      call self%pic_fnl%copy_q_pic_gpu_cpu(q_pic=self%q_pic)
-      call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic)
+   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
+       (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
+      call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                          grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+      call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                            pic_fields_gpu=self%pic_fnl%pic_fields_gpu, q_gpu=self%q_gpu, &
+                                            q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+      call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+      if (self%time%it == 0_I4P) then
+         allocate(pic_fields_dev, source=self%pic_fields)
+         allocate(neighbour_list_dev, source=self%pic%neighbour_list)
+         allocate(pic_fields_host, mold=self%pic_fields)
+         allocate(neighbour_list_host, mold=self%pic%neighbour_list)
+
+         call dev_memcpy_from_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q, src=self%q_gpu, buf=self%buf_5D_R8P)
+         pic_fields_host = 0._R8P
+         call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
+         neighbour_list_host = self%pic%neighbour_list
+         call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
+                                       pic_fields=pic_fields_host, nv=self%nv)
+
+         open(newunit=iu, file='pic_gather_compare_t0.dat', status='replace', action='write', form='formatted', iostat=ios)
+         if (ios /= 0_I4P) then
+            write(*,'(a,i0)') 'save_simulation_data: errore open(pic_gather_compare_t0.dat), iostat=', ios
+            error stop
+         endif
+         write(iu,'(a)') '# Temporary FNL/common PIC gather comparison at t=0'
+         write(iu,'(a,1x,es24.16,1x,i0)') '# time_it', self%time%time, self%time%it
+         write(iu,'(a,3(1x,es24.16))') '# particle_position', self%q_pic(1,1), self%q_pic(2,1), self%q_pic(3,1)
+         write(iu,'(a,4(1x,i0))') '# neighbour_device', neighbour_list_dev(1,1), neighbour_list_dev(2,1), &
+                                   neighbour_list_dev(3,1), neighbour_list_dev(4,1)
+         write(iu,'(a,4(1x,i0))') '# neighbour_host', neighbour_list_host(1,1), neighbour_list_host(2,1), &
+                                   neighbour_list_host(3,1), neighbour_list_host(4,1)
+         write(iu,'(a,6(1x,es24.16))') '# pic_fields_device', pic_fields_dev(1:6,1)
+         write(iu,'(a,6(1x,es24.16))') '# pic_fields_host', pic_fields_host(1:6,1)
+         write(iu,'(a,3(1x,es24.16))') '# q_times_D_device', self%q_pic(7,1)*pic_fields_dev(1,1), &
+                                        self%q_pic(7,1)*pic_fields_dev(2,1), self%q_pic(7,1)*pic_fields_dev(3,1)
+         write(iu,'(a,3(1x,es24.16))') '# q_times_D_host', self%q_pic(7,1)*pic_fields_host(1,1), &
+                                        self%q_pic(7,1)*pic_fields_host(2,1), self%q_pic(7,1)*pic_fields_host(3,1)
+         write(iu,'(a,6(1x,es24.16))') '# device_minus_host', pic_fields_dev(1:6,1) - pic_fields_host(1:6,1)
+         close(iu)
+
+         self%pic_fields = pic_fields_dev
+         self%pic%neighbour_list = neighbour_list_dev
+      endif
+      call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic, &
+                                        pic_fields=self%pic_fields)
+      self%single_particle_output_last_time = self%time%time
+      self%single_particle_output_written = .true.
    endif
    endsubroutine save_simulation_data
 

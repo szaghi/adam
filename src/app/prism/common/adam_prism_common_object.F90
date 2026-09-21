@@ -65,6 +65,8 @@ type, extends(realm_object) :: prism_common_object
    real(R8P)              :: max_divergence_D=0.0_R8P   !< Maximum of divergence of D field.
    real(R8P)              :: max_divergence_B=0.0_R8P   !< Maximum of divergence of B field.
    real(R8P)              :: max_divergence_J=0.0_R8P   !< Maximum of divergence of J field.
+   real(R8P)              :: single_particle_output_last_time = 0.0_R8P !< Last time written to single-particle history.
+   logical                :: single_particle_output_written   = .false. !< Single-particle history write sentinel.
    ! PRISM classes
    type(prism_bc_object)                 :: bc                 !< Boundary conditions.
    type(prism_coil_object)               :: coil               !< Coil source term.
@@ -97,6 +99,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: initialize_pic_time_zero !< Host-side PIC particle injection plus charge/current deposition at t=0.
       procedure, pass(self) :: verify_no_pic_deposition_on_coils !< Guard against PIC deposition on coil cells.
       procedure, pass(self) :: weight_pic_fields_time_zero !< Host-side PIC field interpolation at t=0.
+      procedure, pass(self) :: save_pic_self_force_diagnostic_time_zero !< Temporary PIC self-force diagnostic at t=0.
       ! IO methods
       procedure, pass(self) :: load_restart_files      !< Load restart files.
       procedure, pass(self) :: save_energy_error       !< Save energy error history.
@@ -521,7 +524,262 @@ contains
    if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
    call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
                                  pic_fields=self%pic_fields, nv=self%nv)
+   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) call self%save_pic_self_force_diagnostic_time_zero()
    endsubroutine weight_pic_fields_time_zero
+
+   subroutine save_pic_self_force_diagnostic_time_zero(self)
+   !< Temporary diagnostic for single-particle PIC self-force analysis.
+   class(prism_common_object), intent(in) :: self
+   character(len=*), parameter            :: filename = 'pic_self_force_diag_t0.dat'
+   integer(I4P)                           :: iu, ios
+   integer(I4P)                           :: b, i, j, k, n
+   integer(I4P)                           :: rho_ivar
+   integer(I4P)                           :: b_p, i_p, j_p, k_p
+   integer(I4P)                           :: i_o, j_o, k_o
+   integer(I4P)                           :: max_d_pair_i, max_d_pair_j, max_d_pair_k
+   integer(I4P)                           :: max_d_pair_io, max_d_pair_jo, max_d_pair_ko
+   integer(I4P)                           :: max_wd_pair_i, max_wd_pair_j, max_wd_pair_k
+   integer(I4P)                           :: max_wd_pair_io, max_wd_pair_jo, max_wd_pair_ko
+   integer(I4P)                           :: max_b_pair_i, max_b_pair_j, max_b_pair_k
+   integer(I4P)                           :: max_b_pair_io, max_b_pair_jo, max_b_pair_ko
+   integer(I4P)                           :: max_wb_pair_i, max_wb_pair_j, max_wb_pair_k
+   integer(I4P)                           :: max_wb_pair_io, max_wb_pair_jo, max_wb_pair_ko
+   integer(I4P)                           :: max_weight_pair_i, max_weight_pair_j, max_weight_pair_k
+   integer(I4P)                           :: max_weight_pair_io, max_weight_pair_jo, max_weight_pair_ko
+   integer(I4P)                           :: i_min, i_max, j_min, j_max, k_min, k_max
+   integer(I4P)                           :: ni_sigma, nj_sigma, nk_sigma
+   real(R8P)                              :: dx, dy, dz
+   real(R8P)                              :: sigma_x, sigma_y, sigma_z
+   real(R8P)                              :: rx, ry, rz, wx, wy, wz
+   real(R8P)                              :: rx_o, ry_o, rz_o, wx_o, wy_o, wz_o
+   real(R8P)                              :: weight, weight_o, weight_sum
+   real(R8P)                              :: d_weighted(3), b_weighted(3)
+   real(R8P)                              :: d_pair_sum(3), d_weighted_pair_sum(3)
+   real(R8P)                              :: b_pair_sum(3), b_weighted_pair_sum(3)
+   real(R8P)                              :: max_d_pair_sum, max_weighted_d_pair_sum
+   real(R8P)                              :: max_b_pair_sum, max_weighted_b_pair_sum
+   real(R8P)                              :: max_weight_pair_diff
+   real(R8P)                              :: cutoff_limit
+
+   if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
+   if (self%pic%problem_type /= SINGLE_PARTICLE_TYPE_PROBLEM) return
+   if (self%pic%particle_number < 1_I4P) return
+
+   open(newunit=iu, file=filename, status='replace', action='write', form='formatted', iostat=ios)
+   if (ios /= 0_I4P) then
+      write(*,'(a,i0)') 'save_pic_self_force_diagnostic_time_zero: errore open(), iostat=', ios
+      error stop
+   endif
+
+   rho_ivar = int(size(self%q, dim=1), I4P)
+
+   write(iu,'(a)') '# Temporary PIC self-force diagnostic at t=0'
+   write(iu,'(a,3(1x,es24.16))') '# particle_position', self%q_pic(1,1), self%q_pic(2,1), self%q_pic(3,1)
+   write(iu,'(a,3(1x,es24.16))') '# gathered_D', self%pic_fields(1,1), self%pic_fields(2,1), self%pic_fields(3,1)
+   write(iu,'(a,3(1x,es24.16))') '# gathered_B', self%pic_fields(4,1), self%pic_fields(5,1), self%pic_fields(6,1)
+   write(iu,'(a,1x,es24.16,1x,es24.16)') '# gaussian_sigma_cutoff', self%pic%sigma, self%pic%cutoff_sigma
+   write(iu,'(a)') '#'
+   write(iu,'(a)') '# nonzero rho cells'
+   write(iu,'(a)') '# b i j k x_cell y_cell z_cell rho D_x D_y D_z B_x B_y B_z'
+
+   do b=1, self%blocks_number
+      do k=lbound(self%q, dim=4), ubound(self%q, dim=4)
+         do j=lbound(self%q, dim=3), ubound(self%q, dim=3)
+            do i=lbound(self%q, dim=2), ubound(self%q, dim=2)
+               if (self%q(rho_ivar,i,j,k,b) /= 0._R8P) then
+                  write(iu,'(4(i0,1x),10(es24.16,1x))') b, i, j, k,                   &
+                     self%adam%field%x_cell(i,b), self%adam%field%y_cell(j,b),        &
+                     self%adam%field%z_cell(k,b), self%q(rho_ivar,i,j,k,b),           &
+                     self%q(VAR_DX,i,j,k,b), self%q(VAR_DY,i,j,k,b), self%q(VAR_DZ,i,j,k,b), &
+                     self%q(VAR_BX,i,j,k,b), self%q(VAR_BY,i,j,k,b), self%q(VAR_BZ,i,j,k,b)
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   write(iu,'(a)') '#'
+   write(iu,'(a)') '# gaussian field-gather support cells for particle 1'
+   if (trim(self%pic%field_weighting_model) /= 'Gaussian') then
+      write(iu,'(a)') '# field weighting is not Gaussian; support-cell diagnostic skipped'
+      close(iu)
+      return
+   endif
+
+   n = 1_I4P
+   b_p = self%pic%neighbour_list(1,n)
+   i_p = self%pic%neighbour_list(2,n)
+   j_p = self%pic%neighbour_list(3,n)
+   k_p = self%pic%neighbour_list(4,n)
+   if (b_p <= 0_I4P) then
+      write(iu,'(a)') '# particle has no owning block; support-cell diagnostic skipped'
+      close(iu)
+      return
+   endif
+
+   dx = self%adam%field%dxyz(1,b_p)
+   dy = self%adam%field%dxyz(2,b_p)
+   dz = self%adam%field%dxyz(3,b_p)
+   sigma_x = self%pic%sigma
+   sigma_y = self%pic%sigma
+   sigma_z = self%pic%sigma
+   cutoff_limit = self%pic%cutoff_sigma + 64._R8P*epsilon(self%pic%cutoff_sigma)*max(1._R8P, abs(self%pic%cutoff_sigma))
+   ni_sigma = ceiling(self%pic%cutoff_sigma*sigma_x/dx, kind=I4P)
+   nj_sigma = ceiling(self%pic%cutoff_sigma*sigma_y/dy, kind=I4P)
+   nk_sigma = ceiling(self%pic%cutoff_sigma*sigma_z/dz, kind=I4P)
+   i_min = max(i_p-ni_sigma-1_I4P, lbound(self%q, dim=2))
+   i_max = min(i_p+ni_sigma+1_I4P, ubound(self%q, dim=2))
+   j_min = max(j_p-nj_sigma-1_I4P, lbound(self%q, dim=3))
+   j_max = min(j_p+nj_sigma+1_I4P, ubound(self%q, dim=3))
+   k_min = max(k_p-nk_sigma-1_I4P, lbound(self%q, dim=4))
+   k_max = min(k_p+nk_sigma+1_I4P, ubound(self%q, dim=4))
+
+   weight_sum = 0._R8P
+   do k=k_min, k_max
+      rz = (self%q_pic(3,n)-self%adam%field%z_cell(k,b_p))/sigma_z
+      if (abs(rz) > cutoff_limit) cycle
+      wz = exp(-0.5_R8P*rz*rz)
+      do j=j_min, j_max
+         ry = (self%q_pic(2,n)-self%adam%field%y_cell(j,b_p))/sigma_y
+         if (abs(ry) > cutoff_limit) cycle
+         wy = exp(-0.5_R8P*ry*ry)
+         do i=i_min, i_max
+            rx = (self%q_pic(1,n)-self%adam%field%x_cell(i,b_p))/sigma_x
+            if (abs(rx) > cutoff_limit) cycle
+            wx = exp(-0.5_R8P*rx*rx)
+            weight_sum = weight_sum + wx*wy*wz
+         enddo
+      enddo
+   enddo
+
+   max_d_pair_sum = 0._R8P
+   max_weighted_d_pair_sum = 0._R8P
+   max_b_pair_sum = 0._R8P
+   max_weighted_b_pair_sum = 0._R8P
+   max_weight_pair_diff = 0._R8P
+   max_d_pair_i = 0_I4P ; max_d_pair_j = 0_I4P ; max_d_pair_k = 0_I4P
+   max_d_pair_io = 0_I4P ; max_d_pair_jo = 0_I4P ; max_d_pair_ko = 0_I4P
+   max_wd_pair_i = 0_I4P ; max_wd_pair_j = 0_I4P ; max_wd_pair_k = 0_I4P
+   max_wd_pair_io = 0_I4P ; max_wd_pair_jo = 0_I4P ; max_wd_pair_ko = 0_I4P
+   max_b_pair_i = 0_I4P ; max_b_pair_j = 0_I4P ; max_b_pair_k = 0_I4P
+   max_b_pair_io = 0_I4P ; max_b_pair_jo = 0_I4P ; max_b_pair_ko = 0_I4P
+   max_wb_pair_i = 0_I4P ; max_wb_pair_j = 0_I4P ; max_wb_pair_k = 0_I4P
+   max_wb_pair_io = 0_I4P ; max_wb_pair_jo = 0_I4P ; max_wb_pair_ko = 0_I4P
+   max_weight_pair_i = 0_I4P ; max_weight_pair_j = 0_I4P ; max_weight_pair_k = 0_I4P
+   max_weight_pair_io = 0_I4P ; max_weight_pair_jo = 0_I4P ; max_weight_pair_ko = 0_I4P
+   if (weight_sum > tiny(1._R8P)) then
+      do k=k_min, k_max
+         rz = (self%q_pic(3,n)-self%adam%field%z_cell(k,b_p))/sigma_z
+         if (abs(rz) > cutoff_limit) cycle
+         wz = exp(-0.5_R8P*rz*rz)
+         k_o = 2_I4P*k_p - k
+         if (k_o < k_min .or. k_o > k_max) cycle
+         rz_o = (self%q_pic(3,n)-self%adam%field%z_cell(k_o,b_p))/sigma_z
+         if (abs(rz_o) > cutoff_limit) cycle
+         wz_o = exp(-0.5_R8P*rz_o*rz_o)
+         do j=j_min, j_max
+            ry = (self%q_pic(2,n)-self%adam%field%y_cell(j,b_p))/sigma_y
+            if (abs(ry) > cutoff_limit) cycle
+            wy = exp(-0.5_R8P*ry*ry)
+            j_o = 2_I4P*j_p - j
+            if (j_o < j_min .or. j_o > j_max) cycle
+            ry_o = (self%q_pic(2,n)-self%adam%field%y_cell(j_o,b_p))/sigma_y
+            if (abs(ry_o) > cutoff_limit) cycle
+            wy_o = exp(-0.5_R8P*ry_o*ry_o)
+            do i=i_min, i_max
+               rx = (self%q_pic(1,n)-self%adam%field%x_cell(i,b_p))/sigma_x
+               if (abs(rx) > cutoff_limit) cycle
+               wx = exp(-0.5_R8P*rx*rx)
+               i_o = 2_I4P*i_p - i
+               if (i_o < i_min .or. i_o > i_max) cycle
+               rx_o = (self%q_pic(1,n)-self%adam%field%x_cell(i_o,b_p))/sigma_x
+               if (abs(rx_o) > cutoff_limit) cycle
+               wx_o = exp(-0.5_R8P*rx_o*rx_o)
+
+               weight = wx*wy*wz/weight_sum
+               weight_o = wx_o*wy_o*wz_o/weight_sum
+               d_pair_sum = self%q(VAR_DX:VAR_DZ,i,j,k,b_p) + self%q(VAR_DX:VAR_DZ,i_o,j_o,k_o,b_p)
+               d_weighted_pair_sum = weight*self%q(VAR_DX:VAR_DZ,i,j,k,b_p) + &
+                                      weight_o*self%q(VAR_DX:VAR_DZ,i_o,j_o,k_o,b_p)
+               b_pair_sum = self%q(VAR_BX:VAR_BZ,i,j,k,b_p) + self%q(VAR_BX:VAR_BZ,i_o,j_o,k_o,b_p)
+               b_weighted_pair_sum = weight*self%q(VAR_BX:VAR_BZ,i,j,k,b_p) + &
+                                      weight_o*self%q(VAR_BX:VAR_BZ,i_o,j_o,k_o,b_p)
+               if (maxval(abs(d_pair_sum)) > max_d_pair_sum) then
+                  max_d_pair_sum = maxval(abs(d_pair_sum))
+                  max_d_pair_i = i ; max_d_pair_j = j ; max_d_pair_k = k
+                  max_d_pair_io = i_o ; max_d_pair_jo = j_o ; max_d_pair_ko = k_o
+               endif
+               if (maxval(abs(d_weighted_pair_sum)) > max_weighted_d_pair_sum) then
+                  max_weighted_d_pair_sum = maxval(abs(d_weighted_pair_sum))
+                  max_wd_pair_i = i ; max_wd_pair_j = j ; max_wd_pair_k = k
+                  max_wd_pair_io = i_o ; max_wd_pair_jo = j_o ; max_wd_pair_ko = k_o
+               endif
+               if (maxval(abs(b_pair_sum)) > max_b_pair_sum) then
+                  max_b_pair_sum = maxval(abs(b_pair_sum))
+                  max_b_pair_i = i ; max_b_pair_j = j ; max_b_pair_k = k
+                  max_b_pair_io = i_o ; max_b_pair_jo = j_o ; max_b_pair_ko = k_o
+               endif
+               if (maxval(abs(b_weighted_pair_sum)) > max_weighted_b_pair_sum) then
+                  max_weighted_b_pair_sum = maxval(abs(b_weighted_pair_sum))
+                  max_wb_pair_i = i ; max_wb_pair_j = j ; max_wb_pair_k = k
+                  max_wb_pair_io = i_o ; max_wb_pair_jo = j_o ; max_wb_pair_ko = k_o
+               endif
+               if (abs(weight-weight_o) > max_weight_pair_diff) then
+                  max_weight_pair_diff = abs(weight-weight_o)
+                  max_weight_pair_i = i ; max_weight_pair_j = j ; max_weight_pair_k = k
+                  max_weight_pair_io = i_o ; max_weight_pair_jo = j_o ; max_weight_pair_ko = k_o
+               endif
+            enddo
+         enddo
+      enddo
+   endif
+
+   write(iu,'(a,4(1x,i0),1x,es24.16)') '# owner_bijk_weight_sum', b_p, i_p, j_p, k_p, weight_sum
+   write(iu,'(a,6(1x,i0),1x,es24.16)') '# max_pairwise_abs_D_sum bijk opp_bijk value', &
+      max_d_pair_i, max_d_pair_j, max_d_pair_k, max_d_pair_io, max_d_pair_jo, max_d_pair_ko, max_d_pair_sum
+   write(iu,'(a,6(1x,i0),1x,es24.16)') '# max_pairwise_abs_weighted_D_sum bijk opp_bijk value', &
+      max_wd_pair_i, max_wd_pair_j, max_wd_pair_k, max_wd_pair_io, max_wd_pair_jo, max_wd_pair_ko, max_weighted_d_pair_sum
+   write(iu,'(a,6(1x,i0),1x,es24.16)') '# max_pairwise_abs_B_sum bijk opp_bijk value', &
+      max_b_pair_i, max_b_pair_j, max_b_pair_k, max_b_pair_io, max_b_pair_jo, max_b_pair_ko, max_b_pair_sum
+   write(iu,'(a,6(1x,i0),1x,es24.16)') '# max_pairwise_abs_weighted_B_sum bijk opp_bijk value', &
+      max_wb_pair_i, max_wb_pair_j, max_wb_pair_k, max_wb_pair_io, max_wb_pair_jo, max_wb_pair_ko, max_weighted_b_pair_sum
+   write(iu,'(a,6(1x,i0),1x,es24.16)') '# max_pairwise_abs_weight_diff bijk opp_bijk value', &
+      max_weight_pair_i, max_weight_pair_j, max_weight_pair_k, max_weight_pair_io, max_weight_pair_jo, max_weight_pair_ko, &
+      max_weight_pair_diff
+   write(iu,'(a)') '# b i j k x_cell y_cell z_cell rx ry rz weight'
+   write(iu,'(a)') '# columns_continued D_x D_y D_z B_x B_y B_z weight_Dx weight_Dy weight_Dz weight_Bx weight_By weight_Bz'
+
+   if (weight_sum > tiny(1._R8P)) then
+      do k=k_min, k_max
+         rz = (self%q_pic(3,n)-self%adam%field%z_cell(k,b_p))/sigma_z
+         if (abs(rz) > cutoff_limit) cycle
+         wz = exp(-0.5_R8P*rz*rz)
+         do j=j_min, j_max
+            ry = (self%q_pic(2,n)-self%adam%field%y_cell(j,b_p))/sigma_y
+            if (abs(ry) > cutoff_limit) cycle
+            wy = exp(-0.5_R8P*ry*ry)
+            do i=i_min, i_max
+               rx = (self%q_pic(1,n)-self%adam%field%x_cell(i,b_p))/sigma_x
+               if (abs(rx) > cutoff_limit) cycle
+               wx = exp(-0.5_R8P*rx*rx)
+               weight = wx*wy*wz/weight_sum
+               d_weighted = weight * self%q(VAR_DX:VAR_DZ,i,j,k,b_p)
+               b_weighted = weight * self%q(VAR_BX:VAR_BZ,i,j,k,b_p)
+               write(iu,'(4(i0,1x),19(es24.16,1x))') b_p, i, j, k,              &
+                  self%adam%field%x_cell(i,b_p), self%adam%field%y_cell(j,b_p), &
+                  self%adam%field%z_cell(k,b_p), rx, ry, rz, weight,            &
+                  self%q(VAR_DX,i,j,k,b_p), self%q(VAR_DY,i,j,k,b_p),           &
+                  self%q(VAR_DZ,i,j,k,b_p), self%q(VAR_BX,i,j,k,b_p),           &
+                  self%q(VAR_BY,i,j,k,b_p), self%q(VAR_BZ,i,j,k,b_p),           &
+                  d_weighted(1), d_weighted(2), d_weighted(3),                  &
+                  b_weighted(1), b_weighted(2), b_weighted(3)
+            enddo
+         enddo
+      enddo
+   endif
+
+   close(iu)
+   endsubroutine save_pic_self_force_diagnostic_time_zero
 
    subroutine initialize_single_particle_output(filename)
    !< Reset the single-particle output file before a fresh run from t = 0.
@@ -533,25 +791,36 @@ contains
       write(*,'(a,i0)') 'initialize_single_particle_output: errore open(), iostat=', ios
       error stop
    endif
+   write(iu,'(a)') 'time x y z vx vy vz charge mass Fx_E Fy_E Fz_E Fx_vxB Fy_vxB Fz_vxB'
    close(iu)
    endsubroutine initialize_single_particle_output
 
-   subroutine write_single_particle_output(filename, time, q_pic)
+   subroutine write_single_particle_output(filename, time, q_pic, pic_fields)
    !< Append the single-particle trajectory/state sample.
    character(len=1), parameter  :: TAB = achar(9)
    character(len=*), intent(in) :: filename
    real(R8P),        intent(in) :: q_pic(1:,1:)
+   real(R8P),        intent(in) :: pic_fields(1:,1:)
    real(R8P),        intent(in) :: time
    integer(I4P)                 :: iu, ios, l, j
+   real(R8P)                    :: force_E(3)
+   real(R8P)                    :: force_vxB(3)
 
    l = size(q_pic, dim=1)
+   force_E(1) = q_pic(7,1) * pic_fields(1,1)
+   force_E(2) = q_pic(7,1) * pic_fields(2,1)
+   force_E(3) = q_pic(7,1) * pic_fields(3,1)
+   force_vxB(1) = q_pic(7,1) * (q_pic(5,1) * pic_fields(6,1) - q_pic(6,1) * pic_fields(5,1))
+   force_vxB(2) = q_pic(7,1) * (q_pic(6,1) * pic_fields(4,1) - q_pic(4,1) * pic_fields(6,1))
+   force_vxB(3) = q_pic(7,1) * (q_pic(4,1) * pic_fields(5,1) - q_pic(5,1) * pic_fields(4,1))
    open(newunit=iu, file=trim(filename), status='unknown', action='write', &
         form='formatted', position='append', iostat=ios)
    if (ios /= 0) then
       write(*,'(a,i0)') 'write_current_tab: errore open(), iostat=', ios
       error stop
    endif
-   write(iu,'(ES24.16,8(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l)
+   write(iu,'(ES24.16,14(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l), &
+                                        (TAB, force_E(j), j=1,3), (TAB, force_vxB(j), j=1,3)
    close(iu)
    endsubroutine write_single_particle_output
 

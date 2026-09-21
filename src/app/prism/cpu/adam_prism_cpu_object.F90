@@ -402,8 +402,15 @@ contains
 
       ! endif
    endif
-   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
-      call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic)
+   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
+       (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
+      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
+                                    pic_fields=self%pic_fields, nv=self%nv)
+      call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic, &
+                                        pic_fields=self%pic_fields)
+      self%single_particle_output_last_time = self%time%time
+      self%single_particle_output_written = .true.
    endif
    endsubroutine save_simulation_data
 

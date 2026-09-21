@@ -350,6 +350,7 @@ contains
    type(grid_object),           intent(in)    :: grid             !< Host grid helper.
    real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:) !< PIC variables on device.
    integer(I4P)                               :: n, b             !< Counters.
+   integer(I4P)                               :: ngc              !< Ghost cells number.
    integer(I4P)                               :: ni, nj, nk       !< Grid sizes.
    integer(I4P)                               :: blocks_number     !< Number of blocks.
    integer(I4P)                               :: i_p, j_p, k_p     !< Particle cell indices.
@@ -365,6 +366,7 @@ contains
 
    if (self%particle_number == 0) return
 
+   ngc = grid%ngc
    ni = grid%ni
    nj = grid%nj
    nk = grid%nk
@@ -392,9 +394,9 @@ contains
          dx = dxyz_gpu(b,1)
          dy = dxyz_gpu(b,2)
          dz = dxyz_gpu(b,3)
-         emin_x = x_cell_gpu(b,1) - 0.5_R8P * dx
-         emin_y = y_cell_gpu(b,1) - 0.5_R8P * dy
-         emin_z = z_cell_gpu(b,1) - 0.5_R8P * dz
+         emin_x = x_cell_gpu(b,1+ngc) - 0.5_R8P * dx
+         emin_y = y_cell_gpu(b,1+ngc) - 0.5_R8P * dy
+         emin_z = z_cell_gpu(b,1+ngc) - 0.5_R8P * dz
          i_p = ceiling((x_p - emin_x) / dx, kind=I4P)
          j_p = ceiling((y_p - emin_y) / dy, kind=I4P)
          k_p = ceiling((z_p - emin_z) / dz, kind=I4P)
@@ -764,9 +766,15 @@ contains
       dz = dxyz_gpu(block_p,3)
       charge_density = q_pic_gpu(n,7) / (dx * dy * dz)
 
-      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,1), x_c=x_cell_gpu(block_p,i_p), i_p=i_p, i_min=i_min, i_max=i_max)
-      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,2), x_c=y_cell_gpu(block_p,j_p), i_p=j_p, i_min=j_min, i_max=j_max)
-      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,3), x_c=z_cell_gpu(block_p,k_p), i_p=k_p, i_min=k_min, i_max=k_max)
+      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,1), &
+                                   x_c=x_cell_gpu(block_p,i_p+ngc), i_p=i_p, &
+                                   i_min=i_min, i_max=i_max)
+      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,2), &
+                                   x_c=y_cell_gpu(block_p,j_p+ngc), i_p=j_p, &
+                                   i_min=j_min, i_max=j_max)
+      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,3), &
+                                   x_c=z_cell_gpu(block_p,k_p+ngc), i_p=k_p, &
+                                   i_min=k_min, i_max=k_max)
 
       i_min = max(i_min, 1-ngc) ; i_max = min(i_max, ni+ngc)
       j_min = max(j_min, 1-ngc) ; j_max = min(j_max, nj+ngc)
@@ -774,13 +782,13 @@ contains
 
       !$acc loop seq
       do k = k_min, k_max
-         wz = bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k)) / dz)
+         wz = bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz)
          !$acc loop seq
          do j = j_min, j_max
-            wy = bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j)) / dy)
+            wy = bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy)
             !$acc loop seq
             do i = i_min, i_max
-               wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / dx)
+               wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx)
                weight = wx * wy * wz
                !$acc atomic update
                !$omp atomic update
@@ -807,6 +815,7 @@ contains
    real(R8P)                                  :: dx, dy, dz, sigma_x, sigma_y, sigma_z
    real(R8P)                                  :: inverse_cell_volume, charge_prefactor
    real(R8P)                                  :: rx, ry, rz, wx, wy, wz, weight, weight_sum
+   real(R8P)                                  :: cutoff_limit
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
@@ -834,10 +843,12 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$acc&         dx,dy,dz,sigma_x,sigma_y,sigma_z,inverse_cell_volume,charge_prefactor, rx, ry, rz, wx, wy, wz, weight, weight_sum)
+   !$acc&         dx,dy,dz,sigma_x,sigma_y,sigma_z,inverse_cell_volume,charge_prefactor, rx, ry, rz, wx, wy, wz, &
+   !$acc&         weight, weight_sum, cutoff_limit)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$omp&         dx,dy,dz,sigma_x,sigma_y,sigma_z,inverse_cell_volume,charge_prefactor, rx, ry, rz, wx, wy, wz, weight, weight_sum)
+   !$omp&         dx,dy,dz,sigma_x,sigma_y,sigma_z,inverse_cell_volume,charge_prefactor, rx, ry, rz, wx, wy, wz, &
+   !$omp&         weight, weight_sum, cutoff_limit)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -851,6 +862,7 @@ contains
       sigma_x = self%sigma
       sigma_y = self%sigma
       sigma_z = self%sigma
+      cutoff_limit = self%cutoff_sigma + 64.0_R8P*epsilon(self%cutoff_sigma)*max(1.0_R8P, abs(self%cutoff_sigma))
       inverse_cell_volume = 1.0_R8P / (dx * dy * dz)
       charge_prefactor = q_pic_gpu(n,7) * inverse_cell_volume
 
@@ -858,22 +870,25 @@ contains
       nj_sigma = ceiling(self%cutoff_sigma * sigma_y / dy, kind=I4P)
       nk_sigma = ceiling(self%cutoff_sigma * sigma_z / dz, kind=I4P)
 
-      i_min = max(i_p - ni_sigma, 1-ngc) ; i_max = min(i_p + ni_sigma, ni+ngc)
-      j_min = max(j_p - nj_sigma, 1-ngc) ; j_max = min(j_p + nj_sigma, nj+ngc)
-      k_min = max(k_p - nk_sigma, 1-ngc) ; k_max = min(k_p + nk_sigma, nk+ngc)
+      i_min = max(i_p - ni_sigma - 1_I4P, 1-ngc) ; i_max = min(i_p + ni_sigma + 1_I4P, ni+ngc)
+      j_min = max(j_p - nj_sigma - 1_I4P, 1-ngc) ; j_max = min(j_p + nj_sigma + 1_I4P, nj+ngc)
+      k_min = max(k_p - nk_sigma - 1_I4P, 1-ngc) ; k_max = min(k_p + nk_sigma + 1_I4P, nk+ngc)
 
       weight_sum = 0.0_R8P
       !$acc loop seq
       do k = k_min, k_max
-         rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k)) / sigma_z
+         rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
+         if (abs(rz) > cutoff_limit) cycle
          wz = exp(-0.5_R8P * rz * rz)
          !$acc loop seq
          do j = j_min, j_max
-            ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j)) / sigma_y
+            ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
+            if (abs(ry) > cutoff_limit) cycle
             wy = exp(-0.5_R8P * ry * ry)
             !$acc loop seq
             do i = i_min, i_max
-               rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / sigma_x
+               rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
+               if (abs(rx) > cutoff_limit) cycle
                wx = exp(-0.5_R8P * rx * rx)
                weight_sum = weight_sum + wx * wy * wz
             enddo
@@ -883,15 +898,18 @@ contains
       if (weight_sum > tiny(1.0_R8P)) then
          !$acc loop seq
          do k = k_min, k_max
-            rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k)) / sigma_z
+            rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
+            if (abs(rz) > cutoff_limit) cycle
             wz = exp(-0.5_R8P * rz * rz)
             !$acc loop seq
             do j = j_min, j_max
-               ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j)) / sigma_y
+               ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
+               if (abs(ry) > cutoff_limit) cycle
                wy = exp(-0.5_R8P * ry * ry)
                !$acc loop seq
                do i = i_min, i_max
-                  rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / sigma_x
+                  rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
+                  if (abs(rx) > cutoff_limit) cycle
                   wx = exp(-0.5_R8P * rx * rx)
                   weight = wx * wy * wz / weight_sum
                   !$acc atomic update
@@ -966,9 +984,15 @@ contains
       jy = prefactor * q_pic_gpu(n,5)
       jz = prefactor * q_pic_gpu(n,6)
 
-      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,1), x_c=x_cell_gpu(block_p,i_p), i_p=i_p, i_min=i_min, i_max=i_max)
-      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,2), x_c=y_cell_gpu(block_p,j_p), i_p=j_p, i_min=j_min, i_max=j_max)
-      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,3), x_c=z_cell_gpu(block_p,k_p), i_p=k_p, i_min=k_min, i_max=k_max)
+      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,1), &
+                                   x_c=x_cell_gpu(block_p,i_p+ngc), i_p=i_p, &
+                                   i_min=i_min, i_max=i_max)
+      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,2), &
+                                   x_c=y_cell_gpu(block_p,j_p+ngc), i_p=j_p, &
+                                   i_min=j_min, i_max=j_max)
+      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,3), &
+                                   x_c=z_cell_gpu(block_p,k_p+ngc), i_p=k_p, &
+                                   i_min=k_min, i_max=k_max)
 
       i_min = max(i_min, 1-ngc) ; i_max = min(i_max, ni+ngc)
       j_min = max(j_min, 1-ngc) ; j_max = min(j_max, nj+ngc)
@@ -976,13 +1000,13 @@ contains
 
       !$acc loop seq
       do k = k_min, k_max
-         wz = bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k)) / dz)
+         wz = bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz)
          !$acc loop seq
          do j = j_min, j_max
-            wy = bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j)) / dy)
+            wy = bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy)
             !$acc loop seq
             do i = i_min, i_max
-               wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / dx)
+               wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx)
                weight = wx * wy * wz
                !$acc atomic update
                !$omp atomic update
@@ -1015,6 +1039,7 @@ contains
    real(R8P)                                  :: dx, dy, dz, sigma_x, sigma_y, sigma_z, inverse_cell_volume
    real(R8P)                                  :: rx, ry, rz, wx, wy, wz, weight, weight_sum
    real(R8P)                                  :: jx, jy, jz
+   real(R8P)                                  :: cutoff_limit
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
@@ -1044,10 +1069,12 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$acc&         dx,dy,dz,sigma_x, sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, jx, jy, jz)
+   !$acc&         dx,dy,dz,sigma_x, sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, &
+   !$acc&         jx, jy, jz, cutoff_limit)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$omp&         dx,dy,dz,sigma_x,sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, jx, jy, jz)
+   !$omp&         dx,dy,dz,sigma_x,sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, &
+   !$omp&         jx, jy, jz, cutoff_limit)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -1061,6 +1088,7 @@ contains
       sigma_x = self%sigma
       sigma_y = self%sigma
       sigma_z = self%sigma
+      cutoff_limit = self%cutoff_sigma + 64.0_R8P*epsilon(self%cutoff_sigma)*max(1.0_R8P, abs(self%cutoff_sigma))
       inverse_cell_volume = 1.0_R8P / (dx * dy * dz)
       jx = q_pic_gpu(n,7) * q_pic_gpu(n,4) * inverse_cell_volume
       jy = q_pic_gpu(n,7) * q_pic_gpu(n,5) * inverse_cell_volume
@@ -1070,22 +1098,25 @@ contains
       nj_sigma = ceiling(self%cutoff_sigma * sigma_y / dy, kind=I4P)
       nk_sigma = ceiling(self%cutoff_sigma * sigma_z / dz, kind=I4P)
 
-      i_min = max(i_p - ni_sigma, 1-ngc) ; i_max = min(i_p + ni_sigma, ni+ngc)
-      j_min = max(j_p - nj_sigma, 1-ngc) ; j_max = min(j_p + nj_sigma, nj+ngc)
-      k_min = max(k_p - nk_sigma, 1-ngc) ; k_max = min(k_p + nk_sigma, nk+ngc)
+      i_min = max(i_p - ni_sigma - 1_I4P, 1-ngc) ; i_max = min(i_p + ni_sigma + 1_I4P, ni+ngc)
+      j_min = max(j_p - nj_sigma - 1_I4P, 1-ngc) ; j_max = min(j_p + nj_sigma + 1_I4P, nj+ngc)
+      k_min = max(k_p - nk_sigma - 1_I4P, 1-ngc) ; k_max = min(k_p + nk_sigma + 1_I4P, nk+ngc)
 
       weight_sum = 0.0_R8P
       !$acc loop seq
       do k = k_min, k_max
-         rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k)) / sigma_z
+         rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
+         if (abs(rz) > cutoff_limit) cycle
          wz = exp(-0.5_R8P * rz * rz)
          !$acc loop seq
          do j = j_min, j_max
-            ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j)) / sigma_y
+            ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
+            if (abs(ry) > cutoff_limit) cycle
             wy = exp(-0.5_R8P * ry * ry)
             !$acc loop seq
             do i = i_min, i_max
-               rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / sigma_x
+               rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
+               if (abs(rx) > cutoff_limit) cycle
                wx = exp(-0.5_R8P * rx * rx)
                weight_sum = weight_sum + wx * wy * wz
             enddo
@@ -1095,15 +1126,18 @@ contains
       if (weight_sum > tiny(1.0_R8P)) then
          !$acc loop seq
          do k = k_min, k_max
-            rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k)) / sigma_z
+            rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
+            if (abs(rz) > cutoff_limit) cycle
             wz = exp(-0.5_R8P * rz * rz)
             !$acc loop seq
             do j = j_min, j_max
-               ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j)) / sigma_y
+               ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
+               if (abs(ry) > cutoff_limit) cycle
                wy = exp(-0.5_R8P * ry * ry)
                !$acc loop seq
                do i = i_min, i_max
-                  rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / sigma_x
+                  rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
+                  if (abs(rx) > cutoff_limit) cycle
                   wx = exp(-0.5_R8P * rx * rx)
                   weight = wx * wy * wz / weight_sum
                   !$acc atomic update
@@ -1174,9 +1208,15 @@ contains
       dy = dxyz_gpu(block_p,2)
       dz = dxyz_gpu(block_p,3)
 
-      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,1), x_c=x_cell_gpu(block_p,i_p), i_p=i_p, i_min=i_min, i_max=i_max)
-      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,2), x_c=y_cell_gpu(block_p,j_p), i_p=j_p, i_min=j_min, i_max=j_max)
-      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,3), x_c=z_cell_gpu(block_p,k_p), i_p=k_p, i_min=k_min, i_max=k_max)
+      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,1), &
+                                   x_c=x_cell_gpu(block_p,i_p+ngc), i_p=i_p, &
+                                   i_min=i_min, i_max=i_max)
+      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,2), &
+                                   x_c=y_cell_gpu(block_p,j_p+ngc), i_p=j_p, &
+                                   i_min=j_min, i_max=j_max)
+      call set_bspline_stencil_dev(order=order, x_p=q_pic_gpu(n,3), &
+                                   x_c=z_cell_gpu(block_p,k_p+ngc), i_p=k_p, &
+                                   i_min=k_min, i_max=k_max)
 
       i_min = max(i_min, 1-ngc) ; i_max = min(i_max, ni+ngc)
       j_min = max(j_min, 1-ngc) ; j_max = min(j_max, nj+ngc)
@@ -1187,13 +1227,13 @@ contains
 
       !$acc loop seq
       do k = k_min, k_max
-         wz = bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k)) / dz)
+         wz = bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz)
          !$acc loop seq
          do j = j_min, j_max
-            wy = bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j)) / dy)
+            wy = bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy)
             !$acc loop seq
             do i = i_min, i_max
-               wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / dx)
+               wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx)
                weight = wx * wy * wz
                f1 = f1 + weight * q_gpu(block_p,i,j,k,1)
                f2 = f2 + weight * q_gpu(block_p,i,j,k,2)
@@ -1230,6 +1270,7 @@ contains
    real(R8P)                                  :: dx, dy, dz, sigma_x, sigma_y, sigma_z
    real(R8P)                                  :: rx, ry, rz, wx, wy, wz, weight, weight_sum
    real(R8P)                                  :: f1, f2, f3, f4, f5, f6
+   real(R8P)                                  :: cutoff_limit
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
@@ -1245,10 +1286,12 @@ contains
    !$acc parallel loop independent &
    !$acc& DEVICEVAR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p,i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$acc&         dx, dy, dz, sigma_x, sigma_y, sigma_z, rx, ry, rz, wx, wy, wz, weight, weight_sum, f1, f2, f3, f4, f5, f6)
+   !$acc&         dx, dy, dz, sigma_x, sigma_y, sigma_z, rx, ry, rz, wx, wy, wz, weight, weight_sum, &
+   !$acc&         f1, f2, f3, f4, f5, f6, cutoff_limit)
    !$omp OMPLOOP DEVICEPTR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
-   !$omp&         dx, dy, dz, sigma_x, sigma_y, sigma_z, rx, ry, rz, wx, wy, wz, weight, weight_sum, f1, f2, f3, f4, f5, f6)
+   !$omp&         dx, dy, dz, sigma_x, sigma_y, sigma_z, rx, ry, rz, wx, wy, wz, weight, weight_sum, &
+   !$omp&         f1, f2, f3, f4, f5, f6, cutoff_limit)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) then
@@ -1271,27 +1314,31 @@ contains
       sigma_x = self%sigma
       sigma_y = self%sigma
       sigma_z = self%sigma
+      cutoff_limit = self%cutoff_sigma + 64.0_R8P*epsilon(self%cutoff_sigma)*max(1.0_R8P, abs(self%cutoff_sigma))
 
       ni_sigma = ceiling(self%cutoff_sigma * sigma_x / dx, kind=I4P)
       nj_sigma = ceiling(self%cutoff_sigma * sigma_y / dy, kind=I4P)
       nk_sigma = ceiling(self%cutoff_sigma * sigma_z / dz, kind=I4P)
 
-      i_min = max(i_p - ni_sigma, 1-ngc) ; i_max = min(i_p + ni_sigma, ni+ngc)
-      j_min = max(j_p - nj_sigma, 1-ngc) ; j_max = min(j_p + nj_sigma, nj+ngc)
-      k_min = max(k_p - nk_sigma, 1-ngc) ; k_max = min(k_p + nk_sigma, nk+ngc)
+      i_min = max(i_p - ni_sigma - 1_I4P, 1-ngc) ; i_max = min(i_p + ni_sigma + 1_I4P, ni+ngc)
+      j_min = max(j_p - nj_sigma - 1_I4P, 1-ngc) ; j_max = min(j_p + nj_sigma + 1_I4P, nj+ngc)
+      k_min = max(k_p - nk_sigma - 1_I4P, 1-ngc) ; k_max = min(k_p + nk_sigma + 1_I4P, nk+ngc)
 
       weight_sum = 0.0_R8P
       !$acc loop seq
       do k = k_min, k_max
-         rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k)) / sigma_z
+         rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
+         if (abs(rz) > cutoff_limit) cycle
          wz = exp(-0.5_R8P * rz * rz)
          !$acc loop seq
          do j = j_min, j_max
-            ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j)) / sigma_y
+            ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
+            if (abs(ry) > cutoff_limit) cycle
             wy = exp(-0.5_R8P * ry * ry)
             !$acc loop seq
             do i = i_min, i_max
-               rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / sigma_x
+               rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
+               if (abs(rx) > cutoff_limit) cycle
                wx = exp(-0.5_R8P * rx * rx)
                weight_sum = weight_sum + wx * wy * wz
             enddo
@@ -1304,15 +1351,18 @@ contains
       if (weight_sum > tiny(1.0_R8P)) then
          !$acc loop seq
          do k = k_min, k_max
-            rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k)) / sigma_z
+            rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
+            if (abs(rz) > cutoff_limit) cycle
             wz = exp(-0.5_R8P * rz * rz)
             !$acc loop seq
             do j = j_min, j_max
-               ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j)) / sigma_y
+               ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
+               if (abs(ry) > cutoff_limit) cycle
                wy = exp(-0.5_R8P * ry * ry)
                !$acc loop seq
                do i = i_min, i_max
-                  rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i)) / sigma_x
+                  rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
+                  if (abs(rx) > cutoff_limit) cycle
                   wx = exp(-0.5_R8P * rx * rx)
                   weight = wx * wy * wz / weight_sum
                   f1 = f1 + weight * q_gpu(block_p,i,j,k,1)

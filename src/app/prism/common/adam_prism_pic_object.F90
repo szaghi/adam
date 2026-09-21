@@ -1020,6 +1020,7 @@ contains
    real(R8P)                              :: weight                  !< Three-dimensional Gaussian weight.
    real(R8P)                              :: weight_sum              !< Discrete normalization factor.
    real(R8P)                              :: inverse_cell_volume     !< Inverse cell volume.
+   real(R8P)                              :: cutoff_limit            !< Cutoff including roundoff tolerance.
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%sigma, cutoff_sigma=>self%cutoff_sigma)
 
@@ -1040,6 +1041,7 @@ contains
       sigma_x = sigma
       sigma_y = sigma
       sigma_z = sigma
+      cutoff_limit = cutoff_sigma + 64._R8P*epsilon(cutoff_sigma)*max(1._R8P, abs(cutoff_sigma))
 
       inverse_cell_volume = 1._R8P / (dx*dy*dz)
 
@@ -1050,26 +1052,29 @@ contains
 
       ! Restrict the support to the locally available grid, including ghost cells. !Parte da rivedere, perchè alla frontiera hai una
       ! distribuzione asimmetrica, che taglia e riscala di conseguenza
-      i_min = max(i_p-ni_sigma, lbound(q,dim=2))
-      i_max = min(i_p+ni_sigma, ubound(q,dim=2))
+      i_min = max(i_p-ni_sigma-1_I4P, lbound(q,dim=2))
+      i_max = min(i_p+ni_sigma+1_I4P, ubound(q,dim=2))
 
-      j_min = max(j_p-nj_sigma, lbound(q,dim=3))
-      j_max = min(j_p+nj_sigma, ubound(q,dim=3))
+      j_min = max(j_p-nj_sigma-1_I4P, lbound(q,dim=3))
+      j_max = min(j_p+nj_sigma+1_I4P, ubound(q,dim=3))
 
-      k_min = max(k_p-nk_sigma, lbound(q,dim=4))
-      k_max = min(k_p+nk_sigma, ubound(q,dim=4))
+      k_min = max(k_p-nk_sigma-1_I4P, lbound(q,dim=4))
+      k_max = min(k_p+nk_sigma+1_I4P, ubound(q,dim=4))
 
       ! Compute the discrete normalization factor over the effective support.
       weight_sum = 0._R8P
 
       do k=k_min, k_max
          rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+         if (abs(rz) > cutoff_limit) cycle
          wz = exp(-0.5_R8P*rz*rz)
          do j=j_min, j_max
             ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+            if (abs(ry) > cutoff_limit) cycle
             wy = exp(-0.5_R8P*ry*ry)
             do i=i_min, i_max
                rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+               if (abs(rx) > cutoff_limit) cycle
                wx = exp(-0.5_R8P*rx*rx)
                weight_sum = weight_sum + wx*wy*wz
             enddo
@@ -1080,12 +1085,15 @@ contains
       if (weight_sum > tiny(1._R8P)) then
          do k=k_min, k_max
             rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+            if (abs(rz) > cutoff_limit) cycle
             wz = exp(-0.5_R8P*rz*rz)
             do j=j_min, j_max
                ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+               if (abs(ry) > cutoff_limit) cycle
                wy = exp(-0.5_R8P*ry*ry)
                do i=i_min, i_max
                   rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+                  if (abs(rx) > cutoff_limit) cycle
                   wx = exp(-0.5_R8P*rx*rx)
                   weight = wx*wy*wz/weight_sum
                   q(nv,i,j,k,b_p) = q(nv,i,j,k,b_p) + q_PIC(7,n)*inverse_cell_volume*weight
@@ -1597,6 +1605,7 @@ contains
    real(R8P)                              :: weight_sum              !< Discrete normalization factor.
    real(R8P)                              :: inverse_cell_volume     !< Inverse cell volume.
    real(R8P)                              :: current_prefactor(3)    !< Qp*vp/volume.
+   real(R8P)                              :: cutoff_limit            !< Cutoff including roundoff tolerance.
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%sigma, cutoff_sigma=>self%cutoff_sigma)
 
@@ -1615,6 +1624,7 @@ contains
       sigma_x = sigma
       sigma_y = sigma
       sigma_z = sigma
+      cutoff_limit = cutoff_sigma + 64._R8P*epsilon(cutoff_sigma)*max(1._R8P, abs(cutoff_sigma))
       inverse_cell_volume = 1._R8P/(dx*dy*dz)
       current_prefactor(1) = q_PIC(7,n)*q_PIC(4,n)*inverse_cell_volume
       current_prefactor(2) = q_PIC(7,n)*q_PIC(5,n)*inverse_cell_volume
@@ -1626,23 +1636,26 @@ contains
       nk_sigma = ceiling(cutoff_sigma*sigma_z/dz, kind=I4P)
 
       ! Restrict the support to the locally available grid, including ghost cells.
-      i_min = max(i_p-ni_sigma, lbound(q,dim=2))
-      i_max = min(i_p+ni_sigma, ubound(q,dim=2))
-      j_min = max(j_p-nj_sigma, lbound(q,dim=3))
-      j_max = min(j_p+nj_sigma, ubound(q,dim=3))
-      k_min = max(k_p-nk_sigma, lbound(q,dim=4))
-      k_max = min(k_p+nk_sigma, ubound(q,dim=4))
+      i_min = max(i_p-ni_sigma-1_I4P, lbound(q,dim=2))
+      i_max = min(i_p+ni_sigma+1_I4P, ubound(q,dim=2))
+      j_min = max(j_p-nj_sigma-1_I4P, lbound(q,dim=3))
+      j_max = min(j_p+nj_sigma+1_I4P, ubound(q,dim=3))
+      k_min = max(k_p-nk_sigma-1_I4P, lbound(q,dim=4))
+      k_max = min(k_p+nk_sigma+1_I4P, ubound(q,dim=4))
 
       ! Compute the discrete normalization factor over the effective support.
       weight_sum = 0._R8P
       do k=k_min, k_max
          rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+         if (abs(rz) > cutoff_limit) cycle
          wz = exp(-0.5_R8P*rz*rz)
          do j=j_min, j_max
             ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+            if (abs(ry) > cutoff_limit) cycle
             wy = exp(-0.5_R8P*ry*ry)
             do i=i_min, i_max
                rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+               if (abs(rx) > cutoff_limit) cycle
                wx = exp(-0.5_R8P*rx*rx)
                weight_sum = weight_sum + wx*wy*wz
             enddo
@@ -1653,12 +1666,15 @@ contains
       if (weight_sum > tiny(1._R8P)) then
          do k=k_min, k_max
             rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+            if (abs(rz) > cutoff_limit) cycle
             wz = exp(-0.5_R8P*rz*rz)
             do j=j_min, j_max
                ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+               if (abs(ry) > cutoff_limit) cycle
                wy = exp(-0.5_R8P*ry*ry)
                do i=i_min, i_max
                   rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+                  if (abs(rx) > cutoff_limit) cycle
                   wx = exp(-0.5_R8P*rx*rx)
                   weight = wx*wy*wz/weight_sum
                   q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + &
@@ -1835,6 +1851,7 @@ contains
    real(R8P)                              :: wx,wy,wz                !< One-dimensional Gaussian weights.
    real(R8P)                              :: weight                  !< Normalized three-dimensional weight.
    real(R8P)                              :: weight_sum              !< Discrete normalization factor.
+   real(R8P)                              :: cutoff_limit            !< Cutoff including roundoff tolerance.
 
    associate(x_cell      => field%x_cell,       &
              y_cell      => field%y_cell,       &
@@ -1858,6 +1875,7 @@ contains
       sigma_x = sigma
       sigma_y = sigma
       sigma_z = sigma
+      cutoff_limit = cutoff_sigma + 64._R8P*epsilon(cutoff_sigma)*max(1._R8P, abs(cutoff_sigma))
 
       ! Number of cells required to cover the Gaussian cutoff.
       ni_sigma = ceiling(cutoff_sigma*sigma_x/dx, kind=I4P)
@@ -1865,28 +1883,31 @@ contains
       nk_sigma = ceiling(cutoff_sigma*sigma_z/dz, kind=I4P)
 
       ! Restrict the support to the locally available grid, including ghost cells.
-      i_min = max(i_p-ni_sigma, lbound(q,dim=2))
-      i_max = min(i_p+ni_sigma, ubound(q,dim=2))
+      i_min = max(i_p-ni_sigma-1_I4P, lbound(q,dim=2))
+      i_max = min(i_p+ni_sigma+1_I4P, ubound(q,dim=2))
 
-      j_min = max(j_p-nj_sigma, lbound(q,dim=3))
-      j_max = min(j_p+nj_sigma, ubound(q,dim=3))
+      j_min = max(j_p-nj_sigma-1_I4P, lbound(q,dim=3))
+      j_max = min(j_p+nj_sigma+1_I4P, ubound(q,dim=3))
 
-      k_min = max(k_p-nk_sigma, lbound(q,dim=4))
-      k_max = min(k_p+nk_sigma, ubound(q,dim=4))
+      k_min = max(k_p-nk_sigma-1_I4P, lbound(q,dim=4))
+      k_max = min(k_p+nk_sigma+1_I4P, ubound(q,dim=4))
 
       ! Compute the discrete normalization factor over the effective support.
       weight_sum = 0._R8P
 
       do k=k_min, k_max
          rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+         if (abs(rz) > cutoff_limit) cycle
          wz = exp(-0.5_R8P*rz*rz)
 
          do j=j_min, j_max
             ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+            if (abs(ry) > cutoff_limit) cycle
             wy = exp(-0.5_R8P*ry*ry)
 
             do i=i_min, i_max
                rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+               if (abs(rx) > cutoff_limit) cycle
                wx = exp(-0.5_R8P*rx*rx)
 
                weight_sum = weight_sum + wx*wy*wz
@@ -1900,14 +1921,17 @@ contains
       if (weight_sum > tiny(1._R8P)) then
          do k=k_min, k_max
             rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
+            if (abs(rz) > cutoff_limit) cycle
             wz = exp(-0.5_R8P*rz*rz)
 
             do j=j_min, j_max
                ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
+               if (abs(ry) > cutoff_limit) cycle
                wy = exp(-0.5_R8P*ry*ry)
 
                do i=i_min, i_max
                   rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
+                  if (abs(rx) > cutoff_limit) cycle
                   wx = exp(-0.5_R8P*rx*rx)
 
                   weight = wx*wy*wz/weight_sum
