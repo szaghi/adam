@@ -195,31 +195,40 @@ contains
    call self%field%load_blocks(grid=self%grid, basename=basename, q=q)
    endsubroutine load_restart_files
 
-   subroutine initialize(self, file_parameters, memory_avail, add_adam, nv, verbose, L0)
+   subroutine initialize(self, file_parameters, memory_avail, add_adam, nv, fields_number, verbose, L0)
    !< Initialize ADAM.
+   !<
+   !< `fields_number` is the number of block-sized fields the calling app allocates per block (conservative
+   !< variables, residuals, RK stages, fluxes, ...): it sizes the per-process blocks budget. Absent, it defaults
+   !< to 80, the historical value every app was budgeted with.
    class(adam_object),     intent(inout)        :: self            !< ADAM.
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
    real(R8P),              intent(in), value    :: memory_avail    !< Memory available for single MPI process.
    logical,                intent(in), optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
    integer(I4P),           intent(in), optional :: nv              !< Number of field variables.
+   integer(I4P),           intent(in), optional :: fields_number   !< Block-sized fields allocated per block.
    logical,                intent(in), optional :: verbose         !< Trigger verbose output.
    real(R8P),              intent(in), optional :: L0              !< Adimensionalization parameter.
    logical                                      :: verbose_        !< Trigger verbose output, local variable.
+   integer(I4P)                                 :: fields_number_  !< Block-sized fields allocated per block, local variable.
    integer(I8P)                                 :: nodes_number    !< Nodes number to be stored in the tree.
    integer(I4P)                                 :: nb              !< Number of all blocks that can be stored in field.
    character(99)                                :: buff            !< Character buffer.
    integer(I4P)                                 :: error           !< Error status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   fields_number_ = 80_I4P ; if (present(fields_number)) fields_number_ = fields_number
    if (verbose_) call mpih%print_message('adam_object%initialize start')
+   if (fields_number_ <= 0_I4P) &
+      call mpih%error_stop(msg=': fields_number must be positive, got '//trim(str(fields_number_)))
    if (present(L0)) then
       call self%grid%initialize(file_parameters=file_parameters,verbose=verbose_, L0=L0) ! remember to call self%grid%set_bc_type
    else
       call self%grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%grid%set_bc_type
    endif
-   call self%compute_blocks_number(memory_avail=memory_avail,&
-                                   fields_number=80,         & ! remember to change
-                                   nb=nb,                    &
+   call self%compute_blocks_number(memory_avail=memory_avail,   &
+                                   fields_number=fields_number_,&
+                                   nb=nb,                       &
                                    nodes_number=nodes_number)
    call self%tree%initialize(grid=self%grid,                 &
                              file_parameters=file_parameters,&

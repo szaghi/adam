@@ -309,15 +309,16 @@ contains
    endassociate
    endsubroutine compute_auxiliary_fields
 
-   subroutine initialize(self, filename, memory_avail, nv, verbose, L0)
+   subroutine initialize(self, filename, memory_avail, nv, fields_number, verbose, L0)
    !< Initialize the equation common data.
-   class(prism_common_object), intent(inout), target :: self         !< The equation.
-   character(*),               intent(in)            :: filename     !< Input file name.
-   real(R8P),                  intent(in), value     :: memory_avail !< Memory available for single MPI process.
-   integer(I4P),               intent(in), optional  :: nv           !< Number of field variables.
-   logical,                    intent(in), optional  :: verbose      !< Trigger verbose output.
-   real(R8P),                  intent(in), optional  :: L0           !< Adimensionalization parameter.
-   logical                                           :: verbose_     !< Trigger verbose output, local variable.
+   class(prism_common_object), intent(inout), target :: self          !< The equation.
+   character(*),               intent(in)            :: filename      !< Input file name.
+   real(R8P),                  intent(in), value     :: memory_avail  !< Memory available for single MPI process.
+   integer(I4P),               intent(in), optional  :: nv            !< Number of field variables.
+   integer(I4P),               intent(in), optional  :: fields_number !< Block-sized fields allocated per block (default 80).
+   logical,                    intent(in), optional  :: verbose       !< Trigger verbose output.
+   real(R8P),                  intent(in), optional  :: L0            !< Adimensionalization parameter.
+   logical                                           :: verbose_      !< Trigger verbose output, local variable.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call mpih%initialize(verbose=verbose_)
@@ -335,10 +336,11 @@ contains
    self%nv_cl  => self%physics%nv_cl
    !self%nv_pic => self%physics%nv_pic
    if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
-      call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, verbose=verbose_, &
-                                       L0=self%physics%L0)
+      call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
+                                       fields_number=fields_number, verbose=verbose_, L0=self%physics%L0)
    else
-      call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, verbose=verbose_)
+      call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
+                                       fields_number=fields_number, verbose=verbose_)
    endif
    call self%bc%initialize(file_parameters=file_parameters)
    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
