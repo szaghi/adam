@@ -95,7 +95,8 @@ contains
    a_tot = 0._R8P
    do s1=0,S-1
       do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**(2)) ; a_tot(f) = a_tot(f) + a(f,s1)
+         ! exponent rule of adam_weno_object%weno_weights_exponent, inlined: CUDA device code cannot call the host module
+         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**merge(S-1,S,S>4)) ; a_tot(f) = a_tot(f) + a(f,s1)
       enddo
    enddo
    ! computing weights

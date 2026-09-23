@@ -4,7 +4,7 @@ module adam_fnl_weno_kernels
 !< ADAM, WENO class FNL kernels (FNL backend of [[weno_fnl_object]]).
 
 ! ADAM modules
-use :: adam_weno_object, only : S_max, S_max_m1
+use :: adam_weno_object, only : S_max, S_max_m1, weno_weights_exponent
 ! third party modules
 use :: penf, only : I4P, R8P
 
@@ -86,10 +86,12 @@ contains
    real(R8P)                 :: IS   (1:2,0:S_max_m1) !< Smoothness indicators of the stencils.
    real(R8P)                 :: a    (1:2,0:S_max_m1) !< Alpha coifficients for the weights.
    real(R8P)                 :: a_tot(1:2)            !< Summ of the alpha coefficients.
+   integer(I4P)              :: wexp                  !< Exponent of the smoothness indicators.
    integer(I4P)              :: s1,s2,s3,f            !< Counter.
    !$acc routine seq
    !$omp declare target
 
+   wexp = weno_weights_exponent(S=S)
    ! computing smoothness indicators
    do s1=0,S-1 ! stencil counter
       do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
@@ -105,7 +107,7 @@ contains
    a_tot = 0._R8P
    do s1=0,S-1
       do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**(2)) ; a_tot(f) = a_tot(f) + a(f,s1)
+         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**wexp) ; a_tot(f) = a_tot(f) + a(f,s1)
       enddo
    enddo
    ! computing weights

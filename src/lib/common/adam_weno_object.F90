@@ -52,6 +52,7 @@ private
 public :: weno_object
 public :: weno_reconstruct_centered
 public :: weno_reconstruct_upwind
+public :: weno_weights_exponent
 public :: S_MAX
 public :: S_MAX_M1
 public :: WENO_U_1
@@ -262,8 +263,7 @@ contains
    case default
       call mpih%error_stop(msg=': failed to initialize weno object, WENO scheme "'//self%scheme//'" unknown')
    endselect
-   self%wexp = self%S
-   if (self%S>4) self%wexp = self%S - 1
+   self%wexp = weno_weights_exponent(S=self%S)
    self%sodd = mod(self%S,2)
    self%zeps = 1.0e-6_R8P
    allocate(self%cell_scheme(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3))
@@ -743,11 +743,13 @@ contains
    real(R8P)                 :: IS   (1:2,0:S-1)    !< Smoothness indicators of the stencils.
    real(R8P)                 :: a    (1:2,0:S-1)    !< Alpha coifficients for the weights.
    real(R8P)                 :: a_tot(1:2)          !< Summ of the alpha coefficients.
+   integer(I4P)              :: wexp                !< Exponent of the smoothness indicators.
    integer(I4P)              :: s1,s2,s3,f          !< Counter.
 
 #ifdef _GMP_
    !$omp declare target(weno_compute_weights_upwind)
 #endif
+   wexp = weno_weights_exponent(S=S)
    ! computing smoothness indicators
    do s1=0,S-1 ! stencil counter
       do f=1,2 ! 1 => left interface, 2 => right interface
@@ -763,7 +765,7 @@ contains
    a_tot = 0._R8P
    do s1=0,S-1
       do f=1,2 ! 1 => left interface, 2 => right interface
-         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**S) ; a_tot(f) = a_tot(f) + a(f,s1)
+         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**wexp) ; a_tot(f) = a_tot(f) + a(f,s1)
       enddo
    enddo
    ! computing weights
@@ -841,4 +843,19 @@ contains
    call weno_compute_weights_upwind(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, v=v(1:2,1-S:-1+S), w=w(1:2,0:S-1))
    call weno_compute_convolution(S=S, vp=vp(1:2,0:S-1), w=w(1:2,0:S-1), vr=vr(1:2))
    endsubroutine weno_reconstruct_upwind
+
+   pure function weno_weights_exponent(S) result(wexp)
+   !< Return the exponent of the smoothness indicators in the WENO nonlinear weights, `a = d / (zeps + IS)**wexp`.
+   !<
+   !< The one definition used by the host weights, the device weights and `weno_object%wexp`: `wexp = S`, reduced to
+   !< `S - 1` for `S > 4`. Before, the host used `S` and the device `2`, so the two backends ran different schemes for
+   !< `S > 2`. Being a function of `S`, the exponent also follows the stencil of each ROR iteration.
+   integer(I4P), intent(in) :: S    !< Number of stencils used.
+   integer(I4P)             :: wexp !< Exponent of the smoothness indicators.
+   !$acc routine seq
+   !$omp declare target
+
+   wexp = S
+   if (S > 4) wexp = S - 1
+   endfunction weno_weights_exponent
 endmodule adam_weno_object

@@ -180,7 +180,7 @@ All procedures carry `attributes(device)` — they are callable only from within
 |-----------|-----------|---------|
 | `weno_reconstruct_upwind_device(S, a, p, d, zeps, V, VR)` | public | Top-level reconstruction: given stencil `V(2, 1-S:S-1)`, return left/right interface values `VR(2)` |
 | `weno_compute_polynomials_device(S, p, V, VP)` | private | `VP(f,s1) = Σ_{s2} p(f,s2,s1,S) · V(f, s1-s2)` |
-| `weno_compute_weights_device(S, a, d, zeps, V, w)` | private | Smoothness indicators → normalised weights via `w(f,k) = a(f,k,S)/(zeps+IS)² / Σ` |
+| `weno_compute_weights_device(S, a, d, zeps, V, w)` | private | Smoothness indicators → normalised weights via `w(f,k) = a(f,k,S)/(zeps+IS)^p / Σ`, `p = weno_weights_exponent(S)` (inlined) |
 | `weno_compute_convolution_device(S, VP, w, VR)` | private | `VR(f) = Σ_k w(f,k) · VP(f,k)` |
 
 The three private procedures are the standard WENO algorithm decomposition; `weno_reconstruct_upwind_device` calls them in sequence. Equation solvers invoke this from inside their spatial flux loops.

@@ -9,9 +9,8 @@
 #   3. 1-D consistency: every transverse copy of the solution, in every block, is bitwise identical.
 #
 # Baseline provenance (P3): WENO-5 characteristic, SSP-33, CFL 0.5, 200 cells, t = 0.2, np 2 (64 blocks, 32/32):
-# CPU L1(rho) = 3.244140e-03, FNL L1(rho) = 3.075502e-03. The two backends differ because the library WENO weights
-# use a different exponent on the host (1/(eps+IS)**S) and on the device (1/(eps+IS)**2); with the same exponent
-# they agree to 2.4e-14. L1_MAX is the CPU value plus 2%, which bounds both backends.
+# L1(rho) = 3.244140e-03 on CPU and FNL (the backends agree to 7.2e-14 since the host and device WENO weights share
+# one exponent, weno_weights_exponent). L1_MAX is that value plus 2%.
 #
 # Usage: ./check.sh [--build] [--np N]
 #
