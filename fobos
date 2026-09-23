@@ -29,6 +29,7 @@ paths =  fobos.d/templates.fobos
         ?fobos.d/adam.fobos
         ?fobos.d/ascot.fobos
         ?fobos.d/chase.fobos
+        ?fobos.d/flume.fobos
         ?fobos.d/patch.fobos
         ?fobos.d/nasto.fobos
         ?fobos.d/tests_fdv.fobos

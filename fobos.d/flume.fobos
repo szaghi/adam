@@ -1,0 +1,21 @@
+[modes]
+modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug
+
+[flume-cpu-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = adam_flume_cpu.F90
+
+[flume-cpu-gnu-omp]
+template = template-gnu
+mod_dir  = ./mod/gnu-omp/
+obj_dir  = ./obj/gnu-omp/
+openmp   = True
+preproc  = -D_MPI_ -w
+target   = adam_flume_cpu.F90
+output   = adam_flume_cpu_omp
+
+[flume-cpu-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = adam_flume_cpu.F90
