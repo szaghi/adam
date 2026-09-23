@@ -1,5 +1,5 @@
 [modes]
-modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-omp-amd
+modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-omp-amd test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf
 
 [flume-cpu-gnu]
 template = template-gnu
@@ -34,3 +34,13 @@ target   = adam_flume_fnl.F90
 template = template-omp-amd
 preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
 target   = adam_flume_fnl.F90
+
+[test-flume-euler-library-gnu]
+template = template-gnu
+preproc  = -w
+target   = test_flume_euler_library.F90
+
+[test-flume-euler-library-fnl-nvf]
+template = template-nvf
+preproc  = -DDEV_OAC -DCOMPILER_NVF -w
+target   = test_flume_euler_library_fnl.F90
