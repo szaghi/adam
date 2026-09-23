@@ -13,7 +13,7 @@ The choice of hardware backend is a compile-time switch; everything above the ba
 
 ```mermaid
 graph TD
-    A[Solver applications<br/>nasto · prism · chase · patch] --> B[ADAM SDK — src/lib/common<br/>AMR · IB · WENO · RK · I/O · MPI]
+    A[Solver applications<br/>nasto · prism · chase · patch · flume] --> B[ADAM SDK — src/lib/common<br/>AMR · IB · WENO · RK · I/O · MPI]
     A --> C{Hardware backend}
     C -->|CPU| CPU[CPU backend<br/>MPI + OpenMP]
     C -->|_NVF| D[NVF backend<br/>CUDA Fortran]
@@ -135,6 +135,7 @@ src/
 │   ├── prism/            # Maxwell equations / plasma solver
 │   ├── chase/            # CFD application
 │   ├── patch/            # Patch-based application
+│   ├── flume/            # Compressible MHD solver (planned)
 │   └── ascot/            # Binary-to-ASCII output converter
 ├── tests/                # Unit and integration tests
 └── third_party/          # Git submodules (PENF, StringiFor, FiNeR, VTKFortran, …)

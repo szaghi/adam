@@ -27,6 +27,7 @@ The primary focus is on large-scale scientific computing: ADAM targets exascale 
 | [PRISM](/applications/prism) | Maxwell equations solver for electromagnetic simulations |
 | [CHASE](/applications/chase) | CFD application |
 | [PATCH](/applications/patch) | Patch-based application |
+| [FLUME](/applications/flume/) | Compressible MHD solver (planned) |
 | [ASCOT](/applications/ascot) | Binary-to-ASCII output converter |
 
 ## Authors

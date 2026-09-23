@@ -1,6 +1,6 @@
 # Applications
 
-ADAM ships five solver applications, each built on the same SDK layer of core objects
+ADAM ships five solver applications, with a sixth (FLUME) planned, each built on the same SDK layer of core objects
 (`adam_grid_object`, `adam_field_object`, `adam_weno_object`, etc.).
 Applications share physics-agnostic infrastructure — AMR, ghost-cell exchange, I/O, IB —
 and specialise only in the equations being solved and the numerical methods they require.
@@ -13,6 +13,7 @@ and specialise only in the equations being solved and the numerical methods they
 | [PRISM](#prism) | Maxwell + PIC | Plasma/electromagnetics | CPU · FNL | Development |
 | [CHASE](#chase) | Euler (inviscid) | Inviscid compressible flow | CPU | Experimental |
 | [PATCH](#patch) | Poisson (elliptic) | Potential / pressure fields | CPU | Research |
+| [FLUME](#flume) | Compressible MHD (ideal) | Magnetohydrodynamics | CPU · FNL | Planned |
 | [ASCOT](#ascot) | — (utility) | Post-processing | — | Complete |
 
 ## Common design pattern
@@ -356,6 +357,56 @@ src/app/patch/
 
 ```bash
 FoBiS.py build -mode patch-gnu
+```
+
+---
+
+## FLUME
+
+> ADAM for the compressible magnetohydrodynamics equations — **F**luid **L**orentz-coupled **U**nsteady **M**agnetohydrodynamic **E**quations.
+
+FLUME will solve the three-dimensional compressible MHD equations on AMR
+structured grids: an electrically conducting fluid coupled to its own magnetic
+field through the Lorentz force.  The first target is the ideal (inviscid,
+perfectly conducting) model.  **The application is planned: no solver sources
+exist yet**, and every implementation detail below is design intent.
+
+### Equations
+
+$$
+\frac{\partial \mathbf{q}}{\partial t} + \nabla \cdot \mathbf{F}(\mathbf{q}) = 0,
+\qquad
+\mathbf{q} = (\rho,\ \rho\mathbf{u},\ E,\ \mathbf{B})^\top,
+\qquad
+\nabla \cdot \mathbf{B} = 0
+$$
+
+The full system and the divergence-control discussion are in the
+[FLUME overview](/applications/flume/).
+
+### Backends
+
+| Backend | Subdirectory | Parallelism | Status |
+|---------|-------------|-------------|--------|
+| CPU | `cpu/` | MPI + OpenMP | Planned |
+| FNL | `fnl/` | MPI + OpenACC | Planned |
+
+### Source layout
+
+```
+src/app/flume/
+├── common/        # Backend-independent physics, numerics, BC, IC, I/O
+├── cpu/           # CPU backend
+└── fnl/           # OpenACC GPU backend
+```
+
+### Build
+
+Build modes are not defined yet; expected form:
+
+```bash
+fobis build --mode flume-cpu-gnu
+fobis build --mode flume-fnl-nvf --varset local_nvf
 ```
 
 ---

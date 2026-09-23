@@ -41,6 +41,7 @@ src/
 │   ├── prism/        # Maxwell equations solver
 │   ├── chase/        # CFD application
 │   ├── patch/        # Patch-based application
+│   ├── flume/        # Compressible MHD solver (planned, docs only)
 │   └── ascot/        # Binary-to-ASCII converter utility
 ├── lib/              # Core libraries
 │   ├── common/       # Base ADAM objects (CPU, portable)

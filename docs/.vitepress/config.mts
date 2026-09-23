@@ -145,6 +145,16 @@ export default withMermaid({
                 { text: 'CPU Backend', link: '/applications/patch/cpu' },
               ],
             },
+            {
+              text: 'FLUME (planned)',
+              collapsed: true,
+              items: [
+                { text: 'Overview',    link: '/applications/flume/' },
+                { text: 'Common',      link: '/applications/flume/common' },
+                { text: 'CPU Backend', link: '/applications/flume/cpu' },
+                { text: 'FNL Backend', link: '/applications/flume/fnl' },
+              ],
+            },
             { text: 'ASCOT', link: '/applications/ascot' },
           ],
         },
