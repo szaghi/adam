@@ -9,7 +9,8 @@ module adam_flume_fnl_object
 !< layout `(b, i, j, k, v)`; full-field device-to-host copies happen only on save steps. The FNL helpers (field, IB,
 !< RK, WENO) are per-realm components initialized after the common initialization from the realm's own objects;
 !< `mpih_fnl` is the only FNL singleton and is initialized once per process.
-!< Milestone 1 status: skeleton (P1), the space operator computes the auxiliary variables and a null residual.
+!< Space operator: characteristic (or conservative) WENO flux splitting, face fluxes then flux difference (issue #35,
+!< section 3.4); the per-face physics is the shared `adam_flume_euler_library`, so only the kernels are FNL-specific.
 
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : flux_register_object
@@ -24,9 +25,10 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
-use :: adam_flume_common_library, only : flume_common_object, SCHEME_SPACE_WENO
-use :: adam_flume_fnl_kernels,    only : compute_conservation_dev, compute_lambda_max_dev, compute_q_aux_dev, &
-                                         fill_seam_copy_dev, set_boundary_conditions_dev, set_zero_dev
+use :: adam_flume_common_library, only : flume_common_object, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
+use :: adam_flume_fnl_kernels,    only : compute_conservation_dev, compute_face_fluxes_dev, compute_flux_difference_dev, &
+                                         compute_lambda_max_dev, compute_q_aux_dev, compute_rk_ssp_residual_dev,       &
+                                         fill_seam_copy_dev, set_boundary_conditions_dev
 ! third party modules
 use :: fundal,                    only : dev_alloc, dev_free, dev_memcpy_from_device, dev_memcpy_to_device, mydev
 use :: mpi
@@ -370,6 +372,9 @@ contains
    class(flume_fnl_object), intent(inout) :: self !< The equation.
    real(R8P),               intent(in)    :: dt   !< Time step from the forest (the local capped value is time%dt).
 
+   call compute_rk_ssp_residual_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv,                     &
+                                    blocks_number=self%blocks_number, nrk=self%rk%nrk, beta_gpu=self%rk_fnl%beta_gpu, &
+                                    q_rk_gpu=self%rk_fnl%q_rk_gpu, dq_gpu=self%dq_gpu)
    call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
    call self%save_residuals
    self%time%time = self%time%time + self%time%dt
@@ -551,10 +556,10 @@ contains
 
    ! private procedures
    subroutine compute_residuals_weno_dev(self, q_gpu, dq_gpu, s, flux_register)
-   !< Compute the residuals with the WENO space operator on the device.
+   !< Compute the residuals with the WENO space operator on the device: ghost update, auxiliary variables, face fluxes
+   !< of the active directions, flux difference.
    !<
-   !< P1 skeleton: ghost update and auxiliary variables are computed, the residual is null. The WENO flux splitting
-   !< lands in P3 (issue #35, section 3.4).
+   !< The face fluxes of a null direction are never computed: they keep their zero initialization (`dev_alloc`).
    class(flume_fnl_object),     intent(inout)           :: self              !< The equation.
    real(R8P),                   intent(inout)           :: q_gpu(1:,         &
                                                                  1-self%ngc:,&
@@ -568,11 +573,30 @@ contains
                                                                   1:)         !< Residuals.
    integer(I4P),                intent(in),    optional :: s                 !< Runge-Kutta stage.
    class(flux_register_object), intent(inout), optional :: flux_register     !< Forest's flux register for reflux.
+   logical                                              :: is_char           !< Characteristic reconstruction flag.
 
    call self%update_ghost(q_gpu=q_gpu)
    call self%compute_q_aux(q_gpu=q_gpu)
-   call set_zero_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, blocks_number=self%blocks_number, &
-                     q_gpu=dq_gpu)
+   is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+             is_null=>self%adam%grid%null_xyz, S=>self%weno%S, zeps=>self%weno%zeps, a_gpu=>self%weno_fnl%a_gpu,     &
+             p_gpu=>self%weno_fnl%p_gpu, d_gpu=>self%weno_fnl%d_gpu)
+   if (.not.is_null(1)) call compute_face_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                                     blocks_number=nb, S=S, gamma=gamma, is_characteristic=is_char,        &
+                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,  &
+                                                     q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
+   if (.not.is_null(2)) call compute_face_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                                     blocks_number=nb, S=S, gamma=gamma, is_characteristic=is_char,        &
+                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,  &
+                                                     q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
+   if (.not.is_null(3)) call compute_face_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                                     blocks_number=nb, S=S, gamma=gamma, is_characteristic=is_char,        &
+                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,  &
+                                                     q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+   call compute_flux_difference_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,                   &
+                                    dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
+                                    flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
+   endassociate
    endsubroutine compute_residuals_weno_dev
 
    subroutine integrate_rk_ls_dev(self)
@@ -600,6 +624,9 @@ contains
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
    enddo
+   call compute_rk_ssp_residual_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv,                     &
+                                    blocks_number=self%blocks_number, nrk=self%rk%nrk, beta_gpu=self%rk_fnl%beta_gpu, &
+                                    q_rk_gpu=self%rk_fnl%q_rk_gpu, dq_gpu=self%dq_gpu)
    call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
    call self%save_residuals
    endsubroutine integrate_rk_ssp_dev

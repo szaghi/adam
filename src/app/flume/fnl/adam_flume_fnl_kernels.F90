@@ -12,20 +12,25 @@ module adam_flume_fnl_kernels
 
 ! ADAM classes, libraries, parameters
 use :: adam_parameters,           only : FEC_1_6_ARRAY
+! ADAM FNL classes, libraries
+use :: adam_fnl_weno_kernels,     only : weno_reconstruct_upwind_dev
 ! FLUME modules
-use :: adam_flume_common_library, only : conservative_to_auxiliary, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, IA_A, &
-                                         IA_U, IA_V, IA_W, IQ_RU, NV_AUX, NV_EULER
+use :: adam_flume_common_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &
+                                         conservative_to_auxiliary, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, IA_A, &
+                                         IA_U, IA_V, IA_W, IQ_RU, NV_AUX, NV_EULER, S_MAX
 ! third party modules
 use :: penf,                      only : I4P, I8P, R8P
 
 implicit none
 private
 public :: compute_conservation_dev
+public :: compute_face_fluxes_dev
+public :: compute_flux_difference_dev
 public :: compute_lambda_max_dev
 public :: compute_q_aux_dev
+public :: compute_rk_ssp_residual_dev
 public :: fill_seam_copy_dev
 public :: set_boundary_conditions_dev
-public :: set_zero_dev
 
 contains
    ! public procedures
@@ -69,6 +74,128 @@ contains
    enddo
    integrals = [s1, s2, s3, s4, s5]
    endsubroutine compute_conservation_dev
+
+   subroutine compute_face_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, is_characteristic,     &
+                                      weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, q_gpu, q_aux_gpu, fl_gpu)
+   !< Compute the WENO face fluxes of direction `d`: face `(i,j,k)` lies between cells `(i,j,k)` and
+   !< `(i+di,j+dj,k+dk)`, so the face array starts at index 0 along `d`.
+   !<
+   !< Per face (device twin of the CPU `compute_face_fluxes`): gather the stencil `m = 1-S ... S` into constant-bound
+   !< privates, project and split it, reconstruct every field (the private `v` is the packed stencil of the WENO
+   !< primitive), back-project.
+   integer(I4P), intent(in)    :: d                                       !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                              !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                         !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                           !< Actual blocks number.
+   integer(I4P), intent(in)    :: S                                       !< WENO stencil half-width.
+   real(R8P),    intent(in)    :: gamma                                   !< Specific heats ratio.
+   logical,      intent(in)    :: is_characteristic                       !< Characteristic (or conservative) variables.
+   real(R8P),    intent(in)    :: weno_a_gpu(1:,0:,1:)                    !< WENO optimal weights.
+   real(R8P),    intent(in)    :: weno_p_gpu(1:,0:,0:,1:)                 !< WENO polynomials coefficients.
+   real(R8P),    intent(in)    :: weno_d_gpu(0:,0:,0:,1:)                 !< WENO smoothness indicators coefficients.
+   real(R8P),    intent(in)    :: weno_zeps                               !< WENO parameter avoiding division by zero.
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Conservative variables.
+   real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Auxiliary variables.
+   real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)         !< Face fluxes of direction `d`.
+   real(R8P)                   :: qs(NV_EULER,1-S_MAX:S_MAX)              !< Private stencil conservative variables.
+   real(R8P)                   :: qas(NV_AUX,1-S_MAX:S_MAX)               !< Private stencil auxiliary variables.
+   real(R8P)                   :: fsplit(2,1-S_MAX:S_MAX-1,NV_EULER)      !< Private split fields.
+   real(R8P)                   :: er(NV_EULER,NV_EULER)                   !< Private right eigenvectors.
+   real(R8P)                   :: v(2,2*S_MAX-1)                          !< Private packed stencil of one field.
+   real(R8P)                   :: vr_(2)                                  !< Private reconstruction of one field.
+   real(R8P)                   :: vr(2,NV_EULER)                          !< Private reconstructed split fields.
+   real(R8P)                   :: flux(NV_EULER)                          !< Private face flux.
+   integer(I4P)                :: b, i, j, k, m, f, w                     !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4)                                                        &
+   !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu)                                       &
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,is_characteristic,weno_zeps)                     &
+   !$acc& private(qs,qas,fsplit,er,v,vr_,vr,flux)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,is_characteristic,weno_zeps) &
+   !$omp& private(qs,qas,fsplit,er,v,vr_,vr,flux)
+   do k=1-dk, nk
+   do j=1-dj, nj
+   do i=1-di, ni
+   do b=1, blocks_number
+      !$acc loop seq
+      do m=1-S, S
+         !$acc loop seq
+         do w=1, NV_EULER
+            qs(w,m) = q_gpu(b,i+m*di,j+m*dj,k+m*dk,w)
+         enddo
+         !$acc loop seq
+         do w=1, NV_AUX
+            qas(w,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,w)
+         enddo
+      enddo
+      call compute_face_split_fluxes(gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
+                                     fsplit=fsplit, er=er)
+      !$acc loop seq
+      do f=1, NV_EULER
+         !$acc loop seq
+         do m=1-S, S-1
+            v(1,m+S) = fsplit(1,m,f)
+            v(2,m+S) = fsplit(2,m,f)
+         enddo
+         call weno_reconstruct_upwind_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
+                                          weno_zeps=weno_zeps, V=v, VR=vr_)
+         vr(1,f) = vr_(1)
+         vr(2,f) = vr_(2)
+      enddo
+      call compute_face_flux_back_projection(is_characteristic=is_characteristic, er=er, vr=vr, flux=flux)
+      !$acc loop seq
+      do w=1, NV_EULER
+         fl_gpu(b,i,j,k,w) = flux(w)
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_face_fluxes_dev
+
+   subroutine compute_flux_difference_dev(ni, nj, nk, ngc, blocks_number, is_null, dxyz_gpu, flx_f_gpu, fly_f_gpu, &
+                                          flz_f_gpu, dq_gpu)
+   !< Compute the residuals from the face fluxes, `dq = -sum_d (F_{d,i+1/2} - F_{d,i-1/2}) / dx_d`.
+   !<
+   !< A null direction weighs zero, and its normal momentum residual is zero (CHASE semantics, issue #35, section 3.4).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
+   logical,      intent(in)    :: is_null(3)                         !< Null directions.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Blocks space steps [nb, 3].
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)          !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)          !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)          !< Z-face fluxes.
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
+   real(R8P)                   :: wx, wy, wz                         !< Direction weights: 1 active, 0 null.
+   logical                     :: nx, ny, nz                         !< Null directions, scalar copies.
+   integer(I4P)                :: b, i, j, k, v                      !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1)) ; nx = is_null(1)
+   wy = merge(0._R8P, 1._R8P, is_null(2)) ; ny = is_null(2)
+   wz = merge(0._R8P, 1._R8P, is_null(3)) ; nz = is_null(3)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      !$acc loop seq
+      do v=1, NV_EULER
+         dq_gpu(b,i,j,k,v) = -(wx * (flx_f_gpu(b,i,j,k,v) - flx_f_gpu(b,i-1,j,k,v)) / dxyz_gpu(b,1) + &
+                               wy * (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dxyz_gpu(b,2) + &
+                               wz * (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dxyz_gpu(b,3))
+      enddo
+      if (nx) dq_gpu(b,i,j,k,IQ_RU  ) = 0._R8P
+      if (ny) dq_gpu(b,i,j,k,IQ_RU+1) = 0._R8P
+      if (nz) dq_gpu(b,i,j,k,IQ_RU+2) = 0._R8P
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_flux_difference_dev
 
    subroutine compute_lambda_max_dev(ni, nj, nk, ngc, blocks_number, gamma, R, dxyz_gpu, is_null, q_gpu, lambda_max)
    !< Compute `max(sum_d (|u_d| + a) / dx_d)` over the interior cells (null directions excluded).
@@ -149,6 +276,44 @@ contains
    enddo
    enddo
    endsubroutine compute_q_aux_dev
+
+   subroutine compute_rk_ssp_residual_dev(ni, nj, nk, ngc, nv, blocks_number, nrk, beta_gpu, q_rk_gpu, dq_gpu)
+   !< Compute the residual of a strong stability preserving step, `dq = sum_s beta_s dq_s`, from the stored stages.
+   !<
+   !< Device twin of the residual that the host `rk_object%update_q` returns: the residuals history of the two backends
+   !< then reports the same quantity (the effective step residual, not the last stage one).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                         !< Grid dimensions.
+   integer(I4P), intent(in)    :: nv                                      !< Variables number.
+   integer(I4P), intent(in)    :: blocks_number                           !< Actual blocks number.
+   integer(I4P), intent(in)    :: nrk                                     !< Runge-Kutta stages number.
+   real(R8P),    intent(in)    :: beta_gpu(1:)                            !< Runge-Kutta beta coefficients.
+   real(R8P),    intent(in)    :: q_rk_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:) !< Stored stage residuals.
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Step residual.
+   real(R8P)                   :: dq                                      !< Private step residual of one cell.
+   integer(I4P)                :: b, i, j, k, v, s                        !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(beta_gpu,q_rk_gpu,dq_gpu) &
+   !$acc& firstprivate(ni,nj,nk,nv,blocks_number,nrk) private(dq)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(beta_gpu,q_rk_gpu,dq_gpu) &
+   !$omp& firstprivate(ni,nj,nk,nv,blocks_number,nrk) private(dq)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      !$acc loop seq
+      do v=1, nv
+         dq = 0._R8P
+         !$acc loop seq
+         do s=1, nrk
+            dq = dq + beta_gpu(s) * q_rk_gpu(b,i,j,k,v,s)
+         enddo
+         dq_gpu(b,i,j,k,v) = dq
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_rk_ssp_residual_dev
 
    subroutine fill_seam_copy_dev(row_start, row_count, nv, ngc, rows_gpu, src_gpu, dst_gpu)
    !< Copy a peer realm's interior cells into this realm's seam ghost cells, following the seam map rows.
@@ -249,28 +414,4 @@ contains
       endif
    enddo
    endsubroutine set_boundary_conditions_dev
-
-   subroutine set_zero_dev(ni, nj, nk, ngc, nv, blocks_number, q_gpu)
-   !< Set a device field to zero on every cell, ghost cells included.
-   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
-   integer(I4P), intent(in)    :: nv                                !< Variables number.
-   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
-   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field.
-   integer(I4P)                :: b, i, j, k, v                     !< Counters.
-
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu) firstprivate(ni,nj,nk,ngc,nv,blocks_number)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu) firstprivate(ni,nj,nk,ngc,nv,blocks_number)
-   do k=1-ngc, nk+ngc
-   do j=1-ngc, nj+ngc
-   do i=1-ngc, ni+ngc
-   do b=1, blocks_number
-      !$acc loop seq
-      do v=1, nv
-         q_gpu(b,i,j,k,v) = 0._R8P
-      enddo
-   enddo
-   enddo
-   enddo
-   enddo
-   endsubroutine set_zero_dev
 endmodule adam_flume_fnl_kernels

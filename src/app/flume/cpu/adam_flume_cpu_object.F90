@@ -4,18 +4,22 @@ module adam_flume_cpu_object
 !<
 !< Implements the forest contract on the host (MPI + OpenMP). The dispatch procedure pointers are type components,
 !< bound in `initialize_flume` by exhaustive `select case` with a fatal `case default` (issue #35, D-10).
-!< Milestone 1 status: skeleton (P1), the space operator computes the auxiliary variables and a null residual.
+!< Space operator: characteristic (or conservative) WENO flux splitting, face fluxes then flux difference (issue #35,
+!< section 3.4); the per-face physics is the shared `adam_flume_euler_library`, so only the loops are CPU-specific.
 
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : flux_register_object
 use :: adam_parameters,           only : FEC_1_6_ARRAY
 use :: adam_realm_object,         only : realm_object
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
+use :: adam_weno_object,          only : weno_object, weno_reconstruct_upwind
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_common_library, only : flume_common_object, conservative_to_auxiliary, BC_EXTRAPOLATION, BC_INFLOW, &
-                                         BC_WALL_INVISCID, IA_A, IA_U, IQ_RU, NV_AUX, SCHEME_SPACE_WENO
+use :: adam_flume_common_library, only : flume_common_object, compute_face_flux_back_projection,                        &
+                                         compute_face_split_fluxes, conservative_to_auxiliary, BC_EXTRAPOLATION, BC_INFLOW, &
+                                         BC_WALL_INVISCID, IA_A, IA_U, IQ_RU, NV_AUX, NV_EULER, RECON_CHARACTERISTIC,       &
+                                         SCHEME_SPACE_WENO, S_MAX
 ! third party modules
 use :: mpi
 use :: penf,                      only : I4P, R8P, str
@@ -536,6 +540,60 @@ contains
    endfunction stages_per_step_forest
 
    ! private procedures
+   subroutine compute_face_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, is_characteristic, weno, q, &
+                                  q_aux, fl)
+   !< Compute the WENO face fluxes of direction `d`: face `(i,j,k)` lies between cells `(i,j,k)` and
+   !< `(i+di,j+dj,k+dk)`, so the face array starts at index 0 along `d`.
+   !<
+   !< Per face: gather the stencil `m = 1-S ... S` into constant-bound locals, project and split it, reconstruct every
+   !< field (the local `v` is the packed stencil of the WENO primitive), back-project.
+   integer(I4P),      intent(in)    :: d                                     !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P),      intent(in)    :: di, dj, dk                            !< Unit step along `d`.
+   integer(I4P),      intent(in)    :: ni, nj, nk, ngc                       !< Grid dimensions.
+   integer(I4P),      intent(in)    :: blocks_number                         !< Actual blocks number.
+   real(R8P),         intent(in)    :: gamma                                 !< Specific heats ratio.
+   logical,           intent(in)    :: is_characteristic                     !< Characteristic (or conservative) variables.
+   type(weno_object), intent(in)    :: weno                                  !< WENO coefficients.
+   real(R8P),         intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)         !< Conservative variables.
+   real(R8P),         intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary variables.
+   real(R8P),         intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)           !< Face fluxes of direction `d`.
+   real(R8P)                        :: qs(NV_EULER,1-S_MAX:S_MAX)            !< Stencil conservative variables.
+   real(R8P)                        :: qas(NV_AUX,1-S_MAX:S_MAX)             !< Stencil auxiliary variables.
+   real(R8P)                        :: fsplit(2,1-S_MAX:S_MAX-1,NV_EULER)    !< Split fields.
+   real(R8P)                        :: er(NV_EULER,NV_EULER)                 !< Right eigenvectors.
+   real(R8P)                        :: v(2,2*S_MAX-1)                        !< Packed stencil of one field.
+   real(R8P)                        :: vr(2,NV_EULER)                        !< Reconstructed split fields.
+   integer(I4P)                     :: S                                     !< WENO stencil half-width.
+   integer(I4P)                     :: b, i, j, k, m, f                      !< Counters.
+
+   S = weno%S
+   !$omp parallel do collapse(4) default(firstprivate) shared(weno, q, q_aux, fl)
+   do b=1, blocks_number
+      do k=1-dk, nk
+         do j=1-dj, nj
+            do i=1-di, ni
+               do m=1-S, S
+                  qs(:,m)  = q(1:NV_EULER,i+m*di,j+m*dj,k+m*dk,b)
+                  qas(:,m) = q_aux(1:NV_AUX,i+m*di,j+m*dj,k+m*dk,b)
+               enddo
+               call compute_face_split_fluxes(gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, &
+                                              qas=qas, fsplit=fsplit, er=er)
+               do f=1, NV_EULER
+                  do m=1-S, S-1
+                     v(:,m+S) = fsplit(:,m,f)
+                  enddo
+                  call weno_reconstruct_upwind(S=S, weno_a=weno%a, weno_p=weno%p, weno_d=weno%d, weno_zeps=weno%zeps, &
+                                               v=v, vr=vr(:,f))
+               enddo
+               call compute_face_flux_back_projection(is_characteristic=is_characteristic, er=er, vr=vr, &
+                                                      flux=fl(1:NV_EULER,i,j,k,b))
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine compute_face_fluxes
+
    subroutine compute_face_mirror_indexes(face, ni, nj, nk, i_gc, j_gc, k_gc, idelta, jdelta, kdelta, i_d, j_d, k_d)
    !< Return the donor indexes mirrored across a boundary face.
    integer(I4P), intent(in)  :: face                   !< Face index, 1 to 6.
@@ -565,11 +623,49 @@ contains
    endselect
    endsubroutine compute_face_mirror_indexes
 
-   subroutine compute_residuals_weno(self, q, dq, s, flux_register)
-   !< Compute the residuals with the WENO space operator.
+   subroutine compute_flux_difference(ni, nj, nk, ngc, blocks_number, is_null, dxyz, flx, fly, flz, dq)
+   !< Compute the residuals from the face fluxes, `dq = -sum_d (F_{d,i+1/2} - F_{d,i-1/2}) / dx_d`.
    !<
-   !< P1 skeleton: ghost update and auxiliary variables are computed, the residual is null. The WENO flux splitting
-   !< lands in P3 (issue #35, section 3.4).
+   !< A null direction weighs zero, and its normal momentum residual is zero (CHASE semantics, issue #35, section 3.4).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                  !< Actual blocks number.
+   logical,      intent(in)    :: is_null(3)                     !< Null directions.
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                    !< Blocks space steps [3, nb].
+   real(R8P),    intent(in)    :: flx(1:,0:,1:,1:,1:)            !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly(1:,1:,0:,1:,1:)            !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz(1:,1:,1:,0:,1:)            !< Z-face fluxes.
+   real(R8P),    intent(inout) :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
+   real(R8P)                   :: wx, wy, wz                     !< Direction weights: 1 active, 0 null.
+   integer(I4P)                :: b, i, j, k, v                  !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, flx, fly, flz, dq)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               do v=1, NV_EULER
+                  dq(v,i,j,k,b) = -(wx * (flx(v,i,j,k,b) - flx(v,i-1,j,k,b)) / dxyz(1,b) + &
+                                    wy * (fly(v,i,j,k,b) - fly(v,i,j-1,k,b)) / dxyz(2,b) + &
+                                    wz * (flz(v,i,j,k,b) - flz(v,i,j,k-1,b)) / dxyz(3,b))
+               enddo
+               if (is_null(1)) dq(IQ_RU,  i,j,k,b) = 0._R8P
+               if (is_null(2)) dq(IQ_RU+1,i,j,k,b) = 0._R8P
+               if (is_null(3)) dq(IQ_RU+2,i,j,k,b) = 0._R8P
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine compute_flux_difference
+
+   subroutine compute_residuals_weno(self, q, dq, s, flux_register)
+   !< Compute the residuals with the WENO space operator: ghost update, auxiliary variables, face fluxes of the active
+   !< directions, flux difference.
+   !<
+   !< The face fluxes of a null direction are never computed: they keep their zero initialization.
    class(flume_cpu_object),     intent(inout)           :: self          !< The equation.
    real(R8P),                   intent(inout)           :: q(1:,         &
                                                              1-self%ngc:,&
@@ -583,10 +679,25 @@ contains
                                                               1:)         !< Residuals.
    integer(I4P),                intent(in),    optional :: s             !< Runge-Kutta stage.
    class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register for reflux.
+   logical                                              :: is_char       !< Characteristic reconstruction flag.
 
    call self%update_ghost(q=q)
    call self%compute_q_aux(q=q)
-   dq = 0._R8P
+   is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+             is_null=>self%adam%grid%null_xyz)
+   if (.not.is_null(1)) call compute_face_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                                 blocks_number=nb, gamma=gamma, is_characteristic=is_char,            &
+                                                 weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+   if (.not.is_null(2)) call compute_face_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                                 blocks_number=nb, gamma=gamma, is_characteristic=is_char,            &
+                                                 weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+   if (.not.is_null(3)) call compute_face_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                                 blocks_number=nb, gamma=gamma, is_characteristic=is_char,            &
+                                                 weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   call compute_flux_difference(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, dxyz=self%adam%field%dxyz, &
+                                flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq)
+   endassociate
    endsubroutine compute_residuals_weno
 
    subroutine integrate_rk_ls(self)
