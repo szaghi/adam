@@ -64,40 +64,28 @@ src/
 | `adam_ib_object` | Immersed boundary method |
 | `adam_io_object` | HDF5 and restart file I/O |
 | `adam_mpih_object` | MPI wrapper and communication |
-| `adam_mpih_global` | Program-scope MPI handler singleton (module variable, not embedded in types) |
-| `adam_grid_global` | Program-scope grid singleton (module variable, not embedded in types) |
-| `adam_field_global` | Program-scope field singleton (module variable, not embedded in types) |
-| `adam_maps_global` | Program-scope maps singleton (module variable, not embedded in types) |
-| `adam_tree_global` | Program-scope tree singleton (module variable, not embedded in types) |
-| `adam_weno_global` | Program-scope WENO singleton (module variable, not embedded in types) |
-| `adam_ib_global` | Program-scope IB singleton (module variable, not embedded in types) |
-| `adam_rk_global` | Program-scope RK singleton (module variable, not embedded in types) |
-| `adam_globals` | Convenience aggregator re-exporting all 8 CPU singletons (`mpih, grid, field, maps, tree, weno, ib, rk`) |
+| `adam_realm_object` | Abstract app base: **owns every library object as a component** (`io, amr, slices, weno, ib, rk, flail, adam{grid,tree,field,maps}`) + the `_forest` TBP contract |
+| `adam_forest_object` | Time-loop orchestrator (`simulate`, `simulate_from_manifest`): single-realm fast path, AMR-staged path, multi-realm seams |
+| `adam_mpih_global` | The **only** CPU program-scope singleton (`mpih`); `adam_globals` re-exports just this |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian operators |
 | `adam_riemann_euler_library` | Euler equation Riemann solvers |
 
-### FNL Backend Singletons (src/lib/fnl/ and src/app/prism/fnl/)
+### Object ownership: realm composition, not singletons
 
-FNL GPU objects are also exposed as program-scope singletons, eliminating composition-by-pointer in solver types:
+The only program-scope singletons are **`mpih`** (`adam_mpih_global`) and **`mpih_fnl`** (`adam_fnl_mpih_global`). The former `adam_{grid,field,maps,tree,weno,ib,rk}_global` and `adam_fnl_{field,ib,rk,weno}_global` / `adam_prism_fnl_{coil,fwlayer}_global` modules **no longer exist**. Every other object is a per-realm component:
 
-| Singleton | Module | Purpose |
-|-----------|--------|---------|
-| `mpih_fnl` | `adam_fnl_mpih_global` | FNL MPI handler |
-| `field_fnl` | `adam_fnl_field_global` | FNL field (GPU arrays, ghost maps) |
-| `ib_fnl` | `adam_fnl_ib_global` | FNL immersed boundary |
-| `rk_fnl` | `adam_fnl_rk_global` | FNL Runge-Kutta integrator |
-| `weno_fnl` | `adam_fnl_weno_global` | FNL WENO reconstructor |
-| `coil_fnl` | `adam_prism_fnl_coil_global` | FNL coil source (PRISM only) |
-| `fwlayer_fnl` | `adam_prism_fnl_fwlayer_global` | FNL fWLayer (PRISM only) |
+- CPU library objects live in `realm_object` (`self%adam%grid`, `self%adam%field`, `self%adam%maps`, `self%rk`, `self%weno`, `self%ib`, …) and are passed **as arguments** to library calls (e.g. `self%adam%field%update_ghost_local(q=q, grid=self%adam%grid, maps=self%adam%maps)`).
+- FNL helpers are components of the backend type (`prism_fnl_object%field_fnl/ib_fnl/rk_fnl/weno_fnl/coil_fnl`, `adam_prism_fnl_object.F90:47-56`), initialised **after** the common init by argument passing:
 
-**Initialization pattern**: Solver `initialize` must copy CPU value singletons before calling FNL inits:
 ```fortran
-ib = self%ib ; rk = self%rk ; weno = self%weno  ! populate CPU singletons
-call field_fnl%initialize(verbose=.true.)
-call ib_fnl%initialize()
-call rk_fnl%initialize()
-call weno_fnl%initialize()
+call self%prism_common_object%initialize(...)                                        ! builds self%adam, self%rk, ...
+call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps)
+call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
+call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
+call self%weno_fnl%initialize(weno=self%weno)
 ```
+
+Do **not** create new `*_global` singletons. NASTO/CHASE/PATCH predate this refactor (they still reference the deleted singletons); **only PRISM is maintained against the current library** (CHASE verified not to build, 2026-09-23; its successor is FLUME, [issue #35](https://github.com/szaghi/adam/issues/35)).
 
 ### Backend Pattern
 
@@ -241,9 +229,8 @@ fobis build --mode nasto-fnl-nvf --varset local_nvf       # OpenACC with NVF
 fobis build --mode prism-cpu-gnu                          # CPU with GNU compiler
 fobis build --mode prism-fnl-nvf --varset local_nvf       # OpenACC with NVF
 
-# Build other applications
-fobis build --mode chase-cpu-gnu                          # CHASE app (CPU/GNU)
-fobis build --mode chase-fnl-nvf --varset local_nvf       # CHASE app (OpenACC/NVF)
+# Build other applications (NASTO, CHASE, PATCH are NOT maintained against the current library)
+fobis build --mode chase-cpu-gnu                          # CHASE app (CPU/GNU) — does not build (drifted)
 fobis build --mode patch-cpu-gnu                          # PATCH app (CPU/GNU)
 fobis build --mode patch-fnl-nvf --varset local_nvf       # PATCH app (OpenACC/NVF)
 fobis build --mode ascot-nvf-cuda --varset local_nvf      # ASCOT converter (CUDA Fortran)
@@ -338,9 +325,9 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
   - **Critical**: Must be compiled with same MPI library as application
   - Requires ZLIB and SZIP for compression support
   - The library path is the fobos variable **`$HDF5_PREFIX`**, defined per
-    `[varset:*]` in the repo `fobos` (there is no `[common-variables]` section,
-    and no per-compiler `$HDF5_gnu`/`$HDF5_nvf` variables). Selecting a varset
-    selects the HDF5 build:
+    `[varset:*]` in the repo `fobos` (there are no per-compiler
+    `$HDF5_gnu`/`$HDF5_nvf` variables; the only `[common-variables]` entry is
+    `$GPU_ARCH` for the AMD modes). Selecting a varset selects the HDF5 build:
 
     | Varset | `$HDF5_PREFIX` | `$NVF_CC` |
     |---|---|---|
@@ -435,15 +422,16 @@ PRISM's state-vector width `nv` and the `phi`/`psi` slot inclusion are decided i
 - `adam_prism_physics_object%initialize` (`src/app/prism/common/adam_prism_physics_object.F90:296-389`) derives `nv_cl` (and thus `nv`) ONLY for the `divergence_correction = hyperbolic` case. Under `poisson` or `no`, `nv_cl = 0` regardless of whether `constrained_transport = D|B|DB`.
 - `adam_prism_common_object%io_initialize` (`src/app/prism/common/adam_prism_common_object.F90:232-280`) appends `phi`/`psi` to the variable-names array (`q_name`, `dq_name`, `div_name`, `curl_name`) based ONLY on `numerics%constrained_transport_D/B` flags, independent of `physics%nv`.
 
-When CT is enabled WITHOUT hyperbolic correction (i.e. `constrained_transport = D|B|DB` AND `divergence_correction != hyperbolic`), the names array gets 10–11 entries written into a 9-slot allocation. **Silent heap corruption** in init; release-mode SIGSEGV in `__GI___libc_realloc` later when the trampled memory is touched. Debug-mode build catches the WENO `description` separately (see Finding 3 in the global Fortran rules / issue #11 secondary finding) and obscures this primary bug.
+When CT is enabled with Poisson correction (`constrained_transport = D|B|DB` AND `divergence_correction = poisson`), the names array gets 10–11 entries written into a 9-slot allocation. **Silent heap corruption** in init; release-mode SIGSEGV in `__GI___libc_realloc` later when the trampled memory is touched. Debug-mode build catches the WENO `description` separately (see Finding 3 in the global Fortran rules / issue #11 secondary finding) and obscures this primary bug.
 
 Tracked as [issue #11](https://github.com/szaghi/adam/issues/11). Until that issue ships, the **safe input combinations** are:
 
 | `constrained_transport` | `divergence_correction` | Safe? |
 |---|---|---|
-| `no` | any (`no`, `hyperbolic`, `poisson`) | ✅ |
+| `no` | `no` or `poisson` | ✅ |
+| `no` | `hyperbolic` | ⚠️ `var_Jx/y/z` never assigned (the hyperbolic `if/elseif` chain at `adam_prism_physics_object.F90:336-372` has no `else`, and the components have no default) |
 | `D` / `B` / `DB` | `hyperbolic` | ✅ |
-| `D` / `B` / `DB` | `no` | ⚠️ silently corrupt (works by luck) |
+| `D` / `B` / `DB` | `no` (or any unknown value) | ✅ — the `divergence_correction` `case default` resets both CT flags to `.false.` (`adam_prism_numerics_object.F90`), so CT is silently disabled rather than corrupting |
 | `D` / `B` / `DB` | `poisson` | ❌ release-mode SIGSEGV |
 
 When touching `prism_physics_object%initialize`, `prism_common_object%allocate_common`, `prism_common_object%io_initialize`, or any code that allocates state-vector-sized arrays, treat `physics%nv` and `numerics%constrained_transport_*` as **two independent invariants that must be reconciled before either is read**. The structural fix is to make `nv_cl` track `constrained_transport_*` under all correction kinds (option 2 in #11's fix plan), or to gate the `q_name` append on `physics%nv_cl` instead of `numerics%constrained_transport_*` (option 1).
@@ -479,11 +467,11 @@ Distinct from #29: a **1:1 same-resolution INTER-realm mirror seam** (two realms
 
 Reproducer / regression anchor: `src/tests/prism/regression/rmf-2realm-fd-pulse/` (β cadence, holds div(B)=div(D)=0). When touching `post_step_forest`, `fill_seam_from_peer_forest`, or any forest seam path, remember the diagnostic must refill the inter-realm seam and 1:1 seams want β. Tracked in [issue #31](https://github.com/szaghi/adam/issues/31).
 
-### FNL fWLayer host→device copy: don't route it through the mismatched transposed staging buffer (issue #31)
+### FNL buffered transposed copies: staging buffer extent must equal the device destination (issue #31)
 
-The fWLayer field is stored transposed on the FNL device (`f_gpu(nb,i,j,k,3)` vs host `fwlayer%f(3,i,j,k,nb)`). Copying it through FUNDAL's **buffered** transposed HtoD (`dev_memcpy_to_device(..., buf=self%buf_5D_R8P)`) with the **q-field-shaped** staging buffer (last dim `nv=9`, not `3`) passes the device destination through an assumed-shape, **lbound-remapped dummy** `dst(bb(1,1):,…)`; the non-identity remap makes nvfortran materialise a **host copy-in temporary**, so `c_loc(dst)` yields a host address and `cuMemcpyHtoDAsync` rejects it → `CUDA_ERROR_INVALID_VALUE` (crashes at `np>1`, where the decomposition shifts the bounds). **This is NOT a VRAM issue** — the WSL `free/total memory` print (~42 MB) is `/dev/dxg` garbage; the real fault is only visible under `compute-sanitizer`. The q-field copy survives because its buffer extent equals `q_gpu`'s (identity remap, no temp). **Fix: drop the `buffer=` argument** (`adam_prism_fnl_object.F90` `copy_cpu_gpu`) so the fWLayer copy takes the whole-array `dev_assign_to_device(...,ij=[1,5])` branch — `c_loc` then acts on entire contiguous objects, no copy-in temp. This is the nvfortran **device** analogue of the gfortran assumed-shape pointer-section + explicit-lbound copy-temp trap. Regression anchor: `src/tests/prism/regression/rmf-fwl/`.
+History: the fWLayer field used to be copied host→device through FUNDAL's **buffered** transposed HtoD (`dev_memcpy_to_device(..., buf=self%buf_5D_R8P)`) with the **q-shaped** staging buffer (last dim `nv=9`, not `3`). The device destination then reaches an assumed-shape, **lbound-remapped dummy** `dst(bb(1,1):,…)`; the non-identity remap makes nvfortran materialise a **host copy-in temporary**, `c_loc(dst)` yields a host address and `cuMemcpyHtoDAsync` fails with `CUDA_ERROR_INVALID_VALUE` (at `np>1`). **Not a VRAM issue** (the WSL `free/total memory` print is `/dev/dxg` garbage; the fault is only visible under `compute-sanitizer`). Since `7e39318b` the fWLayer holds **no device state** and `copy_cpu_gpu` copies only `q`, whose buffer extent equals `q_gpu`'s (identity remap, no temporary) — the specific crash cannot recur, but **the rule stands for every buffered transposed copy**: pass `buf=` only when the staging buffer's shape equals the destination's; otherwise use whole-array `dev_assign_to_device(..., ij=[1,5])`. Device analogue of the gfortran assumed-shape pointer-section + explicit-lbound copy-temp trap.
 
-**⚠️ The fWLayer input key changed (`8e05d363`) and this anchor is still un-migrated.** `[fWLayer]` now takes a **physical** `width` (real); the cell count `C` became a derived per-block/face array (`C_face = min(ni, ceiling(width/ds))`, `adam_prism_fWLayer_object.F90:144`). The old `C < ni` footgun is gone (the `min` clamps it), but `load_from_file` reads `width` unconditionally with `go_on_fail = .false.` (`:86`, `:189`), so **any** case lacking the key dies at init — even one that uses no layer. `cf16e20d` migrated the eight inactive-layer regression cases (`C = 0` → `width = 0.0`, goldens unaffected); **`rmf-fwl` was deliberately left out** because its layer is active, so translating `C = 6` to a physical width is not a guaranteed round-trip under the `ceiling` and its FNL golden must be re-verified. Until then `rmf-fwl` still `error_stop`s.
+`[fWLayer]` takes a **physical** `width` (real, required even when no layer is used); the per-face cell count is derived, `C_face = min(ni, ceiling(width/ds))` (`adam_prism_fWLayer_object.F90`). All regression cases are migrated; `rmf-fwl` (`width = 0.045`, active layer) was migrated and its FNL golden refreshed in `43981538`.
 
 **Resolved (`bad09954`, 2026-07-28):** `rmf-amr` — the only `fv_centered` regression case — briefly failed its digest golden after `28625dbf` made coil current-density stamping **scheme-aware** (four call sites that unconditionally used `compute_curl_fd_centered` now dispatch on `fdv_scheme`, so FV cases stamp with `compute_curl_fv_centered`; before the fix an FV solve evolved an FD-built source). The change was adjudicated, not rubber-stamped: step 0 is bit-identical including all twelve `coil_*_j_vec_*` rows, divergence appears only at step 5 confined to evolved fields, magnitudes are coherent (max ratios 1.2–1.5), and CPU and FNL show the same `By` shift to 8 digits. Goldens refreshed on both backends. **Caveat on record:** the bump rests on the new path being consistent by construction, not on a measured accuracy win — confirming that needs a refinement study against a coil case with a known analytic vector potential.
 
@@ -505,7 +493,7 @@ All kinds also require a **physical** `width` (>0, an `error_stop` otherwise) an
 
 Two traps:
 
-1. **An unrecognised `PML_type` warns and silently disables the PML** (`case default` → `print` + `PML_TYPE_NONE`) rather than erroring. A typo gives you a run with no absorbing layer and a reflecting boundary, not a crash — the same silent-misconfiguration shape as the `[bc_*]` gap below.
+1. **An unrecognised `PML_type` is fatal** (`error_stop` listing the accepted spellings, `0259860f`); before that commit it silently disabled the PML. Values are passed through `strip_control` first, so CRLF input parses.
 2. **`CLASSIC_DIRECT` is not an RK-integrated PML.** Every `rk_pml` call site is guarded `/= 'CLASSIC_DIRECT'` — `initialize`, `initialize_stages`, `compute_stage`, `assign_stage`, `update_q_pml` are all skipped (`adam_prism_cpu_object.F90:4096-4195`, `adam_prism_fnl_object.F90:657`). It instead applies direct per-face damping kernels (`apply_{x,y,z}_face_direct_damping_dev`). It exists **for testing** (`d64369b5`); treat it as an instrument, not the production path, and do not assume PML auxiliary state advances under it.
 
 CPU time integration is implemented only for `CLASSIC`, `CLASSIC_DIRECT`, `BERMUDEZ` and `CFS` — anything else `error_stop`s at `adam_prism_cpu_object.F90:342-346`.
@@ -525,19 +513,30 @@ PIC configuration lives in its own `[PIC]` section (`adam_prism_pic_object.F90`,
 
 Particle state is `q_pic(8, particle_number)` with `pic_fields(6, particle_number)`, allocated only under PIC (`adam_prism_common_object.F90:275-285`).
 
-### `[bc_*] type` has no `default` branch — a misspelt BC is silently undefined
+### `[bc_*] type`: accepted spellings, and PRISM `periodic` is NOT library periodicity
 
-The six face sections `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]`, `[bc_z_max]` each take a `type`. The parser (`adam_prism_bc_object.F90:85-101`) accepts exactly seven spellings:
+The six face sections `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]`, `[bc_z_max]` each take a `type`. The parser (`adam_prism_bc_object.F90`) accepts exactly seven spellings:
 
 `extrapolation` · `Neumann` · `Dirichlet` · `Silver_Muller` · `periodic` · `radiative` · `PEC` (or `pec`)
 
-Matching is **case-sensitive** and the `select case` has **no `case default`**. Worse, `prism_bc_object` declares `integer(I4P) :: bc_type(6)` with **no default initializer** and `initialize` only allocates `q` before calling the parser — so an unrecognised string leaves `bc_type(b)` **undefined**, not merely wrong. (Contrast `grid_object`, which does initialise `bc_type(6) = 0_I4P`.) The downstream apply path is an `if/elseif` chain with no final `else`, so an unmatched value silently applies **no boundary condition at all** on that face.
+Matching is case-sensitive; an unrecognised value is **fatal** (`case default` → `error_stop` naming section, value and accepted spellings, `0259860f`), values pass through `strip_control` (CRLF-safe), and `bc_type(6)` is default-initialised to `0_I4P`.
+
+**PRISM `periodic` is an app constant (`BC_PERIOD = 5`), not the library's `BC_PERIODIC = -1`** (`adam_parameters.f90:19`). `grid%set_bc_type` sets `is_ijk_periodic` only for `BC_PERIODIC` (`adam_grid_object.F90:387-389`), so the tree never builds periodic neighbours and the CPU backend fills periodic ghosts by a **same-block** wrap (`adam_prism_cpu_object.F90:703-718`) — correct only when a single block spans the periodic direction. **`Dirichlet` writes zero**, not a prescribed value, and edge/corner crown rows (`fec > 6`) receive no BC at all.
 
 Note the underscore spelling `Silver_Muller` — the hyphenated form appears only in directory names (`BC_tests/Silver_Muller/`), never as an accepted input value. `PEC` is the only kind with a lowercase alias.
 
 There is a **second, derived** taxonomy for the elliptic solver: `build_elliptic_bc_types` maps each face BC into `ELL_BC_{DIRICHLET,PERIODIC,EXACT_OPEN,PEC}` (`Neumann`, `Silver_Muller` and `radiative` all collapse to `EXACT_OPEN`). Unlike the EM parser, **this mapping is total** — `BC_EXTRAPOLATION` and any unmapped value both `error_stop`. So a misconfigured face can pass EM setup silently and only fail later, when an elliptic solve (PIC initialisation, divergence correction) first touches it.
 
-When adding a BC kind, update **both** `select case`s, and prefer adding the missing `case default` to the parser over relying on callers to notice.
+When adding a BC kind, update **both** `select case`s.
+
+## Suspected, unverified defects (do not fix before verifying)
+
+Recorded in [issue #36](https://github.com/szaghi/adam/issues/36); each needs a numerical confirmation test first:
+
+- **S-1** library LLF Riemann solver may double-count tangential kinetic energy in the energy flux (`adam_riemann_euler_library.F90:560,564`).
+- **S-2** NASTO FNL eigenvectors: `uvw_r2` evaluates to `-u` for the y direction (`adam_nasto_fnl_cns_kernels.F90:103`); reported `|L·R − I| ≈ 1` in y.
+
+Confirmed by code reading (not planned for a fix — CHASE is superseded by FLUME, #35): CHASE's characteristic projection is applied transposed and its y/z right-eigenvector matrix is singular; only 1-D x Sod inputs ever exercised it.
 
 ## Development Environment: WSL2 GPU+MPI Caveats
 
