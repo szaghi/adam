@@ -45,65 +45,37 @@ The SDK provides physics-agnostic building blocks reused identically by every ap
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian finite difference operators |
 | `adam_riemann_euler_library` | Riemann solvers for the Euler equations |
 
-### Program-scope singletons
+### Object ownership: the realm
 
-Every core object is exposed as a **program-scope module variable** — a singleton accessible anywhere by `use`-ing its module, without passing it as a dummy argument or embedding it inside another derived type. This eliminates composition-by-pointer chains and makes inter-module dependencies explicit and local.
+Every library object belongs to a **realm** — the per-domain solver instance — as a component of `realm_object` (`src/lib/common/adam_realm_object.F90`), from which every application type inherits:
 
-#### CPU singletons (`src/lib/common/`)
+| Component | Type | Role |
+|-----------|------|------|
+| `adam` | `adam_object` | owns `grid`, `tree`, `field`, `maps` as value components |
+| `io` | `io_object` | INI file handle, output/restart configuration |
+| `amr` | `amr_object` | refinement markers |
+| `weno`, `rk`, `ib` | `weno_object`, `rk_object`, `ib_object` | reconstruction, time integration, immersed boundary |
+| `slices`, `flail`, `leapfrog`, `blanesmoan`, `cfm` | … | slices output, linear algebra, alternative integrators |
 
-| Module | Variable | Type |
-|--------|----------|------|
-| `adam_mpih_global` | `mpih` | `mpih_object` |
-| `adam_grid_global` | `grid` | `grid_object` |
-| `adam_field_global` | `field` | `field_object` |
-| `adam_maps_global` | `maps` | `maps_object` |
-| `adam_weno_global` | `weno` | `weno_object` |
-| `adam_ib_global` | `ib` | `ib_object` |
-| `adam_rk_global` | `rk` | `rk_object` |
+Library routines that need another object receive it **as an argument**, e.g. `call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)`. Because each realm owns its objects, several realms (a multi-realm *forest*) coexist in one process without sharing state.
 
-All seven are re-exported by `adam_common_library`.
-
-#### FNL GPU singletons (`src/lib/fnl/`)
-
-| Module | Variable | Type |
-|--------|----------|------|
-| `adam_fnl_mpih_global` | `mpih_fnl` | `mpih_fnl_object` |
-| `adam_fnl_field_global` | `field_fnl` | `field_fnl_object` |
-| `adam_fnl_ib_global` | `ib_fnl` | `ib_fnl_object` |
-| `adam_fnl_rk_global` | `rk_fnl` | `rk_fnl_object` |
-| `adam_fnl_weno_global` | `weno_fnl` | `weno_fnl_object` |
-
-All five are re-exported by `adam_fnl_library`.
-
-Application-level FNL backends may define additional singletons for app-specific GPU objects (e.g. `coil_fnl`, `fwlayer_fnl` in PRISM).
-
-#### Usage pattern
-
-```fortran
-! Access grid dimensions and field block count from any module — no passing needed
-use :: adam_grid_global,  only: grid
-use :: adam_field_global, only: field
-
-associate(ni=>grid%ni, nj=>grid%nj, ngc=>grid%ngc, nb=>field%nb)
-  ! ... kernel loops
-endassociate
-```
-
-Singletons are **never** passed as dummy arguments and **never** embedded as members of other derived types.
+The only program-scope singletons are the MPI handlers, which are genuinely one per process: `mpih` (`adam_mpih_global`, CPU) and `mpih_fnl` (`adam_fnl_mpih_global`, FNL — it also owns the device context, so it must be initialised exactly once).
 
 ### FNL initialization order
 
-CPU value singletons (`ib`, `rk`, `weno`) must be populated from the solver's owned copies **before** FNL objects are initialized, because FNL `%initialize()` reads them at startup:
+FNL helpers (`field_fnl`, `ib_fnl`, `rk_fnl`, `weno_fnl`, and app-specific ones such as PRISM's `coil_fnl`) are components of the application's FNL type, one set per realm. They are initialised **after** the common (CPU) initialisation, from the realm's own objects:
 
 ```fortran
-ib   = self%ib    ! copy cpu ib_object  → ib  singleton
-rk   = self%rk    ! copy cpu rk_object  → rk  singleton
-weno = self%weno  ! copy cpu weno_object → weno singleton
-call mpih_fnl%initialize(do_mpi_init=.true., do_device_init=.true.)
-call field_fnl%initialize(...)
-call ib_fnl%initialize()
-call rk_fnl%initialize()
-call weno_fnl%initialize()
+! prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90)
+if (.not.mpih_fnl_is_initialized) then                                           ! once per process
+   call mpih_fnl%initialize(do_mpi_init=..., do_device_init=.true.)
+   mpih_fnl_is_initialized = .true.
+endif
+call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
+call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
+call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
+call self%weno_fnl%initialize(weno=self%weno)
 ```
 
 ### Backend libraries
@@ -155,47 +127,34 @@ app/<name>/gmp/       # OpenMP offloading entry point
 
 ### Adding a new solver
 
-A new physics application requires only implementing the problem-specific layer; the entire SDK is reused unchanged. SDK objects are accessed through the program-scope singletons — the solver type owns only the physics-specific state:
+A new physics application requires only implementing the problem-specific layer; the entire SDK is reused unchanged. The application type extends `realm_object`, inheriting every SDK object as a component, and adds only its physics-specific state:
 
 ```fortran
-! SDK objects are singletons — accessed via `use`, not stored in the type
-use :: adam_grid_global,  only: grid   ! grid_object  singleton
-use :: adam_field_global, only: field  ! field_object singleton
-use :: adam_ib_global,    only: ib     ! ib_object    singleton
-use :: adam_rk_global,    only: rk     ! rk_object    singleton
-use :: adam_weno_global,  only: weno   ! weno_object  singleton
-
-type :: my_solver_object
-   ! ---- infrastructure still owned (set up before singletons) ----
-   type(mpih_object) :: mpih     ! MPI handler
-   type(amr_object)  :: amr      ! refinement markers
-   ! ---- only physics-specific state is new ----
+type, extends(realm_object) :: my_common_object
+   ! inherited: io, amr, slices, weno, ib, rk, flail, adam (grid, tree, field, maps), ...
+   real(R8P), allocatable  :: q(:,:,:,:,:)   ! conservative variables (nv, i, j, k, nb)
    type(my_physics_object) :: physics
    type(my_bc_object)      :: bc
    type(my_ic_object)      :: ic
-   type(my_io_object)      :: io
-end type
+   type(my_time_object)    :: time
+endtype my_common_object
+
+type, extends(my_common_object) :: my_cpu_object   ! and my_fnl_object for the GPU backend
+   ...
+endtype my_cpu_object
 ```
 
-During `initialize`, the solver populates the CPU singletons from its owned objects before handing off to the GPU layer:
+The common `initialize` reads the physics first (it decides `nv`), then calls `realm_object%initialize`, which builds grid, tree, maps, field, AMR, IB, slices, RK, WENO and FDV from the INI file:
 
 ```fortran
-subroutine initialize(self, filename)
-class(my_solver_object), intent(inout) :: self
-character(*),            intent(in)    :: filename
-! 1. initialise owned state
-call self%mpih%initialize(...)
-call grid%initialize(...)
-call field%initialize(...)
-ib = self%ib ; rk = self%rk ; weno = self%weno  ! populate singletons
-! 2. initialise GPU layer (FNL)
-call mpih_fnl%initialize(...)
-call field_fnl%initialize(...)
-call ib_fnl%initialize()
-call rk_fnl%initialize()
-call weno_fnl%initialize()
-endsubroutine
+call self%io%initialize(filename=filename)                            ! INI file handle
+call self%physics%initialize(file_parameters=self%io%file_parameters) ! decides nv
+call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv)
+call self%bc%initialize(file_parameters=self%io%file_parameters)
+call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
 ```
+
+The time loop is not written by the application: the program hands an array of realms to `forest_object%simulate`, which drives the `_forest` type-bound procedures (`initialize_forest`, `compute_local_dt_forest`, `advance_one_step_forest`, `post_step_forest`, `is_done_forest`, `finalize_forest`, plus the staged family used on AMR seams and multi-realm runs). PRISM (`src/app/prism`) is the reference implementation.
 
 ## AMR data design: inverse indexing
 

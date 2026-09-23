@@ -1,6 +1,6 @@
 # ADAM Architecture Reference
 
-Comprehensive reference for class hierarchy, singletons, key types, library structure, and design patterns.
+Comprehensive reference for class hierarchy, object ownership, key types, library structure, and design patterns.
 
 ---
 
@@ -52,71 +52,35 @@ src/app/patch/
 
 ---
 
-## Program-Scope Singletons
+## Object Ownership (realm composition)
 
-Singletons are 13-line modules exposing a single `target` module variable. They are accessed via `use`, never passed as dummy arguments, never embedded in derived types.
+**Only two program-scope singletons exist:** `mpih` (`adam_mpih_global`, re-exported by `adam_common_library` and by the convenience module `adam_globals`) and `mpih_fnl` (`adam_fnl_mpih_global`, re-exported by `adam_fnl_library`). Both are one-per-process by nature; `mpih_fnl` also owns the device context and must be initialised exactly once (`mpih_fnl_is_initialized` guard — FUNDAL's `initialize` is `intent(out)`).
 
-### CPU Singletons (`src/lib/common/`)
+The former `adam_{grid,field,maps,tree,weno,ib,rk}_global`, `adam_fnl_{field,ib,rk,weno}_global` and `adam_prism_fnl_{coil,fwlayer}_global` modules **were deleted** (issues #14/#15 and the FNL follow-up `b2cb77c5`). Every other object is a **per-realm component**:
 
-| Module | Variable | Type | Purpose |
-|--------|----------|------|---------|
-| `adam_mpih_global` | `mpih` | `mpih_object` | MPI handler (rank, comm, timing) |
-| `adam_grid_global` | `grid` | `grid_object` | Domain/discretization parameters |
-| `adam_field_global` | `field` | `field_object` | Block field data and mesh arrays |
-| `adam_maps_global` | `maps` | `maps_object` | Ghost cell communication maps |
-| `adam_tree_global` | `tree` | `tree_object` | AMR Morton-ordered octree |
-| `adam_weno_global` | `weno` | `weno_object` | WENO scheme coefficients |
-| `adam_ib_global` | `ib` | `ib_object` | Immersed boundary / eikonal solver |
-| `adam_rk_global` | `rk` | `rk_object` | Runge-Kutta integrator + stage arrays |
+| Where | Components |
+|-------|-----------|
+| `realm_object` | `io, amr, slices, blanesmoan, cfm, leapfrog, flail, weno, ib, rk, adam` |
+| `adam_object` (`self%adam`) | `grid, tree, field, maps` |
+| app FNL type (e.g. `prism_fnl_object`) | `field_fnl, ib_fnl, rk_fnl, weno_fnl` (+ app-specific: `coil_fnl, pic_fnl, pml_fnl, …`) |
 
-All 8 are re-exported via `adam_common_library` (and bundled by the convenience module `adam_globals`).
+Rules:
 
-### FNL GPU Singletons (`src/lib/fnl/`)
-
-| Module | Variable | Type | Purpose |
-|--------|----------|------|---------|
-| `adam_fnl_mpih_global` | `mpih_fnl` | `mpih_fnl_object` | GPU-aware MPI + device init |
-| `adam_fnl_field_global` | `field_fnl` | `field_fnl_object` | GPU field arrays (coords, dxyz) |
-| `adam_fnl_ib_global` | `ib_fnl` | `ib_fnl_object` | GPU distance function phi |
-| `adam_fnl_rk_global` | `rk_fnl` | `rk_fnl_object` | GPU RK stage arrays |
-| `adam_fnl_weno_global` | `weno_fnl` | `weno_fnl_object` | GPU WENO coefficients |
-
-All 5 are re-exported via `adam_fnl_library`.
-
-### PRISM FNL Singletons (`src/app/prism/fnl/`)
-
-| Module | Variable | Type | Purpose |
-|--------|----------|------|---------|
-| `adam_prism_fnl_coil_global` | `coil_fnl` | `prism_fnl_coil_object` | GPU coil current arrays |
-| `adam_prism_fnl_fwlayer_global` | `fwlayer_fnl` | `prism_fnl_fwlayer_object` | GPU Faraday-wall layer arrays |
-
-Both re-exported via `adam_prism_fnl_library`.
-
-### Singleton Template
+- Library routines receive the objects they need **as arguments** (`update_ghost_local(grid=, maps=, q=)`, `rk%compute_stage(..., field=)`, `ib%compute_phi(..., grid=, field=)`).
+- Do not add new `*_global` modules or module-level mutable state: several realms coexist in one process (forest), and module state would be shared between them (PRISM's module-level `compute_fluxes_maxwell` pointer is a live example of that bug).
+- FNL helpers are initialised **after** the common init, from the realm's own objects:
 
 ```fortran
-module adam_<name>_global
-use :: adam_<name>_object
-implicit none
-public
-type(<name>_object), target :: <name>
-endmodule adam_<name>_global
-```
-
-### FNL Initialization Order
-
-CPU value singletons (`ib`, `rk`, `weno`) must be copied from the solver state **before** calling FNL `%initialize()`, because FNL objects read them at init time:
-
-```fortran
-! In nasto_fnl_object%initialize / prism_fnl_object%initialize_prism:
-ib   = self%ib    ! copy CPU ib_object into ib singleton
-rk   = self%rk    ! copy CPU rk_object into rk singleton
-weno = self%weno  ! copy CPU weno_object into weno singleton
-call mpih_fnl%initialize(do_mpi_init=.true., do_device_init=.true.)
-call field_fnl%initialize(...)
-call ib_fnl%initialize()
-call rk_fnl%initialize()
-call weno_fnl%initialize()
+! prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90)
+if (.not.mpih_fnl_is_initialized) then                                           ! once per process
+   call mpih_fnl%initialize(do_mpi_init=..., do_device_init=.true.)
+   mpih_fnl_is_initialized = .true.
+endif
+call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
+call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
+call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
+call self%weno_fnl%initialize(weno=self%weno)
 ```
 
 ---
@@ -125,7 +89,7 @@ call weno_fnl%initialize()
 
 ### `adam_object` (`src/lib/common/adam_adam_object.F90`)
 
-After issue #10 Step 1 (commit `b40dc451`), `adam_object` owns `grid`, `tree`, `field`, `maps` as **value** components (no longer method-only). The program-scope singletons still exist but are now **pointer shims** aliasing into `adam_singleton%grid`, etc. (see "Program-Scope Singletons" below).
+`adam_object` owns `grid`, `tree`, `field`, `maps` as **value** components (issue #10 Step 1, `b40dc451`). The pointer-shim singletons that once aliased them were deleted; reach them as `self%adam%grid`, etc. (see "Object Ownership" above).
 
 ```fortran
 type :: adam_object
@@ -145,7 +109,7 @@ type :: realm_object
    type(io_object)         :: io
    type(adam_object)       :: adam     ! owns grid/tree/field/maps as value components (Step 1)
    type(amr_object)        :: amr
-   type(weno_object)       :: weno     ! issue #10 Step 2: moved here from singleton
+   type(weno_object)       :: weno     ! issue #10 Step 2
    type(ib_object)         :: ib       ! issue #10 Step 2
    type(rk_object)         :: rk       ! issue #10 Step 2
    type(slices_object)     :: slices
@@ -361,7 +325,7 @@ type(maps_fnl_object) :: maps           ! GPU communication maps
 integer(I4P), pointer :: fec_1_6_array_gpu(:) => null()
 real(R8P),    pointer :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:)
 real(R8P),    pointer :: dxyz_gpu(:,:)
-! Scalar replicas (point into CPU field singleton):
+! Scalar replicas (point into the realm's CPU field_object):
 integer(I4P), pointer :: ngc, ni, nj, nk, nb, blocks_number, nv
 ```
 
@@ -473,9 +437,7 @@ adam_common_library
  ├── adam_leapfrog_object, adam_flail_object, adam_slices_object
  ├── adam_tree_node_object, adam_tree_bucket_object
  ├── adam_fdv_operators_library, adam_riemann_euler_library
- └── [8 CPU singletons]: mpih_global, grid_global, field_global, maps_global,
-                          tree_global, weno_global, ib_global, rk_global
-                         (also bundled by `adam_globals` convenience aggregator)
+ └── adam_mpih_global  (the only CPU singleton; also via `adam_globals`)
 
 adam_fnl_library
  ├── adam_common_library  (full CPU layer)
@@ -483,8 +445,7 @@ adam_fnl_library
  ├── adam_fnl_rk_object, adam_fnl_maps_object, adam_fnl_mpih_object
  ├── adam_fnl_field_kernels, adam_fnl_ib_kernels, adam_fnl_rk_kernels, adam_fnl_weno_kernels
  ├── adam_fnl_fdv_operators_library
- └── [5 FNL singletons]: fnl_mpih_global, fnl_field_global, fnl_weno_global,
-                          fnl_ib_global, fnl_rk_global
+ └── adam_fnl_mpih_global  (the only FNL singleton)
 
 adam_nasto_common_library
  ├── adam_nasto_bc_object, adam_nasto_common_object, adam_nasto_eos_object
@@ -508,8 +469,9 @@ adam_prism_common_library
 adam_prism_fnl_library
  ├── adam_prism_common_library
  ├── adam_fnl_library
- ├── adam_prism_fnl_coil_object,   adam_prism_fnl_coil_global
- ├── adam_prism_fnl_fwlayer_object, adam_prism_fnl_fwlayer_global
+ ├── adam_prism_fnl_coil_object, adam_prism_fnl_fwlayer_object (kernel only, no device state)
+ ├── adam_prism_fnl_pic_object, adam_prism_fnl_leapfrog_pic_object, adam_prism_fnl_rk_pic_object
+ ├── adam_prism_fnl_pml_object, adam_prism_fnl_rk_pml_object
  └── adam_prism_fnl_external_fields_kernels
 ```
 
@@ -517,23 +479,20 @@ adam_prism_fnl_library
 
 ## Design Patterns
 
-### Singleton Access Pattern
+### Object Access Pattern
 
 ```fortran
-! Any module needing the grid dimensions:
-use :: adam_grid_global, only: grid
-use :: adam_field_global, only: field
-...
-associate(ni=>grid%ni, nj=>grid%nj, ngc=>grid%ngc, nb=>field%nb)
-  ...
+! Inside a realm TBP: reach library objects through self, pass them on as arguments
+associate(ni=>self%adam%grid%ni, ngc=>self%adam%grid%ngc, nb=>self%adam%field%nb)
+   call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
 endassociate
 ```
 
-Never: `subroutine foo(self, grid, field)` — singletons are not passed as arguments.
+`mpih` / `mpih_fnl` are the only objects reached by `use` of a global module.
 
 ### Scalar Replica Pointers
 
-Several types cache frequently used integers as pointer members (e.g. `integer(I4P), pointer :: ngc`) pointing into the canonical storage in `grid_object` or `field_object`. These are set once at initialization via `ngc => grid%ngc`. Do not read these via `self%ngc` in new code — use the singleton directly.
+`realm_object` caches frequently used integers as pointer components (`ngc, ni, nj, nk, nb, blocks_number, nv`) pointing into `self%adam%grid` / `self%adam%field`; they are associated in `realm_object%initialize` and may be read as `self%ni` etc. FNL helper types keep the same kind of replicas into the realm's CPU objects.
 
 ### 5D Field Array Layout
 

@@ -518,9 +518,9 @@ dd = aa + bb
 !$omp end parallel
 ```
 
-## Module-Level Singleton Pattern
+## Object Ownership: Realm Composition, Not Singletons
 
-ADAM uses **module-level singletons** for program-scope objects rather than embedding instances in every derived type. All follow the same 13-line definition pattern:
+ADAM keeps **exactly two** program-scope singletons, the per-process MPI handlers:
 
 ```fortran
 module adam_mpih_global
@@ -532,90 +532,47 @@ type(mpih_object), target :: mpih  !< Program-scope singleton.
 endmodule adam_mpih_global
 ```
 
-### CPU Singletons (`src/lib/common/`)
+and its FNL twin `mpih_fnl` (`adam_fnl_mpih_global`, initialised once per process behind the `mpih_fnl_is_initialized` guard because it owns the device context). Everything else is a **per-realm component**:
 
-All re-exported by `adam_common_library` (and bundled by the convenience module `adam_globals`):
+| Reached as | Object |
+|------------|--------|
+| `self%adam%grid`, `self%adam%tree`, `self%adam%field`, `self%adam%maps` | grid, octree, field storage, communication maps (`adam_object` value components) |
+| `self%io`, `self%amr`, `self%weno`, `self%rk`, `self%ib`, `self%slices`, `self%flail` | `realm_object` value components |
+| `self%field_fnl`, `self%ib_fnl`, `self%rk_fnl`, `self%weno_fnl` | FNL helpers, components of the app's FNL type |
 
-| Singleton | Module | Type | Purpose |
-|-----------|--------|------|---------|
-| `mpih` | `adam_mpih_global` | `mpih_object` | MPI handler |
-| `grid` | `adam_grid_global` | `grid_object` | Structured grid geometry |
-| `field` | `adam_field_global` | `field_object` | Field variables and metrics |
-| `maps` | `adam_maps_global` | `maps_object` | AMR block/communication maps |
-| `tree` | `adam_tree_global` | `tree_object` | AMR Morton-ordered octree |
-| `weno` | `adam_weno_global` | `weno_object` | WENO reconstruction coefficients |
-| `ib` | `adam_ib_global` | `ib_object` | Immersed boundary data |
-| `rk` | `adam_rk_global` | `rk_object` | Runge-Kutta scheme coefficients |
-
-### FNL Backend Singletons (`src/lib/fnl/`, `src/app/prism/fnl/`)
-
-All re-exported by `adam_fnl_library` (or `adam_prism_fnl_library` for PRISM-specific):
-
-| Singleton | Module | Type | Purpose |
-|-----------|--------|------|---------|
-| `mpih_fnl` | `adam_fnl_mpih_global` | `mpih_fnl_object` | FNL MPI handler |
-| `field_fnl` | `adam_fnl_field_global` | `field_fnl_object` | FNL field (GPU arrays, ghost maps) |
-| `ib_fnl` | `adam_fnl_ib_global` | `ib_fnl_object` | FNL immersed boundary GPU arrays |
-| `rk_fnl` | `adam_fnl_rk_global` | `rk_fnl_object` | FNL RK GPU coefficient arrays |
-| `weno_fnl` | `adam_fnl_weno_global` | `weno_fnl_object` | FNL WENO GPU coefficient arrays |
-| `coil_fnl` | `adam_prism_fnl_coil_global` | `prism_fnl_coil_object` | FNL coil source (PRISM only) |
-| `fwlayer_fnl` | `adam_prism_fnl_fwlayer_global` | `prism_fnl_fwlayer_object` | FNL fWLayer (PRISM only) |
-
-### Accessing Singletons
-
-Access directly without `self%`:
+### Accessing Objects
 
 ```fortran
-call mpih%print_message('my_object%initialize start')
-if (mpih%myrank == 0) then
-   ! root-only work
-endif
-
-self%ni  => grid%ni
-self%ngc => grid%ngc
-associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc)
-
-! FNL backend: access GPU data from any method
-call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
-call ib_fnl%evolve_eikonal(dq_gpu=dq_gpu, q_gpu=q_gpu, dxyz_gpu=field_fnl%dxyz_gpu)
+call mpih%print_message('my_object%initialize start')          ! singleton: use the global module
+associate(ni=>self%adam%grid%ni, ngc=>self%adam%grid%ngc)       ! realm objects: through self
+   call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+endassociate
 ```
 
-If a local variable or dummy argument shares a name with a singleton, use an import alias:
-
-```fortran
-use :: adam_field_global, only: adam_field => field
-use :: adam_maps_global,  only: adam_maps  => maps
-```
+Library procedures that need another object take it **as a dummy argument** (`grid=`, `field=`, `maps=`, `ib=`, `rk=`, `weno=`); that is the intended interface, not a smell.
 
 ### Initialization Order
 
-**CPU singletons** (`mpih`, `grid`, `field`, `maps`, `tree`, `weno`, `ib`, `rk`) are initialized once in the top-level solver `initialize` / `initialize_common`. Sub-objects must not reinitialize them.
-
-`field`, `maps`, and `tree` are now full-fledged singletons (no pointer members anywhere) — there is nothing to "wire up" for them; just `use` and call `%initialize`.
-
-**FNL singletons** must be initialized after the corresponding CPU singletons are populated. The integrator/scheme handlers `weno`, `ib`, and `rk` are still composed by VALUE in equation/solver types, so the solver must copy those into the global singletons before calling the FNL inits:
+The common `initialize` reads the physics first (it decides `nv`), then `realm_object%initialize` builds grid, tree, maps, field, AMR, IB, slices, RK, WENO and FDV. FNL helpers are initialised afterwards, from the realm's objects:
 
 ```fortran
-! Populate CPU value singletons from self
-ib   = self%ib
-rk   = self%rk
-weno = self%weno
-! Now FNL inits can read the singletons
-call field_fnl%initialize(verbose=.true.)
-call ib_fnl%initialize()
-call rk_fnl%initialize()
-call weno_fnl%initialize()
-call coil_fnl%initialize(coil=self%coil)           ! PRISM only
-call fwlayer_fnl%initialize(fwlayer=self%fwlayer)  ! PRISM only
+! prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90)
+if (.not.mpih_fnl_is_initialized) then                                           ! once per process
+   call mpih_fnl%initialize(do_mpi_init=..., do_device_init=.true.)
+   mpih_fnl_is_initialized = .true.
+endif
+call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
+call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
+call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
+call self%weno_fnl%initialize(weno=self%weno)
 ```
 
 ### What Not to Do
 
-- Do **not** embed any singleton type in a new derived type (neither as value nor as pointer member).
-- Do **not** pass any singleton as a dummy argument — just `use` the global module.
-- Do **not** write `field%grid%xxx` or `ib%grid%xxx` — access `grid%xxx` from the singleton directly.
-- Do **not** write `self%field%maps%xxx`, `self%adam%field%xxx`, `self%adam%maps%xxx`, or `self%adam%tree%xxx` — access `field%xxx`, `maps%xxx`, `tree%xxx` from the singletons directly.
-- Do **not** write `self%field_gpu%xxx` or `self%ib_gpu%xxx` in FNL solvers — use `field_fnl%xxx`, `ib_fnl%xxx`, etc.
+- Do **not** add new `*_global` singleton modules or module-level mutable state (including module-level procedure pointers): several realms share one process in a forest run, and module state would leak between them.
+- Do **not** assume a CPU object is reachable by `use`; pass it, or reach it through `self`.
+- Do **not** follow the old "copy `ib = self%ib ; rk = self%rk ; weno = self%weno` before the FNL inits" pattern — those singletons no longer exist.
 
 ## Quick Reference Table
 
@@ -631,6 +588,5 @@ call fwlayer_fnl%initialize(fwlayer=self%fwlayer)  ! PRISM only
 | `intent(out)` | Assign all derived type components |
 | Modules | Use `private` by default, expose with `public` |
 | OpenMP | Use `default(none)`, `reduction` for accumulation |
-| CPU singletons | Use `mpih`, `grid`, `field`, `maps`, `weno`, `ib`, `rk` from `adam_common_library`; never embed in types |
-| FNL singletons | Use `field_fnl`, `ib_fnl`, `rk_fnl`, `weno_fnl`, `mpih_fnl` from `adam_fnl_library`; never embed in types |
-| FNL init order | Copy CPU value singletons (`ib=self%ib; rk=self%rk; weno=self%weno`) before calling FNL `%initialize()` |
+| Singletons | Only `mpih` and `mpih_fnl`; every other object is a realm component (`self%adam%grid`, `self%rk`, `self%field_fnl`, …) passed as an argument where needed |
+| FNL init order | Common init first, then `self%field_fnl/ib_fnl/rk_fnl/weno_fnl%initialize(...)` from the realm's objects |

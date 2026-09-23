@@ -54,9 +54,9 @@ Structured protocols for common tasks and emergency debugging.
 
 1. Understand existing architecture (which backend? CPU/GPU/both?)
 2. Propose design: module structure, type extensions, interfaces
-   - For new CPU program-scope state: add a `adam_<name>_global.F90` singleton module and expose it via `adam_common_library`
-   - For new FNL GPU state: add a `adam_fnl_<name>_global.F90` singleton and expose it via `adam_fnl_library`
-   - Never embed singleton types as members of new derived types; never pass singletons as dummy arguments
+   - New CPU state belongs to a realm: add it as a component of the app type (or of `realm_object`/`adam_object` if it is library-wide) and pass it as an argument where other objects need it
+   - New FNL GPU state: a component of the app's FNL type, initialised after the common init from the realm's objects
+   - Do not add `*_global` singleton modules or module-level mutable state (only `mpih`/`mpih_fnl` are singletons; forest runs host several realms per process)
 3. Identify test cases for verification
 4. Consider multi-compiler compatibility
 5. Document with references (papers, standards)
