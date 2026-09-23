@@ -48,6 +48,7 @@ type :: field_fnl_object
       procedure, pass(self) :: copy_cpu_gpu           !< Copy data from realm-local CPU field/maps to (field_fnl_object) GPU.
       ! procedure, pass(self) :: copy_transpose_cpu_gpu !< Transpose data from GPU to CPU.
       ! procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
+      procedure, pass(self) :: destroy                !< Free device data owned by the helper.
       procedure, pass(self) :: initialize             !< Initialize field from realm-local CPU grid/field/maps.
       procedure, pass(self) :: update_ghost_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu   !< Update ghosts MPI.
@@ -174,6 +175,40 @@ contains
    call dev_memcpy_from_device(dst=q_cpu, src=q_t_gpu)
    endassociate
    endsubroutine copy_transpose_gpu_cpu
+
+   subroutine destroy(self)
+   !< Free device data owned by the field FNL helper, maps included.
+   class(field_fnl_object), intent(inout) :: self !< The FNL helper.
+
+   call self%maps%destroy()
+   if (associated(self%fec_1_6_array_gpu)) then
+      call dev_free(self%fec_1_6_array_gpu, mydev)
+      nullify(self%fec_1_6_array_gpu)
+   endif
+   if (associated(self%x_cell_gpu)) then
+      call dev_free(self%x_cell_gpu, mydev)
+      nullify(self%x_cell_gpu)
+   endif
+   if (associated(self%y_cell_gpu)) then
+      call dev_free(self%y_cell_gpu, mydev)
+      nullify(self%y_cell_gpu)
+   endif
+   if (associated(self%z_cell_gpu)) then
+      call dev_free(self%z_cell_gpu, mydev)
+      nullify(self%z_cell_gpu)
+   endif
+   if (associated(self%dxyz_gpu)) then
+      call dev_free(self%dxyz_gpu, mydev)
+      nullify(self%dxyz_gpu)
+   endif
+   nullify(self%ngc)
+   nullify(self%ni)
+   nullify(self%nj)
+   nullify(self%nk)
+   nullify(self%nb)
+   nullify(self%blocks_number)
+   nullify(self%nv)
+   endsubroutine destroy
 
    subroutine initialize(self, grid, field, maps, nv_aux, q_gpu, verbose)
    !< Initialize field from the (realm-local) CPU `grid`, `field` and `maps`.

@@ -32,10 +32,45 @@ type :: weno_fnl_object
    integer(I4P), pointer :: cell_scheme_gpu(:,:,:,:,:) => null() !< Modified order close to solids (GPU variable).
    contains
       ! public methods
+      procedure, pass(self) :: destroy    !< Free device data owned by the helper.
       procedure, pass(self) :: initialize !< Initialize class from weno global singleton.
 endtype weno_fnl_object
 contains
    ! public methods
+   subroutine destroy(self)
+   !< Free device data owned by the WENO FNL helper.
+   class(weno_fnl_object), intent(inout) :: self !< The FNL helper.
+
+   if (associated(self%a_gpu)) then
+      call dev_free(self%a_gpu, mydev)
+      nullify(self%a_gpu)
+   endif
+   if (associated(self%p_gpu)) then
+      call dev_free(self%p_gpu, mydev)
+      nullify(self%p_gpu)
+   endif
+   if (associated(self%d_gpu)) then
+      call dev_free(self%d_gpu, mydev)
+      nullify(self%d_gpu)
+   endif
+   if (associated(self%ror_schemes_gpu)) then
+      call dev_free(self%ror_schemes_gpu, mydev)
+      nullify(self%ror_schemes_gpu)
+   endif
+   if (associated(self%ror_ivar_gpu)) then
+      call dev_free(self%ror_ivar_gpu, mydev)
+      nullify(self%ror_ivar_gpu)
+   endif
+   if (associated(self%ror_stats_gpu)) then
+      call dev_free(self%ror_stats_gpu, mydev)
+      nullify(self%ror_stats_gpu)
+   endif
+   if (associated(self%cell_scheme_gpu)) then
+      call dev_free(self%cell_scheme_gpu, mydev)
+      nullify(self%cell_scheme_gpu)
+   endif
+   endsubroutine destroy
+
    subroutine initialize(self, weno)
    !< Initialize class from the host `weno` reconstructor (threaded in by the realm).
    !< Requires `mpih_fnl` (adam_fnl_mpih_global) to be initialized before calling.

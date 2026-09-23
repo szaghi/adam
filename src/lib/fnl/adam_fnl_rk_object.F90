@@ -31,6 +31,7 @@ type :: rk_fnl_object
       procedure, pass(self) :: assign_stage      !< Assign q to RK stage.
       procedure, pass(self) :: compute_stage     !< Compute RK stage.
       procedure, pass(self) :: compute_stage_ls  !< Compute RK stage, low storage scheme.
+      procedure, pass(self) :: destroy           !< Free device data owned by the helper.
       procedure, pass(self) :: initialize        !< Initialize class from global singletons.
       procedure, pass(self) :: initialize_stages !< Initialize RK stages.
       procedure, pass(self) :: update_q          !< Update RK q.
@@ -110,6 +111,28 @@ contains
                                    phi_gpu=phi_gpu, q_n_gpu=self%q_rk_gpu(:,:,:,:,:,1), dq_gpu=dq_gpu, q_rk_gpu=q_gpu)
    endassociate
    endsubroutine compute_stage_ls
+
+   subroutine destroy(self)
+   !< Free device data owned by the RK FNL helper.
+   class(rk_fnl_object), intent(inout) :: self !< The FNL helper.
+
+   if (associated(self%alph_gpu)) then
+      call dev_free(self%alph_gpu, mydev)
+      nullify(self%alph_gpu)
+   endif
+   if (associated(self%beta_gpu)) then
+      call dev_free(self%beta_gpu, mydev)
+      nullify(self%beta_gpu)
+   endif
+   if (associated(self%gamm_gpu)) then
+      call dev_free(self%gamm_gpu, mydev)
+      nullify(self%gamm_gpu)
+   endif
+   if (associated(self%q_rk_gpu)) then
+      call dev_free(self%q_rk_gpu, mydev)
+      nullify(self%q_rk_gpu)
+   endif
+   endsubroutine destroy
 
    subroutine initialize(self, grid, field, rk)
    !< Initialize class from the host `grid`/`field`/`rk` sibling realm components (threaded in).

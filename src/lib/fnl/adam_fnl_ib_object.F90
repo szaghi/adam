@@ -29,12 +29,27 @@ type :: ib_fnl_object
    real(R8P), pointer :: phi_gpu(:,:,:,:,:)  => null() !< Distance function on GPU.
    contains
       ! public methods
+      procedure, pass(self) :: destroy        !< Free device data owned by the helper.
       procedure, pass(self) :: evolve_eikonal !< Evolve eikonal equation.
       procedure, pass(self) :: initialize     !< Initialize class from global singletons.
       procedure, pass(self) :: invert_eikonal !< Invert momentum eikonal equation.
 endtype ib_fnl_object
 contains
    ! public methods
+   subroutine destroy(self)
+   !< Free device data owned by the IB FNL helper.
+   class(ib_fnl_object), intent(inout) :: self !< The FNL helper.
+
+   if (associated(self%q_bcs_vars_gpu)) then
+      call dev_free(self%q_bcs_vars_gpu, mydev)
+      nullify(self%q_bcs_vars_gpu)
+   endif
+   if (associated(self%phi_gpu)) then
+      call dev_free(self%phi_gpu, mydev)
+      nullify(self%phi_gpu)
+   endif
+   endsubroutine destroy
+
    subroutine evolve_eikonal(self, grid, field, ib, dq_gpu, q_gpu, dxyz_gpu)
    !< Evolve eikonal equation.
    class(ib_fnl_object), intent(in)         :: self  !< IB.

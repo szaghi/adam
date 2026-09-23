@@ -53,6 +53,7 @@ type :: maps_fnl_object
    integer(I4P)          :: seam_ghost_fill = SEAM_FILL_INJECTION             !< Active seam ghost-fill regime (host mirror).
    contains
       procedure, pass(self) :: copy_cpu_gpu !< Copy data from (maps global singleton) CPU to (maps_fnl_object) GPU.
+      procedure, pass(self) :: destroy      !< Free device data owned by the helper.
       procedure, pass(self) :: initialize   !< Initialize MPI handler data.
 endtype maps_fnl_object
 
@@ -153,6 +154,64 @@ contains
    endif
    if (verbose_) call mpih_fnl%print_message('maps_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
+
+   subroutine destroy(self)
+   !< Free device data owned by the maps FNL helper.
+   class(maps_fnl_object), intent(inout) :: self !< The FNL helper.
+
+   if (associated(self%local_map_ghost_cell_gpu)) then
+      call dev_free(self%local_map_ghost_cell_gpu, mydev)
+      nullify(self%local_map_ghost_cell_gpu)
+   endif
+   if (associated(self%comm_map_recv_ghost_cell_gpu)) then
+      call dev_free(self%comm_map_recv_ghost_cell_gpu, mydev)
+      nullify(self%comm_map_recv_ghost_cell_gpu)
+   endif
+   if (associated(self%comm_map_send_ghost_cell_gpu)) then
+      call dev_free(self%comm_map_send_ghost_cell_gpu, mydev)
+      nullify(self%comm_map_send_ghost_cell_gpu)
+   endif
+   if (associated(self%send_buffer_ghost_gpu)) then
+      call dev_free(self%send_buffer_ghost_gpu, mydev)
+      nullify(self%send_buffer_ghost_gpu)
+   endif
+   if (associated(self%recv_buffer_ghost_gpu)) then
+      call dev_free(self%recv_buffer_ghost_gpu, mydev)
+      nullify(self%recv_buffer_ghost_gpu)
+   endif
+   if (associated(self%local_map_bc_crown_gpu)) then
+      call dev_free(self%local_map_bc_crown_gpu, mydev)
+      nullify(self%local_map_bc_crown_gpu)
+   endif
+   if (associated(self%seam_local_map_ghost_cell_gpu)) then
+      call dev_free(self%seam_local_map_ghost_cell_gpu, mydev)
+      nullify(self%seam_local_map_ghost_cell_gpu)
+   endif
+   if (associated(self%seam_local_send_buf_gpu)) then
+      call dev_free(self%seam_local_send_buf_gpu, mydev)
+      nullify(self%seam_local_send_buf_gpu)
+   endif
+   if (associated(self%seam_local_recv_buf_gpu)) then
+      call dev_free(self%seam_local_recv_buf_gpu, mydev)
+      nullify(self%seam_local_recv_buf_gpu)
+   endif
+   if (associated(self%seam_comm_map_send_ghost_cell_gpu)) then
+      call dev_free(self%seam_comm_map_send_ghost_cell_gpu, mydev)
+      nullify(self%seam_comm_map_send_ghost_cell_gpu)
+   endif
+   if (associated(self%seam_comm_map_recv_ghost_cell_gpu)) then
+      call dev_free(self%seam_comm_map_recv_ghost_cell_gpu, mydev)
+      nullify(self%seam_comm_map_recv_ghost_cell_gpu)
+   endif
+   if (associated(self%seam_mpi_send_buf_gpu)) then
+      call dev_free(self%seam_mpi_send_buf_gpu, mydev)
+      nullify(self%seam_mpi_send_buf_gpu)
+   endif
+   if (associated(self%seam_mpi_recv_buf_gpu)) then
+      call dev_free(self%seam_mpi_recv_buf_gpu, mydev)
+      nullify(self%seam_mpi_recv_buf_gpu)
+   endif
+   endsubroutine destroy
 
    subroutine initialize(self, maps)
    !< Initialize maps from the (realm-local) CPU `maps`.
