@@ -297,7 +297,7 @@ contains
    character(*),        intent(in)            :: filename      !< Input parameters file name.
    real(R8P),           intent(in), value     :: memory_avail  !< Memory available for single MPI process.
    integer(I4P),        intent(in), optional  :: nv            !< Number of field variables.
-   integer(I4P),        intent(in), optional  :: fields_number !< Block-sized fields allocated per block (default 80).
+   integer(I4P),        intent(in), optional  :: fields_number !< Block-sized fields allocated per block (default 170).
    logical,             intent(in), optional  :: verbose       !< Trigger verbose output.
    real(R8P),           intent(in), optional  :: L0            !< Adimensionalization parameter.
    logical                                    :: verbose_      !< Trigger verbose output, local variable.

@@ -23,6 +23,7 @@ use :: adam_prism_rk_pml_object
 !use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! third party modules
+use :: finer, only : file_ini
 use :: motion
 use :: mpi
 use :: penf
@@ -95,6 +96,7 @@ type, extends(realm_object) :: prism_common_object
       ! public methods
       procedure, pass(self) :: allocate_common          !< Allocate common data.
       procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
+      procedure, pass(self) :: compute_fields_number    !< Compute the block-sized fields allocated per block.
       procedure, pass(self) :: initialize               !< Initialize the equation common data.
       procedure, pass(self) :: initialize_pic_time_zero !< Host-side PIC particle injection plus charge/current deposition at t=0.
       procedure, pass(self) :: verify_no_pic_deposition_on_coils !< Guard against PIC deposition on coil cells.
@@ -309,16 +311,41 @@ contains
    endassociate
    endsubroutine compute_auxiliary_fields
 
+   subroutine compute_fields_number(self, file_parameters, fields_number)
+   !< Compute the block-sized fields PRISM allocates per block, the `fields_number` of the blocks budget.
+   !<
+   !< Both backends allocate the same nb-sized arrays, on the host (CPU) or on the device (FNL), so one count serves
+   !< both: `q`, `dq`, `curl`, `divergence` (4 nv), the cell fluxes `flxyz_c` (9 nv), the face fluxes (3 nv, counted
+   !< as full block fields), the Runge-Kutta stages (`rk_stored_stages_number` nv) and the coils current density
+   !< (3 per coil). Face-local PML storage and PIC particle arrays are not block-sized and are not counted.
+   !< Requires `physics` initialized; loads the coils number (it needs no grid or field).
+   class(prism_common_object), intent(inout) :: self            !< The equation.
+   type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   integer(I4P),               intent(out)   :: fields_number   !< Block-sized fields allocated per block.
+   character(99)                             :: rk_scheme       !< Runge-Kutta scheme name.
+   integer(I4P)                              :: stages_number   !< Runge-Kutta stage fields.
+   integer(I4P)                              :: error           !< Error status.
+
+   call file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
+   if (error > 0) call mpih%error_stop(msg=': failed to load [runge_kutta].(scheme)')
+   stages_number = rk_stored_stages_number(scheme=rk_scheme)
+   if (stages_number < 0_I4P) &
+      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//trim(adjustl(rk_scheme))//'" in [runge_kutta].(scheme)')
+   call self%coil%load_coils_number(file_parameters=file_parameters)
+   fields_number = self%physics%nv * (4_I4P + 9_I4P + 3_I4P + stages_number) + 3_I4P * self%coil%total_coils_number
+   endsubroutine compute_fields_number
+
    subroutine initialize(self, filename, memory_avail, nv, fields_number, verbose, L0)
    !< Initialize the equation common data.
-   class(prism_common_object), intent(inout), target :: self          !< The equation.
-   character(*),               intent(in)            :: filename      !< Input file name.
-   real(R8P),                  intent(in), value     :: memory_avail  !< Memory available for single MPI process.
-   integer(I4P),               intent(in), optional  :: nv            !< Number of field variables.
-   integer(I4P),               intent(in), optional  :: fields_number !< Block-sized fields allocated per block (default 80).
-   logical,                    intent(in), optional  :: verbose       !< Trigger verbose output.
-   real(R8P),                  intent(in), optional  :: L0            !< Adimensionalization parameter.
-   logical                                           :: verbose_      !< Trigger verbose output, local variable.
+   class(prism_common_object), intent(inout), target :: self           !< The equation.
+   character(*),               intent(in)            :: filename       !< Input file name.
+   real(R8P),                  intent(in), value     :: memory_avail   !< Memory available for single MPI process.
+   integer(I4P),               intent(in), optional  :: nv             !< Number of field variables.
+   integer(I4P),               intent(in), optional  :: fields_number  !< Block-sized fields per block (default: computed).
+   logical,                    intent(in), optional  :: verbose        !< Trigger verbose output.
+   real(R8P),                  intent(in), optional  :: L0             !< Adimensionalization parameter.
+   logical                                           :: verbose_       !< Trigger verbose output, local variable.
+   integer(I4P)                                      :: fields_number_ !< Block-sized fields per block, local variable.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call mpih%initialize(verbose=verbose_)
@@ -335,12 +362,18 @@ contains
    self%nv_s   => self%physics%nv_s
    self%nv_cl  => self%physics%nv_cl
    !self%nv_pic => self%physics%nv_pic
+   if (present(fields_number)) then
+      fields_number_ = fields_number
+   else
+      call self%compute_fields_number(file_parameters=file_parameters, fields_number=fields_number_)
+   endif
+   if (verbose_) call mpih%print_message('prism_common_object%initialize fields_number: '//trim(str(fields_number_)))
    if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
-                                       fields_number=fields_number, verbose=verbose_, L0=self%physics%L0)
+                                       fields_number=fields_number_, verbose=verbose_, L0=self%physics%L0)
    else
       call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
-                                       fields_number=fields_number, verbose=verbose_)
+                                       fields_number=fields_number_, verbose=verbose_)
    endif
    call self%bc%initialize(file_parameters=file_parameters)
    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)

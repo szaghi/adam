@@ -21,6 +21,7 @@ public :: RK_SSP_22
 public :: RK_SSP_33
 public :: RK_SSP_54
 public :: RK_YOSHIDA
+public :: rk_stored_stages_number
 
 character(len=13), parameter :: RK_1       ="runge-kutta-1"       !< Parameter of time scheme, Runge-Kutta 1.
 character(len=13), parameter :: RK_2       ="runge-kutta-2"       !< Parameter of time scheme, Runge-Kutta 2.
@@ -66,6 +67,32 @@ type :: rk_object
       procedure, pass(self) :: update_q          !< Update RK q.
 endtype rk_object
 contains
+   ! public procedures
+   pure function rk_stored_stages_number(scheme) result(stages_number)
+   !< Return the number of block-sized stage fields `rk_object%initialize` allocates for a scheme.
+   !<
+   !< Low-storage schemes keep one stage, SSP schemes keep all `nrk` stages, Yoshida keeps none. It lets an app
+   !< size its memory budget (`realm_object%initialize(fields_number=...)`) before the RK object exists; the SSP
+   !< values must match the `nrk` set in `initialize`. An unknown scheme returns -1.
+   character(*), intent(in) :: scheme        !< Runge-Kutta scheme name.
+   integer(I4P)             :: stages_number !< Stage fields allocated.
+
+   select case(trim(adjustl(scheme)))
+   case(RK_1, RK_2, RK_3, RK_SSP_11)
+      stages_number = 1_I4P
+   case(RK_SSP_22)
+      stages_number = 2_I4P
+   case(RK_SSP_33)
+      stages_number = 3_I4P
+   case(RK_SSP_54)
+      stages_number = 5_I4P
+   case(RK_YOSHIDA)
+      stages_number = 0_I4P
+   case default
+      stages_number = -1_I4P
+   endselect
+   endfunction rk_stored_stages_number
+
    ! public methods
    subroutine assign_stage(self, field, s, q, phi)
    !< Assign q to RK stage.

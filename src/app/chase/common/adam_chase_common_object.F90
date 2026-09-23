@@ -106,7 +106,7 @@ contains
    call self%bc%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters)
    call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
-   call self%adam%compute_blocks_number(memory_avail=memory_avail, fields_number=80, nb=nb, nodes_number=nodes_number)
+   call self%adam%compute_blocks_number(memory_avail=memory_avail, fields_number=170, nb=nb, nodes_number=nodes_number)
    call self%adam%initialize(file_parameters=file_parameters, &
                              do_tree_init=.true.,             &
                              do_maps_init=.true.,             &

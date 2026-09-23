@@ -161,7 +161,7 @@ contains
    real(R8P)                       :: save_factor   !< Factor to avoid memory completely full.
 
    size_of_block = (storage_size(1._R8P)/8._R8P) * self%grid%block_weight
-   save_factor = 0.4_R8P
+   save_factor = 0.85_R8P ! headroom for what fields_number does not count: runtime context, maps, buffers
    nb = nint(save_factor * memory_avail*1e9 / (fields_number * size_of_block))
    nodes_number  = nb * mpih%procs_number
    endsubroutine compute_blocks_number
@@ -199,8 +199,9 @@ contains
    !< Initialize ADAM.
    !<
    !< `fields_number` is the number of block-sized fields the calling app allocates per block (conservative
-   !< variables, residuals, RK stages, fluxes, ...): it sizes the per-process blocks budget. Absent, it defaults
-   !< to 80, the historical value every app was budgeted with.
+   !< variables, residuals, RK stages, fluxes, ...) in the memory space being budgeted: it sizes the per-process
+   !< blocks budget, `nb = 0.85 * memory / (fields_number * block_bytes)`. Absent, it defaults to 170, which gives
+   !< exactly the budget of the historical `0.4 / 80` pair (0.85/170 = 0.4/80).
    class(adam_object),     intent(inout)        :: self            !< ADAM.
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
    real(R8P),              intent(in), value    :: memory_avail    !< Memory available for single MPI process.
@@ -217,7 +218,7 @@ contains
    integer(I4P)                                 :: error           !< Error status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   fields_number_ = 80_I4P ; if (present(fields_number)) fields_number_ = fields_number
+   fields_number_ = 170_I4P ; if (present(fields_number)) fields_number_ = fields_number
    if (verbose_) call mpih%print_message('adam_object%initialize start')
    if (fields_number_ <= 0_I4P) &
       call mpih%error_stop(msg=': fields_number must be positive, got '//trim(str(fields_number_)))

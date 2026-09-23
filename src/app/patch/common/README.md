@@ -54,7 +54,7 @@ The `common/` directory contains the modules shared by all PATCH backends. They 
 2. `io%initialize(filename)` — parse INI file
 3. `bc%initialize` — load BC configuration
 4. `adam%grid%initialize` — set domain bounds, resolution, BC types
-5. `adam%compute_blocks_number` — estimate block count from available memory (`nv = 1`, `fields_number = 80`)
+5. `adam%compute_blocks_number` — estimate block count from available memory (`nv = 1`, `fields_number = 170`)
 6. `adam%initialize` — build AMR tree (11 nodes), field (`nv=1`), maps; allocates `q`
 7. `adam%refine_uniform` — apply initial uniform refinement levels from INI
 8. `adam%prune` — prune tree according to `ijkl_prune` settings

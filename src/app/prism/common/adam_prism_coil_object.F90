@@ -87,6 +87,7 @@ type :: prism_coil_object
       procedure, pass(self) :: allocate_coil                             !< Allocate coil data.
       procedure, pass(self) :: description                               !< Return pretty-printed object description.
       procedure, pass(self) :: initialize                                !< Initialize IC.
+      procedure, pass(self) :: load_coils_number                         !< Load coils number from file.
       procedure, pass(self) :: load_from_file                            !< Load config from file.
       procedure, pass(self) :: adimensionalize_coils_parameters          !< Adimensionalize coils parameters.
       !procedure, pass(self) :: set_coils                                 !< Set coil_object on PRISM fields.
@@ -242,19 +243,16 @@ contains
    print '(A)', mpih%myrankstr//'prism_coil_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_from_file(self, field, grid, physics, file_parameters, go_on_fail)
-   !< Load config from file.
-   class(prism_coil_object),   intent(inout)        :: self            !< coils.
-   type(field_object),         intent(in)           :: field           !< Field (sibling realm component, threaded in).
-   type(grid_object),          intent(in), target   :: grid            !< Grid (sibling realm component, threaded in).
-   type(prism_physics_object), intent(in)           :: physics         !< PRISM physics.
-   type(file_ini),             intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                    intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                          :: go_on_fail_     !< Go on if load fails.
-   character(:), allocatable                        :: sname           !< Section name.
-   integer(I4P)                                     :: i,j             !< Counter.
-   integer(I4P)                                     :: error           !< Error status.
-   character(99)                                    :: buff_char       !< Option character buffer.
+   subroutine load_coils_number(self, file_parameters, go_on_fail)
+   !< Load the number of coils of each kind from file, and their total.
+   !<
+   !< Separate from `load_from_file` because it needs no grid or field: the solver reads it before the blocks budget
+   !< is computed, since the coils current density is a block-sized field per coil.
+   class(prism_coil_object), intent(inout)        :: self            !< Coils.
+   type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+   logical,                  intent(in), optional :: go_on_fail      !< Go on if load fails.
+   logical                                        :: go_on_fail_     !< Go on if load fails.
+   integer(I4P)                                   :: error           !< Error status.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
@@ -280,7 +278,25 @@ contains
 
    self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number &
                               + self%solenoid_coils_number + self%helicon_coils_number
+   endsubroutine load_coils_number
 
+   subroutine load_from_file(self, field, grid, physics, file_parameters, go_on_fail)
+   !< Load config from file.
+   class(prism_coil_object),   intent(inout)        :: self            !< coils.
+   type(field_object),         intent(in)           :: field           !< Field (sibling realm component, threaded in).
+   type(grid_object),          intent(in), target   :: grid            !< Grid (sibling realm component, threaded in).
+   type(prism_physics_object), intent(in)           :: physics         !< PRISM physics.
+   type(file_ini),             intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+   logical,                    intent(in), optional :: go_on_fail      !< Go on if load fails.
+   logical                                          :: go_on_fail_     !< Go on if load fails.
+   character(:), allocatable                        :: sname           !< Section name.
+   integer(I4P)                                     :: i,j             !< Counter.
+   integer(I4P)                                     :: error           !< Error status.
+   character(99)                                    :: buff_char       !< Option character buffer.
+
+   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
+
+   call self%load_coils_number(file_parameters=file_parameters, go_on_fail=go_on_fail_)
    if (self%total_coils_number==0_I4P) return
 
    call associate_adam_data
