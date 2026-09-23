@@ -1,5 +1,5 @@
 [modes]
-modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug
+modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-omp-amd
 
 [flume-cpu-gnu]
 template = template-gnu
@@ -19,3 +19,18 @@ output   = adam_flume_cpu_omp
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = adam_flume_cpu.F90
+
+[flume-fnl-nvf]
+template = template-nvf
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_flume_fnl.F90
+
+[flume-fnl-nvf-debug]
+template = template-nvf-debug
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_flume_fnl.F90
+
+[flume-fnl-omp-amd]
+template = template-omp-amd
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+target   = adam_flume_fnl.F90
