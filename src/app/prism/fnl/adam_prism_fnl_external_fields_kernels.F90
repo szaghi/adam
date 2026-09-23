@@ -22,6 +22,8 @@ public :: add_external_fields_dev_interface
 public :: sub_external_fields_dev_interface
 public :: add_external_fields_rmf_dev
 public :: sub_external_fields_rmf_dev
+public :: add_external_fields_uniform_dev
+public :: sub_external_fields_uniform_dev
 
 ! pointer (abstract) procedures
 procedure(add_external_fields_dev_interface), pointer :: add_external_fields_dev=>null() !< Add external fields.
@@ -66,6 +68,9 @@ contains
    case(EF_TYPE_RMF)
       add_external_fields_dev => add_external_fields_rmf_dev
       sub_external_fields_dev => sub_external_fields_rmf_dev
+   case(EF_TYPE_UNIFORM_FIELD)
+      add_external_fields_dev => add_external_fields_uniform_dev
+      sub_external_fields_dev => sub_external_fields_uniform_dev
    !case(EF_TYPE_MAGNETIC_NOZZLE)
    !   add_external_fields => self%external_fields%add_external_fields_magnetic_nozzle
    !case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
@@ -246,8 +251,8 @@ contains
          B_theta = RMF_B_amplitude*sin(phase)
          c = cos(theta)
          s = sin(theta)
-         q_gpu(b,i,j,k,ef_alpha+3) = q_gpu(b,i,j,k,ef_alpha+3) - B_r*c - B_theta*s
-         q_gpu(b,i,j,k,ef_beta +3) = q_gpu(b,i,j,k,ef_beta +3) - B_r*s + B_theta*c
+         q_gpu(b,i,j,k,ef_alpha+3) = q_gpu(b,i,j,k,ef_alpha+3) - (B_r*c - B_theta*s)
+         q_gpu(b,i,j,k,ef_beta +3) = q_gpu(b,i,j,k,ef_beta +3) - (B_r*s + B_theta*c)
          q_gpu(b,i,j,k,ef_gamma  ) = q_gpu(b,i,j,k,ef_gamma  ) - r*omega*RMF_B_amplitude*cos(phase)*EPS0
       enddo
       enddo
@@ -255,4 +260,123 @@ contains
       enddo
       endsubroutine sub_external_fields_rmf_dev_kernel
    endsubroutine sub_external_fields_rmf_dev
+
+   subroutine add_external_fields_uniform_dev(external_fields, field_gpu, dt, time, q_gpu, gamm)
+   !< Add uniform external electric displacement and magnetic field to the field.
+   type(prism_external_fields_object), intent(in)    :: external_fields !< External fields handler.
+   type(field_fnl_object),             intent(in)    :: field_gpu       !< Field.
+   real(R8P),                          intent(in)    :: dt              !< Time step.
+   real(R8P),                          intent(in)    :: time            !< Current time.
+   real(R8P),                          intent(inout) :: q_gpu(1:,              &
+                                                              1-field_gpu%ngc:,&
+                                                              1-field_gpu%ngc:,&
+                                                              1-field_gpu%ngc:,&
+                                                              1:)       !< Conservative variables.
+   real(R8P), optional,                intent(in)    :: gamm            !< Gamma values of RK.
+
+   associate(blocks_number=>field_gpu%blocks_number, ni=>field_gpu%ni, nj=>field_gpu%nj, nk=>field_gpu%nk, ngc=>field_gpu%ngc, &
+             axis=>external_fields%uniform_axis, Uniform_D_amplitude=>external_fields%Uniform_D_amplitude,                    &
+             Uniform_B_amplitude=>external_fields%Uniform_B_amplitude)
+   if (present(gamm)) continue
+   associate(dt_unused=>dt, time_unused=>time)
+   endassociate
+   call add_external_fields_uniform_dev_kernel(ni                  = ni,                  &
+                                               nj                  = nj,                  &
+                                               nk                  = nk,                  &
+                                               ngc                 = ngc,                 &
+                                               blocks_number       = blocks_number,       &
+                                               axis                = axis,                &
+                                               Uniform_D_amplitude = Uniform_D_amplitude, &
+                                               Uniform_B_amplitude = Uniform_B_amplitude, &
+                                               q_gpu               = q_gpu)
+   endassociate
+   contains
+      subroutine add_external_fields_uniform_dev_kernel(ni,nj,nk,ngc,blocks_number,axis, &
+                                                        Uniform_D_amplitude,Uniform_B_amplitude,q_gpu)
+      !< Add uniform external field to the field, device kernel.
+      integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number        !< Grids dimensions.
+      integer(I4P), intent(in)    :: axis                              !< Uniform field direction index.
+      real(R8P),    intent(in)    :: Uniform_D_amplitude               !< Uniform electric displacement amplitude.
+      real(R8P),    intent(in)    :: Uniform_B_amplitude               !< Uniform magnetic field amplitude.
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
+      integer(I4P)                :: i,j,k,b                           !< Counter.
+
+      !$acc parallel loop independent gang vector collapse(4)                                      &
+      !$acc& DEVICEVAR(q_gpu)                                                                       &
+      !$acc& firstprivate(ni,nj,nk,blocks_number,axis,Uniform_D_amplitude,Uniform_B_amplitude)
+      !$omp OMPLOOP collapse(4) &
+      !$omp& DEVICEPTR(q_gpu) &
+      !$omp& firstprivate(ni,nj,nk,blocks_number,axis,Uniform_D_amplitude,Uniform_B_amplitude)
+      do b = 1, blocks_number
+      do k = 1, nk
+      do j = 1, nj
+      do i = 1, ni
+         q_gpu(b,i,j,k,axis  ) = q_gpu(b,i,j,k,axis  ) + Uniform_D_amplitude
+         q_gpu(b,i,j,k,axis+3) = q_gpu(b,i,j,k,axis+3) + Uniform_B_amplitude
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine add_external_fields_uniform_dev_kernel
+   endsubroutine add_external_fields_uniform_dev
+
+   subroutine sub_external_fields_uniform_dev(external_fields, field_gpu, dt, time, q_gpu, gamm)
+   !< Subtract uniform external electric displacement and magnetic field from the field.
+   type(prism_external_fields_object), intent(in)    :: external_fields !< External fields handler.
+   type(field_fnl_object),             intent(in)    :: field_gpu       !< Field.
+   real(R8P),                          intent(in)    :: dt              !< Time step.
+   real(R8P),                          intent(in)    :: time            !< Current time.
+   real(R8P),                          intent(inout) :: q_gpu(1:,              &
+                                                              1-field_gpu%ngc:,&
+                                                              1-field_gpu%ngc:,&
+                                                              1-field_gpu%ngc:,&
+                                                              1:)       !< Conservative variables.
+   real(R8P), optional,                intent(in)    :: gamm            !< Gamma values of RK.
+
+   associate(blocks_number=>field_gpu%blocks_number, ni=>field_gpu%ni, nj=>field_gpu%nj, nk=>field_gpu%nk, ngc=>field_gpu%ngc, &
+             axis=>external_fields%uniform_axis, Uniform_D_amplitude=>external_fields%Uniform_D_amplitude,                    &
+             Uniform_B_amplitude=>external_fields%Uniform_B_amplitude)
+   if (present(gamm)) continue
+   associate(dt_unused=>dt, time_unused=>time)
+   endassociate
+   call sub_external_fields_uniform_dev_kernel(ni                  = ni,                  &
+                                               nj                  = nj,                  &
+                                               nk                  = nk,                  &
+                                               ngc                 = ngc,                 &
+                                               blocks_number       = blocks_number,       &
+                                               axis                = axis,                &
+                                               Uniform_D_amplitude = Uniform_D_amplitude, &
+                                               Uniform_B_amplitude = Uniform_B_amplitude, &
+                                               q_gpu               = q_gpu)
+   endassociate
+   contains
+      subroutine sub_external_fields_uniform_dev_kernel(ni,nj,nk,ngc,blocks_number,axis, &
+                                                        Uniform_D_amplitude,Uniform_B_amplitude,q_gpu)
+      !< Subtract uniform external field from the field, device kernel.
+      integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number        !< Grids dimensions.
+      integer(I4P), intent(in)    :: axis                              !< Uniform field direction index.
+      real(R8P),    intent(in)    :: Uniform_D_amplitude               !< Uniform electric displacement amplitude.
+      real(R8P),    intent(in)    :: Uniform_B_amplitude               !< Uniform magnetic field amplitude.
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
+      integer(I4P)                :: i,j,k,b                           !< Counter.
+
+      !$acc parallel loop independent gang vector collapse(4)                                      &
+      !$acc& DEVICEVAR(q_gpu)                                                                       &
+      !$acc& firstprivate(ni,nj,nk,blocks_number,axis,Uniform_D_amplitude,Uniform_B_amplitude)
+      !$omp OMPLOOP collapse(4) &
+      !$omp& DEVICEPTR(q_gpu) &
+      !$omp& firstprivate(ni,nj,nk,blocks_number,axis,Uniform_D_amplitude,Uniform_B_amplitude)
+      do b = 1, blocks_number
+      do k = 1, nk
+      do j = 1, nj
+      do i = 1, ni
+         q_gpu(b,i,j,k,axis  ) = q_gpu(b,i,j,k,axis  ) - Uniform_D_amplitude
+         q_gpu(b,i,j,k,axis+3) = q_gpu(b,i,j,k,axis+3) - Uniform_B_amplitude
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine sub_external_fields_uniform_dev_kernel
+   endsubroutine sub_external_fields_uniform_dev
+
 endmodule adam_prism_fnl_external_fields_kernels

@@ -4083,6 +4083,9 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=self%time%time, dt=self%time%dt, q=self%q)
    call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    do s=1, self%rk%nrk
@@ -4097,6 +4100,9 @@ contains
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ls
 
    subroutine integrate_rk_ssp(self)
@@ -4152,8 +4158,9 @@ contains
    integer(I4P)                           :: s    !< Counter.
    real(R8P), allocatable                 :: q_stage(:,:,:,:,:) !< Contiguous stage scratch to avoid huge slice temporaries.
 
-   !call sub_external_fields(self = self%external_fields, field = field, &
-   !                        time = self%time%time, dt = self%time%dt, q = self%q)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=self%time%time, dt=self%time%dt, q=self%q)
 
    !Inizializzo stadi RK per campi e PIC
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
@@ -4188,9 +4195,14 @@ contains
       call self%compute_residuals(q=q_stage, dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
-      !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
+      if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+         call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                       time=self%time%time, dt=self%time%dt, gamm=self%rk%gamm(s), q=q_stage)
       call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                     q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+      if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+         call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                       time=self%time%time, dt=self%time%dt, gamm=self%rk%gamm(s), q=q_stage)
       !Assegno lo stadio RK per campi e PIC
       if (self%ib%solids_number>0) then
          call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
@@ -4220,8 +4232,9 @@ contains
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
                                                context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q=self%q)
-   !call add_external_fields(self = self%external_fields, field = field, &
-   !                        time = self%time%time, dt = self%time%dt, q = self%q)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ssp_pic
 
    !subroutine update_q_BC(self, dt, phi)

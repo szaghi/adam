@@ -16,6 +16,7 @@ implicit none
 private
 public :: INI_SECTION_NAME
 public :: EF_TYPE_RMF
+public :: EF_TYPE_UNIFORM_FIELD
 !public :: EF_TYPE_MAGNETIC_NOZZLE
 public :: EF_TYPE_NONE
 !public :: EF_TYPE_RMF_AND_MAGNETIC_NOZZLE
@@ -33,6 +34,7 @@ character(len=15), parameter :: INI_SECTION_NAME               ='external_fields
 character(len=15), parameter :: EF_TYPE_MAGNETIC_NOZZLE        ='magnetic_nozzle'        !< Magnetic Nozzle.
 character(len=4),  parameter :: EF_TYPE_NONE                   ='none'                   !< Disable external field.
 character(len=3),  parameter :: EF_TYPE_RMF                    ='RMF'                    !< Rotating Magnetic Field.
+character(len=13), parameter :: EF_TYPE_UNIFORM_FIELD          ='Uniform_field'          !< Uniform electric displacement/magnetic field.
 character(len=23), parameter :: EF_TYPE_RMF_AND_MAGNETIC_NOZZLE='RMF_and_magnetic_nozzle'!< Rotating Magnetic Field/Magnetic Nozzle.
 
 type :: prism_external_fields_object
@@ -41,9 +43,13 @@ type :: prism_external_fields_object
    real(R8P)         :: RMF_frequency     !< Rotating magnetic field frequency.
    real(R8P)         :: RMF_B_amplitude   !< Rotating magnetic field amplitude.
 	character(len=99) :: RMF_rotation_axis !< Rotating magnetic field rotation axis (X, Y, Z).
+   real(R8P)         :: Uniform_D_amplitude = 0._R8P !< Uniform electric displacement field amplitude.
+   real(R8P)         :: Uniform_B_amplitude = 0._R8P !< Uniform magnetic field amplitude.
+   character(len=99) :: Uniform_direction   = 'x'    !< Uniform field direction (X, Y, Z).
 	integer(I4P)      :: alpha             !< RMF rotation axis coordinate 1
 	integer(I4P)      :: beta              !< RMF rotation axis coordinate 2
 	integer(I4P)      :: gamm              !< RMF rotation axis coordinate 3
+   integer(I4P)      :: uniform_axis = 1_I4P !< Uniform field direction index.
    ! pointer methods
    procedure(add_external_fields_interface), pass(self), pointer :: add_external_fields=>null() !< Add external fields.
    procedure(sub_external_fields_interface), pass(self), pointer :: sub_external_fields=>null() !< Subtract external fields.
@@ -53,10 +59,12 @@ type :: prism_external_fields_object
       procedure, pass(self) :: initialize                            !< Initialize IC.
       procedure, pass(self) :: load_from_file                        !< Load config from file.
       procedure, pass(self) :: add_external_fields_rmf               !< Add rotating magnetic field to the field.
+      procedure, pass(self) :: add_external_fields_uniform           !< Add uniform external field to the field.
       !procedure, pass(self) :: add_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
       !procedure, pass(self) :: add_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to
       !the field.
       procedure, pass(self) :: sub_external_fields_rmf               !< Add rotating magnetic field to the field.
+      procedure, pass(self) :: sub_external_fields_uniform           !< Subtract uniform external field from the field.
       !procedure, pass(self) :: sub_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
       !procedure, pass(self) :: sub_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to
       !the field.
@@ -107,6 +115,11 @@ contains
    desc = desc//NL//mpih%myrankstr//'    RMF frequency: '//trim(str(self%RMF_frequency))
    desc = desc//NL//mpih%myrankstr//'    RMF B amplitude: '//trim(str(self%RMF_B_amplitude))
    desc = desc//NL//mpih%myrankstr//'    RMF rotation axis: '//trim(self%RMF_rotation_axis)
+   case(EF_TYPE_UNIFORM_FIELD)
+   desc = desc//NL//mpih%myrankstr//'    Uniform external field applied '
+   desc = desc//NL//mpih%myrankstr//'    Uniform D amplitude: '//trim(str(self%Uniform_D_amplitude))
+   desc = desc//NL//mpih%myrankstr//'    Uniform B amplitude: '//trim(str(self%Uniform_B_amplitude))
+   desc = desc//NL//mpih%myrankstr//'    Uniform direction: '//trim(self%Uniform_direction)
    case(EF_TYPE_MAGNETIC_NOZZLE)
    desc = desc//NL//mpih%myrankstr//'    Magnetic nozzle applied '
    case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
@@ -130,6 +143,9 @@ contains
    case(EF_TYPE_RMF)
       self%add_external_fields => add_external_fields_rmf
       self%sub_external_fields => sub_external_fields_rmf
+   case(EF_TYPE_UNIFORM_FIELD)
+      self%add_external_fields => add_external_fields_uniform
+      self%sub_external_fields => sub_external_fields_uniform
    !case(EF_TYPE_MAGNETIC_NOZZLE)
    !   self%add_external_fields => add_external_fields_magnetic_nozzle
    !case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
@@ -158,6 +174,8 @@ contains
    select case(trim(adjustl(buff_char)))
    case('RMF', 'rmf', 'Rmf')
       self%ef_type = EF_TYPE_RMF
+   case('Uniform_field', 'uniform_field', 'UNIFORM_FIELD', 'UniformField', 'uniformfield')
+      self%ef_type = EF_TYPE_UNIFORM_FIELD
    case('Magnetic_nozzle', 'magnetic_nozzle', 'MAGNETIC_NOZZLE', 'MagneticNozzle', 'magneticnozzle')
       self%ef_type = EF_TYPE_MAGNETIC_NOZZLE
    case('RMF_and_magnetic_nozzle', 'rmf_and_magnetic_nozzle', 'RMF_AND_MAGNETIC_NOZZLE', &
@@ -198,6 +216,38 @@ contains
          self%alpha = 1_I4P
          self%beta  = 2_I4P
          self%gamm  = 3_I4P
+      endselect
+   case(EF_TYPE_UNIFORM_FIELD)
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_field_D_amplitude', &
+                               val=self%Uniform_D_amplitude, error=error)
+      if (error>0) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_D_amplitude', &
+                                            val=self%Uniform_D_amplitude, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Uniform_field_D_amplitude)')
+
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_field_B_amplitude', &
+                               val=self%Uniform_B_amplitude, error=error)
+      if (error>0) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_B_amplitude', &
+                                            val=self%Uniform_B_amplitude, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Uniform_field_B_amplitude)')
+
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_field_direction', &
+                               val=buff_char, error=error)
+      if (error>0) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_direction', &
+                                            val=buff_char, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Uniform_field_direction)')
+      self%Uniform_direction = trim(buff_char)
+      select case(trim(adjustl(self%Uniform_direction)))
+      case('X', 'x')
+         self%uniform_axis = 1_I4P
+      case('Y', 'y')
+         self%uniform_axis = 2_I4P
+      case('Z', 'z')
+         self%uniform_axis = 3_I4P
+      case default
+         call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(Uniform_direction), expected x, y, or z')
       endselect
    case(EF_TYPE_MAGNETIC_NOZZLE)
 
@@ -348,6 +398,38 @@ contains
 	endassociate
    endsubroutine add_external_fields_rmf
 
+
+   subroutine add_external_fields_uniform(self, field, grid, time, dt, gamm, q)
+   !< Add uniform external electric displacement and magnetic field to the field.
+   class(prism_external_fields_object), intent(inout)           :: self                 !< External fields.
+   type(field_object),                  intent(inout)           :: field                !< The field.
+   type(grid_object),                   intent(in)              :: grid                 !< Grid.
+   real(R8P),                           intent(in)              :: time                 !< Current simulation time.
+   real(R8P),                           intent(in), optional    :: dt                   !< Time step.
+   real(R8P),                           intent(in), optional    :: gamm                 !< Gamma values of RK SSP.
+   real(R8P),                           intent(inout)           :: q(1:,1-grid%ngc:,&
+                                                                        1-grid%ngc:,&
+                                                                        1-grid%ngc:,1:) !< Primitive variables.
+   integer(I4P)                                                 :: b,i,j,k              !< Counters.
+
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, axis=>self%uniform_axis)
+   if (present(dt)) continue
+   if (present(gamm)) continue
+   associate(time_unused=>time)
+   endassociate
+   do b = 1, blocks_number
+      do i = 1, ni
+         do j = 1, nj
+            do k = 1, nk
+               q(axis,       i,j,k,b) = q(axis,       i,j,k,b) + self%Uniform_D_amplitude
+               q(axis+3_I4P, i,j,k,b) = q(axis+3_I4P, i,j,k,b) + self%Uniform_B_amplitude
+            enddo
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine add_external_fields_uniform
+
    subroutine sub_external_fields_rmf(self, field, grid, time, dt, gamm, q)
    !< Add rotating magnetic field to the field.
    class(prism_external_fields_object), intent(inout)           :: self                 !< External fields.
@@ -399,4 +481,36 @@ contains
    enddo
 	endassociate
    endsubroutine sub_external_fields_rmf
+
+   subroutine sub_external_fields_uniform(self, field, grid, time, dt, gamm, q)
+   !< Subtract uniform external electric displacement and magnetic field from the field.
+   class(prism_external_fields_object), intent(inout)           :: self                 !< External fields.
+   type(field_object),                  intent(inout)           :: field                !< The field.
+   type(grid_object),                   intent(in)              :: grid                 !< Grid.
+   real(R8P),                           intent(in)              :: time                 !< Current simulation time.
+   real(R8P),                           intent(in), optional    :: dt                   !< Time step.
+   real(R8P),                           intent(in), optional    :: gamm                 !< Gamma values of RK SSP.
+   real(R8P),                           intent(inout)           :: q(1:,1-grid%ngc:,&
+                                                                        1-grid%ngc:,&
+                                                                        1-grid%ngc:,1:) !< Primitive variables.
+   integer(I4P)                                                 :: b,i,j,k              !< Counters.
+
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, axis=>self%uniform_axis)
+   if (present(dt)) continue
+   if (present(gamm)) continue
+   associate(time_unused=>time)
+   endassociate
+   do b = 1, blocks_number
+      do i = 1, ni
+         do j = 1, nj
+            do k = 1, nk
+               q(axis,       i,j,k,b) = q(axis,       i,j,k,b) - self%Uniform_D_amplitude
+               q(axis+3_I4P, i,j,k,b) = q(axis+3_I4P, i,j,k,b) - self%Uniform_B_amplitude
+            enddo
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine sub_external_fields_uniform
+
 endmodule adam_prism_external_fields_object

@@ -5061,6 +5061,9 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
@@ -5088,10 +5091,18 @@ contains
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
 
+      if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+         call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                      dt=self%time%dt, time=self%time%time, q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                      gamm=self%rk%gamm(s))
       call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                             pic_fields_gpu=self%pic_fnl%pic_fields_gpu, &
                                             q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
                                             q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+      if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+         call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                      dt=self%time%dt, time=self%time%time, q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                      gamm=self%rk%gamm(s))
 
       if (self%ib%solids_number>0) then
          call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
@@ -5124,6 +5135,9 @@ contains
    call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
                                                    context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ssp_pic
 
    subroutine integrate_rk_ls_dev(self)
@@ -5132,6 +5146,9 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
@@ -5149,6 +5166,9 @@ contains
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ls_dev
 
    subroutine integrate_rk_ssp_dev(self)
