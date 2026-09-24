@@ -6640,13 +6640,73 @@ contains
    !< Compute maximum divergence.
    class(prism_fnl_object), intent(inout) :: self           !< The equation.
    real(R8P)                              :: max_div(3)     !< Maximum divergence.
-   integer(I4P), allocatable              :: fwl_cells(:,:) !< Block-local fWLayer cell counts; zero when layer is disabled.
+   integer(I4P), allocatable              :: valid_lo_i(:), valid_hi_i(:) !< Valid diagnostic i-window per block.
+   integer(I4P), allocatable              :: valid_lo_j(:), valid_hi_j(:) !< Valid diagnostic j-window per block.
+   integer(I4P), allocatable              :: valid_lo_k(:), valid_hi_k(:) !< Valid diagnostic k-window per block.
    integer(I4P)                           :: rho_ivar       !< Charge-density slot for PIC, appended at the end of q.
    integer(I4P)                           :: use_rho        !< Integerized PIC flag for OpenACC firstprivate handling.
+   integer(I4P)                           :: b              !< Block counter.
 
-   allocate(fwl_cells(1:self%blocks_number,1:6))
-   fwl_cells = 0_I4P
-   if (allocated(self%fWLayer%C)) fwl_cells = self%fWLayer%C(1:self%blocks_number,1:6)
+   allocate(valid_lo_i(1:self%blocks_number), valid_hi_i(1:self%blocks_number), &
+            valid_lo_j(1:self%blocks_number), valid_hi_j(1:self%blocks_number), &
+            valid_lo_k(1:self%blocks_number), valid_hi_k(1:self%blocks_number))
+   valid_lo_i = 1_I4P ; valid_hi_i = self%ni
+   valid_lo_j = 1_I4P ; valid_hi_j = self%nj
+   valid_lo_k = 1_I4P ; valid_hi_k = self%nk
+   do b = 1, self%blocks_number
+      if (allocated(self%fWLayer%ni_fWL)) then
+         call exclude_stencil_contaminated_face(lo=valid_lo_i(b), hi=valid_hi_i(b), &
+                                                face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_M), &
+                                                face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_M), is_minus=.true., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_i(b), hi=valid_hi_i(b), &
+                                                face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_P), &
+                                                face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_P), is_minus=.false., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_j(b), hi=valid_hi_j(b), &
+                                                face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_M), &
+                                                face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_M), is_minus=.true., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_j(b), hi=valid_hi_j(b), &
+                                                face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_P), &
+                                                face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_P), is_minus=.false., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_k(b), hi=valid_hi_k(b), &
+                                                face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_M), &
+                                                face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_M), is_minus=.true., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_k(b), hi=valid_hi_k(b), &
+                                                face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_P), &
+                                                face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_P), is_minus=.false., &
+                                                hs=self%fdv_half_stencils(1))
+      endif
+      if (allocated(self%pml%ni_pml)) then
+         call exclude_stencil_contaminated_face(lo=valid_lo_i(b), hi=valid_hi_i(b), &
+                                                face_first=self%pml%ni_pml(1,b,PML_FACE_X_M), &
+                                                face_last=self%pml%ni_pml(2,b,PML_FACE_X_M), is_minus=.true., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_i(b), hi=valid_hi_i(b), &
+                                                face_first=self%pml%ni_pml(1,b,PML_FACE_X_P), &
+                                                face_last=self%pml%ni_pml(2,b,PML_FACE_X_P), is_minus=.false., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_j(b), hi=valid_hi_j(b), &
+                                                face_first=self%pml%nj_pml(1,b,PML_FACE_Y_M), &
+                                                face_last=self%pml%nj_pml(2,b,PML_FACE_Y_M), is_minus=.true., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_j(b), hi=valid_hi_j(b), &
+                                                face_first=self%pml%nj_pml(1,b,PML_FACE_Y_P), &
+                                                face_last=self%pml%nj_pml(2,b,PML_FACE_Y_P), is_minus=.false., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_k(b), hi=valid_hi_k(b), &
+                                                face_first=self%pml%nk_pml(1,b,PML_FACE_Z_M), &
+                                                face_last=self%pml%nk_pml(2,b,PML_FACE_Z_M), is_minus=.true., &
+                                                hs=self%fdv_half_stencils(1))
+         call exclude_stencil_contaminated_face(lo=valid_lo_k(b), hi=valid_hi_k(b), &
+                                                face_first=self%pml%nk_pml(1,b,PML_FACE_Z_P), &
+                                                face_last=self%pml%nk_pml(2,b,PML_FACE_Z_P), is_minus=.false., &
+                                                hs=self%fdv_half_stencils(1))
+      endif
+   enddo
    rho_ivar = self%nv
    use_rho = 0_I4P
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) use_rho = 1_I4P
@@ -6662,18 +6722,43 @@ contains
                                           rho_ivar      = rho_ivar                 ,&
                                           use_rho       = use_rho                  ,&
                                           s1            = self%fdv_half_stencils(1),&
-                                          fwl_c         = fwl_cells                ,&
+                                          valid_lo_i    = valid_lo_i               ,&
+                                          valid_hi_i    = valid_hi_i               ,&
+                                          valid_lo_j    = valid_lo_j               ,&
+                                          valid_hi_j    = valid_hi_j               ,&
+                                          valid_lo_k    = valid_lo_k               ,&
+                                          valid_hi_k    = valid_hi_k               ,&
                                           dxyz_gpu      = self%field_fnl%dxyz_gpu  ,&
                                           q_gpu         = self%q_gpu               ,&
                                           max_div       = max_div)
-   deallocate(fwl_cells)
+   deallocate(valid_lo_i, valid_hi_i, valid_lo_j, valid_hi_j, valid_lo_k, valid_hi_k)
 
 	self%max_divergence_D = max_div(1)
 	self%max_divergence_B = max_div(2)
 	self%max_divergence_J = max_div(3)
    contains
+      pure subroutine exclude_stencil_contaminated_face(lo, hi, face_first, face_last, is_minus, hs)
+      !< Shrink a 1D diagnostic window so that no retained cell uses a centered
+      !< divergence stencil intersecting the selected absorbing layer face.
+      integer(I4P), intent(inout) :: lo
+      integer(I4P), intent(inout) :: hi
+      integer(I4P), intent(in)    :: face_first
+      integer(I4P), intent(in)    :: face_last
+      logical,      intent(in)    :: is_minus
+      integer(I4P), intent(in)    :: hs
+
+      if (face_first <= 0_I4P .or. face_last <= 0_I4P) return
+      if (is_minus) then
+         lo = max(lo, face_last + hs + 1_I4P)
+      else
+         hi = min(hi, face_first - hs - 1_I4P)
+      endif
+      endsubroutine exclude_stencil_contaminated_face
+
       subroutine compute_max_divergence_dev_kernel(ni, nj, nk, blocks_number, ngc,                       &
-                                                   var_Jx, var_Jy, var_Jz, rho_ivar, use_rho, s1, fwl_c, &
+                                                   var_Jx, var_Jy, var_Jz, rho_ivar, use_rho, s1,        &
+                                                   valid_lo_i, valid_hi_i, valid_lo_j, valid_hi_j,       &
+                                                   valid_lo_k, valid_hi_k,                               &
                                                    dxyz_gpu, q_gpu, max_div)
 		!< Compute maximum divergence of D, B and J fields, device kernel.
 		integer(I4P), intent(in)  :: ni, nj, nk, blocks_number, ngc        !< Grids dimensions.
@@ -6681,7 +6766,9 @@ contains
 		integer(I4P), intent(in)  :: rho_ivar                              !< Charge-density slot for PIC.
 		integer(I4P), intent(in)  :: use_rho                               !< Integerized PIC flag.
 		integer(I4P), intent(in)  :: s1                                    !< FDV half stencil.
-		integer(I4P), intent(in)  :: fwl_c(1:,1:)                          !< fWLayer cell counts [nb,6].
+		integer(I4P), intent(in)  :: valid_lo_i(1:), valid_hi_i(1:)        !< Valid diagnostic i-window per block.
+		integer(I4P), intent(in)  :: valid_lo_j(1:), valid_hi_j(1:)        !< Valid diagnostic j-window per block.
+		integer(I4P), intent(in)  :: valid_lo_k(1:), valid_hi_k(1:)        !< Valid diagnostic k-window per block.
 		real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Delta cells GPU [nb,3].
 		real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
 		real(R8P),    intent(out) :: max_div(3)                            !< Maximum divergence of D, B and J fields.
@@ -6694,33 +6781,25 @@ contains
 		real(R8P)                 :: max_divD, max_divB, max_divJ			 !< Maximum divergence of D, B and J fields.
 		real(R8P)                 :: dxyz_b(3) !< Per-block deltas, PRIVATE copy (no strided-section temp: issue #22 F1-bis).
 		integer(I4P)              :: i,j,k,b,s                             !< Counter.
-		integer(I4P)              :: lo_i, hi_i, lo_j, hi_j, lo_k, hi_k    !< fWLayer skin-exclusion bounds (CPU-parity).
 
 		max_divD = 0.0_R8P
 		max_divB = 0.0_R8P
 		max_divJ = 0.0_R8P
-		!$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) copyin(fwl_c) &
+		!$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
+      !$acc& copyin(valid_lo_i,valid_hi_i,valid_lo_j,valid_hi_j,valid_lo_k,valid_hi_k)                &
 	   !$acc& firstprivate(var_jx,var_jy,var_jz,rho_ivar,use_rho,s1)                             &
-	   !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b,lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
+	   !$acc& private(divergenceD,divergenceB,divergenceJ,dxyz_b) &
 		!$acc& reduction(max: max_divD, max_divB, max_divJ)
-		!$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) map(to:fwl_c) &
+		!$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
+      !$omp& map(to:valid_lo_i,valid_hi_i,valid_lo_j,valid_hi_j,valid_lo_k,valid_hi_k)                &
 	   !$omp& firstprivate(var_jx,var_jy,var_jz,rho_ivar,use_rho,s1)                             &
-	   !$omp& private(divergenceD,divergenceB,divergenceJ,dxyz_b,lo_i,hi_i,lo_j,hi_j,lo_k,hi_k) &
+	   !$omp& private(divergenceD,divergenceB,divergenceJ,dxyz_b) &
 		!$omp& reduction(max: max_divD, max_divB, max_divJ)
 	   do b=1,blocks_number
 	   do k=1,nk
 	   do j=1,nj
 	   do i=1,ni
 	      dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
-         lo_i = 1_I4P ; hi_i = ni
-         lo_j = 1_I4P ; hi_j = nj
-         lo_k = 1_I4P ; hi_k = nk
-         if (fwl_c(b,1) > 0_I4P) lo_i = 1_I4P + fwl_c(b,1) + s1
-         if (fwl_c(b,2) > 0_I4P) hi_i = ni - (fwl_c(b,2) + s1 - 1_I4P)
-         if (fwl_c(b,3) > 0_I4P) lo_j = 1_I4P + fwl_c(b,3) + s1
-         if (fwl_c(b,4) > 0_I4P) hi_j = nj - (fwl_c(b,4) + s1 - 1_I4P)
-         if (fwl_c(b,5) > 0_I4P) lo_k = 1_I4P + fwl_c(b,5) + s1
-         if (fwl_c(b,6) > 0_I4P) hi_k = nk - (fwl_c(b,6) + s1 - 1_I4P)
 	      ! Buffer-free divergences (issue #22 F1-bis): the former private stencil
          ! buffers of this CONTAINED kernel were mis-privatized by nvfortran even
          ! with constant bounds (threads bled each other's fills: div(J) tracked
@@ -6743,9 +6822,11 @@ contains
                                                     + (q_gpu(b,i,j,k+s,var_Jz) - q_gpu(b,i,j,k-s,var_Jz))/dxyz_b(3))
          enddo
          if (use_rho /= 0_I4P) divergenceD = divergenceD - q_gpu(b,i,j,k,rho_ivar)
-	         ! fWLayer-skin exclusion (CPU-parity): only cells outside the local block's
-	         ! layer skin contribute to the reported maximum.
-	         if (i >= lo_i .and. i <= hi_i .and. j >= lo_j .and. j <= hi_j .and. k >= lo_k .and. k <= hi_k) then
+	         ! Absorbing-layer skin exclusion (CPU-parity): only cells outside fWLayer/PML
+	         ! whose centered-divergence stencil cannot touch those layers contribute.
+	         if (i >= valid_lo_i(b) .and. i <= valid_hi_i(b) .and. &
+               j >= valid_lo_j(b) .and. j <= valid_hi_j(b) .and. &
+               k >= valid_lo_k(b) .and. k <= valid_hi_k(b)) then
 	            max_divD = max(max_divD, abs(divergenceD))
 	            max_divB = max(max_divB, abs(divergenceB))
 	            max_divJ = max(max_divJ, abs(divergenceJ))
