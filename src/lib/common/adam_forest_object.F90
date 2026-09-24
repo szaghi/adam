@@ -555,11 +555,14 @@ contains
    integer(I4P), allocatable               :: per_realm_count(:)  !< How many neighbour entries each realm gets.
    integer(I4P), allocatable               :: per_realm_cursor(:) !< Write cursor per realm.
    integer(I4P)                            :: f, is               !< Face-pair and realm index counters.
+   integer(I4P)                            :: n_intra             !< Intra-realm AMR faces in the flux register.
    type(forest_face_pair_t)                :: pair                !< Loop alias.
 
-   associate(self_unused => self) ! method takes self for TBP-dispatch symmetry; uses no forest state
-   end associate
-   if (.not. allocated(manifest%face_pairs)) return  ! no inter-realm topology declared
+   if (.not. allocated(manifest%face_pairs)) then
+      ! No inter-realm topology: the flux register holds the intra-realm AMR faces only.
+      call self%register_intra_realm_amr_seams(realm=realm)
+      return
+   endif
 
    ! Pass 1: count entries per realm.
    allocate(per_realm_count(self%n))
@@ -602,7 +605,11 @@ contains
    ! expectation. The structural cost (allocated registers, populated
    ! topology) is the same as for the true coarse-fine AMR case that will
    ! exercise these accumulators non-trivially in follow-up commits.
-   call register_inter_realm_seams(realm=realm, manifest=manifest, flux_register=self%flux_register)
+   ! Flux register: the intra-realm AMR faces first (replicated list, cursors 1..n_intra on every rank), then the
+   ! rank-local inter-realm seam faces appended after them (issue #37; see register_intra_realm_amr_seams).
+   call self%register_intra_realm_amr_seams(realm=realm, extra_faces=count_inter_realm_seam_faces(realm, manifest), &
+                                            nfaces_intra=n_intra)
+   call register_inter_realm_seams(realm=realm, manifest=manifest, flux_register=self%flux_register, first_cursor=n_intra)
    ! Build the per-cell inter-realm ghost map. Per-realm: enumerate every ghost cell in self's seam-block
    ! ghost region and resolve the (peer_realm, peer_block, peer_interior_cell)
    ! tuple. The runtime exchange then becomes a flat indexed loop, replacing
@@ -671,7 +678,27 @@ contains
       slot%coupling   = coupling
       endsubroutine set_neighbor
 
-      subroutine register_inter_realm_seams(realm, manifest, flux_register)
+      function count_inter_realm_seam_faces(realm, manifest) result(nfaces)
+      !< Count the rank-local inter-realm seam register faces: one per (face-pair, block of realm_a on face_a), the
+      !< pass 1 of `register_inter_realm_seams`.
+      class(realm_object),     intent(in) :: realm(:)       !< Initialized realms.
+      type(forest_manifest_t), intent(in) :: manifest       !< Parsed manifest.
+      integer(I4P)                        :: nfaces         !< Rank-local inter-realm seam faces.
+      integer(I4P)                        :: f, b           !< Face-pair, block counters.
+      integer(I4P)                        :: a_axis, a_sign !< Face axis and sign on the realm_a side.
+
+      nfaces = 0_I4P
+      if (.not. allocated(manifest%face_pairs)) return
+      do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+         call face_axis_sign(manifest%face_pairs(f)%face_a, a_axis, a_sign)
+         do b = 1_I4P, int(realm(manifest%face_pairs(f)%realm_a)%adam%field%blocks_number, I4P)
+            if (block_face_on_realm_boundary(realm(manifest%face_pairs(f)%realm_a), b, a_axis, a_sign)) &
+               nfaces = nfaces + 1_I4P
+         enddo
+      enddo
+      endfunction count_inter_realm_seam_faces
+
+      subroutine register_inter_realm_seams(realm, manifest, flux_register, first_cursor)
       !< Populate `flux_register` from the manifest face-pairs.
       !<
       !< Two-pass algorithm:
@@ -709,6 +736,8 @@ contains
       class(realm_object),        intent(inout) :: realm(:)       !< Initialized realms.
       type(forest_manifest_t),    intent(in)    :: manifest       !< Parsed manifest.
       type(flux_register_object), intent(inout) :: flux_register  !< Berger-Colella reflux accumulator owned by the forest.
+      integer(I4P), optional,     intent(in)    :: first_cursor   !< Append after this cursor to a register (and index)
+                                                                  !< already initialized by the intra-realm AMR pass.
       integer(I4P)                              :: f, b           !< Face-pair, block counters.
       integer(I4P)                              :: a_realm        !< Coarse-side realm index alias.
       integer(I4P)                              :: a_axis, a_sign !< Coarse-face axis and sign.
@@ -721,7 +750,7 @@ contains
          ! No inter-realm topology — initialize with zero faces so the
          ! register's `is_initialized_` flag flips and the per-step `reset`
          ! call becomes a safe no-op on the empty register.
-         call flux_register%initialize(nfaces=0_I4P)
+         if (.not. present(first_cursor)) call flux_register%initialize(nfaces=0_I4P)
          return
       endif
 
@@ -737,14 +766,16 @@ contains
          enddo
       enddo
 
-      call flux_register%initialize(nfaces=nfaces_total)
+      if (.not. present(first_cursor)) call flux_register%initialize(nfaces=nfaces_total)
       if (nfaces_total == 0_I4P) return
 
       ! Allocate the per-realm (block, face_1_6) → register_index lookup.
       ! Sized (nb, 6); zero means "not a seam face", positive = 1-based
       ! index into flux_register%face(:). Consumed by PRISM's
       ! compute_residuals_fv_centered to know where to accumulate fluxes.
+      ! When appending (`first_cursor` present) the lookup already holds the intra-realm AMR faces: keep it.
       do is = 1_I4P, int(size(realm), I4P)
+         if (present(first_cursor)) exit
          block
             integer(I4P) :: nb_realm
             nb_realm = int(realm(is)%adam%field%blocks_number, I4P)
@@ -762,6 +793,7 @@ contains
       ! inter_realm_face_register_index lookups so each realm's residual
       ! routine can find the right entry in O(1).
       cursor = 0_I4P
+      if (present(first_cursor)) cursor = first_cursor
       do f = 1_I4P, int(size(manifest%face_pairs), I4P)
          pair    = manifest%face_pairs(f)
          a_realm = pair%realm_a
@@ -1456,7 +1488,7 @@ contains
       endsubroutine find_peer_cell
    endsubroutine populate_inter_realm_topology
 
-   subroutine register_intra_realm_amr_seams(self, realm)
+   subroutine register_intra_realm_amr_seams(self, realm, extra_faces, nfaces_intra)
    !< Register every intra-realm AMR coarse-fine face in the forest flux register.
    !<
    !< Walks each realm's tree node neighborhood (already built by
@@ -1477,28 +1509,35 @@ contains
    !<     opposite face. For intra-realm jumps coarse and fine are the SAME realm,
    !<     so `coarse_realm = fine_realm = is`.
    !<
-   !< **Register ownership.** In the manifest-less (N=1) path this routine is the
-   !< sole initializer of the flux register: it calls `flux_register%initialize`
-   !< with the intra-realm face count (possibly 0, which still flips the
-   !< register's `is_initialized_` so the per-step `reset`/reflux hooks are safe
-   !< no-ops). Composing intra-realm AMR faces with inter-realm seam faces in a
-   !< single multi-realm forest is a follow-up (#13 §7.5 deferred): it requires
-   !< counting both before the one-shot `initialize`, which the manifest path's
-   !< `register_inter_realm_seams` would absorb. No current case exercises both.
-   class(forest_object), intent(inout) :: self      !< The forest.
-   class(realm_object),  intent(inout) :: realm(:)  !< Initialized realms whose trees are walked.
-   integer(I4P)                        :: is        !< Realm index.
-   integer(I4P)                        :: fec       !< Face/edge/corner direction (only 1..6 used).
-   integer(I4P)                        :: nfaces_total !< Total coarse-side AMR faces across the forest.
-   integer(I4P)                        :: cursor    !< Write cursor into the register.
-   integer(I4P)                        :: axis      !< Coarse-face axis (1=x,2=y,3=z) from the tree fec.
-   integer(I4P)                        :: nface_cells !< Coarse-face skin cell count for one block.
-   integer(I4P)                        :: n_fine    !< Number of fine neighbor blocks on a coarse face.
-   integer(I4P)                        :: kf        !< Fine-neighbor counter.
-   type(tree_iterator_object)          :: iter      !< Tree traversal cursor.
-   type(tree_node_object), pointer     :: node_ptr  !< Current node.
-   type(tree_node_object), pointer     :: fine_ptr  !< Fine neighbor node.
-   integer(I4P), allocatable           :: fine_blocks(:) !< Fine-side block indices on a coarse face.
+   !< **Register ownership.** This routine is the sole initializer of the flux
+   !< register: it calls `flux_register%initialize` with the intra-realm face
+   !< count (possibly 0, which still flips the register's `is_initialized_` so
+   !< the per-step `reset`/reflux hooks are safe no-ops) plus `extra_faces`.
+   !<
+   !< **Composition with inter-realm seams (issue #37).** The manifest path
+   !< calls it first with `extra_faces` = the rank-local inter-realm seam face
+   !< count, then `register_inter_realm_seams` appends those faces after the
+   !< `nfaces_intra` intra-realm ones. The order matters: the intra-realm face
+   !< list is replicated (every rank walks the whole tree, same cursors), the
+   !< inter-realm one is rank-local, so keeping the intra-realm faces first
+   !< gives every rank the same indices 1..nfaces_intra, which is what the
+   !< register's cross-rank reduction of the fine sums relies on.
+   class(forest_object), intent(inout)         :: self           !< The forest.
+   class(realm_object),  intent(inout)         :: realm(:)       !< Initialized realms whose trees are walked.
+   integer(I4P),         intent(in),  optional :: extra_faces    !< Register slots reserved for inter-realm faces.
+   integer(I4P),         intent(out), optional :: nfaces_intra   !< Intra-realm AMR faces registered (cursors 1..n).
+   integer(I4P)                                :: is             !< Realm index.
+   integer(I4P)                                :: fec            !< Face/edge/corner direction (only 1..6 used).
+   integer(I4P)                                :: nfaces_total   !< Total coarse-side AMR faces across the forest.
+   integer(I4P)                                :: cursor         !< Write cursor into the register.
+   integer(I4P)                                :: axis           !< Coarse-face axis (1=x,2=y,3=z) from the tree fec.
+   integer(I4P)                                :: nface_cells    !< Coarse-face skin cell count for one block.
+   integer(I4P)                                :: n_fine         !< Number of fine neighbor blocks on a coarse face.
+   integer(I4P)                                :: kf             !< Fine-neighbor counter.
+   type(tree_iterator_object)                  :: iter           !< Tree traversal cursor.
+   type(tree_node_object), pointer             :: node_ptr       !< Current node.
+   type(tree_node_object), pointer             :: fine_ptr       !< Fine neighbor node.
+   integer(I4P), allocatable                   :: fine_blocks(:) !< Fine-side block indices on a coarse face.
 
    ! Pass 1: count coarse-side AMR faces.
    nfaces_total = 0_I4P
@@ -1512,7 +1551,12 @@ contains
       enddo
    enddo
 
-   call self%flux_register%initialize(nfaces=nfaces_total)
+   if (present(nfaces_intra)) nfaces_intra = nfaces_total
+   if (present(extra_faces)) then
+      call self%flux_register%initialize(nfaces=nfaces_total + extra_faces)
+   else
+      call self%flux_register%initialize(nfaces=nfaces_total)
+   endif
    call mpih%print_message('forest: registered intra-realm AMR seam faces: '//trim(str(nfaces_total)))
 
    ! Allocate the per-realm (block, bc_fec) → signed register-index lookup. Same

@@ -332,11 +332,12 @@ contains
    !< registers are NOT replicated: `register_inter_realm_seams` registers
    !< each rank's OWN realm-a-local seam blocks, so face lists differ per
    !< rank and a per-face collective would not match. Those registers hold
-   !< zeros today (no FV inter-realm case exists; the FD path never
-   !< accumulates), so the reduce SKIPS them, preserving the pre-#28
-   !< replicated-forest semantics. Composing both seam kinds in one forest
-   !< is structurally excluded until the two registration passes share a
-   !< single `initialize` (see `register_intra_realm_amr_seams`).
+   !< only the contributions of the seam blocks this rank owns, so the reduce
+   !< SKIPS them. The two kinds can coexist in one forest (issue #37): the
+   !< intra-realm faces are registered FIRST (cursors 1..n_intra, identical on
+   !< every rank) and the rank-local inter-realm ones after them, so reducing
+   !< exactly the intra-realm faces issues the same collective sequence on
+   !< every rank.
    !<
    !< The reduce happens here (not in `apply_reflux_corrections` on
    !< `forest_object`) because it is purely register-internal: it
@@ -351,8 +352,8 @@ contains
    if (self%nfaces == 0_I4P)        return
    if (.not. allocated(self%face))  return
    if (mpih%procs_number <= 1_I4P)  return
-   if (any(self%face(1:self%nfaces)%seam_kind == SEAM_KIND_INTER_REALM)) return
    do f = 1_I4P, self%nfaces
+      if (self%face(f)%seam_kind /= SEAM_KIND_INTRA_REALM_AMR) cycle
       if (.not. allocated(self%face(f)%F_coarse))   cycle
       if (.not. allocated(self%face(f)%F_fine_sum)) cycle
       n = int(size(self%face(f)%F_coarse), I4P)

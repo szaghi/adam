@@ -24,7 +24,10 @@
 #   amr-periodic-reflux      V3 init-time AMR, 2:1 faces on every side of the refined octant, reflux, staged path
 #   shock-cylinder-ib        V6 Mach 2 shock over a cylinder, immersed boundary, solid AMR marker, 120 steps
 #   sod-2realm               sod-x split in two realms at the diaphragm, mirror seam, beta cadence (issue #37); a forest
-#                            manifest (input.ini) plus one INI per realm
+#                            manifest (input.ini) plus one INI per realm; equivalent_to sod-x
+#   sod-amr                  sod-x (ni 48) with x > 0.75 refined: a 2:1 face crossed by the shock, reflux
+#   sod-amr-2realm           sod-amr split in two realms, realm 2 refined: intra-realm AMR and inter-realm seam faces
+#                            in one flux register (issue #37); equivalent_to sod-amr
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 

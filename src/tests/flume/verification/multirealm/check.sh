@@ -8,6 +8,12 @@
 # compares the interior cells by their centres (tolerance 0) and the sum of the realms' conservation histories with
 # the single-realm one (round-off: the realms sum their cells separately).
 #
+# Leg 2 (seam + AMR): the same split with ni = 48 / 24 (the 2:1 refinement needs even block cells) and realm 2
+# refined on x > 0.75, against the single-realm sod-amr with the same refinement. Realm 2 then holds both kinds of
+# flux register face: the intra-realm 2:1 face at x = 0.75, crossed by the shock at t ~ 0.14, and the fine side of the
+# inter-realm seam. Measured: CPU and FNL bitwise on all 135168 cells at t = 0.2 (216 steps), once the forest composed
+# the two registrations (before, the manifest path registered the inter-realm faces only: the 2:1 face got no reflux).
+#
 # Measured (issue #37, np 2, t = 0.2, 174 steps): CPU and FNL bitwise on all 51200 cells, the summed conservation
 # histories within 2e-13. The first runs found three defects: the CPU BC routine stopped on the forest's BC_SEAM crown
 # rows; the fine side of the inter-realm reflux register was 2:1-restricted like an AMR seam, which wrote F_coarse - 0
@@ -70,5 +76,13 @@ single="$CASE_DIR/work-$TAG-single"
 multi="$CASE_DIR/work-$TAG-2realm"
 run "$single" sod-x.ini "$VERIF_DIR/sod/sod-x.ini"
 run "$multi" sod-2realm.ini "$CASE_DIR/sod-2realm.ini" "$CASE_DIR/sod-2realm-r1.ini" "$CASE_DIR/sod-2realm-r2.ini"
+"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+
+echo "== leg 2: seam + AMR, 2-realm Sod with realm 2 refined on x > 0.75 vs sod-amr"
+single="$CASE_DIR/work-$TAG-amr-single"
+multi="$CASE_DIR/work-$TAG-amr-2realm"
+run "$single" sod-amr.ini "$CASE_DIR/sod-amr.ini"
+run "$multi" sod-amr-2realm.ini "$CASE_DIR/sod-amr-2realm.ini" "$CASE_DIR/sod-amr-2realm-r1.ini" \
+    "$CASE_DIR/sod-amr-2realm-r2.ini"
 "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
 echo "multi-realm verification PASSED ($TAG)"
