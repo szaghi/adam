@@ -1565,7 +1565,7 @@ contains
                                                   coarse_realm=is,                              &
                                                   coarse_rank=node_ptr%myrank,                  &
                                                   coarse_block=int(node_ptr%block_index, I4P),  &
-                                                  coarse_face=fec,                              &
+                                                  coarse_face=fec_to_face_code(fec),            &
                                                   fine_realm=is,                                &
                                                   fine_block=fine_blocks,                       &
                                                   nface_cells=nface_cells,                      &
@@ -1646,6 +1646,28 @@ contains
       case default; opp = 0_I4P
       endselect
       endfunction opposite_fec
+
+      pure function fec_to_face_code(fec) result(face_code)
+      !< Translate a tree fec (1=-x, 2=+x, 3=-y, 4=+y, 5=-z, 6=+z) into the FACE_* code the flux register stores and
+      !< `face_axis_sign` decodes (FACE_X_MAX=1 is +x, FACE_X_MIN=2 is -x, ...).
+      !<
+      !< The two numberings are swapped within each axis: registering the raw tree fec as `coarse_face` (as this pass did
+      !< before) makes every reflux application decode the opposite side, so the correction had the wrong sign
+      !< (doubling the coarse-fine conservation defect instead of removing it) and landed on the far cell layer of the
+      !< coarse block.
+      integer(I4P), intent(in) :: fec       !< Tree fec (1..6).
+      integer(I4P)             :: face_code !< FACE_* code.
+
+      select case (fec)
+      case (1_I4P); face_code = FACE_X_MIN
+      case (2_I4P); face_code = FACE_X_MAX
+      case (3_I4P); face_code = FACE_Y_MIN
+      case (4_I4P); face_code = FACE_Y_MAX
+      case (5_I4P); face_code = FACE_Z_MIN
+      case (6_I4P); face_code = FACE_Z_MAX
+      case default; face_code = 0_I4P
+      endselect
+      endfunction fec_to_face_code
 
       subroutine seam_quadrant_from_codes(this_realm, coarse_code, fine_code, fec, ioff, joff)
       !< Fine block's quadrant offset (inner, outer) ∈ {0,1}² within the coarse
