@@ -102,10 +102,11 @@ A run takes the INI file as its argument: `mpirun -np 2 exe/adam_flume_cpu input
 | V7 | `io/`: restart round trip, slices, auxiliary fields | bitwise restart; slice and auxiliary values exact |
 
 `src/tests/flume/regression/` is the goldened regression suite (a copy of the PRISM harness): `run.sh cpu` runs in CI,
-`run-fnl-local.sh` on a GPU workstation.
+`run-fnl-local.sh` on a GPU workstation. `run-omp-bitwise.sh` (also in CI) requires the OpenMP CPU build to reproduce
+the serial one bit for bit on the immersed-boundary case: one unexplained single-ulp divergence is on record (issue #35),
+never reproduced since.
 
-Known limitations: the OpenMP build differs from the serial one by up to 2e-12 on the immersed-boundary case (an
-unlocated race); the FNL backend copies the coarse-fine seam faces to the host at every stage, which dominates its run
+Known limitations: the FNL backend copies the coarse-fine seam faces to the host at every stage, which dominates its run
 time on AMR cases; multi-realm (forest manifest) runs are not supported yet.
 
 ## License

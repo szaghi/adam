@@ -92,6 +92,14 @@ jobs:
       # varset (local_gnu -> lib/hdf5/develop/gnu/14.2.0).
       run: ./src/tests/flume/regression/run.sh cpu
 
+    - name: Check FLUME OpenMP-CPU bitwise against serial
+      # The OpenMP build must reproduce the serial one bit for bit on the
+      # immersed-boundary case (issue #35: one unexplained single-ulp event on
+      # record). np 2 x 2 threads fills the 4-core runner; a failure prints the
+      # first divergent iteration and uploads both runs' logs below.
+      if: success() || failure()
+      run: ./src/tests/flume/regression/run-omp-bitwise.sh --threads 2 --np 2
+
     - name: Upload regression work outputs
       # Runs even when the regression step fails: the produced digests and logs
       # are how a golden is (re)captured from a known-good CI run, and how a
@@ -104,5 +112,8 @@ jobs:
           src/tests/flume/regression/**/work-cpu/digest.txt
           src/tests/flume/regression/**/work-cpu/*-residuals.dat
           src/tests/flume/regression/**/work-cpu/*-conservation_history.dat
+          src/tests/flume/regression/**/work-omp-*/digest.txt
+          src/tests/flume/regression/**/work-omp-*/*.dat
+          src/tests/flume/regression/**/work-omp-*/run.log
         if-no-files-found: warn
         retention-days: 14
