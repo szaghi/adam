@@ -201,8 +201,7 @@ contains
 
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
    call compute_conservation_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                                 dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, &
-                                 integrals=integrals)
+                                 dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu, integrals=integrals)
    call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, 5, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time, integrals=integrals)
    endsubroutine compute_conservation
@@ -426,9 +425,13 @@ contains
    !< For every register face whose coarse side this realm and this rank own, the host mismatch slab
    !< `F_coarse - F_fine_sum` (step fluxes, `sum_s beta_s F_s`) is copied to the device and added, scaled by
    !< `sgn dt / dx_coarse`, to the coarse skin cells.
+   !<
+   !< The scale uses the step the update used, `time%dt`: on the last step of a time-driven run the realm caps it to
+   !< land on `time_max`, and the forest's `dt` argument is the uncapped value (with it the correction was off by the
+   !< ratio of the two, 1.3e-9 of the mass on sod-amr; issue #37).
    class(flume_fnl_object),     intent(inout) :: self           !< The equation.
    integer(I4P),                intent(in)    :: stage          !< Integrator stage.
-   real(R8P),                   intent(in)    :: dt             !< Time step.
+   real(R8P),                   intent(in)    :: dt             !< Forest time step (unused: see the scale below).
    class(flux_register_object), intent(in)    :: flux_register  !< Forest's flux register.
    real(R8P), allocatable                     :: delta(:,:)     !< Host flux mismatch (nv, cells).
    real(R8P), pointer                         :: delta_gpu(:,:) !< Device flux mismatch (nv, cells).
@@ -454,7 +457,7 @@ contains
       call dev_memcpy_to_device(dst=delta_gpu, src=delta)
       call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk,  &
                                  ngc=self%ngc, nv=self%nv, nface_cells=face%nface_cells,                       &
-                                 scale=real(sgn, R8P) * dt / self%adam%field%dxyz(axis,face%coarse_block), &
+                                 scale=real(sgn, R8P) * self%time%dt / self%adam%field%dxyz(axis,face%coarse_block), &
                                  delta_gpu=delta_gpu, q_gpu=self%q_gpu)
       call dev_free(delta_gpu, mydev)
       deallocate(delta)

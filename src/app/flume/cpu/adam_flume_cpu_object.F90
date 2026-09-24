@@ -165,6 +165,9 @@ contains
 
    subroutine compute_conservation(self)
    !< Compute the volume integrals of the conservative variables and save them on the diagnostics cadence.
+   !<
+   !< The cell volume includes the null directions: the tree splits them too, so a refined block's cells are smaller
+   !< along them, and a volume without them overweights the fine cells (issue #37).
    class(flume_cpu_object), intent(inout) :: self         !< The equation.
    real(R8P)                              :: integrals(5) !< Volume integrals.
    real(R8P)                              :: volume       !< Cell volume.
@@ -173,7 +176,7 @@ contains
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
    integrals = 0._R8P
    do b=1, self%blocks_number
-      volume = product(self%adam%field%dxyz(:,b), mask=.not.self%adam%grid%null_xyz)
+      volume = product(self%adam%field%dxyz(:,b))
       do k=1, self%nk
          do j=1, self%nj
             do i=1, self%ni
@@ -379,9 +382,13 @@ contains
    !< `sgn dt / dx_coarse (F_coarse - F_fine_sum)`: the register holds the step fluxes `sum_s beta_s F_s` of both sides
    !< (`accumulate_seam_fluxes`), so the coarse flux the step used is replaced by the restricted fine one, and the
    !< coarse-fine interface conserves to round-off.
+   !<
+   !< The scale uses the step the update used, `time%dt`: on the last step of a time-driven run the realm caps it to
+   !< land on `time_max`, and the forest's `dt` argument is the uncapped value (with it the correction was off by the
+   !< ratio of the two, 1.3e-9 of the mass on sod-amr; issue #37).
    class(flume_cpu_object),     intent(inout) :: self          !< The equation.
    integer(I4P),                intent(in)    :: stage         !< Integrator stage.
-   real(R8P),                   intent(in)    :: dt            !< Time step.
+   real(R8P),                   intent(in)    :: dt            !< Forest time step (unused: see the scale below).
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
    real(R8P)                                  :: scale         !< Correction scale, sgn dt / dx_coarse.
    integer(I4P)                               :: f, c          !< Face, skin cell counters.
@@ -399,7 +406,7 @@ contains
       if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
       call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
       if (axis == 0_I4P) call mpih%error_stop(msg=': malformed coarse face code of register face '//trim(str(f)))
-      scale = real(sgn, R8P) * dt / self%adam%field%dxyz(axis,face%coarse_block)
+      scale = real(sgn, R8P) * self%time%dt / self%adam%field%dxyz(axis,face%coarse_block)
       do c=1, face%nface_cells
          call seam_skin_cell(axis=axis, sgn=sgn, ni=self%ni, nj=self%nj, nk=self%nk, c=c, i=i, j=j, k=k)
          self%q(:,i,j,k,face%coarse_block) = self%q(:,i,j,k,face%coarse_block) + &

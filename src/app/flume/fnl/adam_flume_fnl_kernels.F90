@@ -63,35 +63,30 @@ contains
    enddo
    endsubroutine apply_reflux_face_dev
 
-   subroutine compute_conservation_dev(ni, nj, nk, ngc, blocks_number, dxyz_gpu, is_null, q_gpu, integrals)
-   !< Compute the volume integrals of the conservative variables (interior cells, null directions excluded).
+   subroutine compute_conservation_dev(ni, nj, nk, ngc, blocks_number, dxyz_gpu, q_gpu, integrals)
+   !< Compute the volume integrals of the conservative variables (interior cells). The cell volume includes the null
+   !< directions: the tree splits them too, so a refined block's cells are smaller along them (issue #37).
    integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
    real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
-   logical,      intent(in)  :: is_null(3)                        !< Null directions.
    real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
    real(R8P),    intent(out) :: integrals(NV_EULER)               !< Volume integrals.
-   real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
    real(R8P)                 :: volume                            !< Cell volume.
    real(R8P)                 :: s1, s2, s3, s4, s5                !< Reduction accumulators.
    integer(I4P)              :: b, i, j, k                        !< Counters.
 
-   wx = merge(0._R8P, 1._R8P, is_null(1))
-   wy = merge(0._R8P, 1._R8P, is_null(2))
-   wz = merge(0._R8P, 1._R8P, is_null(3))
    s1 = 0._R8P ; s2 = 0._R8P ; s3 = 0._R8P ; s4 = 0._R8P ; s5 = 0._R8P
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz) private(volume)          &
+   !$acc& firstprivate(ni,nj,nk,blocks_number) private(volume)                   &
    !$acc& reduction(+:s1,s2,s3,s4,s5)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz) private(volume) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number) private(volume) &
    !$omp& reduction(+:s1,s2,s3,s4,s5)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
-      volume = (wx * dxyz_gpu(b,1) + 1._R8P - wx) * (wy * dxyz_gpu(b,2) + 1._R8P - wy) * &
-               (wz * dxyz_gpu(b,3) + 1._R8P - wz)
+      volume = dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
       s1 = s1 + q_gpu(b,i,j,k,1) * volume
       s2 = s2 + q_gpu(b,i,j,k,2) * volume
       s3 = s3 + q_gpu(b,i,j,k,3) * volume

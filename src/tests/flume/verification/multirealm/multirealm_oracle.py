@@ -10,7 +10,8 @@ cadence) the seam is a block interface like any other, so the union must reprodu
   exceed the tolerance (0 = bitwise); the worst cell is reported by coordinates;
 * conservation: the per-step sum over the realms of the volume integrals (`<basename>-conservation_history.dat`)
   against the single-realm integrals, within CONSERVATION_TOL: the realms sum their cells separately, so even
-  bitwise-identical fields give integrals that differ by the summation order (measured 2e-13 on the 2-realm Sod).
+  bitwise-identical fields give integrals that differ by the summation order, whose worst case is n eps relative
+  (n = 135168 cells on the seam + AMR leg: 1.5e-11; measured up to 1.3e-12).
 
 Geometry (XH5F): origin and dxdydz stored (z, y, x), the origin at the corner of the first ghost cell; field datasets
 (z, y, x) with ghosts.
@@ -30,7 +31,7 @@ import h5py
 import numpy as np
 
 VARIABLES = ("r", "ru", "rv", "rw", "rE")
-CONSERVATION_TOL = 1.0e-12
+CONSERVATION_TOL = 1.0e-11
 
 
 def basenames(work: Path) -> list[str]:
