@@ -4,52 +4,28 @@ CI-tuned regression tests for the PRISM (Maxwell-equation) solver. Each case
 runs in roughly one minute and validates one backend against a committed golden
 output.
 
-> ## ⚠️ Current status — two open items
+> ## Current status
 >
-> As of `cf16e20d` the suite runs again, but it is not fully green. Local CPU
-> sweep (gfortran 15.1, OpenMPI 5.0.7): **6 PASS, 1 FAIL, 3 SKIP**.
+> Local sweep 2026-09-24 (gfortran, OpenMPI 5.0.10; nvfortran 26.1 for FNL): **CPU 7 PASS**, **FNL 8 PASS** after the
+> `rmf-amr` golden bump below. The two items the previous banner tracked are closed: the `rmf-amr` FV coil
+> initialisation change was adjudicated and bumped in `bad09954`, and `rmf-fwl` was migrated to `[fWLayer] width`
+> in `43981538`.
 >
-> ### 1. `rmf-amr` digest mismatch — an unadjudicated FV-path change
+> ### `rmf-amr` golden bump (reflux fixes)
 >
-> `rmf-amr` is the **only** regression case on `scheme_space = fv_centered`;
-> every other case is `fd`. Its golden was captured at `d15fed4c`
-> (2026-07-04), and `28625dbf` ("fv tests, coils & PIC initialization on fv")
-> has since reworked FV coil initialisation by ~213 lines in
-> `adam_prism_common_object.F90`. The case's `input.ini` has changed only in
-> comments over that span, so the divergence is a **source-behaviour change on
-> the FV path**, not an input drift.
+> `rmf-amr` is the only case with a live Berger-Colella reflux (FV path, 2:1 AMR seam), and two reflux fixes move
+> it:
 >
-> The digest is not off by round-off: at the first saved checkpoint a
-> reduction that the golden records as exactly `0.0` now reads `~9.9E+03`, and
-> subsequent checkpoints diverge progressively. **Do not refresh this golden
-> reflexively** — decide first whether the new FV coil initialisation is
-> correct. If it is, this is a reviewer-approved golden bump; if not, it is a
-> bug the golden would otherwise enshrine.
+> 1. `e883ff93` (library): intra-realm AMR seams registered the tree fec instead of the `FACE_*` code, so every
+>    reflux decoded the opposite face side, applied the correction with the wrong sign (doubling the coarse-fine
+>    conservation defect) and on the coarse block's far cell layer;
+> 2. the PRISM port of FLUME's stage-weighted accumulation: every RK stage's seam fluxes are accumulated with
+>    weight `beta_s`, so the register holds the flux the committed step used (the final-stage-only accumulation
+>    left a residual leak; on FLUME's V3 case it measured 1e-7 against 5e-15).
 >
-> This regression was masked until `cf16e20d`: the fWLayer breakage below took
-> the whole suite down, so nothing was checking the FV path.
->
-> ### 2. `rmf-fwl` is still un-migrated
->
-> `8e05d363` reworked `prism_fWLayer_object` to take a **physical** width
-> (`[fWLayer] width`, a real) instead of the old **cell-count** `C`; `C` became
-> a *derived* per-block/face array (`C_face = min(ni, ceiling(width/ds))`,
-> `src/app/prism/common/adam_prism_fWLayer_object.F90:144`). The parser reads
-> `width` and **only** `width` (`:189`), and `load_from_file` is called
-> unconditionally from `initialize` (`:86`) with `go_on_fail` defaulting to
-> `.false.` — so a missing `width` is a hard `error_stop` **even when the case
-> uses no layer at all**.
->
-> `cf16e20d` migrated the eight cases whose layer is inactive (`C = 0` →
-> `width = 0.0`; both mean "no layer", so goldens stayed valid). **`rmf-fwl`
-> was deliberately left out**: its layer is active (`C = 6` at `ni = 16` on
-> `[-0.16, 0.16]`, i.e. `ds = 0.02`, so nominally `width = 0.12`), and because
-> `C` is now derived through `ceiling` the translation is not guaranteed to
-> round-trip on refined blocks. It needs its own change with a **re-verified
-> (probably recaptured) FNL golden**.
->
-> Until then `rmf-fwl` still carries `C` and therefore still `error_stop`s; it
-> is skipped by `run.sh` on the CPU backend anyway (no CPU golden).
+> Both backends move the same way, confined to the step-5 residual extrema (`res_Bx/By/Bz/Dx`, up to ~1e-4
+> relative) and one residuals-history entry (~1.5e-6); field digests stay within tolerance and the `check.sh`
+> structural oracle (registration, restriction, np1 = np2 register parity) passes.
 
 This suite is the **structural-change regression baseline** referenced by
 [issue #10][issue10] (forest-of-trees migration plan). Every step of that plan
@@ -424,8 +400,8 @@ restriction, reflux plumbing, fv path); `rmf-amr-fd` and `rmf-amr-fd-pulse`
 assert the seam *divergence* behaviour of the fd_centered path.
 
 (Earlier revisions of this file described these three as "goldenless". That has
-been false since `d15fed4c`; the goldens are what `rmf-amr` is currently failing
-against — see the status banner at the top.)
+been false since `d15fed4c`; `rmf-amr`'s goldens were last bumped for the reflux
+fixes — see the status banner at the top.)
 
 **The historical acceptance "seam max|div(B)| ≤ 1e-13" is RETIRED** (issue
 #21 §1, premise correction): no surveyed cell-centered method achieves
