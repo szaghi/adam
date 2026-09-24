@@ -10,7 +10,7 @@ module adam_flume_common_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
-                                             AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_STL, AMR_GRAD
+                                             AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD
 use :: adam_flux_register_object,     only : flux_register_object, restrict_fine_face_to_quadrant
 use :: adam_parameters,               only : TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,             only : realm_object
@@ -35,6 +35,7 @@ use :: stringifor,                    only : string
 implicit none
 private
 public :: flume_common_object
+public :: ib_cut_spacing
 public :: seam_skin_cell
 
 character(len=11), parameter :: SCHEME_TIME_TAG="runge_kutta" !< Time-integration family tag (forest admissibility).
@@ -62,10 +63,12 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: amr_update       !< Do AMR update (initialization-time only).
       procedure, pass(self) :: mark_by_geometry !< Mark blocks to be refined by a primitive geometric box.
       procedure, pass(self) :: mark_by_gradient !< Mark blocks by the gradient of a conservative or auxiliary variable.
+      procedure, pass(self) :: mark_by_solid    !< Mark blocks crossed by the surface of an immersed solid.
       ! public methods
       procedure, pass(self) :: accumulate_seam_skin  !< Route one weighted seam face skin to the forest's flux register.
       procedure, pass(self) :: allocate_common       !< Allocate common data.
       procedure, pass(self) :: compute_fields_number !< Compute the block-sized fields allocated per block.
+      procedure, pass(self) :: compute_phi           !< Compute the immersed solids distance function (host).
       procedure, pass(self) :: destroy_common        !< Free common data.
       procedure, pass(self) :: initialize            !< Initialize the common data.
       procedure, pass(self) :: load_restart_files    !< Load restart files.
@@ -74,6 +77,7 @@ type, extends(realm_object) :: flume_common_object
       ! forest methods
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
       ! private methods
+      procedure, pass(self), private :: block_spacing    !< Return the spacing of a block by a delta criterion.
       procedure, pass(self), private :: check_ngc_number !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: io_initialize    !< Build the variables names.
 endtype flume_common_object
@@ -100,10 +104,14 @@ contains
             case(AMR_GEO_PRIMITIVE_BOX)
                call self%mark_by_geometry(box_emin=amr_marker%box_emin, box_emax=amr_marker%box_emax, &
                                           target_level=amr_marker%target_level)
+            case(AMR_GEO_SOLID)
+               call self%compute_phi
+               call self%mark_by_solid(solid=amr_marker%solid, delta_type=amr_marker%delta_type, &
+                                       delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
             case(AMR_GEO_STL)
                call mpih%error_stop(msg=': AMR marker geo_type STL is not supported by FLUME')
             case default
-               call mpih%error_stop(msg=': AMR marker geo_type solid is not supported by FLUME yet')
+               call mpih%error_stop(msg=': unknown AMR marker geo_type '//trim(str(amr_marker%geo_type)))
             endselect
          case(AMR_GRAD)
             call self%mark_by_gradient(field=amr_marker%field, ivar=amr_marker%ivar, tol=amr_marker%tol,           &
@@ -178,6 +186,7 @@ contains
    if ((field == 1_I4P .and. (ivar < 1_I4P .or. ivar > NV_EULER)) .or. &
        (field == 2_I4P .and. (ivar < 1_I4P .or. ivar > NV_AUX))   .or. (field < 1_I4P .or. field > 2_I4P)) &
       call mpih%error_stop(msg=': AMR gradient marker: invalid field '//trim(str(field))//' / ivar '//trim(str(ivar)))
+   self%adam%field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, dxyz=>self%adam%field%dxyz, is_null=>self%adam%grid%null_xyz, &
              refinements_needed=>self%adam%field%refinements_needed)
    allocate(var(ni,nj,nk))
@@ -206,26 +215,9 @@ contains
             enddo
          enddo
       enddo
-      select case(delta_type)
-      case(AMR_DELTA_T_X)
-         dc = dxyz(1,b)
-      case(AMR_DELTA_T_Y)
-         dc = dxyz(2,b)
-      case(AMR_DELTA_T_Z)
-         dc = dxyz(3,b)
-      case(AMR_DELTA_T_MAX)
-         dc = maxval(dxyz(:,b), mask=.not.is_null)
-      case default
-         call mpih%error_stop(msg=': AMR gradient marker: unknown delta_type "'//delta_type//'"')
-      endselect
+      dc = self%block_spacing(b=b, delta_type=delta_type)
       delta = merge(delta_fine, delta_coarse, grad_max > tol)
-      if (dc > delta) then
-         refinements_needed(b) = TO_BE_REFINED
-      elseif (2._R8P * dc <= delta) then
-         refinements_needed(b) = TO_BE_DEREFINED
-      else
-         refinements_needed(b) = TO_NOT_TOUCH
-      endif
+      refinements_needed(b) = refinement_by_spacing(dc=dc, delta=delta)
    enddo
    endassociate
    contains
@@ -245,6 +237,34 @@ contains
       endif
       endfunction interior_derivative
    endsubroutine mark_by_gradient
+
+   subroutine mark_by_solid(self, solid, delta_type, delta_fine, delta_coarse)
+   !< Mark blocks by the surface of immersed solid `solid`: CHASE semantics, with the refine/derefine rule of the
+   !< gradient marker.
+   !<
+   !< A block is crossed by the surface when its distance function (interior and ghost cells) changes sign; its
+   !< admissible spacing is then `delta_fine`, `delta_coarse` otherwise. The distance function must be current (the
+   !< caller computes it on the present grid). A run without solids, or a solid index out of range, is fatal (CHASE
+   !< read `phi` unallocated in that case, issue #35 C-8).
+   class(flume_common_object), intent(inout) :: self         !< The equation.
+   integer(I4P),               intent(in)    :: solid        !< Solid index.
+   character(*),               intent(in)    :: delta_type   !< Block spacing criterion: x, y, z, max.
+   real(R8P),                  intent(in)    :: delta_fine   !< Admissible spacing across the surface.
+   real(R8P),                  intent(in)    :: delta_coarse !< Admissible spacing elsewhere.
+   real(R8P)                                 :: delta        !< Admissible spacing.
+   integer(I4P)                              :: b            !< Counter.
+
+   if (solid < 1_I4P .or. solid > self%ib%solids_number) &
+      call mpih%error_stop(msg=': AMR solid marker: solid '//trim(str(solid))//' does not exist ([solids].(number) = '// &
+                               trim(str(self%ib%solids_number))//')')
+   self%adam%field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
+   do b=1, self%blocks_number
+      delta = delta_coarse
+      if (maxval(self%ib%phi(solid,:,:,:,b)) * minval(self%ib%phi(solid,:,:,:,b)) < 0._R8P) delta = delta_fine
+      self%adam%field%refinements_needed(b) = refinement_by_spacing(dc=self%block_spacing(b=b, delta_type=delta_type), &
+                                                                    delta=delta)
+   enddo
+   endsubroutine mark_by_solid
 
    ! public methods
    subroutine accumulate_seam_skin(self, flux_register, b, fec, weight, skin)
@@ -328,6 +348,14 @@ contains
    self%dq    = 0._R8P
    self%q_aux = 0._R8P
    endsubroutine allocate_common
+
+   subroutine compute_phi(self)
+   !< Compute the distance function of the immersed solids on the host (a no-op without solids); the solids are
+   !< static, so the backends compute it once per grid (initialization, restart, initial AMR).
+   class(flume_common_object), intent(inout) :: self !< The equation.
+
+   if (self%ib%solids_number > 0_I4P) call self%ib%compute_phi(field=self%adam%field, grid=self%adam%grid, verbose=.true.)
+   endsubroutine compute_phi
 
    subroutine compute_fields_number(self, file_parameters, fields_number)
    !< Compute the block-sized fields FLUME allocates per block, the `fields_number` of the blocks budget.
@@ -482,6 +510,48 @@ contains
    endsubroutine coupling_descriptor_forest
 
    ! public procedures
+   pure function ib_cut_spacing(phi_c, phi_m, phi_p, ds, eps) result(ds_cut)
+   !< Return the spacing of a fluid cell along one direction, shortened where the solid surface crosses its stencil
+   !< (CHASE semantics, issue #35 D-9).
+   !<
+   !< When the fluid cell (`phi_c < 0`) has one neighbour inside the solid (`phi_m phi_p < 0`), the surface lies at the
+   !< distance `delta = -phi_c / (phi_s - phi_c + eps) ds` from the cell centre towards the solid neighbour `s`, and
+   !< the spacing becomes `ds / 2 + delta`; otherwise it is `ds`.
+   real(R8P), intent(in) :: phi_c  !< Distance function of the cell (negative in the fluid).
+   real(R8P), intent(in) :: phi_m  !< Distance function of the minus neighbour.
+   real(R8P), intent(in) :: phi_p  !< Distance function of the plus neighbour.
+   real(R8P), intent(in) :: ds     !< Spacing.
+   real(R8P), intent(in) :: eps    !< Guard against a vanishing denominator.
+   real(R8P)             :: ds_cut !< Spacing, cut by the surface.
+   !$acc routine seq
+   !$omp declare target
+
+   ds_cut = ds
+   if (phi_c < 0._R8P .and. phi_m * phi_p < 0._R8P) then
+      if (phi_p > 0._R8P) then
+         ds_cut = 0.5_R8P * ds - phi_c / (phi_p - phi_c + eps) * ds
+      else
+         ds_cut = 0.5_R8P * ds - phi_c / (phi_m - phi_c + eps) * ds
+      endif
+   endif
+   endfunction ib_cut_spacing
+
+   pure function refinement_by_spacing(dc, delta) result(refinement)
+   !< Return the refinement query of a block of spacing `dc` against the admissible spacing `delta`: refine when too
+   !< coarse, derefine when its parent (spacing doubled) would still be admissible, untouched otherwise.
+   real(R8P), intent(in) :: dc         !< Block spacing.
+   real(R8P), intent(in) :: delta      !< Admissible spacing.
+   integer(I4P)          :: refinement !< Refinement query.
+
+   if (dc > delta) then
+      refinement = TO_BE_REFINED
+   elseif (2._R8P * dc <= delta) then
+      refinement = TO_BE_DEREFINED
+   else
+      refinement = TO_NOT_TOUCH
+   endif
+   endfunction refinement_by_spacing
+
    pure subroutine seam_skin_cell(axis, sgn, ni, nj, nk, c, i, j, k)
    !< Return the interior cell `(i, j, k)` of skin cell `c` on the face of normal `axis` and side `sgn` (register order,
    !< inner tangential axis fastest). Shared by the host and device reflux applications.
@@ -506,6 +576,29 @@ contains
    endsubroutine seam_skin_cell
 
    ! private methods
+   function block_spacing(self, b, delta_type) result(dc)
+   !< Return the spacing of block `b` by the AMR delta criterion: `x`, `y`, `z`, or `max` over the active directions.
+   class(flume_common_object), intent(in) :: self       !< The equation.
+   integer(I4P),               intent(in) :: b          !< Block index.
+   character(*),               intent(in) :: delta_type !< Delta criterion.
+   real(R8P)                              :: dc         !< Block spacing.
+
+   dc = 0._R8P
+   select case(delta_type)
+   case(AMR_DELTA_T_X)
+      dc = self%adam%field%dxyz(1,b)
+   case(AMR_DELTA_T_Y)
+      dc = self%adam%field%dxyz(2,b)
+   case(AMR_DELTA_T_Z)
+      dc = self%adam%field%dxyz(3,b)
+   case(AMR_DELTA_T_MAX)
+      dc = maxval(self%adam%field%dxyz(:,b), mask=.not.self%adam%grid%null_xyz)
+   case default
+      call mpih%error_stop(msg=': unknown AMR marker delta_type "'//delta_type//'"; expected one of '// &
+                               AMR_DELTA_T_X//', '//AMR_DELTA_T_Y//', '//AMR_DELTA_T_Z//', '//AMR_DELTA_T_MAX)
+   endselect
+   endfunction block_spacing
+
    subroutine check_ngc_number(self)
    !< Check the ghost cells number against the WENO stencil half-width.
    class(flume_common_object), intent(in) :: self !< The equation.

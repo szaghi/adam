@@ -15,7 +15,8 @@ use :: adam_parameters,           only : FEC_1_6_ARRAY
 ! ADAM FNL classes, libraries
 use :: adam_fnl_weno_kernels,     only : weno_reconstruct_upwind_dev
 ! FLUME modules
-use :: adam_flume_common_library, only : seam_skin_cell, compute_face_flux_back_projection, compute_face_split_fluxes,   &
+use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, compute_face_flux_back_projection,              &
+                                         compute_face_split_fluxes,                                                     &
                                          conservative_to_auxiliary, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, IA_A, &
                                          IA_U, IA_V, IA_W, IQ_RU, NV_AUX, NV_EULER, S_MAX
 ! third party modules
@@ -27,6 +28,7 @@ public :: apply_reflux_face_dev
 public :: compute_conservation_dev
 public :: compute_face_fluxes_dev
 public :: compute_flux_difference_dev
+public :: compute_flux_difference_ib_dev
 public :: compute_lambda_max_dev
 public :: compute_q_aux_dev
 public :: compute_rk_ssp_residual_dev
@@ -223,6 +225,60 @@ contains
    enddo
    enddo
    endsubroutine compute_flux_difference_dev
+
+   subroutine compute_flux_difference_ib_dev(ni, nj, nk, ngc, blocks_number, is_null, dxyz_gpu, flx_f_gpu, fly_f_gpu, &
+                                             flz_f_gpu, phi_gpu, dq_gpu)
+   !< Compute the residuals from the face fluxes with immersed solids: the spacing of a fluid cell is cut by the solid
+   !< surface (`ib_cut_spacing`, CHASE semantics, issue #35 D-9); device twin of the CPU flux difference with `phi`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                     !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                       !< Actual blocks number.
+   logical,      intent(in)    :: is_null(3)                          !< Null directions.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                     !< Blocks space steps [nb, 3].
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)           !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)           !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)           !< Z-face fluxes.
+   real(R8P),    intent(in)    :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function [nb, i, j, k, solids+1].
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Residuals.
+   real(R8P), parameter        :: IB_EPS=1.e-12_R8P                   !< Guard of the cut spacing (CHASE value).
+   real(R8P)                   :: wx, wy, wz                          !< Direction weights: 1 active, 0 null.
+   real(R8P)                   :: dx, dy, dz                          !< Cell spacings.
+   logical                     :: nx, ny, nz                          !< Null directions, scalar copies.
+   integer(I4P)                :: ns                                  !< All-solids summary slot of phi.
+   integer(I4P)                :: b, i, j, k, v                       !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1)) ; nx = is_null(1)
+   wy = merge(0._R8P, 1._R8P, is_null(2)) ; ny = is_null(2)
+   wz = merge(0._R8P, 1._R8P, is_null(3)) ; nz = is_null(3)
+   ns = ubound(phi_gpu, dim=5)
+   !$acc parallel loop independent gang vector collapse(4)                                    &
+   !$acc& DEVICEVAR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,phi_gpu,dq_gpu)                     &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz,ns) private(dx,dy,dz)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,phi_gpu,dq_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz,ns) private(dx,dy,dz)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      dx = ib_cut_spacing(phi_c=phi_gpu(b,i,j,k,ns), phi_m=phi_gpu(b,i-1,j,k,ns), phi_p=phi_gpu(b,i+1,j,k,ns), &
+                          ds=dxyz_gpu(b,1), eps=IB_EPS)
+      dy = ib_cut_spacing(phi_c=phi_gpu(b,i,j,k,ns), phi_m=phi_gpu(b,i,j-1,k,ns), phi_p=phi_gpu(b,i,j+1,k,ns), &
+                          ds=dxyz_gpu(b,2), eps=IB_EPS)
+      dz = ib_cut_spacing(phi_c=phi_gpu(b,i,j,k,ns), phi_m=phi_gpu(b,i,j,k-1,ns), phi_p=phi_gpu(b,i,j,k+1,ns), &
+                          ds=dxyz_gpu(b,3), eps=IB_EPS)
+      !$acc loop seq
+      do v=1, NV_EULER
+         dq_gpu(b,i,j,k,v) = -(wx * (flx_f_gpu(b,i,j,k,v) - flx_f_gpu(b,i-1,j,k,v)) / dx + &
+                               wy * (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dy + &
+                               wz * (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dz)
+      enddo
+      if (nx) dq_gpu(b,i,j,k,IQ_RU  ) = 0._R8P
+      if (ny) dq_gpu(b,i,j,k,IQ_RU+1) = 0._R8P
+      if (nz) dq_gpu(b,i,j,k,IQ_RU+2) = 0._R8P
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_flux_difference_ib_dev
 
    subroutine compute_lambda_max_dev(ni, nj, nk, ngc, blocks_number, gamma, R, dxyz_gpu, is_null, q_gpu, lambda_max)
    !< Compute `max(sum_d (|u_d| + a) / dx_d)` over the interior cells (null directions excluded).

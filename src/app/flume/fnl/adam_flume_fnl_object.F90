@@ -28,7 +28,8 @@ use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library, only : flume_common_object, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
 use :: adam_flume_fnl_kernels,    only : apply_reflux_face_dev, compute_conservation_dev, compute_face_fluxes_dev,      &
-                                         compute_flux_difference_dev, compute_lambda_max_dev, compute_q_aux_dev,       &
+                                         compute_flux_difference_dev, compute_flux_difference_ib_dev,                  &
+                                         compute_lambda_max_dev, compute_q_aux_dev,                                    &
                                          compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,          &
                                          set_boundary_conditions_dev
 ! third party modules
@@ -69,6 +70,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
+      procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
       procedure, pass(self) :: destroy                 !< Free device and host data.
       procedure, pass(self) :: initialize_flume        !< Initialize the FNL backend.
       procedure, pass(self) :: save_residuals          !< Save residuals history.
@@ -233,6 +235,25 @@ contains
    call dev_memcpy_from_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q, src=self%q_gpu, buf=self%buf_5D_R8P)
    call dev_memcpy_from_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%dq, src=self%dq_gpu, buf=self%buf_5D_R8P)
    endsubroutine copy_gpu_cpu
+
+   subroutine copy_phi_gpu(self)
+   !< Copy the immersed solids distance function (computed on the host, the solids are static) to the device, transposed
+   !< from `(s, i, j, k, b)` to `(b, i, j, k, s)`; the staging buffer has the extent of the device array (issue #31).
+   class(flume_fnl_object), intent(inout) :: self           !< The equation.
+   real(R8P), allocatable                 :: buf(:,:,:,:,:) !< Transposed staging buffer.
+   integer(I4P)                           :: db(2,5)        !< Device bounds.
+   integer(I4P)                           :: hb(2,5)        !< Host bounds.
+
+   if (self%ib%solids_number == 0_I4P) return
+   associate(ns=>self%ib%solids_number+1, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
+   db(1,:) = [1 , 1-ngc , 1-ngc , 1-ngc , 1 ]
+   db(2,:) = [nb, ni+ngc, nj+ngc, nk+ngc, ns]
+   hb(1,:) = [1 , 1-ngc , 1-ngc , 1-ngc , 1 ]
+   hb(2,:) = [ns, ni+ngc, nj+ngc, nk+ngc, nb]
+   allocate(buf(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:ns))
+   call dev_memcpy_to_device(bb=db, ij=[1,5], tb=hb, dst=self%ib_fnl%phi_gpu, src=self%ib%phi, buf=buf)
+   endassociate
+   endsubroutine copy_phi_gpu
 
    subroutine destroy(self)
    !< Free device and host data: own device buffers, the FNL helpers (library teardown) and the common data.
@@ -434,7 +455,7 @@ contains
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    self%stage_active = k
-   call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=k, dt=self%time%dt)
+   call rk_compute_stage(self, s=k)
    endsubroutine begin_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -445,7 +466,7 @@ contains
    call compute_rk_ssp_residual_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv,                     &
                                     blocks_number=self%blocks_number, nrk=self%rk%nrk, beta_gpu=self%rk_fnl%beta_gpu, &
                                     q_rk_gpu=self%rk_fnl%q_rk_gpu, dq_gpu=self%dq_gpu)
-   call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   call rk_update_q(self)
    call self%save_residuals
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -480,7 +501,7 @@ contains
    else
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k)
    endif
-   call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=k, q_gpu=self%dq_gpu)
+   call rk_assign_stage(self, s=k)
    endsubroutine end_stage_forest
 
    subroutine fill_seam_from_peer_forest(self, peer, p_idx)
@@ -554,17 +575,21 @@ contains
    if (self%io%restart) then
       call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
       call self%load_restart_files(t=self%time%it, time=self%time%time)
+      call self%compute_phi
    else
       do i=1, self%ic%amr_iterations
          call self%ic%set_initial_conditions(field=self%adam%field, q=self%q)
+         call self%compute_phi
          call self%amr_update
       enddo
       call self%ic%set_initial_conditions(field=self%adam%field, q=self%q)
+      call self%compute_phi
       call self%adam%make_comm_local_maps_ghost_bc
       self%time%time = 0._R8P
       self%time%it   = 0_I4P
    endif
    call self%copy_cpu_gpu(verbose=.true.)
+   call self%copy_phi_gpu
    call self%update_ghost(q_gpu=self%q_gpu)
    call self%compute_q_aux(q_gpu=self%q_gpu)
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name, &
@@ -645,7 +670,17 @@ contains
    integer(I4P),                intent(in),    optional :: s                 !< Runge-Kutta stage.
    class(flux_register_object), intent(inout), optional :: flux_register     !< Forest's flux register for reflux.
    logical                                              :: is_char           !< Characteristic reconstruction flag.
+   integer(I4P)                                         :: e                 !< Eikonal iterations counter.
 
+   if (self%ib%solids_number > 0_I4P) then
+      call self%update_ghost(q_gpu=q_gpu)
+      do e=1, self%ib%n_eikonal
+         call self%ib_fnl%evolve_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, dq_gpu=dq_gpu, &
+                                         q_gpu=q_gpu, dxyz_gpu=self%field_fnl%dxyz_gpu)
+         call self%update_ghost(q_gpu=q_gpu)
+      enddo
+      call self%ib_fnl%invert_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, q_gpu=q_gpu)
+   endif
    call self%update_ghost(q_gpu=q_gpu)
    call self%compute_q_aux(q_gpu=q_gpu)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
@@ -667,9 +702,16 @@ contains
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
-   call compute_flux_difference_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,                   &
-                                    dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
-                                    flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
+   if (self%ib%solids_number > 0_I4P) then
+      call compute_flux_difference_ib_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,              &
+                                          dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu,                    &
+                                          fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,                            &
+                                          phi_gpu=self%ib_fnl%phi_gpu, dq_gpu=dq_gpu)
+   else
+      call compute_flux_difference_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,                   &
+                                       dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
+                                       flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
+   endif
    endassociate
    endsubroutine compute_residuals_weno_dev
 
@@ -682,8 +724,7 @@ contains
    do s=1, self%rk%nrk
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
       if (s == 1) call self%save_residuals
-      call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, &
-                                        dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
+      call rk_compute_stage_ls(self, s=s)
    enddo
    endsubroutine integrate_rk_ls_dev
 
@@ -694,14 +735,66 @@ contains
 
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
-      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
+      call rk_compute_stage(self, s=s)
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
-      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
+      call rk_assign_stage(self, s=s)
    enddo
    call compute_rk_ssp_residual_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv,                     &
                                     blocks_number=self%blocks_number, nrk=self%rk%nrk, beta_gpu=self%rk_fnl%beta_gpu, &
                                     q_rk_gpu=self%rk_fnl%q_rk_gpu, dq_gpu=self%dq_gpu)
-   call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   call rk_update_q(self)
    call self%save_residuals
    endsubroutine integrate_rk_ssp_dev
+
+   subroutine rk_assign_stage(self, s)
+   !< Assign the residual of stage `s` to the Runge-Kutta stage buffer; the solid cells are masked with immersed solids.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: s    !< Stage.
+
+   if (associated(self%ib_fnl%phi_gpu)) then
+      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
+                                    phi_gpu=self%ib_fnl%phi_gpu)
+   else
+      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
+   endif
+   endsubroutine rk_assign_stage
+
+   subroutine rk_compute_stage(self, s)
+   !< Compute the state of stage `s`; the solid cells are masked with immersed solids.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: s    !< Stage.
+
+   if (associated(self%ib_fnl%phi_gpu)) then
+      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, &
+                                     phi_gpu=self%ib_fnl%phi_gpu)
+   else
+      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
+   endif
+   endsubroutine rk_compute_stage
+
+   subroutine rk_compute_stage_ls(self, s)
+   !< Advance low-storage stage `s`; the solid cells are masked with immersed solids.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: s    !< Stage.
+
+   if (associated(self%ib_fnl%phi_gpu)) then
+      call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, &
+                                        phi_gpu=self%ib_fnl%phi_gpu, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
+   else
+      call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, &
+                                        dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
+   endif
+   endsubroutine rk_compute_stage_ls
+
+   subroutine rk_update_q(self)
+   !< Assemble the committed state of a strong stability preserving step; the solid cells are masked with immersed solids.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   if (associated(self%ib_fnl%phi_gpu)) then
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
+                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+   else
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   endif
+   endsubroutine rk_update_q
 endmodule adam_flume_fnl_object

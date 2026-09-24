@@ -17,7 +17,8 @@ use :: adam_weno_object,          only : weno_object, weno_reconstruct_upwind
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_common_library, only : flume_common_object, seam_skin_cell, compute_face_flux_back_projection,        &
+use :: adam_flume_common_library, only : flume_common_object, ib_cut_spacing, seam_skin_cell,                          &
+                                         compute_face_flux_back_projection,                                             &
                                          compute_face_split_fluxes, conservative_to_auxiliary, BC_EXTRAPOLATION, BC_INFLOW, &
                                          BC_WALL_INVISCID, IA_A, IA_U, IQ_RU, NV_AUX, NV_EULER, RECON_CHARACTERISTIC,       &
                                          SCHEME_SPACE_WENO, S_MAX
@@ -410,7 +411,7 @@ contains
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    self%stage_active = k
-   call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%time%dt)
+   call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%time%dt, phi=self%ib%phi)
    endsubroutine begin_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -418,7 +419,8 @@ contains
    class(flume_cpu_object), intent(inout) :: self !< The equation.
    real(R8P),               intent(in)    :: dt   !< Time step from the forest (the local capped value is time%dt).
 
-   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q, dq=self%dq)
+   if (allocated(self%ib%phi)) call compute_rk_ssp_residual(self)
    call self%save_residuals
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -473,7 +475,7 @@ contains
    else
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,k), dq=self%dq, s=k)
    endif
-   call self%rk%assign_stage(field=self%adam%field, s=k, q=self%dq)
+   call self%rk%assign_stage(field=self%adam%field, s=k, q=self%dq, phi=self%ib%phi)
    endsubroutine end_stage_forest
 
    subroutine fill_seam_from_peer_forest(self, peer, p_idx)
@@ -545,12 +547,15 @@ contains
    if (self%io%restart) then
       call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
       call self%load_restart_files(t=self%time%it, time=self%time%time)
+      call self%compute_phi
    else
       do i=1, self%ic%amr_iterations
          call self%set_initial_conditions
+         call self%compute_phi
          call self%amr_update
       enddo
       call self%set_initial_conditions
+      call self%compute_phi
       call self%adam%make_comm_local_maps_ghost_bc
       self%time%time = 0._R8P
       self%time%it   = 0_I4P
@@ -698,33 +703,49 @@ contains
    endselect
    endsubroutine compute_face_mirror_indexes
 
-   subroutine compute_flux_difference(ni, nj, nk, ngc, blocks_number, is_null, dxyz, flx, fly, flz, dq)
+   subroutine compute_flux_difference(ni, nj, nk, ngc, blocks_number, is_null, dxyz, flx, fly, flz, dq, phi)
    !< Compute the residuals from the face fluxes, `dq = -sum_d (F_{d,i+1/2} - F_{d,i-1/2}) / dx_d`.
    !<
    !< A null direction weighs zero, and its normal momentum residual is zero (CHASE semantics, issue #35, section 3.4).
-   integer(I4P), intent(in)    :: ni, nj, nk, ngc                !< Grid dimensions.
-   integer(I4P), intent(in)    :: blocks_number                  !< Actual blocks number.
-   logical,      intent(in)    :: is_null(3)                     !< Null directions.
-   real(R8P),    intent(in)    :: dxyz(1:,1:)                    !< Blocks space steps [3, nb].
-   real(R8P),    intent(in)    :: flx(1:,0:,1:,1:,1:)            !< X-face fluxes.
-   real(R8P),    intent(in)    :: fly(1:,1:,0:,1:,1:)            !< Y-face fluxes.
-   real(R8P),    intent(in)    :: flz(1:,1:,1:,0:,1:)            !< Z-face fluxes.
-   real(R8P),    intent(inout) :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
-   real(R8P)                   :: wx, wy, wz                     !< Direction weights: 1 active, 0 null.
-   integer(I4P)                :: b, i, j, k, v                  !< Counters.
+   !< With immersed solids (`phi` present, its last slot the all-solids summary), the spacing of a fluid cell is cut by
+   !< the solid surface (`ib_cut_spacing`, CHASE semantics, D-9).
+   integer(I4P), intent(in)           :: ni, nj, nk, ngc                 !< Grid dimensions.
+   integer(I4P), intent(in)           :: blocks_number                   !< Actual blocks number.
+   logical,      intent(in)           :: is_null(3)                      !< Null directions.
+   real(R8P),    intent(in)           :: dxyz(1:,1:)                     !< Blocks space steps [3, nb].
+   real(R8P),    intent(in)           :: flx(1:,0:,1:,1:,1:)             !< X-face fluxes.
+   real(R8P),    intent(in)           :: fly(1:,1:,0:,1:,1:)             !< Y-face fluxes.
+   real(R8P),    intent(in)           :: flz(1:,1:,1:,0:,1:)             !< Z-face fluxes.
+   real(R8P),    intent(inout)        :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Residuals.
+   real(R8P),    intent(in), optional :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Immersed solids distance function.
+   real(R8P), parameter               :: IB_EPS=1.e-12_R8P               !< Guard of the cut spacing (CHASE value).
+   real(R8P)                          :: wx, wy, wz                      !< Direction weights: 1 active, 0 null.
+   real(R8P)                          :: dx, dy, dz                      !< Cell spacings.
+   integer(I4P)                       :: ns                              !< All-solids summary slot of phi.
+   integer(I4P)                       :: b, i, j, k, v                   !< Counters.
 
    wx = merge(0._R8P, 1._R8P, is_null(1))
    wy = merge(0._R8P, 1._R8P, is_null(2))
    wz = merge(0._R8P, 1._R8P, is_null(3))
-   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, flx, fly, flz, dq)
+   ns = 0_I4P ; if (present(phi)) ns = ubound(phi, dim=1)
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, flx, fly, flz, dq, phi)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
             do i=1, ni
+               dx = dxyz(1,b) ; dy = dxyz(2,b) ; dz = dxyz(3,b)
+               if (ns > 0_I4P) then
+                  dx = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i-1,j,k,b), phi_p=phi(ns,i+1,j,k,b), ds=dx, &
+                                      eps=IB_EPS)
+                  dy = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i,j-1,k,b), phi_p=phi(ns,i,j+1,k,b), ds=dy, &
+                                      eps=IB_EPS)
+                  dz = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i,j,k-1,b), phi_p=phi(ns,i,j,k+1,b), ds=dz, &
+                                      eps=IB_EPS)
+               endif
                do v=1, NV_EULER
-                  dq(v,i,j,k,b) = -(wx * (flx(v,i,j,k,b) - flx(v,i-1,j,k,b)) / dxyz(1,b) + &
-                                    wy * (fly(v,i,j,k,b) - fly(v,i,j-1,k,b)) / dxyz(2,b) + &
-                                    wz * (flz(v,i,j,k,b) - flz(v,i,j,k-1,b)) / dxyz(3,b))
+                  dq(v,i,j,k,b) = -(wx * (flx(v,i,j,k,b) - flx(v,i-1,j,k,b)) / dx + &
+                                    wy * (fly(v,i,j,k,b) - fly(v,i,j-1,k,b)) / dy + &
+                                    wz * (flz(v,i,j,k,b) - flz(v,i,j,k-1,b)) / dz)
                enddo
                if (is_null(1)) dq(IQ_RU,  i,j,k,b) = 0._R8P
                if (is_null(2)) dq(IQ_RU+1,i,j,k,b) = 0._R8P
@@ -736,12 +757,38 @@ contains
    !$omp end parallel do
    endsubroutine compute_flux_difference
 
+   subroutine compute_rk_ssp_residual(self)
+   !< Compute the residual of a strong stability preserving step, `dq = sum_s beta_s dq_s`, from the stored stages.
+   !<
+   !< Used with immersed solids only: the library `update_q` computes the step residual on its unmasked path but not on
+   !< the masked one. Same summation order as the FNL kernel `compute_rk_ssp_residual_dev`.
+   class(flume_cpu_object), intent(inout) :: self          !< The equation.
+   integer(I4P)                           :: b, i, j, k, s !< Counters.
+
+   self%dq = 0._R8P
+   !$omp parallel do collapse(4) default(firstprivate) shared(self)
+   do b=1, self%blocks_number
+      do k=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               do s=1, self%rk%nrk
+                  self%dq(:,i,j,k,b) = self%dq(:,i,j,k,b) + self%rk%beta(s) * self%rk%q_rk(:,i,j,k,b,s)
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine compute_rk_ssp_residual
+
    subroutine compute_residuals_weno(self, q, dq, s, flux_register)
    !< Compute the residuals with the WENO space operator: ghost update, auxiliary variables, face fluxes of the active
    !< directions, flux difference.
    !<
    !< The face fluxes of a null direction are never computed: they keep their zero initialization. On the staged path
-   !< (AMR seam faces), the seam face fluxes of every stage are accumulated into the forest's flux register.
+   !< (AMR seam faces), the seam face fluxes of every stage are accumulated into the forest's flux register. With
+   !< immersed solids, the eikonal extrapolation fills the solid cells first (`n_eikonal` Jacobi sweeps, each followed by
+   !< a ghost exchange, then the wall inversion), and the flux difference uses the spacing cut by the surface.
    class(flume_cpu_object),     intent(inout)           :: self          !< The equation.
    real(R8P),                   intent(inout)           :: q(1:,         &
                                                              1-self%ngc:,&
@@ -756,7 +803,16 @@ contains
    integer(I4P),                intent(in),    optional :: s             !< Runge-Kutta stage.
    class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register for reflux.
    logical                                              :: is_char       !< Characteristic reconstruction flag.
+   integer(I4P)                                         :: e             !< Eikonal iterations counter.
 
+   if (self%ib%solids_number > 0_I4P) then
+      call self%update_ghost(q=q)
+      do e=1, self%ib%n_eikonal
+         call self%ib%evolve_eikonal(field=self%adam%field, grid=self%adam%grid, q=q, dq=dq)
+         call self%update_ghost(q=q)
+      enddo
+      call self%ib%invert_eikonal(field=self%adam%field, grid=self%adam%grid, q=q)
+   endif
    call self%update_ghost(q=q)
    call self%compute_q_aux(q=q)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
@@ -775,7 +831,7 @@ contains
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
    call compute_flux_difference(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, dxyz=self%adam%field%dxyz, &
-                                flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq)
+                                flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq, phi=self%ib%phi)
    endassociate
    endsubroutine compute_residuals_weno
 
@@ -788,7 +844,7 @@ contains
    do s=1, self%rk%nrk
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s == 1) call self%save_residuals
-      call self%rk%compute_stage_ls(field=self%adam%field, s=s, dt=self%time%dt, dq=self%dq, q=self%q)
+      call self%rk%compute_stage_ls(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi, dq=self%dq, q=self%q)
    enddo
    endsubroutine integrate_rk_ls
 
@@ -799,11 +855,12 @@ contains
 
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    do s=1, self%rk%nrk
-      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
+      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
-      call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
+      call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
    enddo
-   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q, dq=self%dq)
+   if (allocated(self%ib%phi)) call compute_rk_ssp_residual(self)
    call self%save_residuals
    endsubroutine integrate_rk_ssp
 endmodule adam_flume_cpu_object
