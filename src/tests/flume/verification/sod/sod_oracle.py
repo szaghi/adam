@@ -12,11 +12,16 @@ projection and its singular y/z eigenvectors went unnoticed. V1 closes that gap 
 Every copy of the 1-D solution along the null (transverse) directions must also be bitwise identical.
 
 Usage:
-    sod_oracle.py <case.ini> <work-dir> [<work-dir> ...] [--l1-max L] [--tol T]
+    sod_oracle.py <case.ini> <work-dir> [<work-dir> ...] [--l1-max L] [--tol T] [--mirror M]
 
 Every work directory after the first is compared with the first one: bitwise by default (the three directions of one
 backend), within `--tol` (maximum absolute difference) across backends, whose compilers contract differently into
 FMAs.
+
+`--mirror M` switches to the reflecting-wall double Sod (sod-wall-*.ini): instead of the exact solution, each run must be
+mirror-symmetric about the centre, q(x) = S q(1 - x) with the normal momentum negated, within M. Symmetry alone does
+not prove the walls reflect (extrapolation at both ends is symmetric too): `--closed C` also requires the box to be
+closed, the relative drift of the mass and energy integrals of the conservation history below C.
 """
 
 from __future__ import annotations
@@ -163,6 +168,8 @@ def main() -> int:
     parser.add_argument("work", type=Path, nargs="+", help="work directories of the x (and y, z) runs")
     parser.add_argument("--l1-max", type=float, default=None, help="L1(rho) bound (per run)")
     parser.add_argument("--tol", type=float, default=0.0, help="comparison tolerance (default 0: bitwise)")
+    parser.add_argument("--mirror", type=float, default=None, help="mirror-symmetry tolerance (wall case)")
+    parser.add_argument("--closed", type=float, default=None, help="mass/energy relative drift bound (wall case)")
     args = parser.parse_args()
 
     ini = read_ini(args.ini)
@@ -177,15 +184,34 @@ def main() -> int:
     for work in args.work:
         basename = next(work.glob("*-residuals.dat")).name.removesuffix("-residuals.dat")
         it, axis, xs, q = load_profile(work, basename, ngc)
-        dx = xs[1] - xs[0]
-        rho_exact = exact_riemann_density(xs, t, 0.5, gamma, left, right)
-        l1 = float(np.sum(np.abs(q[0] - rho_exact)) * dx)
-        verdict = ""
-        if args.l1_max is not None:
-            ok = l1 <= args.l1_max
+        if args.mirror is not None:
+            if np.max(np.abs(xs + xs[::-1] - 1.0)) > 1e-12:
+                sys.exit(f"sod_oracle: the cell centres of {work.name} are not symmetric about 0.5")
+            mirrored = q[:, ::-1].copy()
+            mirrored[1 + axis] = -mirrored[1 + axis]
+            asym = float(np.max(np.abs(q - mirrored)))
+            ok = asym <= args.mirror
             status |= 0 if ok else 1
-            verdict = "  PASS" if ok else f"  FAIL (bound {args.l1_max:.3e})"
-        print(f"{work.name}/{basename}: axis {'xyz'[axis]}, it {it}, cells {xs.size}, L1(rho) = {l1:.6e}{verdict}")
+            print(f"{work.name}/{basename}: axis {'xyz'[axis]}, it {it}, cells {xs.size}, max |q(x) - S q(1-x)| = "
+                  f"{asym:.3e}  {'PASS' if ok else 'FAIL'} (tol {args.mirror:.1e})")
+            if args.closed is not None:
+                rows = [line.split() for line in open(work / f"{basename}-conservation_history.dat")]
+                hist = np.array([[float(v) for v in r] for r in rows if r and r[0][0] in "+-0123456789"])
+                drift = [float(np.max(np.abs(hist[:, c] - hist[0, c])) / abs(hist[0, c])) for c in (2, 6)]
+                ok = max(drift) <= args.closed
+                status |= 0 if ok else 1
+                print(f"{work.name}/{basename}: closed box, relative drift mass {drift[0]:.2e} energy {drift[1]:.2e}  "
+                      f"{'PASS' if ok else 'FAIL'} (tol {args.closed:.1e})")
+        else:
+            dx = xs[1] - xs[0]
+            rho_exact = exact_riemann_density(xs, t, 0.5, gamma, left, right)
+            l1 = float(np.sum(np.abs(q[0] - rho_exact)) * dx)
+            verdict = ""
+            if args.l1_max is not None:
+                ok = l1 <= args.l1_max
+                status |= 0 if ok else 1
+                verdict = "  PASS" if ok else f"  FAIL (bound {args.l1_max:.3e})"
+            print(f"{work.name}/{basename}: axis {'xyz'[axis]}, it {it}, cells {xs.size}, L1(rho) = {l1:.6e}{verdict}")
         # permute the momentum so that the active-axis component always comes first
         mom = np.roll(q[1:4], -axis, axis=0)
         profiles.append((f"{work.name}/{basename}", np.vstack([q[0:1], mom, q[4:5]])))
