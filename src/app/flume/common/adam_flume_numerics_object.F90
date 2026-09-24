@@ -3,6 +3,10 @@ module adam_flume_numerics_object
 !< ADAM, FLUME numerics class definition.
 !<
 !< The time scheme is not duplicated here: it is the library `[runge_kutta].(scheme)`.
+!<
+!< `reflux` switches the Berger-Colella correction at AMR coarse-fine faces: `.true.` for every production run;
+!< `.false.` is a diagnostic (the negative control of the conservation test, issue #35 V3), since a run on a grid
+!< with coarse-fine faces is then not conservative.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
@@ -22,6 +26,7 @@ type :: flume_numerics_object
    !< FLUME numerics class definition.
    character(:), allocatable :: scheme_space             !< Spatial scheme.
    character(:), allocatable :: reconstruction_variables !< Variables reconstructed at cell interfaces.
+   logical                   :: reflux=.true.            !< Berger-Colella reflux at AMR coarse-fine faces.
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -39,7 +44,8 @@ contains
 
    desc =       mpih%myrankstr//'Numerics main data'//NL
    desc = desc//mpih%myrankstr//'  scheme_space:             '//self%scheme_space//NL
-   desc = desc//mpih%myrankstr//'  reconstruction_variables: '//self%reconstruction_variables
+   desc = desc//mpih%myrankstr//'  reconstruction_variables: '//self%reconstruction_variables//NL
+   desc = desc//mpih%myrankstr//'  reflux:                   '//trim(merge('.true. ', '.false.', self%reflux))
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -80,5 +86,8 @@ contains
                                self%reconstruction_variables//'"; expected one of '//RECON_CHARACTERISTIC//', '// &
                                RECON_CONSERVATIVE)
    endselect
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux', val=self%reflux, error=error)
+   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reflux)')
    endsubroutine load_from_file
 endmodule adam_flume_numerics_object

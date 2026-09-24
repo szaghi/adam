@@ -15,7 +15,7 @@ use :: adam_parameters,           only : FEC_1_6_ARRAY
 ! ADAM FNL classes, libraries
 use :: adam_fnl_weno_kernels,     only : weno_reconstruct_upwind_dev
 ! FLUME modules
-use :: adam_flume_common_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &
+use :: adam_flume_common_library, only : seam_skin_cell, compute_face_flux_back_projection, compute_face_split_fluxes,   &
                                          conservative_to_auxiliary, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, IA_A, &
                                          IA_U, IA_V, IA_W, IQ_RU, NV_AUX, NV_EULER, S_MAX
 ! third party modules
@@ -23,6 +23,7 @@ use :: penf,                      only : I4P, I8P, R8P
 
 implicit none
 private
+public :: apply_reflux_face_dev
 public :: compute_conservation_dev
 public :: compute_face_fluxes_dev
 public :: compute_flux_difference_dev
@@ -30,10 +31,36 @@ public :: compute_lambda_max_dev
 public :: compute_q_aux_dev
 public :: compute_rk_ssp_residual_dev
 public :: fill_seam_copy_dev
+public :: pack_seam_skin_dev
 public :: set_boundary_conditions_dev
 
 contains
    ! public procedures
+   subroutine apply_reflux_face_dev(axis, sgn, b, ni, nj, nk, ngc, nv, nface_cells, scale, delta_gpu, q_gpu)
+   !< Add the Berger-Colella correction `scale delta(:, c)` of one register face to the coarse skin cells of block `b`.
+   integer(I4P), intent(in)    :: axis, sgn                         !< Face normal axis (1..3) and side (+-1).
+   integer(I4P), intent(in)    :: b                                 !< Coarse block.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: nv                                !< Variables number.
+   integer(I4P), intent(in)    :: nface_cells                       !< Skin cells number.
+   real(R8P),    intent(in)    :: scale                             !< Correction scale, sgn dt / dx_coarse.
+   real(R8P),    intent(in)    :: delta_gpu(1:,1:)                  !< Flux mismatch F_coarse - F_fine_sum (nv, cells).
+   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   integer(I4P)                :: c, i, j, k, v                     !< Counters and skin cell indexes.
+
+   !$acc parallel loop independent gang vector DEVICEVAR(delta_gpu,q_gpu) &
+   !$acc& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale) private(i,j,k)
+   !$omp OMPLOOP DEVICEPTR(delta_gpu,q_gpu) &
+   !$omp& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale) private(i,j,k)
+   do c=1, nface_cells
+      call seam_skin_cell(axis=axis, sgn=sgn, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
+      !$acc loop seq
+      do v=1, nv
+         q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + scale * delta_gpu(v,c)
+      enddo
+   enddo
+   endsubroutine apply_reflux_face_dev
+
    subroutine compute_conservation_dev(ni, nj, nk, ngc, blocks_number, dxyz_gpu, is_null, q_gpu, integrals)
    !< Compute the volume integrals of the conservative variables (interior cells, null directions excluded).
    integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
@@ -337,6 +364,50 @@ contains
    enddo
    enddo
    endsubroutine fill_seam_copy_dev
+
+   subroutine pack_seam_skin_dev(fec, b, ni, nj, nk, nv, flx_f_gpu, fly_f_gpu, flz_f_gpu, skin_gpu)
+   !< Pack the face fluxes of face `fec` of block `b` into the skin `skin_gpu(v, c)`, `c` running over the two
+   !< tangential axes, inner fastest (the flux register order, `accumulate_seam_skin`).
+   integer(I4P), intent(in)    :: fec                       !< Face (1..6: -x, +x, -y, +y, -z, +z).
+   integer(I4P), intent(in)    :: b                         !< Block.
+   integer(I4P), intent(in)    :: ni, nj, nk                !< Grid dimensions.
+   integer(I4P), intent(in)    :: nv                        !< Variables number.
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:) !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:) !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:) !< Z-face fluxes.
+   real(R8P),    intent(inout) :: skin_gpu(1:,1:)           !< Face skin (nv, inner_n*outer_n).
+   integer(I4P)                :: inner, outer, v           !< Counters.
+   integer(I4P)                :: inner_n, outer_n          !< Tangential cells numbers.
+   integer(I4P)                :: n                         !< Face normal index (0 or n).
+
+   select case(fec)
+   case(1_I4P, 2_I4P)
+      inner_n = nj ; outer_n = nk ; n = merge(0_I4P, ni, fec == 1_I4P)
+   case(3_I4P, 4_I4P)
+      inner_n = ni ; outer_n = nk ; n = merge(0_I4P, nj, fec == 3_I4P)
+   case default
+      inner_n = ni ; outer_n = nj ; n = merge(0_I4P, nk, fec == 5_I4P)
+   endselect
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(flx_f_gpu,fly_f_gpu,flz_f_gpu,skin_gpu) &
+   !$acc& firstprivate(fec,b,nv,n,inner_n,outer_n)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(flx_f_gpu,fly_f_gpu,flz_f_gpu,skin_gpu) &
+   !$omp& firstprivate(fec,b,nv,n,inner_n,outer_n)
+   do outer=1, outer_n
+   do inner=1, inner_n
+      !$acc loop seq
+      do v=1, nv
+         select case(fec)
+         case(1_I4P, 2_I4P)
+            skin_gpu(v,(outer-1)*inner_n+inner) = flx_f_gpu(b,n,inner,outer,v)
+         case(3_I4P, 4_I4P)
+            skin_gpu(v,(outer-1)*inner_n+inner) = fly_f_gpu(b,inner,n,outer,v)
+         case default
+            skin_gpu(v,(outer-1)*inner_n+inner) = flz_f_gpu(b,inner,outer,n,v)
+         endselect
+      enddo
+   enddo
+   enddo
+   endsubroutine pack_seam_skin_dev
 
    subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, local_map_bc_crown_gpu, q_inflow, q_gpu)
    !< Set boundary conditions on one crown: face ghosts by kind, edge and corner ghosts by extrapolation.

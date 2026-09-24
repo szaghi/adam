@@ -9,6 +9,7 @@ module adam_flume_cpu_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : flux_register_object
+use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : FEC_1_6_ARRAY
 use :: adam_realm_object,         only : realm_object
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
@@ -16,7 +17,7 @@ use :: adam_weno_object,          only : weno_object, weno_reconstruct_upwind
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_common_library, only : flume_common_object, compute_face_flux_back_projection,                        &
+use :: adam_flume_common_library, only : flume_common_object, seam_skin_cell, compute_face_flux_back_projection,        &
                                          compute_face_split_fluxes, conservative_to_auxiliary, BC_EXTRAPOLATION, BC_INFLOW, &
                                          BC_WALL_INVISCID, IA_A, IA_U, IQ_RU, NV_AUX, NV_EULER, RECON_CHARACTERISTIC,       &
                                          SCHEME_SPACE_WENO, S_MAX
@@ -39,6 +40,7 @@ type, extends(flume_common_object) :: flume_cpu_object
    procedure(integrate_interface),         pass(self), pointer :: integrate=>null()         !< Time operator.
    contains
       ! public methods
+      procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
       procedure, pass(self) :: allocate_cpu            !< Allocate CPU data.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
@@ -92,6 +94,55 @@ endinterface
 
 contains
    ! public methods
+   subroutine accumulate_seam_fluxes(self, s, flux_register)
+   !< Accumulate the seam face fluxes of stage `s`, weighted by its SSP coefficient, into the forest's flux register.
+   !<
+   !< Every stage contributes (issue #35, P5): the register holds `sum_s beta_s F_s`, the flux of the committed step.
+   class(flume_cpu_object),     intent(inout) :: self          !< The equation.
+   integer(I4P),                intent(in)    :: s             !< Runge-Kutta stage.
+   class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register.
+   real(R8P), allocatable                     :: skin(:,:)     !< Face skin (nv, inner_n*outer_n).
+   integer(I4P)                               :: b, fec        !< Block, face counters.
+   integer(I4P)                               :: i, j, k, c    !< Cell counters.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv=>self%nv)
+   do b=1, self%blocks_number
+      do fec=1, 6
+         if (self%adam%maps%inter_realm_face_register_index(b, fec) == 0_I4P) cycle
+         if (allocated(skin)) deallocate(skin)
+         c = 0
+         select case(fec)
+         case(1_I4P, 2_I4P)
+            allocate(skin(nv, nj*nk))
+            i = merge(0_I4P, ni, fec == 1_I4P)
+            do k=1, nk
+               do j=1, nj
+                  c = c + 1 ; skin(:,c) = self%flx_f(1:nv,i,j,k,b)
+               enddo
+            enddo
+         case(3_I4P, 4_I4P)
+            allocate(skin(nv, ni*nk))
+            j = merge(0_I4P, nj, fec == 3_I4P)
+            do k=1, nk
+               do i=1, ni
+                  c = c + 1 ; skin(:,c) = self%fly_f(1:nv,i,j,k,b)
+               enddo
+            enddo
+         case default
+            allocate(skin(nv, ni*nj))
+            k = merge(0_I4P, nk, fec == 5_I4P)
+            do j=1, nj
+               do i=1, ni
+                  c = c + 1 ; skin(:,c) = self%flz_f(1:nv,i,j,k,b)
+               enddo
+            enddo
+         endselect
+         call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%rk%beta(s), skin=skin)
+      enddo
+   enddo
+   endassociate
+   endsubroutine accumulate_seam_fluxes
+
    subroutine allocate_cpu(self)
    !< Allocate CPU data.
    class(flume_cpu_object), intent(inout) :: self       !< The equation.
@@ -313,17 +364,41 @@ contains
    endsubroutine advance_one_step_forest
 
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
-   !< Apply the Berger-Colella reflux correction: not available before milestone 1 phase P5, so a run with AMR seam
-   !< faces is refused rather than silently left non-conservative.
+   !< Apply the Berger-Colella reflux correction to the committed `q` (the forest calls it once per step, after
+   !< `close_step_forest`, with the final stage).
+   !<
+   !< For every register face whose coarse side this realm and this rank own, the coarse skin cells receive
+   !< `sgn dt / dx_coarse (F_coarse - F_fine_sum)`: the register holds the step fluxes `sum_s beta_s F_s` of both sides
+   !< (`accumulate_seam_fluxes`), so the coarse flux the step used is replaced by the restricted fine one, and the
+   !< coarse-fine interface conserves to round-off.
    class(flume_cpu_object),     intent(inout) :: self          !< The equation.
    integer(I4P),                intent(in)    :: stage         !< Integrator stage.
    real(R8P),                   intent(in)    :: dt            !< Time step.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
+   real(R8P)                                  :: scale         !< Correction scale, sgn dt / dx_coarse.
+   integer(I4P)                               :: f, c          !< Face, skin cell counters.
+   integer(I4P)                               :: axis, sgn     !< Face normal axis and side.
+   integer(I4P)                               :: i, j, k       !< Coarse cell indexes.
 
+   if (.not.self%numerics%reflux) return
    if (.not.flux_register%is_initialized_) return
    if (flux_register%nfaces == 0_I4P) return
-   call mpih%error_stop(msg=': AMR coarse-fine seams need reflux, not implemented yet (stage '//trim(str(stage))// &
-                            ', dt '//trim(str(dt))//')')
+   if (.not.allocated(flux_register%face)) return
+   if (stage /= self%rk%nrk) return
+   do f=1, flux_register%nfaces
+      associate(face=>flux_register%face(f))
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
+      if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
+      call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
+      if (axis == 0_I4P) call mpih%error_stop(msg=': malformed coarse face code of register face '//trim(str(f)))
+      scale = real(sgn, R8P) * dt / self%adam%field%dxyz(axis,face%coarse_block)
+      do c=1, face%nface_cells
+         call seam_skin_cell(axis=axis, sgn=sgn, ni=self%ni, nj=self%nj, nk=self%nk, c=c, i=i, j=j, k=k)
+         self%q(:,i,j,k,face%coarse_block) = self%q(:,i,j,k,face%coarse_block) + &
+                                             scale * (face%F_coarse(1:self%nv,c,1) - face%F_fine_sum(1:self%nv,c,1))
+      enddo
+      endassociate
+   enddo
    endsubroutine apply_reflux_to_stage_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -665,7 +740,8 @@ contains
    !< Compute the residuals with the WENO space operator: ghost update, auxiliary variables, face fluxes of the active
    !< directions, flux difference.
    !<
-   !< The face fluxes of a null direction are never computed: they keep their zero initialization.
+   !< The face fluxes of a null direction are never computed: they keep their zero initialization. On the staged path
+   !< (AMR seam faces), the seam face fluxes of every stage are accumulated into the forest's flux register.
    class(flume_cpu_object),     intent(inout)           :: self          !< The equation.
    real(R8P),                   intent(inout)           :: q(1:,         &
                                                              1-self%ngc:,&
@@ -695,6 +771,9 @@ contains
    if (.not.is_null(3)) call compute_face_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
                                                  blocks_number=nb, gamma=gamma, is_characteristic=is_char,            &
                                                  weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
+      if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
+   endif
    call compute_flux_difference(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, dxyz=self%adam%field%dxyz, &
                                 flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq)
    endassociate

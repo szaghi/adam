@@ -9,8 +9,10 @@ module adam_flume_common_object
 !< by the tree), time, IC, diagnostics, fields allocation, uniform refinement.
 
 ! ADAM classes, libraries, parameters
-use :: adam_amr_object,               only : amr_marker_object, AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_STL, AMR_GRAD
-use :: adam_parameters,               only : TO_BE_REFINED, TO_NOT_TOUCH
+use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
+                                             AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_STL, AMR_GRAD
+use :: adam_flux_register_object,     only : flux_register_object, restrict_fine_face_to_quadrant
+use :: adam_parameters,               only : TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,             only : realm_object
 use :: adam_rk_object,                only : rk_stored_stages_number
 ! ADAM singleton objects
@@ -18,8 +20,10 @@ use :: adam_mpih_global,              only : mpih
 ! FLUME modules
 use :: adam_flume_bc_object,          only : flume_bc_object
 use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
+use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
+use :: adam_flume_parameters,         only : NV_AUX, NV_EULER
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
@@ -31,6 +35,7 @@ use :: stringifor,                    only : string
 implicit none
 private
 public :: flume_common_object
+public :: seam_skin_cell
 
 character(len=11), parameter :: SCHEME_TIME_TAG="runge_kutta" !< Time-integration family tag (forest admissibility).
 
@@ -56,8 +61,9 @@ type, extends(realm_object) :: flume_common_object
       ! AMR methods
       procedure, pass(self) :: amr_update       !< Do AMR update (initialization-time only).
       procedure, pass(self) :: mark_by_geometry !< Mark blocks to be refined by a primitive geometric box.
-      procedure, pass(self) :: mark_by_gradient !< Mark blocks by the gradient of an auxiliary variable (backend override).
+      procedure, pass(self) :: mark_by_gradient !< Mark blocks by the gradient of a conservative or auxiliary variable.
       ! public methods
+      procedure, pass(self) :: accumulate_seam_skin  !< Route one weighted seam face skin to the forest's flux register.
       procedure, pass(self) :: allocate_common       !< Allocate common data.
       procedure, pass(self) :: compute_fields_number !< Compute the block-sized fields allocated per block.
       procedure, pass(self) :: destroy_common        !< Free common data.
@@ -100,7 +106,9 @@ contains
                call mpih%error_stop(msg=': AMR marker geo_type solid is not supported by FLUME yet')
             endselect
          case(AMR_GRAD)
-            call self%mark_by_gradient(ivar=amr_marker%ivar, tol=amr_marker%tol)
+            call self%mark_by_gradient(field=amr_marker%field, ivar=amr_marker%ivar, tol=amr_marker%tol,           &
+                                       delta_type=amr_marker%delta_type, delta_fine=amr_marker%delta_fine, &
+                                       delta_coarse=amr_marker%delta_coarse)
          case default
             call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
          endselect
@@ -143,17 +151,164 @@ contains
    endassociate
    endsubroutine mark_by_geometry
 
-   subroutine mark_by_gradient(self, ivar, tol)
-   !< Mark blocks by the gradient of an auxiliary variable: backends override, the common default is fatal.
-   class(flume_common_object), intent(inout) :: self !< The equation.
-   integer(I4P),               intent(in)    :: ivar !< Auxiliary variable index.
-   real(R8P),                  intent(in)    :: tol  !< Refinement tolerance.
+   subroutine mark_by_gradient(self, field, ivar, tol, delta_type, delta_fine, delta_coarse)
+   !< Mark blocks by the gradient magnitude of a conservative (`field = 1`) or auxiliary (`field = 2`) variable.
+   !<
+   !< CHASE semantics: the admissible cell spacing of a block is `delta_fine` where `max |grad var| > tol`, else
+   !< `delta_coarse`; a block coarser than admissible is refined, a block whose parent (spacing doubled) would still be
+   !< admissible is derefined, any other block is left untouched. The spacing of a block is chosen by `delta_type`
+   !< (`x`, `y`, `z` or `max`). The gradient uses the interior cells only (centred differences, one-sided at the block
+   !< edges), so the marker does not depend on the ghost cells: it runs on the host state before any ghost exchange,
+   !< for both backends (AMR is initialization-time only).
+   class(flume_common_object), intent(inout) :: self         !< The equation.
+   integer(I4P),               intent(in)    :: field        !< Marker field: 1 conservative, 2 auxiliary variables.
+   integer(I4P),               intent(in)    :: ivar         !< Variable index in the marker field.
+   real(R8P),                  intent(in)    :: tol          !< Gradient magnitude tolerance.
+   character(*),               intent(in)    :: delta_type   !< Block spacing criterion: x, y, z, max.
+   real(R8P),                  intent(in)    :: delta_fine   !< Admissible spacing where the gradient exceeds tol.
+   real(R8P),                  intent(in)    :: delta_coarse !< Admissible spacing elsewhere.
+   real(R8P), allocatable                    :: var(:,:,:)   !< Marker variable of one block, interior cells.
+   real(R8P)                                 :: qa(NV_AUX)   !< Auxiliary variables of one cell.
+   real(R8P)                                 :: grad(3)      !< Gradient of one cell.
+   real(R8P)                                 :: grad_max     !< Maximum gradient magnitude of one block.
+   real(R8P)                                 :: dc           !< Block spacing.
+   real(R8P)                                 :: delta        !< Admissible spacing.
+   integer(I4P)                              :: b, i, j, k   !< Counters.
 
-   call mpih%error_stop(msg=': mark_by_gradient is not implemented by this backend (ivar='//trim(str(ivar))// &
-                            ', tol='//trim(str(tol))//')')
+   if ((field == 1_I4P .and. (ivar < 1_I4P .or. ivar > NV_EULER)) .or. &
+       (field == 2_I4P .and. (ivar < 1_I4P .or. ivar > NV_AUX))   .or. (field < 1_I4P .or. field > 2_I4P)) &
+      call mpih%error_stop(msg=': AMR gradient marker: invalid field '//trim(str(field))//' / ivar '//trim(str(ivar)))
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, dxyz=>self%adam%field%dxyz, is_null=>self%adam%grid%null_xyz, &
+             refinements_needed=>self%adam%field%refinements_needed)
+   allocate(var(ni,nj,nk))
+   do b=1, self%blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               if (field == 1_I4P) then
+                  var(i,j,k) = self%q(ivar,i,j,k,b)
+               else
+                  call conservative_to_auxiliary(gamma=self%physics%gamma, R=self%physics%R, q=self%q(:,i,j,k,b), qa=qa)
+                  var(i,j,k) = qa(ivar)
+               endif
+            enddo
+         enddo
+      enddo
+      grad_max = 0._R8P
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               grad = 0._R8P
+               if (.not.is_null(1) .and. ni > 1) grad(1) = interior_derivative(var(:,j,k), i, dxyz(1,b))
+               if (.not.is_null(2) .and. nj > 1) grad(2) = interior_derivative(var(i,:,k), j, dxyz(2,b))
+               if (.not.is_null(3) .and. nk > 1) grad(3) = interior_derivative(var(i,j,:), k, dxyz(3,b))
+               grad_max = max(grad_max, norm2(grad))
+            enddo
+         enddo
+      enddo
+      select case(delta_type)
+      case(AMR_DELTA_T_X)
+         dc = dxyz(1,b)
+      case(AMR_DELTA_T_Y)
+         dc = dxyz(2,b)
+      case(AMR_DELTA_T_Z)
+         dc = dxyz(3,b)
+      case(AMR_DELTA_T_MAX)
+         dc = maxval(dxyz(:,b), mask=.not.is_null)
+      case default
+         call mpih%error_stop(msg=': AMR gradient marker: unknown delta_type "'//delta_type//'"')
+      endselect
+      delta = merge(delta_fine, delta_coarse, grad_max > tol)
+      if (dc > delta) then
+         refinements_needed(b) = TO_BE_REFINED
+      elseif (2._R8P * dc <= delta) then
+         refinements_needed(b) = TO_BE_DEREFINED
+      else
+         refinements_needed(b) = TO_NOT_TOUCH
+      endif
+   enddo
+   endassociate
+   contains
+      pure function interior_derivative(v, n, ds) result(dv)
+      !< Return the derivative of a line of interior cells at cell `n`: centred, one-sided at the ends.
+      real(R8P),    intent(in) :: v(:) !< Line of interior values.
+      integer(I4P), intent(in) :: n    !< Cell index.
+      real(R8P),    intent(in) :: ds   !< Cell spacing.
+      real(R8P)                :: dv   !< Derivative.
+
+      if (n == 1) then
+         dv = (v(2) - v(1)) / ds
+      elseif (n == size(v)) then
+         dv = (v(n) - v(n-1)) / ds
+      else
+         dv = 0.5_R8P * (v(n+1) - v(n-1)) / ds
+      endif
+      endfunction interior_derivative
    endsubroutine mark_by_gradient
 
    ! public methods
+   subroutine accumulate_seam_skin(self, flux_register, b, fec, weight, skin)
+   !< Route one seam face skin of block `b`, face `fec`, weighted by `weight`, to the forest's flux register.
+   !<
+   !< Shared by the backends (the register is host-side): the CPU packs `skin` from its face fluxes, the FNL backend
+   !< packs it on the device and copies it to the host. `skin(v, c)` is the face flux with the cell index `c` running
+   !< over the two tangential axes, inner fastest (x faces: j, k; y faces: i, k; z faces: i, j), the register order.
+   !< Coarse side (positive register index): the skin is the coarse face. Fine side (negative index): the skin is
+   !< 2:1-restricted (2x2 average) into this block's quadrant of the coarse face, the quadrant offset precomputed by
+   !< the forest from the Morton codes (`maps%amr_seam_quadrant`).
+   !<
+   !< FLUME weighs every stage by its SSP coefficient, `weight = beta_s`: the register then holds the flux of the
+   !< whole step, `sum_s beta_s F_s`, exactly the flux the committed update `q + dt sum_s beta_s dq_s` used, and the
+   !< end-of-step correction restores conservation to round-off (issue #35, P5; AMReX non-subcycled flux register).
+   class(flume_common_object),  intent(in)    :: self                !< The equation.
+   class(flux_register_object), intent(inout) :: flux_register       !< Forest's flux register.
+   integer(I4P),                intent(in)    :: b                   !< Block index.
+   integer(I4P),                intent(in)    :: fec                 !< Face (1..6: -x, +x, -y, +y, -z, +z).
+   real(R8P),                   intent(in)    :: weight              !< Stage weight.
+   real(R8P),                   intent(in)    :: skin(1:,1:)         !< Face skin (nv, inner_n*outer_n).
+   real(R8P), allocatable                     :: slab(:,:)           !< Register-shaped contribution (nv_reg, nface_cells).
+   real(R8P), allocatable                     :: fine_face(:,:,:)    !< Weighted fine face (nv, inner_n, outer_n).
+   integer(I4P)                               :: sgn_idx, face_idx   !< Signed and absolute register face index.
+   integer(I4P)                               :: inner_n, outer_n    !< Tangential cell counts.
+   integer(I4P)                               :: ioff, joff          !< Fine-block quadrant offset.
+   integer(I4P)                               :: nv                  !< Skin variables number.
+
+   sgn_idx = self%adam%maps%inter_realm_face_register_index(b, fec)
+   if (sgn_idx == 0_I4P) return
+   face_idx = abs(sgn_idx)
+   if (face_idx > flux_register%nfaces) return
+   if (.not.allocated(flux_register%face(face_idx)%F_coarse)) return
+   select case(fec)
+   case(1_I4P, 2_I4P)
+      inner_n = self%nj ; outer_n = self%nk
+   case(3_I4P, 4_I4P)
+      inner_n = self%ni ; outer_n = self%nk
+   case default
+      inner_n = self%ni ; outer_n = self%nj
+   endselect
+   nv = size(skin, dim=1)
+   if (size(skin, dim=2) /= inner_n * outer_n .or. flux_register%face(face_idx)%nface_cells /= inner_n * outer_n) &
+      call mpih%error_stop(msg=': accumulate_seam_skin: skin size differs from the register face (block '// &
+                               trim(str(b))//', face '//trim(str(fec))//')')
+   allocate(slab(size(flux_register%face(face_idx)%F_coarse, dim=1), inner_n * outer_n))
+   slab = 0._R8P
+   if (sgn_idx > 0_I4P) then
+      slab(1:nv,:) = weight * skin
+      call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=slab)
+   else
+      ioff = 0_I4P ; joff = 0_I4P
+      if (allocated(self%adam%maps%amr_seam_quadrant)) then
+         ioff = self%adam%maps%amr_seam_quadrant(1, b, fec)
+         joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
+      endif
+      allocate(fine_face(nv, inner_n, outer_n))
+      fine_face = weight * reshape(skin, [nv, inner_n, outer_n])
+      call restrict_fine_face_to_quadrant(fine_face=fine_face, inner_n=inner_n, outer_n=outer_n, ioff=ioff, joff=joff, &
+                                          slab=slab)
+      call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=slab)
+   endif
+   endsubroutine accumulate_seam_skin
+
    subroutine allocate_common(self)
    !< Allocate common data.
    class(flume_common_object), intent(inout) :: self       !< The equation.
@@ -325,6 +480,30 @@ contains
    rk_scheme   = trim(self%rk%scheme)
    nv          = self%physics%nv
    endsubroutine coupling_descriptor_forest
+
+   ! public procedures
+   pure subroutine seam_skin_cell(axis, sgn, ni, nj, nk, c, i, j, k)
+   !< Return the interior cell `(i, j, k)` of skin cell `c` on the face of normal `axis` and side `sgn` (register order,
+   !< inner tangential axis fastest). Shared by the host and device reflux applications.
+   integer(I4P), intent(in)  :: axis       !< Face normal axis, 1..3.
+   integer(I4P), intent(in)  :: sgn        !< Face side, +1 maximum, -1 minimum.
+   integer(I4P), intent(in)  :: ni, nj, nk !< Grid dimensions.
+   integer(I4P), intent(in)  :: c          !< Skin cell index.
+   integer(I4P), intent(out) :: i, j, k    !< Interior cell (0 on a malformed axis).
+   !$acc routine seq
+   !$omp declare target
+
+   select case(axis)
+   case(1_I4P)
+      i = merge(ni, 1_I4P, sgn > 0_I4P) ; j = 1_I4P + mod(c - 1_I4P, nj) ; k = 1_I4P + (c - 1_I4P) / nj
+   case(2_I4P)
+      i = 1_I4P + mod(c - 1_I4P, ni) ; j = merge(nj, 1_I4P, sgn > 0_I4P) ; k = 1_I4P + (c - 1_I4P) / ni
+   case(3_I4P)
+      i = 1_I4P + mod(c - 1_I4P, ni) ; j = 1_I4P + (c - 1_I4P) / ni ; k = merge(nk, 1_I4P, sgn > 0_I4P)
+   case default
+      i = 0_I4P ; j = 0_I4P ; k = 0_I4P
+   endselect
+   endsubroutine seam_skin_cell
 
    ! private methods
    subroutine check_ngc_number(self)

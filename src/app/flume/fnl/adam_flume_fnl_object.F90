@@ -14,6 +14,7 @@ module adam_flume_fnl_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : flux_register_object
+use :: adam_maps_object,          only : face_axis_sign
 use :: adam_realm_object,         only : realm_object
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM FNL classes, libraries
@@ -26,9 +27,10 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library, only : flume_common_object, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
-use :: adam_flume_fnl_kernels,    only : compute_conservation_dev, compute_face_fluxes_dev, compute_flux_difference_dev, &
-                                         compute_lambda_max_dev, compute_q_aux_dev, compute_rk_ssp_residual_dev,       &
-                                         fill_seam_copy_dev, set_boundary_conditions_dev
+use :: adam_flume_fnl_kernels,    only : apply_reflux_face_dev, compute_conservation_dev, compute_face_fluxes_dev,      &
+                                         compute_flux_difference_dev, compute_lambda_max_dev, compute_q_aux_dev,       &
+                                         compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,          &
+                                         set_boundary_conditions_dev
 ! third party modules
 use :: fundal,                    only : dev_alloc, dev_free, dev_memcpy_from_device, dev_memcpy_to_device, mydev
 use :: mpi
@@ -61,6 +63,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    procedure(integrate_dev_interface),         pass(self), pointer :: integrate_dev=>null()         !< Time operator.
    contains
       ! public methods
+      procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
       procedure, pass(self) :: allocate_gpu            !< Allocate device data.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
@@ -117,6 +120,44 @@ endinterface
 
 contains
    ! public methods
+   subroutine accumulate_seam_fluxes(self, s, flux_register)
+   !< Accumulate the seam face fluxes of stage `s`, weighted by its SSP coefficient, into the forest's flux register.
+   !<
+   !< The register is host-side: each seam face skin is packed on the device and copied to the host (a few KB per face
+   !< and stage), then routed by the shared `accumulate_seam_skin`, as on the CPU.
+   class(flume_fnl_object),     intent(inout) :: self          !< The equation.
+   integer(I4P),                intent(in)    :: s             !< Runge-Kutta stage.
+   class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register.
+   real(R8P), pointer                         :: skin_gpu(:,:) !< Device face skin (nv, cells).
+   real(R8P), allocatable                     :: skin(:,:)     !< Host face skin (nv, cells).
+   integer(I4P)                               :: b, fec        !< Block, face counters.
+   integer(I4P)                               :: cells         !< Skin cells number.
+   integer(I4P)                               :: ierr          !< Error status.
+
+   do b=1, self%blocks_number
+      do fec=1, 6
+         if (self%adam%maps%inter_realm_face_register_index(b, fec) == 0_I4P) cycle
+         select case(fec)
+         case(1_I4P, 2_I4P)
+            cells = self%nj * self%nk
+         case(3_I4P, 4_I4P)
+            cells = self%ni * self%nk
+         case default
+            cells = self%ni * self%nj
+         endselect
+         call dev_alloc(fptr_dev=skin_gpu, lbounds=[1,1], ubounds=[self%nv,cells], ierr=ierr)
+         if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate skin_gpu in accumulate_seam_fluxes')
+         call pack_seam_skin_dev(fec=fec, b=b, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv, flx_f_gpu=self%flx_f_gpu, &
+                                 fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, skin_gpu=skin_gpu)
+         allocate(skin(self%nv,cells))
+         call dev_memcpy_from_device(dst=skin, src=skin_gpu)
+         call dev_free(skin_gpu, mydev)
+         call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%rk%beta(s), skin=skin)
+         deallocate(skin)
+      enddo
+   enddo
+   endsubroutine accumulate_seam_fluxes
+
    subroutine allocate_gpu(self)
    !< Allocate device data (every `dev_alloc` checked) and the host staging buffer.
    class(flume_fnl_object), intent(inout) :: self       !< The equation.
@@ -342,17 +383,46 @@ contains
    endsubroutine advance_one_step_forest
 
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
-   !< Apply the Berger-Colella reflux correction: not available before milestone 1 phase P5, so a run with AMR seam
-   !< faces is refused rather than silently left non-conservative.
-   class(flume_fnl_object),     intent(inout) :: self          !< The equation.
-   integer(I4P),                intent(in)    :: stage         !< Integrator stage.
-   real(R8P),                   intent(in)    :: dt            !< Time step.
-   class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
+   !< Apply the Berger-Colella reflux correction to the committed `q_gpu` (the forest calls it once per step, after
+   !< `close_step_forest`, with the final stage); device twin of the CPU apply.
+   !<
+   !< For every register face whose coarse side this realm and this rank own, the host mismatch slab
+   !< `F_coarse - F_fine_sum` (step fluxes, `sum_s beta_s F_s`) is copied to the device and added, scaled by
+   !< `sgn dt / dx_coarse`, to the coarse skin cells.
+   class(flume_fnl_object),     intent(inout) :: self           !< The equation.
+   integer(I4P),                intent(in)    :: stage          !< Integrator stage.
+   real(R8P),                   intent(in)    :: dt             !< Time step.
+   class(flux_register_object), intent(in)    :: flux_register  !< Forest's flux register.
+   real(R8P), allocatable                     :: delta(:,:)     !< Host flux mismatch (nv, cells).
+   real(R8P), pointer                         :: delta_gpu(:,:) !< Device flux mismatch (nv, cells).
+   integer(I4P)                               :: f              !< Face counter.
+   integer(I4P)                               :: axis, sgn      !< Face normal axis and side.
+   integer(I4P)                               :: ierr           !< Error status.
 
+   if (.not.self%numerics%reflux) return
    if (.not.flux_register%is_initialized_) return
    if (flux_register%nfaces == 0_I4P) return
-   call mpih_fnl%error_stop(msg=': AMR coarse-fine seams need reflux, not implemented yet (stage '//trim(str(stage))// &
-                                ', dt '//trim(str(dt))//')')
+   if (.not.allocated(flux_register%face)) return
+   if (stage /= self%rk%nrk) return
+   do f=1, flux_register%nfaces
+      associate(face=>flux_register%face(f))
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
+      call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
+      if (axis == 0_I4P) call mpih_fnl%error_stop(msg=': malformed coarse face code of register face '//trim(str(f)))
+      allocate(delta(self%nv,face%nface_cells))
+      delta = face%F_coarse(1:self%nv,:,1) - face%F_fine_sum(1:self%nv,:,1)
+      call dev_alloc(fptr_dev=delta_gpu, lbounds=[1,1], ubounds=[self%nv,face%nface_cells], ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate delta_gpu in apply_reflux_to_stage_forest')
+      call dev_memcpy_to_device(dst=delta_gpu, src=delta)
+      call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk,  &
+                                 ngc=self%ngc, nv=self%nv, nface_cells=face%nface_cells,                       &
+                                 scale=real(sgn, R8P) * dt / self%adam%field%dxyz(axis,face%coarse_block), &
+                                 delta_gpu=delta_gpu, q_gpu=self%q_gpu)
+      call dev_free(delta_gpu, mydev)
+      deallocate(delta)
+      endassociate
+   enddo
    endsubroutine apply_reflux_to_stage_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -559,7 +629,8 @@ contains
    !< Compute the residuals with the WENO space operator on the device: ghost update, auxiliary variables, face fluxes
    !< of the active directions, flux difference.
    !<
-   !< The face fluxes of a null direction are never computed: they keep their zero initialization (`dev_alloc`).
+   !< The face fluxes of a null direction are never computed: they keep their zero initialization (`dev_alloc`). On the
+   !< staged path (AMR seam faces), the seam face fluxes of every stage are accumulated into the forest's flux register.
    class(flume_fnl_object),     intent(inout)           :: self              !< The equation.
    real(R8P),                   intent(inout)           :: q_gpu(1:,         &
                                                                  1-self%ngc:,&
@@ -579,20 +650,23 @@ contains
    call self%compute_q_aux(q_gpu=q_gpu)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
-             is_null=>self%adam%grid%null_xyz, S=>self%weno%S, zeps=>self%weno%zeps, a_gpu=>self%weno_fnl%a_gpu,     &
+             is_null=>self%adam%grid%null_xyz, weno_s=>self%weno%S, zeps=>self%weno%zeps, a_gpu=>self%weno_fnl%a_gpu, &
              p_gpu=>self%weno_fnl%p_gpu, d_gpu=>self%weno_fnl%d_gpu)
-   if (.not.is_null(1)) call compute_face_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-                                                     blocks_number=nb, S=S, gamma=gamma, is_characteristic=is_char,        &
-                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,  &
+   if (.not.is_null(1)) call compute_face_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,  &
+                                                     blocks_number=nb, S=weno_s, gamma=gamma, is_characteristic=is_char,   &
+                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps, &
                                                      q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-   if (.not.is_null(2)) call compute_face_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-                                                     blocks_number=nb, S=S, gamma=gamma, is_characteristic=is_char,        &
-                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,  &
+   if (.not.is_null(2)) call compute_face_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,  &
+                                                     blocks_number=nb, S=weno_s, gamma=gamma, is_characteristic=is_char,   &
+                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps, &
                                                      q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-   if (.not.is_null(3)) call compute_face_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-                                                     blocks_number=nb, S=S, gamma=gamma, is_characteristic=is_char,        &
-                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,  &
+   if (.not.is_null(3)) call compute_face_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,  &
+                                                     blocks_number=nb, S=weno_s, gamma=gamma, is_characteristic=is_char,   &
+                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps, &
                                                      q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+   if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
+      if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
+   endif
    call compute_flux_difference_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,                   &
                                     dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
                                     flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
