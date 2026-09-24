@@ -3382,7 +3382,7 @@ contains
       !$acc parallel loop gang vector collapse(4) independent &
       !$acc& DEVICEVAR(q_gpu,q_face_gpu,dq_face_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
       !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
-      !$omp OMPLOOP collapse(4)
+      !$omp OMPLOOP collapse(4) &
       !$omp& DEVICEPTR(q_gpu,q_face_gpu,dq_face_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
       !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       do lid = 1, size(blocks_gpu)
