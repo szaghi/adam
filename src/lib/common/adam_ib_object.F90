@@ -103,7 +103,11 @@ contains
    endsubroutine compute_phi
 
    subroutine compute_phi_all_solids(self, field, grid, verbose)
-   !< Compute phi, distance from IB solid.
+   !< Compute the all-solids summary slot of phi, the maximum over the solids, on every cell, ghost cells included.
+   !<
+   !< The summary used to be computed on the interior cells only, so its ghost cells kept the initial -1 (fluid):
+   !< every stencil reading the summary across a block face (the cut spacing of a fluid cell next to the surface)
+   !< missed a solid neighbour lying in the next block.
    class(ib_object), intent(inout)        :: self          !< IB.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
@@ -117,9 +121,9 @@ contains
       if (verbose_) call mpih%print_message('ib_object%compute_phi_all_solids start')
       all_solids = ubound(self%phi, dim=1)
       do b=1, field%blocks_number
-         do k=1, grid%nk
-            do j=1, grid%nj
-               do i=1, grid%ni
+         do k=1-grid%ngc, grid%nk+grid%ngc
+            do j=1-grid%ngc, grid%nj+grid%ngc
+               do i=1-grid%ngc, grid%ni+grid%ngc
                   self%phi(all_solids,i,j,k,b) = maxval(self%phi(1:all_solids-1,i,j,k,b))
                enddo
             enddo
@@ -269,30 +273,46 @@ contains
    array = [self%sphere(ib)%center(1), self%sphere(ib)%center(2), self%sphere(ib)%center(3), self%sphere(ib)%radius]
    endfunction sphere_to_array
 
-   subroutine evolve_eikonal(self, field, grid, q)
-   !< Evolve eikonal equation.
-   class(ib_object), intent(in)    :: self                             !< IB.
-   type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
-   type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
-   real(R8P),        intent(inout) ::  q(1:,               &
-                                         1-grid%ngc:, &
-                                         1-grid%ngc:, &
-                                         1-grid%ngc:, &
-                                         1:)                           !< Conservative variables.
-   real(R8P)                       :: dq(1:field%nv)              !< Conservative variables differences.
-   real(R8P)                       :: n_phi_x, n_phi_y, n_phi_z, n_phi !< Eikonal directions.
-   integer(I4P)                    :: i, j, k, b, s                    !< Counter.
+   subroutine evolve_eikonal(self, field, grid, q, dq)
+   !< Evolve the eikonal extrapolation one pseudo-time step inside the solids (interior cells).
+   !<
+   !< Jacobi update, one sweep per solid: every increment is computed from the old state, then all are applied. The
+   !< result is independent of the loop order and of the thread count, and equals the FNL twin (`ib_fnl_object`). The
+   !< former in-place update read neighbours already updated in the same sweep, which made it order-dependent and,
+   !< under OpenMP, a data race. `dq` is an optional work array shaped like `q` (a local one is allocated otherwise).
+   class(ib_object),   intent(in)                    :: self                             !< IB.
+   type(field_object), intent(in)                    :: field                            !< Field (realm component).
+   type(grid_object),  intent(in),           target  :: grid                             !< Grid (realm component).
+   real(R8P),          intent(inout)                 :: q(1:,          &
+                                                          1-grid%ngc:, &
+                                                          1-grid%ngc:, &
+                                                          1-grid%ngc:, &
+                                                          1:)                            !< Conservative variables.
+   real(R8P),          intent(inout), optional, target :: dq(1:,          &
+                                                             1-grid%ngc:, &
+                                                             1-grid%ngc:, &
+                                                             1-grid%ngc:, &
+                                                             1:)                         !< Work array.
+   real(R8P), allocatable,                   target  :: work(:,:,:,:,:)                  !< Local work array.
+   real(R8P), pointer                                :: d(:,:,:,:,:)                     !< Work array in use.
+   real(R8P)                                         :: n_phi_x, n_phi_y, n_phi_z, n_phi !< Eikonal directions.
+   integer(I4P)                                      :: i, j, k, b, s                    !< Counters.
 
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, &
-             nv=>field%nv, solids_number=>self%solids_number)
-   !$omp parallel do collapse(4) default(firstprivate) shared(q,self)
-   do b=1, blocks_number
-      do k=1, nk
-         do j=1, nj
-            do i=1,ni
-               solids_loop : do s=1, solids_number
+             solids_number=>self%solids_number)
+   if (present(dq)) then
+      d(1:,1-ngc:,1-ngc:,1-ngc:,1:) => dq
+   else
+      allocate(work, mold=q)
+      d(1:,1-ngc:,1-ngc:,1-ngc:,1:) => work
+   endif
+   do s=1, solids_number
+      !$omp parallel do collapse(4) default(firstprivate) shared(q,d,self)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
                   if (self%phi(s,i,j,k,b) > 0._R8P) then
-                     ! compute dq
                      n_phi_x = (self%phi(s,i+1,j,k,b) - self%phi(s,i-1,j,k,b))
                      n_phi_y = (self%phi(s,i,j+1,k,b) - self%phi(s,i,j-1,k,b))
                      n_phi_z = (self%phi(s,i,j,k+1,b) - self%phi(s,i,j,k-1,b))
@@ -301,32 +321,40 @@ contains
                      n_phi_x = n_phi_x * n_phi
                      n_phi_y = n_phi_y * n_phi
                      n_phi_z = n_phi_z * n_phi
-                     dq(:) = 0._R8P
+                     d(:,i,j,k,b) = 0._R8P
                      if (n_phi_x > 0._R8P) then
-                        dq(:) = dq(:) + abs(n_phi_x) * (q(:,i,j,k,b) - q(:,i-1,j,k,b))
+                        d(:,i,j,k,b) = d(:,i,j,k,b) + abs(n_phi_x) * (q(:,i,j,k,b) - q(:,i-1,j,k,b))
                      else
-                        dq(:) = dq(:) + abs(n_phi_x) * (q(:,i,j,k,b) - q(:,i+1,j,k,b))
+                        d(:,i,j,k,b) = d(:,i,j,k,b) + abs(n_phi_x) * (q(:,i,j,k,b) - q(:,i+1,j,k,b))
                      endif
                      if (n_phi_y > 0._R8P) then
-                        dq(:) = dq(:) + abs(n_phi_y) * (q(:,i,j,k,b) - q(:,i,j-1,k,b))
+                        d(:,i,j,k,b) = d(:,i,j,k,b) + abs(n_phi_y) * (q(:,i,j,k,b) - q(:,i,j-1,k,b))
                      else
-                        dq(:) = dq(:) + abs(n_phi_y) * (q(:,i,j,k,b) - q(:,i,j+1,k,b))
+                        d(:,i,j,k,b) = d(:,i,j,k,b) + abs(n_phi_y) * (q(:,i,j,k,b) - q(:,i,j+1,k,b))
                      endif
                      if (n_phi_z > 0._R8P) then
-                        dq(:) = dq(:) + abs(n_phi_z) * (q(:,i,j,k,b) - q(:,i,j,k-1,b))
+                        d(:,i,j,k,b) = d(:,i,j,k,b) + abs(n_phi_z) * (q(:,i,j,k,b) - q(:,i,j,k-1,b))
                      else
-                        dq(:) = dq(:) + abs(n_phi_z) * (q(:,i,j,k,b) - q(:,i,j,k+1,b))
+                        d(:,i,j,k,b) = d(:,i,j,k,b) + abs(n_phi_z) * (q(:,i,j,k,b) - q(:,i,j,k+1,b))
                      endif
-                     ! evolve q
-                     q(:,i,j,k,b) = q(:,i,j,k,b) - dq(:)
-                     exit solids_loop
                   endif
-               enddo solids_loop
+               enddo
             enddo
          enddo
       enddo
+      !$omp end parallel do
+      !$omp parallel do collapse(4) default(firstprivate) shared(q,d,self)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  if (self%phi(s,i,j,k,b) > 0._R8P) q(:,i,j,k,b) = q(:,i,j,k,b) - d(:,i,j,k,b)
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
    enddo
-   !$omp end parallel do
    endassociate
    endsubroutine evolve_eikonal
 

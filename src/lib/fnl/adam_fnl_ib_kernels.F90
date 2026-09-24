@@ -90,7 +90,7 @@ contains
    endsubroutine compute_eikonal_dq_phi_dev
 
    subroutine compute_phi_all_solids_dev(ni, nj, nk, ngc, blocks_number, phi_gpu)
-   !< Compute last phi index, all solids summary.
+   !< Compute last phi index, all solids summary, ghost cells included (host parity).
    integer(I4P), intent(in)    :: ni                                  !< Grid cells number in I direction.
    integer(I4P), intent(in)    :: nj                                  !< Grid cells number in J direction.
    integer(I4P), intent(in)    :: nk                                  !< Grid cells number in K direction.
@@ -103,9 +103,9 @@ contains
    all_solids = ubound(phi_gpu, dim=5)
    !$acc parallel loop independent DEVICEVAR(phi_gpu)
    !$omp OMPLOOP collapse(4) DEVICEPTR(phi_gpu)
-   do k=1, nk
-      do j=1, nj
-         do i=1, ni
+   do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+         do i=1-ngc, ni+ngc
             do b=1, blocks_number
                phi_gpu(b,i,j,k,all_solids) = phi_gpu(b,i,j,k,1)
                solids_loop : do s=2, all_solids -1
@@ -187,7 +187,10 @@ contains
    endsubroutine evolve_eikonal_q_phi_dev
 
    subroutine invert_eikonal_q_phi_dev(BCS_VISCOUS,BCS_EULER,ib,ni,nj,nk,ngc,nv,blocks_number,bcs_type,phi_gpu,q_gpu)
-   !< Invert eikonal equation over q inside IB.
+   !< Invert eikonal equation over q inside IB, interior cells (the caller refreshes the ghost cells).
+   !<
+   !< The loops used to span the ghost cells too, reading phi at i-1 = -ngc and i+1 = ni+ngc+1, outside the array;
+   !< they now match the host routine (`ib_object%invert_eikonal`).
    integer(I4P), intent(in)    :: BCS_VISCOUS                         !< Viscous wall BCS parameter.
    integer(I4P), intent(in)    :: BCS_EULER                           !< Euler wall BCS parameter.
    integer(I4P), intent(in)    :: ib                                  !< IB solid index.
@@ -207,9 +210,9 @@ contains
    if     (bcs_type == BCS_VISCOUS) then
       !$acc parallel loop independent DEVICEVAR(phi_gpu, q_gpu)
       !$omp OMPLOOP collapse(4) DEVICEPTR(phi_gpu, q_gpu)
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
                do b=1, blocks_number
                   if (phi_gpu(b,i,j,k,ib) > 0) then
                      q_gpu(b,i,j,k,2) = - q_gpu(b,i,j,k,2)
@@ -223,9 +226,9 @@ contains
    elseif (bcs_type == BCS_EULER  ) then
       !$acc parallel loop independent DEVICEVAR(phi_gpu, q_gpu)
       !$omp OMPLOOP collapse(4) DEVICEPTR(phi_gpu, q_gpu)
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
                do b=1, blocks_number
                   if (phi_gpu(b,i,j,k,ib) > 0) then
                      n_phi_x = phi_gpu(b,i+1,j,k,ib) - phi_gpu(b,i-1,j,k,ib)
