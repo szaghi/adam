@@ -127,6 +127,24 @@ if [[ ! -x "$EXE" ]]; then
 fi
 EXE_ABS="$REPO_ROOT/$EXE"
 
+# Stale-executable guard: the build step can exit 0 without relinking (e.g. an nvfortran internal compiler error in a
+# parallel forced build, measured on the WSL box: the suite then ran the previous binary and reported green). Refuse to
+# run when any source the executable is built from is newer than it: the common library (plus the backend library,
+# src/lib/fnl for the FNL executable), the third-party code, and this application's common/ plus the backend
+# directory named by the executable (adam_flume_cpu -> cpu/, adam_flume_fnl -> fnl/; other applications' and other
+# backends' sources do not enter it). Also guards --no-build runs.
+backend_dir="${EXE##*_}"
+source_dirs=("$REPO_ROOT/src/lib/common" "$REPO_ROOT/src/third_party" "$REPO_ROOT/src/app/flume/common" \
+             "$REPO_ROOT/src/app/flume/$backend_dir")
+[[ -d "$REPO_ROOT/src/lib/$backend_dir" ]] && source_dirs+=("$REPO_ROOT/src/lib/$backend_dir")
+stale_sources="$(find "${source_dirs[@]}" \( -name '*.F90' -o -name '*.f90' -o -name '*.inc' \) \
+                      -newer "$EXE_ABS" -print 2>/dev/null || true)"
+if [[ -n "$stale_sources" ]]; then
+   echo "ERROR: $EXE is older than $(wc -l <<< "$stale_sources") of its sources; rebuild it (check the build log) first:" >&2
+   head -n 5 <<< "$stale_sources" | sed "s|^$REPO_ROOT/|   |" >&2
+   exit 2
+fi
+
 # ---------------------------------------------------------------------------
 # Run every regression case
 # ---------------------------------------------------------------------------
