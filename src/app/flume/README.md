@@ -100,6 +100,7 @@ A run takes the INI file as its argument: `mpirun -np 2 exe/adam_flume_cpu input
 | V3 | `conservation/`: periodic AMR box with reflux | volume integrals constant to round-off; drift without reflux (negative control) |
 | V6 | `shock-cylinder/`: Mach 2 shock over a cylinder, IB + solid AMR | refined surface blocks, mirror symmetry, positivity |
 | V7 | `io/`: restart round trip, slices, auxiliary fields | bitwise restart; slice and auxiliary values exact |
+| — | `multirealm/`: sod-x split in two realms at the diaphragm, mirror seam, beta cadence | union bitwise equal to the single-realm sod-x (issue #37) |
 
 `src/tests/flume/regression/` is the goldened regression suite (a copy of the PRISM harness): `run.sh cpu` runs in CI,
 `run-fnl-local.sh` on a GPU workstation. `run-omp-bitwise.sh` (also in CI) requires the OpenMP CPU build to reproduce
@@ -107,7 +108,9 @@ the serial one bit for bit on the immersed-boundary case: one unexplained single
 never reproduced since.
 
 Known limitations: the FNL backend copies the coarse-fine seam faces to the host at every stage, which dominates its run
-time on AMR cases; multi-realm (forest manifest) runs are not supported yet.
+time on AMR cases; multi-realm (forest manifest) runs are verified with same-resolution mirror seams between unrefined
+realms only: a realm refined at init does not yet get the reflux of its own 2:1 faces when the forest also has
+inter-realm seams (issue #37).
 
 ## License
 

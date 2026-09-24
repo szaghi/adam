@@ -23,6 +23,8 @@
 #   vortex-periodic          V2 isentropic vortex, periodic quadtree, SSP-54, 100 steps
 #   amr-periodic-reflux      V3 init-time AMR, 2:1 faces on every side of the refined octant, reflux, staged path
 #   shock-cylinder-ib        V6 Mach 2 shock over a cylinder, immersed boundary, solid AMR marker, 120 steps
+#   sod-2realm               sod-x split in two realms at the diaphragm, mirror seam, beta cadence (issue #37); a forest
+#                            manifest (input.ini) plus one INI per realm
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 
@@ -148,10 +150,14 @@ for case_dir in "$REGRESSION_DIR"/*/; do
       fi
    fi
 
-   output_basename="$(sed -n -E 's/^[[:space:]]*output_basename[[:space:]]*=[[:space:]]*([^[:space:];]+).*/\1/p' \
-                      "$case_dir/input.ini" | head -n 1)"
-   if [[ -z "$output_basename" ]]; then
-      echo "FAIL [$case_name/$BACKEND] could not parse output_basename from $case_dir/input.ini"
+   # A multi-realm case is a forest manifest (input.ini) plus one INI per realm, each with its own output_basename:
+   # collect them all, copy every INI (issue #37).
+   output_basenames=()
+   while IFS= read -r ob; do
+      [[ -n "$ob" ]] && output_basenames+=("$ob")
+   done < <(sed -n -E 's/^[[:space:]]*output_basename[[:space:]]*=[[:space:]]*([^[:space:];]+).*/\1/p' "$case_dir"/*.ini)
+   if [[ ${#output_basenames[@]} -eq 0 ]]; then
+      echo "FAIL [$case_name/$BACKEND] could not parse output_basename from any .ini in $case_dir"
       fail_count=$((fail_count + 1))
       failed_cases+=("$case_name")
       continue
@@ -160,7 +166,7 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    workdir="$case_dir/work-$BACKEND"
    rm -rf "$workdir"
    mkdir -p "$workdir"
-   cp "$case_dir/input.ini" "$workdir/"
+   cp "$case_dir"/*.ini "$workdir/"
 
    echo
    echo "============================================================"
@@ -227,16 +233,19 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    # ----- Compare outputs against golden -----
    case_failed=0
 
-   # Digest only <output_basename>-<step>-proc<rank>.h5: the filter is structural, so a restart dump never enters.
+   # Digest only <output_basename>-<step>-proc<rank>.h5: the filter is structural, so a restart dump never enters. The
+   # checkpoints of every realm at the same step aggregate into one digest row (digest.py keys rows on the step).
    shopt -s nullglob
    produced_h5=()
-   for h5 in "$workdir/$output_basename"-*.h5; do
-      [[ "$(basename "$h5")" =~ -[0-9]+-proc[0-9]+\.h5$ ]] || continue
-      produced_h5+=("$h5")
+   for ob in "${output_basenames[@]}"; do
+      for h5 in "$workdir/$ob"-*.h5; do
+         [[ "$(basename "$h5")" =~ -[0-9]+-proc[0-9]+\.h5$ ]] || continue
+         produced_h5+=("$h5")
+      done
    done
    shopt -u nullglob
    if [[ ${#produced_h5[@]} -eq 0 ]]; then
-      echo "FAIL [$case_name/$BACKEND] no '$output_basename-<step>-proc<rank>.h5' checkpoints produced"
+      echo "FAIL [$case_name/$BACKEND] no '<output_basename>-<step>-proc<rank>.h5' checkpoints for: ${output_basenames[*]}"
       case_failed=1
    elif ! "$VENV_PY" "$DIGEST_PY" write "$workdir/digest.txt" "${produced_h5[@]}" --case-dir "$case_dir"; then
       echo "FAIL [$case_name/$BACKEND] digest computation failed"
@@ -269,6 +278,23 @@ for case_dir in "$REGRESSION_DIR"/*/; do
          fi
       done
       shopt -u nullglob
+   fi
+
+   # Cross-configuration oracle (issue #37): a case whose cells are the union of another case's cells (e.g. a
+   # multi-realm split of a single-realm case) names that case in `equivalent_to`; its digest must match the other
+   # case's golden too (the per-block metadata rows, which count blocks, are skipped by digest.py).
+   if [[ -f "$case_dir/equivalent_to" && -f "$workdir/digest.txt" ]]; then
+      equivalent="$(tr -d '[:space:]' < "$case_dir/equivalent_to")"
+      equivalent_golden="$REGRESSION_DIR/$equivalent/golden/$BACKEND/digest.txt"
+      if [[ ! -f "$equivalent_golden" ]]; then
+         echo "FAIL [$case_name/$BACKEND] cross-configuration oracle: missing reference $equivalent_golden"
+         case_failed=1
+      elif ! "$VENV_PY" "$DIGEST_PY" compare "$workdir/digest.txt" "$equivalent_golden"; then
+         echo "FAIL [$case_name/$BACKEND] cross-configuration oracle: digest differs from the $equivalent golden"
+         case_failed=1
+      else
+         echo ">> [$case_name/$BACKEND] cross-configuration oracle: matches the $equivalent golden"
+      fi
    fi
 
    if [[ $case_failed -eq 0 ]]; then

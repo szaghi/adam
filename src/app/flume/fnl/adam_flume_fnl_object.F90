@@ -79,6 +79,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: update_ghost            !< Update ghost cells: local, MPI, boundary conditions.
       ! forest methods
       procedure, pass(self) :: advance_one_step_forest      !< Advance one full step (fast path).
+      procedure, pass(self) :: after_topology_build_forest  !< Copy the forest-built seam and BC maps to the device.
       procedure, pass(self) :: apply_reflux_to_stage_forest !< Apply the reflux correction.
       procedure, pass(self) :: begin_stage_forest           !< Begin an integrator stage (staged path).
       procedure, pass(self) :: close_step_forest            !< Close a step (staged path).
@@ -408,6 +409,15 @@ contains
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    endsubroutine advance_one_step_forest
+
+   subroutine after_topology_build_forest(self)
+   !< Copy the host maps the forest built after the realm initialization to the device: the inter-realm seam map and
+   !< buffers (`maps%seam_local_*`) and the BC crown map, whose seam rows the forest rewrote to `BC_SEAM` (issue #37;
+   !< without it the seam fill kernel reads an unset device map and the BC kernel extrapolates over the seam ghosts).
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%field_fnl%maps%copy_cpu_gpu(maps=self%adam%maps)
+   endsubroutine after_topology_build_forest
 
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
    !< Apply the Berger-Colella reflux correction to the committed `q_gpu` (the forest calls it once per step, after

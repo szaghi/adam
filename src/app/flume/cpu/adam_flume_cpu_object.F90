@@ -10,7 +10,7 @@ module adam_flume_cpu_object
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : flux_register_object
 use :: adam_maps_object,          only : face_axis_sign
-use :: adam_parameters,           only : FEC_1_6_ARRAY
+use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_realm_object,         only : realm_object
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 use :: adam_weno_object,          only : weno_object, weno_reconstruct_upwind
@@ -323,6 +323,8 @@ contains
                                              idelta=idelta, jdelta=jdelta, kdelta=kdelta, i_d=iref, j_d=jref, k_d=kref)
             q(:,i,j,k,b) = q(:,iref,jref,kref,b)
             q(IQ_RU+(face-1)/2,i,j,k,b) = -q(IQ_RU+(face-1)/2,i,j,k,b)
+         case(BC_SEAM)
+            ! inter-realm seam face: filled by the forest (fill_seam_from_peer_forest), nothing to do here
          case default
             call mpih%error_stop(msg=': unexpected boundary condition type '//trim(str(bc_type))//' on the crown map')
          endselect

@@ -11,7 +11,7 @@ module adam_flume_common_object
 ! ADAM classes, libraries, parameters
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
                                              AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD
-use :: adam_flux_register_object,     only : flux_register_object, restrict_fine_face_to_quadrant
+use :: adam_flux_register_object,     only : flux_register_object, restrict_fine_face_to_quadrant, SEAM_KIND_INTER_REALM
 use :: adam_parameters,               only : TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,             only : realm_object
 use :: adam_rk_object,                only : rk_stored_stages_number
@@ -81,7 +81,8 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
       ! private methods
       procedure, pass(self), private :: block_spacing    !< Return the spacing of a block by a delta criterion.
-      procedure, pass(self), private :: check_ngc_number !< Check the ghost cells number against the stencils.
+      procedure, pass(self), private :: check_amr_block_cells !< Check the block cells numbers against the 2:1 refinement.
+      procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
       procedure, pass(self), private :: compute_q_aux_host !< Compute the auxiliary variables of the host q.
       procedure, pass(self), private :: io_initialize    !< Build the variables names.
@@ -278,9 +279,10 @@ contains
    !< Shared by the backends (the register is host-side): the CPU packs `skin` from its face fluxes, the FNL backend
    !< packs it on the device and copies it to the host. `skin(v, c)` is the face flux with the cell index `c` running
    !< over the two tangential axes, inner fastest (x faces: j, k; y faces: i, k; z faces: i, j), the register order.
-   !< Coarse side (positive register index): the skin is the coarse face. Fine side (negative index): the skin is
-   !< 2:1-restricted (2x2 average) into this block's quadrant of the coarse face, the quadrant offset precomputed by
-   !< the forest from the Morton codes (`maps%amr_seam_quadrant`).
+   !< Coarse side (positive register index): the skin is the coarse face. Fine side (negative index): on an intra-realm
+   !< AMR seam the skin is 2:1-restricted (2x2 average) into this block's quadrant of the coarse face, the quadrant offset
+   !< precomputed by the forest from the Morton codes (`maps%amr_seam_quadrant`); on an inter-realm mirror seam (same
+   !< resolution) it covers the coarse face 1:1 and is accumulated unrestricted.
    !<
    !< FLUME weighs every stage by its SSP coefficient, `weight = beta_s`: the register then holds the flux of the
    !< whole step, `sum_s beta_s F_s`, exactly the flux the committed update `q + dt sum_s beta_s dq_s` used, and the
@@ -320,6 +322,10 @@ contains
    if (sgn_idx > 0_I4P) then
       slab(1:nv,:) = weight * skin
       call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=slab)
+   elseif (flux_register%face(face_idx)%seam_kind == SEAM_KIND_INTER_REALM) then
+      ! same-resolution (mirror) inter-realm seam: the fine skin covers the coarse face 1:1, no restriction (issue #37)
+      slab(1:nv,:) = weight * skin
+      call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=slab)
    else
       ioff = 0_I4P ; joff = 0_I4P
       if (allocated(self%adam%maps%amr_seam_quadrant)) then
@@ -433,6 +439,7 @@ contains
    if (error > 0) call mpih%error_stop(msg=': failed to load [IO].(save_auxiliary_fields)')
    call self%check_slices
    call self%check_ngc_number
+   call self%check_amr_block_cells
    call self%allocate_common
    call self%io_initialize
    if (self%adam%tree%iu_ref_levels > 0) &
@@ -664,6 +671,28 @@ contains
                                AMR_DELTA_T_X//', '//AMR_DELTA_T_Y//', '//AMR_DELTA_T_Z//', '//AMR_DELTA_T_MAX)
    endselect
    endfunction block_spacing
+
+   subroutine check_amr_block_cells(self)
+   !< Check that a run with init-time refinement has an even number of block cells along every non-null axis.
+   !<
+   !< A 2:1 child covers half of its parent: with an odd cell count its boundary falls in the middle of a parent cell,
+   !< the coarse-fine ghost fill reads undefined values and the residual is NaN from the first stage (issue #37,
+   !< measured with ni = 25). Uniform refinement (`iu_ref_levels`) has no coarse-fine faces and is not affected.
+   class(flume_common_object), intent(in) :: self                     !< The equation.
+   character(len=1), parameter            :: AXIS(3)=['i', 'j', 'k'] !< Axes names.
+   integer(I4P)                           :: n(3)                     !< Block cells numbers.
+   integer(I4P)                           :: d                        !< Axis counter.
+
+   if (self%ic%amr_iterations <= 0_I4P) return
+   n = [self%ni, self%nj, self%nk]
+   do d=1, 3
+      if (self%adam%grid%null_xyz(d)) cycle
+      if (mod(n(d), 2_I4P) /= 0_I4P) &
+         call mpih%error_stop(msg=': [grid].(n'//AXIS(d)//')='//trim(str(n(d)))//' is odd: the init-time 2:1 '// &
+                                  'refinement ([initial_conditions].(amr_iterations) > 0) needs an even number of '// &
+                                  'block cells along every non-null axis')
+   enddo
+   endsubroutine check_amr_block_cells
 
    subroutine check_ngc_number(self)
    !< Check the ghost cells number against the WENO stencil half-width.
