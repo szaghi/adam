@@ -105,9 +105,9 @@ src/
 ├── app/                  # Solvers built on the SDK
 │   ├── nasto/            # Compressible Navier-Stokes solver
 │   ├── prism/            # Maxwell equations / plasma solver
-│   ├── chase/            # CFD application
+│   ├── chase/            # Euler solver (deprecated, superseded by FLUME)
 │   ├── patch/            # Patch-based application
-│   ├── flume/            # Compressible MHD solver (planned)
+│   ├── flume/            # Compressible Euler, MHD in development (supersedes CHASE)
 │   └── ascot/            # Binary-to-ASCII output converter
 ├── tests/                # Unit and integration tests
 └── third_party/          # Git submodules (PENF, StringiFor, FiNeR, VTKFortran, …)

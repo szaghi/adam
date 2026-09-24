@@ -2,15 +2,35 @@
 
 **FLUME** — **F**luid **L**orentz-coupled **U**nsteady **M**agnetohydrodynamic **E**quations — is a compressible magnetohydrodynamics (MHD) application built on the ADAM framework. It solves the equations of an electrically conducting, compressible fluid interacting with its own magnetic field through the Lorentz force.
 
-> **Status: under development.** This document describes the target of the application. The solver is not implemented yet: the directory layout, the physical model and the backends below are the design intent, and every implementation detail is subject to change.
+> **Status: development.** Milestone M1 of [issue #35](https://github.com/szaghi/adam/issues/35) is delivered: the
+> **compressible Euler** equations on both backends, the fluid core on which the MHD model is built. Ideal MHD (the
+> magnetic field, its wave families and the divergence control) is the next milestone and is not implemented yet.
+> FLUME supersedes CHASE, which is deprecated.
 
 ## Physical Models
 
-The first physical model targeted by FLUME is the **inviscid (ideal) compressible MHD** system. Dissipative effects (viscosity, thermal conduction, resistivity) are outside the initial scope; the application name and structure do not preclude adding them later.
+| Model | `[physics] physical_model` | Status |
+|-------|----------------------------|--------|
+| Compressible Euler | `euler` | Implemented (M1): inviscid, ideal gas (`cp`, `cv`), $\mathbf{q} = (\rho, \rho u, \rho v, \rho w, E)^\top$ |
+| Ideal MHD | — | Target: inviscid, compressible, perfectly conducting single fluid (ideal Ohm's law $\mathbf{E} + \mathbf{u} \times \mathbf{B} = 0$) |
 
-| Model | Description |
-|-------|-------------|
-| Ideal MHD | Inviscid, compressible, perfectly conducting single fluid (ideal Ohm's law $\mathbf{E} + \mathbf{u} \times \mathbf{B} = 0$) |
+Dissipative effects (viscosity, thermal conduction, resistivity) are outside the initial scope; the application name and
+structure do not preclude adding them later.
+
+## Implemented Capabilities (M1)
+
+| Area | What is available | INI |
+|------|-------------------|-----|
+| Space | WENO flux splitting, per-face Roe eigenvectors, per-wave local Lax-Friedrichs; reconstruction in characteristic or conservative variables; orders `weno-u-3` to `weno-u-9` | `[numerics] scheme_space = weno`, `reconstruction_variables`; `[weno] scheme` |
+| Time | Library Runge-Kutta schemes (SSP and low-storage), CFL time step | `[runge_kutta] scheme`; `[time] CFL, it_max, time_max` |
+| Boundary conditions | `extrapolation`, `inflow` (primitive state `r, u, v, w, p`), `wall-inviscid`, `periodic` (both faces of an axis or neither) | `[bc_{x,y,z}_{min,max}] type` |
+| Initial conditions | `uniform` (optionally with a seeded perturbation), `isentropic-vortex`, `riemann-problem` (piecewise-constant regions) | `[initial_conditions] type` |
+| AMR | Init-time refinement (`amr_iterations` passes) by geometric box, variable gradient or immersed-solid surface; 2:1 coarse-fine faces with stage-weighted conservative reflux | `[amr]`, `[initial_conditions] amr_iterations`, `[numerics] reflux` |
+| Immersed boundary | Static solids, Euler (inviscid) wall: distance function, eikonal extrapolation into the solid, cut-cell spacing, solid masks in the Runge-Kutta stages | `[solids]` |
+| Output | XH5F checkpoints (optionally with the auxiliary fields `u, v, w, p, H, a`), slices, residuals and conservation histories, restart | `[IO]`, `[slices]` |
+
+Every option value is matched against a fixed list; an unknown value stops the run with a message naming the accepted
+spellings.
 
 ## Governing Equations
 
@@ -60,12 +80,33 @@ Module and file naming follows the ADAM convention: `adam_flume_<name>_object.F9
 
 ## Building
 
-Build modes are not defined yet. They will follow the ADAM naming scheme, e.g.:
-
 ```bash
 fobis build --mode flume-cpu-gnu                         # CPU backend (GNU compiler)
+fobis build --mode flume-cpu-gnu-omp                     # CPU backend with OpenMP threads
 fobis build --mode flume-fnl-nvf --varset local_nvf      # FNL (OpenACC) backend
 ```
+
+A run takes the INI file as its argument: `mpirun -np 2 exe/adam_flume_cpu input.ini`.
+
+## Verification and Regression
+
+`src/tests/flume/verification/` holds one `check.sh` per test, each asserting the physics against an oracle:
+
+| Test | Case | Pass criterion |
+|------|------|----------------|
+| V0 | `unit/`: pointwise Euler library on random states | eigenvector, Jacobian, round-trip and flux-split identities |
+| V1 | `sod/`: Sod along x, y, z; reflecting-wall variant | L1 error against the exact solution; the three directions bitwise identical |
+| V2 | `vortex/`: isentropic vortex, 64/128/256 cells | observed order of accuracy |
+| V3 | `conservation/`: periodic AMR box with reflux | volume integrals constant to round-off; drift without reflux (negative control) |
+| V6 | `shock-cylinder/`: Mach 2 shock over a cylinder, IB + solid AMR | refined surface blocks, mirror symmetry, positivity |
+| V7 | `io/`: restart round trip, slices, auxiliary fields | bitwise restart; slice and auxiliary values exact |
+
+`src/tests/flume/regression/` is the goldened regression suite (a copy of the PRISM harness): `run.sh cpu` runs in CI,
+`run-fnl-local.sh` on a GPU workstation.
+
+Known limitations: the OpenMP build differs from the serial one by up to 2e-12 on the immersed-boundary case (an
+unlocated race); the FNL backend copies the coarse-fine seam faces to the host at every stage, which dominates its run
+time on AMR cases; multi-realm (forest manifest) runs are not supported yet.
 
 ## License
 

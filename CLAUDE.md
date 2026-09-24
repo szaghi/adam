@@ -39,9 +39,9 @@ src/
 ├── app/              # Applications built on ADAM framework
 │   ├── nasto/        # Navier-Stokes solver (CPU, NVF, FNL, GMP backends)
 │   ├── prism/        # Maxwell equations solver
-│   ├── chase/        # CFD application
+│   ├── chase/        # Euler solver (deprecated, superseded by FLUME)
 │   ├── patch/        # Patch-based application
-│   ├── flume/        # Compressible MHD solver (planned, docs only)
+│   ├── flume/        # Compressible Euler (M1), MHD in development; supersedes CHASE
 │   └── ascot/        # Binary-to-ASCII converter utility
 ├── lib/              # Core libraries
 │   ├── common/       # Base ADAM objects (CPU, portable)

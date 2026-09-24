@@ -1,6 +1,6 @@
 # Applications
 
-ADAM ships five solver applications, with a sixth (FLUME) planned, each built on the same SDK layer of core objects
+ADAM ships six solver applications (CHASE deprecated in favour of FLUME), each built on the same SDK layer of core objects
 (`adam_grid_object`, `adam_field_object`, `adam_weno_object`, etc.).
 Applications share physics-agnostic infrastructure — AMR, ghost-cell exchange, I/O, IB —
 and specialise only in the equations being solved and the numerical methods they require.
@@ -11,9 +11,9 @@ and specialise only in the equations being solved and the numerical methods they
 |-------------|-----------------|----------------|----------|--------|
 | [NASTO](#nasto) | Compressible Navier-Stokes | Turbulent compressible CFD | CPU · NVF · FNL · GMP | Production |
 | [PRISM](#prism) | Maxwell + PIC | Plasma/electromagnetics | CPU · FNL | Development |
-| [CHASE](#chase) | Euler (inviscid) | Inviscid compressible flow | CPU | Experimental |
+| [CHASE](#chase) | Euler (inviscid) | Inviscid compressible flow | CPU | Deprecated (use FLUME) |
 | [PATCH](#patch) | Poisson (elliptic) | Potential / pressure fields | CPU | Research |
-| [FLUME](#flume) | Compressible MHD (ideal) | Magnetohydrodynamics | CPU · FNL | Planned |
+| [FLUME](#flume) | Compressible Euler (M1), ideal MHD (target) | Compressible flow, magnetohydrodynamics | CPU · FNL | Development |
 | [ASCOT](#ascot) | — (utility) | Post-processing | — | Complete |
 
 ## Common design pattern
@@ -249,6 +249,12 @@ FoBiS.py build -mode prism-fnl-nvf-oac
 
 > ADAM for Euler equations — inviscid compressible flow.
 
+> **Deprecated.** CHASE no longer builds against the current library and is superseded by [FLUME](#flume), which
+> solves the same equations on both backends with verified characteristic WENO, AMR reflux and immersed boundary
+> ([issue #35](https://github.com/szaghi/adam/issues/35)). CHASE's characteristic projection is applied transposed and
+> its y/z right-eigenvector matrix is singular (issue #36): do not use it for new work. The sources stay in the tree
+> until their removal.
+
 CHASE solves the three-dimensional compressible Euler equations (Navier-Stokes
 without viscosity or heat conduction).  It is a simplified solver sharing the
 same AMR, IB, and WENO infrastructure as NASTO, making it useful as a
@@ -277,7 +283,7 @@ but the diffusive flux $\mathbf{F}^d \equiv 0$ (inviscid limit).
 
 | Backend | Subdirectory | Parallelism | Status |
 |---------|-------------|-------------|--------|
-| CPU | `cpu/` | MPI + OpenMP | Experimental |
+| CPU | `cpu/` | MPI + OpenMP | Deprecated |
 
 ### Source layout
 
@@ -365,11 +371,14 @@ FoBiS.py build -mode patch-gnu
 
 > ADAM for the compressible magnetohydrodynamics equations — **F**luid **L**orentz-coupled **U**nsteady **M**agnetohydrodynamic **E**quations.
 
-FLUME will solve the three-dimensional compressible MHD equations on AMR
+FLUME targets the three-dimensional compressible MHD equations on AMR
 structured grids: an electrically conducting fluid coupled to its own magnetic
-field through the Lorentz force.  The first target is the ideal (inviscid,
-perfectly conducting) model.  **The application is planned: no solver sources
-exist yet**, and every implementation detail below is design intent.
+field through the Lorentz force, starting from the ideal (inviscid, perfectly
+conducting) model.  **Status: development.**  Milestone M1 delivers the fluid
+core, the compressible Euler equations, on both backends (characteristic WENO,
+SSP Runge-Kutta, init-time AMR with conservative reflux, immersed boundary,
+restart and slices), verified and goldened in `src/tests/flume/`; the magnetic
+field is the next milestone.  FLUME supersedes CHASE.
 
 ### Equations
 
@@ -388,8 +397,8 @@ The full system and the divergence-control discussion are in the
 
 | Backend | Subdirectory | Parallelism | Status |
 |---------|-------------|-------------|--------|
-| CPU | `cpu/` | MPI + OpenMP | Planned |
-| FNL | `fnl/` | MPI + OpenACC | Planned |
+| CPU | `cpu/` | MPI + OpenMP | Development |
+| FNL | `fnl/` | MPI + OpenACC | Development |
 
 ### Source layout
 
@@ -401,8 +410,6 @@ src/app/flume/
 ```
 
 ### Build
-
-Build modes are not defined yet; expected form:
 
 ```bash
 fobis build --mode flume-cpu-gnu

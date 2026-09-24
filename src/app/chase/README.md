@@ -2,6 +2,12 @@
 
 > CFD-HPC enabled, Adaptive mesh, Simulation code for Euler equations.
 
+> **Deprecated.** CHASE no longer builds against the current library and is superseded by
+> [FLUME](/applications/flume/) ([issue #35](https://github.com/szaghi/adam/issues/35)), which solves the same equations
+> on the CPU and FNL backends with verified characteristic WENO, AMR reflux and immersed boundary. CHASE's
+> characteristic projection is applied transposed and its y/z right-eigenvector matrix is singular (issue #36): do not
+> use it for new work.
+
 CHASE solves the compressible **inviscid** Euler equations on block-structured
 adaptive meshes. It is built on the ADAM SDK and shares the same
 `common/` + backend pattern as NASTO, but targets the Euler regime (no

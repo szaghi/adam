@@ -128,7 +128,7 @@ export default withMermaid({
               ],
             },
             {
-              text: 'CHASE',
+              text: 'CHASE (deprecated)',
               collapsed: false,
               items: [
                 { text: 'Overview',    link: '/applications/chase/' },
@@ -146,7 +146,7 @@ export default withMermaid({
               ],
             },
             {
-              text: 'FLUME (planned)',
+              text: 'FLUME',
               collapsed: true,
               items: [
                 { text: 'Overview',    link: '/applications/flume/' },

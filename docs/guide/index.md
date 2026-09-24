@@ -25,9 +25,9 @@ The primary focus is on large-scale scientific computing: ADAM targets exascale 
 |-------------|-------------|
 | [NASTO](/applications/nasto/) | Compressible 3D Navier-Stokes solver |
 | [PRISM](/applications/prism) | Maxwell equations solver for electromagnetic simulations |
-| [CHASE](/applications/chase) | CFD application |
+| [CHASE](/applications/chase) | Euler solver (deprecated, superseded by FLUME) |
 | [PATCH](/applications/patch) | Patch-based application |
-| [FLUME](/applications/flume/) | Compressible MHD solver (planned) |
+| [FLUME](/applications/flume/) | Compressible Euler solver, MHD in development |
 | [ASCOT](/applications/ascot) | Binary-to-ASCII output converter |
 
 ## Authors

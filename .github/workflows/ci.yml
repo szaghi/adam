@@ -67,3 +67,42 @@ jobs:
           src/tests/prism/regression/**/work-cpu/*-residuals.dat
         if-no-files-found: warn
         retention-days: 14
+
+  regression-flume-cpu:
+    # FLUME CPU regression suite (issue #35, P8): V1 Sod x/y/z, V2 vortex, V3 AMR + reflux, V6 shock-cylinder with the
+    # immersed boundary. The FNL goldens are checked locally (run-fnl-local.sh): the hosted runners have no GPU.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
+
+    - name: Fetch dependencies
+      if: hashFiles('**/.deps_config.ini') != ''
+      run: FoBiS.py fetch
+
+    - name: Run FLUME CPU regression
+      # No HDF5_PREFIX needed: fobos resolves HDF5 paths from its default
+      # varset (local_gnu -> lib/hdf5/develop/gnu/14.2.0).
+      run: ./src/tests/flume/regression/run.sh cpu
+
+    - name: Upload regression work outputs
+      # Runs even when the regression step fails: the produced digests and logs
+      # are how a golden is (re)captured from a known-good CI run, and how a
+      # failing run is diagnosed.
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: flume-regression-cpu-work
+        path: |
+          src/tests/flume/regression/**/work-cpu/digest.txt
+          src/tests/flume/regression/**/work-cpu/*-residuals.dat
+          src/tests/flume/regression/**/work-cpu/*-conservation_history.dat
+        if-no-files-found: warn
+        retention-days: 14

@@ -1,25 +1,24 @@
 # FLUME Common
 
-The `common/` directory will contain all backend-independent modules shared by the CPU and FNL backends of FLUME. Following the PRISM design, every type defined here is expected to be aggregated into a `flume_common_object`, the base type for both backends.
+The `common/` directory contains the backend-independent modules shared by the CPU and FNL backends of FLUME. Following
+the PRISM design, every type defined here is aggregated into `flume_common_object`, the base type both backends extend.
 
-> **Status: under development.** No modules exist yet.
+> **Status: development** (milestone M1, compressible Euler).
 
-## Planned Content
+## Modules
 
-The expected set of modules, by analogy with PRISM (names and scope subject to change):
-
-| Concern | Description |
-|---------|-------------|
-| Parameters | Physical constants and eigensystem of the ideal MHD equations |
-| Physics | Physical model, variable counts, equation of state |
-| Numerics | Temporal and spatial scheme selection |
-| Common object | `flume_common_object` base aggregate type |
-| Boundary conditions | Boundary conditions handler |
-| Initial conditions | Initial conditions handler |
-| I/O | Input/output handler |
-| Time | Time integration handler |
-| Riemann solvers | MHD Riemann solvers and flux routines |
-| Library | Barrel re-export of all common modules |
+| File | Content |
+|------|---------|
+| `adam_flume_parameters.F90` | Variable indexes (conservative `IQ_*`, auxiliary `IA_*`), accepted option values, `strip_control` |
+| `adam_flume_physics_object.F90` | `[physics]`: physical model (`euler`), `cp`, `cv`, variable counts |
+| `adam_flume_numerics_object.F90` | `[numerics]`: `scheme_space`, `reconstruction_variables`, `reflux` |
+| `adam_flume_euler_library.F90` | Pointwise Euler physics shared by host and device: conservative/primitive conversions, fluxes, Roe eigenvectors, flux splitting |
+| `adam_flume_bc_object.F90` | `[bc_*]`: boundary condition types and inflow states |
+| `adam_flume_ic_object.F90` | `[initial_conditions]`: uniform (seeded perturbation), isentropic vortex, Riemann regions; init-time AMR passes |
+| `adam_flume_time_object.F90` | `[time]`: CFL, iteration and time limits |
+| `adam_flume_diagnostics_object.F90` | `[diagnostics]`: conservation history |
+| `adam_flume_common_object.F90` | `flume_common_object`: initialization, AMR markers (box, gradient, solid), seam flux accumulation for reflux, immersed-boundary spacing, restart, slices, auxiliary fields |
+| `adam_flume_common_library.F90` | Barrel re-export of all common modules |
 
 ## License
 
