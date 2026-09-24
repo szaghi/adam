@@ -4134,14 +4134,14 @@ contains
                                  nk=self%nk, ngc=self%ngc, nv_c=self%nv_c,                    &
                                  blocks_number=self%blocks_number,                            &
                                  flxyz_c_gpu=self%flxyz_c_gpu, flz_f_gpu=self%flz_f_gpu)
-      ! Inter-realm seam flux accumulation (issue #23 R3): α.r1 end-of-step gate, CPU
-      ! parity with compute_residuals_fv_centered's hook — accumulate ONLY at the
-      ! realm's final RK substage, from the just-reconstructed face fluxes, BEFORE
-      ! the conservative update consumes them.
-      if (present(flux_register) .and. stage_idx == self%rk%nrk &
+      ! Seam flux accumulation (issue #23 R3), CPU parity with compute_residuals_fv_centered's
+      ! hook: every RK stage accumulates its just-reconstructed face fluxes, BEFORE the
+      ! conservative update consumes them, weighted by the SSP coefficient beta_s, so the
+      ! register holds the step flux sum_s beta_s F_s (ported from FLUME, issue #35 P5).
+      if (present(flux_register) .and. stage_idx >= 1_I4P &
                                  .and. allocated(self%adam%maps%inter_realm_face_register_index)) then
          if (flux_register%nfaces > 0_I4P) then
-            call accumulate_seam_fluxes_fv_dev(self, flux_register)
+            call accumulate_seam_fluxes_fv_dev(self, self%rk%beta(stage_idx), flux_register)
          endif
       endif
       chi_damp = self%physics%chi * C0
@@ -4780,9 +4780,10 @@ contains
    enddo
    endsubroutine fv_flux_diff_phi_psi_dev_kernel
 
-   subroutine accumulate_seam_fluxes_fv_dev(self, flux_register)
-   !< Accumulate end-of-step FV seam face fluxes into the forest's flux register —
-   !< FNL twin of `prism_cpu_object%accumulate_seam_fluxes_fv` (issue #23 R3).
+   subroutine accumulate_seam_fluxes_fv_dev(self, weight, flux_register)
+   !< Accumulate the FV seam face fluxes of one RK stage, weighted by its SSP coefficient
+   !< `weight = beta_s`, into the forest's flux register — FNL twin of
+   !< `prism_cpu_object%accumulate_seam_fluxes_fv` (issue #23 R3).
    !<
    !< Register crossing (grilled R0 default): the flux register stays HOST-side.
    !< Per seam (block, fec) hit, a tiny device kernel packs the face skin into a
@@ -4792,10 +4793,11 @@ contains
    !< `accumulate_coarse_flux` directly; fine side → quadrant offset from
    !< `maps%amr_seam_quadrant` (Morton-code precompute, issue #28 D2) + the pure 2:1 restriction
    !< `restrict_fine_face_to_quadrant` (moved to adam_flux_register_object, shared
-   !< with the CPU backend) → `accumulate_fine_flux`. Fires once per realm per
-   !< step (final-substage gate at the call site). Third-axis register index
+   !< with the CPU backend) → `accumulate_fine_flux`. Fires at every RK stage,
+   !< scaled by `weight`. Third-axis register index
    !< hardcoded to 1 (α.r1 collapsed register), exactly as on CPU.
    class(prism_fnl_object),     intent(inout) :: self          !< The realm.
+   real(R8P),                   intent(in)    :: weight        !< Stage weight, the SSP coefficient beta_s.
    class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register.
    real(R8P), pointer                         :: skin_gpu(:,:)   !< Device face-skin slab (nface_cells, nv_c).
    real(R8P), allocatable                     :: skin(:,:)       !< Host copy of the packed skin.
@@ -4848,7 +4850,7 @@ contains
                   flux_slab(v, c) = skin(c, v)
                enddo
             enddo
-            call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
+            call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
          else
             ! Fine side: reshape to (nv_c, inner, outer), 2:1-restrict into this
             ! block's quadrant of the coarse skin. Quadrant offsets are read from
@@ -4875,7 +4877,7 @@ contains
             enddo
             call restrict_fine_face_to_quadrant(fine_face=fine_face, inner_n=inner_n, outer_n=outer_n, &
                                                 ioff=ioff, joff=joff, slab=flux_slab)
-            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
+            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
             deallocate(fine_face)
          endif
          deallocate(skin, flux_slab)

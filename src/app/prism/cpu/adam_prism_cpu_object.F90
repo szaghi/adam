@@ -1717,14 +1717,13 @@ contains
    !<
    !< **α.r1 cadence: end-of-step barrier.** The body fires exactly once per
    !< realm per step, at `stage == self%rk%nrk` (the realm's own final RK
-   !< substage). Earlier stages return immediately as a no-op. This pairs
-   !< with M4 (`accumulate_seam_fluxes_fv` gated on `stage_idx == rk%nrk`):
-   !< the realm accumulates its end-of-step face flux into
-   !< `F_coarse(:,:,1)` / `F_fine_sum(:,:,1)` at its final substage, and the
-   !< same final substage immediately applies the Berger-Colella correction
-   !< from those accumulators. This is the AMReX `Reflux` cadence; same-K
-   !< and asymmetric-K both reduce to the same expression because the
-   !< accumulators hold the final, committed face flux.
+   !< substage). Earlier stages return immediately as a no-op. The
+   !< accumulators `F_coarse(:,:,1)` / `F_fine_sum(:,:,1)` hold the step
+   !< flux `sum_s beta_s F_s` of each side (`accumulate_seam_fluxes_fv`
+   !< fires at every stage, weighted by beta_s), i.e. the flux each side's
+   !< committed update used, so the correction restores conservation to
+   !< round-off; same-K and asymmetric-K realms alike, each side summing its
+   !< own beta. This is the AMReX non-subcycled `Reflux` cadence.
    !<
    !< For each face in `flux_register` where `face%coarse_realm == self%realm_index`,
    !< writes the per-cell correction
@@ -3707,16 +3706,17 @@ contains
       ! expectation and the FD-centered case is unreachable here (the
       ! hook only fires for fv_centered).
       !
-      ! α.r1 end-of-step gate: accumulate ONLY at the realm's final RK
-      ! substage. The register holds a single end-of-step bucket and the
-      ! reflux correction consumes it at the same final substage.
-      ! Earlier substages skip the accumulation entirely — their face
-      ! fluxes are intermediate-stage values not used by the
-      ! Berger-Colella end-of-step correction.
-      if (present(flux_register) .and. stage_idx == self%rk%nrk &
+      ! Every RK stage accumulates, weighted by its SSP coefficient beta_s: the single
+      ! end-of-step register bucket then holds sum_s beta_s F_s, exactly the flux the
+      ! committed update q + dt sum_s beta_s dq_s used, and the end-of-step reflux
+      ! restores conservation to round-off (the AMReX non-subcycled flux register;
+      ! ported from FLUME, issue #35 P5). The former final-substage-only gate stored
+      ! F_K alone, which cannot cancel the seam mismatch of a multi-stage scheme. The
+      ! staged forest path is SSP-only (stages_per_step_forest), so beta is allocated.
+      if (present(flux_register) .and. stage_idx >= 1_I4P &
                                   .and. allocated(self%adam%maps%inter_realm_face_register_index)) then
          if (flux_register%nfaces > 0_I4P) then
-            call accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, flux_register)
+            call accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, self%rk%beta(stage_idx), flux_register)
          endif
       endif
       ! compute fluxes difference for RHS, dF/ds = (F(i+1/2)-F(i-1/2))/Ds
@@ -3763,10 +3763,9 @@ contains
    endassociate
    endsubroutine compute_residuals_fv_centered
 
-   subroutine accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, flux_register)
-   !< Accumulate end-of-step face fluxes on inter-realm seam faces of
-   !< the FV-centered scheme. Gated to the realm's final RK substage
-   !< under α.r1.
+   subroutine accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, weight, flux_register)
+   !< Accumulate the face fluxes of one RK stage, weighted by the stage's SSP
+   !< coefficient `weight = beta_s`, on the seam faces of the FV-centered scheme.
    !<
    !< Walks every (block, fec) pair and, for non-zero entries in
    !< `self%adam%maps%inter_realm_face_register_index(b, fec)`, packs
@@ -3774,8 +3773,8 @@ contains
    !< `(nv, nface_cells)` slab and routes it to the right register
    !< accumulator: positive index → coarse side → `accumulate_coarse_flux`,
    !< negative index → fine side → `accumulate_fine_flux`. The call site
-   !< above gates on `stage_idx == self%rk%nrk`, so this routine fires
-   !< exactly once per realm per step at the realm's end-of-step.
+   !< fires at every stage, so the register sums the stage fluxes into the
+   !< step flux `sum_s beta_s F_s` of both sides.
    !<
    !< The register accumulators are sized `(nv, nface_cells, 1)` under
    !< α.r1 (M2 reshape) with the full state-vector width `nv` (set at
@@ -3816,6 +3815,7 @@ contains
    integer(I4P),                intent(in)    :: ni, nj, nk      !< Interior cell counts.
    integer(I4P),                intent(in)    :: nv_c            !< Number of conservative variables.
    integer(I4P),                intent(in)    :: blocks_number   !< Number of local blocks.
+   real(R8P),                   intent(in)    :: weight          !< Stage weight, the SSP coefficient beta_s.
    class(flux_register_object), intent(inout) :: flux_register   !< Forest's flux register.
    integer(I4P)                               :: sgn_idx         !< Signed register index for (b, fec).
    integer(I4P)                               :: face_idx        !< |sgn_idx| → register face.
@@ -3851,7 +3851,7 @@ contains
          if (sgn_idx > 0_I4P) then
             ! Coarse side: pack the full face skin directly.
             call pack_coarse_face(self, fec, ni, nj, nk, nv_c, b, inner_n, outer_n, flux_slab)
-            call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
+            call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
          else
             ! Fine side: 2:1-restrict this fine block's face into its quadrant of
             ! the coarse skin. Quadrant offsets are PRECOMPUTED at registration
@@ -3869,7 +3869,7 @@ contains
                ioff = 0_I4P ; joff = 0_I4P
             endif
             call restrict_fine_face(self, fec, ni, nj, nk, nv_c, b, inner_n, outer_n, ioff, joff, flux_slab)
-            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=flux_slab)
+            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
          endif
       enddo
    enddo
