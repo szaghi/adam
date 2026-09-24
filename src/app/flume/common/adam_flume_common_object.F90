@@ -44,6 +44,8 @@ type, extends(realm_object) :: flume_common_object
    !< FLUME common object: data and methods shared by all backends.
    ! AMR
    logical                        :: amr_locked_=.false. !< Runtime AMR locked after initialization.
+   ! IO
+   logical                        :: save_auxiliary_fields=.false. !< Save the auxiliary variables with the fields.
    ! fields data
    real(R8P),         allocatable :: q(:,:,:,:,:)        !< Conservative variables [nv, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: dq(:,:,:,:,:)       !< Residuals [nv, 1-ngc:ni+ngc, ..., nb].
@@ -73,12 +75,15 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: initialize            !< Initialize the common data.
       procedure, pass(self) :: load_restart_files    !< Load restart files.
       procedure, pass(self) :: save_restart_files    !< Save restart files.
+      procedure, pass(self) :: save_slices           !< Save the slices on their cadence.
       procedure, pass(self) :: save_xh5f             !< Save fields in XH5F format.
       ! forest methods
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
       ! private methods
       procedure, pass(self), private :: block_spacing    !< Return the spacing of a block by a delta criterion.
       procedure, pass(self), private :: check_ngc_number !< Check the ghost cells number against the stencils.
+      procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
+      procedure, pass(self), private :: compute_q_aux_host !< Compute the auxiliary variables of the host q.
       procedure, pass(self), private :: io_initialize    !< Build the variables names.
 endtype flume_common_object
 
@@ -401,6 +406,7 @@ contains
    real(R8P),                  intent(in), optional  :: L0             !< Unused: FLUME is dimensional.
    logical                                           :: verbose_       !< Trigger verbose output, local variable.
    integer(I4P)                                      :: fields_number_ !< Block-sized fields per block, local variable.
+   integer(I4P)                                      :: error          !< Error status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call mpih%initialize(verbose=verbose_)
@@ -422,6 +428,10 @@ contains
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%diagnostics%initialize(file_parameters=file_parameters)
+   call file_parameters%get(section_name='IO', option_name='save_auxiliary_fields', val=self%save_auxiliary_fields, &
+                            error=error)
+   if (error > 0) call mpih%error_stop(msg=': failed to load [IO].(save_auxiliary_fields)')
+   call self%check_slices
    call self%check_ngc_number
    call self%allocate_common
    call self%io_initialize
@@ -455,7 +465,8 @@ contains
    endsubroutine save_restart_files
 
    subroutine save_xh5f(self, output_basename, with_ghost)
-   !< Save fields in XH5F format: `q` always, `dq` when `[IO].(save_residual_fields)`.
+   !< Save fields in XH5F format: `q` always, `dq` when `[IO].(save_residual_fields)`, the auxiliary variables (computed
+   !< from the saved `q`, ghost cells included) when `[IO].(save_auxiliary_fields)`.
    class(flume_common_object), intent(inout)        :: self             !< The equation.
    character(*),               intent(in), optional :: output_basename  !< Output basename.
    logical,                    intent(in), optional :: with_ghost       !< Flag to save ghost cells.
@@ -481,6 +492,7 @@ contains
    ijk(:,3) = [1-ngc, nk+ngc]
    nijk = [ijk(2,1)-ijk(1,1)+1, ijk(2,2)-ijk(1,2)+1, ijk(2,3)-ijk(1,3)+1]
    endassociate
+   if (self%save_auxiliary_fields) call self%compute_q_aux_host
    call self%open_file_xh5f(basename=trim(output_basename_), xh5f=xh5f)
    do b=1, self%adam%field%blocks_number
       bn = 'block_'//trim(strz(b, 9))//'-proc'//trim(strz(mpih%myrank, 6))
@@ -490,11 +502,31 @@ contains
       if (self%io%save_residual_fields) &
          call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
                                  q=self%dq(:,:,:,:,b), q_name=self%dq_name)
+      if (self%save_auxiliary_fields) &
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
+                                 q=self%q_aux(:,:,:,:,b), q_name=self%q_aux_name)
       call self%close_block_xh5f(xh5f=xh5f)
    enddo
    call self%close_file_xh5f(xh5f=xh5f)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_xh5f
+
+   subroutine save_slices(self)
+   !< Save the slices (library `slices_object`, `[slices]` / `[slice_N]`) of the conservative variables on their
+   !< cadence; the caller has refreshed the ghost cells of the host `q` (the interpolation stencils read them).
+   class(flume_common_object), intent(inout) :: self    !< The equation.
+   character(len=8), allocatable             :: name(:) !< Variables names.
+   integer(I4P)                              :: v       !< Counter.
+
+   if (.not.self%slices%is_to_save(it=self%time%it, it_max=self%time%it_max, time=self%time%time, &
+                                   time_max=self%time%time_max)) return
+   allocate(name(size(self%q_name)))
+   do v=1, size(self%q_name)
+      name(v) = self%q_name(v)%chars()
+   enddo
+   call self%slices%save_mat(basename=self%io%output_basename, it=self%time%it, it_max=self%time%it_max, &
+                             time=self%time%time, time_max=self%time%time_max, adam=self%adam, q=self%q, q_name=name)
+   endsubroutine save_slices
 
    ! forest methods
    subroutine coupling_descriptor_forest(self, scheme_time, rk_scheme, nv)
@@ -576,6 +608,40 @@ contains
    endsubroutine seam_skin_cell
 
    ! private methods
+   subroutine check_slices(self)
+   !< Check the interpolation type of every slice: the library interpolation leaves the value undefined for an unknown
+   !< type, so an unknown one is fatal here.
+   class(flume_common_object), intent(in) :: self !< The equation.
+   integer(I4P)                           :: s    !< Counter.
+
+   do s=1, self%slices%slices_number
+      select case(trim(self%slices%slice(s)%itype))
+      case('trilinear', 'inverse_distance')
+      case default
+         call mpih%error_stop(msg=': unknown [slice_'//trim(str(s, .true.))//'].(itype) "'// &
+                                  trim(self%slices%slice(s)%itype)//'"; expected one of trilinear, inverse_distance')
+      endselect
+   enddo
+   endsubroutine check_slices
+
+   subroutine compute_q_aux_host(self)
+   !< Compute the auxiliary variables of the host `q` on every cell, ghost cells included (output only: the backends
+   !< compute their own auxiliary variables in the space operator).
+   class(flume_common_object), intent(inout) :: self       !< The equation.
+   integer(I4P)                              :: b, i, j, k !< Counters.
+
+   do b=1, self%blocks_number
+      do k=1-self%ngc, self%nk+self%ngc
+         do j=1-self%ngc, self%nj+self%ngc
+            do i=1-self%ngc, self%ni+self%ngc
+               call conservative_to_auxiliary(gamma=self%physics%gamma, R=self%physics%R, q=self%q(:,i,j,k,b), &
+                                              qa=self%q_aux(:,i,j,k,b))
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_q_aux_host
+
    function block_spacing(self, b, delta_type) result(dc)
    !< Return the spacing of block `b` by the AMR delta criterion: `x`, `y`, `z`, or `max` over the active directions.
    class(flume_common_object), intent(in) :: self       !< The equation.

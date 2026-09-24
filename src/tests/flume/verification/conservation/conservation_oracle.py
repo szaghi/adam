@@ -15,7 +15,8 @@ Usage:
 
 --compare checks two runs of the same case (e.g. CPU and FNL, V4) cell by cell on the last checkpoint, blocks matched
 by their origin (rank-independent); the difference of each variable is relative to its largest magnitude, so that one
-tolerance fits density and energy alike.
+tolerance fits density and energy alike. `--ngc N` strips N ghost layers first (the digest semantics): edge and corner
+ghost cells that no map fills keep stale values, which the directional stencils never read.
 """
 
 from __future__ import annotations
@@ -67,6 +68,7 @@ def main() -> int:
     parser.add_argument("--min-drift", type=float, default=1.0e-10, help="lower bound of the negative control")
     parser.add_argument("--compare", type=Path, nargs=2, help="two runs to compare cell by cell")
     parser.add_argument("--tol", type=float, default=0.0, help="relative comparison tolerance (default 0: bitwise)")
+    parser.add_argument("--ngc", type=int, default=0, help="ghost layers stripped before the comparison")
     args = parser.parse_args()
 
     status = 0
@@ -82,9 +84,14 @@ def main() -> int:
         print(f"{report(args.leaky, d)}  {'PASS' if ok else 'FAIL'} (negative control, max >= {args.min_drift:.1e})")
     if args.compare is not None:
         a, b = (last_fields(w) for w in args.compare)
+        if args.ngc > 0:
+            g = args.ngc
+            a = {k: v[:, g:-g, g:-g, g:-g] for k, v in a.items()}
+            b = {k: v[:, g:-g, g:-g, g:-g] for k, v in b.items()}
         if a.keys() != b.keys():
             sys.exit("conservation_oracle: the two runs hold different block sets")
         scale = np.max([np.max(np.abs(a[k]), axis=(1, 2, 3)) for k in a], axis=0)
+        scale = np.where(scale > 0.0, scale, 1.0)  # an identically zero variable is compared absolutely
         delta = np.max([np.max(np.abs(a[k] - b[k]), axis=(1, 2, 3)) for k in a], axis=0)
         diff = float(np.max(delta / scale))
         ok = diff <= args.tol

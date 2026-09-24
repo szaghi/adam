@@ -292,20 +292,30 @@ contains
    if (mpih%myrank==0) close(self%residuals_unit)
    endsubroutine close_file_residuals
 
-   subroutine open_file_residuals(self, nv)
+   subroutine open_file_residuals(self, nv, is_restart)
    !< Open file for saving residuals history.
-   class(io_object), intent(inout) :: self !< IO handler.
-   integer(I4P),     intent(in)    :: nv   !< Number of residuals variables.
-   character(:), allocatable       :: rqs  !< String buffer.
-   integer(I4P)                    :: v    !< Counter.
+   !<
+   !< A restarted run (`is_restart = .true.`) appends to the existing history instead of replacing it, so the history of
+   !< a run split by restarts is the history of the uninterrupted run.
+   class(io_object), intent(inout)        :: self        !< IO handler.
+   integer(I4P),     intent(in)           :: nv          !< Number of residuals variables.
+   logical,          intent(in), optional :: is_restart  !< Restarted run: append to the existing file.
+   logical                                :: is_restart_ !< Restarted run, local variable.
+   character(:), allocatable              :: rqs         !< String buffer.
+   integer(I4P)                           :: v           !< Counter.
 
+   is_restart_ = .false. ; if (present(is_restart)) is_restart_ = is_restart
    if (mpih%myrank==0) then
-      rqs = ''
-      do v=1, nv
-         rqs = rqs//' "rq'//trim(str(v,.true.))//'"'
-      enddo
-      open(newunit=self%residuals_unit, file=self%output_basename//'-residuals.dat')
-      write(self%residuals_unit, '(A)') 'VARIABLES="it" "time" "blocks_number"'//rqs
+      if (is_restart_) then
+         open(newunit=self%residuals_unit, file=self%output_basename//'-residuals.dat', status='unknown', position='append')
+      else
+         rqs = ''
+         do v=1, nv
+            rqs = rqs//' "rq'//trim(str(v,.true.))//'"'
+         enddo
+         open(newunit=self%residuals_unit, file=self%output_basename//'-residuals.dat')
+         write(self%residuals_unit, '(A)') 'VARIABLES="it" "time" "blocks_number"'//rqs
+      endif
    endif
    endsubroutine open_file_residuals
 

@@ -342,14 +342,20 @@ contains
    endsubroutine save_residuals
 
    subroutine save_simulation_data(self)
-   !< Save fields, restart and conservation history, each on its own cadence; state copied to host only when saved.
-   class(flume_fnl_object), intent(inout) :: self !< The equation.
+   !< Save fields, restart, slices and conservation history, each on its own cadence; state copied to host only when
+   !< saved.
+   class(flume_fnl_object), intent(inout) :: self      !< The equation.
+   logical                                :: is_slices !< Slices save step.
 
-   if (self%time%is_to_save(cadence=self%io%it_save) .or. self%time%is_to_save(cadence=self%io%restart_save)) then
+   is_slices = self%slices%is_to_save(it=self%time%it, it_max=self%time%it_max, time=self%time%time, &
+                                      time_max=self%time%time_max)
+   if (self%time%is_to_save(cadence=self%io%it_save) .or. self%time%is_to_save(cadence=self%io%restart_save) .or. &
+       is_slices) then
       call self%update_ghost(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu
       if (self%time%is_to_save(cadence=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
       if (self%time%is_to_save(cadence=self%io%restart_save)) call self%save_restart_files
+      if (is_slices) call self%save_slices
    endif
    call self%compute_conservation
    endsubroutine save_simulation_data
@@ -594,8 +600,9 @@ contains
    call self%compute_q_aux(q_gpu=self%q_gpu)
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name, &
                                    is_restart=self%io%restart)
-   call self%save_simulation_data
-   call self%io%open_file_residuals(nv=self%nv)
+   ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
+   if (.not.self%io%restart) call self%save_simulation_data
+   call self%io%open_file_residuals(nv=self%nv, is_restart=self%io%restart)
    self%amr_locked_ = .true.
    endsubroutine initialize_forest
 
