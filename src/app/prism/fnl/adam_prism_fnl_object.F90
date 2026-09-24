@@ -5833,7 +5833,10 @@ contains
                call mpih_fnl%print_message('reflux face '//trim(str(f, .true.))//' coarse_block '//                 &
                                            trim(str(face_f%coarse_block, .true.))//' max|F_coarse-F_fine_sum| = '// &
                                            trim(str(maxval(abs(face_f%F_coarse(:,:,1) - face_f%F_fine_sum(:,:,1))))))
-               scale_      = real(sgn, R8P) * dt / dx_coarse
+               ! Scale by the step the update used, self%time%dt: on the last step of a time-driven
+               ! run open_step_forest caps it to land on time_max, while the forest's `dt` argument
+               ! is the uncapped value (issue #38; measured on FLUME: 1.3e-9 of the mass lost).
+               scale_      = real(sgn, R8P) * self%time%dt / dx_coarse
                nv_reg      = int(size(face_f%F_coarse, dim=1), I4P)
                nface_cells = face_f%nface_cells
                allocate(delta(1:nv_reg, 1:nface_cells))

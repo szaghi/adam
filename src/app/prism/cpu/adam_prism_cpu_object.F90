@@ -1792,7 +1792,10 @@ contains
       ! the SSP family the staged forest path uses — so it silently no-op'd for
       ! every SSP run — and writing q_rk(stage) pre-update_q would entangle the
       ! correction with the stage beta weight.)
-      scale_ = real(sgn, R8P) * dt / dx_coarse
+      ! Scale by the step the update used, self%time%dt: on the last step of a time-driven run
+      ! open_step_forest caps it to land on time_max, while the forest's `dt` argument is the
+      ! uncapped value (issue #38; measured on FLUME: 1.3e-9 of the mass lost on that step).
+      scale_ = real(sgn, R8P) * self%time%dt / dx_coarse
 
       do c = 1_I4P, face_f%nface_cells
          c0 = c - 1_I4P
