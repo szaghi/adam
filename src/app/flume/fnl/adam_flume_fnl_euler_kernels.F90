@@ -5,7 +5,7 @@
 module adam_flume_fnl_euler_kernels
 !< ADAM, FLUME FNL device kernels of the Euler model.
 !<
-!< The model-agnostic kernel bodies (`adam_flume_fnl_model_kernels_agnostic.INC`) instantiated on the Euler physics: the
+!< The model-agnostic kernel bodies (`adam_flume_fnl_{face,aux}_kernels_agnostic.INC`) instantiated on the Euler physics: the
 !< private arrays are sized by the Euler constants `NV_K = NV_EULER`, `NV_AUX_K = NV_AUX` (issue #41, section 4), plus
 !< the Euler kernels whose body depends on the variables (conservation integrals, signal speed). Same kernel rules as
 !< `adam_flume_fnl_kernels` (issue #35, D-11/D-12).
@@ -28,7 +28,9 @@ public :: compute_q_aux_dev
 
 contains
    ! public procedures
-#include "adam_flume_fnl_model_kernels_agnostic.INC"
+#include "adam_flume_fnl_face_kernels_agnostic.INC"
+
+#include "adam_flume_fnl_aux_kernels_agnostic.INC"
 
    subroutine compute_conservation_dev(ni, nj, nk, ngc, blocks_number, dxyz_gpu, q_gpu, integrals)
    !< Compute the volume integrals of the conservative variables (interior cells). The cell volume includes the null

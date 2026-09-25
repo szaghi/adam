@@ -8,6 +8,8 @@ use :: adam_flume_common_object
 use :: adam_flume_diagnostics_object
 use :: adam_flume_euler_library
 use :: adam_flume_ic_object
+use :: adam_flume_mhd_library
+use :: adam_flume_mhd_object
 use :: adam_flume_numerics_object
 use :: adam_flume_parameters
 use :: adam_flume_physics_object

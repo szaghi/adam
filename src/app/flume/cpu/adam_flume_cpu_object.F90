@@ -17,12 +17,15 @@ use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22,
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_common_library,     only : flume_common_object, ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION,  &
-                                            BC_INFLOW, BC_WALL_INVISCID, IQ_RU, MODEL_EULER,                          &
-                                            RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
-use :: adam_flume_cpu_euler_kernels, only : compute_face_fluxes_euler=>compute_face_fluxes,                          &
-                                            compute_lambda_max_euler=>compute_lambda_max,                            &
-                                            compute_q_aux_euler=>compute_q_aux
+use :: adam_flume_common_library,      only : flume_common_object, ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION,  &
+                                              BC_INFLOW, BC_WALL_INVISCID, IQ_RU, MODEL_EULER,                          &
+                                              MODEL_MHD, MODEL_MHD_GLM, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
+use :: adam_flume_cpu_euler_kernels,   only : compute_face_fluxes_euler=>compute_face_fluxes,                        &
+                                              compute_lambda_max_euler=>compute_lambda_max,                          &
+                                              compute_q_aux_euler=>compute_q_aux
+use :: adam_flume_cpu_mhd_kernels,     only : compute_lambda_max_mhd=>compute_lambda_max, compute_q_aux_mhd=>compute_q_aux
+use :: adam_flume_cpu_mhd_glm_kernels, only : compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
+                                              compute_q_aux_mhd_glm=>compute_q_aux
 ! third party modules
 use :: mpi
 use :: penf,                      only : I4P, R8P, str
@@ -204,6 +207,12 @@ contains
    case(MODEL_EULER)
       call compute_q_aux_euler(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
+   case(MODEL_MHD)
+      call compute_q_aux_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                             gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
+   case(MODEL_MHD_GLM)
+      call compute_q_aux_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                 gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -446,6 +455,15 @@ contains
       call compute_lambda_max_euler(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                     gamma=self%physics%gamma, R=self%physics%R, dxyz=self%adam%field%dxyz,              &
                                     is_null=self%adam%grid%null_xyz, q=self%q, lambda_max=lambda_max)
+   case(MODEL_MHD)
+      call compute_lambda_max_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                  gamma=self%physics%gamma, R=self%physics%R, dxyz=self%adam%field%dxyz,              &
+                                  is_null=self%adam%grid%null_xyz, q=self%q, lambda_max=lambda_max)
+   case(MODEL_MHD_GLM)
+      call compute_lambda_max_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                                &
+                                      blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                      dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
+                                      lambda_max=lambda_max)
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -769,6 +787,9 @@ contains
       if (.not.is_null(3)) call compute_face_fluxes_euler(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk,  &
                                                           ngc=ngc, blocks_number=nb, gamma=gamma, is_characteristic=is_char, &
                                                           weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   case(MODEL_MHD, MODEL_MHD_GLM)
+      ! M2-P1 plumbing: no MHD face fluxes yet (M2-P3), the face flux arrays keep their zero initialization, so the
+      ! residual is exactly zero and the state is preserved
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect

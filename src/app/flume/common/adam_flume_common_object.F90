@@ -23,7 +23,8 @@ use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
-use :: adam_flume_parameters,         only : NV_AUX
+use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary
+use :: adam_flume_parameters,         only : MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
@@ -182,7 +183,6 @@ contains
    real(R8P),                  intent(in)    :: delta_fine   !< Admissible spacing where the gradient exceeds tol.
    real(R8P),                  intent(in)    :: delta_coarse !< Admissible spacing elsewhere.
    real(R8P), allocatable                    :: var(:,:,:)   !< Marker variable of one block, interior cells.
-   real(R8P)                                 :: qa(NV_AUX)   !< Auxiliary variables of one cell.
    real(R8P)                                 :: grad(3)      !< Gradient of one cell.
    real(R8P)                                 :: grad_max     !< Maximum gradient magnitude of one block.
    real(R8P)                                 :: dc           !< Block spacing.
@@ -193,6 +193,7 @@ contains
        (field == 2_I4P .and. (ivar < 1_I4P .or. ivar > self%physics%nv_aux)) .or. (field < 1_I4P .or. field > 2_I4P)) &
       call mpih%error_stop(msg=': AMR gradient marker: invalid field '//trim(str(field))//' / ivar '//trim(str(ivar)))
    self%adam%field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
+   if (field == 2_I4P) call self%compute_q_aux_host
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, dxyz=>self%adam%field%dxyz, is_null=>self%adam%grid%null_xyz, &
              refinements_needed=>self%adam%field%refinements_needed)
    allocate(var(ni,nj,nk))
@@ -203,8 +204,7 @@ contains
                if (field == 1_I4P) then
                   var(i,j,k) = self%q(ivar,i,j,k,b)
                else
-                  call conservative_to_auxiliary(gamma=self%physics%gamma, R=self%physics%R, q=self%q(:,i,j,k,b), qa=qa)
-                  var(i,j,k) = qa(ivar)
+                  var(i,j,k) = self%q_aux(ivar,i,j,k,b)
                endif
             enddo
          enddo
@@ -429,6 +429,9 @@ contains
    if (verbose_) call mpih%print_message('flume_common_object%initialize fields_number: '//trim(str(fields_number_)))
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
                                      fields_number=fields_number_, verbose=verbose_)
+   if (self%physics%model /= MODEL_EULER .and. self%ib%solids_number > 0_I4P) &
+      call mpih%error_stop(msg=': immersed solids are not supported with [physics].(physical_model) = '// &
+                               self%physics%physical_model)
    call self%bc%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
    call self%time%initialize(file_parameters=file_parameters)
@@ -632,21 +635,37 @@ contains
    endsubroutine check_slices
 
    subroutine compute_q_aux_host(self)
-   !< Compute the auxiliary variables of the host `q` on every cell, ghost cells included (output only: the backends
-   !< compute their own auxiliary variables in the space operator).
+   !< Compute the auxiliary variables of the host `q` on every cell, ghost cells included (output and AMR marking only:
+   !< the backends compute their own auxiliary variables in the space operator). The model is selected outside the loops.
    class(flume_common_object), intent(inout) :: self       !< The equation.
    integer(I4P)                              :: b, i, j, k !< Counters.
 
-   do b=1, self%blocks_number
-      do k=1-self%ngc, self%nk+self%ngc
-         do j=1-self%ngc, self%nj+self%ngc
-            do i=1-self%ngc, self%ni+self%ngc
-               call conservative_to_auxiliary(gamma=self%physics%gamma, R=self%physics%R, q=self%q(:,i,j,k,b), &
-                                              qa=self%q_aux(:,i,j,k,b))
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      do b=1, self%blocks_number
+         do k=1-self%ngc, self%nk+self%ngc
+            do j=1-self%ngc, self%nj+self%ngc
+               do i=1-self%ngc, self%ni+self%ngc
+                  call conservative_to_auxiliary(gamma=self%physics%gamma, R=self%physics%R, q=self%q(:,i,j,k,b), &
+                                                 qa=self%q_aux(:,i,j,k,b))
+               enddo
             enddo
          enddo
       enddo
-   enddo
+   case(MODEL_MHD, MODEL_MHD_GLM)
+      do b=1, self%blocks_number
+         do k=1-self%ngc, self%nk+self%ngc
+            do j=1-self%ngc, self%nj+self%ngc
+               do i=1-self%ngc, self%ni+self%ngc
+                  call mhd_conservative_to_auxiliary(gamma=self%physics%gamma, R=self%physics%R, q=self%q(:,i,j,k,b), &
+                                                     qa=self%q_aux(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case default
+      call mpih%error_stop(msg=': no host auxiliary variables for physical model "'//self%physics%physical_model//'"')
+   endselect
    endsubroutine compute_q_aux_host
 
    function block_spacing(self, b, delta_type) result(dc)
@@ -714,9 +733,6 @@ contains
    self%q_name(3) = 'rv'
    self%q_name(4) = 'rw'
    self%q_name(5) = 'rE'
-   do v=1, self%physics%nv
-      self%dq_name(v) = 'dq_'//self%q_name(v)%chars()
-   enddo
    self%q_aux_name(1) = 'rho'
    self%q_aux_name(2) = 'u'
    self%q_aux_name(3) = 'v'
@@ -725,5 +741,19 @@ contains
    self%q_aux_name(6) = 'T'
    self%q_aux_name(7) = 'H'
    self%q_aux_name(8) = 'a'
+   select case(self%physics%model)
+   case(MODEL_MHD, MODEL_MHD_GLM)
+      self%q_name(6) = 'bx'
+      self%q_name(7) = 'by'
+      self%q_name(8) = 'bz'
+      if (self%physics%model == MODEL_MHD_GLM) self%q_name(9) = 'psi'
+      ! the auxiliary copies of B share the XH5F file with the conservative bx, by, bz: distinct names
+      self%q_aux_name(9)  = 'Bx'
+      self%q_aux_name(10) = 'By'
+      self%q_aux_name(11) = 'Bz'
+   endselect
+   do v=1, self%physics%nv
+      self%dq_name(v) = 'dq_'//self%q_name(v)%chars()
+   enddo
    endsubroutine io_initialize
 endmodule adam_flume_common_object

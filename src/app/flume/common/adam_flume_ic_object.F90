@@ -14,6 +14,9 @@ module adam_flume_ic_object
 !<   solution convected by the free stream;
 !< * `riemann-problem`: piecewise-constant axis-aligned regions, a cell belongs to a region iff `emin < center <= emax`
 !<   on every axis. A cell covered by no region is fatal: leaving it at zero density would divide by zero downstream.
+!<
+!< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
+!< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
 
 ! ADAM classes, libraries, parameters
 use :: adam_field_object,         only : field_object
@@ -21,8 +24,8 @@ use :: adam_field_object,         only : field_object
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library,  only : primitive_to_conservative
-use :: adam_flume_parameters,     only : NV_EULER, strip_control
-use :: adam_flume_physics_object, only : flume_physics_object
+use :: adam_flume_parameters,     only : MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM, NV_EULER, strip_control
+use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 ! third party modules
 use :: finer,                     only : file_ini
 use :: penf,                      only : I4P, I8P, R8P, str
@@ -38,7 +41,8 @@ character(len=15), parameter :: IC_RIEMANN_PROBLEM_STR="riemann-problem" !< Piec
 character(len=8),  parameter :: VORTEX_KEY(4)=['x0      ', 'y0      ', &
                                                'radius  ', 'strength']   !< Vortex keys.
 real(R8P),         parameter :: PI=acos(-1._R8P)                        !< Pi greek.
-character(len=1),  parameter :: PRIM_KEY(5)=['r', 'u', 'v', 'w', 'p']    !< Region primitive state keys.
+character(len=2),  parameter :: PRIM_KEY(8)=['r ', 'u ', 'v ', 'w ', &
+                                             'p ', 'bx', 'by', 'bz']    !< Region primitive state keys (MHD: all 8).
 character(len=6),  parameter :: EXTENT_KEY(6)=['emin_x', 'emin_y', &
                                                'emin_z', 'emax_x', &
                                                'emax_y', 'emax_z']       !< Region extents keys.
@@ -48,11 +52,13 @@ type :: flume_ic_object
    integer(I4P)              :: amr_iterations=0_I4P !< AMR iterations performed while imposing the initial conditions.
    character(:), allocatable :: ic_type              !< Initial conditions type.
    integer(I4P)              :: regions_number=0_I4P !< Regions number.
-   real(R8P),    allocatable :: q_region(:,:)        !< Conservative state of each region [NV_EULER, regions_number].
+   integer(I4P)              :: model=0_I4P          !< Physical model id.
+   integer(I4P)              :: nprim=0_I4P          !< Primitive keys number of a region: 5 (Euler) or 8 (MHD).
+   real(R8P),    allocatable :: q_region(:,:)        !< Conservative state of each region [nv, regions_number].
    real(R8P),    allocatable :: emin(:,:)            !< Minimum corner of each region [3, regions_number].
    real(R8P),    allocatable :: emax(:,:)            !< Maximum corner of each region [3, regions_number].
    real(R8P)                 :: gamma=0._R8P         !< Specific heats ratio.
-   real(R8P)                 :: prim_1(5)=0._R8P     !< Primitive state (r, u, v, w, p) of region 1, the free stream.
+   real(R8P)                 :: prim_1(8)=0._R8P     !< Primitive state of region 1, the free stream (first nprim used).
    real(R8P)                 :: s=0._R8P             !< Uniform: relative amplitude of the seeded perturbation.
    real(R8P)                 :: vortex(4)=0._R8P     !< Isentropic vortex: x0, y0, radius, strength.
    contains
@@ -100,12 +106,22 @@ contains
    type(flume_physics_object), intent(in)    :: physics         !< Physics (for the regions state conversion).
    character(999)                            :: buff            !< Option value buffer.
    character(:), allocatable                 :: sname           !< Region section name.
-   real(R8P)                                 :: prim(5)         !< Region primitive state (r, u, v, w, p).
+   real(R8P)                                 :: prim(8)         !< Region primitive state (first nprim used).
    real(R8P)                                 :: extent(6)       !< Region extents.
    integer(I4P)                              :: error           !< Error status.
    integer(I4P)                              :: r, k            !< Counters.
 
    self%gamma = physics%gamma
+   self%model = physics%model
+   select case(self%model)
+   case(MODEL_EULER)
+      self%nprim = 5_I4P
+   case(MODEL_MHD, MODEL_MHD_GLM)
+      self%nprim = 8_I4P
+   case default
+      call mpih%error_stop(msg=': no initial conditions for physical model "'//physics%physical_model//'"')
+   endselect
+   prim = 0._R8P
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='amr_iterations', val=self%amr_iterations, &
                             error=error)
@@ -120,6 +136,9 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='s', val=self%s, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(s)')
    case(IC_ISENTROPIC_VORTEX_STR)
+      if (self%model /= MODEL_EULER) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_ISENTROPIC_VORTEX_STR//' requires '// &
+                                  '[physics].(physical_model) = euler')
       self%regions_number = 1_I4P
       do k=1, 4
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(VORTEX_KEY(k)), val=self%vortex(k), &
@@ -141,18 +160,17 @@ contains
    if (allocated(self%q_region)) deallocate(self%q_region)
    if (allocated(self%emin)) deallocate(self%emin)
    if (allocated(self%emax)) deallocate(self%emax)
-   allocate(self%q_region(NV_EULER,self%regions_number), self%emin(3,self%regions_number), &
+   allocate(self%q_region(physics%nv,self%regions_number), self%emin(3,self%regions_number), &
             self%emax(3,self%regions_number))
    self%emin = -huge(1._R8P)
    self%emax =  huge(1._R8P)
    do r=1, self%regions_number
       sname = INI_SECTION_NAME//'_region_'//trim(str(r, .true.))
-      do k=1, 5
-         call file_parameters%get(section_name=sname, option_name=PRIM_KEY(k), val=prim(k), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//PRIM_KEY(k)//')')
+      do k=1, self%nprim
+         call file_parameters%get(section_name=sname, option_name=trim(PRIM_KEY(k)), val=prim(k), error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//trim(PRIM_KEY(k))//')')
       enddo
-      call primitive_to_conservative(gamma=physics%gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
-                                     q=self%q_region(:,r))
+      call primitive_state_to_conservative(model=self%model, gamma=physics%gamma, prim=prim, q=self%q_region(:,r))
       if (r == 1_I4P) self%prim_1 = prim
       if (self%ic_type == IC_RIEMANN_PROBLEM_STR) then
          do k=1, 6
@@ -176,6 +194,7 @@ contains
                                               1:)           !< Conservative variables.
    real(R8P)                             :: center(3)     !< Cell center.
    real(R8P)                             :: h(2)          !< Seeded perturbations, in [-1, 1).
+   real(R8P)                             :: prim(8)       !< Perturbed primitive state of one cell.
    logical                               :: is_set        !< Flag: cell covered by a region.
    integer(I4P)                          :: b, i, j, k, r !< Counters.
 
@@ -186,9 +205,10 @@ contains
             do j=1, field%nj
                do i=1, field%ni
                   call hash_cell(code=field%code(b), i=i, j=j, k=k, h=h)
-                  call primitive_to_conservative(gamma=self%gamma, r=self%prim_1(1)*(1._R8P+self%s*h(1)),       &
-                                                 u=self%prim_1(2), v=self%prim_1(3), w=self%prim_1(4),         &
-                                                 p=self%prim_1(5)*(1._R8P+self%s*h(2)), q=q(:,i,j,k,b))
+                  prim    = self%prim_1
+                  prim(1) = self%prim_1(1) * (1._R8P + self%s * h(1))
+                  prim(5) = self%prim_1(5) * (1._R8P + self%s * h(2))
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
          enddo

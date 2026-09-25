@@ -26,15 +26,22 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
-use :: adam_flume_common_library,     only : flume_common_object, MODEL_EULER, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
-use :: adam_flume_fnl_euler_kernels, only : compute_conservation_euler_dev=>compute_conservation_dev,                &
-                                            compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
-                                            compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
-                                            compute_q_aux_euler_dev=>compute_q_aux_dev
-use :: adam_flume_fnl_kernels,       only : apply_reflux_face_dev,                                                   &
-                                            compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
-                                            compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,     &
-                                            set_boundary_conditions_dev
+use :: adam_flume_common_library,      only : flume_common_object, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM,                &
+                                              RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
+use :: adam_flume_fnl_euler_kernels,   only : compute_conservation_euler_dev=>compute_conservation_dev,                &
+                                              compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
+                                              compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
+                                              compute_q_aux_euler_dev=>compute_q_aux_dev
+use :: adam_flume_fnl_mhd_kernels,     only : compute_conservation_mhd_dev=>compute_conservation_dev,                 &
+                                              compute_lambda_max_mhd_dev=>compute_lambda_max_dev,                     &
+                                              compute_q_aux_mhd_dev=>compute_q_aux_dev
+use :: adam_flume_fnl_mhd_glm_kernels, only : compute_conservation_mhd_glm_dev=>compute_conservation_dev,             &
+                                              compute_lambda_max_mhd_glm_dev=>compute_lambda_max_dev,                 &
+                                              compute_q_aux_mhd_glm_dev=>compute_q_aux_dev
+use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev,                                                   &
+                                              compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
+                                              compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,     &
+                                              set_boundary_conditions_dev
 ! third party modules
 use :: fundal,                    only : dev_alloc, dev_assign_to_device, dev_free, dev_memcpy_from_device,     &
                                          dev_memcpy_to_device, mydev
@@ -214,6 +221,14 @@ contains
       call compute_conservation_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                   &
                                           blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
                                           q_gpu=self%q_gpu, integrals=integrals)
+   case(MODEL_MHD)
+      call compute_conservation_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                   &
+                                        blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                        q_gpu=self%q_gpu, integrals=integrals)
+   case(MODEL_MHD_GLM)
+      call compute_conservation_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                   &
+                                            blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                            q_gpu=self%q_gpu, integrals=integrals)
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -234,6 +249,13 @@ contains
    case(MODEL_EULER)
       call compute_q_aux_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                    gamma=self%physics%gamma, R=self%physics%R, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
+   case(MODEL_MHD)
+      call compute_q_aux_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                 gamma=self%physics%gamma, R=self%physics%R, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
+   case(MODEL_MHD_GLM)
+      call compute_q_aux_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                           &
+                                     blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                     q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -531,6 +553,15 @@ contains
       call compute_lambda_max_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                         gamma=self%physics%gamma, R=self%physics%R, dxyz_gpu=self%field_fnl%dxyz_gpu,       &
                                         is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, lambda_max=lambda_max)
+   case(MODEL_MHD)
+      call compute_lambda_max_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                      gamma=self%physics%gamma, R=self%physics%R, dxyz_gpu=self%field_fnl%dxyz_gpu,       &
+                                      is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, lambda_max=lambda_max)
+   case(MODEL_MHD_GLM)
+      call compute_lambda_max_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                          blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                          dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
+                                          q_gpu=self%q_gpu, lambda_max=lambda_max)
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -757,6 +788,9 @@ contains
                                                               is_characteristic=is_char, weno_a_gpu=a_gpu,              &
                                                               weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,       &
                                                               q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+   case(MODEL_MHD, MODEL_MHD_GLM)
+      ! M2-P1 plumbing: no MHD face fluxes yet (M2-P3), the face flux arrays keep their zero initialization, so the
+      ! residual is exactly zero and the state is preserved
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect

@@ -11,9 +11,8 @@ use :: adam_parameters,           only : BC_PERIODIC
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_euler_library,  only : primitive_to_conservative
-use :: adam_flume_parameters,     only : IQ_RU, strip_control
-use :: adam_flume_physics_object, only : flume_physics_object
+use :: adam_flume_parameters,     only : IQ_BX, IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM, strip_control
+use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 ! third party modules
 use :: finer,                     only : file_ini
 use :: penf,                      only : I4P, R8P, str
@@ -34,7 +33,8 @@ character(len=13), parameter :: BC_EXTRAPOLATION_STR="extrapolation"          !<
 character(len=6),  parameter :: BC_INFLOW_STR="inflow"                        !< Accepted spelling of BC_INFLOW.
 character(len=13), parameter :: BC_WALL_INVISCID_STR="wall-inviscid"          !< Accepted spelling of BC_WALL_INVISCID.
 character(len=8),  parameter :: BC_PERIODIC_STR="periodic"                    !< Accepted spelling of BC_PERIODIC.
-character(len=1),  parameter :: INFLOW_KEY(5)=['r', 'u', 'v', 'w', 'p']       !< Inflow primitive state keys.
+character(len=2),  parameter :: INFLOW_KEY(8)=['r ', 'u ', 'v ', 'w ', &
+                                               'p ', 'bx', 'by', 'bz']       !< Inflow primitive state keys (MHD: all 8).
 character(len=8),  parameter :: SECTION_NAME(6)=['bc_x_min', 'bc_x_max', &
                                                  'bc_y_min', 'bc_y_max', &
                                                  'bc_z_min', 'bc_z_max']      !< INI section names of the 6 faces.
@@ -85,7 +85,8 @@ contains
    type(flume_physics_object), intent(in)    :: physics         !< Physics (for the inflow state conversion).
    character(999)                            :: buff            !< Option value buffer.
    character(:), allocatable                 :: bc_str          !< BC type string.
-   real(R8P)                                 :: prim(5)         !< Inflow primitive state (r, u, v, w, p).
+   real(R8P)                                 :: prim(8)         !< Inflow primitive state (first nprim used).
+   integer(I4P)                              :: nprim           !< Primitive keys number: 5 (Euler) or 8 (MHD).
    integer(I4P)                              :: error           !< Error status.
    integer(I4P)                              :: d, f, k         !< Counters.
 
@@ -93,11 +94,26 @@ contains
    if (allocated(self%wall_sign)) deallocate(self%wall_sign)
    allocate(self%q_inflow(physics%nv,6), self%wall_sign(physics%nv,3))
    self%q_inflow = 0._R8P
-   ! wall rule: the mirror state negates the wall-normal momentum (issue #41, section 3.6)
+   ! wall rule (issue #41, section 3.6): the mirror state negates the wall-normal momentum; MHD (perfectly conducting
+   ! reflecting wall, D-12) also negates the wall-normal magnetic field, psi stays even
    self%wall_sign = 1._R8P
-   do d=1, 3
-      self%wall_sign(IQ_RU+d-1,d) = -1._R8P
-   enddo
+   select case(physics%model)
+   case(MODEL_EULER)
+      nprim = 5_I4P
+      do d=1, 3
+         self%wall_sign(IQ_RU+d-1,d) = -1._R8P
+      enddo
+   case(MODEL_MHD, MODEL_MHD_GLM)
+      nprim = 8_I4P
+      do d=1, 3
+         self%wall_sign(IQ_RU+d-1,d) = -1._R8P
+         self%wall_sign(IQ_BX+d-1,d) = -1._R8P
+      enddo
+   case default
+      nprim = 0_I4P
+      call mpih%error_stop(msg=': no boundary conditions for physical model "'//physics%physical_model//'"')
+   endselect
+   prim = 0._R8P
    do f=1, 6
       call file_parameters%get(section_name=SECTION_NAME(f), option_name='type', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(type)')
@@ -107,12 +123,13 @@ contains
          self%bc_type(f) = BC_EXTRAPOLATION
       case(BC_INFLOW_STR)
          self%bc_type(f) = BC_INFLOW
-         do k=1, 5
-            call file_parameters%get(section_name=SECTION_NAME(f), option_name=INFLOW_KEY(k), val=prim(k), error=error)
-            if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].('//INFLOW_KEY(k)//')')
+         do k=1, nprim
+            call file_parameters%get(section_name=SECTION_NAME(f), option_name=trim(INFLOW_KEY(k)), val=prim(k), &
+                                     error=error)
+            if (error > 0) &
+               call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))//')')
          enddo
-         call primitive_to_conservative(gamma=physics%gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
-                                        q=self%q_inflow(:,f))
+         call primitive_state_to_conservative(model=physics%model, gamma=physics%gamma, prim=prim, q=self%q_inflow(:,f))
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID
       case(BC_PERIODIC_STR)

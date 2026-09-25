@@ -3,7 +3,7 @@
 module adam_flume_cpu_euler_kernels
 !< ADAM, FLUME CPU kernels of the Euler model.
 !<
-!< The model-agnostic loop bodies (`adam_flume_cpu_model_kernels_agnostic.INC`) instantiated on the Euler physics: the
+!< The model-agnostic loop bodies (`adam_flume_cpu_{face,aux}_kernels_agnostic.INC`) instantiated on the Euler physics: the
 !< local arrays are sized by the Euler constants `NV_K = NV_EULER`, `NV_AUX_K = NV_AUX` (issue #41, section 4), plus
 !< the Euler signal-speed loop.
 
@@ -24,7 +24,9 @@ public :: compute_q_aux
 
 contains
    ! public procedures
-#include "adam_flume_cpu_model_kernels_agnostic.INC"
+#include "adam_flume_cpu_face_kernels_agnostic.INC"
+
+#include "adam_flume_cpu_aux_kernels_agnostic.INC"
 
    subroutine compute_lambda_max(ni, nj, nk, ngc, blocks_number, gamma, R, dxyz, is_null, q, lambda_max)
    !< Compute `max(sum_d (|u_d| + a) / dx_d)` over the interior cells (null directions excluded).
