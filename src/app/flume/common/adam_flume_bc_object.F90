@@ -12,7 +12,7 @@ use :: adam_parameters,           only : BC_PERIODIC
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library,  only : primitive_to_conservative
-use :: adam_flume_parameters,     only : NV_EULER, strip_control
+use :: adam_flume_parameters,     only : IQ_RU, strip_control
 use :: adam_flume_physics_object, only : flume_physics_object
 ! third party modules
 use :: finer,                     only : file_ini
@@ -41,8 +41,9 @@ character(len=8),  parameter :: SECTION_NAME(6)=['bc_x_min', 'bc_x_max', &
 
 type :: flume_bc_object
    !< FLUME boundary conditions class definition.
-   integer(I4P) :: bc_type(6)=0_I4P           !< Boundary condition type of each face.
-   real(R8P)    :: q_inflow(NV_EULER,6)=0._R8P !< Conservative inflow state of each face.
+   integer(I4P)           :: bc_type(6)=0_I4P !< Boundary condition type of each face.
+   real(R8P), allocatable :: q_inflow(:,:)    !< Conservative inflow state of each face [nv, 6].
+   real(R8P), allocatable :: wall_sign(:,:)   !< Wall mirror sign of each variable per direction [nv, 3] (+1 or -1).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -86,8 +87,17 @@ contains
    character(:), allocatable                 :: bc_str          !< BC type string.
    real(R8P)                                 :: prim(5)         !< Inflow primitive state (r, u, v, w, p).
    integer(I4P)                              :: error           !< Error status.
-   integer(I4P)                              :: f, k            !< Counters.
+   integer(I4P)                              :: d, f, k         !< Counters.
 
+   if (allocated(self%q_inflow)) deallocate(self%q_inflow)
+   if (allocated(self%wall_sign)) deallocate(self%wall_sign)
+   allocate(self%q_inflow(physics%nv,6), self%wall_sign(physics%nv,3))
+   self%q_inflow = 0._R8P
+   ! wall rule: the mirror state negates the wall-normal momentum (issue #41, section 3.6)
+   self%wall_sign = 1._R8P
+   do d=1, 3
+      self%wall_sign(IQ_RU+d-1,d) = -1._R8P
+   enddo
    do f=1, 6
       call file_parameters%get(section_name=SECTION_NAME(f), option_name='type', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(type)')

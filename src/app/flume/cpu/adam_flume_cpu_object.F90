@@ -18,7 +18,7 @@ use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22,
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_common_library,     only : flume_common_object, ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION,  &
-                                            BC_INFLOW, BC_WALL_INVISCID, IQ_RU, MODEL_EULER, NV_EULER,                &
+                                            BC_INFLOW, BC_WALL_INVISCID, IQ_RU, MODEL_EULER,                          &
                                             RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
 use :: adam_flume_cpu_euler_kernels, only : compute_face_fluxes_euler=>compute_face_fluxes,                          &
                                             compute_lambda_max_euler=>compute_lambda_max,                            &
@@ -170,23 +170,24 @@ contains
    !< The cell volume includes the null directions: the tree splits them too, so a refined block's cells are smaller
    !< along them, and a volume without them overweights the fine cells (issue #37).
    class(flume_cpu_object), intent(inout) :: self         !< The equation.
-   real(R8P)                              :: integrals(5) !< Volume integrals.
+   real(R8P), allocatable                 :: integrals(:) !< Volume integrals [nv].
    real(R8P)                              :: volume       !< Cell volume.
    integer(I4P)                           :: b, i, j, k   !< Counters.
 
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
+   allocate(integrals(self%physics%nv))
    integrals = 0._R8P
    do b=1, self%blocks_number
       volume = product(self%adam%field%dxyz(:,b))
       do k=1, self%nk
          do j=1, self%nj
             do i=1, self%ni
-               integrals = integrals + self%q(1:5,i,j,k,b) * volume
+               integrals = integrals + self%q(1:self%physics%nv,i,j,k,b) * volume
             enddo
          enddo
       enddo
    enddo
-   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, 5, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, size(integrals), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time, integrals=integrals)
    endsubroutine compute_conservation
 
@@ -315,8 +316,7 @@ contains
          case(BC_WALL_INVISCID)
             call compute_face_mirror_indexes(face=face, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
                                              idelta=idelta, jdelta=jdelta, kdelta=kdelta, i_d=iref, j_d=jref, k_d=kref)
-            q(:,i,j,k,b) = q(:,iref,jref,kref,b)
-            q(IQ_RU+(face-1)/2,i,j,k,b) = -q(IQ_RU+(face-1)/2,i,j,k,b)
+            q(:,i,j,k,b) = self%bc%wall_sign(:,(face+1)/2) * q(:,iref,jref,kref,b)
          case(BC_SEAM)
             ! inter-realm seam face: filled by the forest (fill_seam_from_peer_forest), nothing to do here
          case default
@@ -642,12 +642,13 @@ contains
    endselect
    endsubroutine compute_face_mirror_indexes
 
-   subroutine compute_flux_difference(ni, nj, nk, ngc, blocks_number, is_null, dxyz, flx, fly, flz, dq, phi)
+   subroutine compute_flux_difference(nv, ni, nj, nk, ngc, blocks_number, is_null, dxyz, flx, fly, flz, dq, phi)
    !< Compute the residuals from the face fluxes, `dq = -sum_d (F_{d,i+1/2} - F_{d,i-1/2}) / dx_d`.
    !<
    !< A null direction weighs zero, and its normal momentum residual is zero (CHASE semantics, issue #35, section 3.4).
    !< With immersed solids (`phi` present, its last slot the all-solids summary), the spacing of a fluid cell is cut by
    !< the solid surface (`ib_cut_spacing`, CHASE semantics, D-9).
+   integer(I4P), intent(in)           :: nv                              !< Conservative variables number.
    integer(I4P), intent(in)           :: ni, nj, nk, ngc                 !< Grid dimensions.
    integer(I4P), intent(in)           :: blocks_number                   !< Actual blocks number.
    logical,      intent(in)           :: is_null(3)                      !< Null directions.
@@ -681,7 +682,7 @@ contains
                   dz = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i,j,k-1,b), phi_p=phi(ns,i,j,k+1,b), ds=dz, &
                                       eps=IB_EPS)
                endif
-               do v=1, NV_EULER
+               do v=1, nv
                   dq(v,i,j,k,b) = -(wx * (flx(v,i,j,k,b) - flx(v,i-1,j,k,b)) / dx + &
                                     wy * (fly(v,i,j,k,b) - fly(v,i,j-1,k,b)) / dy + &
                                     wz * (flz(v,i,j,k,b) - flz(v,i,j,k-1,b)) / dz)
@@ -774,8 +775,9 @@ contains
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
-   call compute_flux_difference(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, dxyz=self%adam%field%dxyz, &
-                                flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq, phi=self%ib%phi)
+   call compute_flux_difference(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,  &
+                                dxyz=self%adam%field%dxyz, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq, &
+                                phi=self%ib%phi)
    endassociate
    endsubroutine compute_residuals_weno
 

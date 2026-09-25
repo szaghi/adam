@@ -27,15 +27,17 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library,     only : flume_common_object, MODEL_EULER, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
-use :: adam_flume_fnl_euler_kernels, only : compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
+use :: adam_flume_fnl_euler_kernels, only : compute_conservation_euler_dev=>compute_conservation_dev,                &
+                                            compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
                                             compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
                                             compute_q_aux_euler_dev=>compute_q_aux_dev
-use :: adam_flume_fnl_kernels,       only : apply_reflux_face_dev, compute_conservation_dev,                         &
+use :: adam_flume_fnl_kernels,       only : apply_reflux_face_dev,                                                   &
                                             compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
                                             compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,     &
                                             set_boundary_conditions_dev
 ! third party modules
-use :: fundal,                    only : dev_alloc, dev_free, dev_memcpy_from_device, dev_memcpy_to_device, mydev
+use :: fundal,                    only : dev_alloc, dev_assign_to_device, dev_free, dev_memcpy_from_device,     &
+                                         dev_memcpy_to_device, mydev
 use :: mpi
 use :: penf,                      only : I4P, R8P, str
 
@@ -57,6 +59,8 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: flx_f_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, nv].
    real(R8P), pointer     :: fly_f_gpu(:,:,:,:,:)=>null() !< Y-face fluxes [nb, 1:ni, 0:nj, 1:nk, nv].
    real(R8P), pointer     :: flz_f_gpu(:,:,:,:,:)=>null() !< Z-face fluxes [nb, 1:ni, 1:nj, 0:nk, nv].
+   real(R8P), pointer     :: q_inflow_gpu(:,:)=>null()    !< Conservative inflow state of each face [nv, 6].
+   real(R8P), pointer     :: wall_sign_gpu(:,:)=>null()   !< Wall mirror sign per variable and direction [nv, 3].
    ! host staging
    real(R8P), allocatable :: buf_5D_R8P(:,:,:,:,:)        !< Transposed copy buffer, extent identical to q_gpu.
    integer(I4P)           :: db5(2,5)=0_I4P               !< Device bounds of the transposed copies.
@@ -187,6 +191,8 @@ contains
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate fly_f_gpu in flume_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%flz_f_gpu, ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,1,0,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flz_f_gpu in flume_fnl_object%allocate_gpu')
+   call dev_assign_to_device(src=self%bc%q_inflow,  dst=self%q_inflow_gpu)
+   call dev_assign_to_device(src=self%bc%wall_sign, dst=self%wall_sign_gpu)
    allocate(self%buf_5D_R8P(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv), stat=alloc_stat, errmsg=alloc_msg)
    if (alloc_stat /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_5D_R8P: '//trim(alloc_msg))
    self%db5(1,:) = [1 , 1-ngc , 1-ngc , 1-ngc , 1 ]
@@ -199,12 +205,19 @@ contains
    subroutine compute_conservation(self)
    !< Compute the volume integrals of the conservative variables on the device and save them on their cadence.
    class(flume_fnl_object), intent(inout) :: self         !< The equation.
-   real(R8P)                              :: integrals(5) !< Volume integrals.
+   real(R8P), allocatable                 :: integrals(:) !< Volume integrals [nv].
 
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
-   call compute_conservation_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                                 dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu, integrals=integrals)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, 5, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   allocate(integrals(self%physics%nv))
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call compute_conservation_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                   &
+                                          blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                          q_gpu=self%q_gpu, integrals=integrals)
+   case default
+      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
+   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, size(integrals), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time, integrals=integrals)
    endsubroutine compute_conservation
 
@@ -272,6 +285,14 @@ contains
    call free_gpu(self%flx_f_gpu)
    call free_gpu(self%fly_f_gpu)
    call free_gpu(self%flz_f_gpu)
+   if (associated(self%q_inflow_gpu)) then
+      call dev_free(self%q_inflow_gpu, mydev)
+      nullify(self%q_inflow_gpu)
+   endif
+   if (associated(self%wall_sign_gpu)) then
+      call dev_free(self%wall_sign_gpu, mydev)
+      nullify(self%wall_sign_gpu)
+   endif
    if (allocated(self%buf_5D_R8P)) deallocate(self%buf_5D_R8P)
    call self%rk_fnl%destroy()
    call self%weno_fnl%destroy()
@@ -381,7 +402,7 @@ contains
    do crown=1, self%ngc
       call set_boundary_conditions_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, crown=crown, &
                                        local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu,        &
-                                       q_inflow=self%bc%q_inflow, q_gpu=q_gpu)
+                                       q_inflow_gpu=self%q_inflow_gpu, wall_sign_gpu=self%wall_sign_gpu, q_gpu=q_gpu)
    enddo
    endsubroutine set_boundary_conditions
 
@@ -743,14 +764,14 @@ contains
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
    if (self%ib%solids_number > 0_I4P) then
-      call compute_flux_difference_ib_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,              &
-                                          dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu,                    &
+      call compute_flux_difference_ib_dev(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,           &
+                                          is_null=is_null, dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu,  &
                                           fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,                            &
                                           phi_gpu=self%ib_fnl%phi_gpu, dq_gpu=dq_gpu)
    else
-      call compute_flux_difference_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,                   &
-                                       dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
-                                       flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
+      call compute_flux_difference_dev(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,              &
+                                       is_null=is_null, dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu,     &
+                                       fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
    endif
    endassociate
    endsubroutine compute_residuals_weno_dev

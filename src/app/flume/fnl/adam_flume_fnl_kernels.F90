@@ -17,14 +17,13 @@ module adam_flume_fnl_kernels
 use :: adam_parameters,           only : FEC_1_6_ARRAY
 ! FLUME modules
 use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
-                                         IQ_RU, NV_EULER
+                                         IQ_RU
 ! third party modules
 use :: penf,                      only : I4P, I8P, R8P
 
 implicit none
 private
 public :: apply_reflux_face_dev
-public :: compute_conservation_dev
 public :: compute_flux_difference_dev
 public :: compute_flux_difference_ib_dev
 public :: compute_rk_ssp_residual_dev
@@ -59,47 +58,12 @@ contains
    enddo
    endsubroutine apply_reflux_face_dev
 
-   subroutine compute_conservation_dev(ni, nj, nk, ngc, blocks_number, dxyz_gpu, q_gpu, integrals)
-   !< Compute the volume integrals of the conservative variables (interior cells). The cell volume includes the null
-   !< directions: the tree splits them too, so a refined block's cells are smaller along them (issue #37).
-   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
-   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
-   real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
-   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
-   real(R8P),    intent(out) :: integrals(NV_EULER)               !< Volume integrals.
-   real(R8P)                 :: volume                            !< Cell volume.
-   real(R8P)                 :: s1, s2, s3, s4, s5                !< Reduction accumulators.
-   integer(I4P)              :: b, i, j, k                        !< Counters.
-
-   s1 = 0._R8P ; s2 = 0._R8P ; s3 = 0._R8P ; s4 = 0._R8P ; s5 = 0._R8P
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,blocks_number) private(volume)                   &
-   !$acc& reduction(+:s1,s2,s3,s4,s5)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number) private(volume) &
-   !$omp& reduction(+:s1,s2,s3,s4,s5)
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-   do b=1, blocks_number
-      volume = dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
-      s1 = s1 + q_gpu(b,i,j,k,1) * volume
-      s2 = s2 + q_gpu(b,i,j,k,2) * volume
-      s3 = s3 + q_gpu(b,i,j,k,3) * volume
-      s4 = s4 + q_gpu(b,i,j,k,4) * volume
-      s5 = s5 + q_gpu(b,i,j,k,5) * volume
-   enddo
-   enddo
-   enddo
-   enddo
-   integrals = [s1, s2, s3, s4, s5]
-   endsubroutine compute_conservation_dev
-
-   subroutine compute_flux_difference_dev(ni, nj, nk, ngc, blocks_number, is_null, dxyz_gpu, flx_f_gpu, fly_f_gpu, &
+   subroutine compute_flux_difference_dev(nv, ni, nj, nk, ngc, blocks_number, is_null, dxyz_gpu, flx_f_gpu, fly_f_gpu, &
                                           flz_f_gpu, dq_gpu)
    !< Compute the residuals from the face fluxes, `dq = -sum_d (F_{d,i+1/2} - F_{d,i-1/2}) / dx_d`.
    !<
    !< A null direction weighs zero, and its normal momentum residual is zero (CHASE semantics, issue #35, section 3.4).
+   integer(I4P), intent(in)    :: nv                                 !< Conservative variables number.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
    logical,      intent(in)    :: is_null(3)                         !< Null directions.
@@ -116,15 +80,15 @@ contains
    wy = merge(0._R8P, 1._R8P, is_null(2)) ; ny = is_null(2)
    wz = merge(0._R8P, 1._R8P, is_null(3)) ; nz = is_null(3)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz)
+   !$acc& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz)
+   !$omp& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
       !$acc loop seq
-      do v=1, NV_EULER
+      do v=1, nv
          dq_gpu(b,i,j,k,v) = -(wx * (flx_f_gpu(b,i,j,k,v) - flx_f_gpu(b,i-1,j,k,v)) / dxyz_gpu(b,1) + &
                                wy * (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dxyz_gpu(b,2) + &
                                wz * (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dxyz_gpu(b,3))
@@ -138,10 +102,11 @@ contains
    enddo
    endsubroutine compute_flux_difference_dev
 
-   subroutine compute_flux_difference_ib_dev(ni, nj, nk, ngc, blocks_number, is_null, dxyz_gpu, flx_f_gpu, fly_f_gpu, &
-                                             flz_f_gpu, phi_gpu, dq_gpu)
+   subroutine compute_flux_difference_ib_dev(nv, ni, nj, nk, ngc, blocks_number, is_null, dxyz_gpu, flx_f_gpu, &
+                                             fly_f_gpu, flz_f_gpu, phi_gpu, dq_gpu)
    !< Compute the residuals from the face fluxes with immersed solids: the spacing of a fluid cell is cut by the solid
    !< surface (`ib_cut_spacing`, CHASE semantics, issue #35 D-9); device twin of the CPU flux difference with `phi`.
+   integer(I4P), intent(in)    :: nv                                  !< Conservative variables number.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                     !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                       !< Actual blocks number.
    logical,      intent(in)    :: is_null(3)                          !< Null directions.
@@ -164,9 +129,9 @@ contains
    ns = ubound(phi_gpu, dim=5)
    !$acc parallel loop independent gang vector collapse(4)                                    &
    !$acc& DEVICEVAR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,phi_gpu,dq_gpu)                     &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz,ns) private(dx,dy,dz)
+   !$acc& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz,ns) private(dx,dy,dz)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,phi_gpu,dq_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz,ns) private(dx,dy,dz)
+   !$omp& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz,ns) private(dx,dy,dz)
    do k=1, nk
    do j=1, nj
    do i=1, ni
@@ -178,7 +143,7 @@ contains
       dz = ib_cut_spacing(phi_c=phi_gpu(b,i,j,k,ns), phi_m=phi_gpu(b,i,j,k-1,ns), phi_p=phi_gpu(b,i,j,k+1,ns), &
                           ds=dxyz_gpu(b,3), eps=IB_EPS)
       !$acc loop seq
-      do v=1, NV_EULER
+      do v=1, nv
          dq_gpu(b,i,j,k,v) = -(wx * (flx_f_gpu(b,i,j,k,v) - flx_f_gpu(b,i-1,j,k,v)) / dx + &
                                wy * (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dy + &
                                wz * (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dz)
@@ -297,7 +262,8 @@ contains
    enddo
    endsubroutine pack_seam_skin_dev
 
-   subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, local_map_bc_crown_gpu, q_inflow, q_gpu)
+   subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, local_map_bc_crown_gpu, q_inflow_gpu, wall_sign_gpu, &
+                                          q_gpu)
    !< Set boundary conditions on one crown: face ghosts by kind, edge and corner ghosts by extrapolation.
    !<
    !< Crowns are processed in order by the caller, so every source cell is interior or in a lower (already filled)
@@ -306,7 +272,8 @@ contains
    integer(I4P), intent(in)    :: nv                                !< Conservative variables number.
    integer(I4P), intent(in)    :: crown                             !< Crown counter.
    integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Boundary crown map (row, field, crown).
-   real(R8P),    intent(in)    :: q_inflow(NV_EULER,6)              !< Conservative inflow state of each face.
+   real(R8P),    intent(in)    :: q_inflow_gpu(1:,1:)               !< Conservative inflow state of each face [nv, 6].
+   real(R8P),    intent(in)    :: wall_sign_gpu(1:,1:)              !< Wall mirror sign per variable and direction [nv, 3].
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
    integer(I4P)                :: b, c, i, j, k, v                  !< Counters.
    integer(I4P)                :: idelta, jdelta, kdelta            !< IJK inward step.
@@ -315,11 +282,11 @@ contains
    integer(I4P)                :: face                              !< Boundary face (1 to 6).
    integer(I4P)                :: iref, jref, kref                  !< Donor indexes.
 
-   !$acc parallel loop independent gang vector DEVICEVAR(local_map_bc_crown_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,nv,crown,q_inflow)                                    &
+   !$acc parallel loop independent gang vector DEVICEVAR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,nv,crown)                                                                   &
    !$acc& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref)
-   !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,nv,crown,q_inflow) &
+   !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,nv,crown) &
    !$omp& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref)
    do c=1, size(local_map_bc_crown_gpu, dim=1)
       b = int(local_map_bc_crown_gpu(c,1,crown), I4P)
@@ -354,15 +321,18 @@ contains
             if (bc_type == BC_INFLOW) then
                !$acc loop seq
                do v=1, nv
-                  q_gpu(b,i,j,k,v) = q_inflow(v,face)
+                  q_gpu(b,i,j,k,v) = q_inflow_gpu(v,face)
                enddo
-            elseif (bc_type == BC_EXTRAPOLATION .or. bc_type == BC_WALL_INVISCID) then
+            elseif (bc_type == BC_EXTRAPOLATION) then
                !$acc loop seq
                do v=1, nv
                   q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
                enddo
-               if (bc_type == BC_WALL_INVISCID) &
-                  q_gpu(b,i,j,k,IQ_RU+(face-1)/2) = -q_gpu(b,i,j,k,IQ_RU+(face-1)/2)
+            elseif (bc_type == BC_WALL_INVISCID) then
+               !$acc loop seq
+               do v=1, nv
+                  q_gpu(b,i,j,k,v) = wall_sign_gpu(v,(face+1)/2) * q_gpu(b,iref,jref,kref,v)
+               enddo
             endif
          else
             !$acc loop seq

@@ -23,7 +23,7 @@ use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
-use :: adam_flume_parameters,         only : NV_AUX, NV_EULER
+use :: adam_flume_parameters,         only : NV_AUX
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
@@ -189,8 +189,8 @@ contains
    real(R8P)                                 :: delta        !< Admissible spacing.
    integer(I4P)                              :: b, i, j, k   !< Counters.
 
-   if ((field == 1_I4P .and. (ivar < 1_I4P .or. ivar > NV_EULER)) .or. &
-       (field == 2_I4P .and. (ivar < 1_I4P .or. ivar > NV_AUX))   .or. (field < 1_I4P .or. field > 2_I4P)) &
+   if ((field == 1_I4P .and. (ivar < 1_I4P .or. ivar > self%physics%nv))     .or. &
+       (field == 2_I4P .and. (ivar < 1_I4P .or. ivar > self%physics%nv_aux)) .or. (field < 1_I4P .or. field > 2_I4P)) &
       call mpih%error_stop(msg=': AMR gradient marker: invalid field '//trim(str(field))//' / ivar '//trim(str(ivar)))
    self%adam%field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, dxyz=>self%adam%field%dxyz, is_null=>self%adam%grid%null_xyz, &
