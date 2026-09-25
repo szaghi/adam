@@ -8,7 +8,7 @@ module adam_flume_physics_object
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
-use :: adam_flume_parameters, only : NV_AUX, NV_EULER, PHYSICAL_MODEL_EULER, strip_control
+use :: adam_flume_parameters, only : MODEL_EULER, NV_AUX, NV_EULER, PHYSICAL_MODEL_EULER, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
@@ -22,6 +22,7 @@ character(len=7), parameter :: INI_SECTION_NAME="physics" !< INI (config) file s
 type :: flume_physics_object
    !< FLUME physics class definition.
    character(:), allocatable :: physical_model !< Physical model.
+   integer(I4P)              :: model=0_I4P    !< Physical model id (MODEL_*), the host controllers dispatch on it.
    real(R8P)                 :: cp=0._R8P      !< Specific heat at constant pressure.
    real(R8P)                 :: cv=0._R8P      !< Specific heat at constant volume.
    real(R8P)                 :: gamma=0._R8P   !< Specific heats ratio, cp/cv.
@@ -59,6 +60,7 @@ contains
    call self%load_from_file(file_parameters=file_parameters)
    select case(self%physical_model)
    case(PHYSICAL_MODEL_EULER)
+      self%model  = MODEL_EULER
       self%nv     = NV_EULER
       self%nv_aux = NV_AUX
    endselect

@@ -26,12 +26,14 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
-use :: adam_flume_common_library, only : flume_common_object, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
-use :: adam_flume_fnl_kernels,    only : apply_reflux_face_dev, compute_conservation_dev, compute_face_fluxes_dev,      &
-                                         compute_flux_difference_dev, compute_flux_difference_ib_dev,                  &
-                                         compute_lambda_max_dev, compute_q_aux_dev,                                    &
-                                         compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,          &
-                                         set_boundary_conditions_dev
+use :: adam_flume_common_library,     only : flume_common_object, MODEL_EULER, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
+use :: adam_flume_fnl_euler_kernels, only : compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
+                                            compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
+                                            compute_q_aux_euler_dev=>compute_q_aux_dev
+use :: adam_flume_fnl_kernels,       only : apply_reflux_face_dev, compute_conservation_dev,                         &
+                                            compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
+                                            compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,     &
+                                            set_boundary_conditions_dev
 ! third party modules
 use :: fundal,                    only : dev_alloc, dev_free, dev_memcpy_from_device, dev_memcpy_to_device, mydev
 use :: mpi
@@ -215,8 +217,13 @@ contains
                                                    1-self%ngc:,&
                                                    1:)         !< Conservative variables.
 
-   call compute_q_aux_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                          gamma=self%physics%gamma, R=self%physics%R, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call compute_q_aux_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                   gamma=self%physics%gamma, R=self%physics%R, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
+   case default
+      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
    endsubroutine compute_q_aux
 
    subroutine copy_cpu_gpu(self, verbose)
@@ -498,9 +505,14 @@ contains
    real(R8P),               intent(out) :: dt_local   !< Local stability-limited time step.
    real(R8P)                            :: lambda_max !< Maximum of sum_d (|u_d| + a) / dx_d.
 
-   call compute_lambda_max_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                               gamma=self%physics%gamma, R=self%physics%R, dxyz_gpu=self%field_fnl%dxyz_gpu,       &
-                               is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, lambda_max=lambda_max)
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call compute_lambda_max_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                        gamma=self%physics%gamma, R=self%physics%R, dxyz_gpu=self%field_fnl%dxyz_gpu,       &
+                                        is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, lambda_max=lambda_max)
+   case default
+      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
    dt_local = huge(1._R8P)
    if (lambda_max > 0._R8P) dt_local = self%time%CFL / lambda_max
    endsubroutine compute_local_dt_forest
@@ -707,18 +719,26 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
              is_null=>self%adam%grid%null_xyz, weno_s=>self%weno%S, zeps=>self%weno%zeps, a_gpu=>self%weno_fnl%a_gpu, &
              p_gpu=>self%weno_fnl%p_gpu, d_gpu=>self%weno_fnl%d_gpu)
-   if (.not.is_null(1)) call compute_face_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,  &
-                                                     blocks_number=nb, S=weno_s, gamma=gamma, is_characteristic=is_char,   &
-                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps, &
-                                                     q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-   if (.not.is_null(2)) call compute_face_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,  &
-                                                     blocks_number=nb, S=weno_s, gamma=gamma, is_characteristic=is_char,   &
-                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps, &
-                                                     q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-   if (.not.is_null(3)) call compute_face_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,  &
-                                                     blocks_number=nb, S=weno_s, gamma=gamma, is_characteristic=is_char,   &
-                                                     weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps, &
-                                                     q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      if (.not.is_null(1)) call compute_face_fluxes_euler_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, &
+                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,  &
+                                                              is_characteristic=is_char, weno_a_gpu=a_gpu,              &
+                                                              weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,       &
+                                                              q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
+      if (.not.is_null(2)) call compute_face_fluxes_euler_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, &
+                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,  &
+                                                              is_characteristic=is_char, weno_a_gpu=a_gpu,              &
+                                                              weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,       &
+                                                              q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
+      if (.not.is_null(3)) call compute_face_fluxes_euler_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, &
+                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,  &
+                                                              is_characteristic=is_char, weno_a_gpu=a_gpu,              &
+                                                              weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,       &
+                                                              q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+   case default
+      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif

@@ -26,6 +26,8 @@ public :: IA_A
 public :: NV_EULER
 public :: NV_AUX
 public :: S_MAX
+public :: MODEL_EULER
+public :: MODEL_MHD
 public :: PHYSICAL_MODEL_EULER
 public :: SCHEME_SPACE_WENO
 public :: RECON_CHARACTERISTIC
@@ -49,8 +51,11 @@ integer(I4P), parameter :: IA_H = 7_I4P !< Total specific enthalpy.
 integer(I4P), parameter :: IA_A = 8_I4P !< Speed of sound.
 ! dimensions
 integer(I4P), parameter :: NV_EULER = 5_I4P !< Conservative variables number, Euler model.
-integer(I4P), parameter :: NV_AUX   = 8_I4P !< Auxiliary variables number.
+integer(I4P), parameter :: NV_AUX   = 8_I4P !< Auxiliary variables number, Euler model.
 integer(I4P), parameter :: S_MAX    = 5_I4P !< Maximum WENO stencil half-width (weno-u-9).
+! physical models: the id the host controllers dispatch on, never inside a kernel (issue #41, section 4)
+integer(I4P), parameter :: MODEL_EULER = 1_I4P !< Compressible Euler.
+integer(I4P), parameter :: MODEL_MHD   = 2_I4P !< Ideal compressible MHD (not wired yet: M2-P1).
 ! accepted option values
 character(len=5),  parameter :: PHYSICAL_MODEL_EULER="euler"          !< [physics].(physical_model): compressible Euler.
 character(len=4),  parameter :: SCHEME_SPACE_WENO="weno"              !< [numerics].(scheme_space): WENO flux splitting.
