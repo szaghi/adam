@@ -1,5 +1,5 @@
 [modes]
-modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-omp-amd flume-fnl-omp-amd-debug test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf test-flume-euler-library-fnl-omp-amd
+modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-omp-amd flume-fnl-omp-amd-debug test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf test-flume-euler-library-fnl-omp-amd test-flume-mhd-library-gnu test-flume-mhd-library-fnl-nvf test-flume-mhd-library-fnl-omp-amd
 
 [flume-cpu-gnu]
 template = template-gnu
@@ -54,3 +54,18 @@ target   = test_flume_euler_library_fnl.F90
 template = template-omp-amd
 preproc  = -DDEV_OMP -DDEV_HIP -w
 target   = test_flume_euler_library_fnl.F90
+
+[test-flume-mhd-library-gnu]
+template = template-gnu
+preproc  = -w
+target   = test_flume_mhd_library.F90
+
+[test-flume-mhd-library-fnl-nvf]
+template = template-nvf
+preproc  = -DDEV_OAC -DCOMPILER_NVF -w
+target   = test_flume_mhd_library_fnl.F90
+
+[test-flume-mhd-library-fnl-omp-amd]
+template = template-omp-amd
+preproc  = -DDEV_OMP -DDEV_HIP -w
+target   = test_flume_mhd_library_fnl.F90
