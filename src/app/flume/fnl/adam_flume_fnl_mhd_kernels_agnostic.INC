@@ -131,8 +131,8 @@
          q_(IQ_RU) = rho * qa_(IA_U)
          q_(IQ_RV) = rho * qa_(IA_V)
          q_(IQ_RW) = rho * qa_(IA_W)
-         q_(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * (q_(IQ_RU)**2 + q_(IQ_RV)**2 + q_(IQ_RW)**2) / rho + &
-                     0.5_R8P * (q_(IQ_BX)**2 + q_(IQ_BY)**2 + q_(IQ_BZ)**2)
+         q_(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * mhd_sum3(q_(IQ_RU)**2, q_(IQ_RV)**2, q_(IQ_RW)**2) / rho + &
+                     0.5_R8P * mhd_sum3(q_(IQ_BX)**2, q_(IQ_BY)**2, q_(IQ_BZ)**2)
          !$acc loop seq
          do v=1, NV_K
             q_gpu(b,i,j,k,v) = q_(v)

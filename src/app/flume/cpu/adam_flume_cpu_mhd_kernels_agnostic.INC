@@ -75,8 +75,8 @@
                   q(IQ_RV,i,j,k,b) = rho * qa(IA_V)
                   q(IQ_RW,i,j,k,b) = rho * qa(IA_W)
                   q(IQ_RE,i,j,k,b) = p / (gamma - 1._R8P)                                                     + &
-                                     0.5_R8P * (q(IQ_RU,i,j,k,b)**2 + q(IQ_RV,i,j,k,b)**2 + q(IQ_RW,i,j,k,b)**2) / rho + &
-                                     0.5_R8P * (q(IQ_BX,i,j,k,b)**2 + q(IQ_BY,i,j,k,b)**2 + q(IQ_BZ,i,j,k,b)**2)
+                                     0.5_R8P * mhd_sum3(q(IQ_RU,i,j,k,b)**2, q(IQ_RV,i,j,k,b)**2, q(IQ_RW,i,j,k,b)**2) / rho + &
+                                     0.5_R8P * mhd_sum3(q(IQ_BX,i,j,k,b)**2, q(IQ_BY,i,j,k,b)**2, q(IQ_BZ,i,j,k,b)**2)
                endif
             enddo
          enddo

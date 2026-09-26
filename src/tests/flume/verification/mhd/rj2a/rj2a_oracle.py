@@ -10,9 +10,8 @@ fluxes, the rotation of the transverse components. Checks, on the last checkpoin
 * 1-D consistency: every transverse copy of a column is bitwise identical, and blocks agree on shared columns;
 * accuracy: L1 of every conservative variable against the exact solution; the sum over the 8 variables below --l1-max;
 * direction invariance (several runs): the runs equal the first one in the rotated frame within --dir-tol (0:
-  bitwise). Not bitwise by default for RJ2a: |u|^2, |B|^2 and u.B are summed in the fixed x, y, z order (conversions,
-  flux, fast speed, initial energy), so the permuted runs round differently at the last bit (the Euler Sod of V1 and
-  MV-2 are bitwise only because their transverse components vanish);
+  bitwise, the check.sh setting): the MHD library sums |u|^2, |B|^2 and u.B independently of the order of the terms
+  (mhd_sum3) and projects in the frame order of the direction, so a cyclic rotation reproduces the x run exactly;
 * --pair NONE GLM: the GLM run equals the run without cleaning BITWISE on the 8 shared variables and psi is exactly
   zero (in 1-D B_n is uniform and psi starts at zero, the (B_n, psi) block is inert and block-diagonal).
 

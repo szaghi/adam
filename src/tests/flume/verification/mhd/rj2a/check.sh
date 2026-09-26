@@ -6,9 +6,8 @@
 # eigensystem at the face average, characteristic splitting, fluxes, rotation of the transverse components). Through
 # rj2a_oracle.py, with gamma = 5/3, t = 0.2, WENO-5 characteristic, SSP-33, CFL 0.5, np 2 (the Sod grid of V1):
 #   1. N = 256 along x, y, z (no cleaning): L1 of each conservative variable against the exact solution, their sum
-#      below L1_MAX_256, and the y and z runs equal the x run in the rotated frame within DIR_TOL (not bitwise: the
-#      |u|^2, |B|^2, u.B sums are taken in the fixed x, y, z order, so the permuted runs round differently from step 0;
-#      measured 1.4e-12; a rotation defect would be O(1));
+#      below L1_MAX_256, and the y and z runs equal the x run in the rotated frame BITWISE (DIR_TOL = 0: the 3-term
+#      |u|^2, |B|^2, u.B sums are order-independent, mhd_sum3, and the projections sum in the frame order, M2-P3d);
 #   2. N = 512 along x: the L1 sum below L1_MAX_512 and below the N = 256 one (the solution converges; at first order,
 #      as discontinuities dominate);
 #   3. GLM (N = 256, x): equal to the run without cleaning BITWISE on the 8 shared variables, psi exactly zero (in 1-D
@@ -28,7 +27,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 L1_MAX_256="3.919e-02" # CPU and FNL baseline 3.842043e-02 (M2-P3b), plus 2%
 L1_MAX_512="2.159e-02" # CPU and FNL baseline 2.116856e-02 (M2-P3b), plus 2%
-DIR_TOL="1.0e-11"      # x/y/z in the rotated frame (measured 1.4e-12)
+DIR_TOL="0.0"          # x/y/z in the rotated frame, bitwise (1.4e-12 before M2-P3d)
 
 while [[ $# -gt 0 ]]; do
    case "$1" in

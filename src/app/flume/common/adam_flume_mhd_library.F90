@@ -43,6 +43,7 @@ public :: mhd_glm_face_flux_back_projection
 public :: mhd_glm_face_split_fluxes
 public :: mhd_glm_flux
 public :: mhd_primitive_to_conservative
+public :: mhd_sum3
 
 real(R8P), parameter :: EPS_BT=1.e-12_R8P !< Degenerate transverse field: |B_t| <= EPS_BT max(|B|, sqrt(rho) a).
 real(R8P), parameter :: EPS_FS=1.e-12_R8P !< Degenerate fast-slow pair (triple umbilic): c_f^2 - c_s^2 <= EPS_FS c_f^2.
@@ -62,12 +63,12 @@ contains
    !$acc routine seq
    !$omp declare target
 
-   pb = 0.5_R8P * (q(IQ_BX)**2 + q(IQ_BY)**2 + q(IQ_BZ)**2)
+   pb = 0.5_R8P * mhd_sum3(q(IQ_BX)**2, q(IQ_BY)**2, q(IQ_BZ)**2)
    qa(IA_R)  = q(IQ_R)
    qa(IA_U)  = q(IQ_RU) / q(IQ_R)
    qa(IA_V)  = q(IQ_RV) / q(IQ_R)
    qa(IA_W)  = q(IQ_RW) / q(IQ_R)
-   qa(IA_P)  = (gamma - 1._R8P) * (q(IQ_RE) - 0.5_R8P * q(IQ_R) * (qa(IA_U)**2 + qa(IA_V)**2 + qa(IA_W)**2) - pb)
+   qa(IA_P)  = (gamma - 1._R8P) * (q(IQ_RE) - 0.5_R8P * q(IQ_R) * mhd_sum3(qa(IA_U)**2, qa(IA_V)**2, qa(IA_W)**2) - pb)
    qa(IA_T)  = qa(IA_P) / (q(IQ_R) * R)
    qa(IA_H)  = (q(IQ_RE) + qa(IA_P) + pb) / q(IQ_R)
    qa(IA_A)  = sqrt(gamma * qa(IA_P) / q(IQ_R))
@@ -140,8 +141,8 @@ contains
    avg(IA_BZ) = 0.5_R8P * (qaL(IA_BZ) + qaR(IA_BZ))
    avg(IA_A)  = sqrt(gamma * avg(IA_P) / avg(IA_R))
    avg(IA_H)  = gamma / (gamma - 1._R8P) * avg(IA_P) / avg(IA_R)                        + &
-                0.5_R8P * (avg(IA_U)**2 + avg(IA_V)**2 + avg(IA_W)**2)                  + &
-                (avg(IA_BX)**2 + avg(IA_BY)**2 + avg(IA_BZ)**2) / avg(IA_R)
+                0.5_R8P * mhd_sum3(avg(IA_U)**2, avg(IA_V)**2, avg(IA_W)**2)            + &
+                mhd_sum3(avg(IA_BX)**2, avg(IA_BY)**2, avg(IA_BZ)**2) / avg(IA_R)
    endsubroutine mhd_face_average
 
    pure subroutine mhd_face_flux_back_projection(is_characteristic, er, vr, flux)
@@ -186,10 +187,12 @@ contains
    real(R8P)                 :: alpha(NV_MHD)                    !< Lax-Friedrichs speeds.
    real(R8P)                 :: f(NV_MHD)                        !< Physical flux of one cell.
    real(R8P)                 :: w, g, fp                         !< Projected state, projected flux, split flux.
+   integer(I4P)              :: pv(NV_MHD)                       !< State in the frame order of direction `d`.
    integer(I4P)              :: k, m, v                          !< Counters.
    !$acc routine seq
    !$omp declare target
 
+   call mhd_frame_indexes(d=d, pv=pv)
    if (is_characteristic) then
       call mhd_face_average(gamma=gamma, qaL=qas(:,0), qaR=qas(:,1), avg=avg)
       call mhd_eigenvectors(gamma=gamma, d=d, qa=avg, el=el, er=er)
@@ -220,8 +223,8 @@ contains
          w = 0._R8P
          g = 0._R8P
          do v=1, NV_MHD
-            w = w + el(k,v) * qs(v,m)
-            g = g + el(k,v) * f(v)
+            w = w + el(k,pv(v)) * qs(pv(v),m)
+            g = g + el(k,pv(v)) * f(pv(v))
          enddo
          fp = 0.5_R8P * (g + alpha(k) * w)
          if (m < S)     fsplit(2,m,k)   = fp
@@ -246,7 +249,7 @@ contains
    !$omp declare target
 
    a2  = qa(IA_A)**2
-   b2  = (qa(IA_BX)**2 + qa(IA_BY)**2 + qa(IA_BZ)**2) / qa(IA_R)
+   b2  = mhd_sum3(qa(IA_BX)**2, qa(IA_BY)**2, qa(IA_BZ)**2) / qa(IA_R)
    bt2 = max(b2 - qa(IA_BX+d-1)**2 / qa(IA_R), 0._R8P)
    cf  = sqrt(0.5_R8P * (a2 + b2 + sqrt((a2 - b2)**2 + 4._R8P * a2 * bt2)))
    endfunction mhd_fast_speed
@@ -268,8 +271,8 @@ contains
 
    un = qa(IA_U+d-1)
    bn = qa(IA_BX+d-1)
-   pt = qa(IA_P) + 0.5_R8P * (qa(IA_BX)**2 + qa(IA_BY)**2 + qa(IA_BZ)**2)
-   ub = qa(IA_U) * qa(IA_BX) + qa(IA_V) * qa(IA_BY) + qa(IA_W) * qa(IA_BZ)
+   pt = qa(IA_P) + 0.5_R8P * mhd_sum3(qa(IA_BX)**2, qa(IA_BY)**2, qa(IA_BZ)**2)
+   ub = mhd_sum3(qa(IA_U) * qa(IA_BX), qa(IA_V) * qa(IA_BY), qa(IA_W) * qa(IA_BZ))
    f(IQ_R) = q(IQ_R) * un
    do c=1, 3
       f(IQ_RU+c-1) = q(IQ_RU+c-1) * un - bn * qa(IA_BX+c-1)
@@ -373,10 +376,13 @@ contains
    real(R8P)                 :: alpha(NV_MHD_GLM)                    !< Lax-Friedrichs speeds.
    real(R8P)                 :: f(NV_MHD_GLM)                        !< Physical flux of one cell.
    real(R8P)                 :: w, g, fp                             !< Projected state, projected flux, split flux.
+   integer(I4P)              :: pv(NV_MHD_GLM)                       !< State in the frame order of direction `d`.
    integer(I4P)              :: k, m, v                              !< Counters.
    !$acc routine seq
    !$omp declare target
 
+   call mhd_frame_indexes(d=d, pv=pv)
+   pv(NV_MHD_GLM) = IQ_PSI
    if (is_characteristic) then
       call mhd_face_average(gamma=gamma, qaL=qas(:,0), qaR=qas(:,1), avg=avg)
       call mhd_glm_eigenvectors(ch=ch, gamma=gamma, d=d, qa=avg, el=el, er=er)
@@ -406,8 +412,8 @@ contains
          w = 0._R8P
          g = 0._R8P
          do v=1, NV_MHD_GLM
-            w = w + el(k,v) * qs(v,m)
-            g = g + el(k,v) * f(v)
+            w = w + el(k,pv(v)) * qs(pv(v),m)
+            g = g + el(k,pv(v)) * f(pv(v))
          enddo
          fp = 0.5_R8P * (g + alpha(k) * w)
          if (m < S)     fsplit(2,m,k)   = fp
@@ -447,11 +453,25 @@ contains
    q(IQ_RU) = r * u
    q(IQ_RV) = r * v
    q(IQ_RW) = r * w
-   q(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * r * (u**2 + v**2 + w**2) + 0.5_R8P * (bx**2 + by**2 + bz**2)
+   q(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * r * mhd_sum3(u**2, v**2, w**2) + 0.5_R8P * mhd_sum3(bx**2, by**2, bz**2)
    q(IQ_BX) = bx
    q(IQ_BY) = by
    q(IQ_BZ) = bz
    endsubroutine mhd_primitive_to_conservative
+
+   pure function mhd_sum3(a, b, c) result(s)
+   !< Return `a + b + c` summed in increasing order, so the result does not depend on the order of the arguments.
+   !<
+   !< Why: `|u|^2`, `|B|^2`, `u.B` summed in the fixed x, y, z order round differently when the components are permuted,
+   !< so a problem rotated from x to y or z (cyclic tangents) drifts at round-off (issue #41, MV-4). Sorting the three
+   !< terms (branchless `min`/`max`) makes the sum a function of the set of terms: rotations are bitwise invariant.
+   real(R8P), intent(in) :: a, b, c !< Terms.
+   real(R8P)             :: s       !< Sum.
+   !$acc routine seq
+   !$omp declare target
+
+   s = (min(a, b, c) + max(min(a, b), min(max(a, b), c))) + max(a, b, c)
+   endfunction mhd_sum3
 
    ! private procedures
    pure subroutine mhd_eigenvectors_core(gamma, d, qa, l7, r7, mp)
@@ -692,6 +712,28 @@ contains
    l7(7,6) = l7(1,6)
    l7(7,7) = l7(1,7)
    endsubroutine mhd_eigenvectors_core
+
+   pure subroutine mhd_frame_indexes(d, pv)
+   !< Return the conservative variables in the frame order of direction `d`, `(rho, rho u_n, rho u_t1, rho u_t2, E, B_n,
+   !< B_t1, B_t2)`, tangents cyclic as in `mhd_eigenvectors_core`: the projections sum in this order, so a problem
+   !< rotated from x to y or z sums the same terms in the same order (bitwise invariant, issue #41, MV-4).
+   integer(I4P), intent(in)  :: d          !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(out) :: pv(NV_MHD) !< Full-state index of each frame variable.
+   integer(I4P)              :: d1, d2     !< Tangential directions.
+   !$acc routine seq
+   !$omp declare target
+
+   d1 = mod(d, 3) + 1
+   d2 = mod(d + 1, 3) + 1
+   pv(1) = IQ_R
+   pv(2) = IQ_RU + d  - 1
+   pv(3) = IQ_RU + d1 - 1
+   pv(4) = IQ_RU + d2 - 1
+   pv(5) = IQ_RE
+   pv(6) = IQ_BX + d  - 1
+   pv(7) = IQ_BX + d1 - 1
+   pv(8) = IQ_BX + d2 - 1
+   endsubroutine mhd_frame_indexes
 
    pure subroutine mhd_wave_eigenvalues(d, qa, lambda)
    !< Compute the 7 MHD wave speeds in direction `d`, `(u_n - c_f, u_n - c_a, u_n - c_s, u_n, u_n + c_s, u_n + c_a,

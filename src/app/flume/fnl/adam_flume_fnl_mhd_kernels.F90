@@ -15,7 +15,7 @@ use :: adam_fnl_weno_kernels,  only : weno_reconstruct_upwind_dev
 ! FLUME modules
 use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_face_flux_back_projection, &
                                       conservative_to_auxiliary=>mhd_conservative_to_auxiliary,         &
-                                      mhd_fast_speed, mhd_face_split_fluxes
+                                      mhd_fast_speed, mhd_face_split_fluxes, mhd_sum3
 use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
                                       IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD, S_MAX
 ! third party modules
