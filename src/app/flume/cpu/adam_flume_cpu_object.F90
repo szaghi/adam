@@ -23,10 +23,12 @@ use :: adam_flume_common_library,      only : flume_common_object, ib_cut_spacin
 use :: adam_flume_cpu_euler_kernels,   only : compute_face_fluxes_euler=>compute_face_fluxes,                        &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
                                               compute_q_aux_euler=>compute_q_aux
-use :: adam_flume_cpu_mhd_kernels,     only : compute_face_fluxes_mhd=>compute_face_fluxes,                        &
+use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,                                   &
+                                              compute_face_fluxes_mhd=>compute_face_fluxes,                        &
                                               compute_lambda_max_mhd=>compute_lambda_max,                            &
                                               compute_q_aux_mhd=>compute_q_aux
-use :: adam_flume_cpu_mhd_glm_kernels, only : compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
+use :: adam_flume_cpu_mhd_glm_kernels, only : apply_floors_mhd_glm=>apply_floors,                               &
+                                              compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
                                               compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
                                               compute_q_aux_mhd_glm=>compute_q_aux
 ! third party modules
@@ -49,6 +51,7 @@ type, extends(flume_common_object) :: flume_cpu_object
    contains
       ! public methods
       procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
+      procedure, pass(self) :: apply_floors            !< Apply the MHD positivity floors of a stage.
       procedure, pass(self) :: allocate_cpu            !< Allocate CPU data.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
@@ -150,6 +153,48 @@ contains
    enddo
    endassociate
    endsubroutine accumulate_seam_fluxes
+
+   subroutine apply_floors(self, q)
+   !< Apply the MHD positivity floors to the interior of a stage state, before its ghost exchange (issue #41, 3.8).
+   !<
+   !< Euler has no floors (return before any work). MHD: the floored cells of the stage are logged by rank 0 when any;
+   !< a non-positive density or pressure with the floors disabled (both zero) is fatal, reported with the global
+   !< minimum density and pressure.
+   class(flume_cpu_object), intent(inout) :: self      !< The equation.
+   real(R8P),               intent(inout) :: q(1:,         &
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1:)         !< Conservative variables.
+   integer(I4P)                           :: counts(2) !< Floored cells, non-positive cells.
+   real(R8P)                              :: mins(2)   !< Minimum density and pressure.
+
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      return
+   case(MODEL_MHD)
+      call apply_floors_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number,    &
+                                gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
+                                p_floor=self%physics%mhd%p_floor, q=q,               &
+                                floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
+   case(MODEL_MHD_GLM)
+      call apply_floors_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
+                                p_floor=self%physics%mhd%p_floor, q=q,                            &
+                                floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
+   case default
+      call mpih%error_stop(msg=': no floors for physical model "'//self%physics%physical_model//'"')
+   endselect
+   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, mins, 2, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+   if (counts(2) > 0_I4P .and. .not.(self%physics%mhd%rho_floor > 0._R8P .or. self%physics%mhd%p_floor > 0._R8P)) &
+      call mpih%error_stop(msg=': '//trim(str(counts(2)))//' cells with a non-positive density or pressure at step '// &
+                               trim(str(self%time%it))//' (min rho '//trim(str(mins(1)))//', min p '//               &
+                               trim(str(mins(2)))//'); the [mhd] floors rho_floor, p_floor are disabled')
+   if (counts(1) > 0_I4P .and. mpih%myrank == 0) &
+      print '(A)', mpih%myrankstr//'MHD floors: '//trim(str(counts(1)))//' cells floored at step '// &
+                   trim(str(self%time%it))//' (min rho '//trim(str(mins(1)))//', min p '//trim(str(mins(2)))//')'
+   endsubroutine apply_floors
 
    subroutine allocate_cpu(self)
    !< Allocate CPU data.
@@ -776,6 +821,7 @@ contains
       enddo
       call self%ib%invert_eikonal(field=self%adam%field, grid=self%adam%grid, q=q)
    endif
+   call self%apply_floors(q=q)
    call self%update_ghost(q=q)
    call self%compute_q_aux(q=q)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC

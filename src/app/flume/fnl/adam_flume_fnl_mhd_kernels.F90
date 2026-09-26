@@ -16,12 +16,14 @@ use :: adam_fnl_weno_kernels,  only : weno_reconstruct_upwind_dev
 use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_face_flux_back_projection, &
                                       conservative_to_auxiliary=>mhd_conservative_to_auxiliary,         &
                                       mhd_fast_speed, mhd_face_split_fluxes
-use :: adam_flume_parameters,  only : IA_U, IA_V, IA_W, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD, S_MAX
+use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
+                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD, S_MAX
 ! third party modules
 use :: penf,                   only : I4P, R8P
 
 implicit none
 private
+public :: apply_floors_dev
 public :: compute_conservation_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev

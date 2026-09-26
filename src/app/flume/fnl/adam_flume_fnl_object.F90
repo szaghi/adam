@@ -32,11 +32,13 @@ use :: adam_flume_fnl_euler_kernels,   only : compute_conservation_euler_dev=>co
                                               compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
                                               compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
                                               compute_q_aux_euler_dev=>compute_q_aux_dev
-use :: adam_flume_fnl_mhd_kernels,     only : compute_conservation_mhd_dev=>compute_conservation_dev,                 &
+use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors_dev,                           &
+                                              compute_conservation_mhd_dev=>compute_conservation_dev,                 &
                                               compute_face_fluxes_mhd_dev=>compute_face_fluxes_dev,                   &
                                               compute_lambda_max_mhd_dev=>compute_lambda_max_dev,                     &
                                               compute_q_aux_mhd_dev=>compute_q_aux_dev
-use :: adam_flume_fnl_mhd_glm_kernels, only : compute_conservation_mhd_glm_dev=>compute_conservation_dev,             &
+use :: adam_flume_fnl_mhd_glm_kernels, only : apply_floors_mhd_glm_dev=>apply_floors_dev,                       &
+                                              compute_conservation_mhd_glm_dev=>compute_conservation_dev,             &
                                               compute_face_fluxes_mhd_glm_dev=>compute_face_fluxes_dev,               &
                                               compute_lambda_max_mhd_glm_dev=>compute_lambda_max_dev,                 &
                                               compute_q_aux_mhd_glm_dev=>compute_q_aux_dev
@@ -80,6 +82,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    contains
       ! public methods
       procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
+      procedure, pass(self) :: apply_floors            !< Apply the MHD positivity floors of a stage.
       procedure, pass(self) :: allocate_gpu            !< Allocate device data.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
@@ -175,6 +178,48 @@ contains
       enddo
    enddo
    endsubroutine accumulate_seam_fluxes
+
+   subroutine apply_floors(self, q_gpu)
+   !< Apply the MHD positivity floors to the interior of a stage state, before its ghost exchange (issue #41, 3.8).
+   !<
+   !< Euler has no floors (return before any work). MHD: the floored cells of the stage are logged by rank 0 when any;
+   !< a non-positive density or pressure with the floors disabled (both zero) is fatal, reported with the global
+   !< minimum density and pressure.
+   class(flume_fnl_object), intent(inout) :: self      !< The equation.
+   real(R8P),               intent(inout) :: q_gpu(1:,         &
+                                                    1-self%ngc:,&
+                                                    1-self%ngc:,&
+                                                    1-self%ngc:,&
+                                                    1:)         !< Conservative variables.
+   integer(I4P)                           :: counts(2) !< Floored cells, non-positive cells.
+   real(R8P)                              :: mins(2)   !< Minimum density and pressure.
+
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      return
+   case(MODEL_MHD)
+      call apply_floors_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number,    &
+                                gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
+                                p_floor=self%physics%mhd%p_floor, q_gpu=q_gpu,        &
+                                floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
+   case(MODEL_MHD_GLM)
+      call apply_floors_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                    gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
+                                    p_floor=self%physics%mhd%p_floor, q_gpu=q_gpu,            &
+                                    floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
+   case default
+      call mpih_fnl%error_stop(msg=': no floors for physical model "'//self%physics%physical_model//'"')
+   endselect
+   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, mins, 2, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
+   if (counts(2) > 0_I4P .and. .not.(self%physics%mhd%rho_floor > 0._R8P .or. self%physics%mhd%p_floor > 0._R8P)) &
+      call mpih_fnl%error_stop(msg=': '//trim(str(counts(2)))//' cells with a non-positive density or pressure at step '// &
+                               trim(str(self%time%it))//' (min rho '//trim(str(mins(1)))//', min p '//               &
+                               trim(str(mins(2)))//'); the [mhd] floors rho_floor, p_floor are disabled')
+   if (counts(1) > 0_I4P .and. mpih_fnl%myrank == 0) &
+      print '(A)', mpih_fnl%myrankstr//'MHD floors: '//trim(str(counts(1)))//' cells floored at step '// &
+                   trim(str(self%time%it))//' (min rho '//trim(str(mins(1)))//', min p '//trim(str(mins(2)))//')'
+   endsubroutine apply_floors
 
    subroutine allocate_gpu(self)
    !< Allocate device data (every `dev_alloc` checked) and the host staging buffer.
@@ -767,6 +812,7 @@ contains
       enddo
       call self%ib_fnl%invert_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, q_gpu=q_gpu)
    endif
+   call self%apply_floors(q_gpu=q_gpu)
    call self%update_ghost(q_gpu=q_gpu)
    call self%compute_q_aux(q_gpu=q_gpu)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
