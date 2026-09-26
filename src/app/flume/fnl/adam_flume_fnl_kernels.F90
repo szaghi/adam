@@ -16,8 +16,7 @@ module adam_flume_fnl_kernels
 ! ADAM classes, libraries, parameters
 use :: adam_parameters,           only : FEC_1_6_ARRAY
 ! FLUME modules
-use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
-                                         IQ_RU
+use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID
 ! third party modules
 use :: penf,                      only : I4P, I8P, R8P
 
@@ -58,31 +57,33 @@ contains
    enddo
    endsubroutine apply_reflux_face_dev
 
-   subroutine compute_flux_difference_dev(nv, ni, nj, nk, ngc, blocks_number, is_null, dxyz_gpu, flx_f_gpu, fly_f_gpu, &
-                                          flz_f_gpu, dq_gpu)
+   subroutine compute_flux_difference_dev(nv, ni, nj, nk, ngc, blocks_number, is_null, freeze, dxyz_gpu, flx_f_gpu,    &
+                                          fly_f_gpu, flz_f_gpu, dq_gpu)
    !< Compute the residuals from the face fluxes, `dq = -sum_d (F_{d,i+1/2} - F_{d,i-1/2}) / dx_d`.
    !<
-   !< A null direction weighs zero, and its normal momentum residual is zero (CHASE semantics, issue #35, section 3.4).
+   !< A null direction weighs zero, and the residual of the variable it freezes, `freeze(d)` (0: none), is zero: the
+   !< normal momentum for Euler (CHASE semantics, issue #35, section 3.4), none for MHD (issue #41, M2-P3).
    integer(I4P), intent(in)    :: nv                                 !< Conservative variables number.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
    logical,      intent(in)    :: is_null(3)                         !< Null directions.
+   integer(I4P), intent(in)    :: freeze(3)                          !< Variable frozen by each null direction (0: none).
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Blocks space steps [nb, 3].
    real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)          !< X-face fluxes.
    real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)          !< Y-face fluxes.
    real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)          !< Z-face fluxes.
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
    real(R8P)                   :: wx, wy, wz                         !< Direction weights: 1 active, 0 null.
-   logical                     :: nx, ny, nz                         !< Null directions, scalar copies.
+   integer(I4P)                :: fx, fy, fz                         !< Frozen variables, scalar copies.
    integer(I4P)                :: b, i, j, k, v                      !< Counters.
 
-   wx = merge(0._R8P, 1._R8P, is_null(1)) ; nx = is_null(1)
-   wy = merge(0._R8P, 1._R8P, is_null(2)) ; ny = is_null(2)
-   wz = merge(0._R8P, 1._R8P, is_null(3)) ; nz = is_null(3)
+   wx = merge(0._R8P, 1._R8P, is_null(1)) ; fx = freeze(1)
+   wy = merge(0._R8P, 1._R8P, is_null(2)) ; fy = freeze(2)
+   wz = merge(0._R8P, 1._R8P, is_null(3)) ; fz = freeze(3)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
-   !$acc& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz)
+   !$acc& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,fx,fy,fz)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
-   !$omp& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz)
+   !$omp& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,fx,fy,fz)
    do k=1, nk
    do j=1, nj
    do i=1, ni
@@ -93,16 +94,16 @@ contains
                                wy * (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dxyz_gpu(b,2) + &
                                wz * (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dxyz_gpu(b,3))
       enddo
-      if (nx) dq_gpu(b,i,j,k,IQ_RU  ) = 0._R8P
-      if (ny) dq_gpu(b,i,j,k,IQ_RU+1) = 0._R8P
-      if (nz) dq_gpu(b,i,j,k,IQ_RU+2) = 0._R8P
+      if (fx > 0_I4P) dq_gpu(b,i,j,k,fx) = 0._R8P
+      if (fy > 0_I4P) dq_gpu(b,i,j,k,fy) = 0._R8P
+      if (fz > 0_I4P) dq_gpu(b,i,j,k,fz) = 0._R8P
    enddo
    enddo
    enddo
    enddo
    endsubroutine compute_flux_difference_dev
 
-   subroutine compute_flux_difference_ib_dev(nv, ni, nj, nk, ngc, blocks_number, is_null, dxyz_gpu, flx_f_gpu, &
+   subroutine compute_flux_difference_ib_dev(nv, ni, nj, nk, ngc, blocks_number, is_null, freeze, dxyz_gpu, flx_f_gpu, &
                                              fly_f_gpu, flz_f_gpu, phi_gpu, dq_gpu)
    !< Compute the residuals from the face fluxes with immersed solids: the spacing of a fluid cell is cut by the solid
    !< surface (`ib_cut_spacing`, CHASE semantics, issue #35 D-9); device twin of the CPU flux difference with `phi`.
@@ -110,6 +111,7 @@ contains
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                     !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                       !< Actual blocks number.
    logical,      intent(in)    :: is_null(3)                          !< Null directions.
+   integer(I4P), intent(in)    :: freeze(3)                           !< Variable frozen by each null direction (0: none).
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                     !< Blocks space steps [nb, 3].
    real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)           !< X-face fluxes.
    real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)           !< Y-face fluxes.
@@ -119,19 +121,19 @@ contains
    real(R8P), parameter        :: IB_EPS=1.e-12_R8P                   !< Guard of the cut spacing (CHASE value).
    real(R8P)                   :: wx, wy, wz                          !< Direction weights: 1 active, 0 null.
    real(R8P)                   :: dx, dy, dz                          !< Cell spacings.
-   logical                     :: nx, ny, nz                          !< Null directions, scalar copies.
+   integer(I4P)                :: fx, fy, fz                          !< Frozen variables, scalar copies.
    integer(I4P)                :: ns                                  !< All-solids summary slot of phi.
    integer(I4P)                :: b, i, j, k, v                       !< Counters.
 
-   wx = merge(0._R8P, 1._R8P, is_null(1)) ; nx = is_null(1)
-   wy = merge(0._R8P, 1._R8P, is_null(2)) ; ny = is_null(2)
-   wz = merge(0._R8P, 1._R8P, is_null(3)) ; nz = is_null(3)
+   wx = merge(0._R8P, 1._R8P, is_null(1)) ; fx = freeze(1)
+   wy = merge(0._R8P, 1._R8P, is_null(2)) ; fy = freeze(2)
+   wz = merge(0._R8P, 1._R8P, is_null(3)) ; fz = freeze(3)
    ns = ubound(phi_gpu, dim=5)
    !$acc parallel loop independent gang vector collapse(4)                                    &
    !$acc& DEVICEVAR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,phi_gpu,dq_gpu)                     &
-   !$acc& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz,ns) private(dx,dy,dz)
+   !$acc& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,fx,fy,fz,ns) private(dx,dy,dz)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,phi_gpu,dq_gpu) &
-   !$omp& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,nx,ny,nz,ns) private(dx,dy,dz)
+   !$omp& firstprivate(nv,ni,nj,nk,blocks_number,wx,wy,wz,fx,fy,fz,ns) private(dx,dy,dz)
    do k=1, nk
    do j=1, nj
    do i=1, ni
@@ -148,9 +150,9 @@ contains
                                wy * (fly_f_gpu(b,i,j,k,v) - fly_f_gpu(b,i,j-1,k,v)) / dy + &
                                wz * (flz_f_gpu(b,i,j,k,v) - flz_f_gpu(b,i,j,k-1,v)) / dz)
       enddo
-      if (nx) dq_gpu(b,i,j,k,IQ_RU  ) = 0._R8P
-      if (ny) dq_gpu(b,i,j,k,IQ_RU+1) = 0._R8P
-      if (nz) dq_gpu(b,i,j,k,IQ_RU+2) = 0._R8P
+      if (fx > 0_I4P) dq_gpu(b,i,j,k,fx) = 0._R8P
+      if (fy > 0_I4P) dq_gpu(b,i,j,k,fy) = 0._R8P
+      if (fz > 0_I4P) dq_gpu(b,i,j,k,fz) = 0._R8P
    enddo
    enddo
    enddo

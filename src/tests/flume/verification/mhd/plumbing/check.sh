@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # FLUME MHD plumbing verification (issue #41, M2-P1): the MHD model end to end with a zero residual.
 #
-# Why: M2-P1 wires the MHD model (input predicate, state width and names, MHD conversions and fast speed, the per-model
-# kernel instances, IC/BC keys and wall rule, outputs, restart) before any MHD numerics exist. There are no MHD face
-# fluxes yet, so the residual is exactly zero, which turns every plumbing defect into an exact, checkable mismatch.
-# For both variants, divergence_control = none (nv = 8) and glm (nv = 9, psi):
+# Why: M2-P1 wired the MHD model (input predicate, state width and names, MHD conversions and fast speed, the per-model
+# kernel instances, IC/BC keys and wall rule, outputs, restart). For both variants, divergence_control = none (nv = 8)
+# and glm (nv = 9, psi):
 #   1. dt: one step of the unperturbed uniform state; the step must be CFL / sum_d (|u_d| + c_{f,d}) / dx_d with the
 #      fast speed computed independently by the oracle (exercises the device aux + fast-speed kernels on FNL);
-#   2. zero residual: a seeded (s = 0.05) run of 10 steps keeps every volume integral constant, its final fields
-#      equal those of a 1-step run bitwise, and every model variable (bx, by, bz [, psi]) is saved;
-#   3. auxiliary fields: the saved MHD auxiliaries equal the values recomputed from the conservative fields;
-#   4. restart: 5 steps + restart + 5 steps equals the continuous 10-step run bitwise, histories byte-identical.
+#   2. auxiliary fields: the saved MHD auxiliaries equal the values recomputed from the conservative fields;
+#   3. restart: 5 steps + restart + 5 steps of a seeded (s = 0.05) state equals the continuous 10-step run bitwise,
+#      histories byte-identical, and every model variable (bx, by, bz [, psi]) is saved.
+# Since M2-P3 the MHD face fluxes are live, so the P1 zero-residual legs (constant integrals, 10 steps = 1 step) are
+# retired: the exact steady state is checked by MV-2 (verification/mhd/zero-field, uniform state, bitwise).
 # Plus two refused configurations (variant none only): an unknown divergence_control and isentropic-vortex + MHD
 # must stop with their error message.
 #
@@ -91,15 +91,11 @@ for variant in none glm; do
    setup "$base-dt" "$ini" -e "s/^s              = .*/s              = 0.0/" -e "s/^it_max   = .*/it_max   = 1/"
    run "$base-dt" input.ini log.txt
    oracle --dt "$base-dt" "$base-dt/input.ini"
-   # 2-3. zero residual: 10 steps vs 1 step, constant integrals, auxiliary fields
+   # 2. auxiliary fields of the seeded 10-step run
    setup "$base-A" "$ini"
    run "$base-A" input.ini log.txt
-   setup "$base-C" "$ini" -e "s/^it_max   = .*/it_max   = 1/"
-   run "$base-C" input.ini log.txt
-   oracle --static "$base-A"
-   oracle --compare "$base-A" "$base-C" --names "${names[@]}"
    oracle --aux "$base-A" "$base-A/input.ini"
-   # 4. restart round trip
+   # 3. restart round trip
    setup "$base-B" "$ini" -e "s/^it_max   = .*/it_max   = 5/" -e "s/^restart_save           = .*/restart_save           = 5/"
    run "$base-B" input.ini log-1.txt
    sed -i -e "s/^it_max   = .*/it_max   = 10/" -e "s/^restart_save           = .*/restart_save           = 0/" \

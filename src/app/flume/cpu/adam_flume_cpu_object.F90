@@ -18,13 +18,16 @@ use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22,
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION,  &
-                                              BC_INFLOW, BC_WALL_INVISCID, IQ_RU, MODEL_EULER,                          &
+                                              BC_INFLOW, BC_WALL_INVISCID, MODEL_EULER,                                 &
                                               MODEL_MHD, MODEL_MHD_GLM, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
 use :: adam_flume_cpu_euler_kernels,   only : compute_face_fluxes_euler=>compute_face_fluxes,                        &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
                                               compute_q_aux_euler=>compute_q_aux
-use :: adam_flume_cpu_mhd_kernels,     only : compute_lambda_max_mhd=>compute_lambda_max, compute_q_aux_mhd=>compute_q_aux
-use :: adam_flume_cpu_mhd_glm_kernels, only : compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
+use :: adam_flume_cpu_mhd_kernels,     only : compute_face_fluxes_mhd=>compute_face_fluxes,                        &
+                                              compute_lambda_max_mhd=>compute_lambda_max,                            &
+                                              compute_q_aux_mhd=>compute_q_aux
+use :: adam_flume_cpu_mhd_glm_kernels, only : compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
+                                              compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
                                               compute_q_aux_mhd_glm=>compute_q_aux
 ! third party modules
 use :: mpi
@@ -660,16 +663,18 @@ contains
    endselect
    endsubroutine compute_face_mirror_indexes
 
-   subroutine compute_flux_difference(nv, ni, nj, nk, ngc, blocks_number, is_null, dxyz, flx, fly, flz, dq, phi)
+   subroutine compute_flux_difference(nv, ni, nj, nk, ngc, blocks_number, is_null, freeze, dxyz, flx, fly, flz, dq, phi)
    !< Compute the residuals from the face fluxes, `dq = -sum_d (F_{d,i+1/2} - F_{d,i-1/2}) / dx_d`.
    !<
-   !< A null direction weighs zero, and its normal momentum residual is zero (CHASE semantics, issue #35, section 3.4).
+   !< A null direction weighs zero, and the residual of the variable it freezes, `freeze(d)` (0: none), is zero: the
+   !< normal momentum for Euler (CHASE semantics, issue #35, section 3.4), none for MHD (issue #41, M2-P3).
    !< With immersed solids (`phi` present, its last slot the all-solids summary), the spacing of a fluid cell is cut by
    !< the solid surface (`ib_cut_spacing`, CHASE semantics, D-9).
    integer(I4P), intent(in)           :: nv                              !< Conservative variables number.
    integer(I4P), intent(in)           :: ni, nj, nk, ngc                 !< Grid dimensions.
    integer(I4P), intent(in)           :: blocks_number                   !< Actual blocks number.
    logical,      intent(in)           :: is_null(3)                      !< Null directions.
+   integer(I4P), intent(in)           :: freeze(3)                       !< Variable frozen by each null direction.
    real(R8P),    intent(in)           :: dxyz(1:,1:)                     !< Blocks space steps [3, nb].
    real(R8P),    intent(in)           :: flx(1:,0:,1:,1:,1:)             !< X-face fluxes.
    real(R8P),    intent(in)           :: fly(1:,1:,0:,1:,1:)             !< Y-face fluxes.
@@ -705,9 +710,9 @@ contains
                                     wy * (fly(v,i,j,k,b) - fly(v,i,j-1,k,b)) / dy + &
                                     wz * (flz(v,i,j,k,b) - flz(v,i,j,k-1,b)) / dz)
                enddo
-               if (is_null(1)) dq(IQ_RU,  i,j,k,b) = 0._R8P
-               if (is_null(2)) dq(IQ_RU+1,i,j,k,b) = 0._R8P
-               if (is_null(3)) dq(IQ_RU+2,i,j,k,b) = 0._R8P
+               if (freeze(1) > 0_I4P) dq(freeze(1),i,j,k,b) = 0._R8P
+               if (freeze(2) > 0_I4P) dq(freeze(2),i,j,k,b) = 0._R8P
+               if (freeze(3) > 0_I4P) dq(freeze(3),i,j,k,b) = 0._R8P
             enddo
          enddo
       enddo
@@ -778,18 +783,44 @@ contains
              is_null=>self%adam%grid%null_xyz)
    select case(self%physics%model)
    case(MODEL_EULER)
-      if (.not.is_null(1)) call compute_face_fluxes_euler(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk,  &
-                                                          ngc=ngc, blocks_number=nb, gamma=gamma, is_characteristic=is_char, &
+      if (.not.is_null(1)) call compute_face_fluxes_euler(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                          nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                          ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                           weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
-      if (.not.is_null(2)) call compute_face_fluxes_euler(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk,  &
-                                                          ngc=ngc, blocks_number=nb, gamma=gamma, is_characteristic=is_char, &
+      if (.not.is_null(2)) call compute_face_fluxes_euler(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                          nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                          ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                           weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
-      if (.not.is_null(3)) call compute_face_fluxes_euler(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk,  &
-                                                          ngc=ngc, blocks_number=nb, gamma=gamma, is_characteristic=is_char, &
+      if (.not.is_null(3)) call compute_face_fluxes_euler(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                          nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                          ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                           weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
-   case(MODEL_MHD, MODEL_MHD_GLM)
-      ! M2-P1 plumbing: no MHD face fluxes yet (M2-P3), the face flux arrays keep their zero initialization, so the
-      ! residual is exactly zero and the state is preserved
+   case(MODEL_MHD)
+      if (.not.is_null(1)) call compute_face_fluxes_mhd(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                        nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                        ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                        weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_face_fluxes_mhd(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                        nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                        ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                        weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_face_fluxes_mhd(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                        nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                        ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                        weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   case(MODEL_MHD_GLM)
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_glm(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_glm(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_glm(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -797,6 +828,7 @@ contains
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
    call compute_flux_difference(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,  &
+                                freeze=self%null_freeze(),                                                           &
                                 dxyz=self%adam%field%dxyz, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq, &
                                 phi=self%ib%phi)
    endassociate

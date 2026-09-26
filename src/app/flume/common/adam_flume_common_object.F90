@@ -24,7 +24,7 @@ use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary
-use :: adam_flume_parameters,         only : MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM
+use :: adam_flume_parameters,         only : IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
@@ -74,6 +74,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: compute_phi           !< Compute the immersed solids distance function (host).
       procedure, pass(self) :: destroy_common        !< Free common data.
       procedure, pass(self) :: initialize            !< Initialize the common data.
+      procedure, pass(self) :: null_freeze           !< Return the variable each null direction freezes.
       procedure, pass(self) :: load_restart_files    !< Load restart files.
       procedure, pass(self) :: save_restart_files    !< Save restart files.
       procedure, pass(self) :: save_slices           !< Save the slices on their cadence.
@@ -451,6 +452,28 @@ contains
    endassociate
    if (verbose_) call mpih%print_message('flume_common_object%initialize finish')
    endsubroutine initialize
+
+   function null_freeze(self) result(freeze)
+   !< Return, per direction, the conservative variable whose residual a null direction freezes (0: none).
+   !<
+   !< Euler: the momentum along the null direction (CHASE semantics, issue #35, section 3.4). MHD: none, the 1-D MHD
+   !< Riemann problems evolve the transverse momentum and field through the fluxes of the active directions (issue #41,
+   !< M2-P3). Host data passed to the model-independent flux difference: no model branch in the kernels.
+   class(flume_common_object), intent(in) :: self      !< The equation.
+   integer(I4P)                           :: freeze(3) !< Frozen variable of each direction (0: none).
+   integer(I4P)                           :: d         !< Direction counter.
+
+   freeze = 0_I4P
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      do d=1, 3
+         if (self%adam%grid%null_xyz(d)) freeze(d) = IQ_RU + d - 1
+      enddo
+   case(MODEL_MHD, MODEL_MHD_GLM)
+   case default
+      call mpih%error_stop(msg=': no null-direction rule for physical model "'//self%physics%physical_model//'"')
+   endselect
+   endfunction null_freeze
 
    subroutine load_restart_files(self, t, time)
    !< Load restart files.

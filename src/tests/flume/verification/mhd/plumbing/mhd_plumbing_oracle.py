@@ -14,13 +14,18 @@ specific plumbing defect:
   one) have bitwise identical interior fields, for every saved variable, and the saved variables include the
   model's names (a missing B or psi field, a restart that loses psi);
 * --aux: the saved auxiliary fields equal the values recomputed from the saved conservative fields (MHD pressure,
-  enthalpy with the magnetic pressure, the B copies).
+  enthalpy with the magnetic pressure, the B copies);
+* --zero (used by the zero-field check, M2-P3): the named variables are exactly zero in the last checkpoint;
+* --steady (M2-P3): the last checkpoint equals the first one (step 0), every saved variable, interior cells: bitwise
+  by default, or within a tolerance (--steady-tol) relative to max(|variable|, 1).
 
 Usage:
     mhd_plumbing_oracle.py --dt <work-dir> <ini>
     mhd_plumbing_oracle.py --static <work-dir>
     mhd_plumbing_oracle.py --compare <work-dir-a> <work-dir-b> --names r ru rv rw rE bx by bz [psi] [--ngc N]
     mhd_plumbing_oracle.py --aux <work-dir> <ini> [--tol T] [--ngc N]
+    mhd_plumbing_oracle.py --zero <work-dir> --names bx by bz [psi] [--ngc N]
+    mhd_plumbing_oracle.py --steady <work-dir> [--steady-tol T] [--ngc N]
 """
 
 from __future__ import annotations
@@ -55,12 +60,13 @@ def history(work: Path) -> list[list[str]]:
     return [line.split() for line in hist.open() if line.split() and line.split()[0][0] in "+-0123456789"]
 
 
-def last_fields(work: Path) -> dict[tuple[float, ...], dict[str, np.ndarray]]:
-    """Return every saved variable of the last checkpoint of one run, keyed by block origin."""
+def last_fields(work: Path, first: bool = False) -> dict[tuple[float, ...], dict[str, np.ndarray]]:
+    """Return every saved variable of the last (or first) checkpoint of one run, keyed by block origin."""
     files = sorted(p for p in work.glob("*-proc*.h5") if "restart" not in p.name)
     if not files:
         sys.exit(f"mhd_plumbing_oracle: no checkpoint in {work}")
-    last = max(int(p.name.split("-")[-2]) for p in files)
+    steps = [int(p.name.split("-")[-2]) for p in files]
+    last = min(steps) if first else max(steps)
     out: dict[tuple[float, ...], dict[str, np.ndarray]] = {}
     for path in (p for p in files if int(p.name.split("-")[-2]) == last):
         with h5py.File(path, "r") as h5:
@@ -155,6 +161,37 @@ def check_aux(work: Path, ini_path: Path, tol: float, ngc: int) -> bool:
     return ok
 
 
+def check_zero(work: Path, names: list[str], ngc: int) -> bool:
+    """The named variables must be exactly zero on the interior cells of the last checkpoint."""
+    worst = 0.0
+    for fields in last_fields(work).values():
+        for name in names:
+            worst = max(worst, float(np.max(np.abs(interior(fields[name], ngc)))))
+    ok = worst == 0.0
+    print(f"{work.name}: max |{', '.join(names)}| = {worst:.3e}  {'PASS (exactly zero)' if ok else 'FAIL'}")
+    return ok
+
+
+def check_steady(work: Path, ngc: int, tol: float) -> bool:
+    """The last checkpoint must equal the first one (every saved variable, interior cells), bitwise if tol is 0."""
+    a, b = last_fields(work, first=True), last_fields(work)
+    if a.keys() != b.keys():
+        print(f"{work.name}: first and last checkpoints hold different blocks  FAIL")
+        return False
+    worst, worst_name = 0.0, ""
+    for key, fa in a.items():
+        for name, arr in fa.items():
+            scale = max(float(np.max(np.abs(arr))), 1.0) if tol > 0.0 else 1.0  # floor 1: psi starts at zero
+            diff = float(np.max(np.abs(interior(arr, ngc) - interior(b[key][name], ngc)))) / scale
+            if diff > worst:
+                worst, worst_name = diff, name
+    ok = worst <= tol
+    kind = "bitwise" if tol == 0.0 else f"relative tol {tol:.1e}"
+    print(f"{work.name}: last vs first checkpoint, {len(a)} blocks, max {'relative ' if tol > 0.0 else ''}|difference| "
+          f"{worst:.3e}{' (' + worst_name + ')' if worst_name else ''}  {'PASS' if ok else 'FAIL'} ({kind})")
+    return ok
+
+
 def main() -> int:
     """Run the requested check."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -163,6 +200,9 @@ def main() -> int:
     parser.add_argument("--compare", type=Path, nargs=2, metavar=("WORK_A", "WORK_B"))
     parser.add_argument("--names", nargs="+", default=[])
     parser.add_argument("--aux", type=Path, nargs=2, metavar=("WORK", "INI"))
+    parser.add_argument("--zero", type=Path, metavar="WORK")
+    parser.add_argument("--steady", type=Path, metavar="WORK")
+    parser.add_argument("--steady-tol", type=float, default=0.0, help="--steady relative tolerance (0: bitwise)")
     parser.add_argument("--tol", type=float, default=1.0e-12)
     parser.add_argument("--ngc", type=int, default=3)
     args = parser.parse_args()
@@ -174,8 +214,12 @@ def main() -> int:
         ok = check_compare(*args.compare, names=args.names, ngc=args.ngc)
     elif args.aux is not None:
         ok = check_aux(*args.aux, tol=args.tol, ngc=args.ngc)
+    elif args.zero is not None:
+        ok = check_zero(args.zero, names=args.names, ngc=args.ngc)
+    elif args.steady is not None:
+        ok = check_steady(args.steady, ngc=args.ngc, tol=args.steady_tol)
     else:
-        parser.error("one of --dt, --static, --compare, --aux is required")
+        parser.error("one of --dt, --static, --compare, --aux, --zero, --steady is required")
     return 0 if ok else 1
 
 

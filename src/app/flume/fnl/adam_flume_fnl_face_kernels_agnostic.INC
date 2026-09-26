@@ -3,10 +3,11 @@
    ! Included in the `contains` part of `adam_flume_fnl_<model>_kernels`, which provides, by use association:
    ! `NV_K`, `NV_AUX_K` (the model's conservative and auxiliary variables numbers, compile-time constants that size
    ! every private array: no model branching and no maximum-model buffers in the kernels), `S_MAX`, the model's
-   ! pointwise physics `compute_face_split_fluxes`, `compute_face_flux_back_projection`, and `weno_reconstruct_upwind_dev`.
+   ! split adapter `face_split_fluxes(gamma, ch, ...)` (one argument list for every model: the GLM cleaning speed `ch` is
+   ! ignored by the models without cleaning), `compute_face_flux_back_projection`, and `weno_reconstruct_upwind_dev`.
    ! The host selects the model's module by `select case`, outside the kernels.
 
-   subroutine compute_face_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, is_characteristic,     &
+   subroutine compute_face_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch, is_characteristic, &
                                       weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, q_gpu, q_aux_gpu, fl_gpu)
    !< Compute the WENO face fluxes of direction `d`: face `(i,j,k)` lies between cells `(i,j,k)` and
    !< `(i+di,j+dj,k+dk)`, so the face array starts at index 0 along `d`.
@@ -20,6 +21,7 @@
    integer(I4P), intent(in)    :: blocks_number                           !< Actual blocks number.
    integer(I4P), intent(in)    :: S                                       !< WENO stencil half-width.
    real(R8P),    intent(in)    :: gamma                                   !< Specific heats ratio.
+   real(R8P),    intent(in)    :: ch                                      !< GLM cleaning speed (models with GLM only).
    logical,      intent(in)    :: is_characteristic                       !< Characteristic (or conservative) variables.
    real(R8P),    intent(in)    :: weno_a_gpu(1:,0:,1:)                    !< WENO optimal weights.
    real(R8P),    intent(in)    :: weno_p_gpu(1:,0:,0:,1:)                 !< WENO polynomials coefficients.
@@ -40,10 +42,10 @@
 
    !$acc parallel loop independent gang vector collapse(4)                                                        &
    !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu)                                       &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,is_characteristic,weno_zeps)                     &
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps)                  &
    !$acc& private(qs,qas,fsplit,er,v,vr_,vr,flux)
    !$omp OMPLOOP collapse(4) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,is_characteristic,weno_zeps) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps) &
    !$omp& private(qs,qas,fsplit,er,v,vr_,vr,flux)
    do k=1-dk, nk
    do j=1-dj, nj
@@ -60,8 +62,8 @@
             qas(w,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,w)
          enddo
       enddo
-      call compute_face_split_fluxes(gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
-                                     fsplit=fsplit, er=er)
+      call face_split_fluxes(gamma=gamma, ch=ch, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
+                             fsplit=fsplit, er=er)
       !$acc loop seq
       do f=1, NV_K
          !$acc loop seq
