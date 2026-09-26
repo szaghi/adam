@@ -24,6 +24,7 @@ public :: apply_floors
 public :: compute_face_fluxes
 public :: compute_lambda_max
 public :: compute_q_aux
+public :: compute_speed_max
 
 contains
    ! public procedures

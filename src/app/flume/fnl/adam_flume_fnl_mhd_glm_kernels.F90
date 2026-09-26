@@ -16,18 +16,20 @@ use :: adam_fnl_weno_kernels,  only : weno_reconstruct_upwind_dev
 use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_glm_face_flux_back_projection, &
                                       conservative_to_auxiliary=>mhd_conservative_to_auxiliary,             &
                                       mhd_fast_speed, mhd_glm_face_split_fluxes, mhd_sum3
-use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
+use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
                                       IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD_GLM, S_MAX
 ! third party modules
 use :: penf,                   only : I4P, R8P
 
 implicit none
 private
+public :: add_glm_damping_dev
 public :: apply_floors_dev
 public :: compute_conservation_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
 public :: compute_q_aux_dev
+public :: compute_speed_max_dev
 
 contains
    ! public procedures
@@ -36,6 +38,32 @@ contains
 #include "adam_flume_fnl_aux_kernels_agnostic.INC"
 
 #include "adam_flume_fnl_mhd_kernels_agnostic.INC"
+
+   subroutine add_glm_damping_dev(ni, nj, nk, ngc, blocks_number, damping, q_gpu, dq_gpu)
+   !< Add the GLM damping source to the residuals of the interior cells, `dq(psi) = dq(psi) - (c_h^2 / c_p^2) psi`
+   !< (mixed GLM, Dedner et al. 2002; issue #41, section 3.1): a local source, in every Runge-Kutta stage and never in
+   !< the fluxes, so the reflux and the conservation of the other variables are untouched.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
+   real(R8P),    intent(in)    :: damping                            !< Damping rate c_h^2 / c_p^2.
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Conservative variables.
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
+   integer(I4P)                :: b, i, j, k                         !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,damping)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu,dq_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,damping)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      dq_gpu(b,i,j,k,IQ_PSI) = dq_gpu(b,i,j,k,IQ_PSI) - damping * q_gpu(b,i,j,k,IQ_PSI)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine add_glm_damping_dev
 
    ! private procedures
    pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er)

@@ -41,7 +41,10 @@ def main() -> None:
     ini["mhd"] = {"divergence_control": args.divergence_control, "divb_tol": "0.0", "divb_error": ".false.",
                   "rho_floor": "0.0", "p_floor": "0.0"}
     if args.divergence_control == "glm":
-        ini["mhd"].update({"glm_ch": "4.0", "glm_alpha": "0.18", "glm_damping_length": "1.0",
+        # c_h below the fastest wave (the left state alone has |u| + c_f = 2.89 and persists at x = 0 up to t = 0.2): the
+        # fluid sets dt, so the GLM run takes the steps of the run without cleaning (the pair check is bitwise); the
+        # c_h check warns, as it should
+        ini["mhd"].update({"glm_ch": "2.0", "glm_alpha": "0.18", "glm_damping_length": "1.0",
                            "glm_ch_check": "warning"})
     ini["field"]["nv"] = "9" if args.divergence_control == "glm" else "8"
     ini["grid"]["n" + "ijk"["xyz".index(args.axis)]] = str(args.cells // 4)  # four blocks along the axis

@@ -96,6 +96,8 @@ def check_dt(work: Path, ini_path: Path) -> bool:
     dx = [(float(g[f"emax_{a}"]) - float(g[f"emin_{a}"])) / (int(g[f"n{c}"]) * levels)
           for a, c in zip("xyz", "ijk", strict=True)]
     lam = sum((abs(u[d]) + fast_speed(gamma, r, p, b, d)) / dx[d] for d in range(3))
+    if ini.has_section("mhd") and ini["mhd"]["divergence_control"].strip() == "glm":
+        lam = max(lam, ini.getfloat("mhd", "glm_ch") * sum(1.0 / h for h in dx))  # GLM bound (issue #41, 3.5)
     expected = ini.getfloat("time", "CFL") / lam
     rows = {int(row[0]): float(row[1]) for row in history(work)}
     if 1 not in rows:

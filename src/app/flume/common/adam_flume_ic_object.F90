@@ -13,7 +13,10 @@ module adam_flume_ic_object
 !<   `d(p/rho) = -(gamma-1)/gamma strength^2/(8 pi^2) exp(1-r^2)`, isentropic, `r = |x-x0| / radius`; an exact steady
 !<   solution convected by the free stream;
 !< * `riemann-problem`: piecewise-constant axis-aligned regions, a cell belongs to a region iff `emin < center <= emax`
-!<   on every axis. A cell covered by no region is fatal: leaving it at zero density would divide by zero downstream.
+!<   on every axis. A cell covered by no region is fatal: leaving it at zero density would divide by zero downstream;
+!< * `glm-pulse` (MHD only, the GLM d'Alembert test, issue #41, MV-3): the state of region 1 plus a Gaussian pulse in the
+!<   magnetic field along `pulse_axis` (x, y or z), `B_axis += pulse_amplitude exp(-((s - pulse_center) / pulse_width)^2)`,
+!<   `s` the cell coordinate along the axis; pressure and velocity unchanged (`psi` zero).
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
@@ -38,6 +41,10 @@ character(len=18), parameter :: INI_SECTION_NAME="initial_conditions"   !< INI s
 character(len=7),  parameter :: IC_UNIFORM_STR="uniform"                 !< Uniform state.
 character(len=17), parameter :: IC_ISENTROPIC_VORTEX_STR="isentropic-vortex" !< Isentropic vortex in a free stream.
 character(len=15), parameter :: IC_RIEMANN_PROBLEM_STR="riemann-problem" !< Piecewise-constant regions.
+character(len=9),  parameter :: IC_GLM_PULSE_STR="glm-pulse"             !< Gaussian pulse in B along an axis (MHD).
+character(len=15), parameter :: PULSE_KEY(3)=['pulse_center   ', &
+                                              'pulse_width    ', &
+                                              'pulse_amplitude']         !< GLM pulse keys.
 character(len=8),  parameter :: VORTEX_KEY(4)=['x0      ', 'y0      ', &
                                                'radius  ', 'strength']   !< Vortex keys.
 real(R8P),         parameter :: PI=acos(-1._R8P)                        !< Pi greek.
@@ -61,6 +68,8 @@ type :: flume_ic_object
    real(R8P)                 :: prim_1(8)=0._R8P     !< Primitive state of region 1, the free stream (first nprim used).
    real(R8P)                 :: s=0._R8P             !< Uniform: relative amplitude of the seeded perturbation.
    real(R8P)                 :: vortex(4)=0._R8P     !< Isentropic vortex: x0, y0, radius, strength.
+   integer(I4P)              :: pulse_axis=0_I4P     !< GLM pulse: axis, 1=x, 2=y, 3=z.
+   real(R8P)                 :: pulse(3)=0._R8P      !< GLM pulse: center, width, amplitude.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -85,6 +94,8 @@ contains
    desc = desc//NL//mpih%myrankstr//'  s:              '//trim(str(self%s))
    if (self%ic_type == IC_ISENTROPIC_VORTEX_STR) &
    desc = desc//NL//mpih%myrankstr//'  vortex:         '//trim(str(self%vortex))
+   if (self%ic_type == IC_GLM_PULSE_STR) &
+   desc = desc//NL//mpih%myrankstr//'  pulse:          axis '//trim(str(self%pulse_axis))//', '//trim(str(self%pulse))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -146,6 +157,30 @@ contains
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(VORTEX_KEY(k))//')')
       enddo
       if (self%vortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
+   case(IC_GLM_PULSE_STR)
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_GLM_PULSE_STR//' requires '// &
+                                  '[physics].(physical_model) = mhd-ideal')
+      self%regions_number = 1_I4P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='pulse_axis', val=buff, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(pulse_axis)')
+      select case(trim(adjustl(strip_control(buff))))
+      case('x')
+         self%pulse_axis = 1_I4P
+      case('y')
+         self%pulse_axis = 2_I4P
+      case('z')
+         self%pulse_axis = 3_I4P
+      case default
+         call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(pulse_axis) "'//trim(adjustl(buff))// &
+                                  '"; expected one of x, y, z')
+      endselect
+      do k=1, 3
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(PULSE_KEY(k)), val=self%pulse(k), &
+                                  error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(PULSE_KEY(k))//')')
+      enddo
+      if (self%pulse(2) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(pulse_width) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -154,7 +189,8 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(regions_number) must be positive')
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(type) "'//self%ic_type//'"; expected one of '// &
-                               IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR)
+                               IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
+                               IC_GLM_PULSE_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -195,6 +231,7 @@ contains
    real(R8P)                             :: center(3)     !< Cell center.
    real(R8P)                             :: h(2)          !< Seeded perturbations, in [-1, 1).
    real(R8P)                             :: prim(8)       !< Perturbed primitive state of one cell.
+   real(R8P)                             :: s_            !< Cell coordinate along the pulse axis.
    logical                               :: is_set        !< Flag: cell covered by a region.
    integer(I4P)                          :: b, i, j, k, r !< Counters.
 
@@ -220,6 +257,21 @@ contains
                do i=1, field%ni
                   call isentropic_vortex(gamma=self%gamma, prim=self%prim_1, vortex=self%vortex, x=field%x_cell(i,b), &
                                          y=field%y_cell(j,b), q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_GLM_PULSE_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  s_     = center(self%pulse_axis)
+                  prim   = self%prim_1
+                  prim(5+self%pulse_axis) = prim(5+self%pulse_axis) + &
+                                            self%pulse(3) * exp(-((s_ - self%pulse(1)) / self%pulse(2))**2)
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
          enddo

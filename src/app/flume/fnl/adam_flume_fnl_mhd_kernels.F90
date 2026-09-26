@@ -28,6 +28,7 @@ public :: compute_conservation_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
 public :: compute_q_aux_dev
+public :: compute_speed_max_dev
 
 contains
    ! public procedures

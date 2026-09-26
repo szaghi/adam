@@ -27,10 +27,11 @@ use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,   
                                               compute_face_fluxes_mhd=>compute_face_fluxes,                        &
                                               compute_lambda_max_mhd=>compute_lambda_max,                            &
                                               compute_q_aux_mhd=>compute_q_aux
-use :: adam_flume_cpu_mhd_glm_kernels, only : apply_floors_mhd_glm=>apply_floors,                               &
+use :: adam_flume_cpu_mhd_glm_kernels, only : add_glm_damping, apply_floors_mhd_glm=>apply_floors,              &
                                               compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
                                               compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
-                                              compute_q_aux_mhd_glm=>compute_q_aux
+                                              compute_q_aux_mhd_glm=>compute_q_aux,                                  &
+                                              compute_speed_max_mhd_glm=>compute_speed_max
 ! third party modules
 use :: mpi
 use :: penf,                      only : I4P, R8P, str
@@ -53,6 +54,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
       procedure, pass(self) :: apply_floors            !< Apply the MHD positivity floors of a stage.
       procedure, pass(self) :: allocate_cpu            !< Allocate CPU data.
+      procedure, pass(self) :: check_glm_ch            !< Check the GLM c_h against the fastest wave.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
@@ -214,6 +216,25 @@ contains
    self%fly_f = 0._R8P
    self%flz_f = 0._R8P
    endsubroutine allocate_cpu
+
+   subroutine check_glm_ch(self)
+   !< Check the GLM cleaning speed against the fastest wave of the committed state (issue #41, section 3.5); a no-op
+   !< without GLM.
+   class(flume_cpu_object), intent(inout) :: self      !< The equation.
+   real(R8P)                              :: speed_max !< Fastest wave speed of this rank.
+
+   select case(self%physics%model)
+   case(MODEL_EULER, MODEL_MHD)
+      return
+   case(MODEL_MHD_GLM)
+      call compute_speed_max_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     gamma=self%physics%gamma, R=self%physics%R, is_null=self%adam%grid%null_xyz,       &
+                                     q=self%q, speed_max=speed_max)
+   case default
+      call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
+   call self%report_glm_speed(speed_max=speed_max)
+   endsubroutine check_glm_ch
 
    subroutine compute_conservation(self)
    !< Compute the volume integrals of the conservative variables and save them on the diagnostics cadence.
@@ -490,7 +511,8 @@ contains
    endsubroutine close_step_forest
 
    subroutine compute_local_dt_forest(self, dt_local)
-   !< Compute the local stability-limited time step, `dt = CFL / max(sum_d (|u_d| + a) / dx_d)` (no MPI reduction).
+   !< Compute the local stability-limited time step, `dt = CFL / max(sum_d (|u_d| + a) / dx_d)` (no MPI reduction);
+   !< with GLM, also `dt <= CFL / (c_h max sum_d 1 / dx_d)` (`glm_lambda`, issue #41, section 3.5).
    !<
    !< The auxiliary variables are recomputed from the committed `q` (not read from `q_aux`, which holds the last
    !< stage state); null directions do not contribute.
@@ -512,6 +534,7 @@ contains
                                       blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                       dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
                                       lambda_max=lambda_max)
+      lambda_max = max(lambda_max, self%glm_lambda())
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -618,8 +641,10 @@ contains
       self%time%time = 0._R8P
       self%time%it   = 0_I4P
    endif
+   call self%set_glm_damping
    call self%update_ghost(q=self%q)
    call self%compute_q_aux(q=self%q)
+   call self%check_glm_ch
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name, &
                                    is_restart=self%io%restart)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
@@ -660,6 +685,7 @@ contains
    logical,                 intent(in),    optional         :: do_amr            !< Unused: AMR is init-time only.
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
+   call self%check_glm_ch
    call self%save_simulation_data
    endsubroutine post_step_forest
 
@@ -791,7 +817,7 @@ contains
 
    subroutine compute_residuals_weno(self, q, dq, s, flux_register)
    !< Compute the residuals with the WENO space operator: ghost update, auxiliary variables, face fluxes of the active
-   !< directions, flux difference.
+   !< directions, flux difference, and with GLM the psi damping source.
    !<
    !< The face fluxes of a null direction are never computed: they keep their zero initialization. On the staged path
    !< (AMR seam faces), the seam face fluxes of every stage are accumulated into the forest's flux register. With
@@ -877,6 +903,8 @@ contains
                                 freeze=self%null_freeze(),                                                           &
                                 dxyz=self%adam%field%dxyz, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq, &
                                 phi=self%ib%phi)
+   if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
+                                                                  damping=self%physics%mhd%glm_damping, q=q, dq=dq)
    endassociate
    endsubroutine compute_residuals_weno
 

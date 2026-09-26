@@ -143,3 +143,44 @@
    enddo
    enddo
    endsubroutine apply_floors_dev
+
+   subroutine compute_speed_max_dev(ni, nj, nk, ngc, blocks_number, gamma, R, is_null, q_gpu, speed_max)
+   !< Compute `max(|u_d| + c_{f,d})` over the interior cells and the active directions, the fastest wave speed (the GLM
+   !< `c_h` check, issue #41, section 3.5).
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)  :: gamma                             !< Specific heats ratio.
+   real(R8P),    intent(in)  :: R                                 !< Gas constant.
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: speed_max                         !< Maximum of |u_d| + c_{f,d}.
+   real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
+   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
+   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
+   integer(I4P)              :: b, i, j, k, v                     !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   speed_max = 0._R8P
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_) reduction(max:speed_max)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_) reduction(max:speed_max)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      !$acc loop seq
+      do v=1, NV_K
+         q_(v) = q_gpu(b,i,j,k,v)
+      enddo
+      call conservative_to_auxiliary(gamma=gamma, R=R, q=q_, qa=qa_)
+      speed_max = max(speed_max, wx * (abs(qa_(IA_U)) + mhd_fast_speed(d=1_I4P, qa=qa_)), &
+                                 wy * (abs(qa_(IA_V)) + mhd_fast_speed(d=2_I4P, qa=qa_)), &
+                                 wz * (abs(qa_(IA_W)) + mhd_fast_speed(d=3_I4P, qa=qa_)))
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_speed_max_dev

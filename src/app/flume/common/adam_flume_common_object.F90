@@ -24,12 +24,13 @@ use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary
-use :: adam_flume_parameters,         only : IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM
+use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
 use :: finer,                         only : file_ini
 use :: motion,                        only : xh5f_file_object
+use :: mpi
 use :: penf,                          only : I4P, I8P, R8P, str, strz
 use :: stringifor,                    only : string
 
@@ -47,6 +48,8 @@ type, extends(realm_object) :: flume_common_object
    logical                        :: amr_locked_=.false. !< Runtime AMR locked after initialization.
    ! IO
    logical                        :: save_auxiliary_fields=.false. !< Save the auxiliary variables with the fields.
+   ! GLM
+   real(R8P)                      :: glm_speed_reported=0._R8P !< Largest wave speed above c_h reported so far.
    ! fields data
    real(R8P),         allocatable :: q(:,:,:,:,:)        !< Conservative variables [nv, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: dq(:,:,:,:,:)       !< Residuals [nv, 1-ngc:ni+ngc, ..., nb].
@@ -73,12 +76,15 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: compute_fields_number !< Compute the block-sized fields allocated per block.
       procedure, pass(self) :: compute_phi           !< Compute the immersed solids distance function (host).
       procedure, pass(self) :: destroy_common        !< Free common data.
+      procedure, pass(self) :: glm_lambda            !< Return the GLM bound of the local dt, c_h max sum_d 1/dx_d.
       procedure, pass(self) :: initialize            !< Initialize the common data.
       procedure, pass(self) :: null_freeze           !< Return the variable each null direction freezes.
+      procedure, pass(self) :: report_glm_speed      !< Check c_h against the fastest wave (warning or stop).
       procedure, pass(self) :: load_restart_files    !< Load restart files.
       procedure, pass(self) :: save_restart_files    !< Save restart files.
       procedure, pass(self) :: save_slices           !< Save the slices on their cadence.
       procedure, pass(self) :: save_xh5f             !< Save fields in XH5F format.
+      procedure, pass(self) :: set_glm_damping       !< Set the GLM damping once the grid exists.
       ! forest methods
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
       ! private methods
@@ -402,6 +408,24 @@ contains
    if (allocated(self%q_aux_name)) deallocate(self%q_aux_name)
    endsubroutine destroy_common
 
+   function glm_lambda(self) result(lambda)
+   !< Return the GLM bound of the local time step, `c_h max_b sum_{d active} 1 / dx_d` (issue #41, section 3.5): the
+   !< `(B_n, psi)` waves travel at `c_h` along every active direction, the multi-dimensional form of `dt <= CFL dx / c_h`
+   !< consistent with the fluid bound `sum_d (|u_d| + c_{f,d}) / dx_d`. Zero without GLM; local (the forest reduces dt).
+   class(flume_common_object), intent(in) :: self   !< The equation.
+   real(R8P)                              :: lambda !< GLM bound, c_h max sum_d 1 / dx_d.
+   real(R8P)                              :: w(3)   !< Direction weights: 1 active, 0 null.
+   integer(I4P)                           :: b      !< Counter.
+
+   lambda = 0._R8P
+   if (.not.self%physics%mhd%has_glm) return
+   w = merge(0._R8P, 1._R8P, self%adam%grid%null_xyz)
+   do b=1, self%blocks_number
+      lambda = max(lambda, sum(w / self%adam%field%dxyz(:,b)))
+   enddo
+   lambda = self%physics%mhd%glm_ch * lambda
+   endfunction glm_lambda
+
    subroutine initialize(self, filename, memory_avail, nv, fields_number, verbose, L0)
    !< Initialize the common data (issue #35, section 6.1, step 3).
    class(flume_common_object), intent(inout), target :: self           !< The equation.
@@ -475,6 +499,29 @@ contains
    endselect
    endfunction null_freeze
 
+   subroutine report_glm_speed(self, speed_max)
+   !< Check the GLM cleaning speed against the fastest wave (issue #41, section 3.5, D-9): `max(|u_d| + c_{f,d}) > c_h`
+   !< is fatal with `[mhd].(glm_ch_check) = error`, otherwise a warning logged by rank 0 each time the speed exceeds the
+   !< largest one reported so far (GLM stays stable, dt includes c_h, but the cleaning is slower than the fastest wave).
+   class(flume_common_object), intent(inout) :: self      !< The equation.
+   real(R8P),                  intent(in)    :: speed_max !< Fastest wave speed of this rank.
+   real(R8P)                                 :: speed     !< Fastest wave speed of all ranks.
+
+   speed = speed_max
+   call MPI_ALLREDUCE(MPI_IN_PLACE, speed, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (.not.(speed > self%physics%mhd%glm_ch)) return
+   if (self%physics%mhd%glm_ch_check == GLM_CH_CHECK_ERROR) &
+      call mpih%error_stop(msg=': max(|u| + c_f) = '//trim(str(speed))//' > [mhd].(glm_ch) = '//            &
+                               trim(str(self%physics%mhd%glm_ch))//' at step '//trim(str(self%time%it))// &
+                               ' ([mhd].(glm_ch_check) = error)')
+   if (speed > self%glm_speed_reported) then
+      self%glm_speed_reported = speed
+      if (mpih%myrank == 0) print '(A)', mpih%myrankstr//'warning: max(|u| + c_f) = '//trim(str(speed))//            &
+                                         ' > [mhd].(glm_ch) = '//trim(str(self%physics%mhd%glm_ch))//' at step '// &
+                                         trim(str(self%time%it))//': the cleaning is slower than the fastest wave'
+   endif
+   endsubroutine report_glm_speed
+
    subroutine load_restart_files(self, t, time)
    !< Load restart files.
    class(flume_common_object), intent(inout) :: self !< The equation.
@@ -543,6 +590,24 @@ contains
    call self%close_file_xh5f(xh5f=xh5f)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_xh5f
+
+   subroutine set_glm_damping(self)
+   !< Set the GLM damping once the grid exists (issue #41, section 3.5): the minimum cell spacing of the realm over the
+   !< active directions (MPI-reduced) is the `min-cell` damping length. A no-op without GLM.
+   class(flume_common_object), intent(inout) :: self     !< The equation.
+   real(R8P)                                 :: min_cell !< Minimum cell spacing.
+   integer(I4P)                              :: b, d     !< Counters.
+
+   if (.not.self%physics%mhd%has_glm) return
+   min_cell = huge(1._R8P)
+   do b=1, self%blocks_number
+      do d=1, 3
+         if (.not.self%adam%grid%null_xyz(d)) min_cell = min(min_cell, self%adam%field%dxyz(d,b))
+      enddo
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, min_cell, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+   call self%physics%mhd%set_glm_damping(min_cell=min_cell)
+   endsubroutine set_glm_damping
 
    subroutine save_slices(self)
    !< Save the slices (library `slices_object`, `[slices]` / `[slice_N]`) of the conservative variables on their

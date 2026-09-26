@@ -5,7 +5,8 @@
 # kernel instances, IC/BC keys and wall rule, outputs, restart). For both variants, divergence_control = none (nv = 8)
 # and glm (nv = 9, psi):
 #   1. dt: one step of the unperturbed uniform state; the step must be CFL / sum_d (|u_d| + c_{f,d}) / dx_d with the
-#      fast speed computed independently by the oracle (exercises the device aux + fast-speed kernels on FNL);
+#      fast speed computed independently by the oracle (exercises the device aux + fast-speed kernels on FNL), with GLM
+#      bounded by CFL / (c_h sum_d 1 / dx_d) (here the c_h bound is the active one, M2-P4);
 #   2. auxiliary fields: the saved MHD auxiliaries equal the values recomputed from the conservative fields;
 #   3. restart: 5 steps + restart + 5 steps of a seeded (s = 0.05) state equals the continuous 10-step run bitwise,
 #      histories byte-identical, and every model variable (bx, by, bz [, psi]) is saved.

@@ -45,6 +45,7 @@ public :: DIVERGENCE_CONTROL_GLM
 public :: DIVERGENCE_CONTROL_NONE
 public :: GLM_CH_CHECK_WARNING
 public :: GLM_CH_CHECK_ERROR
+public :: GLM_DAMPING_LENGTH_MIN_CELL
 public :: SCHEME_SPACE_WENO
 public :: RECON_CHARACTERISTIC
 public :: RECON_CONSERVATIVE
@@ -90,6 +91,7 @@ character(len=3),  parameter :: DIVERGENCE_CONTROL_GLM="glm"          !< [mhd].(
 character(len=4),  parameter :: DIVERGENCE_CONTROL_NONE="none"        !< [mhd].(divergence_control): none.
 character(len=7),  parameter :: GLM_CH_CHECK_WARNING="warning"        !< [mhd].(glm_ch_check): warn if c_h is slow.
 character(len=5),  parameter :: GLM_CH_CHECK_ERROR="error"            !< [mhd].(glm_ch_check): stop if c_h is slow.
+character(len=8),  parameter :: GLM_DAMPING_LENGTH_MIN_CELL="min-cell" !< [mhd].(glm_damping_length): min spacing.
 character(len=4),  parameter :: SCHEME_SPACE_WENO="weno"              !< [numerics].(scheme_space): WENO flux splitting.
 character(len=14), parameter :: RECON_CHARACTERISTIC="characteristic" !< [numerics].(reconstruction_variables).
 character(len=12), parameter :: RECON_CONSERVATIVE="conservative"     !< [numerics].(reconstruction_variables).

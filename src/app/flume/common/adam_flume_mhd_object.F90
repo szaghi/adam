@@ -5,7 +5,9 @@ module adam_flume_mhd_object
 !< Loaded only when `[physics].(physical_model) = mhd-ideal` (issue #41, section 6.2). `divergence_control` selects
 !< the model variant, hence the state width: `glm` (mixed GLM cleaning, `nv = 9`) or `none` (`nv = 8`). The GLM keys
 !< are required with `glm` only: `glm_ch` is the constant, uniform cleaning speed; the damping is
-!< `c_h^2 / c_p^2 = glm_alpha c_h / glm_damping_length`; `glm_ch_check` decides what happens when the fastest wave
+!< `c_h^2 / c_p^2 = glm_alpha c_h / L`, `L = glm_damping_length`, a positive length or `min-cell` (the minimum cell
+!< spacing of the realm over the active directions, Mignone & Tzeferacos 2010; set by `set_glm_damping` once the grid
+!< exists, issue #41, section 3.5); `glm_ch_check` decides what happens when the fastest wave
 !< outruns `c_h` (`warning` or `error`). `divb_tol` arms the div(B) monitor (0 disables it) and `divb_error` makes an
 !< exceeded tolerance fatal. `rho_floor` and `p_floor` are the positivity floors (0 disables them).
 
@@ -13,7 +15,7 @@ module adam_flume_mhd_object
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : DIVERGENCE_CONTROL_GLM, DIVERGENCE_CONTROL_NONE, GLM_CH_CHECK_ERROR, &
-                                     GLM_CH_CHECK_WARNING, strip_control
+                                     GLM_CH_CHECK_WARNING, GLM_DAMPING_LENGTH_MIN_CELL, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
@@ -30,7 +32,9 @@ type :: flume_mhd_object
    logical                   :: has_glm=.false.           !< GLM cleaning active (host-side flag only).
    real(R8P)                 :: glm_ch=0._R8P             !< GLM cleaning speed (constant, uniform).
    real(R8P)                 :: glm_alpha=0._R8P          !< GLM damping parameter.
-   real(R8P)                 :: glm_damping_length=0._R8P !< GLM damping length.
+   real(R8P)                 :: glm_damping_length=0._R8P !< GLM damping length (min-cell: set by set_glm_damping).
+   logical                   :: glm_damping_min_cell=.false. !< The damping length is the minimum cell spacing.
+   real(R8P)                 :: glm_damping=0._R8P        !< Damping rate c_h^2 / c_p^2 (set by set_glm_damping).
    character(:), allocatable :: glm_ch_check              !< Action when the fastest wave outruns c_h.
    real(R8P)                 :: divb_tol=0._R8P           !< div(B) monitor tolerance (0: disabled).
    logical                   :: divb_error=.false.        !< Stop when the div(B) tolerance is exceeded.
@@ -41,6 +45,7 @@ type :: flume_mhd_object
       procedure, pass(self) :: description    !< Return pretty-printed object description.
       procedure, pass(self) :: initialize     !< Initialize MHD configs.
       procedure, pass(self) :: load_from_file !< Load config from file.
+      procedure, pass(self) :: set_glm_damping !< Set the damping length (min-cell) and the damping rate.
 endtype flume_mhd_object
 
 contains
@@ -56,7 +61,11 @@ contains
    if (self%has_glm) then
       desc = desc//mpih%myrankstr//'  glm_ch:             '//trim(str(self%glm_ch))//NL
       desc = desc//mpih%myrankstr//'  glm_alpha:          '//trim(str(self%glm_alpha))//NL
-      desc = desc//mpih%myrankstr//'  glm_damping_length: '//trim(str(self%glm_damping_length))//NL
+      if (self%glm_damping_min_cell) then
+         desc = desc//mpih%myrankstr//'  glm_damping_length: '//GLM_DAMPING_LENGTH_MIN_CELL//NL
+      else
+         desc = desc//mpih%myrankstr//'  glm_damping_length: '//trim(str(self%glm_damping_length))//NL
+      endif
       desc = desc//mpih%myrankstr//'  glm_ch_check:       '//self%glm_ch_check//NL
    endif
    desc = desc//mpih%myrankstr//'  divb_tol:           '//trim(str(self%divb_tol))//NL
@@ -101,9 +110,17 @@ contains
       if (.not.(self%glm_ch > 0._R8P)) call range_error(key='glm_ch', val=self%glm_ch, expected='> 0')
       call load_real(key='glm_alpha', val=self%glm_alpha)
       if (.not.(self%glm_alpha >= 0._R8P)) call range_error(key='glm_alpha', val=self%glm_alpha, expected='>= 0')
-      call load_real(key='glm_damping_length', val=self%glm_damping_length)
-      if (.not.(self%glm_damping_length > 0._R8P)) &
-         call range_error(key='glm_damping_length', val=self%glm_damping_length, expected='> 0')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='glm_damping_length', val=buff, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(glm_damping_length)')
+      buff = trim(adjustl(strip_control(buff)))
+      self%glm_damping_min_cell = trim(buff) == GLM_DAMPING_LENGTH_MIN_CELL
+      if (.not.self%glm_damping_min_cell) then
+         read(buff, *, iostat=error) self%glm_damping_length
+         if (error /= 0) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(glm_damping_length) = "'//trim(buff)// &
+                                                  '"; expected '//GLM_DAMPING_LENGTH_MIN_CELL//' or a positive length')
+         if (.not.(self%glm_damping_length > 0._R8P)) &
+            call range_error(key='glm_damping_length', val=self%glm_damping_length, expected='> 0')
+      endif
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='glm_ch_check', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(glm_ch_check)')
       self%glm_ch_check = trim(adjustl(strip_control(buff)))
@@ -144,4 +161,17 @@ contains
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//key//') = '//trim(str(val))//'; expected '//expected)
       endsubroutine range_error
    endsubroutine load_from_file
+
+   subroutine set_glm_damping(self, min_cell)
+   !< Set the damping length (with `min-cell`, the minimum cell spacing of the realm) and the damping rate
+   !< `c_h^2 / c_p^2 = glm_alpha c_h / L` (issue #41, section 3.5); a no-op without GLM.
+   class(flume_mhd_object), intent(inout) :: self     !< MHD configs.
+   real(R8P),               intent(in)    :: min_cell !< Minimum cell spacing of the realm (active directions).
+
+   if (.not.self%has_glm) return
+   if (self%glm_damping_min_cell) self%glm_damping_length = min_cell
+   self%glm_damping = self%glm_alpha * self%glm_ch / self%glm_damping_length
+   print '(A)', mpih%myrankstr//'MHD GLM damping: length '//trim(str(self%glm_damping_length))//', rate c_h^2/c_p^2 '// &
+                trim(str(self%glm_damping))
+   endsubroutine set_glm_damping
 endmodule adam_flume_mhd_object

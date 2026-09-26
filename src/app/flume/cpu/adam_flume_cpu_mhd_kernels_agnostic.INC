@@ -84,3 +84,37 @@
    enddo
    !$omp end parallel do
    endsubroutine apply_floors
+
+   subroutine compute_speed_max(ni, nj, nk, ngc, blocks_number, gamma, R, is_null, q, speed_max)
+   !< Compute `max(|u_d| + c_{f,d})` over the interior cells and the active directions, the fastest wave speed (the GLM
+   !< `c_h` check, issue #41, section 3.5).
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc               !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                 !< Actual blocks number.
+   real(R8P),    intent(in)  :: gamma                         !< Specific heats ratio.
+   real(R8P),    intent(in)  :: R                             !< Gas constant.
+   logical,      intent(in)  :: is_null(3)                    !< Null directions.
+   real(R8P),    intent(in)  :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: speed_max                     !< Maximum of |u_d| + c_{f,d}.
+   real(R8P)                 :: wx, wy, wz                    !< Direction weights: 1 active, 0 null.
+   real(R8P)                 :: qa(NV_AUX_K)                  !< Auxiliary variables of one cell.
+   integer(I4P)              :: b, i, j, k                    !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   speed_max = 0._R8P
+   !$omp parallel do collapse(4) default(firstprivate) shared(q) reduction(max:speed_max)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               call conservative_to_auxiliary(gamma=gamma, R=R, q=q(:,i,j,k,b), qa=qa)
+               speed_max = max(speed_max, wx * (abs(qa(IA_U)) + mhd_fast_speed(d=1_I4P, qa=qa)), &
+                                          wy * (abs(qa(IA_V)) + mhd_fast_speed(d=2_I4P, qa=qa)), &
+                                          wz * (abs(qa(IA_W)) + mhd_fast_speed(d=3_I4P, qa=qa)))
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine compute_speed_max

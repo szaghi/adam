@@ -37,11 +37,12 @@ use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors
                                               compute_face_fluxes_mhd_dev=>compute_face_fluxes_dev,                   &
                                               compute_lambda_max_mhd_dev=>compute_lambda_max_dev,                     &
                                               compute_q_aux_mhd_dev=>compute_q_aux_dev
-use :: adam_flume_fnl_mhd_glm_kernels, only : apply_floors_mhd_glm_dev=>apply_floors_dev,                       &
+use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_mhd_glm_dev=>apply_floors_dev,  &
                                               compute_conservation_mhd_glm_dev=>compute_conservation_dev,             &
                                               compute_face_fluxes_mhd_glm_dev=>compute_face_fluxes_dev,               &
                                               compute_lambda_max_mhd_glm_dev=>compute_lambda_max_dev,                 &
-                                              compute_q_aux_mhd_glm_dev=>compute_q_aux_dev
+                                              compute_q_aux_mhd_glm_dev=>compute_q_aux_dev,                           &
+                                              compute_speed_max_mhd_glm_dev=>compute_speed_max_dev
 use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev,                                                   &
                                               compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,     &
@@ -84,6 +85,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
       procedure, pass(self) :: apply_floors            !< Apply the MHD positivity floors of a stage.
       procedure, pass(self) :: allocate_gpu            !< Allocate device data.
+      procedure, pass(self) :: check_glm_ch            !< Check the GLM c_h against the fastest wave.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
@@ -255,6 +257,25 @@ contains
    self%hb5(2,:) = [nv, ni+ngc, nj+ngc, nk+ngc, nb]
    endassociate
    endsubroutine allocate_gpu
+
+   subroutine check_glm_ch(self)
+   !< Check the GLM cleaning speed against the fastest wave of the committed state (issue #41, section 3.5); a no-op
+   !< without GLM.
+   class(flume_fnl_object), intent(inout) :: self      !< The equation.
+   real(R8P)                              :: speed_max !< Fastest wave speed of this rank.
+
+   select case(self%physics%model)
+   case(MODEL_EULER, MODEL_MHD)
+      return
+   case(MODEL_MHD_GLM)
+      call compute_speed_max_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                         is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, speed_max=speed_max)
+   case default
+      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
+   call self%report_glm_speed(speed_max=speed_max)
+   endsubroutine check_glm_ch
 
    subroutine compute_conservation(self)
    !< Compute the volume integrals of the conservative variables on the device and save them on their cadence.
@@ -590,7 +611,8 @@ contains
    endsubroutine close_step_forest
 
    subroutine compute_local_dt_forest(self, dt_local)
-   !< Compute the local stability-limited time step on the device, `dt = CFL / max(sum_d (|u_d| + a) / dx_d)`.
+   !< Compute the local stability-limited time step on the device, `dt = CFL / max(sum_d (|u_d| + a) / dx_d)`; with GLM,
+   !< also `dt <= CFL / (c_h max sum_d 1 / dx_d)` (`glm_lambda`, host data, issue #41, section 3.5).
    class(flume_fnl_object), intent(in)  :: self       !< The equation.
    real(R8P),               intent(out) :: dt_local   !< Local stability-limited time step.
    real(R8P)                            :: lambda_max !< Maximum of sum_d (|u_d| + a) / dx_d.
@@ -609,6 +631,7 @@ contains
                                           blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                           dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
                                           q_gpu=self%q_gpu, lambda_max=lambda_max)
+      lambda_max = max(lambda_max, self%glm_lambda())
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -718,10 +741,12 @@ contains
       self%time%time = 0._R8P
       self%time%it   = 0_I4P
    endif
+   call self%set_glm_damping
    call self%copy_cpu_gpu(verbose=.true.)
    call self%copy_phi_gpu
    call self%update_ghost(q_gpu=self%q_gpu)
    call self%compute_q_aux(q_gpu=self%q_gpu)
+   call self%check_glm_ch
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name, &
                                    is_restart=self%io%restart)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
@@ -762,6 +787,7 @@ contains
    logical,                 intent(in),    optional         :: do_amr            !< Unused: AMR is init-time only.
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
+   call self%check_glm_ch
    call self%save_simulation_data
    endsubroutine post_step_forest
 
@@ -895,6 +921,9 @@ contains
                                        flx_f_gpu=self%flx_f_gpu,                                                         &
                                        fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
    endif
+   if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,      &
+                                                                      damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, &
+                                                                      dq_gpu=dq_gpu)
    endassociate
    endsubroutine compute_residuals_weno_dev
 
