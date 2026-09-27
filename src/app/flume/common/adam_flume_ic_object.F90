@@ -19,7 +19,12 @@ module adam_flume_ic_object
 !<   `s` the cell coordinate along the axis; pressure and velocity unchanged (`psi` zero);
 !< * `divb-peak` (MHD only, the Dedner et al. 2002 peak in `B_x`, issue #41, MV-10): the state of region 1 plus
 !<   `B_x += peak_amplitude (1 - (s / peak_radius)^2)^2` for `s < peak_radius`, `s` the distance in the x-y plane from
-!<   `(peak_x0, peak_y0)` (Dedner: `peak_amplitude = 1 / sqrt(4 pi)`, `peak_radius = 1/8`); a non-zero initial div(B).
+!<   `(peak_x0, peak_y0)` (Dedner: `peak_amplitude = 1 / sqrt(4 pi)`, `peak_radius = 1/8`); a non-zero initial div(B);
+!< * `mhd-linear-wave` (MHD only, issue #41, MV-5; Stone et al. 2008, section 8.2): the state `q0` of region 1 (global
+!<   frame) plus `wave_amplitude R sin(2 pi (x cos a + y sin a) / wavelength)`, `a = wave_angle` (degrees, in the x-y
+!<   plane), `R` the right eigenvector of the right-going `wave` (`fast`, `alfven`, `slow` or `entropy`) of the
+!<   conservative system at `q0` in the frame of the wave normal (the library Roe-Balsara core, `mhd_eigenvectors`),
+!<   rotated back to x, y, z; after one period `wavelength / |u_n + c|` the exact solution is the initial state.
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
@@ -30,7 +35,10 @@ use :: adam_field_object,         only : field_object
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library,  only : primitive_to_conservative
-use :: adam_flume_parameters,     only : MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM, NV_EULER, strip_control
+use :: adam_flume_mhd_library,    only : mhd_conservative_to_auxiliary, mhd_eigenvectors, mhd_primitive_to_conservative
+use :: adam_flume_parameters,     only : IQ_BX, IQ_BY, IQ_RU, IQ_RV, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM, NV_AUX_MHD, &
+                                        NV_EULER, NV_MHD, &
+                                        strip_control
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 ! third party modules
 use :: finer,                     only : file_ini
@@ -53,6 +61,10 @@ character(len=14), parameter :: PEAK_KEY(4)=['peak_x0       ', &
                                              'peak_y0       ', &
                                              'peak_radius   ', &
                                              'peak_amplitude']           !< div(B) peak keys.
+character(len=15), parameter :: IC_MHD_LINEAR_WAVE_STR="mhd-linear-wave" !< MHD linear wave (MHD).
+character(len=14), parameter :: WAVE_KEY(3)=['wave_angle    ', &
+                                             'wave_amplitude', &
+                                             'wavelength    ']           !< Linear wave keys.
 character(len=8),  parameter :: VORTEX_KEY(4)=['x0      ', 'y0      ', &
                                                'radius  ', 'strength']   !< Vortex keys.
 real(R8P),         parameter :: PI=acos(-1._R8P)                        !< Pi greek.
@@ -79,6 +91,9 @@ type :: flume_ic_object
    integer(I4P)              :: pulse_axis=0_I4P     !< GLM pulse: axis, 1=x, 2=y, 3=z.
    real(R8P)                 :: pulse(3)=0._R8P      !< GLM pulse: center, width, amplitude.
    real(R8P)                 :: peak(4)=0._R8P       !< div(B) peak: x0, y0, radius, amplitude.
+   character(:), allocatable :: wave                 !< Linear wave family: fast, alfven, slow, entropy.
+   real(R8P)                 :: wave_par(3)=0._R8P   !< Linear wave: angle (degrees), amplitude, wavelength.
+   real(R8P)                 :: wave_r(NV_MHD)=0._R8P !< Linear wave: right eigenvector, global frame.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -107,6 +122,8 @@ contains
    desc = desc//NL//mpih%myrankstr//'  pulse:          axis '//trim(str(self%pulse_axis))//', '//trim(str(self%pulse))
    if (self%ic_type == IC_DIVB_PEAK_STR) &
    desc = desc//NL//mpih%myrankstr//'  peak:           '//trim(str(self%peak))
+   if (self%ic_type == IC_MHD_LINEAR_WAVE_STR) &
+   desc = desc//NL//mpih%myrankstr//'  wave:           '//self%wave//', '//trim(str(self%wave_par))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -203,6 +220,26 @@ contains
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(PEAK_KEY(k))//')')
       enddo
       if (self%peak(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(peak_radius) must be positive')
+   case(IC_MHD_LINEAR_WAVE_STR)
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_LINEAR_WAVE_STR//' requires '// &
+                                  '[physics].(physical_model) = mhd-ideal')
+      self%regions_number = 1_I4P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave', val=buff, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(wave)')
+      self%wave = trim(adjustl(strip_control(buff)))
+      select case(self%wave)
+      case('fast', 'alfven', 'slow', 'entropy')
+      case default
+         call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(wave) "'//self%wave// &
+                                  '"; expected one of fast, alfven, slow, entropy')
+      endselect
+      do k=1, 3
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(WAVE_KEY(k)), val=self%wave_par(k), &
+                                  error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(WAVE_KEY(k))//')')
+      enddo
+      if (self%wave_par(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -212,7 +249,7 @@ contains
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(type) "'//self%ic_type//'"; expected one of '// &
                                IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
-                               IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR)
+                               IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -230,6 +267,9 @@ contains
       enddo
       call primitive_state_to_conservative(model=self%model, gamma=physics%gamma, prim=prim, q=self%q_region(:,r))
       if (r == 1_I4P) self%prim_1 = prim
+      if (r == 1_I4P .and. self%ic_type == IC_MHD_LINEAR_WAVE_STR) &
+         call linear_wave_eigenvector(gamma=physics%gamma, R=physics%R, prim=prim, wave=self%wave, &
+                                      angle=self%wave_par(1), r_global=self%wave_r)
       if (self%ic_type == IC_RIEMANN_PROBLEM_STR) then
          do k=1, 6
             call file_parameters%get(section_name=sname, option_name=EXTENT_KEY(k), val=extent(k), error=error)
@@ -294,6 +334,19 @@ contains
                   prim(5+self%pulse_axis) = prim(5+self%pulse_axis) + &
                                             self%pulse(3) * exp(-((s_ - self%pulse(1)) / self%pulse(2))**2)
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_MHD_LINEAR_WAVE_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  s_ = sin(2._R8P * PI * (field%x_cell(i,b) * cos(self%wave_par(1) * PI / 180._R8P) + &
+                                          field%y_cell(j,b) * sin(self%wave_par(1) * PI / 180._R8P)) / self%wave_par(3))
+                  q(:,i,j,k,b) = self%q_region(:,1)
+                  q(1:NV_MHD,i,j,k,b) = q(1:NV_MHD,i,j,k,b) + self%wave_par(2) * s_ * self%wave_r
                enddo
             enddo
          enddo
@@ -382,6 +435,49 @@ contains
       x_out = ieor(x_out, ishft(x_out, -29))
       endfunction mix
    endsubroutine hash_cell
+
+   pure subroutine linear_wave_eigenvector(gamma, R, prim, wave, angle, r_global)
+   !< Return the right eigenvector of the right-going `wave` of the conservative MHD system at the primitive state
+   !< `prim` (global frame), for the wave normal at `angle` degrees in the x-y plane: the state is rotated into the frame
+   !< of the normal, `R` is the column of `mhd_eigenvectors` (x direction of that frame; waves ordered
+   !< `u_n - c_f, u_n - c_a, u_n - c_s, u_n, u_n + c_s, u_n + c_a, u_n + c_f, B_n`), and its momentum and field are
+   !< rotated back to x, y, z.
+   real(R8P),    intent(in)  :: gamma            !< Specific heats ratio.
+   real(R8P),    intent(in)  :: R                !< Gas constant.
+   real(R8P),    intent(in)  :: prim(8)          !< Primitive state, global frame (r, u, v, w, p, bx, by, bz).
+   character(*), intent(in)  :: wave             !< Wave family: fast, alfven, slow, entropy.
+   real(R8P),    intent(in)  :: angle            !< Wave normal angle in the x-y plane (degrees).
+   real(R8P),    intent(out) :: r_global(NV_MHD) !< Right eigenvector, global frame.
+   real(R8P)                 :: c, s             !< cos, sin of the angle.
+   real(R8P)                 :: q(NV_MHD)        !< Conservative state, wave frame.
+   real(R8P)                 :: qa(NV_AUX_MHD)   !< Auxiliary state, wave frame.
+   real(R8P)                 :: el(NV_MHD,NV_MHD) !< Left eigenvectors.
+   real(R8P)                 :: er(NV_MHD,NV_MHD) !< Right eigenvectors.
+   integer(I4P)              :: k                !< Wave index.
+
+   c = cos(angle * PI / 180._R8P)
+   s = sin(angle * PI / 180._R8P)
+   call mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=c * prim(2) + s * prim(3), v=-s * prim(2) + c * prim(3), &
+                                      w=prim(4), p=prim(5), bx=c * prim(6) + s * prim(7), by=-s * prim(6) + c * prim(7),  &
+                                      bz=prim(8), q=q)
+   call mhd_conservative_to_auxiliary(gamma=gamma, R=R, q=q, qa=qa)
+   call mhd_eigenvectors(gamma=gamma, d=1_I4P, qa=qa, el=el, er=er)
+   select case(wave)
+   case('fast')
+      k = 7_I4P
+   case('alfven')
+      k = 6_I4P
+   case('slow')
+      k = 5_I4P
+   case default ! entropy
+      k = 4_I4P
+   endselect
+   r_global    = er(:,k)
+   r_global(IQ_RU) = c * er(IQ_RU,k) - s * er(IQ_RV,k)
+   r_global(IQ_RV) = s * er(IQ_RU,k) + c * er(IQ_RV,k)
+   r_global(IQ_BX) = c * er(IQ_BX,k) - s * er(IQ_BY,k)
+   r_global(IQ_BY) = s * er(IQ_BX,k) + c * er(IQ_BY,k)
+   endsubroutine linear_wave_eigenvector
 
    pure subroutine isentropic_vortex(gamma, prim, vortex, x, y, q)
    !< Return the conservative state of the isentropic vortex at `(x, y)` (formulas in the module documentation).
