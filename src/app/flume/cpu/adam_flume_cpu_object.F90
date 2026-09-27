@@ -24,10 +24,12 @@ use :: adam_flume_cpu_euler_kernels,   only : compute_face_fluxes_euler=>compute
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
                                               compute_q_aux_euler=>compute_q_aux
 use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,                                   &
+                                              compute_divb_norms_mhd=>compute_divb_norms,                          &
                                               compute_face_fluxes_mhd=>compute_face_fluxes,                        &
                                               compute_lambda_max_mhd=>compute_lambda_max,                            &
                                               compute_q_aux_mhd=>compute_q_aux
 use :: adam_flume_cpu_mhd_glm_kernels, only : add_glm_damping, apply_floors_mhd_glm=>apply_floors,              &
+                                              compute_divb_norms_mhd_glm=>compute_divb_norms,                      &
                                               compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
                                               compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
                                               compute_q_aux_mhd_glm=>compute_q_aux,                                  &
@@ -56,6 +58,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: allocate_cpu            !< Allocate CPU data.
       procedure, pass(self) :: check_glm_ch            !< Check the GLM c_h against the fastest wave.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
+      procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
       procedure, pass(self) :: save_residuals          !< Save residuals history.
@@ -262,6 +265,45 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, size(integrals), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time, integrals=integrals)
    endsubroutine compute_conservation
+
+   subroutine compute_divb_history(self, realm)
+   !< Compute and save the div(B) norms of the committed state on the diagnostics cadence (issue #41, D-10); a no-op
+   !< for Euler. The ghost cells are refreshed first and, with sibling realms, the inter-realm seam ghosts are refilled
+   !< from the peers (`update_ghost` does not fill them, issue #31): the stencils of the seam-local cells read them.
+   class(flume_cpu_object), intent(inout)                   :: self     !< The equation.
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms.
+   real(R8P)                                                :: norms(3) !< Norms of this rank.
+   integer(I4P)                                             :: p_s      !< Seam peer counter.
+
+   if (self%physics%model == MODEL_EULER) return
+   if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
+   call self%update_ghost(q=self%q)
+   if (present(realm) .and. allocated(self%adam%maps%seam_local_map_ghost_cell) .and. &
+       allocated(self%adam%maps%seam_local_peer_realm)) then
+      do p_s=1, int(size(self%adam%maps%seam_local_peer_realm), I4P)
+         call self%fill_seam_from_peer_forest(peer=realm(self%adam%maps%seam_local_peer_realm(p_s)), p_idx=p_s)
+      enddo
+   endif
+   call self%set_divb_seam
+   associate(hs=>self%fdv_half_stencils(1))
+   if (hs > self%ngc) call mpih%error_stop(msg=': the div(B) stencil ([fdv].(fdv_order)) exceeds the ghost cells')
+   select case(self%physics%model)
+   case(MODEL_MHD)
+      call compute_divb_norms_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                  hs=hs, band=self%ngc, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz,  &
+                                  seam=self%divb_seam, q=self%q, divb_max=norms(1), divb_l1=norms(2),                &
+                                  divb_seam_max=norms(3))
+   case(MODEL_MHD_GLM)
+      call compute_divb_norms_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                             &
+                                      blocks_number=self%blocks_number, hs=hs, band=self%ngc,                       &
+                                      dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, seam=self%divb_seam, &
+                                      q=self%q, divb_max=norms(1), divb_l1=norms(2), divb_seam_max=norms(3))
+   case default
+      call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
+   endassociate
+   call self%report_divb(norms=norms)
+   endsubroutine compute_divb_history
 
    subroutine compute_q_aux(self, q)
    !< Compute the auxiliary variables on every cell, ghost cells included.
@@ -646,9 +688,12 @@ contains
    call self%compute_q_aux(q=self%q)
    call self%check_glm_ch
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name, &
-                                   is_restart=self%io%restart)
+                                   is_restart=self%io%restart, with_divb=self%physics%model /= MODEL_EULER)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
-   if (.not.self%io%restart) call self%save_simulation_data
+   if (.not.self%io%restart) then
+      call self%compute_divb_history
+      call self%save_simulation_data
+   endif
    call self%io%open_file_residuals(nv=self%nv, is_restart=self%io%restart)
    self%amr_locked_ = .true.
    endsubroutine initialize_forest
@@ -674,7 +719,8 @@ contains
    endsubroutine open_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
-   !< Post-step work: fields, restart and conservation history on their cadence.
+   !< Post-step work: the GLM c_h check, the div(B) history (MHD), fields, restart and conservation history on their
+   !< cadence.
    class(flume_cpu_object), intent(inout)                   :: self              !< The equation.
    real(R8P),               intent(in)                      :: dt                !< Time step just advanced.
    real(R8P),               intent(in)                      :: t                 !< Time after the advance.
@@ -686,6 +732,7 @@ contains
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
    call self%check_glm_ch
+   call self%compute_divb_history(realm=realm)
    call self%save_simulation_data
    endsubroutine post_step_forest
 

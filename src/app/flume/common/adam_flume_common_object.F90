@@ -11,6 +11,7 @@ module adam_flume_common_object
 ! ADAM classes, libraries, parameters
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
                                              AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD
+use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : flux_register_object, restrict_fine_face_to_quadrant, SEAM_KIND_INTER_REALM
 use :: adam_parameters,               only : TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,             only : realm_object
@@ -24,7 +25,8 @@ use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary
-use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM
+use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_RU, &
+                                             MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
@@ -48,8 +50,10 @@ type, extends(realm_object) :: flume_common_object
    logical                        :: amr_locked_=.false. !< Runtime AMR locked after initialization.
    ! IO
    logical                        :: save_auxiliary_fields=.false. !< Save the auxiliary variables with the fields.
-   ! GLM
+   ! GLM and div(B) monitors
    real(R8P)                      :: glm_speed_reported=0._R8P !< Largest wave speed above c_h reported so far.
+   real(R8P)                      :: divb_reported=0._R8P      !< Largest max|div B| above divb_tol reported so far.
+   integer(I4P),      allocatable :: divb_seam(:,:)            !< Seam faces flags of the div(B) history [nb, 6].
    ! fields data
    real(R8P),         allocatable :: q(:,:,:,:,:)        !< Conservative variables [nv, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: dq(:,:,:,:,:)       !< Residuals [nv, 1-ngc:ni+ngc, ..., nb].
@@ -79,11 +83,13 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: glm_lambda            !< Return the GLM bound of the local dt, c_h max sum_d 1/dx_d.
       procedure, pass(self) :: initialize            !< Initialize the common data.
       procedure, pass(self) :: null_freeze           !< Return the variable each null direction freezes.
+      procedure, pass(self) :: report_divb           !< Reduce and save the div(B) norms, apply the divb_tol monitor.
       procedure, pass(self) :: report_glm_speed      !< Check c_h against the fastest wave (warning or stop).
       procedure, pass(self) :: load_restart_files    !< Load restart files.
       procedure, pass(self) :: save_restart_files    !< Save restart files.
       procedure, pass(self) :: save_slices           !< Save the slices on their cadence.
       procedure, pass(self) :: save_xh5f             !< Save fields in XH5F format.
+      procedure, pass(self) :: set_divb_seam         !< Set the seam faces flags of the div(B) history.
       procedure, pass(self) :: set_glm_damping       !< Set the GLM damping once the grid exists.
       ! forest methods
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
@@ -92,6 +98,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: check_amr_block_cells !< Check the block cells numbers against the 2:1 refinement.
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
+      procedure, pass(self), private :: compute_mhd_derived !< Compute the MHD derived output fields of one block.
       procedure, pass(self), private :: compute_q_aux_host !< Compute the auxiliary variables of the host q.
       procedure, pass(self), private :: io_initialize    !< Build the variables names.
 endtype flume_common_object
@@ -499,6 +506,32 @@ contains
    endselect
    endfunction null_freeze
 
+   subroutine report_divb(self, norms)
+   !< Reduce the div(B) norms of this rank over all ranks, save the div(B) history row and apply the monitor (issue #41,
+   !< D-10): `max|div B| > [mhd].(divb_tol)` (> 0) is fatal with `divb_error`, otherwise a warning logged by rank 0 each
+   !< time the maximum exceeds the largest one reported so far.
+   class(flume_common_object), intent(inout) :: self     !< The equation.
+   real(R8P),                  intent(in)    :: norms(3) !< max|div B|, sum |div B| dV, seam-local max|div B| (rank).
+   real(R8P)                                 :: g(3)     !< Global norms.
+
+   g = norms
+   call MPI_ALLREDUCE(MPI_IN_PLACE, g(1), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, g(2), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, g(3), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   call self%diagnostics%save_divb_row(it=self%time%it, time=self%time%time, norms=g)
+   if (.not.(self%physics%mhd%divb_tol > 0._R8P .and. g(1) > self%physics%mhd%divb_tol)) return
+   if (self%physics%mhd%divb_error) &
+      call mpih%error_stop(msg=': max|div B| = '//trim(str(g(1)))//' > [mhd].(divb_tol) = '//             &
+                               trim(str(self%physics%mhd%divb_tol))//' at step '//trim(str(self%time%it))// &
+                               ' ([mhd].(divb_error) = .true.)')
+   if (g(1) > self%divb_reported) then
+      self%divb_reported = g(1)
+      if (mpih%myrank == 0) print '(A)', mpih%myrankstr//'warning: max|div B| = '//trim(str(g(1)))//                &
+                                         ' > [mhd].(divb_tol) = '//trim(str(self%physics%mhd%divb_tol))//' at step '// &
+                                         trim(str(self%time%it))
+   endif
+   endsubroutine report_divb
+
    subroutine report_glm_speed(self, speed_max)
    !< Check the GLM cleaning speed against the fastest wave (issue #41, section 3.5, D-9): `max(|u_d| + c_{f,d}) > c_h`
    !< is fatal with `[mhd].(glm_ch_check) = error`, otherwise a warning logged by rank 0 each time the speed exceeds the
@@ -557,6 +590,9 @@ contains
    integer(I4P)                                     :: ijk(2,3)         !< Blocks extents.
    integer(I8P)                                     :: nijk(3)          !< Blocks dimensions.
    character(:), allocatable                        :: bn               !< Block name.
+   real(R8P),    allocatable                        :: derived(:,:,:,:) !< MHD derived fields of one block.
+   type(string)                                     :: derived_name(4)  !< MHD derived fields names.
+   logical                                          :: with_derived     !< Save the MHD derived fields.
    integer(I4P)                                     :: b                !< Counter.
 
    call mpih%barrier(tictoc=.true.)
@@ -573,6 +609,14 @@ contains
    nijk = [ijk(2,1)-ijk(1,1)+1, ijk(2,2)-ijk(1,2)+1, ijk(2,3)-ijk(1,3)+1]
    endassociate
    if (self%save_auxiliary_fields) call self%compute_q_aux_host
+   with_derived = self%save_auxiliary_fields .and. self%physics%model /= MODEL_EULER
+   if (with_derived) then
+      allocate(derived(4,1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc))
+      derived_name(1) = 'pt'
+      derived_name(2) = 'beta'
+      derived_name(3) = 'bmag'
+      derived_name(4) = 'divb'
+   endif
    call self%open_file_xh5f(basename=trim(output_basename_), xh5f=xh5f)
    do b=1, self%adam%field%blocks_number
       bn = 'block_'//trim(strz(b, 9))//'-proc'//trim(strz(mpih%myrank, 6))
@@ -585,11 +629,29 @@ contains
       if (self%save_auxiliary_fields) &
          call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
                                  q=self%q_aux(:,:,:,:,b), q_name=self%q_aux_name)
+      if (with_derived) then
+         call self%compute_mhd_derived(b=b, derived=derived)
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
+                                 q=derived, q_name=derived_name)
+      endif
       call self%close_block_xh5f(xh5f=xh5f)
    enddo
    call self%close_file_xh5f(xh5f=xh5f)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_xh5f
+
+   subroutine set_divb_seam(self)
+   !< Set the seam faces flags of the div(B) history (issue #41, D-10): a block face is a seam face when the forest
+   !< registered it in the flux register (a 2:1 AMR or inter-realm seam, `inter_realm_face_register_index /= 0`).
+   class(flume_common_object), intent(inout) :: self !< The equation.
+
+   if (allocated(self%divb_seam)) deallocate(self%divb_seam)
+   allocate(self%divb_seam(self%blocks_number,6))
+   self%divb_seam = 0_I4P
+   if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) return
+   if (size(self%adam%maps%inter_realm_face_register_index, dim=1) < self%blocks_number) return
+   where (self%adam%maps%inter_realm_face_register_index(1:self%blocks_number,1:6) /= 0_I4P) self%divb_seam = 1_I4P
+   endsubroutine set_divb_seam
 
    subroutine set_glm_damping(self)
    !< Set the GLM damping once the grid exists (issue #41, section 3.5): the minimum cell spacing of the realm over the
@@ -721,6 +783,49 @@ contains
       endselect
    enddo
    endsubroutine check_slices
+
+   subroutine compute_mhd_derived(self, b, derived)
+   !< Compute the MHD derived output fields of block `b` (issue #41, section 9) from the host `q` and `q_aux`: total
+   !< pressure `pt = p + |B|^2 / 2`, plasma beta `2 p / |B|^2` (`huge` where `B = 0`), `|B|` (every cell), and `div B`
+   !< (interior cells, zero on the ghost cells) by the centred finite difference of the div(B) history (the library
+   !< derivative, half stencil `[fdv]`, null directions weighted zero). The caller has refreshed the ghost cells.
+   class(flume_common_object), intent(in)  :: self                            !< The equation.
+   integer(I4P),               intent(in)  :: b                               !< Block index.
+   real(R8P),                  intent(out) :: derived(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:) !< pt, beta, bmag, divb.
+   real(R8P)                               :: b2                              !< |B|^2.
+   real(R8P)                               :: w(3)                            !< Direction weights: 1 active, 0 null.
+   real(R8P)                               :: db(3)                           !< dBx/dx, dBy/dy, dBz/dz.
+   integer(I4P)                            :: hs                              !< Finite difference half stencil.
+   integer(I4P)                            :: i, j, k                         !< Counters.
+
+   hs = self%fdv_half_stencils(1)
+   w = merge(0._R8P, 1._R8P, self%adam%grid%null_xyz)
+   derived = 0._R8P
+   do k=1-self%ngc, self%nk+self%ngc
+      do j=1-self%ngc, self%nj+self%ngc
+         do i=1-self%ngc, self%ni+self%ngc
+            b2 = self%q_aux(IA_BX,i,j,k,b)**2 + self%q_aux(IA_BY,i,j,k,b)**2 + self%q_aux(IA_BZ,i,j,k,b)**2
+            derived(1,i,j,k) = self%q_aux(IA_P,i,j,k,b) + 0.5_R8P * b2
+            derived(2,i,j,k) = huge(1._R8P)
+            if (b2 > 0._R8P) derived(2,i,j,k) = 2._R8P * self%q_aux(IA_P,i,j,k,b) / b2
+            derived(3,i,j,k) = sqrt(b2)
+         enddo
+      enddo
+   enddo
+   do k=1, self%nk
+      do j=1, self%nj
+         do i=1, self%ni
+            call compute_derivative1_fd_centered(s=hs, ds=self%adam%field%dxyz(1,b), q=self%q(IQ_BX,i-hs:i+hs,j,k,b), &
+                                                 dq_ds=db(1))
+            call compute_derivative1_fd_centered(s=hs, ds=self%adam%field%dxyz(2,b), q=self%q(IQ_BY,i,j-hs:j+hs,k,b), &
+                                                 dq_ds=db(2))
+            call compute_derivative1_fd_centered(s=hs, ds=self%adam%field%dxyz(3,b), q=self%q(IQ_BZ,i,j,k-hs:k+hs,b), &
+                                                 dq_ds=db(3))
+            derived(4,i,j,k) = w(1) * db(1) + w(2) * db(2) + w(3) * db(3)
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_mhd_derived
 
    subroutine compute_q_aux_host(self)
    !< Compute the auxiliary variables of the host `q` on every cell, ghost cells included (output and AMR marking only:

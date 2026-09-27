@@ -16,7 +16,10 @@ module adam_flume_ic_object
 !<   on every axis. A cell covered by no region is fatal: leaving it at zero density would divide by zero downstream;
 !< * `glm-pulse` (MHD only, the GLM d'Alembert test, issue #41, MV-3): the state of region 1 plus a Gaussian pulse in the
 !<   magnetic field along `pulse_axis` (x, y or z), `B_axis += pulse_amplitude exp(-((s - pulse_center) / pulse_width)^2)`,
-!<   `s` the cell coordinate along the axis; pressure and velocity unchanged (`psi` zero).
+!<   `s` the cell coordinate along the axis; pressure and velocity unchanged (`psi` zero);
+!< * `divb-peak` (MHD only, the Dedner et al. 2002 peak in `B_x`, issue #41, MV-10): the state of region 1 plus
+!<   `B_x += peak_amplitude (1 - (s / peak_radius)^2)^2` for `s < peak_radius`, `s` the distance in the x-y plane from
+!<   `(peak_x0, peak_y0)` (Dedner: `peak_amplitude = 1 / sqrt(4 pi)`, `peak_radius = 1/8`); a non-zero initial div(B).
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
@@ -45,6 +48,11 @@ character(len=9),  parameter :: IC_GLM_PULSE_STR="glm-pulse"             !< Gaus
 character(len=15), parameter :: PULSE_KEY(3)=['pulse_center   ', &
                                               'pulse_width    ', &
                                               'pulse_amplitude']         !< GLM pulse keys.
+character(len=9),  parameter :: IC_DIVB_PEAK_STR="divb-peak"             !< Dedner peak in B_x (MHD).
+character(len=14), parameter :: PEAK_KEY(4)=['peak_x0       ', &
+                                             'peak_y0       ', &
+                                             'peak_radius   ', &
+                                             'peak_amplitude']           !< div(B) peak keys.
 character(len=8),  parameter :: VORTEX_KEY(4)=['x0      ', 'y0      ', &
                                                'radius  ', 'strength']   !< Vortex keys.
 real(R8P),         parameter :: PI=acos(-1._R8P)                        !< Pi greek.
@@ -70,6 +78,7 @@ type :: flume_ic_object
    real(R8P)                 :: vortex(4)=0._R8P     !< Isentropic vortex: x0, y0, radius, strength.
    integer(I4P)              :: pulse_axis=0_I4P     !< GLM pulse: axis, 1=x, 2=y, 3=z.
    real(R8P)                 :: pulse(3)=0._R8P      !< GLM pulse: center, width, amplitude.
+   real(R8P)                 :: peak(4)=0._R8P       !< div(B) peak: x0, y0, radius, amplitude.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -96,6 +105,8 @@ contains
    desc = desc//NL//mpih%myrankstr//'  vortex:         '//trim(str(self%vortex))
    if (self%ic_type == IC_GLM_PULSE_STR) &
    desc = desc//NL//mpih%myrankstr//'  pulse:          axis '//trim(str(self%pulse_axis))//', '//trim(str(self%pulse))
+   if (self%ic_type == IC_DIVB_PEAK_STR) &
+   desc = desc//NL//mpih%myrankstr//'  peak:           '//trim(str(self%peak))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -181,6 +192,17 @@ contains
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(PULSE_KEY(k))//')')
       enddo
       if (self%pulse(2) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(pulse_width) must be positive')
+   case(IC_DIVB_PEAK_STR)
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_DIVB_PEAK_STR//' requires '// &
+                                  '[physics].(physical_model) = mhd-ideal')
+      self%regions_number = 1_I4P
+      do k=1, 4
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(PEAK_KEY(k)), val=self%peak(k), &
+                                  error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(PEAK_KEY(k))//')')
+      enddo
+      if (self%peak(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(peak_radius) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -190,7 +212,7 @@ contains
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(type) "'//self%ic_type//'"; expected one of '// &
                                IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
-                               IC_GLM_PULSE_STR)
+                               IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -231,7 +253,7 @@ contains
    real(R8P)                             :: center(3)     !< Cell center.
    real(R8P)                             :: h(2)          !< Seeded perturbations, in [-1, 1).
    real(R8P)                             :: prim(8)       !< Perturbed primitive state of one cell.
-   real(R8P)                             :: s_            !< Cell coordinate along the pulse axis.
+   real(R8P)                             :: s_            !< Pulse axis coordinate, or scaled peak distance.
    logical                               :: is_set        !< Flag: cell covered by a region.
    integer(I4P)                          :: b, i, j, k, r !< Counters.
 
@@ -271,6 +293,19 @@ contains
                   prim   = self%prim_1
                   prim(5+self%pulse_axis) = prim(5+self%pulse_axis) + &
                                             self%pulse(3) * exp(-((s_ - self%pulse(1)) / self%pulse(2))**2)
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_DIVB_PEAK_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  s_   = sqrt((field%x_cell(i,b) - self%peak(1))**2 + (field%y_cell(j,b) - self%peak(2))**2) / self%peak(3)
+                  prim = self%prim_1
+                  if (s_ < 1._R8P) prim(6) = prim(6) + self%peak(4) * (1._R8P - s_ * s_)**2
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo

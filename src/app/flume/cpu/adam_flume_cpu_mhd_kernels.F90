@@ -8,7 +8,8 @@ module adam_flume_cpu_mhd_kernels
 !< section 4). The face-flux kernel is the shared body with the MHD split (M2-P3).
 
 ! ADAM classes, libraries, parameters
-use :: adam_weno_object,       only : weno_object, weno_reconstruct_upwind
+use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
+use :: adam_weno_object,           only : weno_object, weno_reconstruct_upwind
 ! FLUME modules
 use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_face_flux_back_projection, &
                                       conservative_to_auxiliary=>mhd_conservative_to_auxiliary,         &
@@ -21,6 +22,7 @@ use :: penf,                   only : I4P, R8P
 implicit none
 private
 public :: apply_floors
+public :: compute_divb_norms
 public :: compute_face_fluxes
 public :: compute_lambda_max
 public :: compute_q_aux

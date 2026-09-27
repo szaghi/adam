@@ -33,11 +33,13 @@ use :: adam_flume_fnl_euler_kernels,   only : compute_conservation_euler_dev=>co
                                               compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
                                               compute_q_aux_euler_dev=>compute_q_aux_dev
 use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors_dev,                           &
+                                              compute_divb_norms_mhd_dev=>compute_divb_norms_dev,                     &
                                               compute_conservation_mhd_dev=>compute_conservation_dev,                 &
                                               compute_face_fluxes_mhd_dev=>compute_face_fluxes_dev,                   &
                                               compute_lambda_max_mhd_dev=>compute_lambda_max_dev,                     &
                                               compute_q_aux_mhd_dev=>compute_q_aux_dev
 use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_mhd_glm_dev=>apply_floors_dev,  &
+                                              compute_divb_norms_mhd_glm_dev=>compute_divb_norms_dev,                 &
                                               compute_conservation_mhd_glm_dev=>compute_conservation_dev,             &
                                               compute_face_fluxes_mhd_glm_dev=>compute_face_fluxes_dev,               &
                                               compute_lambda_max_mhd_glm_dev=>compute_lambda_max_dev,                 &
@@ -73,6 +75,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: flz_f_gpu(:,:,:,:,:)=>null() !< Z-face fluxes [nb, 1:ni, 1:nj, 0:nk, nv].
    real(R8P), pointer     :: q_inflow_gpu(:,:)=>null()    !< Conservative inflow state of each face [nv, 6].
    real(R8P), pointer     :: wall_sign_gpu(:,:)=>null()   !< Wall mirror sign per variable and direction [nv, 3].
+   integer(I4P), pointer  :: divb_seam_gpu(:,:)=>null()   !< Seam faces flags of the div(B) history [nb, 6].
    ! host staging
    real(R8P), allocatable :: buf_5D_R8P(:,:,:,:,:)        !< Transposed copy buffer, extent identical to q_gpu.
    integer(I4P)           :: db5(2,5)=0_I4P               !< Device bounds of the transposed copies.
@@ -87,6 +90,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: allocate_gpu            !< Allocate device data.
       procedure, pass(self) :: check_glm_ch            !< Check the GLM c_h against the fastest wave.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
+      procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
@@ -304,6 +308,55 @@ contains
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time, integrals=integrals)
    endsubroutine compute_conservation
 
+   subroutine compute_divb_history(self, realm)
+   !< Compute and save the div(B) norms of the committed state on the diagnostics cadence (issue #41, D-10); a no-op
+   !< for Euler. The ghost cells are refreshed first and, with sibling realms, the inter-realm seam ghosts are refilled
+   !< from the peers (`update_ghost` does not fill them, issue #31): the stencils of the seam-local cells read them. The
+   !< seam faces flags are rebuilt and copied to the device at every call (6 nb integers): at step 0 the forest may not
+   !< have registered the seams yet.
+   class(flume_fnl_object), intent(inout)                   :: self     !< The equation.
+   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms.
+   real(R8P)                                                :: norms(3) !< Norms of this rank.
+   integer(I4P)                                             :: p_s      !< Seam peer counter.
+
+   if (self%physics%model == MODEL_EULER) return
+   if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
+   call self%update_ghost(q_gpu=self%q_gpu)
+   if (present(realm) .and. allocated(self%adam%maps%seam_local_map_ghost_cell) .and. &
+       allocated(self%adam%maps%seam_local_peer_realm)) then
+      do p_s=1, int(size(self%adam%maps%seam_local_peer_realm), I4P)
+         call self%fill_seam_from_peer_forest(peer=realm(self%adam%maps%seam_local_peer_realm(p_s)), p_idx=p_s)
+      enddo
+   endif
+   call self%set_divb_seam
+   if (associated(self%divb_seam_gpu)) then
+      call dev_free(self%divb_seam_gpu, mydev)
+      nullify(self%divb_seam_gpu)
+   endif
+   call dev_assign_to_device(src=self%divb_seam, dst=self%divb_seam_gpu)
+   associate(hs=>self%fdv_half_stencils(1))
+   if (hs > min(self%ngc, 3_I4P)) &
+      call mpih_fnl%error_stop(msg=': the div(B) stencil ([fdv].(fdv_order)) exceeds the ghost cells or sixth order')
+   select case(self%physics%model)
+   case(MODEL_MHD)
+      call compute_divb_norms_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                      blocks_number=self%blocks_number, hs=hs, band=self%ngc,                        &
+                                      dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,             &
+                                      seam_gpu=self%divb_seam_gpu, q_gpu=self%q_gpu, divb_max=norms(1),               &
+                                      divb_l1=norms(2), divb_seam_max=norms(3))
+   case(MODEL_MHD_GLM)
+      call compute_divb_norms_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                          &
+                                          blocks_number=self%blocks_number, hs=hs, band=self%ngc,                    &
+                                          dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,         &
+                                          seam_gpu=self%divb_seam_gpu, q_gpu=self%q_gpu, divb_max=norms(1),           &
+                                          divb_l1=norms(2), divb_seam_max=norms(3))
+   case default
+      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
+   endassociate
+   call self%report_divb(norms=norms)
+   endsubroutine compute_divb_history
+
    subroutine compute_q_aux(self, q_gpu)
    !< Compute the auxiliary variables on the device, ghost cells included.
    class(flume_fnl_object), intent(inout) :: self              !< The equation.
@@ -382,6 +435,10 @@ contains
    if (associated(self%wall_sign_gpu)) then
       call dev_free(self%wall_sign_gpu, mydev)
       nullify(self%wall_sign_gpu)
+   endif
+   if (associated(self%divb_seam_gpu)) then
+      call dev_free(self%divb_seam_gpu, mydev)
+      nullify(self%divb_seam_gpu)
    endif
    if (allocated(self%buf_5D_R8P)) deallocate(self%buf_5D_R8P)
    call self%rk_fnl%destroy()
@@ -748,9 +805,12 @@ contains
    call self%compute_q_aux(q_gpu=self%q_gpu)
    call self%check_glm_ch
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name, &
-                                   is_restart=self%io%restart)
+                                   is_restart=self%io%restart, with_divb=self%physics%model /= MODEL_EULER)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
-   if (.not.self%io%restart) call self%save_simulation_data
+   if (.not.self%io%restart) then
+      call self%compute_divb_history
+      call self%save_simulation_data
+   endif
    call self%io%open_file_residuals(nv=self%nv, is_restart=self%io%restart)
    self%amr_locked_ = .true.
    endsubroutine initialize_forest
@@ -776,7 +836,8 @@ contains
    endsubroutine open_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
-   !< Post-step work: fields, restart and conservation history on their cadence.
+   !< Post-step work: the GLM c_h check, the div(B) history (MHD), fields, restart and conservation history on their
+   !< cadence.
    class(flume_fnl_object), intent(inout)                   :: self              !< The equation.
    real(R8P),               intent(in)                      :: dt                !< Time step just advanced.
    real(R8P),               intent(in)                      :: t                 !< Time after the advance.
@@ -788,6 +849,7 @@ contains
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
    call self%check_glm_ch
+   call self%compute_divb_history(realm=realm)
    call self%save_simulation_data
    endsubroutine post_step_forest
 

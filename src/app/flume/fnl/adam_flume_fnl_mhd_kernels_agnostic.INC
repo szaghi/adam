@@ -184,3 +184,66 @@
    enddo
    enddo
    endsubroutine compute_speed_max_dev
+
+   subroutine compute_divb_norms_dev(ni, nj, nk, ngc, blocks_number, hs, band, dxyz_gpu, is_null, seam_gpu, q_gpu, &
+                                     divb_max, divb_l1, divb_seam_max)
+   !< Compute the div(B) norms over the interior cells (issue #41, D-10): `max|div B|`, `sum |div B| dV` and the maximum
+   !< over the seam-local cells (within `band` cells of a block face with `seam(b,face) /= 0`, a 2:1 AMR or inter-realm
+   !< seam). `div B` is the centred finite difference of the library (half stencil `hs <= HS_MAX`), null directions
+   !< weighted zero; the cell volume includes the null directions (issue #37). The caller has refreshed the ghost cells.
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   integer(I4P), intent(in)  :: hs                                !< Finite difference half stencil, <= min(ngc, HS_MAX).
+   integer(I4P), intent(in)  :: band                              !< Seam-local band width, in cells.
+   real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   integer(I4P), intent(in)  :: seam_gpu(1:,1:)                   !< Seam faces flags [nb, 6] (0: not a seam face).
+   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: divb_max                          !< Maximum of |div B|.
+   real(R8P),    intent(out) :: divb_l1                           !< Sum of |div B| dV.
+   real(R8P),    intent(out) :: divb_seam_max                     !< Maximum of |div B| over the seam-local cells.
+   integer(I4P), parameter   :: HS_MAX=3_I4P                      !< Maximum half stencil (sixth order).
+   real(R8P)                 :: sx(1-HS_MAX:1+HS_MAX)             !< Private Bx stencil along x.
+   real(R8P)                 :: sy(1-HS_MAX:1+HS_MAX)             !< Private By stencil along y.
+   real(R8P)                 :: sz(1-HS_MAX:1+HS_MAX)             !< Private Bz stencil along z.
+   real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
+   real(R8P)                 :: dbx, dby, dbz                     !< Derivatives dBx/dx, dBy/dy, dBz/dz.
+   real(R8P)                 :: divb                              !< |div B| of one cell.
+   logical                   :: is_seam                           !< Seam-local cell.
+   integer(I4P)              :: b, i, j, k, m                     !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   divb_max = 0._R8P ; divb_l1 = 0._R8P ; divb_seam_max = 0._R8P
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,seam_gpu,q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,hs,band,wx,wy,wz) private(sx,sy,sz,dbx,dby,dbz,divb,is_seam) &
+   !$acc& reduction(max:divb_max,divb_seam_max) reduction(+:divb_l1)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,seam_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,hs,band,wx,wy,wz) private(sx,sy,sz,dbx,dby,dbz,divb,is_seam) &
+   !$omp& reduction(max:divb_max,divb_seam_max) reduction(+:divb_l1)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      !$acc loop seq
+      do m=-hs, hs
+         sx(1+m) = q_gpu(b,i+m,j,k,IQ_BX)
+         sy(1+m) = q_gpu(b,i,j+m,k,IQ_BY)
+         sz(1+m) = q_gpu(b,i,j,k+m,IQ_BZ)
+      enddo
+      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,1), q=sx(1-hs:1+hs), dq_ds=dbx)
+      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,2), q=sy(1-hs:1+hs), dq_ds=dby)
+      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,3), q=sz(1-hs:1+hs), dq_ds=dbz)
+      divb = abs(wx * dbx + wy * dby + wz * dbz)
+      divb_max = max(divb_max, divb)
+      divb_l1  = divb_l1 + divb * dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
+      is_seam = (seam_gpu(b,1) /= 0_I4P .and. i <= band) .or. (seam_gpu(b,2) /= 0_I4P .and. i > ni - band) .or. &
+                (seam_gpu(b,3) /= 0_I4P .and. j <= band) .or. (seam_gpu(b,4) /= 0_I4P .and. j > nj - band) .or. &
+                (seam_gpu(b,5) /= 0_I4P .and. k <= band) .or. (seam_gpu(b,6) /= 0_I4P .and. k > nk - band)
+      if (is_seam) divb_seam_max = max(divb_seam_max, divb)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_divb_norms_dev

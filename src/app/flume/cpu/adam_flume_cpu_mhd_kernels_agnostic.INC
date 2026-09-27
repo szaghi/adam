@@ -118,3 +118,53 @@
    enddo
    !$omp end parallel do
    endsubroutine compute_speed_max
+
+   subroutine compute_divb_norms(ni, nj, nk, ngc, blocks_number, hs, band, dxyz, is_null, seam, q, divb_max, divb_l1, &
+                                 divb_seam_max)
+   !< Compute the div(B) norms over the interior cells (issue #41, D-10): `max|div B|`, `sum |div B| dV` and the maximum
+   !< over the seam-local cells (within `band` cells of a block face with `seam(b,face) /= 0`, a 2:1 AMR or inter-realm
+   !< seam). `div B` is the centred finite difference of the library (half stencil `hs`), null directions weighted zero;
+   !< the cell volume includes the null directions (issue #37). The caller has refreshed the ghost cells.
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc               !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                 !< Actual blocks number.
+   integer(I4P), intent(in)  :: hs                            !< Finite difference half stencil, <= ngc.
+   integer(I4P), intent(in)  :: band                          !< Seam-local band width, in cells.
+   real(R8P),    intent(in)  :: dxyz(1:,1:)                   !< Blocks space steps [3, nb].
+   logical,      intent(in)  :: is_null(3)                    !< Null directions.
+   integer(I4P), intent(in)  :: seam(1:,1:)                   !< Seam faces flags [nb, 6] (0: not a seam face).
+   real(R8P),    intent(in)  :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: divb_max                      !< Maximum of |div B|.
+   real(R8P),    intent(out) :: divb_l1                       !< Sum of |div B| dV.
+   real(R8P),    intent(out) :: divb_seam_max                 !< Maximum of |div B| over the seam-local cells.
+   real(R8P)                 :: wx, wy, wz                    !< Direction weights: 1 active, 0 null.
+   real(R8P)                 :: dbx, dby, dbz                 !< Derivatives dBx/dx, dBy/dy, dBz/dz.
+   real(R8P)                 :: divb                          !< |div B| of one cell.
+   logical                   :: is_seam                       !< Seam-local cell.
+   integer(I4P)              :: b, i, j, k                    !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   divb_max = 0._R8P ; divb_l1 = 0._R8P ; divb_seam_max = 0._R8P
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, seam, q) &
+   !$omp& reduction(max:divb_max,divb_seam_max) reduction(+:divb_l1)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               call compute_derivative1_fd_centered(s=hs, ds=dxyz(1,b), q=q(IQ_BX,i-hs:i+hs,j,k,b), dq_ds=dbx)
+               call compute_derivative1_fd_centered(s=hs, ds=dxyz(2,b), q=q(IQ_BY,i,j-hs:j+hs,k,b), dq_ds=dby)
+               call compute_derivative1_fd_centered(s=hs, ds=dxyz(3,b), q=q(IQ_BZ,i,j,k-hs:k+hs,b), dq_ds=dbz)
+               divb = abs(wx * dbx + wy * dby + wz * dbz)
+               divb_max = max(divb_max, divb)
+               divb_l1  = divb_l1 + divb * dxyz(1,b) * dxyz(2,b) * dxyz(3,b)
+               is_seam = (seam(b,1) /= 0_I4P .and. i <= band) .or. (seam(b,2) /= 0_I4P .and. i > ni - band) .or. &
+                         (seam(b,3) /= 0_I4P .and. j <= band) .or. (seam(b,4) /= 0_I4P .and. j > nj - band) .or. &
+                         (seam(b,5) /= 0_I4P .and. k <= band) .or. (seam(b,6) /= 0_I4P .and. k > nk - band)
+               if (is_seam) divb_seam_max = max(divb_seam_max, divb)
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine compute_divb_norms

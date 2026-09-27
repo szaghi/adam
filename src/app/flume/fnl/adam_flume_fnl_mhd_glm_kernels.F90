@@ -10,6 +10,8 @@ module adam_flume_fnl_mhd_glm_kernels
 !< `NV_AUX_K = NV_AUX_MHD` (issue #41, section 4). The face-flux kernel is the shared body with the MHD
 !< split (M2-P3). Same kernel rules as `adam_flume_fnl_kernels` (issue #35, D-11/D-12).
 
+! ADAM classes, libraries, parameters
+use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
 ! ADAM FNL classes, libraries
 use :: adam_fnl_weno_kernels,  only : weno_reconstruct_upwind_dev
 ! FLUME modules
@@ -26,6 +28,7 @@ private
 public :: add_glm_damping_dev
 public :: apply_floors_dev
 public :: compute_conservation_dev
+public :: compute_divb_norms_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
 public :: compute_q_aux_dev
