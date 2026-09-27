@@ -24,7 +24,14 @@ module adam_flume_ic_object
 !<   frame) plus `wave_amplitude R sin(2 pi (x cos a + y sin a) / wavelength)`, `a = wave_angle` (degrees, in the x-y
 !<   plane), `R` the right eigenvector of the right-going `wave` (`fast`, `alfven`, `slow` or `entropy`) of the
 !<   conservative system at `q0` in the frame of the wave normal (the library Roe-Balsara core, `mhd_eigenvectors`),
-!<   rotated back to x, y, z; after one period `wavelength / |u_n + c|` the exact solution is the initial state.
+!<   rotated back to x, y, z; after one period `wavelength / |u_n + c|` the exact solution is the initial state;
+!< * `mhd-cpaw` (MHD only, issue #41, MV-6; Toth 2000, J. Comput. Phys. 161): the circularly polarised Alfven wave, an exact
+!<   nonlinear solution of any amplitude. Density and pressure of region 1 (whose velocity and field must be zero), the
+!<   field `b_par n + wave_amplitude (sin(phi) t1 + h cos(phi) t2)` and the velocity `-sign(b_par) B_perp / sqrt(rho)`,
+!<   `phi = 2 pi (x cos a + y sin a) / wavelength`, `a = wave_angle` (degrees), `n = (cos a, sin a, 0)`,
+!<   `t1 = (-sin a, cos a, 0)`, `t2 = z`, `h = +1` (`polarisation = right`) or `-1` (`left`, the mirror image under
+!<   `z -> -z`); `|B_perp|` is uniform, so the total pressure is too, and the wave travels along `+n` unchanged at
+!<   `|b_par| / sqrt(rho)`: after one period `wavelength sqrt(rho) / |b_par|` the exact solution is the initial state.
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
@@ -64,7 +71,8 @@ character(len=14), parameter :: PEAK_KEY(4)=['peak_x0       ', &
 character(len=15), parameter :: IC_MHD_LINEAR_WAVE_STR="mhd-linear-wave" !< MHD linear wave (MHD).
 character(len=14), parameter :: WAVE_KEY(3)=['wave_angle    ', &
                                              'wave_amplitude', &
-                                             'wavelength    ']           !< Linear wave keys.
+                                             'wavelength    ']           !< Linear wave and CPAW keys.
+character(len=8),  parameter :: IC_MHD_CPAW_STR="mhd-cpaw"               !< Circularly polarised Alfven wave (MHD).
 character(len=8),  parameter :: VORTEX_KEY(4)=['x0      ', 'y0      ', &
                                                'radius  ', 'strength']   !< Vortex keys.
 real(R8P),         parameter :: PI=acos(-1._R8P)                        !< Pi greek.
@@ -92,8 +100,10 @@ type :: flume_ic_object
    real(R8P)                 :: pulse(3)=0._R8P      !< GLM pulse: center, width, amplitude.
    real(R8P)                 :: peak(4)=0._R8P       !< div(B) peak: x0, y0, radius, amplitude.
    character(:), allocatable :: wave                 !< Linear wave family: fast, alfven, slow, entropy.
-   real(R8P)                 :: wave_par(3)=0._R8P   !< Linear wave: angle (degrees), amplitude, wavelength.
+   real(R8P)                 :: wave_par(3)=0._R8P   !< Linear wave, CPAW: angle (degrees), amplitude, wavelength.
    real(R8P)                 :: wave_r(NV_MHD)=0._R8P !< Linear wave: right eigenvector, global frame.
+   real(R8P)                 :: b_par=0._R8P         !< CPAW: field along the wave normal.
+   real(R8P)                 :: polarisation=0._R8P  !< CPAW: +1 right, -1 left.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -124,6 +134,9 @@ contains
    desc = desc//NL//mpih%myrankstr//'  peak:           '//trim(str(self%peak))
    if (self%ic_type == IC_MHD_LINEAR_WAVE_STR) &
    desc = desc//NL//mpih%myrankstr//'  wave:           '//self%wave//', '//trim(str(self%wave_par))
+   if (self%ic_type == IC_MHD_CPAW_STR) &
+   desc = desc//NL//mpih%myrankstr//'  cpaw:           b_par '//trim(str(self%b_par))//', polarisation '// &
+                                    trim(str(self%polarisation))//', '//trim(str(self%wave_par))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -240,6 +253,31 @@ contains
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(WAVE_KEY(k))//')')
       enddo
       if (self%wave_par(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
+   case(IC_MHD_CPAW_STR)
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_CPAW_STR//' requires '// &
+                                  '[physics].(physical_model) = mhd-ideal')
+      self%regions_number = 1_I4P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='polarisation', val=buff, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(polarisation)')
+      select case(trim(adjustl(strip_control(buff))))
+      case('right')
+         self%polarisation =  1._R8P
+      case('left')
+         self%polarisation = -1._R8P
+      case default
+         call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(polarisation) "'//trim(adjustl(buff))// &
+                                  '"; expected one of right, left')
+      endselect
+      do k=1, 3
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(WAVE_KEY(k)), val=self%wave_par(k), &
+                                  error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(WAVE_KEY(k))//')')
+      enddo
+      if (self%wave_par(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='b_par', val=self%b_par, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(b_par)')
+      if (self%b_par == 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(b_par) must be non-zero')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -249,7 +287,8 @@ contains
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(type) "'//self%ic_type//'"; expected one of '// &
                                IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
-                               IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR)
+                               IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
+                               IC_MHD_CPAW_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -279,6 +318,12 @@ contains
          self%emax(:,r) = extent(4:6)
       endif
    enddo
+   if (self%ic_type == IC_MHD_CPAW_STR) then
+      if (any(self%prim_1(2:4) /= 0._R8P) .or. any(self%prim_1(6:8) /= 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_CPAW_STR//' builds the velocity and '// &
+                                  'the field from b_par and wave_amplitude: ['//INI_SECTION_NAME//'_region_1].(u, v, w, '// &
+                                  'bx, by, bz) must be 0')
+   endif
    endsubroutine load_from_file
 
    subroutine set_initial_conditions(self, field, q)
@@ -293,7 +338,9 @@ contains
    real(R8P)                             :: center(3)     !< Cell center.
    real(R8P)                             :: h(2)          !< Seeded perturbations, in [-1, 1).
    real(R8P)                             :: prim(8)       !< Perturbed primitive state of one cell.
-   real(R8P)                             :: s_            !< Pulse axis coordinate, or scaled peak distance.
+   real(R8P)                             :: s_            !< Pulse axis coordinate, scaled peak distance, or phase.
+   real(R8P)                             :: ca, sa        !< cos, sin of the CPAW normal angle.
+   real(R8P)                             :: bt(2)         !< CPAW transverse field, t1 and t2 components.
    logical                               :: is_set        !< Flag: cell covered by a region.
    integer(I4P)                          :: b, i, j, k, r !< Counters.
 
@@ -347,6 +394,23 @@ contains
                                           field%y_cell(j,b) * sin(self%wave_par(1) * PI / 180._R8P)) / self%wave_par(3))
                   q(:,i,j,k,b) = self%q_region(:,1)
                   q(1:NV_MHD,i,j,k,b) = q(1:NV_MHD,i,j,k,b) + self%wave_par(2) * s_ * self%wave_r
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_MHD_CPAW_STR)
+      ca = cos(self%wave_par(1) * PI / 180._R8P)
+      sa = sin(self%wave_par(1) * PI / 180._R8P)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  s_   = 2._R8P * PI * (field%x_cell(i,b) * ca + field%y_cell(j,b) * sa) / self%wave_par(3)
+                  bt   = self%wave_par(2) * [sin(s_), self%polarisation * cos(s_)]
+                  prim = self%prim_1
+                  prim(2:4) = -sign(1._R8P, self%b_par) / sqrt(self%prim_1(1)) * [-sa * bt(1), ca * bt(1), bt(2)]
+                  prim(6:8) = [ca * self%b_par - sa * bt(1), sa * self%b_par + ca * bt(1), bt(2)]
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
          enddo
