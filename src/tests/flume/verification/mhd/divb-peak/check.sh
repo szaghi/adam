@@ -88,8 +88,8 @@ else echo "   divb_error = .false.: no warning in $WW/log.txt  FAIL" ; FAILED=1 
 WS="$(prepare stop --divergence-control none --it-max 5 --divb-tol 1.0 --divb-error)"
 if (cd "$WS" && mpirun -np "$NP" "$EXE" divb-peak.ini > log.txt 2>&1); then
    echo "   divb_error = .true.: the run completed instead of stopping  FAIL" ; FAILED=1
-elif grep -q 'max|div B| = .*divb_error' "$WS/log.txt"; then
-   echo "   divb_error = .true.: stops with: $(grep -m1 'max|div B|' "$WS/log.txt" | sed 's/^.*error stop : //' | cut -c1-90)  PASS"
+elif grep -aq 'max|div B| = .*divb_error' "$WS/log.txt"; then
+   echo "   divb_error = .true.: stops with: $(grep -a -m1 'max|div B|' "$WS/log.txt" | sed 's/^.*error stop : //' | cut -c1-90)  PASS"
 else
    echo "   divb_error = .true.: the run failed without the expected message, see $WS/log.txt  FAIL" ; FAILED=1
 fi

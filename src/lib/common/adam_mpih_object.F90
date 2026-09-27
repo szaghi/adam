@@ -7,11 +7,20 @@ use :: penf
 ! sdk modules
 use :: mpi
 ! intrinsic modules
-use, intrinsic :: iso_c_binding,   only : C_LONG
-use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
+use, intrinsic :: iso_c_binding,   only : C_INT, C_LONG
+use, intrinsic :: iso_fortran_env, only : output_unit, stderr=>error_unit
 
 implicit none
 private
+
+interface
+   function c_usleep(useconds) bind(C, name='usleep') result(ierr)
+   !< POSIX usleep: suspend the calling process for `useconds` microseconds.
+   import :: C_INT
+   integer(C_INT), value :: useconds !< Microseconds.
+   integer(C_INT)        :: ierr     !< Status.
+   endfunction c_usleep
+endinterface
 public :: mpih_object
 
 type :: mpih_object
@@ -94,14 +103,31 @@ contains
    endfunction description
 
    subroutine error_stop(self, msg)
-   !< Stop run with error output.
-   class(mpih_object), intent(inout)        :: self !< MPI handler.
-   character(*),       intent(in), optional :: msg  !< Error message.
-   character(:), allocatable                :: msg_ !< Error message, local variable.
+   !< Stop the run with error output, aborting every rank.
+   !<
+   !< The error may be rank-local (a check only some ranks evaluate): `MPI_ABORT` on `MPI_COMM_WORLD` terminates all
+   !< the ranks. `MPI_FINALIZE` would block the failing rank until the others finalize, while they block forever in
+   !< their next collective (issue #43). The message is flushed first and the rank sleeps 0.5 s before the abort, so the
+   !< launcher forwards it (Open MPI kills the ranks at once, and output not yet forwarded is lost: measured). Without
+   !< MPI (not yet initialized, or already finalized) the process stops alone.
+   class(mpih_object), intent(inout)        :: self           !< MPI handler.
+   character(*),       intent(in), optional :: msg            !< Error message.
+   character(:), allocatable                :: msg_           !< Error message, local variable.
+   logical                                  :: is_initialized !< MPI initialized.
+   logical                                  :: is_finalized   !< MPI finalized.
+   integer(I4P)                             :: ierr           !< MPI error status.
+   integer(C_INT)                           :: cerr           !< usleep status.
 
    msg_ = '' ; if (present(msg)) msg_ = msg
    write(stderr, '(A)') self%myrankstr//'error stop '//msg_
-   call self%finalize
+   flush(stderr)
+   flush(output_unit)
+   call MPI_INITIALIZED(is_initialized, ierr)
+   call MPI_FINALIZED(is_finalized, ierr)
+   if (is_initialized .and. .not.is_finalized) then
+      cerr = c_usleep(500000_C_INT)
+      call MPI_ABORT(MPI_COMM_WORLD, 1_I4P, ierr)
+   endif
    ! issue #25: plain `stop` exits with code 0 -- every error_stop looked SUCCESSFUL to
    ! shells/harnesses/CI. A failed run must report a nonzero exit code.
    stop 1

@@ -94,8 +94,8 @@ find "$w" -name '*.h5' -delete
 echo ">> negative pressure, floors disabled: the run stops on the non-positive state"
 w="$(prepare negative-stop --case negative --cells 512 --divergence-control none)"
 (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) || true
-if grep -q "cells with a non-positive density or pressure" "$w/log.txt"; then
-   echo "   stops with: $(grep -m1 "non-positive density" "$w/log.txt" | sed 's/^.*: \([0-9]* cells\)/\1/' | cut -c1-110)  PASS"
+if grep -aq "cells with a non-positive density or pressure" "$w/log.txt"; then
+   echo "   stops with: $(grep -a -m1 "non-positive density" "$w/log.txt" | sed 's/^.*: \([0-9]* cells\)/\1/' | cut -c1-110)  PASS"
 else
    echo "   the expected stop message was not found in $w/log.txt  FAIL" ; FAILED=1
 fi
