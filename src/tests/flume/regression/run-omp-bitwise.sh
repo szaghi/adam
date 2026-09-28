@@ -82,7 +82,7 @@ for f in "$ob-residuals.dat" "$ob-conservation_history.dat" digest.txt; do
       echo "   $f: identical"
    else
       failed=1
-      line="$(cmp "$serial/$f" "$threaded/$f" | sed -n -E 's/.*line ([0-9]+).*/\1/p')"
+      line="$(cmp "$serial/$f" "$threaded/$f" | sed -n -E 's/.*line ([0-9]+).*/\1/p' || true)" # cmp exits 1: pipefail
       echo "   $f: DIFFERS from line $line"
       diff <(sed -n "${line}p" "$serial/$f") <(sed -n "${line}p" "$threaded/$f") | sed 's/^/      /' || true
    fi
