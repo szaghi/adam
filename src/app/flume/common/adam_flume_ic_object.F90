@@ -43,7 +43,12 @@ module adam_flume_ic_object
 !<   `v = sin(2 pi x)`, `bx = -sin(2 pi y) / sqrt(4 pi)`, `by = sin(4 pi x) / sqrt(4 pi)`, `w = bz = 0` (divergence-free
 !<   pointwise, symmetric under the 180 degrees rotation about `(1/2, 1/2)`). Evaluated as odd functions of
 !<   `s = 2 x - 1`, `t = 2 y - 1` (`u = sin(pi t)`, `v = -sin(pi s)`, `by = sin(2 pi s) / sqrt(4 pi)`): on cell centres that
-!<   are exact binary fractions the rotated cell has exactly `-s, -t`, so the initial state is bitwise symmetric.
+!<   are exact binary fractions the rotated cell has exactly `-s, -t`, so the initial state is bitwise symmetric;
+!< * `mhd-rotor` (MHD only, issue #41, MV-13; Balsara and Spicer 1999, Toth 2000 first rotor): the ambient state of
+!<   region 1 plus a dense disc centred at `(x0, y0)` in rigid rotation: for `r < r0` density `rho_in` and velocity
+!<   `v0 (-(y-y0), x-x0) / r0` (speed `v0` at `r0`); for `r0 <= r < r1` the linear taper `f = (r1 - r) / (r1 - r0)`,
+!<   density `rho + (rho_in - rho) f`, velocity `f v0 (-(y-y0), x-x0) / r`; pressure and field of region 1 everywhere;
+!<   the velocities add to the ambient one.
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
@@ -87,6 +92,10 @@ character(len=14), parameter :: WAVE_KEY(3)=['wave_angle    ', &
 character(len=8),  parameter :: IC_MHD_CPAW_STR="mhd-cpaw"               !< Circularly polarised Alfven wave (MHD).
 character(len=10), parameter :: IC_MHD_VORTEX_STR="mhd-vortex"           !< Magnetised vortex in a free stream (MHD).
 character(len=11), parameter :: IC_ORSZAG_TANG_STR="orszag-tang"         !< Orszag-Tang vortex (MHD).
+character(len=9),  parameter :: IC_MHD_ROTOR_STR="mhd-rotor"             !< MHD rotor (MHD).
+character(len=6),  parameter :: ROTOR_KEY(6)=['x0    ', 'y0    ', &
+                                              'r0    ', 'r1    ', &
+                                              'rho_in', 'v0    ']       !< MHD rotor keys.
 character(len=6),  parameter :: MHD_VORTEX_KEY(5)=['x0    ', 'y0    ', &
                                                    'radius', 'kappa ', &
                                                    'mu    ']             !< Magnetised vortex keys.
@@ -122,6 +131,7 @@ type :: flume_ic_object
    real(R8P)                 :: b_par=0._R8P         !< CPAW: field along the wave normal.
    real(R8P)                 :: polarisation=0._R8P  !< CPAW: +1 right, -1 left.
    real(R8P)                 :: mvortex(5)=0._R8P    !< Magnetised vortex: x0, y0, radius, kappa, mu.
+   real(R8P)                 :: rotor(6)=0._R8P      !< MHD rotor: x0, y0, r0, r1, rho_in, v0.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -157,6 +167,8 @@ contains
                                     trim(str(self%polarisation))//', '//trim(str(self%wave_par))
    if (self%ic_type == IC_MHD_VORTEX_STR) &
    desc = desc//NL//mpih%myrankstr//'  mhd vortex:     '//trim(str(self%mvortex))
+   if (self%ic_type == IC_MHD_ROTOR_STR) &
+   desc = desc//NL//mpih%myrankstr//'  rotor:          '//trim(str(self%rotor))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -315,6 +327,19 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_ORSZAG_TANG_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 0_I4P
+   case(IC_MHD_ROTOR_STR)
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_ROTOR_STR//' requires '// &
+                                  '[physics].(physical_model) = mhd-ideal')
+      self%regions_number = 1_I4P
+      do k=1, 6
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(ROTOR_KEY(k)), val=self%rotor(k), &
+                                  error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(ROTOR_KEY(k))//')')
+      enddo
+      if (self%rotor(3) <= 0._R8P .or. self%rotor(4) <= self%rotor(3)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs 0 < r0 < r1')
+      if (self%rotor(5) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(rho_in) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -325,7 +350,8 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(type) "'//self%ic_type//'"; expected one of '// &
                                IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
-                               IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR)
+                               IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
+                               IC_MHD_ROTOR_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -488,6 +514,18 @@ contains
             enddo
          enddo
       enddo
+   case(IC_MHD_ROTOR_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  call mhd_rotor(prim0=self%prim_1, rotor=self%rotor, x=field%x_cell(i,b), y=field%y_cell(j,b), &
+                                 prim=prim)
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
    case(IC_DIVB_PEAK_STR)
       do b=1, field%blocks_number
          do k=1, field%nk
@@ -637,6 +675,31 @@ contains
    prim(6) = -mvortex(5) / (2._R8P * PI) * dy * e
    prim(7) =  mvortex(5) / (2._R8P * PI) * dx * e
    endsubroutine mhd_vortex
+
+   pure subroutine mhd_rotor(prim0, rotor, x, y, prim)
+   !< Return the primitive state of the MHD rotor at `(x, y)` (formulas in the module documentation).
+   real(R8P), intent(in)  :: prim0(8)  !< Ambient primitive state (r, u, v, w, p, bx, by, bz).
+   real(R8P), intent(in)  :: rotor(6)  !< Rotor x0, y0, r0, r1, rho_in, v0.
+   real(R8P), intent(in)  :: x, y      !< Point coordinates.
+   real(R8P), intent(out) :: prim(8)   !< Primitive state.
+   real(R8P)              :: dx, dy, r !< Distances from the rotor centre.
+   real(R8P)              :: f         !< Taper factor.
+
+   dx = x - rotor(1)
+   dy = y - rotor(2)
+   r  = sqrt(dx * dx + dy * dy)
+   prim = prim0
+   if (r < rotor(3)) then
+      prim(1) = rotor(5)
+      prim(2) = prim0(2) - rotor(6) * dy / rotor(3)
+      prim(3) = prim0(3) + rotor(6) * dx / rotor(3)
+   elseif (r < rotor(4)) then
+      f = (rotor(4) - r) / (rotor(4) - rotor(3))
+      prim(1) = prim0(1) + (rotor(5) - prim0(1)) * f
+      prim(2) = prim0(2) - f * rotor(6) * dy / r
+      prim(3) = prim0(3) + f * rotor(6) * dx / r
+   endif
+   endsubroutine mhd_rotor
 
    pure subroutine isentropic_vortex(gamma, prim, vortex, x, y, q)
    !< Return the conservative state of the isentropic vortex at `(x, y)` (formulas in the module documentation).

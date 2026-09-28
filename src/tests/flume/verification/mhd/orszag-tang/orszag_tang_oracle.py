@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Oracle of the Orszag-Tang vortex (issue #41, M2-P6, MV-12; Stone et al. 2008, section 8.4).
+"""Oracle of the Orszag-Tang vortex and of the rotor (issue #41, M2-P6, MV-12, MV-13): 180 degrees symmetry.
 
 Why: there is no exact solution, but the equations guarantee two properties the discrete solution must keep:
 * the 180 degrees rotation about (1/2, 1/2) maps the initial state to itself, so the solution stays symmetric: at the
@@ -12,8 +12,12 @@ Why: there is no exact solution, but the equations guarantee two properties the 
   the drift from the first row, relative to max(|first|, 1), stays below --cons-tol.
 Positivity is the run's own: with the floors disabled a non-positive density or pressure stops it.
 
+The rotor (MV-13) has a uniform field, which the rotation maps to its opposite: its symmetry is the rotation composed
+with the sign flip B -> -B (the equations are invariant under it), so B_x, B_y are even and B_z odd
+(--field-parity even); its outflow boundaries do not conserve, so it passes no --cons-tol (the check is skipped).
+
 Usage:
-    orszag_tang_oracle.py <work> [--sym-tol T] [--cons-tol T] [--ngc N]
+    orszag_tang_oracle.py <work> [--sym-tol T] [--cons-tol T] [--field-parity odd|even] [--ngc N]
 """
 
 from __future__ import annotations
@@ -57,15 +61,19 @@ def main() -> int:
     parser.add_argument("work", type=Path)
     parser.add_argument("--sym-tol", type=float, default=None, help="bound of the relative symmetry defect")
     parser.add_argument("--cons-tol", type=float, default=None, help="bound of the relative conservation drift")
+    parser.add_argument("--field-parity", choices=("odd", "even"), default="odd", help="in-plane field parity")
     parser.add_argument("--ngc", type=int, default=3)
     args = parser.parse_args()
+    parity = dict(PARITY)
+    if args.field_parity == "even":
+        parity.update({"bx": 1.0, "by": 1.0, "bz": -1.0})
     ok = True
     q = grid(args.work, args.ngc)
     rotated = q[:, ::-1, ::-1]
     worst = 0.0
     for v, name in enumerate(NAMES):
         scale = max(float(np.abs(q[NAMES.index(g)]).max()) for g in GROUP[name])
-        defect = float(np.abs(q[v] - PARITY[name] * rotated[v]).max() / scale) if scale > 0.0 else 0.0
+        defect = float(np.abs(q[v] - parity[name] * rotated[v]).max() / scale) if scale > 0.0 else 0.0
         worst = max(worst, defect)
         print(f"   symmetry {name:3s}: {defect:.3e} (max|{name}| {np.abs(q[v]).max():.3e}, scale {scale:.3e})")
     line = f"180-degree symmetry, worst relative defect {worst:.3e}"
@@ -74,6 +82,8 @@ def main() -> int:
         ok &= good
         line += f"  {'PASS' if good else 'FAIL'} (max {args.sym_tol:.1e})"
     print(line)
+    if args.cons_tol is None:
+        return 0 if ok else 1
     hist = history(args.work, "conservation")
     drift = 0.0
     for name in CONSERVED:
