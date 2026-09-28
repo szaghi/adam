@@ -31,20 +31,23 @@ use :: adam_flume_common_library,      only : flume_common_object, MODEL_EULER, 
 use :: adam_flume_fnl_euler_kernels,   only : compute_conservation_euler_dev=>compute_conservation_dev,                &
                                               compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
                                               compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
-                                              compute_q_aux_euler_dev=>compute_q_aux_dev
+                                              compute_q_aux_euler_dev=>compute_q_aux_dev,                              &
+                                              count_nonfinite_euler_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors_dev,                           &
                                               compute_divb_norms_mhd_dev=>compute_divb_norms_dev,                     &
                                               compute_conservation_mhd_dev=>compute_conservation_dev,                 &
                                               compute_face_fluxes_mhd_dev=>compute_face_fluxes_dev,                   &
                                               compute_lambda_max_mhd_dev=>compute_lambda_max_dev,                     &
-                                              compute_q_aux_mhd_dev=>compute_q_aux_dev
+                                              compute_q_aux_mhd_dev=>compute_q_aux_dev,                               &
+                                              count_nonfinite_mhd_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_mhd_glm_dev=>apply_floors_dev,  &
                                               compute_divb_norms_mhd_glm_dev=>compute_divb_norms_dev,                 &
                                               compute_conservation_mhd_glm_dev=>compute_conservation_dev,             &
                                               compute_face_fluxes_mhd_glm_dev=>compute_face_fluxes_dev,               &
                                               compute_lambda_max_mhd_glm_dev=>compute_lambda_max_dev,                 &
                                               compute_q_aux_mhd_glm_dev=>compute_q_aux_dev,                           &
-                                              compute_speed_max_mhd_glm_dev=>compute_speed_max_dev
+                                              compute_speed_max_mhd_glm_dev=>compute_speed_max_dev,                   &
+                                              count_nonfinite_mhd_glm_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev,                                                   &
                                               compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,     &
@@ -53,7 +56,7 @@ use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev,            
 use :: fundal,                    only : dev_alloc, dev_assign_to_device, dev_free, dev_memcpy_from_device,     &
                                          dev_memcpy_to_device, mydev
 use :: mpi
-use :: penf,                      only : I4P, R8P, str
+use :: penf,                      only : I4P, I8P, R8P, str
 
 implicit none
 private
@@ -92,6 +95,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
+      procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
@@ -261,6 +265,33 @@ contains
    self%hb5(2,:) = [nv, ni+ngc, nj+ngc, nk+ngc, nb]
    endassociate
    endsubroutine allocate_gpu
+
+   subroutine check_nonfinite(self)
+   !< Stop the run when the committed state holds a non-finite (NaN or infinite) value (issue #45): a run could otherwise
+   !< finish with NaN fields and exit 0. One device pass over the interior cells, the model selected outside the kernels;
+   !< the state is copied to the host only to locate a failure.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+   integer(I8P)                           :: n    !< Non-finite values number of this rank.
+
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call count_nonfinite_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     q_gpu=self%q_gpu, n=n)
+   case(MODEL_MHD)
+      call count_nonfinite_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                   q_gpu=self%q_gpu, n=n)
+   case(MODEL_MHD_GLM)
+      call count_nonfinite_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                  &
+                                       blocks_number=self%blocks_number, q_gpu=self%q_gpu, n=n)
+   case default
+      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
+   n = self%nonfinite_total(n_local=n)
+   if (n > 0_I8P) then
+      call self%copy_gpu_cpu
+      call self%stop_nonfinite(n_total=n)
+   endif
+   endsubroutine check_nonfinite
 
    subroutine check_glm_ch(self)
    !< Check the GLM cleaning speed against the fastest wave of the committed state (issue #41, section 3.5); a no-op
@@ -836,8 +867,8 @@ contains
    endsubroutine open_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
-   !< Post-step work: the GLM c_h check, the div(B) history (MHD), fields, restart and conservation history on their
-   !< cadence.
+   !< Post-step work: the non-finite state check, the GLM c_h check, the div(B) history (MHD), fields, restart and
+   !< conservation history on their cadence.
    class(flume_fnl_object), intent(inout)                   :: self              !< The equation.
    real(R8P),               intent(in)                      :: dt                !< Time step just advanced.
    real(R8P),               intent(in)                      :: t                 !< Time after the advance.
@@ -848,6 +879,7 @@ contains
    logical,                 intent(in),    optional         :: do_amr            !< Unused: AMR is init-time only.
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
+   call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
    call self%save_simulation_data

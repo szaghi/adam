@@ -17,7 +17,7 @@ use :: adam_flume_euler_library, only : compute_face_flux_back_projection, compu
                                         conservative_to_auxiliary
 use :: adam_flume_parameters,    only : IA_A, IA_U, IA_V, IA_W, NV_AUX_K=>NV_AUX, NV_K=>NV_EULER, S_MAX
 ! third party modules
-use :: penf,                     only : I4P, R8P
+use :: penf,                     only : I4P, I8P, R8P
 
 implicit none
 private
@@ -25,6 +25,7 @@ public :: compute_conservation_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
 public :: compute_q_aux_dev
+public :: count_nonfinite_dev
 
 contains
    ! public procedures

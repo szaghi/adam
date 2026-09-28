@@ -21,7 +21,7 @@ use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_glm
 use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
                                       IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD_GLM, S_MAX
 ! third party modules
-use :: penf,                   only : I4P, R8P
+use :: penf,                   only : I4P, I8P, R8P
 
 implicit none
 private
@@ -32,6 +32,7 @@ public :: compute_divb_norms_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
 public :: compute_q_aux_dev
+public :: count_nonfinite_dev
 public :: compute_speed_max_dev
 
 contains

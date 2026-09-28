@@ -22,21 +22,24 @@ use :: adam_flume_common_library,      only : flume_common_object, ib_cut_spacin
                                               MODEL_MHD, MODEL_MHD_GLM, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
 use :: adam_flume_cpu_euler_kernels,   only : compute_face_fluxes_euler=>compute_face_fluxes,                        &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
-                                              compute_q_aux_euler=>compute_q_aux
+                                              compute_q_aux_euler=>compute_q_aux,                                    &
+                                              count_nonfinite_euler=>count_nonfinite
 use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,                                   &
                                               compute_divb_norms_mhd=>compute_divb_norms,                          &
                                               compute_face_fluxes_mhd=>compute_face_fluxes,                        &
                                               compute_lambda_max_mhd=>compute_lambda_max,                            &
-                                              compute_q_aux_mhd=>compute_q_aux
+                                              compute_q_aux_mhd=>compute_q_aux,                                      &
+                                              count_nonfinite_mhd=>count_nonfinite
 use :: adam_flume_cpu_mhd_glm_kernels, only : add_glm_damping, apply_floors_mhd_glm=>apply_floors,              &
                                               compute_divb_norms_mhd_glm=>compute_divb_norms,                      &
                                               compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
                                               compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
                                               compute_q_aux_mhd_glm=>compute_q_aux,                                  &
-                                              compute_speed_max_mhd_glm=>compute_speed_max
+                                              compute_speed_max_mhd_glm=>compute_speed_max,                          &
+                                              count_nonfinite_mhd_glm=>count_nonfinite
 ! third party modules
 use :: mpi
-use :: penf,                      only : I4P, R8P, str
+use :: penf,                      only : I4P, I8P, R8P, str
 
 implicit none
 private
@@ -60,6 +63,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
+      procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
       procedure, pass(self) :: save_residuals          !< Save residuals history.
       procedure, pass(self) :: save_simulation_data    !< Save fields, restart and diagnostics on their cadence.
@@ -238,6 +242,29 @@ contains
    endselect
    call self%report_glm_speed(speed_max=speed_max)
    endsubroutine check_glm_ch
+
+   subroutine check_nonfinite(self)
+   !< Stop the run when the committed state holds a non-finite (NaN or infinite) value (issue #45): a run could otherwise
+   !< finish with NaN fields and exit 0. One pass over the interior cells, the model selected outside the loops.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+   integer(I8P)                           :: n    !< Non-finite values number of this rank.
+
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call count_nonfinite_euler(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                 q=self%q, n=n)
+   case(MODEL_MHD)
+      call count_nonfinite_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                               q=self%q, n=n)
+   case(MODEL_MHD_GLM)
+      call count_nonfinite_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                   q=self%q, n=n)
+   case default
+      call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
+   endselect
+   n = self%nonfinite_total(n_local=n)
+   if (n > 0_I8P) call self%stop_nonfinite(n_total=n)
+   endsubroutine check_nonfinite
 
    subroutine compute_conservation(self)
    !< Compute the volume integrals of the conservative variables and save them on the diagnostics cadence.
@@ -719,8 +746,8 @@ contains
    endsubroutine open_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
-   !< Post-step work: the GLM c_h check, the div(B) history (MHD), fields, restart and conservation history on their
-   !< cadence.
+   !< Post-step work: the non-finite state check, the GLM c_h check, the div(B) history (MHD), fields, restart and
+   !< conservation history on their cadence.
    class(flume_cpu_object), intent(inout)                   :: self              !< The equation.
    real(R8P),               intent(in)                      :: dt                !< Time step just advanced.
    real(R8P),               intent(in)                      :: t                 !< Time after the advance.
@@ -731,6 +758,7 @@ contains
    logical,                 intent(in),    optional         :: do_amr            !< Unused: AMR is init-time only.
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
+   call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
    call self%save_simulation_data

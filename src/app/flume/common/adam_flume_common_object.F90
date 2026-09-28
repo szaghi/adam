@@ -85,6 +85,8 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: null_freeze           !< Return the variable each null direction freezes.
       procedure, pass(self) :: report_divb           !< Reduce and save the div(B) norms, apply the divb_tol monitor.
       procedure, pass(self) :: report_glm_speed      !< Check c_h against the fastest wave (warning or stop).
+      procedure, pass(self) :: nonfinite_total       !< Sum the non-finite values count over the ranks.
+      procedure, pass(self) :: stop_nonfinite        !< Stop on a non-finite state, locating it on every rank.
       procedure, pass(self) :: load_restart_files    !< Load restart files.
       procedure, pass(self) :: save_restart_files    !< Save restart files.
       procedure, pass(self) :: save_slices           !< Save the slices on their cadence.
@@ -554,6 +556,48 @@ contains
                                          trim(str(self%time%it))//': the cleaning is slower than the fastest wave'
    endif
    endsubroutine report_glm_speed
+
+   function nonfinite_total(self, n_local) result(n_total)
+   !< Return the number of non-finite values of the committed state over every rank (issue #45).
+   class(flume_common_object), intent(in) :: self    !< The equation.
+   integer(I8P),               intent(in) :: n_local !< Non-finite values number of this rank.
+   integer(I8P)                           :: n_total !< Non-finite values number of all ranks.
+
+   n_total = n_local
+   call MPI_ALLREDUCE(MPI_IN_PLACE, n_total, 1, MPI_INTEGER8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   endfunction nonfinite_total
+
+   subroutine stop_nonfinite(self, n_total)
+   !< Stop the run on a non-finite (NaN or infinite) committed state (issue #45), reporting on every rank the first
+   !< non-finite value of the host `q` (the caller has made it current): block Morton code, cell centre, variable. Every
+   !< rank calls it after the reduction, so the stop is collective (the first `error_stop` aborts the others, #43).
+   class(flume_common_object), intent(in) :: self                   !< The equation.
+   integer(I8P),               intent(in) :: n_total                !< Non-finite values number of all ranks.
+   integer(I8P), parameter                :: EXPONENT_MASK=2047_I8P !< The 11 exponent bits of a binary64.
+   character(:), allocatable              :: site                   !< First non-finite value of this rank.
+   integer(I4P)                           :: b, i, j, k, v          !< Counters.
+
+   site = 'none on this rank'
+   search: do b=1, self%blocks_number
+      do k=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               do v=1, self%physics%nv
+                  if (iand(ishft(transfer(self%q(v,i,j,k,b), 0_I8P), -52), EXPONENT_MASK) == EXPONENT_MASK) then
+                     site = 'first at block code '//trim(str(self%adam%field%code(b)))//', cell ('//            &
+                            trim(str(i))//', '//trim(str(j))//', '//trim(str(k))//') centre ('//                    &
+                            trim(str(self%adam%field%x_cell(i,b)))//', '//trim(str(self%adam%field%y_cell(j,b)))// &
+                            ', '//trim(str(self%adam%field%z_cell(k,b)))//'), variable '//self%q_name(v)%chars()
+                     exit search
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo search
+   call mpih%error_stop(msg=': '//trim(str(n_total))//' non-finite (NaN or infinite) values in the state at step '// &
+                            trim(str(self%time%it))//'; '//site)
+   endsubroutine stop_nonfinite
 
    subroutine load_restart_files(self, t, time)
    !< Load restart files.
