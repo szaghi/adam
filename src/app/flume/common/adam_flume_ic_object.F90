@@ -31,7 +31,13 @@ module adam_flume_ic_object
 !<   `phi = 2 pi (x cos a + y sin a) / wavelength`, `a = wave_angle` (degrees), `n = (cos a, sin a, 0)`,
 !<   `t1 = (-sin a, cos a, 0)`, `t2 = z`, `h = +1` (`polarisation = right`) or `-1` (`left`, the mirror image under
 !<   `z -> -z`); `|B_perp|` is uniform, so the total pressure is too, and the wave travels along `+n` unchanged at
-!<   `|b_par| / sqrt(rho)`: after one period `wavelength sqrt(rho) / |b_par|` the exact solution is the initial state.
+!<   `|b_par| / sqrt(rho)`: after one period `wavelength sqrt(rho) / |b_par|` the exact solution is the initial state;
+!< * `mhd-vortex` (MHD only, issue #41, MV-7; Balsara 2004, ApJS 151): the free stream of region 1 (`bx = by = 0`,
+!<   fatal otherwise) plus a magnetised vortex of axis z centred at `(x0, y0)`, of radius `radius`:
+!<   `dv = kappa/(2 pi) e (-(y-y0), x-x0) / radius`, `dB = mu/(2 pi) e (-(y-y0), x-x0) / radius`,
+!<   `dp = (mu^2 (1-r^2) - rho kappa^2) / (8 pi^2) e^2`, `e = exp((1-r^2)/2)`, `r = |x-x0| / radius`, density uniform:
+!<   the radial balance `dp/dr = rho v^2/r - B^2/r - d(B^2/2)/dr` (rationalised units) holds exactly, so the vortex is a
+!<   steady solution convected by the free stream, with a divergence-free field.
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
@@ -73,6 +79,10 @@ character(len=14), parameter :: WAVE_KEY(3)=['wave_angle    ', &
                                              'wave_amplitude', &
                                              'wavelength    ']           !< Linear wave and CPAW keys.
 character(len=8),  parameter :: IC_MHD_CPAW_STR="mhd-cpaw"               !< Circularly polarised Alfven wave (MHD).
+character(len=10), parameter :: IC_MHD_VORTEX_STR="mhd-vortex"           !< Magnetised vortex in a free stream (MHD).
+character(len=6),  parameter :: MHD_VORTEX_KEY(5)=['x0    ', 'y0    ', &
+                                                   'radius', 'kappa ', &
+                                                   'mu    ']             !< Magnetised vortex keys.
 character(len=8),  parameter :: VORTEX_KEY(4)=['x0      ', 'y0      ', &
                                                'radius  ', 'strength']   !< Vortex keys.
 real(R8P),         parameter :: PI=acos(-1._R8P)                        !< Pi greek.
@@ -104,6 +114,7 @@ type :: flume_ic_object
    real(R8P)                 :: wave_r(NV_MHD)=0._R8P !< Linear wave: right eigenvector, global frame.
    real(R8P)                 :: b_par=0._R8P         !< CPAW: field along the wave normal.
    real(R8P)                 :: polarisation=0._R8P  !< CPAW: +1 right, -1 left.
+   real(R8P)                 :: mvortex(5)=0._R8P    !< Magnetised vortex: x0, y0, radius, kappa, mu.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -137,6 +148,8 @@ contains
    if (self%ic_type == IC_MHD_CPAW_STR) &
    desc = desc//NL//mpih%myrankstr//'  cpaw:           b_par '//trim(str(self%b_par))//', polarisation '// &
                                     trim(str(self%polarisation))//', '//trim(str(self%wave_par))
+   if (self%ic_type == IC_MHD_VORTEX_STR) &
+   desc = desc//NL//mpih%myrankstr//'  mhd vortex:     '//trim(str(self%mvortex))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -278,6 +291,18 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='b_par', val=self%b_par, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(b_par)')
       if (self%b_par == 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(b_par) must be non-zero')
+   case(IC_MHD_VORTEX_STR)
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_VORTEX_STR//' requires '// &
+                                  '[physics].(physical_model) = mhd-ideal')
+      self%regions_number = 1_I4P
+      do k=1, 5
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(MHD_VORTEX_KEY(k)), &
+                                  val=self%mvortex(k), error=error)
+         if (error > 0) &
+            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(MHD_VORTEX_KEY(k))//')')
+      enddo
+      if (self%mvortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -288,7 +313,7 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(type) "'//self%ic_type//'"; expected one of '// &
                                IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
-                               IC_MHD_CPAW_STR)
+                               IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -323,6 +348,12 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_CPAW_STR//' builds the velocity and '// &
                                   'the field from b_par and wave_amplitude: ['//INI_SECTION_NAME//'_region_1].(u, v, w, '// &
                                   'bx, by, bz) must be 0')
+   endif
+   if (self%ic_type == IC_MHD_VORTEX_STR) then
+      if (any(self%prim_1(6:7) /= 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_VORTEX_STR//' is an equilibrium only '// &
+                                  'without an in-plane free-stream field: ['//INI_SECTION_NAME//'_region_1].(bx, by) must '// &
+                                  'be 0')
    endif
    endsubroutine load_from_file
 
@@ -410,6 +441,18 @@ contains
                   prim = self%prim_1
                   prim(2:4) = -sign(1._R8P, self%b_par) / sqrt(self%prim_1(1)) * [-sa * bt(1), ca * bt(1), bt(2)]
                   prim(6:8) = [ca * self%b_par - sa * bt(1), sa * self%b_par + ca * bt(1), bt(2)]
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_MHD_VORTEX_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  call mhd_vortex(prim0=self%prim_1, mvortex=self%mvortex, x=field%x_cell(i,b), y=field%y_cell(j,b), &
+                                  prim=prim)
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
@@ -542,6 +585,28 @@ contains
    r_global(IQ_BX) = c * er(IQ_BX,k) - s * er(IQ_BY,k)
    r_global(IQ_BY) = s * er(IQ_BX,k) + c * er(IQ_BY,k)
    endsubroutine linear_wave_eigenvector
+
+   pure subroutine mhd_vortex(prim0, mvortex, x, y, prim)
+   !< Return the primitive state of the magnetised vortex at `(x, y)` (formulas in the module documentation).
+   real(R8P), intent(in)  :: prim0(8)   !< Free stream primitive state (r, u, v, w, p, bx, by, bz), bx = by = 0.
+   real(R8P), intent(in)  :: mvortex(5) !< Vortex x0, y0, radius, kappa, mu.
+   real(R8P), intent(in)  :: x, y       !< Point coordinates.
+   real(R8P), intent(out) :: prim(8)    !< Primitive state.
+   real(R8P)              :: dx, dy     !< Scaled distances from the vortex centre.
+   real(R8P)              :: rr         !< Scaled squared distance.
+   real(R8P)              :: e          !< Gaussian factor, exp((1 - r^2) / 2).
+
+   dx = (x - mvortex(1)) / mvortex(3)
+   dy = (y - mvortex(2)) / mvortex(3)
+   rr = dx * dx + dy * dy
+   e  = exp(0.5_R8P * (1._R8P - rr))
+   prim    = prim0
+   prim(2) = prim0(2) - mvortex(4) / (2._R8P * PI) * dy * e
+   prim(3) = prim0(3) + mvortex(4) / (2._R8P * PI) * dx * e
+   prim(5) = prim0(5) + (mvortex(5)**2 * (1._R8P - rr) - prim0(1) * mvortex(4)**2) / (8._R8P * PI**2) * e * e
+   prim(6) = -mvortex(5) / (2._R8P * PI) * dy * e
+   prim(7) =  mvortex(5) / (2._R8P * PI) * dx * e
+   endsubroutine mhd_vortex
 
    pure subroutine isentropic_vortex(gamma, prim, vortex, x, y, q)
    !< Return the conservative state of the isentropic vortex at `(x, y)` (formulas in the module documentation).
