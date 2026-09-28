@@ -28,6 +28,7 @@
 #   sod-amr                  sod-x (ni 48) with x > 0.75 refined: a 2:1 face crossed by the shock, reflux
 #   sod-amr-2realm           sod-amr split in two realms, realm 2 refined: intra-realm AMR and inter-realm seam faces
 #                            in one flux register (issue #37); equivalent_to sod-amr
+#   orszag-tang              MV-12 Orszag-Tang, MHD + GLM, periodic 64^2, SSP-54, 100 steps (issue #41, M2-P6a)
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 

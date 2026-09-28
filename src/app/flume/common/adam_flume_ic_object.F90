@@ -37,7 +37,13 @@ module adam_flume_ic_object
 !<   `dv = kappa/(2 pi) e (-(y-y0), x-x0) / radius`, `dB = mu/(2 pi) e (-(y-y0), x-x0) / radius`,
 !<   `dp = (mu^2 (1-r^2) - rho kappa^2) / (8 pi^2) e^2`, `e = exp((1-r^2)/2)`, `r = |x-x0| / radius`, density uniform:
 !<   the radial balance `dp/dr = rho v^2/r - B^2/r - d(B^2/2)/dr` (rationalised units) holds exactly, so the vortex is a
-!<   steady solution convected by the free stream, with a divergence-free field.
+!<   steady solution convected by the free stream, with a divergence-free field;
+!< * `orszag-tang` (MHD only, issue #41, MV-12; Stone et al. 2008, section 8.4): the Orszag-Tang vortex on the unit
+!<   period, keyless and with no region sections: `rho = 25/(36 pi)`, `p = 5/(12 pi)`, `u = -sin(2 pi y)`,
+!<   `v = sin(2 pi x)`, `bx = -sin(2 pi y) / sqrt(4 pi)`, `by = sin(4 pi x) / sqrt(4 pi)`, `w = bz = 0` (divergence-free
+!<   pointwise, symmetric under the 180 degrees rotation about `(1/2, 1/2)`). Evaluated as odd functions of
+!<   `s = 2 x - 1`, `t = 2 y - 1` (`u = sin(pi t)`, `v = -sin(pi s)`, `by = sin(2 pi s) / sqrt(4 pi)`): on cell centres that
+!<   are exact binary fractions the rotated cell has exactly `-s, -t`, so the initial state is bitwise symmetric.
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
@@ -80,6 +86,7 @@ character(len=14), parameter :: WAVE_KEY(3)=['wave_angle    ', &
                                              'wavelength    ']           !< Linear wave and CPAW keys.
 character(len=8),  parameter :: IC_MHD_CPAW_STR="mhd-cpaw"               !< Circularly polarised Alfven wave (MHD).
 character(len=10), parameter :: IC_MHD_VORTEX_STR="mhd-vortex"           !< Magnetised vortex in a free stream (MHD).
+character(len=11), parameter :: IC_ORSZAG_TANG_STR="orszag-tang"         !< Orszag-Tang vortex (MHD).
 character(len=6),  parameter :: MHD_VORTEX_KEY(5)=['x0    ', 'y0    ', &
                                                    'radius', 'kappa ', &
                                                    'mu    ']             !< Magnetised vortex keys.
@@ -303,6 +310,11 @@ contains
             call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(MHD_VORTEX_KEY(k))//')')
       enddo
       if (self%mvortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
+   case(IC_ORSZAG_TANG_STR)
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_ORSZAG_TANG_STR//' requires '// &
+                                  '[physics].(physical_model) = mhd-ideal')
+      self%regions_number = 0_I4P
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -313,7 +325,7 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(type) "'//self%ic_type//'"; expected one of '// &
                                IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
-                               IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR)
+                               IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -453,6 +465,24 @@ contains
                do i=1, field%ni
                   call mhd_vortex(prim0=self%prim_1, mvortex=self%mvortex, x=field%x_cell(i,b), y=field%y_cell(j,b), &
                                   prim=prim)
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_ORSZAG_TANG_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  prim(1) = 25._R8P / (36._R8P * PI)
+                  prim(2) =  sin(PI * (2._R8P * field%y_cell(j,b) - 1._R8P))
+                  prim(3) = -sin(PI * (2._R8P * field%x_cell(i,b) - 1._R8P))
+                  prim(4) = 0._R8P
+                  prim(5) = 5._R8P / (12._R8P * PI)
+                  prim(6) = prim(2) / sqrt(4._R8P * PI)
+                  prim(7) = sin(2._R8P * PI * (2._R8P * field%x_cell(i,b) - 1._R8P)) / sqrt(4._R8P * PI)
+                  prim(8) = 0._R8P
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
