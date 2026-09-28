@@ -48,7 +48,12 @@ module adam_flume_ic_object
 !<   region 1 plus a dense disc centred at `(x0, y0)` in rigid rotation: for `r < r0` density `rho_in` and velocity
 !<   `v0 (-(y-y0), x-x0) / r0` (speed `v0` at `r0`); for `r0 <= r < r1` the linear taper `f = (r1 - r) / (r1 - r0)`,
 !<   density `rho + (rho_in - rho) f`, velocity `f v0 (-(y-y0), x-x0) / r`; pressure and field of region 1 everywhere;
-!<   the velocities add to the ambient one.
+!<   the velocities add to the ambient one;
+!< * `field-loop` (MHD only, issue #41, MV-9; Gardiner and Stone 2005, Mignone and Tzeferacos 2010 section 4.4.1): the
+!<   state of region 1 plus the field of the vector potential `A_z = loop_amplitude (loop_radius - r)` for
+!<   `r < loop_radius`, `r = |x - (x0, y0)|` in the x-y plane: `dB = loop_amplitude (-(y-y0), x-x0) / r` inside the loop,
+!<   zero outside (divergence-free pointwise, discontinuous at `r = loop_radius`); with a uniform `w` the discrete
+!<   div(B) feeds `B_z` (`d B_z / dt = w div(B)`).
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
@@ -93,6 +98,9 @@ character(len=8),  parameter :: IC_MHD_CPAW_STR="mhd-cpaw"               !< Circ
 character(len=10), parameter :: IC_MHD_VORTEX_STR="mhd-vortex"           !< Magnetised vortex in a free stream (MHD).
 character(len=11), parameter :: IC_ORSZAG_TANG_STR="orszag-tang"         !< Orszag-Tang vortex (MHD).
 character(len=9),  parameter :: IC_MHD_ROTOR_STR="mhd-rotor"             !< MHD rotor (MHD).
+character(len=10), parameter :: IC_FIELD_LOOP_STR="field-loop"           !< Advected field loop (MHD).
+character(len=14), parameter :: LOOP_KEY(4)=['x0            ', 'y0            ', &
+                                             'loop_radius   ', 'loop_amplitude'] !< Field loop keys.
 character(len=6),  parameter :: ROTOR_KEY(6)=['x0    ', 'y0    ', &
                                               'r0    ', 'r1    ', &
                                               'rho_in', 'v0    ']       !< MHD rotor keys.
@@ -132,6 +140,7 @@ type :: flume_ic_object
    real(R8P)                 :: polarisation=0._R8P  !< CPAW: +1 right, -1 left.
    real(R8P)                 :: mvortex(5)=0._R8P    !< Magnetised vortex: x0, y0, radius, kappa, mu.
    real(R8P)                 :: rotor(6)=0._R8P      !< MHD rotor: x0, y0, r0, r1, rho_in, v0.
+   real(R8P)                 :: loop(4)=0._R8P       !< Field loop: x0, y0, radius, amplitude.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -169,6 +178,8 @@ contains
    desc = desc//NL//mpih%myrankstr//'  mhd vortex:     '//trim(str(self%mvortex))
    if (self%ic_type == IC_MHD_ROTOR_STR) &
    desc = desc//NL//mpih%myrankstr//'  rotor:          '//trim(str(self%rotor))
+   if (self%ic_type == IC_FIELD_LOOP_STR) &
+   desc = desc//NL//mpih%myrankstr//'  field loop:     '//trim(str(self%loop))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -340,6 +351,17 @@ contains
       if (self%rotor(3) <= 0._R8P .or. self%rotor(4) <= self%rotor(3)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs 0 < r0 < r1')
       if (self%rotor(5) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(rho_in) must be positive')
+   case(IC_FIELD_LOOP_STR)
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_FIELD_LOOP_STR//' requires '// &
+                                  '[physics].(physical_model) = mhd-ideal')
+      self%regions_number = 1_I4P
+      do k=1, 4
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(LOOP_KEY(k)), val=self%loop(k), &
+                                  error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(LOOP_KEY(k))//')')
+      enddo
+      if (self%loop(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(loop_radius) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -351,7 +373,7 @@ contains
                                IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
                                IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
-                               IC_MHD_ROTOR_STR)
+                               IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -521,6 +543,23 @@ contains
                do i=1, field%ni
                   call mhd_rotor(prim0=self%prim_1, rotor=self%rotor, x=field%x_cell(i,b), y=field%y_cell(j,b), &
                                  prim=prim)
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_FIELD_LOOP_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  prim = self%prim_1
+                  center(1:2) = [field%x_cell(i,b) - self%loop(1), field%y_cell(j,b) - self%loop(2)]
+                  s_ = sqrt(center(1) * center(1) + center(2) * center(2))
+                  if (s_ > 0._R8P .and. s_ < self%loop(3)) then
+                     prim(6) = prim(6) - self%loop(4) * center(2) / s_
+                     prim(7) = prim(7) + self%loop(4) * center(1) / s_
+                  endif
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
