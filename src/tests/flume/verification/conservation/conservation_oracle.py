@@ -31,14 +31,24 @@ import numpy as np
 VARIABLES = ("r", "ru", "rv", "rw", "rE")
 
 
-def drift(work: Path) -> np.ndarray:
-    """Return the maximum relative drift of each volume integral of the conservation history of one run."""
+def drift(work: Path) -> tuple[tuple[str, ...], np.ndarray]:
+    """Return (names, maximum relative drift) of each volume integral of the conservation history of one run.
+
+    The names come from the history header (`int_r` -> `r`; MHD adds `bx, by, bz [, psi]`). An integral that starts at
+    exactly zero (psi) has no scale of its own: its drift is relative to the largest initial integral."""
     hist = next(work.glob("*-conservation_history.dat"))
-    rows = [line.split() for line in hist.open() if line.split() and line.split()[0][0] in "+-0123456789"]
+    lines = hist.read_text().splitlines()
+    rows = [line.split() for line in lines if line.split() and line.split()[0][0] in "+-0123456789"]
     h = np.array([[float(v) for v in r] for r in rows])
     if len(h) < 2:
         sys.exit(f"conservation_oracle: {hist} holds fewer than two rows")
-    return np.max(np.abs(h[:, 2:] - h[0, 2:]), axis=0) / np.abs(h[0, 2:])
+    header = [line for line in lines if line.startswith("VARIABLES=")]
+    names = VARIABLES
+    if header:
+        names = tuple(n.strip('"').removeprefix("int_") for n in header[0].split("=", 1)[1].split()[2:])
+    h0 = np.abs(h[0, 2:])
+    scale = np.where(h0 > 0.0, h0, np.max(h0))
+    return names, np.max(np.abs(h[:, 2:] - h[0, 2:]), axis=0) / scale
 
 
 def last_fields(work: Path) -> dict[tuple[float, ...], np.ndarray]:
@@ -54,9 +64,9 @@ def last_fields(work: Path) -> dict[tuple[float, ...], np.ndarray]:
     return out
 
 
-def report(work: Path, d: np.ndarray) -> str:
+def report(work: Path, names: tuple[str, ...], d: np.ndarray) -> str:
     """Return the drift line of one run."""
-    return f"{work.name}: relative drift " + " ".join(f"{n} {x:.2e}" for n, x in zip(VARIABLES, d, strict=True))
+    return f"{work.name}: relative drift " + " ".join(f"{n} {x:.2e}" for n, x in zip(names, d, strict=True))
 
 
 def main() -> int:
@@ -66,6 +76,7 @@ def main() -> int:
     parser.add_argument("--max-drift", type=float, default=1.0e-13, help="bound of the conserved run")
     parser.add_argument("--leaky", type=Path, help="run without reflux (negative control): it must drift")
     parser.add_argument("--min-drift", type=float, default=1.0e-10, help="lower bound of the negative control")
+    parser.add_argument("--exclude", nargs="+", default=[], help="integrals reported but not bounded (e.g. psi)")
     parser.add_argument("--compare", type=Path, nargs=2, help="two runs to compare cell by cell")
     parser.add_argument("--tol", type=float, default=0.0, help="relative comparison tolerance (default 0: bitwise)")
     parser.add_argument("--ngc", type=int, default=0, help="ghost layers stripped before the comparison")
@@ -73,15 +84,17 @@ def main() -> int:
 
     status = 0
     if args.conserved is not None:
-        d = drift(args.conserved)
-        ok = bool(np.all(d <= args.max_drift))
+        names, d = drift(args.conserved)
+        bounded = np.array([n not in args.exclude for n in names])
+        ok = bool(np.all(d[bounded] <= args.max_drift))
         status |= 0 if ok else 1
-        print(f"{report(args.conserved, d)}  {'PASS' if ok else 'FAIL'} (<= {args.max_drift:.1e})")
+        excluded = f", {' '.join(args.exclude)} not bounded" if args.exclude else ""
+        print(f"{report(args.conserved, names, d)}  {'PASS' if ok else 'FAIL'} (<= {args.max_drift:.1e}{excluded})")
     if args.leaky is not None:
-        d = drift(args.leaky)
+        names, d = drift(args.leaky)
         ok = bool(np.max(d) >= args.min_drift)
         status |= 0 if ok else 1
-        print(f"{report(args.leaky, d)}  {'PASS' if ok else 'FAIL'} (negative control, max >= {args.min_drift:.1e})")
+        print(f"{report(args.leaky, names, d)}  {'PASS' if ok else 'FAIL'} (negative control, max >= {args.min_drift:.1e})")
     if args.compare is not None:
         a, b = (last_fields(w) for w in args.compare)
         if args.ngc > 0:
