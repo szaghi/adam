@@ -50,6 +50,7 @@ type :: rk_object
    real(R8P), allocatable :: ssb(:) !< Runge-Kutta sympletic-splitting part B coefficients.
    ! RK data
    real(R8P), allocatable    :: q_rk(:,:,:,:,:,:) !< Field cell centered variables, RK stages.
+   integer(I4P)              :: blocks_zeroed=0   !< Block slots of `q_rk` zeroed so far (issue #45).
    ! grid data replica for easy handling
    integer(I4P),       pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P),       pointer :: ni=>null()            !< Number of cells in i direction.
@@ -468,6 +469,7 @@ contains
                                           1,nrk],[2,6]), &
                              msg=mpih%myrankstr//'rk_object%initialize allocate q_rk')
    endselect
+   self%blocks_zeroed = 0
    endassociate
    print '(A)', self%description()
    call mpih%print_message('rk_object%initialize finish')
@@ -483,7 +485,15 @@ contains
    endsubroutine initialize
 
    subroutine initialize_stages(self, field, q)
-   !< Initialize RK stages.
+   !< Initialize RK stages: every stage starts the step as a copy of `q` in the interior cells.
+   !<
+   !< A block slot is zeroed, ghost cells included, the first time it is active (issue #45). The stage updates write
+   !< the interior only, and neither the ghost exchange (edge and corner ghosts on null axes) nor the alpha-cadence seam
+   !< fill (it fills `q` only) writes every stage ghost cell, while the local ghost fill reads some of them as sources
+   !< (8-cell restriction). `q_rk` is not initialized at allocation (zeroing the whole fill-the-node buffer would commit
+   !< all of it), so those reads saw uninitialized memory (valgrind), zero only when the page happened to be fresh.
+   !< Zeroing once, not every step, keeps the ghost values a previous step wrote and later steps read before rewriting
+   !< them; never-written cells read zero, as in the FNL twin (`q_rk_gpu` is allocated zeroed).
    class(rk_object), intent(inout) :: self             !< RK object.
    type(field_object), intent(in)  :: field            !< Field (sibling realm component, threaded in).
    real(R8P),        intent(in)    :: q(1:,          &
@@ -494,6 +504,10 @@ contains
    integer(I4P)                    :: i, j, k, b, v, s !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>field%nv, blocks_number=>field%blocks_number)
+   if (blocks_number > self%blocks_zeroed) then
+      self%q_rk(:,:,:,:,self%blocks_zeroed+1:blocks_number,:) = 0._R8P
+      self%blocks_zeroed = blocks_number
+   endif
    !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
    do s=lbound(self%q_rk,dim=6),ubound(self%q_rk,dim=6)
       do b=1, blocks_number
