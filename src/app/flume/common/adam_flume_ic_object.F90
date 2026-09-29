@@ -53,7 +53,18 @@ module adam_flume_ic_object
 !<   state of region 1 plus the field of the vector potential `A_z = loop_amplitude (loop_radius - r)` for
 !<   `r < loop_radius`, `r = |x - (x0, y0)|` in the x-y plane: `dB = loop_amplitude (-(y-y0), x-x0) / r` inside the loop,
 !<   zero outside (divergence-free pointwise, discontinuous at `r = loop_radius`); with a uniform `w` the discrete
-!<   div(B) feeds `B_z` (`d B_z / dt = w div(B)`).
+!<   div(B) feeds `B_z` (`d B_z / dt = w div(B)`);
+!< * `rotated-riemann` (issue #41, MV-8; Toth 2000, J. Comput. Phys. 161, section 6.3.2): a one-dimensional Riemann problem
+!<   rotated in the x-y plane, periodic along its normal. The normal is `(normal_x, normal_y)`, the coordinate
+!<   `s = normal_x x + normal_y y` (unnormalised), and with `f = modulo(s - interface_1, period)`,
+!<   `d = interface_2 - interface_1` and `w = interface_2_width` a cell is in region 2 iff `0 < f <= d`, in the linear
+!<   ramp of the primitive variables from region 2 to region 1 iff `d < f <= d + w` (at `f = d + w` region 1), in
+!<   region 1 otherwise: a jump at `interface_1`, and at `interface_2` a jump (`w = 0`) or a ramp. On a periodic line
+!<   the velocity jump of a shock tube must be undone somewhere: a second jump is the mirror problem, an expansion that
+!<   may approach vacuum (for Ryu-Jones 1a: density ~2e-4, Alfven speed ~100); the ramp spreads it. The region states
+!<   are given in the frame of the normal (`u, v` = normal and tangential velocity, `bx, by` = normal and tangential
+!<   field, `w, bz` along z) and rotated to x, y. With integer normal components on a square periodic domain of side
+!<   `period`, the state is periodic in x and in y (Toth's shifted-periodic strip is not needed).
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
@@ -101,6 +112,10 @@ character(len=9),  parameter :: IC_MHD_ROTOR_STR="mhd-rotor"             !< MHD 
 character(len=10), parameter :: IC_FIELD_LOOP_STR="field-loop"           !< Advected field loop (MHD).
 character(len=14), parameter :: LOOP_KEY(4)=['x0            ', 'y0            ', &
                                              'loop_radius   ', 'loop_amplitude'] !< Field loop keys.
+character(len=15), parameter :: IC_ROTATED_RIEMANN_STR="rotated-riemann" !< Rotated periodic Riemann problem.
+character(len=17), parameter :: ROTATED_KEY(6)=['normal_x         ', 'normal_y         ', &
+                                                'interface_1      ', 'interface_2      ', &
+                                                'period           ', 'interface_2_width'] !< Rotated Riemann keys.
 character(len=6),  parameter :: ROTOR_KEY(6)=['x0    ', 'y0    ', &
                                               'r0    ', 'r1    ', &
                                               'rho_in', 'v0    ']       !< MHD rotor keys.
@@ -141,6 +156,8 @@ type :: flume_ic_object
    real(R8P)                 :: mvortex(5)=0._R8P    !< Magnetised vortex: x0, y0, radius, kappa, mu.
    real(R8P)                 :: rotor(6)=0._R8P      !< MHD rotor: x0, y0, r0, r1, rho_in, v0.
    real(R8P)                 :: loop(4)=0._R8P       !< Field loop: x0, y0, radius, amplitude.
+   real(R8P)                 :: rotated(6)=0._R8P    !< Rotated Riemann: normal x, y, interface 1, 2, period, width 2.
+   real(R8P)                 :: prim_2(8)=0._R8P     !< Primitive state of region 2 (global frame, first nprim used).
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -180,6 +197,8 @@ contains
    desc = desc//NL//mpih%myrankstr//'  rotor:          '//trim(str(self%rotor))
    if (self%ic_type == IC_FIELD_LOOP_STR) &
    desc = desc//NL//mpih%myrankstr//'  field loop:     '//trim(str(self%loop))
+   if (self%ic_type == IC_ROTATED_RIEMANN_STR) &
+   desc = desc//NL//mpih%myrankstr//'  rotated:        '//trim(str(self%rotated))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -362,6 +381,20 @@ contains
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(LOOP_KEY(k))//')')
       enddo
       if (self%loop(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(loop_radius) must be positive')
+   case(IC_ROTATED_RIEMANN_STR)
+      self%regions_number = 2_I4P
+      do k=1, 6
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(ROTATED_KEY(k)), val=self%rotated(k), &
+                                  error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(ROTATED_KEY(k))//')')
+      enddo
+      if (self%rotated(1) == 0._R8P .and. self%rotated(2) == 0._R8P) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(normal_x, normal_y) must not both be 0')
+      if (self%rotated(5) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(period) must be positive')
+      if (self%rotated(4) <= self%rotated(3) .or. self%rotated(6) < 0._R8P .or. &
+          self%rotated(4) + self%rotated(6) >= self%rotated(3) + self%rotated(5)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs interface_1 < interface_2, interface_2_width >= 0 '// &
+                                  'and interface_2 + interface_2_width < interface_1 + period')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -373,7 +406,7 @@ contains
                                IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
                                IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
-                               IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR)
+                               IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -389,8 +422,10 @@ contains
          call file_parameters%get(section_name=sname, option_name=trim(PRIM_KEY(k)), val=prim(k), error=error)
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//trim(PRIM_KEY(k))//')')
       enddo
+      if (self%ic_type == IC_ROTATED_RIEMANN_STR) call rotate_to_global(normal=self%rotated(1:2), nprim=self%nprim, prim=prim)
       call primitive_state_to_conservative(model=self%model, gamma=physics%gamma, prim=prim, q=self%q_region(:,r))
       if (r == 1_I4P) self%prim_1 = prim
+      if (r == 2_I4P) self%prim_2 = prim
       if (r == 1_I4P .and. self%ic_type == IC_MHD_LINEAR_WAVE_STR) &
          call linear_wave_eigenvector(gamma=physics%gamma, R=physics%R, prim=prim, wave=self%wave, &
                                       angle=self%wave_par(1), r_global=self%wave_r)
@@ -578,6 +613,25 @@ contains
             enddo
          enddo
       enddo
+   case(IC_ROTATED_RIEMANN_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  s_ = modulo(self%rotated(1) * field%x_cell(i,b) + self%rotated(2) * field%y_cell(j,b) - self%rotated(3), &
+                              self%rotated(5)) - (self%rotated(4) - self%rotated(3))
+                  if (s_ > -(self%rotated(4) - self%rotated(3)) .and. s_ <= 0._R8P) then
+                     q(:,i,j,k,b) = self%q_region(:,2)
+                  elseif (s_ > 0._R8P .and. s_ < self%rotated(6)) then
+                     prim = self%prim_2 + (self%prim_1 - self%prim_2) * (s_ / self%rotated(6))
+                     call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+                  else
+                     q(:,i,j,k,b) = self%q_region(:,1)
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
    case(IC_RIEMANN_PROBLEM_STR)
       do b=1, field%blocks_number
          do k=1, field%nk
@@ -739,6 +793,28 @@ contains
       prim(3) = prim0(3) + f * rotor(6) * dx / r
    endif
    endsubroutine mhd_rotor
+
+   pure subroutine rotate_to_global(normal, nprim, prim)
+   !< Rotate the velocity and (MHD) the field of a primitive state from the frame of `normal` (normal, tangential, z) to
+   !< x, y, z: `v = v_n n + v_t t`, `n = normal / |normal|`, `t = (-n_y, n_x)`.
+   real(R8P),    intent(in)    :: normal(2) !< Normal, (x, y), not normalised.
+   integer(I4P), intent(in)    :: nprim     !< Primitive keys number: 5 (Euler) or 8 (MHD).
+   real(R8P),    intent(inout) :: prim(8)   !< Primitive state (r, u, v, w, p, bx, by, bz).
+   real(R8P)                   :: n(2)      !< Unit normal.
+   real(R8P)                   :: a, b      !< Normal and tangential components.
+
+   n = normal / sqrt(normal(1) * normal(1) + normal(2) * normal(2))
+   a = prim(2)
+   b = prim(3)
+   prim(2) = a * n(1) - b * n(2)
+   prim(3) = a * n(2) + b * n(1)
+   if (nprim == 8_I4P) then
+      a = prim(6)
+      b = prim(7)
+      prim(6) = a * n(1) - b * n(2)
+      prim(7) = a * n(2) + b * n(1)
+   endif
+   endsubroutine rotate_to_global
 
    pure subroutine isentropic_vortex(gamma, prim, vortex, x, y, q)
    !< Return the conservative state of the isentropic vortex at `(x, y)` (formulas in the module documentation).
