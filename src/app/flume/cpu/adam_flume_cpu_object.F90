@@ -19,7 +19,9 @@ use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION,  &
                                               BC_INFLOW, BC_WALL_INVISCID, MODEL_EULER,                                 &
-                                              MODEL_MHD, MODEL_MHD_GLM, RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
+                                              MODEL_MHD, MODEL_MHD_GLM, RECON_CHARACTERISTIC, RIEMANN_SOLVER_LLF,       &
+                                              SCHEME_SPACE_WENO, SCHEME_SPACE_WENO_RIEMANN
+use :: adam_flume_cpu_euler_llf_kernels, only : compute_riemann_face_fluxes_euler_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_euler_kernels,   only : compute_face_fluxes_euler=>compute_face_fluxes,                        &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
                                               compute_q_aux_euler=>compute_q_aux,                                    &
@@ -388,6 +390,8 @@ contains
    select case(self%numerics%scheme_space)
    case(SCHEME_SPACE_WENO)
       self%compute_residuals => compute_residuals_weno
+   case(SCHEME_SPACE_WENO_RIEMANN)
+      self%compute_residuals => compute_residuals_riemann
    case default
       call mpih%error_stop(msg=': no CPU space operator for scheme_space "'//self%numerics%scheme_space//'"')
    endselect
@@ -999,6 +1003,77 @@ contains
                                                                   damping=self%physics%mhd%glm_damping, q=q, dq=dq)
    endassociate
    endsubroutine compute_residuals_weno
+
+   subroutine compute_residuals_riemann(self, q, dq, s, flux_register)
+   !< Compute the residuals with the `weno-riemann` space operator (issue #47): as `compute_residuals_weno`, with the
+   !< face fluxes of the WENO interpolation, the Riemann solver and the high-order correction.
+   !<
+   !< The host selects the kernel of the (model, solver) pair; a pair without kernels is fatal. The pre-steps (immersed
+   !< solids, floors, ghosts, auxiliary variables) and the post-steps (seam accumulation, flux difference, GLM damping)
+   !< are those of `compute_residuals_weno`.
+   class(flume_cpu_object),     intent(inout)           :: self          !< The equation.
+   real(R8P),                   intent(inout)           :: q(1:,         &
+                                                             1-self%ngc:,&
+                                                             1-self%ngc:,&
+                                                             1-self%ngc:,&
+                                                             1:)         !< Conservative variables.
+   real(R8P),                   intent(inout)           :: dq(1:,         &
+                                                              1-self%ngc:,&
+                                                              1-self%ngc:,&
+                                                              1-self%ngc:,&
+                                                              1:)         !< Residuals.
+   integer(I4P),                intent(in),    optional :: s             !< Runge-Kutta stage.
+   class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register for reflux.
+   logical                                              :: is_char       !< Characteristic interpolation flag.
+   real(R8P)                                            :: cc(3)         !< Correction coefficients.
+   real(R8P)                                            :: tau           !< Correction sensor threshold.
+   integer(I4P)                                         :: e             !< Eikonal iterations counter.
+
+   if (self%ib%solids_number > 0_I4P) then
+      call self%update_ghost(q=q)
+      do e=1, self%ib%n_eikonal
+         call self%ib%evolve_eikonal(field=self%adam%field, grid=self%adam%grid, q=q, dq=dq)
+         call self%update_ghost(q=q)
+      enddo
+      call self%ib%invert_eikonal(field=self%adam%field, grid=self%adam%grid, q=q)
+   endif
+   call self%apply_floors(q=q)
+   call self%update_ghost(q=q)
+   call self%compute_q_aux(q=q)
+   is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
+   cc = self%numerics%correction_coefficients()
+   tau = self%numerics%correction_threshold()
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+             ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz)
+   if (self%physics%model == MODEL_EULER .and. self%numerics%riemann_solver == RIEMANN_SOLVER_LLF) then
+      if (.not.is_null(1)) call compute_riemann_face_fluxes_euler_llf(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,  &
+                                                                      nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
+                                                                      is_characteristic=is_char, weno=self%weno, cc=cc,     &
+                                                                      tau=tau, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_riemann_face_fluxes_euler_llf(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,  &
+                                                                      nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
+                                                                      is_characteristic=is_char, weno=self%weno, cc=cc,     &
+                                                                      tau=tau, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_riemann_face_fluxes_euler_llf(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,  &
+                                                                      nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
+                                                                      is_characteristic=is_char, weno=self%weno, cc=cc,     &
+                                                                      tau=tau, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   else
+      call mpih%error_stop(msg=': no CPU weno-riemann kernels yet for [physics].(physical_model)='//               &
+                               self%physics%physical_model//' with [numerics].(riemann_solver)='//                 &
+                               self%numerics%riemann_solver//' (issue #47: Euler hll/hllc in M3-P2, MHD in M3-P3)')
+   endif
+   if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
+      if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
+   endif
+   call compute_flux_difference(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,  &
+                                freeze=self%null_freeze(),                                                           &
+                                dxyz=self%adam%field%dxyz, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq, &
+                                phi=self%ib%phi)
+   if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
+                                                                  damping=self%physics%mhd%glm_damping, q=q, dq=dq)
+   endassociate
+   endsubroutine compute_residuals_riemann
 
    subroutine integrate_rk_ls(self)
    !< Integrate one time step with a low-storage Runge-Kutta scheme.

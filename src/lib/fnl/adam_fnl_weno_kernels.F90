@@ -11,6 +11,7 @@ use :: penf, only : I4P, R8P
 implicit none
 private
 public :: weno_reconstruct_upwind_dev
+public :: weno_reconstruct_upwind_wratio_dev
 public :: S_max
 public :: S_max_m1
 
@@ -34,6 +35,34 @@ contains
    call weno_compute_weights_device(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, V=V(1:2,1-S:-1+S), w=w(1:2,0:S-1))
    call weno_compute_convolution_device(S=S, VP=VP(1:2,0:S-1), w=w(1:2,0:S-1), VR=VR(1:2))
    endsubroutine weno_reconstruct_upwind_dev
+
+   subroutine weno_reconstruct_upwind_wratio_dev(S, weno_a, weno_p, weno_d, weno_zeps, V, VR, WRATIO)
+   !< Reconstruct (or interpolate) by WENO upwind method of 2S-1 order, returning also the smoothness ratio of each
+   !< interface, `WRATIO(f) = min_k w(f,k) / weno_a(f,k,S)`; device twin of `weno_reconstruct_upwind_wratio`, non TBP.
+   integer(I4P), intent(in)  :: S                   !< Number of stencils used.
+   real(R8P),    intent(in)  :: weno_a(1:,0:,1:)    !< Optimal weights.
+   real(R8P),    intent(in)  :: weno_p(1:,0:,0:,1:) !< Polinomials coefficients.
+   real(R8P),    intent(in)  :: weno_d(0:,0:,0:,1:) !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)  :: weno_zeps           !< Parameter for avoiding division by zero in computing IS.
+   real(R8P),    intent(in)  :: V (1:2,1-S:-1+S)    !< Variables to be reconstructed.
+   real(R8P),    intent(out) :: VR(1:2)             !< Left and right (1,2) interface value of reconstructed V.
+   real(R8P),    intent(out) :: WRATIO(1:2)         !< Left and right (1,2) interface smoothness ratio.
+   real(R8P)                 :: VP(1:2,0:S_max_m1)  !< Polynomial reconstructions.
+   real(R8P)                 :: w (1:2,0:S_max_m1)  !< Weights of the stencils.
+   integer(I4P)              :: k, f                !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   call weno_compute_polynomials_device(S=S, weno_p=weno_p, V=V(1:2,1-S:-1+S), VP=VP(1:2,0:S-1))
+   call weno_compute_weights_device(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, V=V(1:2,1-S:-1+S), w=w(1:2,0:S-1))
+   call weno_compute_convolution_device(S=S, VP=VP(1:2,0:S-1), w=w(1:2,0:S-1), VR=VR(1:2))
+   do f=1, 2
+      WRATIO(f) = w(f,0) / weno_a(f,0,S)
+      do k=1, S-1
+         WRATIO(f) = min(WRATIO(f), w(f,k) / weno_a(f,k,S))
+      enddo
+   enddo
+   endsubroutine weno_reconstruct_upwind_wratio_dev
 
    ! private procedures
    subroutine weno_compute_convolution_device(S, VP, w, VR)

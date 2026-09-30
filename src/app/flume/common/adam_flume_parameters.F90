@@ -6,7 +6,7 @@ module adam_flume_parameters
 !< one list and its error message can name the accepted spellings.
 
 ! third party modules
-use :: penf, only : I4P
+use :: penf, only : I4P, R8P
 
 implicit none
 private
@@ -47,8 +47,20 @@ public :: GLM_CH_CHECK_WARNING
 public :: GLM_CH_CHECK_ERROR
 public :: GLM_DAMPING_LENGTH_MIN_CELL
 public :: SCHEME_SPACE_WENO
+public :: SCHEME_SPACE_WENO_RIEMANN
 public :: RECON_CHARACTERISTIC
 public :: RECON_CONSERVATIVE
+public :: RECON_PRIMITIVE
+public :: RIEMANN_SOLVER_LLF
+public :: RIEMANN_SOLVER_HLL
+public :: RIEMANN_SOLVER_HLLC
+public :: RIEMANN_SOLVER_HLLD
+public :: FLUX_CORRECTION_6TH
+public :: FLUX_CORRECTION_4TH
+public :: FLUX_CORRECTION_NONE
+public :: FLUX_CORRECTION_SENSOR_WENO
+public :: FLUX_CORRECTION_SENSOR_NONE
+public :: FLUX_CORRECTION_SENSOR_TAU
 public :: strip_control
 
 ! conservative variables
@@ -95,6 +107,20 @@ character(len=8),  parameter :: GLM_DAMPING_LENGTH_MIN_CELL="min-cell" !< [mhd].
 character(len=4),  parameter :: SCHEME_SPACE_WENO="weno"              !< [numerics].(scheme_space): WENO flux splitting.
 character(len=14), parameter :: RECON_CHARACTERISTIC="characteristic" !< [numerics].(reconstruction_variables).
 character(len=12), parameter :: RECON_CONSERVATIVE="conservative"     !< [numerics].(reconstruction_variables).
+character(len=12), parameter :: SCHEME_SPACE_WENO_RIEMANN="weno-riemann" !< [numerics].(scheme_space): WENO
+                                                                         !< interpolation + Riemann flux + correction.
+character(len=9),  parameter :: RECON_PRIMITIVE="primitive"           !< [numerics].(reconstruction_variables).
+character(len=3),  parameter :: RIEMANN_SOLVER_LLF="llf"              !< [numerics].(riemann_solver): local Lax-Friedrichs.
+character(len=3),  parameter :: RIEMANN_SOLVER_HLL="hll"              !< [numerics].(riemann_solver): HLL (Einfeldt).
+character(len=4),  parameter :: RIEMANN_SOLVER_HLLC="hllc"            !< [numerics].(riemann_solver): HLLC (Euler).
+character(len=4),  parameter :: RIEMANN_SOLVER_HLLD="hlld"            !< [numerics].(riemann_solver): HLLD (MHD).
+character(len=3),  parameter :: FLUX_CORRECTION_6TH="6th"             !< [numerics].(flux_correction): 6th order.
+character(len=3),  parameter :: FLUX_CORRECTION_4TH="4th"             !< [numerics].(flux_correction): 4th order.
+character(len=4),  parameter :: FLUX_CORRECTION_NONE="none"           !< [numerics].(flux_correction): none (2nd order).
+character(len=4),  parameter :: FLUX_CORRECTION_SENSOR_WENO="weno"    !< [numerics].(flux_correction_sensor): WENO weights.
+character(len=4),  parameter :: FLUX_CORRECTION_SENSOR_NONE="none"    !< [numerics].(flux_correction_sensor): always on.
+real(R8P),         parameter :: FLUX_CORRECTION_SENSOR_TAU=0.2_R8P    !< Correction off at a face where the WENO weights
+                                                                      !< ratio min_k w_k/d_k < TAU (issue #47, M3-P0).
 
 contains
    ! public procedures

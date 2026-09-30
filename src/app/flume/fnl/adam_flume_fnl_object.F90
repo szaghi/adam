@@ -27,7 +27,9 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM,                &
-                                              RECON_CHARACTERISTIC, SCHEME_SPACE_WENO
+                                              RECON_CHARACTERISTIC, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,              &
+                                              SCHEME_SPACE_WENO_RIEMANN
+use :: adam_flume_fnl_euler_llf_kernels, only : compute_riemann_face_fluxes_euler_llf_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_euler_kernels,   only : compute_conservation_euler_dev=>compute_conservation_dev,                &
                                               compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
                                               compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
@@ -513,10 +515,13 @@ contains
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
+   if (self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN) call self%weno_fnl%initialize_interpolation(weno=self%weno)
    call self%allocate_gpu
    select case(self%numerics%scheme_space)
    case(SCHEME_SPACE_WENO)
       self%compute_residuals_dev => compute_residuals_weno_dev
+   case(SCHEME_SPACE_WENO_RIEMANN)
+      self%compute_residuals_dev => compute_residuals_riemann_dev
    case default
       call mpih_fnl%error_stop(msg=': no FNL space operator for scheme_space "'//self%numerics%scheme_space//'"')
    endselect
@@ -1020,6 +1025,89 @@ contains
                                                                       dq_gpu=dq_gpu)
    endassociate
    endsubroutine compute_residuals_weno_dev
+
+   subroutine compute_residuals_riemann_dev(self, q_gpu, dq_gpu, s, flux_register)
+   !< Compute the residuals with the `weno-riemann` space operator on the device (issue #47): as
+   !< `compute_residuals_weno_dev`, with the face fluxes of the WENO interpolation, the Riemann solver and the high-order
+   !< correction. The host selects the kernel of the (model, solver) pair; a pair without kernels is fatal.
+   class(flume_fnl_object),     intent(inout)           :: self              !< The equation.
+   real(R8P),                   intent(inout)           :: q_gpu(1:,         &
+                                                                 1-self%ngc:,&
+                                                                 1-self%ngc:,&
+                                                                 1-self%ngc:,&
+                                                                 1:)         !< Conservative variables.
+   real(R8P),                   intent(inout)           :: dq_gpu(1:,         &
+                                                                  1-self%ngc:,&
+                                                                  1-self%ngc:,&
+                                                                  1-self%ngc:,&
+                                                                  1:)         !< Residuals.
+   integer(I4P),                intent(in),    optional :: s                 !< Runge-Kutta stage.
+   class(flux_register_object), intent(inout), optional :: flux_register     !< Forest's flux register for reflux.
+   logical                                              :: is_char           !< Characteristic interpolation flag.
+   real(R8P)                                            :: cc(3)             !< Correction coefficients.
+   real(R8P)                                            :: tau               !< Correction sensor threshold.
+   integer(I4P)                                         :: e                 !< Eikonal iterations counter.
+
+   if (self%ib%solids_number > 0_I4P) then
+      call self%update_ghost(q_gpu=q_gpu)
+      do e=1, self%ib%n_eikonal
+         call self%ib_fnl%evolve_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, dq_gpu=dq_gpu, &
+                                         q_gpu=q_gpu, dxyz_gpu=self%field_fnl%dxyz_gpu)
+         call self%update_ghost(q_gpu=q_gpu)
+      enddo
+      call self%ib_fnl%invert_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, q_gpu=q_gpu)
+   endif
+   call self%apply_floors(q_gpu=q_gpu)
+   call self%update_ghost(q_gpu=q_gpu)
+   call self%compute_q_aux(q_gpu=q_gpu)
+   is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
+   cc = self%numerics%correction_coefficients()
+   tau = self%numerics%correction_threshold()
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+             ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, weno_s=>self%weno%S,                  &
+             zeps=>self%weno%zeps, a_gpu=>self%weno_fnl%a_interp_gpu, p_gpu=>self%weno_fnl%p_interp_gpu,           &
+             d_gpu=>self%weno_fnl%d_gpu)
+   if (self%physics%model == MODEL_EULER .and. self%numerics%riemann_solver == RIEMANN_SOLVER_LLF) then
+      if (.not.is_null(1)) call compute_riemann_face_fluxes_euler_llf_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,   &
+                                  nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, ch=ch,                &
+                                  is_characteristic=is_char, weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,      &
+                                  weno_zeps=zeps, cc=cc, tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu,                &
+                                  fl_gpu=self%flx_f_gpu)
+      if (.not.is_null(2)) call compute_riemann_face_fluxes_euler_llf_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,   &
+                                  nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, ch=ch,                &
+                                  is_characteristic=is_char, weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,      &
+                                  weno_zeps=zeps, cc=cc, tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu,                &
+                                  fl_gpu=self%fly_f_gpu)
+      if (.not.is_null(3)) call compute_riemann_face_fluxes_euler_llf_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,   &
+                                  nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, ch=ch,                &
+                                  is_characteristic=is_char, weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,      &
+                                  weno_zeps=zeps, cc=cc, tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu,                &
+                                  fl_gpu=self%flz_f_gpu)
+   else
+      call mpih_fnl%error_stop(msg=': no FNL weno-riemann kernels yet for [physics].(physical_model)='//           &
+                                   self%physics%physical_model//' with [numerics].(riemann_solver)='//             &
+                                   self%numerics%riemann_solver//' (issue #47: Euler hll/hllc in M3-P2, MHD in M3-P3)')
+   endif
+   if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
+      if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
+   endif
+   if (self%ib%solids_number > 0_I4P) then
+      call compute_flux_difference_ib_dev(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,           &
+                                          is_null=is_null, freeze=self%null_freeze(), dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                          flx_f_gpu=self%flx_f_gpu,                                                      &
+                                          fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,                            &
+                                          phi_gpu=self%ib_fnl%phi_gpu, dq_gpu=dq_gpu)
+   else
+      call compute_flux_difference_dev(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,              &
+                                       is_null=is_null, freeze=self%null_freeze(), dxyz_gpu=self%field_fnl%dxyz_gpu,    &
+                                       flx_f_gpu=self%flx_f_gpu,                                                         &
+                                       fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
+   endif
+   if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,      &
+                                                                      damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, &
+                                                                      dq_gpu=dq_gpu)
+   endassociate
+   endsubroutine compute_residuals_riemann_dev
 
    subroutine integrate_rk_ls_dev(self)
    !< Integrate one time step with a low-storage Runge-Kutta scheme on the device.

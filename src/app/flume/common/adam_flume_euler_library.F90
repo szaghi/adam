@@ -34,8 +34,11 @@ private
 public :: compute_eigenvalues
 public :: compute_eigenvectors
 public :: compute_face_flux_back_projection
+public :: compute_face_interpolation_fields
 public :: compute_face_split_fluxes
+public :: compute_face_states
 public :: compute_flux
+public :: compute_riemann_llf
 public :: compute_roe_average
 public :: conservative_to_auxiliary
 public :: primitive_to_conservative
@@ -145,6 +148,57 @@ contains
    endif
    endsubroutine compute_face_flux_back_projection
 
+   pure subroutine compute_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er)
+   !< Return the fields of the stencil of face `i+1/2` to be WENO-interpolated to the face (scheme `weno-riemann`).
+   !<
+   !< The stencil holds cells `m = 1-S ... S` relative to cell `i` (cell `i+1` is `m = 1`). Characteristic variant: the
+   !< conservative states projected on the left eigenvectors of the Roe average of cells 0 and 1, `w = L q`; primitive
+   !< variant: `(rho, u, v, w, p)`. Stored in the layout of the WENO upwind primitive: `fint(2,m,k)` = field `k` of cell
+   !< `m` for `m = 1-S ... S-1` (interpolated toward the left state), `fint(1,m,k)` = field `k` of cell `m+1` (toward the
+   !< right state). `er` returns the right eigenvectors for `compute_face_states`.
+   real(R8P),    intent(in)  :: gamma                              !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d                                  !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)  :: S                                  !< WENO stencil half-width, S <= S_MAX.
+   logical,      intent(in)  :: is_characteristic                  !< Characteristic (or primitive) variables.
+   real(R8P),    intent(in)  :: qs(NV_EULER,1-S_MAX:S_MAX)         !< Stencil conservative variables.
+   real(R8P),    intent(in)  :: qas(NV_AUX,1-S_MAX:S_MAX)          !< Stencil auxiliary variables.
+   real(R8P),    intent(out) :: fint(2,1-S_MAX:S_MAX-1,NV_EULER)   !< Fields in the WENO upwind layout.
+   real(R8P),    intent(out) :: er(NV_EULER,NV_EULER)              !< Right eigenvectors (unused if primitive).
+   real(R8P)                 :: el(NV_EULER,NV_EULER)              !< Left eigenvectors.
+   real(R8P)                 :: roe(NV_AUX)                        !< Roe average of cells 0 and 1.
+   real(R8P)                 :: w(NV_EULER)                        !< Fields of one cell.
+   integer(I4P)              :: k, m, v                            !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   if (is_characteristic) then
+      call compute_roe_average(gamma=gamma, qaL=qas(:,0), qaR=qas(:,1), roe=roe)
+      call compute_eigenvectors(gamma=gamma, d=d, qa=roe, el=el, er=er)
+   else
+      er = 0._R8P
+   endif
+   do m=1-S, S
+      if (is_characteristic) then
+         do k=1, NV_EULER
+            w(k) = 0._R8P
+            do v=1, NV_EULER
+               w(k) = w(k) + el(k,v) * qs(v,m)
+            enddo
+         enddo
+      else
+         w(1) = qas(IA_R,m)
+         w(2) = qas(IA_U,m)
+         w(3) = qas(IA_V,m)
+         w(4) = qas(IA_W,m)
+         w(5) = qas(IA_P,m)
+      endif
+      do k=1, NV_EULER
+         if (m < S)     fint(2,m,k)   = w(k)
+         if (m > 1 - S) fint(1,m-1,k) = w(k)
+      enddo
+   enddo
+   endsubroutine compute_face_interpolation_fields
+
    pure subroutine compute_face_split_fluxes(gamma, d, S, is_characteristic, qs, qas, fsplit, er)
    !< Project and Lax-Friedrichs-split the stencil of face `i+1/2`, ready for the WENO upwind reconstruction.
    !<
@@ -210,6 +264,47 @@ contains
    enddo
    endsubroutine compute_face_split_fluxes
 
+   pure subroutine compute_face_states(gamma, is_characteristic, er, vr, q0, q1, qL, qR)
+   !< Return the conservative left and right states of face `i+1/2` from the WENO-interpolated fields.
+   !<
+   !< `vr(2,k)` is field `k` interpolated from the left (left state), `vr(1,k)` from the right (right state), as returned
+   !< by the WENO primitive on the layout of `compute_face_interpolation_fields`. A state with non-positive density or
+   !< pressure is replaced by the state of its cell (`q0` left, `q1` right): the face falls back to first order.
+   real(R8P), intent(in)  :: gamma                 !< Specific heats ratio.
+   logical,   intent(in)  :: is_characteristic     !< Characteristic (or primitive) variables.
+   real(R8P), intent(in)  :: er(NV_EULER,NV_EULER) !< Right eigenvectors (unused if primitive).
+   real(R8P), intent(in)  :: vr(2,NV_EULER)        !< Interpolated fields.
+   real(R8P), intent(in)  :: q0(NV_EULER)          !< Conservative variables of cell 0 (left of the face).
+   real(R8P), intent(in)  :: q1(NV_EULER)          !< Conservative variables of cell 1 (right of the face).
+   real(R8P), intent(out) :: qL(NV_EULER)          !< Left state.
+   real(R8P), intent(out) :: qR(NV_EULER)          !< Right state.
+   integer(I4P)           :: k, v                  !< Counters.
+   logical                :: ok                    !< Admissibility of a state.
+   !$acc routine seq
+   !$omp declare target
+
+   if (is_characteristic) then
+      do v=1, NV_EULER
+         qL(v) = 0._R8P
+         qR(v) = 0._R8P
+         do k=1, NV_EULER
+            qL(v) = qL(v) + er(v,k) * vr(2,k)
+            qR(v) = qR(v) + er(v,k) * vr(1,k)
+         enddo
+      enddo
+   else
+      call primitive_to_conservative(gamma=gamma, r=vr(2,1), u=vr(2,2), v=vr(2,3), w=vr(2,4), p=vr(2,5), q=qL)
+      call primitive_to_conservative(gamma=gamma, r=vr(1,1), u=vr(1,2), v=vr(1,3), w=vr(1,4), p=vr(1,5), q=qR)
+   endif
+   ! positive density and pressure (false for NaN too); no internal procedure: device routine
+   ok = qL(IQ_R) > 0._R8P
+   if (ok) ok = qL(IQ_RE) - 0.5_R8P * (qL(IQ_RU)**2 + qL(IQ_RV)**2 + qL(IQ_RW)**2) / qL(IQ_R) > 0._R8P
+   if (.not.ok) qL = q0
+   ok = qR(IQ_R) > 0._R8P
+   if (ok) ok = qR(IQ_RE) - 0.5_R8P * (qR(IQ_RU)**2 + qR(IQ_RV)**2 + qR(IQ_RW)**2) / qR(IQ_R) > 0._R8P
+   if (.not.ok) qR = q1
+   endsubroutine compute_face_states
+
    pure subroutine compute_flux(d, q, qa, f)
    !< Compute the physical flux in direction `d`: `rho u_d (1, u, v, w, H) + p (0, e_d, 0)`.
    integer(I4P), intent(in)  :: d           !< Direction, 1=x, 2=y, 3=z.
@@ -256,6 +351,34 @@ contains
    roe(IA_P) = roe(IA_R) * roe(IA_A)**2 / gamma
    roe(IA_T) = 0._R8P
    endsubroutine compute_roe_average
+
+   pure subroutine compute_riemann_llf(gamma, d, qL, qR, f)
+   !< Compute the local Lax-Friedrichs (Rusanov) flux of two states in direction `d`,
+   !< `F = (f(qL) + f(qR)) / 2 - alpha (qR - qL) / 2`, `alpha = max(|u_n| + a)` of the two states.
+   real(R8P),    intent(in)  :: gamma        !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_EULER) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_EULER) !< Right state.
+   real(R8P),    intent(out) :: f(NV_EULER)  !< Flux.
+   real(R8P)                 :: qaL(NV_AUX)  !< Left auxiliary variables.
+   real(R8P)                 :: qaR(NV_AUX)  !< Right auxiliary variables.
+   real(R8P)                 :: fL(NV_EULER) !< Left physical flux.
+   real(R8P)                 :: fR(NV_EULER) !< Right physical flux.
+   real(R8P)                 :: alpha        !< Lax-Friedrichs speed.
+   integer(I4P)              :: v            !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   ! the gas constant only sets the temperature, which the flux does not use
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qL, qa=qaL)
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qR, qa=qaR)
+   call compute_flux(d=d, q=qL, qa=qaL, f=fL)
+   call compute_flux(d=d, q=qR, qa=qaR, f=fR)
+   alpha = max(abs(qaL(IA_U+d-1)) + qaL(IA_A), abs(qaR(IA_U+d-1)) + qaR(IA_A))
+   do v=1, NV_EULER
+      f(v) = 0.5_R8P * (fL(v) + fR(v)) - 0.5_R8P * alpha * (qR(v) - qL(v))
+   enddo
+   endsubroutine compute_riemann_llf
 
    pure subroutine conservative_to_auxiliary(gamma, R, q, qa)
    !< Compute the auxiliary (primitive and derived) variables of a cell from its conservative variables.

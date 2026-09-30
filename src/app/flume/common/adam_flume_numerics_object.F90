@@ -7,14 +7,22 @@ module adam_flume_numerics_object
 !< `reflux` switches the Berger-Colella correction at AMR coarse-fine faces: `.true.` for every production run;
 !< `.false.` is a diagnostic (the negative control of the conservation test, issue #35 V3), since a run on a grid
 !< with coarse-fine faces is then not conservative.
+!<
+!< `scheme_space = weno-riemann` (issue #47) interpolates the `reconstruction_variables` (`characteristic` or
+!< `primitive`) to the faces by WENO, takes the `riemann_solver` flux of the two face states and adds the
+!< `flux_correction` (6th or 4th order, or none), switched off at a face by the `flux_correction_sensor`.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
-use :: adam_flume_parameters, only : RECON_CHARACTERISTIC, RECON_CONSERVATIVE, SCHEME_SPACE_WENO, strip_control
+use :: adam_flume_parameters, only : FLUX_CORRECTION_4TH, FLUX_CORRECTION_6TH, FLUX_CORRECTION_NONE,                  &
+                                     FLUX_CORRECTION_SENSOR_NONE, FLUX_CORRECTION_SENSOR_TAU, FLUX_CORRECTION_SENSOR_WENO, &
+                                     RECON_CHARACTERISTIC, RECON_CONSERVATIVE, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,        &
+                                     RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,      &
+                                     SCHEME_SPACE_WENO_RIEMANN, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
-use :: penf,                  only : I4P
+use :: penf,                  only : I4P, R8P
 
 implicit none
 private
@@ -27,8 +35,13 @@ type :: flume_numerics_object
    character(:), allocatable :: scheme_space             !< Spatial scheme.
    character(:), allocatable :: reconstruction_variables !< Variables reconstructed at cell interfaces.
    logical                   :: reflux=.true.            !< Berger-Colella reflux at AMR coarse-fine faces.
+   character(:), allocatable :: riemann_solver           !< Riemann solver (weno-riemann only).
+   character(:), allocatable :: flux_correction          !< Face flux correction order (weno-riemann only).
+   character(:), allocatable :: flux_correction_sensor   !< Face flux correction sensor (weno-riemann only).
    contains
       ! public methods
+      procedure, pass(self) :: correction_coefficients !< Return the face flux correction coefficients.
+      procedure, pass(self) :: correction_threshold    !< Return the face flux correction sensor threshold.
       procedure, pass(self) :: description    !< Return pretty-printed object description.
       procedure, pass(self) :: initialize     !< Initialize numerics.
       procedure, pass(self) :: load_from_file !< Load config from file.
@@ -36,6 +49,35 @@ endtype flume_numerics_object
 
 contains
    ! public methods
+   pure function correction_coefficients(self) result(c)
+   !< Return the face flux correction coefficients `c`, `F^ = c(1) F + c(2) (f_i + f_i+1) + c(3) (f_i-1 + f_i+2)`.
+   !<
+   !< `F` is the Riemann flux of the face `i+1/2`, `f_m` the physical flux of cell `m`. The 6th- and 4th-order weights
+   !< match `F^ = f - h^2/24 f_xx + 7 h^4/5760 f_xxxx` at the face (Chen, Toth & Gombosi 2016; derived with sympy, issue
+   !< #47); `none` returns `F^ = F`. Passing them to the kernels keeps the order choice out of the device code.
+   class(flume_numerics_object), intent(in) :: self !< Numerics.
+   real(R8P)                                :: c(3) !< Correction coefficients.
+
+   select case(self%flux_correction)
+   case(FLUX_CORRECTION_6TH)
+      c = [64._R8P/45._R8P, -13._R8P/60._R8P, 1._R8P/180._R8P]
+   case(FLUX_CORRECTION_4TH)
+      c = [4._R8P/3._R8P, -1._R8P/6._R8P, 0._R8P]
+   case default
+      c = [1._R8P, 0._R8P, 0._R8P]
+   endselect
+   endfunction correction_coefficients
+
+   pure function correction_threshold(self) result(tau)
+   !< Return the sensor threshold: the correction is kept at a face where the WENO weights ratio `min_k w_k/d_k >= tau`
+   !< in every interpolated field on both sides; `tau = 0` keeps it everywhere (sensor `none`).
+   class(flume_numerics_object), intent(in) :: self !< Numerics.
+   real(R8P)                                :: tau  !< Threshold.
+
+   tau = 0._R8P
+   if (self%flux_correction_sensor == FLUX_CORRECTION_SENSOR_WENO) tau = FLUX_CORRECTION_SENSOR_TAU
+   endfunction correction_threshold
+
    function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(flume_numerics_object), intent(in) :: self             !< Numerics.
@@ -46,6 +88,11 @@ contains
    desc = desc//mpih%myrankstr//'  scheme_space:             '//self%scheme_space//NL
    desc = desc//mpih%myrankstr//'  reconstruction_variables: '//self%reconstruction_variables//NL
    desc = desc//mpih%myrankstr//'  reflux:                   '//trim(merge('.true. ', '.false.', self%reflux))
+   if (self%scheme_space == SCHEME_SPACE_WENO_RIEMANN) then
+      desc = desc//NL//mpih%myrankstr//'  riemann_solver:           '//self%riemann_solver
+      desc = desc//NL//mpih%myrankstr//'  flux_correction:          '//self%flux_correction
+      desc = desc//NL//mpih%myrankstr//'  flux_correction_sensor:   '//self%flux_correction_sensor
+   endif
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -70,24 +117,59 @@ contains
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
    self%scheme_space = trim(adjustl(strip_control(buff)))
    select case(self%scheme_space)
-   case(SCHEME_SPACE_WENO)
+   case(SCHEME_SPACE_WENO, SCHEME_SPACE_WENO_RIEMANN)
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(scheme_space) "'//self%scheme_space// &
-                               '"; expected one of '//SCHEME_SPACE_WENO)
+                               '"; expected one of '//SCHEME_SPACE_WENO//', '//SCHEME_SPACE_WENO_RIEMANN)
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reconstruction_variables)')
    self%reconstruction_variables = trim(adjustl(strip_control(buff)))
-   select case(self%reconstruction_variables)
-   case(RECON_CHARACTERISTIC, RECON_CONSERVATIVE)
-   case default
-      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(reconstruction_variables) "'// &
-                               self%reconstruction_variables//'"; expected one of '//RECON_CHARACTERISTIC//', '// &
-                               RECON_CONSERVATIVE)
-   endselect
+   if (self%scheme_space == SCHEME_SPACE_WENO) then
+      select case(self%reconstruction_variables)
+      case(RECON_CHARACTERISTIC, RECON_CONSERVATIVE)
+      case default
+         call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(reconstruction_variables) "'// &
+                                  self%reconstruction_variables//'"; expected one of '//RECON_CHARACTERISTIC//', '// &
+                                  RECON_CONSERVATIVE)
+      endselect
+   else
+      select case(self%reconstruction_variables)
+      case(RECON_CHARACTERISTIC, RECON_PRIMITIVE)
+      case default
+         call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(reconstruction_variables) "'// &
+                                  self%reconstruction_variables//'" with scheme_space = '//SCHEME_SPACE_WENO_RIEMANN// &
+                                  '; expected one of '//RECON_CHARACTERISTIC//', '//RECON_PRIMITIVE)
+      endselect
+      call load_choice(key='riemann_solver', val=self%riemann_solver, accepted=[character(4) :: RIEMANN_SOLVER_LLF, &
+                       RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD])
+      call load_choice(key='flux_correction', val=self%flux_correction, accepted=[character(4) :: FLUX_CORRECTION_6TH, &
+                       FLUX_CORRECTION_4TH, FLUX_CORRECTION_NONE])
+      call load_choice(key='flux_correction_sensor', val=self%flux_correction_sensor,                        &
+                       accepted=[character(4) :: FLUX_CORRECTION_SENSOR_WENO, FLUX_CORRECTION_SENSOR_NONE])
+   endif
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux', val=self%reflux, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reflux)')
+   contains
+      subroutine load_choice(key, val, accepted)
+      !< Load a required key whose value must be one of `accepted`.
+      character(*),              intent(in)  :: key         !< Key name.
+      character(:), allocatable, intent(out) :: val         !< Loaded value.
+      character(*),              intent(in)  :: accepted(:) !< Accepted values (blank-padded).
+      character(:), allocatable              :: list        !< Accepted values list for the message.
+      integer(I4P)                           :: a           !< Counter.
+
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name=key, val=buff, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//key//')')
+      val = trim(adjustl(strip_control(buff)))
+      if (any(accepted == val)) return
+      list = trim(accepted(1))
+      do a=2, size(accepted)
+         list = list//', '//trim(accepted(a))
+      enddo
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].('//key//') "'//val//'"; expected one of '//list)
+      endsubroutine load_choice
    endsubroutine load_from_file
 endmodule adam_flume_numerics_object

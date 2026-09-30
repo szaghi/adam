@@ -26,7 +26,9 @@ use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary
 use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_RU, &
-                                             MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM
+                                             MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM, RIEMANN_SOLVER_HLL,               &
+                                             RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
+                                             SCHEME_SPACE_WENO_RIEMANN
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
@@ -101,6 +103,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
       procedure, pass(self), private :: check_weno_scheme     !< Refuse the centred WENO schemes.
+      procedure, pass(self), private :: initialize_riemann_scheme !< Check and set up the weno-riemann scheme.
       procedure, pass(self), private :: compute_mhd_derived !< Compute the MHD derived output fields of one block.
       procedure, pass(self), private :: compute_q_aux_host !< Compute the auxiliary variables of the host q.
       procedure, pass(self), private :: io_initialize    !< Build the variables names.
@@ -477,6 +480,7 @@ contains
    if (error > 0) call mpih%error_stop(msg=': failed to load [IO].(save_auxiliary_fields)')
    call self%check_slices
    call self%check_weno_scheme
+   call self%initialize_riemann_scheme
    call self%check_ngc_number
    call self%check_amr_block_cells
    call self%allocate_common
@@ -953,12 +957,16 @@ contains
    endsubroutine check_amr_block_cells
 
    subroutine check_ngc_number(self)
-   !< Check the ghost cells number against the WENO stencil half-width.
+   !< Check the ghost cells number against the WENO stencil half-width (`weno-riemann`: at least 2, the correction reads
+   !< cells i-1 ... i+2).
    class(flume_common_object), intent(in) :: self !< The equation.
 
    if (self%weno%S > self%ngc) &
       call mpih%error_stop(msg=': [grid].(ngc)='//trim(str(self%ngc))//' is smaller than the WENO stencil half-width '// &
                                trim(str(self%weno%S)))
+   if (self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN .and. self%ngc < 2_I4P) &
+      call mpih%error_stop(msg=': [grid].(ngc)='//trim(str(self%ngc))//' is smaller than 2, the stencil of the '// &
+                               'weno-riemann face flux correction')
    endsubroutine check_ngc_number
 
    subroutine check_weno_scheme(self)
@@ -970,6 +978,24 @@ contains
       call mpih%error_stop(msg=': [weno].(scheme)='//self%weno%scheme//' is a centred scheme: FLUME accepts only the '// &
                                'upwind schemes weno-u-1, weno-u-3, weno-u-5, weno-u-7, weno-u-9')
    endsubroutine check_weno_scheme
+
+   subroutine initialize_riemann_scheme(self)
+   !< Check the Riemann solver against the physical model and build the WENO interpolation tables (`weno-riemann` only,
+   !< issue #47): the Euler model takes `llf`, `hll`, `hllc`; the MHD models `llf`, `hll`, `hlld`.
+   class(flume_common_object), intent(inout) :: self !< The equation.
+   logical                                   :: ok   !< Model/solver pair accepted.
+
+   if (self%numerics%scheme_space /= SCHEME_SPACE_WENO_RIEMANN) return
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      ok = any(self%numerics%riemann_solver == [character(4) :: RIEMANN_SOLVER_LLF, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC])
+   case default
+      ok = any(self%numerics%riemann_solver == [character(4) :: RIEMANN_SOLVER_LLF, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLD])
+   endselect
+   if (.not.ok) call mpih%error_stop(msg=': [numerics].(riemann_solver)='//self%numerics%riemann_solver//' is not '// &
+                                         'available for [physics].(physical_model)='//self%physics%physical_model)
+   call self%weno%initialize_interpolation
+   endsubroutine initialize_riemann_scheme
 
    subroutine io_initialize(self)
    !< Build the variables names from the physical model (the same predicate that decided nv).

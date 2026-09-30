@@ -1,6 +1,6 @@
 # Riemann face fluxes (issue #47, M3)
 
-The M3 scheme (`scheme_space = weno-riemann`, planned): WENO5 **interpolation** of point values to the face, a Riemann
+The M3 scheme (`scheme_space = weno-riemann`; implemented for Euler with the LLF solver, HLL/HLLC and MHD to come): WENO5 **interpolation** of point values to the face, a Riemann
 flux F of the two face states, and a high-order correction built from F and the cell fluxes f (Chen, Tóth & Gombosi
 2016), so that the flux difference is 5th-order accurate in point-value finite-difference form:
 
@@ -16,6 +16,7 @@ the weights sum to 1, leading error $\tfrac{23}{138240} h^6 f^{(6)}$).
 |------|--------------|
 | `hybrid_proto.py` | NumPy prototype, 1-D Euler: the hybrid scheme (LLF, HLL with Einfeldt speeds, HLLC with Batten speeds; correction 6th, 4th or none; characteristic or primitive interpolation; sensors), and FLUME's current flux-splitting scheme as the baseline (`--scheme split`). |
 | `weno_interpolation_tables.py` | Generates (sympy, exact rationals) and checks the WENO interpolation tables of `adam_weno_object%initialize_interpolation`, S = 1 .. 5: candidates exact to degree S−1, linear-weight combination exact to degree 2S−2, weights positive and summing to 1. The unit tests `src/tests/flume/unit/test_flume_weno_interpolation{,_fnl}.F90` check the Fortran tables and the device primitive. |
+| `check.sh` | FLUME verification of the implemented scheme: RV-2 (the V2 isentropic vortex ladder 64/128/256, L1 order of the finest pair ≥ 4.5) and RV-3 (the V1 Sod problem along x, y, z, L1(ρ) ≤ bound, y and z bitwise equal to x), on the V1/V2 inputs with the `[numerics]` block rewritten; options `--solver --correction --sensor --recon --order-min --l1-max`, `FLUME_EXE` selects the backend. |
 | `hybrid2d_proto.py` | NumPy prototype, 2-D MHD (periodic): the hybrid scheme with primitive interpolation, HLL or LLF, the (B_n, ψ) subsystem solved exactly at the face, GLM or EGLM (Derigs et al. 2018) with sources of order 2 or 4, and the cell-based positivity limiter; tests `blast`, `cpaw` (oblique Alfvén wave), `brio-wu` (periodic double problem). Imports `lf_proto.py` from `../mhd/positivity-probe`. |
 
 Run with the regression venv, e.g. `exe/.regression-venv/bin/python hybrid_proto.py shu-osher --cells 512 --sensor weno`.
@@ -118,3 +119,19 @@ GLM and EGLM give the same digits here (1-D: ψ = 0 and ∇·B = 0).
 - **The high-order update needs high-order EGLM sources**: 2nd-order sources drop the Alfvén wave to order 2.26.
 - The limiter is inactive on the smooth wave (identical errors).
 - The correction is not a source of oscillation at the Brio–Wu shocks (overshoot ≤ 5e-5, halved by the sensor).
+
+## Measurements, FLUME (2026-09-30, `check.sh`, np 2)
+
+Euler, LLF, 6th-order correction, characteristic interpolation, `weno-u-5`. CPU and FNL agree to all printed digits.
+
+| Variant | Vortex L1(ρ), N = 64 / 128 / 256 | Order 128 → 256 | Sod L1(ρ) |
+|---|---|---|---|
+| split (FLUME `weno`, baseline) | 8.218e-5 / 4.621e-6 / 8.379e-8 | 5.79 | 3.244e-3 |
+| weno-riemann, LLF, WENO-weight sensor | 1.182e-4 / 7.073e-6 / 1.415e-7 | 5.64 | 3.426e-3 (x, y, z bitwise) |
+| weno-riemann, LLF, sensor `none` | 9.113e-5 / 4.748e-6 / 1.415e-7 | 5.07 | — |
+
+- The scheme is 5th order in FLUME; at N = 256 the sensor is inactive (same digits with and without it), at N = 128
+  it trips at the vortex extrema (the library weights use the exponent S = 3, the prototype 2) and costs a factor 1.5.
+- LLF is 1.7× more dissipative than the per-wave splitting on the vortex and 6% on Sod, as in the prototype
+  (LLF row of the 1-D table); HLL/HLLC (M3-P2) are expected to close the gap. The RV-3 bound for LLF is 3.49e-3
+  (measured + 2%).

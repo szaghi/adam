@@ -52,6 +52,7 @@ private
 public :: weno_object
 public :: weno_reconstruct_centered
 public :: weno_reconstruct_upwind
+public :: weno_reconstruct_upwind_wratio
 public :: weno_weights_exponent
 public :: S_MAX
 public :: S_MAX_M1
@@ -993,6 +994,36 @@ contains
    call weno_compute_weights_upwind(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, v=v(1:2,1-S:-1+S), w=w(1:2,0:S-1))
    call weno_compute_convolution(S=S, vp=vp(1:2,0:S-1), w=w(1:2,0:S-1), vr=vr(1:2))
    endsubroutine weno_reconstruct_upwind
+
+   pure subroutine weno_reconstruct_upwind_wratio(S, weno_a, weno_p, weno_d, weno_zeps, v, vr, wr)
+   !< Reconstruct (or interpolate) by WENO upwind method of 2S-1 order, returning also the smoothness ratio of each
+   !< interface, `wr(f) = min_k w(f,k) / weno_a(f,k,S)`: 1 where the nonlinear weights equal the linear ones (smooth
+   !< data), toward 0 where a stencil is discarded. The same values `vr` as `weno_reconstruct_upwind`; non TBP.
+   integer(I4P), intent(in)  :: S                   !< Number of stencils used.
+   real(R8P),    intent(in)  :: weno_a(1:,0:,1:)    !< Optimal weights.
+   real(R8P),    intent(in)  :: weno_p(1:,0:,0:,1:) !< Polinomials coefficients.
+   real(R8P),    intent(in)  :: weno_d(0:,0:,0:,1:) !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)  :: weno_zeps           !< Parameter for avoiding division by zero in computing IS.
+   real(R8P),    intent(in)  :: v (1:2,1-S:-1+S)    !< Variables to be reconstructed.
+   real(R8P),    intent(out) :: vr(1:2         )    !< Left and right (1,2) interface value of reconstructed v.
+   real(R8P),    intent(out) :: wr(1:2         )    !< Left and right (1,2) interface smoothness ratio.
+   real(R8P)                 :: vp(1:2,0:S-1   )    !< Polynomial reconstructions.
+   real(R8P)                 :: w (1:2,0:S-1   )    !< Weights of the stencils.
+   integer(I4P)              :: k, f                !< Counters.
+
+#ifdef _GMP_
+   !$omp declare target(weno_reconstruct_upwind_wratio)
+#endif
+   call weno_compute_polynomials_upwind(S=S, weno_p=weno_p, v=v(1:2,1-S:-1+S), vp=vp(1:2,0:S-1))
+   call weno_compute_weights_upwind(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, v=v(1:2,1-S:-1+S), w=w(1:2,0:S-1))
+   call weno_compute_convolution(S=S, vp=vp(1:2,0:S-1), w=w(1:2,0:S-1), vr=vr(1:2))
+   do f=1, 2
+      wr(f) = w(f,0) / weno_a(f,0,S)
+      do k=1, S-1
+         wr(f) = min(wr(f), w(f,k) / weno_a(f,k,S))
+      enddo
+   enddo
+   endsubroutine weno_reconstruct_upwind_wratio
 
    pure function weno_weights_exponent(S) result(wexp)
    !< Return the exponent of the smoothness indicators in the WENO nonlinear weights, `a = d / (zeps + IS)**wexp`.
