@@ -12,7 +12,7 @@ under dt * sum_d sigma_d / dx_d <= CFL. This script checks that claim before any
            the scheme above.
 Options: --speed std|wu (LF speed), --global (one sigma per direction, as in the proof), --no-powell,
          --model none|glm|eglm (eglm: Derigs et al. 2018 with its sources, psi in B units),
-         --first-order (the backbone alone).
+         --first-order (the backbone alone), --no-limiter (the unlimited WENO fluxes).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from weno_proto import weno5  # noqa: E402
 
 EPS = 1.0e-13
 SHIFTS = (2, 1, 0, -1, -2, -3)
-CFG = {"model": "none", "ch": 60.0, "speed": "wu", "global": False, "powell": True}
+CFG = {"model": "none", "ch": 60.0, "speed": "wu", "global": False, "powell": True, "limiter": True}
 
 
 def admissible(u: np.ndarray) -> np.ndarray:
@@ -134,6 +134,8 @@ def fe(u: np.ndarray, dt: float, h: float, high: bool, stats: dict) -> np.ndarra
     if not high:
         return ul
     fh = [weno_flux(u, d) for d in (0, 1)]
+    if not CFG["limiter"]:
+        return u - lam * sum(fh[d] - np.roll(fh[d], 1, axis=1 + d) for d in (0, 1)) + src
     contrib = []
     for d in (0, 1):
         df = fh[d] - flf[d]
@@ -209,6 +211,7 @@ def main() -> int:
     ap.add_argument("--global", dest="glob", action="store_true")
     ap.add_argument("--no-powell", action="store_true")
     ap.add_argument("--first-order", action="store_true", help="blast with the backbone alone")
+    ap.add_argument("--no-limiter", action="store_true", help="blast with the unlimited WENO fluxes")
     ap.add_argument("--cells", type=int, default=64)
     ap.add_argument("--cfl", type=float, default=0.4)
     ap.add_argument("--trials", type=int, default=20)
@@ -220,7 +223,9 @@ def main() -> int:
     a = ap.parse_args()
     CFG.update(model=a.model, speed=a.speed, powell=not a.no_powell)
     CFG["global"] = a.glob
-    tag = f"{a.model}/{a.speed}{'/global' if a.glob else ''}{'' if CFG['powell'] else '/no-powell'} cfl {a.cfl}"
+    CFG["limiter"] = not a.no_limiter
+    tag = (f"{a.model}/{a.speed}{'/global' if a.glob else ''}{'' if CFG['powell'] else '/no-powell'}"
+           f"{'' if CFG['limiter'] else '/no-limiter'} cfl {a.cfl}")
     if a.test == "random":
         print(tag, random_test(a.cells, a.cfl, a.trials, 1, (a.plog_min, a.plog_max), a.vel))
     else:

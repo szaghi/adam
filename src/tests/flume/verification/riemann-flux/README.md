@@ -15,6 +15,7 @@ the weights sum to 1, leading error $\tfrac{23}{138240} h^6 f^{(6)}$).
 | File | What it does |
 |------|--------------|
 | `hybrid_proto.py` | NumPy prototype, 1-D Euler: the hybrid scheme (LLF, HLL with Einfeldt speeds, HLLC with Batten speeds; correction 6th, 4th or none; characteristic or primitive interpolation; sensors), and FLUME's current flux-splitting scheme as the baseline (`--scheme split`). |
+| `hybrid2d_proto.py` | NumPy prototype, 2-D MHD (periodic): the hybrid scheme with primitive interpolation, HLL or LLF, the (B_n, ψ) subsystem solved exactly at the face, GLM or EGLM (Derigs et al. 2018) with sources of order 2 or 4, and the cell-based positivity limiter; tests `blast`, `cpaw` (oblique Alfvén wave), `brio-wu` (periodic double problem). Imports `lf_proto.py` from `../mhd/positivity-probe`. |
 
 Run with the regression venv, e.g. `exe/.regression-venv/bin/python hybrid_proto.py shu-osher --cells 512 --sensor weno`.
 
@@ -60,3 +61,59 @@ interpolation on Lax.
   risk R-1 of #47 is to be tested on MHD and 2-D strong shocks.
 - Characteristic interpolation is preferred: primitive interpolation overshoots on Lax.
 - The reference is the split scheme, which biases the comparison slightly in its favour.
+
+## Measurements, 2-D MHD (2026-09-30, `hybrid2d_proto.py`)
+
+Hybrid scheme: primitive WENO5 interpolation, HLL, 6th-order correction with the WENO-weight sensor, SSP-RK3, CFL 0.4,
+unless stated.
+
+**Source order (EGLM).** Circularly polarised Alfvén wave along (1, 2) on [0, 1]² (Tóth 2000: ρ = 1, p = 0.1,
+B_par = 1, amplitude 0.1), one period, c_h = 2, dt ∝ h^{5/3}; L1 of B:
+
+| Variant | N = 32 | N = 64 | N = 128 | Order 64 → 128 |
+|---|---|---|---|---|
+| GLM | 3.455e-4 | 1.140e-5 | 3.524e-7 | 5.02 |
+| EGLM, 2nd-order sources | 3.568e-4 | 2.766e-5 | 5.786e-6 | **2.26** |
+| EGLM, 4th-order sources | 3.455e-4 | 1.141e-5 | 3.527e-7 | 5.01 |
+| EGLM, 4th-order sources, cell limiter on | 3.455e-4 | 1.141e-5 | 3.527e-7 | 5.01 |
+
+Along a diagonal the test does not discriminate: B depends on x + y only and the discrete div B cancels exactly, so the
+source vanishes whatever its order.
+
+**Positivity.** Balsara–Spicer blast (β = 2.5e-4, c_h = 60) and its |B| = 1000/√(4π) variant (β = 2.5e-6, c_h = 400),
+t = 0.01:
+
+| Variant | Result |
+|---|---|
+| 64², EGLM, cell limiter, sources of order 4 or 2 | reaches t = 0.01, **0 limited faces**, min p 0.09998 (order 4) and 0.1000 (order 2) |
+| 64², EGLM, LLF, cell limiter | reaches t = 0.01, 0 limited faces |
+| 64², EGLM, correction always on (no sensor), cell limiter | reaches t = 0.01, 0 limited faces |
+| 64², EGLM, **no limiter** (with or without the sensor) | reaches t = 0.01, min p 0.09996–0.09998 |
+| 128², EGLM, no limiter / cell limiter | reaches t = 0.01 in 387 steps (identical) |
+| 64², β = 2.5e-6, EGLM, no limiter / cell limiter | reaches t = 0.01 in 1450 steps, min p 0.101 (identical) |
+| 64², GLM, cell limiter | fails at step 12 (4 backbone-inadmissible cells) |
+
+For comparison, the split scheme with EGLM (`../mhd/positivity-probe/ws_proto.py`) needs the limiter: without it the
+blast fails at step 14.
+
+**Oscillations at an MHD shock (risk R-1 of #47).** Periodic double Brio–Wu (γ = 2, [0, 2), N = 400, t = 0.1, no
+limiter), against LLF without correction on 3200 cells averaged to the grid:
+
+| Variant | L1(ρ) | L1(B_y) | ρ overshoot | B_y overshoot |
+|---|---|---|---|---|
+| HLL, 6th, correction always on | 7.17e-3 | 1.10e-2 | +4.0e-5 | +4.8e-5 |
+| HLL, 6th, WENO-weight sensor | 6.80e-3 | 1.05e-2 | +2.1e-5 | +2.5e-5 |
+| HLL, no correction | 6.77e-3 | 1.05e-2 | +4e-10 | +5e-10 |
+| LLF, 6th, WENO-weight sensor | 7.05e-3 | 1.08e-2 | +2.1e-5 | +2.5e-5 |
+
+GLM and EGLM give the same digits here (1-D: ψ = 0 and ∇·B = 0).
+
+## Findings, 2-D MHD
+
+- **EGLM is required** for positivity with either flux: GLM fails the blast with the limiter on.
+- **The hybrid flux with primitive interpolation and EGLM passes the blast without the limiter**, at β = 2.5e-4 and
+  2.5e-6; the limiter never engages. The split scheme with EGLM needs it. This measurement set the MHD default of
+  `weno-riemann` to primitive interpolation (#47, D-5 amended); characteristic interpolation was not prototyped for MHD.
+- **The high-order update needs high-order EGLM sources**: 2nd-order sources drop the Alfvén wave to order 2.26.
+- The limiter is inactive on the smooth wave (identical errors).
+- The correction is not a source of oscillation at the Brio–Wu shocks (overshoot ≤ 5e-5, halved by the sensor).

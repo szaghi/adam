@@ -59,6 +59,7 @@ WENO5 + SSP-RK3, CFL 0.4 (on the backbone speeds), cell-based limiter:
 | 64², EGLM with the Derigs sources | LF (+ Powell) | reaches $t = 0.01$, min p 3.6e-4, backbone never inadmissible |
 | 128², EGLM with the Derigs sources | LF (+ Powell) | reaches $t = 0.01$ in 384 steps, min p 1.3e-4 |
 | 128², FLUME's GLM | LF (+ Powell) | fails at step 58 |
+| 64², EGLM with the Derigs sources, **no limiter** (`--no-limiter`) | — | fails at step 14 (min p −1.3e-3): the limiter is needed with this flux |
 
 The random-state test (`ws_proto.py random`, 32², 20 trials, large B jumps, p down to $e^{-25}$) finds no inadmissible
 cell for any variant: random states do not discriminate.
@@ -77,7 +78,8 @@ change nothing on this problem.
 at first order)". That test ran first-order updates of first-order states, where GLM is clean as well, so it could not
 discriminate; the discriminating test is the backbone applied to high-order stage states, above. EGLM and the
 cell-based limiter are planned in issue #47 (M3). The positivity is measured, not proven: no published proof covers
-cell-centred GLM or EGLM.
+cell-centred GLM or EGLM. With the #47 hybrid Riemann flux (primitive interpolation, HLL) and EGLM the blast passes even without the
+limiter (`../../riemann-flux/hybrid2d_proto.py`).
 
 References: Balsara & Spicer 1999 (JCP 149, 270); Hu, Adams & Shu 2013 (JCP 242, 169); Xu 2014 (Math. Comp. 83,
 2213); Christlieb et al. 2015 (SIAM J. Sci. Comput. 37, A1825); Wu 2018 (SIAM J. Numer. Anal. 56, 2124); Wu & Shu
