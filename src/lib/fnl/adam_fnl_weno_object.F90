@@ -26,6 +26,8 @@ type :: weno_fnl_object
    real(R8P),    pointer :: a_gpu(:,:,:)               => null() !< Optimal weights                    [1:2,0:S-1,1:S].
    real(R8P),    pointer :: p_gpu(:,:,:,:)             => null() !< Polinomials coefficients           [1:2,0:S-1,0:S-1,1:S].
    real(R8P),    pointer :: d_gpu(:,:,:,:)             => null() !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1,1:S].
+   real(R8P),    pointer :: a_interp_gpu(:,:,:)        => null() !< Interpolation optimal weights      [1:2,0:S-1,1:S].
+   real(R8P),    pointer :: p_interp_gpu(:,:,:,:)      => null() !< Interpolation polinomials coeff.   [1:2,0:S-1,0:S-1,1:S].
    integer(I4P), pointer :: ror_schemes_gpu(:)         => null() !< Scheme (S value) for each ROR step.
    integer(I4P), pointer :: ror_ivar_gpu(:)            => null() !< Index variables to check in ROR.
    integer(I4P), pointer :: ror_stats_gpu(:,:,:,:,:)   => null() !< Scheme (S value) for each ROR step.
@@ -34,6 +36,7 @@ type :: weno_fnl_object
       ! public methods
       procedure, pass(self) :: destroy    !< Free device data owned by the helper.
       procedure, pass(self) :: initialize !< Initialize class from weno global singleton.
+      procedure, pass(self) :: initialize_interpolation !< Copy the host interpolation tables to the device (opt-in).
 endtype weno_fnl_object
 contains
    ! public methods
@@ -69,6 +72,14 @@ contains
       call dev_free(self%cell_scheme_gpu, mydev)
       nullify(self%cell_scheme_gpu)
    endif
+   if (associated(self%a_interp_gpu)) then
+      call dev_free(self%a_interp_gpu, mydev)
+      nullify(self%a_interp_gpu)
+   endif
+   if (associated(self%p_interp_gpu)) then
+      call dev_free(self%p_interp_gpu, mydev)
+      nullify(self%p_interp_gpu)
+   endif
    endsubroutine destroy
 
    subroutine initialize(self, weno)
@@ -91,4 +102,15 @@ contains
    call dev_assign_to_device(dst=self%cell_scheme_gpu, src=weno%cell_scheme)
    call mpih_fnl%print_message('weno_fnl_object%initialize finish')
    endsubroutine initialize
+
+   subroutine initialize_interpolation(self, weno)
+   !< Copy the host WENO interpolation tables to the device (opt-in, after `weno%initialize_interpolation`).
+   class(weno_fnl_object), intent(inout) :: self !< WENO FNL object.
+   type(weno_object),      intent(in)    :: weno !< WENO reconstructor (host, sibling realm component).
+
+   if (.not.allocated(weno%a_interp)) &
+      call mpih_fnl%error_stop(msg=': weno_fnl_object%initialize_interpolation called before weno%initialize_interpolation')
+   call dev_assign_to_device(dst=self%a_interp_gpu, src=weno%a_interp)
+   call dev_assign_to_device(dst=self%p_interp_gpu, src=weno%p_interp)
+   endsubroutine initialize_interpolation
 endmodule adam_fnl_weno_object

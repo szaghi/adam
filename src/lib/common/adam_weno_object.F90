@@ -89,6 +89,8 @@ type :: weno_object
    real(R8P), allocatable    :: p(:,:,:,:)                !< Polinomials coefficients           [1:2,0:S-1,0:S-1,1:S].
    real(R8P), allocatable    :: d(:,:,:,:)                !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1,1:S].
    real(R8P), allocatable    :: c(:,:)                    !< Centered polynomials coefficients [1-S:S,1:S].
+   real(R8P), allocatable    :: a_interp(:,:,:)           !< Interpolation optimal weights      [1:2,0:S-1,1:S].
+   real(R8P), allocatable    :: p_interp(:,:,:,:)         !< Interpolation polinomials coeff.   [1:2,0:S-1,0:S-1,1:S].
    real(R8P)                 :: zeps                      !< Parameter for avoiding division by zero in computing IS.
    integer(I4P)              :: sodd                      !< Branching between odd and even number of stencils (mod(S,2)).
    integer(I4P)              :: wexp                      !< Exponent for growing the diffusive part of weights.
@@ -106,6 +108,7 @@ type :: weno_object
       ! public methods
       procedure, pass(self) :: description         !< Return pretty-printed object description.
       procedure, pass(self) :: initialize          !< Initialize class.
+      procedure, pass(self) :: initialize_interpolation !< Initialize the interpolation tables (opt-in).
       procedure, pass(self) :: load_from_file      !< Load config from file.
       procedure, pass(self) :: reconstruct_upwind  !< Return WENO upwind  reconstruction of 2S-1 order.
       ! private methods
@@ -118,6 +121,11 @@ type :: weno_object
       procedure, pass(self) :: initialize_upwind_S3       !< Initialize upwind coefficients for S=3.
       procedure, pass(self) :: initialize_upwind_S4       !< Initialize upwind coefficients for S=4.
       procedure, pass(self) :: initialize_upwind_S5       !< Initialize upwind coefficients for S=5.
+      procedure, pass(self) :: initialize_interpolation_S1 !< Initialize interpolation coefficients for S=1.
+      procedure, pass(self) :: initialize_interpolation_S2 !< Initialize interpolation coefficients for S=2.
+      procedure, pass(self) :: initialize_interpolation_S3 !< Initialize interpolation coefficients for S=3.
+      procedure, pass(self) :: initialize_interpolation_S4 !< Initialize interpolation coefficients for S=4.
+      procedure, pass(self) :: initialize_interpolation_S5 !< Initialize interpolation coefficients for S=5.
       procedure, pass(self) :: compute_polynomials_upwind !< Compute WENO polynomials upwind.
       procedure, pass(self) :: compute_weights_upwind     !< Compute WENO weights.
 endtype weno_object
@@ -282,6 +290,28 @@ contains
       endif
       endsubroutine allocate_coefficients
    endsubroutine initialize
+
+   subroutine initialize_interpolation(self)
+   !< Initialize the WENO interpolation tables `a_interp`, `p_interp` (opt-in, after `initialize`).
+   !<
+   !< Interpolation (Jiang, Shu & Zhang 2013) gives face values from POINT values, while the reconstruction tables `a`,
+   !< `p` give face values from cell averages. Same layout and the same smoothness indicators `d`: pass `a_interp`,
+   !< `p_interp` in place of `a`, `p` to `weno_reconstruct_upwind`. Filled for every S up to the scheme's one, as `a`,
+   !< `p` are, so the ROR and IB order reductions find their tables. Nothing else is changed.
+   class(weno_object), intent(inout) :: self !< WENO object.
+
+   if (.not.allocated(self%a)) call mpih%error_stop(msg=': weno_object%initialize_interpolation called before initialize')
+   if (self%is_centered) call mpih%error_stop(msg=': WENO interpolation tables are defined for the upwind schemes only')
+   if (allocated(self%a_interp)) deallocate(self%a_interp) ; allocate(self%a_interp(1:2,0:self%S-1,1:self%S))
+   if (allocated(self%p_interp)) deallocate(self%p_interp) ; allocate(self%p_interp(1:2,0:self%S-1,0:self%S-1,1:self%S))
+   self%a_interp = 0._R8P
+   self%p_interp = 0._R8P
+   call self%initialize_interpolation_S1
+   if (self%S >= 2) call self%initialize_interpolation_S2
+   if (self%S >= 3) call self%initialize_interpolation_S3
+   if (self%S >= 4) call self%initialize_interpolation_S4
+   if (self%S >= 5) call self%initialize_interpolation_S5
+   endsubroutine initialize_interpolation
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
    !< Load config from file.
@@ -670,6 +700,126 @@ contains
       d(0,4,4,S)= 0._R8P    ;d(1,4,4,S)= 0._R8P     ;d(2,4,4,S)= 0._R8P      ;d(3,4,4,S)= 0._R8P      ;d(4,4,4,S)= 107918._R8P
    endassociate
    endsubroutine initialize_upwind_S5
+
+   subroutine initialize_interpolation_S1(self)
+   !< Initialize the interpolation coefficients for upwind S=1, 2S-1=1st order (generated and checked by
+   !< `src/tests/flume/verification/riemann-flux/weno_interpolation_tables.py`).
+   class(weno_object), intent(inout) :: self !< WENO object.
+   integer(I4P), parameter           :: S=1  !< Number of stencils used.
+
+   associate(a=>self%a_interp, p=>self%p_interp)
+     ! optimal weights, 1 => left interface, 2 => right interface
+     a(1,0,S) = 1._R8P
+     a(2,0,S) = 1._R8P
+     ! polynomials coefficients p(interface, cell s2 of the stencil, stencil s1): cell s1-s2
+     p(1,0,0,S) = 1._R8P
+     p(2,0,0,S) = 1._R8P
+   endassociate
+   endsubroutine initialize_interpolation_S1
+
+   subroutine initialize_interpolation_S2(self)
+   !< Initialize the interpolation coefficients for upwind S=2, 2S-1=3rd order (generated and checked by
+   !< `src/tests/flume/verification/riemann-flux/weno_interpolation_tables.py`).
+   class(weno_object), intent(inout) :: self !< WENO object.
+   integer(I4P), parameter           :: S=2  !< Number of stencils used.
+
+   associate(a=>self%a_interp, p=>self%p_interp)
+     ! optimal weights, 1 => left interface, 2 => right interface
+     a(1,0,S) = 3._R8P/4._R8P ; a(1,1,S) = 1._R8P/4._R8P
+     a(2,0,S) = 1._R8P/4._R8P ; a(2,1,S) = 3._R8P/4._R8P
+     ! polynomials coefficients p(interface, cell s2 of the stencil, stencil s1): cell s1-s2
+     p(1,0,0,S) = 1._R8P/2._R8P ; p(1,1,0,S) = 1._R8P/2._R8P
+     p(1,0,1,S) = -1._R8P/2._R8P ; p(1,1,1,S) = 3._R8P/2._R8P
+     p(2,0,0,S) = 3._R8P/2._R8P ; p(2,1,0,S) = -1._R8P/2._R8P
+     p(2,0,1,S) = 1._R8P/2._R8P ; p(2,1,1,S) = 1._R8P/2._R8P
+   endassociate
+   endsubroutine initialize_interpolation_S2
+
+   subroutine initialize_interpolation_S3(self)
+   !< Initialize the interpolation coefficients for upwind S=3, 2S-1=5th order (generated and checked by
+   !< `src/tests/flume/verification/riemann-flux/weno_interpolation_tables.py`).
+   class(weno_object), intent(inout) :: self !< WENO object.
+   integer(I4P), parameter           :: S=3  !< Number of stencils used.
+
+   associate(a=>self%a_interp, p=>self%p_interp)
+     ! optimal weights, 1 => left interface, 2 => right interface
+     a(1,0,S) = 5._R8P/16._R8P ; a(1,1,S) = 5._R8P/8._R8P ; a(1,2,S) = 1._R8P/16._R8P
+     a(2,0,S) = 1._R8P/16._R8P ; a(2,1,S) = 5._R8P/8._R8P ; a(2,2,S) = 5._R8P/16._R8P
+     ! polynomials coefficients p(interface, cell s2 of the stencil, stencil s1): cell s1-s2
+     p(1,0,0,S) = 3._R8P/8._R8P ; p(1,1,0,S) = 3._R8P/4._R8P ; p(1,2,0,S) = -1._R8P/8._R8P
+     p(1,0,1,S) = -1._R8P/8._R8P ; p(1,1,1,S) = 3._R8P/4._R8P ; p(1,2,1,S) = 3._R8P/8._R8P
+     p(1,0,2,S) = 3._R8P/8._R8P ; p(1,1,2,S) = -5._R8P/4._R8P ; p(1,2,2,S) = 15._R8P/8._R8P
+     p(2,0,0,S) = 15._R8P/8._R8P ; p(2,1,0,S) = -5._R8P/4._R8P ; p(2,2,0,S) = 3._R8P/8._R8P
+     p(2,0,1,S) = 3._R8P/8._R8P ; p(2,1,1,S) = 3._R8P/4._R8P ; p(2,2,1,S) = -1._R8P/8._R8P
+     p(2,0,2,S) = -1._R8P/8._R8P ; p(2,1,2,S) = 3._R8P/4._R8P ; p(2,2,2,S) = 3._R8P/8._R8P
+   endassociate
+   endsubroutine initialize_interpolation_S3
+
+   subroutine initialize_interpolation_S4(self)
+   !< Initialize the interpolation coefficients for upwind S=4, 2S-1=7th order (generated and checked by
+   !< `src/tests/flume/verification/riemann-flux/weno_interpolation_tables.py`).
+   class(weno_object), intent(inout) :: self !< WENO object.
+   integer(I4P), parameter           :: S=4  !< Number of stencils used.
+
+   associate(a=>self%a_interp, p=>self%p_interp)
+     ! optimal weights, 1 => left interface, 2 => right interface
+     a(1,0,S) = 7._R8P/64._R8P ; a(1,1,S) = 35._R8P/64._R8P ; a(1,2,S) = 21._R8P/64._R8P ; a(1,3,S) = 1._R8P/64._R8P
+     a(2,0,S) = 1._R8P/64._R8P ; a(2,1,S) = 21._R8P/64._R8P ; a(2,2,S) = 35._R8P/64._R8P ; a(2,3,S) = 7._R8P/64._R8P
+     ! polynomials coefficients p(interface, cell s2 of the stencil, stencil s1): cell s1-s2
+     p(1,0,0,S) = 5._R8P/16._R8P ; p(1,1,0,S) = 15._R8P/16._R8P ; p(1,2,0,S) = -5._R8P/16._R8P
+     p(1,3,0,S) = 1._R8P/16._R8P
+     p(1,0,1,S) = -1._R8P/16._R8P ; p(1,1,1,S) = 9._R8P/16._R8P ; p(1,2,1,S) = 9._R8P/16._R8P
+     p(1,3,1,S) = -1._R8P/16._R8P
+     p(1,0,2,S) = 1._R8P/16._R8P ; p(1,1,2,S) = -5._R8P/16._R8P ; p(1,2,2,S) = 15._R8P/16._R8P
+     p(1,3,2,S) = 5._R8P/16._R8P
+     p(1,0,3,S) = -5._R8P/16._R8P ; p(1,1,3,S) = 21._R8P/16._R8P ; p(1,2,3,S) = -35._R8P/16._R8P
+     p(1,3,3,S) = 35._R8P/16._R8P
+     p(2,0,0,S) = 35._R8P/16._R8P ; p(2,1,0,S) = -35._R8P/16._R8P ; p(2,2,0,S) = 21._R8P/16._R8P
+     p(2,3,0,S) = -5._R8P/16._R8P
+     p(2,0,1,S) = 5._R8P/16._R8P ; p(2,1,1,S) = 15._R8P/16._R8P ; p(2,2,1,S) = -5._R8P/16._R8P
+     p(2,3,1,S) = 1._R8P/16._R8P
+     p(2,0,2,S) = -1._R8P/16._R8P ; p(2,1,2,S) = 9._R8P/16._R8P ; p(2,2,2,S) = 9._R8P/16._R8P
+     p(2,3,2,S) = -1._R8P/16._R8P
+     p(2,0,3,S) = 1._R8P/16._R8P ; p(2,1,3,S) = -5._R8P/16._R8P ; p(2,2,3,S) = 15._R8P/16._R8P
+     p(2,3,3,S) = 5._R8P/16._R8P
+   endassociate
+   endsubroutine initialize_interpolation_S4
+
+   subroutine initialize_interpolation_S5(self)
+   !< Initialize the interpolation coefficients for upwind S=5, 2S-1=9th order (generated and checked by
+   !< `src/tests/flume/verification/riemann-flux/weno_interpolation_tables.py`).
+   class(weno_object), intent(inout) :: self !< WENO object.
+   integer(I4P), parameter           :: S=5  !< Number of stencils used.
+
+   associate(a=>self%a_interp, p=>self%p_interp)
+     ! optimal weights, 1 => left interface, 2 => right interface
+     a(1,0,S) = 9._R8P/256._R8P ; a(1,1,S) = 21._R8P/64._R8P ; a(1,2,S) = 63._R8P/128._R8P ; a(1,3,S) = 9._R8P/64._R8P
+     a(1,4,S) = 1._R8P/256._R8P
+     a(2,0,S) = 1._R8P/256._R8P ; a(2,1,S) = 9._R8P/64._R8P ; a(2,2,S) = 63._R8P/128._R8P ; a(2,3,S) = 21._R8P/64._R8P
+     a(2,4,S) = 9._R8P/256._R8P
+     ! polynomials coefficients p(interface, cell s2 of the stencil, stencil s1): cell s1-s2
+     p(1,0,0,S) = 35._R8P/128._R8P ; p(1,1,0,S) = 35._R8P/32._R8P ; p(1,2,0,S) = -35._R8P/64._R8P
+     p(1,3,0,S) = 7._R8P/32._R8P ; p(1,4,0,S) = -5._R8P/128._R8P
+     p(1,0,1,S) = -5._R8P/128._R8P ; p(1,1,1,S) = 15._R8P/32._R8P ; p(1,2,1,S) = 45._R8P/64._R8P
+     p(1,3,1,S) = -5._R8P/32._R8P ; p(1,4,1,S) = 3._R8P/128._R8P
+     p(1,0,2,S) = 3._R8P/128._R8P ; p(1,1,2,S) = -5._R8P/32._R8P ; p(1,2,2,S) = 45._R8P/64._R8P
+     p(1,3,2,S) = 15._R8P/32._R8P ; p(1,4,2,S) = -5._R8P/128._R8P
+     p(1,0,3,S) = -5._R8P/128._R8P ; p(1,1,3,S) = 7._R8P/32._R8P ; p(1,2,3,S) = -35._R8P/64._R8P
+     p(1,3,3,S) = 35._R8P/32._R8P ; p(1,4,3,S) = 35._R8P/128._R8P
+     p(1,0,4,S) = 35._R8P/128._R8P ; p(1,1,4,S) = -45._R8P/32._R8P ; p(1,2,4,S) = 189._R8P/64._R8P
+     p(1,3,4,S) = -105._R8P/32._R8P ; p(1,4,4,S) = 315._R8P/128._R8P
+     p(2,0,0,S) = 315._R8P/128._R8P ; p(2,1,0,S) = -105._R8P/32._R8P ; p(2,2,0,S) = 189._R8P/64._R8P
+     p(2,3,0,S) = -45._R8P/32._R8P ; p(2,4,0,S) = 35._R8P/128._R8P
+     p(2,0,1,S) = 35._R8P/128._R8P ; p(2,1,1,S) = 35._R8P/32._R8P ; p(2,2,1,S) = -35._R8P/64._R8P
+     p(2,3,1,S) = 7._R8P/32._R8P ; p(2,4,1,S) = -5._R8P/128._R8P
+     p(2,0,2,S) = -5._R8P/128._R8P ; p(2,1,2,S) = 15._R8P/32._R8P ; p(2,2,2,S) = 45._R8P/64._R8P
+     p(2,3,2,S) = -5._R8P/32._R8P ; p(2,4,2,S) = 3._R8P/128._R8P
+     p(2,0,3,S) = 3._R8P/128._R8P ; p(2,1,3,S) = -5._R8P/32._R8P ; p(2,2,3,S) = 45._R8P/64._R8P
+     p(2,3,3,S) = 15._R8P/32._R8P ; p(2,4,3,S) = -5._R8P/128._R8P
+     p(2,0,4,S) = -5._R8P/128._R8P ; p(2,1,4,S) = 7._R8P/32._R8P ; p(2,2,4,S) = -35._R8P/64._R8P
+     p(2,3,4,S) = 35._R8P/32._R8P ; p(2,4,4,S) = 35._R8P/128._R8P
+   endassociate
+   endsubroutine initialize_interpolation_S5
 
    pure subroutine compute_polynomials_upwind(self, S, v, vp)
    !< Compute WENO polynomials upwind.

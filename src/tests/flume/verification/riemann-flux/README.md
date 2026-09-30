@@ -15,6 +15,7 @@ the weights sum to 1, leading error $\tfrac{23}{138240} h^6 f^{(6)}$).
 | File | What it does |
 |------|--------------|
 | `hybrid_proto.py` | NumPy prototype, 1-D Euler: the hybrid scheme (LLF, HLL with Einfeldt speeds, HLLC with Batten speeds; correction 6th, 4th or none; characteristic or primitive interpolation; sensors), and FLUME's current flux-splitting scheme as the baseline (`--scheme split`). |
+| `weno_interpolation_tables.py` | Generates (sympy, exact rationals) and checks the WENO interpolation tables of `adam_weno_object%initialize_interpolation`, S = 1 .. 5: candidates exact to degree S−1, linear-weight combination exact to degree 2S−2, weights positive and summing to 1. The unit tests `src/tests/flume/unit/test_flume_weno_interpolation{,_fnl}.F90` check the Fortran tables and the device primitive. |
 | `hybrid2d_proto.py` | NumPy prototype, 2-D MHD (periodic): the hybrid scheme with primitive interpolation, HLL or LLF, the (B_n, ψ) subsystem solved exactly at the face, GLM or EGLM (Derigs et al. 2018) with sources of order 2 or 4, and the cell-based positivity limiter; tests `blast`, `cpaw` (oblique Alfvén wave), `brio-wu` (periodic double problem). Imports `lf_proto.py` from `../mhd/positivity-probe`. |
 
 Run with the regression venv, e.g. `exe/.regression-venv/bin/python hybrid_proto.py shu-osher --cells 512 --sensor weno`.
