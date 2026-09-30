@@ -14,6 +14,7 @@
 #   ./run.sh cpu                       # build flume-cpu-gnu (default varset), run, diff
 #   ./run.sh fnl --varset local_nvf    # build flume-fnl-nvf with that varset, run, diff (see run-fnl-local.sh)
 #   ./run.sh cpu --no-build            # skip the build step (use existing exe/)
+#   REGRESSION_CASES="rj2a-x brio-wu" ./run.sh cpu --no-build   # only the named cases
 #
 # Exits 0 on full pass, non-zero on any case failure.
 #
@@ -32,6 +33,12 @@
 #   rotor                    MV-13 rotor, MHD + GLM, outflow 64^2, SSP-54, 100 steps (issue #41, M2-P6b)
 #   field-loop               MV-9 field loop, MHD + GLM, periodic 64x32, w = 1, SSP-54, 100 steps (issue #41, M2-P6c)
 #   rotated-shock-tube       MV-8 Ryu-Jones 1a at tan^-1 2, MHD + GLM, periodic 64^2, SSP-54, 100 steps (M2-P6d)
+#   rj2a-x, rj2a-y, rj2a-z   MV-4 Ryu-Jones 2a along each direction, MHD, no cleaning, N = 128, t = 0.2 (M2-P8)
+#   rj2a-2realm              rj2a-x split in two realms at the diaphragm (mhd/multirealm/make_split.py, MV-14);
+#                            equivalent_to rj2a-x
+#   brio-wu                  Brio-Wu shock tube, MHD + GLM, N = 128, t = 0.1 (verification/mhd/riemann)
+#   glm-pulse                MV-3 GLM pulse, periodic x, N = 128, t = 0.3: the psi / B_n telegraph system
+#   uniform-amr-mhd          MV-2 uniform MHD state (rho, u, p, B) across the V3 2:1 patch, GLM, 10 steps
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 
@@ -160,6 +167,8 @@ declare -a failed_cases=()
 for case_dir in "$REGRESSION_DIR"/*/; do
    case_name="$(basename "$case_dir")"
    [[ -f "$case_dir/input.ini" ]] || { skip_count=$((skip_count + 1)); continue; }
+   # REGRESSION_CASES="a b ..." restricts the run to the named cases (e.g. golden capture of new cases only).
+   if [[ -n "${REGRESSION_CASES:-}" && " $REGRESSION_CASES " != *" $case_name "* ]]; then continue; fi
 
    # A case with no golden/<backend>/ is not a regression anchor yet: skip it, unless REGRESSION_RUN_GOLDENLESS=1 (the
    # initial golden-capture workflow, which produces work-<backend>/ for promotion into golden/).
