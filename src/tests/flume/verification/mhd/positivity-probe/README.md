@@ -1,9 +1,9 @@
 # Positivity probe: the Balsara–Spicer strong blast (issue #41, M2 stretch S0–S2)
 
-A record, not a check: FLUME cannot run the Balsara & Spicer (1999) strong MHD blast, and none of the practical
-positivity fixes tried here changes that. These scripts reproduce the measurements behind that conclusion, which
-closed the M2 stretch items "parametrised positivity-preserving flux limiter" and "EGLM / ideal GLM-MHD switch"
-without adopting either.
+A record, not a check: FLUME cannot run the Balsara & Spicer (1999) strong MHD blast. The M2 measurements (2026-09-30,
+issue #41 stretch S0–S2) closed the stretch items "parametrised positivity-preserving flux limiter" and "EGLM / ideal
+GLM-MHD switch" without adopting either. The M3 measurements (issue #47) found the cause, the mixed-GLM energy
+coupling, and **correct the M2 conclusion on EGLM** (see "Conclusion").
 
 The blast: $\rho = 1$, $p = 0.1$ outside and $p = 1000$ for $r < 0.1$, $\mathbf{B} = 100/\sqrt{4\pi}$ at 45°
 (ambient $\beta = 2.5 \cdot 10^{-4}$), $\gamma = 1.4$, periodic $[0, 1]^2$, $t = 0.01$.
@@ -16,6 +16,7 @@ The blast: $\rho = 1$, $p = 0.1$ outside and $p = 1000$ for $r < 0.1$, $\mathbf{
 | `lf_proto.py` | First-order Rusanov, forward Euler, for four models: FLUME's GLM, ideal GLM-MHD (Derigs et al. 2018, eqs. 3.16–3.18), no cleaning, Powell. |
 | `split_check.py` | Counts the one-sided Lax–Friedrichs partial states of the Hu–Adams–Shu limiter that are inadmissible along a first-order run. |
 | `weno_proto.py` | WENO5 (component-wise, Lax–Friedrichs split) + SSP-RK3 with no limiter, the one-sided limiter (Hu, Adams & Shu 2013) or the cell-based parametrised limiter (Xu 2014); optional Powell source and a scaled Lax–Friedrichs speed. |
+| `ws_proto.py` | M3 gate: WENO5 + SSP-RK3 + cell-based limiter over a first-order LF backbone, for no cleaning, FLUME's GLM and EGLM with its sources; optional Wu (2018) wave speed (local or global) and Powell source; also a random-state test of the backbone alone. |
 | `one-sided-limiter-cpu.patch` | The FLUME CPU implementation of the one-sided limiter (`[mhd] positivity_limiter`), reverted; `git apply` restores it. |
 
 Run with the regression venv, e.g. `exe/.regression-venv/bin/python weno_proto.py cell --cells 64`.
@@ -46,14 +47,37 @@ Prototypes, 64² (WENO5 + SSP-RK3, CFL 0.25), and first order at 128²:
 | WENO5, cell-based + Powell source | fails at step 61 |
 | WENO5, cell-based, Lax–Friedrichs speed ×2 or ×4 | fails at step 62–69 |
 
+## Measurements, M3 gate (2026-09-30, `ws_proto.py`)
+
+WENO5 + SSP-RK3, CFL 0.4 (on the backbone speeds), cell-based limiter:
+
+| Model | Backbone | Result |
+|---|---|---|
+| 64², FLUME's GLM | LF, with or without Powell, standard or Wu speed, local or global | fails at step 38–39; 4 backbone-inadmissible cells |
+| 64², no cleaning | same variants | reaches $t = 0.01$ (min p 3–5e-5) |
+| 64², EGLM without its sources | LF | stops at step 151 with min p 8.6e-14 (admissibility threshold 1e-13); backbone clean |
+| 64², EGLM with the Derigs sources | LF (+ Powell) | reaches $t = 0.01$, min p 3.6e-4, backbone never inadmissible |
+| 128², EGLM with the Derigs sources | LF (+ Powell) | reaches $t = 0.01$ in 384 steps, min p 1.3e-4 |
+| 128², FLUME's GLM | LF (+ Powell) | fails at step 58 |
+
+The random-state test (`ws_proto.py random`, 32², 20 trials, large B jumps, p down to $e^{-25}$) finds no inadmissible
+cell for any variant: random states do not discriminate.
+
 ## Conclusion
 
-The first-order Lax–Friedrichs update of the high-order stage states is itself inadmissible at a few cells, so no
-flux limiter (which only blends toward it) can restore positivity. The MHD Lax–Friedrichs scheme is positivity
-preserving only under a discrete divergence-free condition (Wu 2018); provable positivity needs the full framework of
-Wu & Shu (2019). The GLM energy term of EGLM is not the cause (GLM and EGLM coincide at first order), and a central
-Powell source alone does not fix it. FLUME keeps the density and pressure floors, with their counters, as the
-documented behaviour; a provably positive scheme is an M3 research item.
+The failure is caused by FLUME's mixed GLM: $\psi$ changes $B_n$ through the flux but is not in the energy, so the
+change of magnetic energy is taken from the thermal pressure, and the first-order Lax–Friedrichs update of the
+high-order stage states becomes inadmissible at a few cells; no flux limiter, which only blends toward that update,
+can then restore positivity. With EGLM (Derigs et al. 2018: $\psi^2/2$ in the energy, the matching energy flux and the
+nonconservative sources) the backbone stays admissible and the cell-based limiter reaches the end of the blast; without
+cleaning it does too, but that model is not usable in multi-D. The Wu (2018) wave speed and the Powell source alone
+change nothing on this problem.
+
+**Correction of the M2 conclusion.** M2 stated that "the GLM energy term of EGLM is not the cause (GLM and EGLM coincide
+at first order)". That test ran first-order updates of first-order states, where GLM is clean as well, so it could not
+discriminate; the discriminating test is the backbone applied to high-order stage states, above. EGLM and the
+cell-based limiter are planned in issue #47 (M3). The positivity is measured, not proven: no published proof covers
+cell-centred GLM or EGLM.
 
 References: Balsara & Spicer 1999 (JCP 149, 270); Hu, Adams & Shu 2013 (JCP 242, 169); Xu 2014 (Math. Comp. 83,
 2213); Christlieb et al. 2015 (SIAM J. Sci. Comput. 37, A1825); Wu 2018 (SIAM J. Numer. Anal. 56, 2124); Wu & Shu

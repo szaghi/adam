@@ -100,6 +100,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: check_amr_block_cells !< Check the block cells numbers against the 2:1 refinement.
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
+      procedure, pass(self), private :: check_weno_scheme     !< Refuse the centred WENO schemes.
       procedure, pass(self), private :: compute_mhd_derived !< Compute the MHD derived output fields of one block.
       procedure, pass(self), private :: compute_q_aux_host !< Compute the auxiliary variables of the host q.
       procedure, pass(self), private :: io_initialize    !< Build the variables names.
@@ -475,6 +476,7 @@ contains
                             error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load [IO].(save_auxiliary_fields)')
    call self%check_slices
+   call self%check_weno_scheme
    call self%check_ngc_number
    call self%check_amr_block_cells
    call self%allocate_common
@@ -958,6 +960,16 @@ contains
       call mpih%error_stop(msg=': [grid].(ngc)='//trim(str(self%ngc))//' is smaller than the WENO stencil half-width '// &
                                trim(str(self%weno%S)))
    endsubroutine check_ngc_number
+
+   subroutine check_weno_scheme(self)
+   !< Refuse the centred WENO schemes: the flux splitting calls the upwind primitive only, so a `weno-c-*` scheme would
+   !< silently run it at order 2S-1 (issue #47).
+   class(flume_common_object), intent(in) :: self !< The equation.
+
+   if (self%weno%is_centered) &
+      call mpih%error_stop(msg=': [weno].(scheme)='//self%weno%scheme//' is a centred scheme: FLUME accepts only the '// &
+                               'upwind schemes weno-u-1, weno-u-3, weno-u-5, weno-u-7, weno-u-9')
+   endsubroutine check_weno_scheme
 
    subroutine io_initialize(self)
    !< Build the variables names from the physical model (the same predicate that decided nv).

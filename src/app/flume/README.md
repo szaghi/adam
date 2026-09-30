@@ -23,7 +23,7 @@ Dissipative effects (viscosity, thermal conduction, resistivity) are outside the
 
 | Area | What is available | INI |
 |------|-------------------|-----|
-| Space | WENO flux splitting, per-face Roe eigenvectors, per-wave local Lax-Friedrichs; reconstruction in characteristic or conservative variables; orders `weno-u-3` to `weno-u-9`. MHD: block-diagonal characteristic decomposition, 7×7 Roe–Balsara-normalised eigenvectors (Stone et al. 2008) at the arithmetic mean of the primitive states with $B_n$ as a parameter, plus the $(B_n, \psi)$ block with speeds $\mp c_h$ | `[numerics] scheme_space = weno`, `reconstruction_variables`; `[weno] scheme` |
+| Space | WENO flux splitting, per-face Roe eigenvectors, per-wave local Lax-Friedrichs; reconstruction in characteristic or conservative variables; orders `weno-u-3` to `weno-u-9` (the centred `weno-c-*` schemes are refused). MHD: block-diagonal characteristic decomposition, 7×7 Roe–Balsara-normalised eigenvectors (Stone et al. 2008) at the arithmetic mean of the primitive states with $B_n$ as a parameter, plus the $(B_n, \psi)$ block with speeds $\mp c_h$ | `[numerics] scheme_space = weno`, `reconstruction_variables`; `[weno] scheme` |
 | Time | Library Runge-Kutta schemes (SSP and low-storage), CFL time step | `[runge_kutta] scheme`; `[time] CFL, it_max, time_max` |
 | Boundary conditions | `extrapolation`, `inflow` (primitive state `r, u, v, w, p`; MHD adds `bx, by, bz`, with $\psi = 0$), `wall-inviscid` (MHD: perfectly conducting wall, $u_n$ and $B_n$ odd, the rest and $\psi$ even), `periodic` (both faces of an axis or neither) | `[bc_{x,y,z}_{min,max}] type` |
 | Initial conditions | `uniform` (optionally with a seeded perturbation), `isentropic-vortex`, `riemann-problem` (piecewise-constant regions; MHD regions add `bx, by, bz`); MHD only: `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `orszag-tang`, `mhd-rotor`, `field-loop`, `rotated-riemann` | `[initial_conditions] type` |
@@ -165,9 +165,11 @@ Known limitations:
   Constrained transport, which would remove it, is deferred.
 - **Positivity.** The density and pressure floors are a heuristic under GLM, not a positivity-preserving scheme. Very
   low plasma beta is out of reach: the Balsara–Spicer strong blast ($\beta = 2.5 \cdot 10^{-4}$) fails within a few
-  steps, and neither a parametrised flux limiter (one-sided or cell-based) nor EGLM or a Powell source fixes it, since
-  the first-order Lax–Friedrichs update of the stage states is itself inadmissible there
-  (`src/tests/flume/verification/mhd/positivity-probe/`); a provably positive scheme (Wu & Shu 2019) is future work.
+  steps. The cause is the mixed-GLM energy coupling ($\psi$ changes $B_n$ but is not in the energy, so the change of
+  magnetic energy is taken from the thermal pressure): with it, the first-order Lax–Friedrichs update of the stage
+  states is inadmissible and no flux limiter can help. A prototype with EGLM (Derigs et al. 2018) and the cell-based
+  limiter reaches the end of the blast (`src/tests/flume/verification/mhd/positivity-probe/`); both are planned in
+  [#47](https://github.com/szaghi/adam/issues/47).
 - **GLM damping and reflux.** With damping, $\int \psi$ is not conserved across 2:1 faces (O(k dt) of the uncorrected
   leak, MV-11); the 8 physical integrals are.
 - **Quadtree AMR** with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)); use an octree.
