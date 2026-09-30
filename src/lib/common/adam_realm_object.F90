@@ -319,6 +319,11 @@ contains
                                    fields_number=fields_number, verbose=verbose_)
       endif
       call self%amr%initialize(file_parameters=file_parameters)
+      ! A quadtree with markers has 2:1 seams, where the coarse cells pick up a spurious variation along the unrefined
+      ! axis (O(1) within tens of steps, silently): refused until the seam machinery supports it (issue #46).
+      if (self%adam%tree%ratio==4.and.self%amr%markers_number>0) &
+         call mpih%error_stop(msg=': [amr] ratio = 4 (quadtree) with AMR markers gives wrong results at the 2:1 seams '//&
+                                  '(issue #46); use ratio = 8 (octree; with a null axis, nk >= 4)')
       call self%ib%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
