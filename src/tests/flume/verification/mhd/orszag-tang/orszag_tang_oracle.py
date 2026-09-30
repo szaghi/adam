@@ -40,19 +40,23 @@ GROUP = {"r": ("r",), "rE": ("rE",), "ru": ("ru", "rv", "rw"), "rv": ("ru", "rv"
          "bx": ("bx", "by", "bz"), "by": ("bx", "by", "bz"), "bz": ("bx", "by", "bz")}
 
 
-def grid(work: Path, ngc: int) -> np.ndarray:
-    """Return the last checkpoint as an array [8, nx, ny] (z null), cells ordered by their centres."""
-    cells = profile(work, "last", ngc)
-    xs = sorted({k[0] for k in cells})
-    ys = sorted({k[1] for k in cells})
-    q = np.full((len(NAMES), len(xs), len(ys)), np.nan)
-    ix = {x: n for n, x in enumerate(xs)}
-    iy = {y: n for n, y in enumerate(ys)}
-    for key, value in cells.items():
-        q[:, ix[key[0]], iy[key[1]]] = value
-    if np.isnan(q).any():
-        sys.exit(f"orszag_tang_oracle: {work} is not a full uniform 2-D grid")
-    return q
+def pairs(work: Path, ngc: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return the last checkpoint as two arrays [cells, 8]: every cell and its image under the 180 degrees rotation.
+
+    The image of the centre (x, y, z) is (x_min + x_max - x, y_min + y_max - y, z), the extremes over the cell centres:
+    any grid symmetric under the rotation (uniform, or with a symmetric 2:1 refinement, M2-P7b), any number of cells
+    along the null z axis. A cell without an image means an asymmetric grid, which is fatal."""
+    cells = {tuple(round(c, 10) for c in key): value for key, value in profile(work, "last", ngc).items()}
+    xs = [k[0] for k in cells]
+    ys = [k[1] for k in cells]
+    sx, sy = min(xs) + max(xs), min(ys) + max(ys)
+    keys = sorted(cells)
+    images = [(round(sx - k[0], 10), round(sy - k[1], 10), k[2]) for k in keys]
+    missing = [k for k, i in zip(keys, images, strict=True) if i not in cells]
+    if missing:
+        sys.exit(f"orszag_tang_oracle: {work}: {len(missing)} cells have no image under the rotation "
+                 f"(e.g. {missing[0]})")
+    return np.array([cells[k] for k in keys]), np.array([cells[i] for i in images])
 
 
 def main() -> int:
@@ -68,14 +72,13 @@ def main() -> int:
     if args.field_parity == "even":
         parity.update({"bx": 1.0, "by": 1.0, "bz": -1.0})
     ok = True
-    q = grid(args.work, args.ngc)
-    rotated = q[:, ::-1, ::-1]
+    q, rotated = pairs(args.work, args.ngc)
     worst = 0.0
     for v, name in enumerate(NAMES):
-        scale = max(float(np.abs(q[NAMES.index(g)]).max()) for g in GROUP[name])
-        defect = float(np.abs(q[v] - parity[name] * rotated[v]).max() / scale) if scale > 0.0 else 0.0
+        scale = max(float(np.abs(q[:, NAMES.index(g)]).max()) for g in GROUP[name])
+        defect = float(np.abs(q[:, v] - parity[name] * rotated[:, v]).max() / scale) if scale > 0.0 else 0.0
         worst = max(worst, defect)
-        print(f"   symmetry {name:3s}: {defect:.3e} (max|{name}| {np.abs(q[v]).max():.3e}, scale {scale:.3e})")
+        print(f"   symmetry {name:3s}: {defect:.3e} (max|{name}| {np.abs(q[:, v]).max():.3e}, scale {scale:.3e})")
     line = f"180-degree symmetry, worst relative defect {worst:.3e}"
     if args.sym_tol is not None:
         good = worst <= args.sym_tol

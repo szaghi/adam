@@ -94,7 +94,8 @@ def main() -> int:
         names, d = drift(args.leaky)
         ok = bool(np.max(d) >= args.min_drift)
         status |= 0 if ok else 1
-        print(f"{report(args.leaky, names, d)}  {'PASS' if ok else 'FAIL'} (negative control, max >= {args.min_drift:.1e})")
+        print(f"{report(args.leaky, names, d)}  {'PASS' if ok else 'FAIL'} "
+              f"(negative control, max >= {args.min_drift:.1e})")
     if args.compare is not None:
         a, b = (last_fields(w) for w in args.compare)
         if args.ngc > 0:

@@ -13,7 +13,15 @@
 #   - positivity with zero floored cells: the floors are disabled, so a non-positive density or pressure stops the run.
 # About 4.5 min on the CPU.
 #
-# Usage: ./check.sh [--np N]
+# --amr runs the AMR leg instead (M2-P7b): 32^2 base with [0.25, 0.75]^2 refined once (2:1 seams the shocks cross,
+# octree with null z, nk = 4, see ../amr_box.py), t = 0.5, np 2, plus the uniform 32^2 run as reference:
+#   - symmetry and conservation as above on the AMR run (measured 9.1e-13 and 1.1e-16: the refined box is symmetric
+#     about the centre, and the reflux keeps the integrals);
+#   - the seam div(B) (seam_divb_oracle.py): the peak of max|div B| beside the seam faces at most SEAM_REF_RATIO times
+#     the peak of max|div B| of the uniform reference (measured 0.887 / 1.170 = 0.76; the shocks set both);
+# about 6 min on the CPU.
+#
+# Usage: ./check.sh [--np N] [--amr]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -26,11 +34,14 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 SYM_TOL="1.0e-8"
 CONS_TOL="1.0e-13"
+SEAM_REF_RATIO="1.0"
+AMR=0
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
-      --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --np)  NP="$2" ; shift 2 ;;
+      --amr) AMR=1 ; shift ;;
+      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr)" >&2 ; exit 2 ;;
    esac
 done
 if [[ ! -x "$EXE" ]]; then
@@ -40,20 +51,35 @@ fi
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TAG="$(basename "$EXE")-np$NP"
 
-echo ">> MV-12 Orszag-Tang 128^2 ($(basename "$EXE"), np $NP)"
-w="$CASE_DIR/work-$TAG"
-rm -rf "$w" ; mkdir -p "$w"
-"$VENV_PY" "$CASE_DIR/make_orszag_tang.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$w/orszag-tang.ini" --cells 128
-if ! (cd "$w" && mpirun -np "$NP" "$EXE" orszag-tang.ini > log.txt 2>&1); then
-   echo "check.sh: Orszag-Tang run failed (a floor stop is a positivity failure), see $w/log.txt" >&2
-   exit 1
-fi
-if "$VENV_PY" "$CASE_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$SYM_TOL" --cons-tol "$CONS_TOL"; then
-   STATUS=0
+# run_ot <work> <make_orszag_tang.py options>: write the input and run it.
+run_ot() {
+   local w="$1" ; shift
+   rm -rf "$w" ; mkdir -p "$w"
+   "$VENV_PY" "$CASE_DIR/make_orszag_tang.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$w/orszag-tang.ini" "$@"
+   if ! (cd "$w" && mpirun -np "$NP" "$EXE" orszag-tang.ini > log.txt 2>&1); then
+      echo "check.sh: Orszag-Tang run failed (a floor stop is a positivity failure), see $w/log.txt" >&2
+      exit 1
+   fi
+}
+
+STATUS=0
+if [[ $AMR -eq 0 ]]; then
+   echo ">> MV-12 Orszag-Tang 128^2 ($(basename "$EXE"), np $NP)"
+   w="$CASE_DIR/work-$TAG"
+   run_ot "$w" --cells 128
+   "$VENV_PY" "$CASE_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$SYM_TOL" --cons-tol "$CONS_TOL" || STATUS=1
+   works=("$w")
 else
-   STATUS=1
+   TAG="$TAG-amr"
+   echo ">> MV-12 Orszag-Tang 32^2 + [0.25, 0.75]^2 refined 2:1 ($(basename "$EXE"), np $NP)"
+   ref="$CASE_DIR/work-$TAG-ref" ; w="$CASE_DIR/work-$TAG"
+   run_ot "$ref" --cells 32
+   run_ot "$w" --cells 32 --refine-box 0.25 0.25 0.75 0.75
+   "$VENV_PY" "$CASE_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$SYM_TOL" --cons-tol "$CONS_TOL" || STATUS=1
+   "$VENV_PY" "$CASE_DIR/../seam_divb_oracle.py" "$w" --ref "$ref" --ref-ratio-max "$SEAM_REF_RATIO" || STATUS=1
+   works=("$ref" "$w")
 fi
-find "$w" -name '*.h5' -delete
+for w in "${works[@]}"; do find "$w" -name '*.h5' -delete; done
 
 if [[ $STATUS -eq 0 ]]; then
    echo "MV-12 PASSED ($TAG)"

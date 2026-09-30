@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "linear-wave"))
-from linear_wave_oracle import NAMES, profile  # noqa: E402
+from linear_wave_oracle import NAMES, profile, volumes  # noqa: E402
 
 IBX, IBY, IBZ = NAMES.index("bx"), NAMES.index("by"), NAMES.index("bz")
 
@@ -35,11 +35,17 @@ def amplitude(work: Path) -> float:
 
 
 def measures(work: Path, ngc: int) -> tuple[float, float]:
-    """Return (<|B_z|> / A0 of the last checkpoint, E_B(last) / E_B(first)); uniform cells, so means are integrals."""
-    first = np.array(list(profile(work, "first", ngc).values()))
-    last = np.array(list(profile(work, "last", ngc).values()))
-    bz = float(np.mean(np.abs(last[:, IBZ]))) / amplitude(work)
-    energy = [float(np.sum(q[:, IBX] ** 2 + q[:, IBY] ** 2 + q[:, IBZ] ** 2)) for q in (first, last)]
+    """Return (<|B_z|> / A0 of the last checkpoint, E_B(last) / E_B(first)), volume-weighted (AMR runs, M2-P7b, have
+    cells of two sizes; on a uniform grid the weights are equal)."""
+    out = []
+    for step in ("first", "last"):
+        cells, vol = profile(work, step, ngc), volumes(work, step, ngc)
+        keys = sorted(cells)
+        out.append((np.array([cells[k] for k in keys]), np.array([vol[k] for k in keys])))
+    (first, w_first), (last, w_last) = out
+    bz = float(np.sum(np.abs(last[:, IBZ]) * w_last) / np.sum(w_last)) / amplitude(work)
+    energy = [float(np.sum((q[:, IBX] ** 2 + q[:, IBY] ** 2 + q[:, IBZ] ** 2) * w))
+              for q, w in ((first, w_first), (last, w_last))]
     return bz, energy[1] / energy[0]
 
 

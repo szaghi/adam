@@ -13,13 +13,18 @@ the vortex grid of V2 (verification/vortex, 4x4 blocks) stretched to the box, N 
 
 Usage:
     make_field_loop.py <base.ini> <out.ini> --cells N [--cfl C] [--time-max T] [--glm-ch C] [--vz W]
+                       [--refine-box XMIN YMIN XMAX YMAX]
 """
 
 from __future__ import annotations
 
 import argparse
 import configparser
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from amr_box import refine_box  # noqa: E402
 
 
 def main() -> None:
@@ -32,6 +37,8 @@ def main() -> None:
     parser.add_argument("--time-max", default="2.0")
     parser.add_argument("--glm-ch", default="4.0")
     parser.add_argument("--vz", default="1.0", help="out-of-plane velocity w")
+    parser.add_argument("--refine-box", type=float, nargs=4, default=None, metavar=("XMIN", "YMIN", "XMAX", "YMAX"),
+                        help="refine the blocks whose centroid lies in the box by one 2:1 level (AMR variant)")
     args = parser.parse_args()
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
     ini.optionxform = str
@@ -56,6 +63,8 @@ def main() -> None:
     ini["time"].update({"it_max": "-1", "time_max": args.time_max, "CFL": args.cfl})
     ini["IO"].update({"output_basename": "field-loop", "it_save": "1000000"})
     ini["diagnostics"]["conservation_history_save"] = "1"
+    if args.refine_box is not None:
+        refine_box(ini, args.refine_box)
     with args.out.open("w") as out:
         ini.write(out)
 

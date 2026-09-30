@@ -57,6 +57,26 @@ def profile(work: Path, step: str, ngc: int) -> dict[tuple[float, ...], np.ndarr
     return cells
 
 
+def volumes(work: Path, step: str, ngc: int) -> dict[tuple[float, ...], float]:
+    """Return the volume of every interior cell of the first or last checkpoint, keyed as profile() keys it (for the
+    volume-weighted means of AMR runs, whose cells differ in size)."""
+    files = sorted(p for p in work.glob("*-proc*.h5") if "restart" not in p.name)
+    steps = sorted({int(p.name.split("-")[-2]) for p in files})
+    pick = steps[0] if step == "first" else steps[-1]
+    out: dict[tuple[float, ...], float] = {}
+    for path in (p for p in files if int(p.name.split("-")[-2]) == pick):
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                origin, dxyz = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                shape = h5[f"{blk}-r"][()].shape[::-1]
+                vol = float(np.prod(dxyz))
+                for i, j, k in np.ndindex(*(n - 2 * ngc for n in shape)):
+                    key = tuple(round(float(origin[a] + (n + ngc + 0.5) * dxyz[a]), 12)
+                                for a, n in enumerate((i, j, k)))
+                    out[key] = vol
+    return out
+
+
 def error(work: Path, ngc: int) -> float:
     """Return eps = sqrt(sum_v mean|q_v(T) - q_v(0)|^2) of a run."""
     first, last = profile(work, "first", ngc), profile(work, "last", ngc)
