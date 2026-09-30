@@ -1,0 +1,411 @@
+diff --git a/src/app/flume/common/adam_flume_common_object.F90 b/src/app/flume/common/adam_flume_common_object.F90
+index 9196a3ab..cd7f4e34 100644
+--- a/src/app/flume/common/adam_flume_common_object.F90
++++ b/src/app/flume/common/adam_flume_common_object.F90
+@@ -469,6 +469,11 @@ contains
+    call self%bc%initialize(file_parameters=file_parameters, physics=self%physics)
+    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
+    call self%time%initialize(file_parameters=file_parameters)
++   if (self%physics%mhd%positivity_limiter .and. &
++       2._R8P * count(.not.self%adam%grid%null_xyz) * self%time%CFL > 1._R8P + epsilon(1._R8P)) &
++      call mpih%error_stop(msg=': [mhd].(positivity_limiter) needs 2 D CFL <= 1 (D active directions: '//     &
++                               trim(str(count(.not.self%adam%grid%null_xyz), .true.))//'), [time].(CFL) = '// &
++                               trim(str(self%time%CFL)))
+    call self%ic%initialize(file_parameters=file_parameters, physics=self%physics)
+    call self%diagnostics%initialize(file_parameters=file_parameters)
+    call file_parameters%get(section_name='IO', option_name='save_auxiliary_fields', val=self%save_auxiliary_fields, &
+diff --git a/src/app/flume/common/adam_flume_mhd_object.F90 b/src/app/flume/common/adam_flume_mhd_object.F90
+index 8c8aa7f1..0b1a28a0 100644
+--- a/src/app/flume/common/adam_flume_mhd_object.F90
++++ b/src/app/flume/common/adam_flume_mhd_object.F90
+@@ -9,7 +9,9 @@ module adam_flume_mhd_object
+ !< spacing of the realm over the active directions, Mignone & Tzeferacos 2010; set by `set_glm_damping` once the grid
+ !< exists, issue #41, section 3.5); `glm_ch_check` decides what happens when the fastest wave
+ !< outruns `c_h` (`warning` or `error`). `divb_tol` arms the div(B) monitor (0 disables it) and `divb_error` makes an
+-!< exceeded tolerance fatal. `rho_floor` and `p_floor` are the positivity floors (0 disables them).
++!< exceeded tolerance fatal. `rho_floor` and `p_floor` are the positivity floors (0 disables them). `positivity_limiter`
++!< (optional, default off) blends every face flux with the first-order Lax-Friedrichs one so that density and pressure
++!< stay positive (Hu, Adams & Shu 2013; issue #41, M2-S1); it needs `2 D CFL <= 1`, D the active directions.
+ 
+ ! ADAM singleton objects
+ use :: adam_mpih_global,      only : mpih
+@@ -40,6 +42,7 @@ type :: flume_mhd_object
+    logical                   :: divb_error=.false.        !< Stop when the div(B) tolerance is exceeded.
+    real(R8P)                 :: rho_floor=0._R8P          !< Density floor (0: disabled).
+    real(R8P)                 :: p_floor=0._R8P            !< Pressure floor (0: disabled).
++   logical                   :: positivity_limiter=.false. !< Positivity-preserving flux limiter (optional key).
+    contains
+       ! public methods
+       procedure, pass(self) :: description    !< Return pretty-printed object description.
+@@ -71,7 +74,8 @@ contains
+    desc = desc//mpih%myrankstr//'  divb_tol:           '//trim(str(self%divb_tol))//NL
+    desc = desc//mpih%myrankstr//'  divb_error:         '//trim(merge('.true. ', '.false.', self%divb_error))//NL
+    desc = desc//mpih%myrankstr//'  rho_floor:          '//trim(str(self%rho_floor))//NL
+-   desc = desc//mpih%myrankstr//'  p_floor:            '//trim(str(self%p_floor))
++   desc = desc//mpih%myrankstr//'  p_floor:            '//trim(str(self%p_floor))//NL
++   desc = desc//mpih%myrankstr//'  positivity_limiter: '//trim(merge('.true. ', '.false.', self%positivity_limiter))
+    endfunction description
+ 
+    subroutine initialize(self, file_parameters)
+@@ -86,7 +90,8 @@ contains
+    endsubroutine initialize
+ 
+    subroutine load_from_file(self, file_parameters)
+-   !< Load config from file; every key in use is required and an unknown or out-of-range value is fatal.
++   !< Load config from file; every key in use is required (but `positivity_limiter`, off when absent) and an unknown or
++   !< out-of-range value is fatal.
+    class(flume_mhd_object), intent(inout) :: self            !< MHD configs.
+    type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+    character(999)                         :: buff            !< Option value buffer.
+@@ -142,6 +147,12 @@ contains
+    if (.not.(self%rho_floor >= 0._R8P)) call range_error(key='rho_floor', val=self%rho_floor, expected='>= 0')
+    call load_real(key='p_floor', val=self%p_floor)
+    if (.not.(self%p_floor >= 0._R8P)) call range_error(key='p_floor', val=self%p_floor, expected='>= 0')
++   self%positivity_limiter = .false.
++   if (file_parameters%count_values(section_name=INI_SECTION_NAME, option_name='positivity_limiter') > 0_I4P) then
++      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='positivity_limiter', &
++                               val=self%positivity_limiter, error=error)
++      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(positivity_limiter)')
++   endif
+    contains
+       subroutine load_real(key, val)
+       !< Load one required real key.
+diff --git a/src/app/flume/common/adam_flume_parameters.F90 b/src/app/flume/common/adam_flume_parameters.F90
+index b2db6403..79f1cb5f 100644
+--- a/src/app/flume/common/adam_flume_parameters.F90
++++ b/src/app/flume/common/adam_flume_parameters.F90
+@@ -6,7 +6,7 @@ module adam_flume_parameters
+ !< one list and its error message can name the accepted spellings.
+ 
+ ! third party modules
+-use :: penf, only : I4P
++use :: penf, only : I4P, R8P
+ 
+ implicit none
+ private
+@@ -35,6 +35,7 @@ public :: NV_AUX
+ public :: NV_MHD
+ public :: NV_MHD_GLM
+ public :: NV_AUX_MHD
++public :: POSITIVITY_EPS
+ public :: S_MAX
+ public :: MODEL_EULER
+ public :: MODEL_MHD
+@@ -80,6 +81,8 @@ integer(I4P), parameter :: NV_MHD     = 8_I4P  !< Conservative variables number,
+ integer(I4P), parameter :: NV_MHD_GLM = 9_I4P  !< Conservative variables number, MHD with GLM divergence cleaning.
+ integer(I4P), parameter :: NV_AUX_MHD = 11_I4P !< Auxiliary variables number, MHD (both variants).
+ integer(I4P), parameter :: S_MAX      = 5_I4P  !< Maximum WENO stencil half-width (weno-u-9).
++! positivity-preserving flux limiter (issue #41, M2-S1): the density and pressure bound of Hu, Adams & Shu (2013)
++real(R8P),    parameter :: POSITIVITY_EPS = 1.e-13_R8P !< Lower bound of density and pressure kept by the limiter.
+ ! physical models: the id the host controllers dispatch on, never inside a kernel (issue #41, section 4)
+ integer(I4P), parameter :: MODEL_EULER   = 1_I4P !< Compressible Euler (nv = 5).
+ integer(I4P), parameter :: MODEL_MHD     = 2_I4P !< Ideal compressible MHD without divergence control (nv = 8).
+diff --git a/src/app/flume/cpu/adam_flume_cpu_mhd_glm_kernels.F90 b/src/app/flume/cpu/adam_flume_cpu_mhd_glm_kernels.F90
+index 259bd139..2aadebae 100644
+--- a/src/app/flume/cpu/adam_flume_cpu_mhd_glm_kernels.F90
++++ b/src/app/flume/cpu/adam_flume_cpu_mhd_glm_kernels.F90
+@@ -13,9 +13,9 @@ use :: adam_weno_object,           only : weno_object, weno_reconstruct_upwind
+ ! FLUME modules
+ use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_glm_face_flux_back_projection, &
+                                       conservative_to_auxiliary=>mhd_conservative_to_auxiliary,             &
+-                                      mhd_fast_speed, mhd_glm_face_split_fluxes, mhd_sum3
++                                      mhd_fast_speed, mhd_glm_face_split_fluxes, mhd_glm_flux, mhd_sum3
+ use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
+-                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD_GLM, S_MAX
++                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD_GLM, POSITIVITY_EPS, S_MAX
+ ! third party modules
+ use :: penf,                   only : I4P, I8P, R8P
+ 
+@@ -28,6 +28,7 @@ public :: compute_face_fluxes
+ public :: compute_lambda_max
+ public :: compute_q_aux
+ public :: count_nonfinite
++public :: limit_positivity
+ public :: compute_speed_max
+ 
+ contains
+@@ -63,6 +64,19 @@ contains
+    endsubroutine add_glm_damping
+ 
+    ! private procedures
++   pure subroutine physical_flux(ch, d, q, qa, f)
++   !< Physical-flux adapter of the positivity limiter (issue #41, M2-S1): the MHD flux with GLM cleaning.
++   real(R8P),    intent(in)  :: ch               !< GLM cleaning speed.
++   integer(I4P), intent(in)  :: d                !< Direction, 1=x, 2=y, 3=z.
++   real(R8P),    intent(in)  :: q(NV_K)          !< Conservative variables.
++   real(R8P),    intent(in)  :: qa(NV_AUX_K)     !< Auxiliary variables.
++   real(R8P),    intent(out) :: f(NV_K)          !< Physical flux along d.
++   !$acc routine seq
++   !$omp declare target
++
++   call mhd_glm_flux(ch=ch, d=d, q=q, qa=qa, f=f)
++   endsubroutine physical_flux
++
+    pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er)
+    !< Split adapter of the shared face kernel (issue #41, M2-P3): the MHD split with GLM cleaning.
+    real(R8P),    intent(in)  :: gamma                          !< Specific heats ratio.
+diff --git a/src/app/flume/cpu/adam_flume_cpu_mhd_kernels.F90 b/src/app/flume/cpu/adam_flume_cpu_mhd_kernels.F90
+index c580d26b..eae5bb06 100644
+--- a/src/app/flume/cpu/adam_flume_cpu_mhd_kernels.F90
++++ b/src/app/flume/cpu/adam_flume_cpu_mhd_kernels.F90
+@@ -13,9 +13,9 @@ use :: adam_weno_object,           only : weno_object, weno_reconstruct_upwind
+ ! FLUME modules
+ use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_face_flux_back_projection, &
+                                       conservative_to_auxiliary=>mhd_conservative_to_auxiliary,         &
+-                                      mhd_fast_speed, mhd_face_split_fluxes, mhd_sum3
++                                      mhd_fast_speed, mhd_face_split_fluxes, mhd_flux, mhd_sum3
+ use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
+-                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD, S_MAX
++                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD, POSITIVITY_EPS, S_MAX
+ ! third party modules
+ use :: penf,                   only : I4P, I8P, R8P
+ 
+@@ -27,6 +27,7 @@ public :: compute_face_fluxes
+ public :: compute_lambda_max
+ public :: compute_q_aux
+ public :: count_nonfinite
++public :: limit_positivity
+ public :: compute_speed_max
+ 
+ contains
+@@ -38,6 +39,19 @@ contains
+ #include "adam_flume_cpu_mhd_kernels_agnostic.INC"
+ 
+    ! private procedures
++   pure subroutine physical_flux(ch, d, q, qa, f)
++   !< Physical-flux adapter of the positivity limiter (issue #41, M2-S1): the MHD flux without cleaning, `ch` unused.
++   real(R8P),    intent(in)  :: ch               !< GLM cleaning speed.
++   integer(I4P), intent(in)  :: d                !< Direction, 1=x, 2=y, 3=z.
++   real(R8P),    intent(in)  :: q(NV_K)          !< Conservative variables.
++   real(R8P),    intent(in)  :: qa(NV_AUX_K)     !< Auxiliary variables.
++   real(R8P),    intent(out) :: f(NV_K)          !< Physical flux along d.
++   !$acc routine seq
++   !$omp declare target
++
++   call mhd_flux(d=d, q=q, qa=qa, f=f)
++   endsubroutine physical_flux
++
+    pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er)
+    !< Split adapter of the shared face kernel (issue #41, M2-P3): the MHD split without cleaning, `ch` unused.
+    real(R8P),    intent(in)  :: gamma                          !< Specific heats ratio.
+diff --git a/src/app/flume/cpu/adam_flume_cpu_mhd_kernels_agnostic.INC b/src/app/flume/cpu/adam_flume_cpu_mhd_kernels_agnostic.INC
+index 9db8bbff..d084acdd 100644
+--- a/src/app/flume/cpu/adam_flume_cpu_mhd_kernels_agnostic.INC
++++ b/src/app/flume/cpu/adam_flume_cpu_mhd_kernels_agnostic.INC
+@@ -168,3 +168,107 @@
+    enddo
+    !$omp end parallel do
+    endsubroutine compute_divb_norms
++
++   subroutine limit_positivity(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, ch, lambda_factor, dxyz, q, fl, &
++                               limited, unresolved)
++   !< Blend the face fluxes along `d` with the first-order local Lax-Friedrichs ones so that density and pressure stay
++   !< above POSITIVITY_EPS (Hu, Adams & Shu 2013, written for MHD; issue #41, M2-S1).
++   !<
++   !< With `D` active directions and `lambda = dt / dx_d`, a cell update is the average over its `2 D` faces of the
++   !< one-sided partial states `q_L - 2 D lambda (F - f(q_L))` (left cell of a face) and `q_R + 2 D lambda (F - f(q_R))`
++   !< (right cell), `f` the physical flux; with the first-order flux they are admissible when `2 D lambda alpha <= 1`,
++   !< the CFL condition the caller enforces. The face flux becomes `F_LF + theta (F - F_LF)`, `theta` the largest value
++   !< in [0, 1] keeping both partial states admissible (density linear, pressure concave along the segment: bisection),
++   !< so the update is admissible and, being a convex combination with the stage state, so is every Runge-Kutta stage
++   !< (forward-Euler multipliers <= 1). Both cells of a face are read, the normal ghost layer included: the two blocks
++   !< sharing a face compute the same `theta` and the flux stays conservative. A face whose first-order partial state is
++   !< already inadmissible (the MHD Lax-Friedrichs split is not positivity preserving in general, Wu 2018) gets
++   !< `theta = 0` and is counted as unresolved; `limited` counts the faces with `theta < 1`.
++   integer(I4P), intent(in)    :: d                              !< Direction, 1=x, 2=y, 3=z.
++   integer(I4P), intent(in)    :: di, dj, dk                     !< Direction unit offsets.
++   integer(I4P), intent(in)    :: ni, nj, nk, ngc                !< Grid dimensions.
++   integer(I4P), intent(in)    :: blocks_number                  !< Actual blocks number.
++   real(R8P),    intent(in)    :: gamma                          !< Specific heats ratio.
++   real(R8P),    intent(in)    :: R                              !< Gas constant.
++   real(R8P),    intent(in)    :: ch                             !< GLM cleaning speed (0 without cleaning).
++   real(R8P),    intent(in)    :: lambda_factor                  !< 2 D dt: the partial-state step is lambda_factor / dx_d.
++   real(R8P),    intent(in)    :: dxyz(1:,1:)                    !< Blocks space steps [3, nb].
++   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Conservative variables (ghosts filled).
++   real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)    !< Face fluxes along d, blended in place.
++   integer(I4P), intent(out)   :: limited                        !< Faces with theta < 1.
++   integer(I4P), intent(out)   :: unresolved                     !< Faces whose first-order partial state is inadmissible.
++   real(R8P)                   :: qa_l(NV_AUX_K), qa_r(NV_AUX_K) !< Auxiliary variables of the left and right cells.
++   real(R8P)                   :: f_l(NV_K), f_r(NV_K)           !< Physical fluxes of the left and right cells.
++   real(R8P)                   :: f_lf(NV_K), df(NV_K)           !< First-order flux, high-order minus first-order.
++   real(R8P)                   :: alpha                          !< Lax-Friedrichs speed.
++   real(R8P)                   :: step                           !< Partial-state step 2 D dt / dx_d.
++   real(R8P)                   :: theta_l, theta_r               !< Admissible bounds of the two partial states.
++   logical                     :: ok_l, ok_r                     !< First-order partial states admissible.
++   integer(I4P)                :: b, i, j, k                     !< Counters.
++
++   limited = 0_I4P ; unresolved = 0_I4P
++   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q, fl) reduction(+:limited,unresolved)
++   do b=1, blocks_number
++      do k=1-dk, nk
++         do j=1-dj, nj
++            do i=1-di, ni
++               step = lambda_factor / dxyz(d,b)
++               call conservative_to_auxiliary(gamma=gamma, R=R, q=q(:,i,j,k,b), qa=qa_l)
++               call conservative_to_auxiliary(gamma=gamma, R=R, q=q(:,i+di,j+dj,k+dk,b), qa=qa_r)
++               call physical_flux(ch=ch, d=d, q=q(:,i,j,k,b), qa=qa_l, f=f_l)
++               call physical_flux(ch=ch, d=d, q=q(:,i+di,j+dj,k+dk,b), qa=qa_r, f=f_r)
++               alpha = max(abs(qa_l(IA_U+d-1)) + mhd_fast_speed(d=d, qa=qa_l), &
++                           abs(qa_r(IA_U+d-1)) + mhd_fast_speed(d=d, qa=qa_r), ch)
++               f_lf = 0.5_R8P * (f_l + f_r - alpha * (q(:,i+di,j+dj,k+dk,b) - q(:,i,j,k,b)))
++               df = fl(:,i,j,k,b) - f_lf
++               call theta_max(v0=q(:,i,j,k,b) - step * (f_lf - f_l), dv=-step * df, theta=theta_l, ok=ok_l)
++               call theta_max(v0=q(:,i+di,j+dj,k+dk,b) + step * (f_lf - f_r), dv=step * df, theta=theta_r, ok=ok_r)
++               if (.not.(ok_l .and. ok_r)) unresolved = unresolved + 1_I4P
++               if (min(theta_l, theta_r) < 1._R8P) then
++                  limited = limited + 1_I4P
++                  fl(:,i,j,k,b) = f_lf + min(theta_l, theta_r) * df
++               endif
++            enddo
++         enddo
++      enddo
++   enddo
++   !$omp end parallel do
++   contains
++      pure subroutine theta_max(v0, dv, theta, ok)
++      !< Largest `theta` in [0, 1] with `v0 + theta dv` admissible; `ok` false (and `theta = 0`) when `v0` is not.
++      real(R8P),    intent(in)  :: v0(NV_K), dv(NV_K) !< Partial state at theta = 0 and its increment.
++      real(R8P),    intent(out) :: theta              !< Admissible bound.
++      logical,      intent(out) :: ok                 !< v0 admissible.
++      real(R8P)                 :: lo, hi             !< Bisection bracket (lo admissible, hi not).
++      integer(I4P)              :: n                  !< Bisection counter.
++
++      ok = admissible(v0)
++      theta = 0._R8P
++      if (.not.ok) return
++      theta = 1._R8P
++      if (admissible(v0 + dv)) return
++      lo = 0._R8P ; hi = 1._R8P
++      do n=1, 40
++         theta = 0.5_R8P * (lo + hi)
++         if (admissible(v0 + theta * dv)) then
++            lo = theta
++         else
++            hi = theta
++         endif
++      enddo
++      theta = lo
++      endsubroutine theta_max
++
++      pure function admissible(v) result(is_admissible)
++      !< True when the density and the pressure of `v` are at least POSITIVITY_EPS.
++      real(R8P), intent(in) :: v(NV_K)        !< Conservative variables.
++      logical               :: is_admissible  !< Admissibility.
++      real(R8P)             :: p              !< Pressure.
++
++      is_admissible = .false.
++      if (v(IQ_R) < POSITIVITY_EPS) return
++      p = (gamma - 1._R8P) * (v(IQ_RE) - 0.5_R8P * mhd_sum3(v(IQ_RU)**2, v(IQ_RV)**2, v(IQ_RW)**2) / v(IQ_R) - &
++                              0.5_R8P * mhd_sum3(v(IQ_BX)**2, v(IQ_BY)**2, v(IQ_BZ)**2))
++      is_admissible = p >= POSITIVITY_EPS
++      endfunction admissible
++   endsubroutine limit_positivity
+diff --git a/src/app/flume/cpu/adam_flume_cpu_object.F90 b/src/app/flume/cpu/adam_flume_cpu_object.F90
+index 5c1e52e8..4e09b89d 100644
+--- a/src/app/flume/cpu/adam_flume_cpu_object.F90
++++ b/src/app/flume/cpu/adam_flume_cpu_object.F90
+@@ -29,14 +29,16 @@ use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,
+                                               compute_face_fluxes_mhd=>compute_face_fluxes,                        &
+                                               compute_lambda_max_mhd=>compute_lambda_max,                            &
+                                               compute_q_aux_mhd=>compute_q_aux,                                      &
+-                                              count_nonfinite_mhd=>count_nonfinite
++                                              count_nonfinite_mhd=>count_nonfinite,                                  &
++                                              limit_positivity_mhd=>limit_positivity
+ use :: adam_flume_cpu_mhd_glm_kernels, only : add_glm_damping, apply_floors_mhd_glm=>apply_floors,              &
+                                               compute_divb_norms_mhd_glm=>compute_divb_norms,                      &
+                                               compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
+                                               compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
+                                               compute_q_aux_mhd_glm=>compute_q_aux,                                  &
+                                               compute_speed_max_mhd_glm=>compute_speed_max,                          &
+-                                              count_nonfinite_mhd_glm=>count_nonfinite
++                                              count_nonfinite_mhd_glm=>count_nonfinite,                              &
++                                              limit_positivity_mhd_glm=>limit_positivity
+ ! third party modules
+ use :: mpi
+ use :: penf,                      only : I4P, I8P, R8P, str
+@@ -58,6 +60,7 @@ type, extends(flume_common_object) :: flume_cpu_object
+       ! public methods
+       procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
+       procedure, pass(self) :: apply_floors            !< Apply the MHD positivity floors of a stage.
++      procedure, pass(self) :: limit_positivity        !< Positivity-preserving limiter of the MHD face fluxes.
+       procedure, pass(self) :: allocate_cpu            !< Allocate CPU data.
+       procedure, pass(self) :: check_glm_ch            !< Check the GLM c_h against the fastest wave.
+       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
+@@ -163,6 +166,69 @@ contains
+    endassociate
+    endsubroutine accumulate_seam_fluxes
+ 
++   subroutine limit_positivity(self, q)
++   !< Blend the MHD face fluxes of a stage with the first-order Lax-Friedrichs ones where density or pressure would go
++   !< below POSITIVITY_EPS (`[mhd] positivity_limiter`, issue #41, M2-S1), before the seam accumulation and the flux
++   !< difference, so the flux register and the update use the same limited fluxes. The step is `2 D dt / dx_d` (the
++   !< forward-Euler multipliers of the SSP stages are at most 1); the limited and unresolved faces are logged by rank 0.
++   class(flume_cpu_object), intent(inout) :: self          !< The equation.
++   real(R8P),               intent(in)    :: q(1:,         &
++                                                1-self%ngc:,&
++                                                1-self%ngc:,&
++                                                1-self%ngc:,&
++                                                1:)         !< Conservative variables (ghosts filled).
++   integer(I4P)                           :: counts(2)     !< Limited faces, unresolved faces.
++   integer(I4P)                           :: c(2)          !< Counts of one direction.
++   real(R8P)                              :: lambda_factor !< 2 D dt.
++
++   if (.not.self%physics%mhd%positivity_limiter) return
++   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
++             R=>self%physics%R, ch=>self%physics%mhd%glm_ch, dxyz=>self%adam%field%dxyz, is_null=>self%adam%grid%null_xyz)
++   lambda_factor = 2._R8P * count(.not.is_null) * self%time%dt
++   counts = 0_I4P
++   select case(self%physics%model)
++   case(MODEL_MHD)
++      if (.not.is_null(1)) then
++         call limit_positivity_mhd(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
++                                   gamma=gamma, R=R, ch=ch, lambda_factor=lambda_factor, dxyz=dxyz, q=q, fl=self%flx_f, &
++                                   limited=c(1), unresolved=c(2)) ; counts = counts + c
++      endif
++      if (.not.is_null(2)) then
++         call limit_positivity_mhd(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
++                                   gamma=gamma, R=R, ch=ch, lambda_factor=lambda_factor, dxyz=dxyz, q=q, fl=self%fly_f, &
++                                   limited=c(1), unresolved=c(2)) ; counts = counts + c
++      endif
++      if (.not.is_null(3)) then
++         call limit_positivity_mhd(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
++                                   gamma=gamma, R=R, ch=ch, lambda_factor=lambda_factor, dxyz=dxyz, q=q, fl=self%flz_f, &
++                                   limited=c(1), unresolved=c(2)) ; counts = counts + c
++      endif
++   case(MODEL_MHD_GLM)
++      if (.not.is_null(1)) then
++         call limit_positivity_mhd_glm(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,           &
++                                       blocks_number=nb, gamma=gamma, R=R, ch=ch, lambda_factor=lambda_factor,        &
++                                       dxyz=dxyz, q=q, fl=self%flx_f, limited=c(1), unresolved=c(2)) ; counts = counts + c
++      endif
++      if (.not.is_null(2)) then
++         call limit_positivity_mhd_glm(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,           &
++                                       blocks_number=nb, gamma=gamma, R=R, ch=ch, lambda_factor=lambda_factor,        &
++                                       dxyz=dxyz, q=q, fl=self%fly_f, limited=c(1), unresolved=c(2)) ; counts = counts + c
++      endif
++      if (.not.is_null(3)) then
++         call limit_positivity_mhd_glm(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,           &
++                                       blocks_number=nb, gamma=gamma, R=R, ch=ch, lambda_factor=lambda_factor,        &
++                                       dxyz=dxyz, q=q, fl=self%flz_f, limited=c(1), unresolved=c(2)) ; counts = counts + c
++      endif
++   case default
++      call mpih%error_stop(msg=': no positivity limiter for physical model "'//self%physics%physical_model//'"')
++   endselect
++   endassociate
++   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
++   if (sum(counts) > 0_I4P .and. mpih%myrank == 0) &
++      print '(A)', mpih%myrankstr//'MHD positivity limiter: '//trim(str(counts(1)))//' faces limited, '// &
++                   trim(str(counts(2)))//' unresolved at step '//trim(str(self%time%it))
++   endsubroutine limit_positivity
++
+    subroutine apply_floors(self, q)
+    !< Apply the MHD positivity floors to the interior of a stage state, before its ghost exchange (issue #41, 3.8).
+    !<
+@@ -988,6 +1054,7 @@ contains
+    case default
+       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
+    endselect
++   call self%limit_positivity(q=q)
+    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
+       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
+    endif

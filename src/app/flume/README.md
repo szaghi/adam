@@ -163,8 +163,11 @@ Known limitations:
   2002): the seams inject a truncation-level div(B) source. GLM keeps it bounded (MV-9: it decays after the initial
   transient), unlike PRISM without damping (issue #29); `seam_max_divb` in the div(B) history monitors it.
   Constrained transport, which would remove it, is deferred.
-- **Positivity.** The density and pressure floors are a heuristic under GLM, not a positivity-preserving scheme; the
-  parametrised positivity limiter is a planned extension.
+- **Positivity.** The density and pressure floors are a heuristic under GLM, not a positivity-preserving scheme. Very
+  low plasma beta is out of reach: the Balsara–Spicer strong blast ($\beta = 2.5 \cdot 10^{-4}$) fails within a few
+  steps, and neither a parametrised flux limiter (one-sided or cell-based) nor EGLM or a Powell source fixes it, since
+  the first-order Lax–Friedrichs update of the stage states is itself inadmissible there
+  (`src/tests/flume/verification/mhd/positivity-probe/`); a provably positive scheme (Wu & Shu 2019) is future work.
 - **GLM damping and reflux.** With damping, $\int \psi$ is not conserved across 2:1 faces (O(k dt) of the uncorrected
   leak, MV-11); the 8 physical integrals are.
 - **Quadtree AMR** with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)); use an octree.
