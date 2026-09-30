@@ -5,6 +5,7 @@ module test_flume_euler_library_fnl_kernels
 !< Module-level (not a `contains`-internal procedure): device routines must be module procedures.
 
 use :: adam_flume_euler_library, only : compute_eigenvalues, compute_eigenvectors, compute_face_split_fluxes, compute_flux, &
+                                        compute_riemann_hll, compute_riemann_hllc, compute_riemann_llf,                    &
                                         conservative_to_auxiliary, primitive_to_conservative
 use :: adam_flume_parameters,    only : NV_AUX, NV_EULER, S_MAX
 use :: penf,                     only : I4P, R8P
@@ -19,15 +20,15 @@ public :: R
 public :: S
 
 integer(I4P), parameter :: S=3_I4P                           !< WENO stencil half-width of the split test.
-integer(I4P), parameter :: NR=NV_AUX+NV_EULER*(2+2*NV_EULER) !< Pointwise results per state and direction.
+integer(I4P), parameter :: NR=NV_AUX+NV_EULER*(5+2*NV_EULER) !< Pointwise results per state and direction.
 integer(I4P), parameter :: NS=2*(2*S_MAX)*NV_EULER           !< Split results per state and direction.
 real(R8P),    parameter :: GAMMA=1.4_R8P                     !< Specific heats ratio.
 real(R8P),    parameter :: R=287.05_R8P                      !< Gas constant.
 
 contains
    subroutine evaluate(d, prim, res, split)
-   !< Evaluate the library on one stencil of primitive states, direction `d`: pointwise results of cell 0 and the
-   !< split fields of the whole stencil.
+   !< Evaluate the library on one stencil of primitive states, direction `d`: pointwise results of cell 0, the LLF, HLL
+   !< and HLLC fluxes of the face between cells 0 and 1, and the split fields of the whole stencil.
    integer(I4P), intent(in)  :: d                                  !< Direction.
    real(R8P),    intent(in)  :: prim(5,1-S_MAX:S_MAX)              !< Stencil of primitive states.
    real(R8P),    intent(out) :: res(NR)                            !< Pointwise results.
@@ -38,6 +39,7 @@ contains
    real(R8P)                 :: er(NV_EULER,NV_EULER)              !< Right eigenvectors.
    real(R8P)                 :: lambda(NV_EULER)                   !< Eigenvalues.
    real(R8P)                 :: f(NV_EULER)                        !< Physical flux.
+   real(R8P)                 :: fr(NV_EULER,3)                     !< LLF, HLL and HLLC fluxes.
    real(R8P)                 :: fsplit(2,1-S_MAX:S_MAX-1,NV_EULER) !< Split fields.
    integer(I4P)              :: m, i, j, k, c                      !< Counters.
    !$acc routine seq
@@ -51,6 +53,9 @@ contains
    call compute_eigenvalues(d=d, qa=qas(:,0), lambda=lambda)
    call compute_flux(d=d, q=qs(:,0), qa=qas(:,0), f=f)
    call compute_eigenvectors(gamma=GAMMA, d=d, qa=qas(:,0), el=el, er=er)
+   call compute_riemann_llf(gamma=GAMMA, d=d, qL=qs(:,0), qR=qs(:,1), f=fr(:,1))
+   call compute_riemann_hll(gamma=GAMMA, d=d, qL=qs(:,0), qR=qs(:,1), f=fr(:,2))
+   call compute_riemann_hllc(gamma=GAMMA, d=d, qL=qs(:,0), qR=qs(:,1), f=fr(:,3))
    c = 0
    do i=1, NV_AUX
       c = c + 1 ; res(c) = qas(i,0)
@@ -58,6 +63,9 @@ contains
    do i=1, NV_EULER
       c = c + 1 ; res(c) = lambda(i)
       c = c + 1 ; res(c) = f(i)
+      c = c + 1 ; res(c) = fr(i,1)
+      c = c + 1 ; res(c) = fr(i,2)
+      c = c + 1 ; res(c) = fr(i,3)
    enddo
    do j=1, NV_EULER
       do i=1, NV_EULER
@@ -140,7 +148,7 @@ enddo
 err_res   = maxval(abs(res_dev   - res_host  ) / max(1._R8P, abs(res_host  )))
 err_split = maxval(abs(split_dev - split_host) / max(1._R8P, abs(split_host)))
 test_passed = (err_res <= TOL) .and. (err_split <= TOL)
-print '(A)', 'device vs host, pointwise (aux, eigenvalues, flux, eigenvectors): max relative difference '// &
+print '(A)', 'device vs host, pointwise (aux, eigenvalues, fluxes, eigenvectors): max relative difference '// &
              trim(str(err_res))
 print '(A)', 'device vs host, split fields of random stencils (S=3):            max relative difference '// &
              trim(str(err_split))

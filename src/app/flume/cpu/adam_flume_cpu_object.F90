@@ -19,9 +19,12 @@ use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION,  &
                                               BC_INFLOW, BC_WALL_INVISCID, MODEL_EULER,                                 &
-                                              MODEL_MHD, MODEL_MHD_GLM, RECON_CHARACTERISTIC, RIEMANN_SOLVER_LLF,       &
-                                              SCHEME_SPACE_WENO, SCHEME_SPACE_WENO_RIEMANN
-use :: adam_flume_cpu_euler_llf_kernels, only : compute_riemann_face_fluxes_euler_llf=>compute_riemann_face_fluxes
+                                              MODEL_MHD, MODEL_MHD_GLM, RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,       &
+                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,              &
+                                              SCHEME_SPACE_WENO_RIEMANN
+use :: adam_flume_cpu_euler_hll_kernels,  only : compute_riemann_face_fluxes_euler_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_hllc_kernels, only : compute_riemann_face_fluxes_euler_hllc=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_llf_kernels,  only : compute_riemann_face_fluxes_euler_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_euler_kernels,   only : compute_face_fluxes_euler=>compute_face_fluxes,                        &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
                                               compute_q_aux_euler=>compute_q_aux,                                    &
@@ -1028,6 +1031,7 @@ contains
    real(R8P)                                            :: cc(3)         !< Correction coefficients.
    real(R8P)                                            :: tau           !< Correction sensor threshold.
    integer(I4P)                                         :: e             !< Eikonal iterations counter.
+   procedure(compute_riemann_face_fluxes_euler_llf), pointer :: face_fluxes !< Kernel of the (model, solver) pair.
 
    if (self%ib%solids_number > 0_I4P) then
       call self%update_ghost(q=q)
@@ -1045,24 +1049,31 @@ contains
    tau = self%numerics%correction_threshold()
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
              ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz)
-   if (self%physics%model == MODEL_EULER .and. self%numerics%riemann_solver == RIEMANN_SOLVER_LLF) then
-      if (.not.is_null(1)) call compute_riemann_face_fluxes_euler_llf(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,  &
-                                                                      nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
-                                                                      is_characteristic=is_char, weno=self%weno, cc=cc,     &
-                                                                      tau=tau, q=q, q_aux=self%q_aux, fl=self%flx_f)
-      if (.not.is_null(2)) call compute_riemann_face_fluxes_euler_llf(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,  &
-                                                                      nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
-                                                                      is_characteristic=is_char, weno=self%weno, cc=cc,     &
-                                                                      tau=tau, q=q, q_aux=self%q_aux, fl=self%fly_f)
-      if (.not.is_null(3)) call compute_riemann_face_fluxes_euler_llf(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,  &
-                                                                      nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
-                                                                      is_characteristic=is_char, weno=self%weno, cc=cc,     &
-                                                                      tau=tau, q=q, q_aux=self%q_aux, fl=self%flz_f)
-   else
-      call mpih%error_stop(msg=': no CPU weno-riemann kernels yet for [physics].(physical_model)='//               &
-                               self%physics%physical_model//' with [numerics].(riemann_solver)='//                 &
-                               self%numerics%riemann_solver//' (issue #47: Euler hll/hllc in M3-P2, MHD in M3-P3)')
+   face_fluxes => null()
+   if (self%physics%model == MODEL_EULER) then
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_euler_llf
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_euler_hll
+      case(RIEMANN_SOLVER_HLLC)
+         face_fluxes => compute_riemann_face_fluxes_euler_hllc
+      endselect
    endif
+   if (.not.associated(face_fluxes)) call mpih%error_stop(msg=': no CPU weno-riemann kernels yet for '//          &
+                                                              '[physics].(physical_model)='//                     &
+                                                              self%physics%physical_model//                       &
+                                                              ' with [numerics].(riemann_solver)='//              &
+                                                              self%numerics%riemann_solver//' (issue #47: MHD in M3-P3)')
+   if (.not.is_null(1)) call face_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,         &
+                                         blocks_number=nb, gamma=gamma, ch=ch, is_characteristic=is_char,             &
+                                         weno=self%weno, cc=cc, tau=tau, q=q, q_aux=self%q_aux, fl=self%flx_f)
+   if (.not.is_null(2)) call face_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,         &
+                                         blocks_number=nb, gamma=gamma, ch=ch, is_characteristic=is_char,             &
+                                         weno=self%weno, cc=cc, tau=tau, q=q, q_aux=self%q_aux, fl=self%fly_f)
+   if (.not.is_null(3)) call face_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,         &
+                                         blocks_number=nb, gamma=gamma, ch=ch, is_characteristic=is_char,             &
+                                         weno=self%weno, cc=cc, tau=tau, q=q, q_aux=self%q_aux, fl=self%flz_f)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif

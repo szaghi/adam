@@ -66,6 +66,12 @@ module adam_flume_ic_object
 !<   field, `w, bz` along z) and rotated to x, y. With integer normal components on a square periodic domain of side
 !<   `period`, the state is periodic in x and in y (Toth's shifted-periodic strip is not needed).
 !<
+!< * `shu-osher` (Euler only, issue #47, RV-3; Shu & Osher 1989, J. Comput. Phys. 83, example 8): a shock running into
+!<   a density wave along `axis` (x, y or z), coordinate `s`: the state of region 1 for `s <= interface`, else the
+!<   state of region 2 with density `r + rho_amplitude sin(rho_wavenumber s)` (the classic problem: region 1
+!<   `3.857143, 2.629369, 10.33333`, region 2 `1, 0, 1`, interface -4, amplitude 0.2, wavenumber 5 on [-5, 5], t = 1.8).
+!<   The regions take no extent keys;
+!<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
 
@@ -113,6 +119,9 @@ character(len=10), parameter :: IC_FIELD_LOOP_STR="field-loop"           !< Adve
 character(len=14), parameter :: LOOP_KEY(4)=['x0            ', 'y0            ', &
                                              'loop_radius   ', 'loop_amplitude'] !< Field loop keys.
 character(len=15), parameter :: IC_ROTATED_RIEMANN_STR="rotated-riemann" !< Rotated periodic Riemann problem.
+character(len=9),  parameter :: IC_SHU_OSHER_STR="shu-osher"             !< Shock-density wave interaction (Euler).
+character(len=14), parameter :: SHU_OSHER_KEY(3)=['interface     ', 'rho_amplitude ', &
+                                                  'rho_wavenumber']      !< Shu-Osher keys.
 character(len=17), parameter :: ROTATED_KEY(6)=['normal_x         ', 'normal_y         ', &
                                                 'interface_1      ', 'interface_2      ', &
                                                 'period           ', 'interface_2_width'] !< Rotated Riemann keys.
@@ -158,6 +167,8 @@ type :: flume_ic_object
    real(R8P)                 :: loop(4)=0._R8P       !< Field loop: x0, y0, radius, amplitude.
    real(R8P)                 :: rotated(6)=0._R8P    !< Rotated Riemann: normal x, y, interface 1, 2, period, width 2.
    real(R8P)                 :: prim_2(8)=0._R8P     !< Primitive state of region 2 (global frame, first nprim used).
+   integer(I4P)              :: shu_osher_axis=0_I4P !< Shu-Osher: axis, 1=x, 2=y, 3=z.
+   real(R8P)                 :: shu_osher(3)=0._R8P  !< Shu-Osher: interface, density amplitude, density wavenumber.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -199,6 +210,9 @@ contains
    desc = desc//NL//mpih%myrankstr//'  field loop:     '//trim(str(self%loop))
    if (self%ic_type == IC_ROTATED_RIEMANN_STR) &
    desc = desc//NL//mpih%myrankstr//'  rotated:        '//trim(str(self%rotated))
+   if (self%ic_type == IC_SHU_OSHER_STR) &
+   desc = desc//NL//mpih%myrankstr//'  shu-osher:      axis '//trim(str(self%shu_osher_axis))//', '// &
+                                    trim(str(self%shu_osher))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -395,6 +409,29 @@ contains
           self%rotated(4) + self%rotated(6) >= self%rotated(3) + self%rotated(5)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs interface_1 < interface_2, interface_2_width >= 0 '// &
                                   'and interface_2 + interface_2_width < interface_1 + period')
+   case(IC_SHU_OSHER_STR)
+      if (self%model /= MODEL_EULER) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_SHU_OSHER_STR//' requires '// &
+                                  '[physics].(physical_model) = euler')
+      self%regions_number = 2_I4P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='axis', val=buff, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(axis)')
+      select case(trim(adjustl(strip_control(buff))))
+      case('x')
+         self%shu_osher_axis = 1_I4P
+      case('y')
+         self%shu_osher_axis = 2_I4P
+      case('z')
+         self%shu_osher_axis = 3_I4P
+      case default
+         call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(axis) "'//trim(adjustl(buff))// &
+                                  '"; expected one of x, y, z')
+      endselect
+      do k=1, 3
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(SHU_OSHER_KEY(k)), &
+                                  val=self%shu_osher(k), error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(SHU_OSHER_KEY(k))//')')
+      enddo
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -406,7 +443,8 @@ contains
                                IC_UNIFORM_STR//', '//IC_ISENTROPIC_VORTEX_STR//', '//IC_RIEMANN_PROBLEM_STR//', '// &
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
                                IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
-                               IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR)
+                               IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR//', '// &
+                               IC_SHU_OSHER_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -438,6 +476,11 @@ contains
          self%emax(:,r) = extent(4:6)
       endif
    enddo
+   if (self%ic_type == IC_SHU_OSHER_STR) then
+      if (self%prim_2(1) - abs(self%shu_osher(2)) <= 0._R8P) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(rho_amplitude) must be smaller than the density of '// &
+                                  '['//INI_SECTION_NAME//'_region_2]')
+   endif
    if (self%ic_type == IC_MHD_CPAW_STR) then
       if (any(self%prim_1(2:4) /= 0._R8P) .or. any(self%prim_1(6:8) /= 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_CPAW_STR//' builds the velocity and '// &
@@ -627,6 +670,24 @@ contains
                      call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                   else
                      q(:,i,j,k,b) = self%q_region(:,1)
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_SHU_OSHER_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  s_     = center(self%shu_osher_axis)
+                  if (s_ <= self%shu_osher(1)) then
+                     q(:,i,j,k,b) = self%q_region(:,1)
+                  else
+                     prim    = self%prim_2
+                     prim(1) = self%prim_2(1) + self%shu_osher(2) * sin(self%shu_osher(3) * s_)
+                     call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                   endif
                enddo
             enddo

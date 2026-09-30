@@ -177,8 +177,13 @@ def main() -> int:
     t = float(ini["time"]["time_max"])
     ngc = int(ini["grid"]["ngc"])
     r1, r2 = ini["initial_conditions_region_1"], ini["initial_conditions_region_2"]
-    left = (float(r1["r"]), 0.0, float(r1["p"]))
-    right = (float(r2["r"]), 0.0, float(r2["p"]))
+    # the normal velocity is the component along the input's only non-null axis
+    active = [a for a in "xyz" if ini["grid"][f"null_{a}"].strip().lower() != ".true."]
+    if len(active) != 1:
+        sys.exit(f"sod_oracle: {args.ini} must have exactly one non-null axis")
+    un = {"x": "u", "y": "v", "z": "w"}[active[0]]
+    left = (float(r1["r"]), float(r1[un]), float(r1["p"]))
+    right = (float(r2["r"]), float(r2[un]), float(r2["p"]))
 
     status, profiles = 0, []
     for work in args.work:

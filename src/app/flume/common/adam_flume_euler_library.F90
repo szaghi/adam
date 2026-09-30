@@ -38,6 +38,8 @@ public :: compute_face_interpolation_fields
 public :: compute_face_split_fluxes
 public :: compute_face_states
 public :: compute_flux
+public :: compute_riemann_hll
+public :: compute_riemann_hllc
 public :: compute_riemann_llf
 public :: compute_roe_average
 public :: conservative_to_auxiliary
@@ -352,6 +354,84 @@ contains
    roe(IA_T) = 0._R8P
    endsubroutine compute_roe_average
 
+   pure subroutine compute_riemann_hll(gamma, d, qL, qR, f)
+   !< Compute the HLL flux of two states in direction `d` (Harten, Lax & van Leer 1983) with the Einfeldt speeds
+   !< `S_L = min(u_nL - a_L, u~_n - a~)`, `S_R = max(u_nR + a_R, u~_n + a~)` (Roe averages, Einfeldt et al. 1991):
+   !< `F = f(qL)` if `S_L >= 0`, `f(qR)` if `S_R <= 0`, else `(S_R f(qL) - S_L f(qR) + S_L S_R (qR - qL)) / (S_R - S_L)`.
+   real(R8P),    intent(in)  :: gamma        !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_EULER) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_EULER) !< Right state.
+   real(R8P),    intent(out) :: f(NV_EULER)  !< Flux.
+   real(R8P)                 :: qaL(NV_AUX)  !< Left auxiliary variables.
+   real(R8P)                 :: qaR(NV_AUX)  !< Right auxiliary variables.
+   real(R8P)                 :: fL(NV_EULER) !< Left physical flux.
+   real(R8P)                 :: fR(NV_EULER) !< Right physical flux.
+   real(R8P)                 :: sL, sR       !< Left and right wave speeds.
+   integer(I4P)              :: v            !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   ! the gas constant only sets the temperature, which the flux does not use
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qL, qa=qaL)
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qR, qa=qaR)
+   call compute_flux(d=d, q=qL, qa=qaL, f=fL)
+   call compute_flux(d=d, q=qR, qa=qaR, f=fR)
+   call compute_einfeldt_speeds(gamma=gamma, d=d, qaL=qaL, qaR=qaR, sL=sL, sR=sR)
+   if (sL >= 0._R8P) then
+      f = fL
+   elseif (sR <= 0._R8P) then
+      f = fR
+   else
+      do v=1, NV_EULER
+         f(v) = (sR * fL(v) - sL * fR(v) + sL * sR * (qR(v) - qL(v))) / (sR - sL)
+      enddo
+   endif
+   endsubroutine compute_riemann_hll
+
+   pure subroutine compute_riemann_hllc(gamma, d, qL, qR, f)
+   !< Compute the HLLC flux of two states in direction `d` (Toro, Spruce & Speares 1994) with the Einfeldt outer speeds
+   !< `S_L`, `S_R` of `compute_riemann_hll` and the contact speed of Batten et al. (1997)
+   !< `S_M = (p_R - p_L + rho_L u_nL (S_L - u_nL) - rho_R u_nR (S_R - u_nR)) / (rho_L (S_L - u_nL) - rho_R (S_R - u_nR))`;
+   !< star state `q*_K = c_K (1, u with u_n replaced by S_M, E_K/rho_K + (S_M - u_nK)(S_M + p_K/(rho_K (S_K - u_nK))))`,
+   !< `c_K = rho_K (S_K - u_nK) / (S_K - S_M)`; `F = f(qL)`, `f(qL) + S_L (q*_L - qL)`, `f(qR) + S_R (q*_R - qR)` or
+   !< `f(qR)` by the sign of `S_L`, `S_M`, `S_R`.
+   real(R8P),    intent(in)  :: gamma        !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_EULER) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_EULER) !< Right state.
+   real(R8P),    intent(out) :: f(NV_EULER)  !< Flux.
+   real(R8P)                 :: qaL(NV_AUX)  !< Left auxiliary variables.
+   real(R8P)                 :: qaR(NV_AUX)  !< Right auxiliary variables.
+   real(R8P)                 :: fL(NV_EULER) !< Left physical flux.
+   real(R8P)                 :: fR(NV_EULER) !< Right physical flux.
+   real(R8P)                 :: sL, sR, sM   !< Left, right and contact wave speeds.
+   real(R8P)                 :: unL, unR     !< Normal velocities.
+   integer(I4P)              :: v            !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   ! the gas constant only sets the temperature, which the flux does not use
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qL, qa=qaL)
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qR, qa=qaR)
+   call compute_flux(d=d, q=qL, qa=qaL, f=fL)
+   call compute_flux(d=d, q=qR, qa=qaR, f=fR)
+   call compute_einfeldt_speeds(gamma=gamma, d=d, qaL=qaL, qaR=qaR, sL=sL, sR=sR)
+   unL = qaL(IA_U+d-1)
+   unR = qaR(IA_U+d-1)
+   sM = (qaR(IA_P) - qaL(IA_P) + qL(IQ_R) * unL * (sL - unL) - qR(IQ_R) * unR * (sR - unR)) / &
+        (qL(IQ_R) * (sL - unL) - qR(IQ_R) * (sR - unR))
+   if (sL >= 0._R8P) then
+      f = fL
+   elseif (sM >= 0._R8P) then
+      call compute_hllc_star_flux(d=d, s=sL, sM=sM, q=qL, qa=qaL, fK=fL, f=f)
+   elseif (sR > 0._R8P) then
+      call compute_hllc_star_flux(d=d, s=sR, sM=sM, q=qR, qa=qaR, fK=fR, f=f)
+   else
+      f = fR
+   endif
+   endsubroutine compute_riemann_hllc
+
    pure subroutine compute_riemann_llf(gamma, d, qL, qR, f)
    !< Compute the local Lax-Friedrichs (Rusanov) flux of two states in direction `d`,
    !< `F = (f(qL) + f(qR)) / 2 - alpha (qR - qL) / 2`, `alpha = max(|u_n| + a)` of the two states.
@@ -415,4 +495,51 @@ contains
    q(IQ_RW) = r * w
    q(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * r * (u**2 + v**2 + w**2)
    endsubroutine primitive_to_conservative
+
+   ! private procedures
+   pure subroutine compute_einfeldt_speeds(gamma, d, qaL, qaR, sL, sR)
+   !< Compute the Einfeldt outer wave speeds of two states in direction `d`:
+   !< `S_L = min(u_nL - a_L, u~_n - a~)`, `S_R = max(u_nR + a_R, u~_n + a~)`, `~` the Roe average.
+   real(R8P),    intent(in)  :: gamma       !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d           !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qaL(NV_AUX) !< Left auxiliary variables.
+   real(R8P),    intent(in)  :: qaR(NV_AUX) !< Right auxiliary variables.
+   real(R8P),    intent(out) :: sL, sR      !< Left and right wave speeds.
+   real(R8P)                 :: roe(NV_AUX) !< Roe average.
+   !$acc routine seq
+   !$omp declare target
+
+   call compute_roe_average(gamma=gamma, qaL=qaL, qaR=qaR, roe=roe)
+   sL = min(qaL(IA_U+d-1) - qaL(IA_A), roe(IA_U+d-1) - roe(IA_A))
+   sR = max(qaR(IA_U+d-1) + qaR(IA_A), roe(IA_U+d-1) + roe(IA_A))
+   endsubroutine compute_einfeldt_speeds
+
+   pure subroutine compute_hllc_star_flux(d, s, sM, q, qa, fK, f)
+   !< Compute the HLLC star-region flux `f_K + S_K (q*_K - q_K)` of the side `K` with outer speed `s = S_K`.
+   integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: s            !< Outer wave speed of the side.
+   real(R8P),    intent(in)  :: sM           !< Contact wave speed.
+   real(R8P),    intent(in)  :: q(NV_EULER)  !< Conservative variables of the side.
+   real(R8P),    intent(in)  :: qa(NV_AUX)   !< Auxiliary variables of the side.
+   real(R8P),    intent(in)  :: fK(NV_EULER) !< Physical flux of the side.
+   real(R8P),    intent(out) :: f(NV_EULER)  !< Star-region flux.
+   real(R8P)                 :: qs(NV_EULER) !< Star state.
+   real(R8P)                 :: un           !< Normal velocity.
+   real(R8P)                 :: c            !< Star density.
+   integer(I4P)              :: v            !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   un = qa(IA_U+d-1)
+   c = q(IQ_R) * (s - un) / (s - sM)
+   qs(IQ_R)  = c
+   qs(IQ_RU) = c * qa(IA_U)
+   qs(IQ_RV) = c * qa(IA_V)
+   qs(IQ_RW) = c * qa(IA_W)
+   qs(IQ_RU+d-1) = c * sM
+   qs(IQ_RE) = c * (q(IQ_RE) / q(IQ_R) + (sM - un) * (sM + qa(IA_P) / (q(IQ_R) * (s - un))))
+   do v=1, NV_EULER
+      f(v) = fK(v) + s * (qs(v) - q(v))
+   enddo
+   endsubroutine compute_hllc_star_flux
 endmodule adam_flume_euler_library

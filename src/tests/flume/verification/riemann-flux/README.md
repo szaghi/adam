@@ -1,6 +1,6 @@
 # Riemann face fluxes (issue #47, M3)
 
-The M3 scheme (`scheme_space = weno-riemann`; implemented for Euler with the LLF solver, HLL/HLLC and MHD to come): WENO5 **interpolation** of point values to the face, a Riemann
+The M3 scheme (`scheme_space = weno-riemann`; implemented for Euler with the LLF, HLL and HLLC solvers, MHD to come): WENO5 **interpolation** of point values to the face, a Riemann
 flux F of the two face states, and a high-order correction built from F and the cell fluxes f (Chen, Tóth & Gombosi
 2016), so that the flux difference is 5th-order accurate in point-value finite-difference form:
 
@@ -16,7 +16,8 @@ the weights sum to 1, leading error $\tfrac{23}{138240} h^6 f^{(6)}$).
 |------|--------------|
 | `hybrid_proto.py` | NumPy prototype, 1-D Euler: the hybrid scheme (LLF, HLL with Einfeldt speeds, HLLC with Batten speeds; correction 6th, 4th or none; characteristic or primitive interpolation; sensors), and FLUME's current flux-splitting scheme as the baseline (`--scheme split`). |
 | `weno_interpolation_tables.py` | Generates (sympy, exact rationals) and checks the WENO interpolation tables of `adam_weno_object%initialize_interpolation`, S = 1 .. 5: candidates exact to degree S−1, linear-weight combination exact to degree 2S−2, weights positive and summing to 1. The unit tests `src/tests/flume/unit/test_flume_weno_interpolation{,_fnl}.F90` check the Fortran tables and the device primitive. |
-| `check.sh` | FLUME verification of the implemented scheme: RV-2 (the V2 isentropic vortex ladder 64/128/256, L1 order of the finest pair ≥ 4.5) and RV-3 (the V1 Sod problem along x, y, z, L1(ρ) ≤ bound, y and z bitwise equal to x), on the V1/V2 inputs with the `[numerics]` block rewritten; options `--solver --correction --sensor --recon --order-min --l1-max`, `FLUME_EXE` selects the backend. |
+| `check.sh` | FLUME verification of the implemented scheme on the V1/V2/V3/V6 inputs with the `[numerics]` block rewritten: RV-2 (the V2 isentropic vortex ladder 64/128/256, L1 order of the finest pair ≥ 4.5), RV-3 (Sod, Lax and Shu–Osher along x, y, z: L1(ρ) ≤ bound, y and z bitwise equal to x), RV-4 (the V3 AMR box: integrals constant with reflux, drifting without) and V6 (the shock-cylinder with immersed boundary and solid AMR); options `--leg --solver --correction --sensor --recon --order-min --l1-max --lax-l1-max --so-l1-max`, `--solver split` runs the flux-splitting baseline, `FLUME_EXE` selects the backend. |
+| `shu_osher_oracle.py` | RV-3 Shu–Osher oracle: L1(ρ) against the split scheme of `hybrid_proto.py` on 16× finer cells averaged to the grid (computed once, cached in the temporary directory, ~3 min), positivity, x/y/z bitwise. |
 | `hybrid2d_proto.py` | NumPy prototype, 2-D MHD (periodic): the hybrid scheme with primitive interpolation, HLL or LLF, the (B_n, ψ) subsystem solved exactly at the face, GLM or EGLM (Derigs et al. 2018) with sources of order 2 or 4, and the cell-based positivity limiter; tests `blast`, `cpaw` (oblique Alfvén wave), `brio-wu` (periodic double problem). Imports `lf_proto.py` from `../mhd/positivity-probe`. |
 
 Run with the regression venv, e.g. `exe/.regression-venv/bin/python hybrid_proto.py shu-osher --cells 512 --sensor weno`.
@@ -135,3 +136,31 @@ Euler, LLF, 6th-order correction, characteristic interpolation, `weno-u-5`. CPU 
 - LLF is 1.7× more dissipative than the per-wave splitting on the vortex and 6% on Sod, as in the prototype
   (LLF row of the 1-D table); HLL/HLLC (M3-P2) are expected to close the gap. The RV-3 bound for LLF is 3.49e-3
   (measured + 2%).
+
+## Measurements, FLUME, HLL and HLLC (2026-09-30, `check.sh`, np 2, M3-P2)
+
+Euler, 6th-order correction, WENO-weight sensor, characteristic interpolation, `weno-u-5`; x, y and z bitwise equal in
+every RV-3 run. Lax on the Sod inputs: left `0.445, 0.698, 3.528`, right `0.5, 0, 0.571`, t = 0.13; Shu–Osher: 400 cells
+on [−5, 5], t = 1.8, against the 16× split reference.
+
+| L1(ρ) | split (`weno`) | LLF | HLL | HLLC |
+|---|---|---|---|---|
+| Sod | 3.244e-3 | 3.426e-3 | 3.013e-3 | **2.942e-3** |
+| Lax | **1.064e-2** | 1.214e-2 | 1.125e-2 | 1.081e-2 |
+| Shu–Osher | 0.2605 (max ρ 4.563) | 0.3009 (4.550) | 0.2490 (4.590) | **0.2425** (4.592; ref 4.672) |
+| Vortex, N = 256 (order 128 → 256) | 8.379e-8 (5.79) | 1.415e-7 (5.64) | 8.977e-8 (6.26) | **8.041e-8** (6.49) |
+
+Lax with HLLC, by correction: 6th + sensor 1.081e-2, 6th without sensor 1.146e-2, 4th 1.077e-2, none 1.084e-2.
+
+HLLC: RV-4 drift 0 in all five integrals with reflux, 1–2e-5 without; V6 mirror asymmetry 4.9e-12 (split 1.2e-11),
+positive ρ and p.
+
+- **HLLC is the default solver of `check.sh`** and the best of the three on Sod (−9% vs split), Shu–Osher (−7%, the
+  entropy waves better resolved) and the vortex; on Lax it is 1.6% worse than split. The correction is not the cause
+  (1.8% worse without it): the gap belongs to interpolating the face states and solving the Riemann problem, on a
+  problem measured almost entirely at its discontinuities. The sensor is needed (6% worse without it).
+- **RV-3 criterion (owner decision, 2026-09-30): L1(ρ) ≤ 1.05 × the split scheme's**, per problem, for the default
+  solver: Sod 3.41e-3, Lax 1.12e-2, Shu–Osher 0.274 (the `check.sh` defaults). LLF exceeds them on Lax and Shu–Osher
+  and is run with explicit bounds.
+- The first Lax measurement was wrong: `sod/sod_oracle.py` took both velocities as zero (Sod only). It now reads the
+  normal velocity of the input; the V1 Sod results are unchanged.

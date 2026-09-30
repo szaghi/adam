@@ -18,9 +18,19 @@ program test_flume_euler_library
 !<    permuted state, components permuted back (the check that exposes transposed or mis-rotated eigenvectors);
 !< 7. split + back-projection consistency: a uniform stencil returns the physical flux, for S = 1..S_MAX and for both
 !<    characteristic and conservative variables.
+!<
+!< RV-0 of issue #47 (the Riemann solvers of the scheme `weno-riemann`), on further random states:
+!< 8. consistency `RS(q, q) = f(q)` of the LLF, HLL and HLLC fluxes;
+!< 9. HLLC is exact on an isolated contact (equal normal velocity and pressure, any density and tangential
+!<    velocities): the flux is the physical flux of the upwind state (error relative to max(|f|, s |q|), the
+!<    round-off scale of the star flux);
+!< 10-12. the first-order 1-D update `q_i - dt/dx (F(q_i, q_i+1) - F(q_i-1, q_i))` of LLF, HLL, HLLC keeps
+!<    density and pressure positive at `dt/dx = 1/(2 s)`, `s` the largest `|u_n| + a` of the three states and of the
+!<    two Roe averages (bounds the Einfeldt speeds), on log-uniform density and pressure over six decades.
 
 use :: adam_flume_euler_library, only : compute_eigenvalues, compute_eigenvectors, compute_face_flux_back_projection, &
-                                        compute_face_split_fluxes, compute_flux, compute_roe_average,                 &
+                                        compute_face_split_fluxes, compute_flux, compute_riemann_hll,                 &
+                                        compute_riemann_hllc, compute_riemann_llf, compute_roe_average,               &
                                         conservative_to_auxiliary, primitive_to_conservative
 use :: adam_flume_parameters,    only : IA_A, IA_H, IA_P, IA_R, IA_U, IA_V, IA_W, NV_AUX, NV_EULER, S_MAX
 use :: penf,                     only : I4P, R8P, str
@@ -32,7 +42,8 @@ real(R8P),    parameter :: GAMMA=1.4_R8P          !< Specific heats ratio.
 real(R8P),    parameter :: R=287.05_R8P           !< Gas constant.
 real(R8P),    parameter :: TOL_EXACT=1.e-12_R8P   !< Tolerance of the exact identities (relative).
 real(R8P),    parameter :: TOL_FD=1.e-6_R8P       !< Tolerance of the finite-difference Jacobian check (relative).
-real(R8P)               :: err(7)                 !< Maximum error of each check.
+integer(I4P), parameter :: NC=12_I4P             !< Checks number.
+real(R8P)               :: err(NC)                !< Maximum error of each check (10-12: inadmissible updates count).
 real(R8P)               :: prim(5)                !< Primitive state (r, u, v, w, p).
 real(R8P)               :: q(NV_EULER)            !< Conservative variables.
 real(R8P)               :: qa(NV_AUX)             !< Auxiliary variables.
@@ -42,7 +53,7 @@ real(R8P)               :: lambda(NV_EULER)       !< Eigenvalues.
 integer(I4P)            :: seed(64)               !< Random generator seed.
 integer(I4P)            :: n_, d, ns              !< Counters, seed size.
 logical                 :: test_passed            !< Aggregate pass flag.
-character(len=40)       :: check_name(7)          !< Checks names.
+character(len=40)       :: check_name(NC)         !< Checks names.
 
 check_name = ['L R = I                                 ', &
               'L F(q) = Lambda L q (homogeneity)       ', &
@@ -50,7 +61,12 @@ check_name = ['L R = I                                 ', &
               'primitive -> conservative -> auxiliary  ', &
               'Roe average of a state with itself      ', &
               'cyclic invariance of flux, eigenvectors ', &
-              'uniform stencil split -> physical flux  ']
+              'uniform stencil split -> physical flux  ', &
+              'RS(q, q) = f(q), LLF / HLL / HLLC       ', &
+              'HLLC exact on an isolated contact       ', &
+              '1-D update positive, LLF (count)        ', &
+              '1-D update positive, HLL (count)        ', &
+              '1-D update positive, HLLC (count)       ']
 err = 0._R8P
 call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
@@ -77,9 +93,17 @@ do n_=1, N
       call check_split(d=d, q=q, qa=qa, e=err(7))
    enddo
 enddo
+do n_=1, N
+   call random_prim(prim=prim)
+   do d=1, 3
+      call check_consistency(d=d, prim=prim, e=err(8))
+      call check_contact(d=d, prim=prim, e=err(9))
+      call check_positivity(d=d, e=err(10:12))
+   enddo
+enddo
 
 test_passed = .true.
-do n_=1, 7
+do n_=1, NC
    if ((n_ == 3 .and. err(n_) > TOL_FD) .or. (n_ /= 3 .and. err(n_) > TOL_EXACT)) then
       print '(A)', 'FAIL: '//check_name(n_)//' max error '//trim(str(err(n_)))
       test_passed = .false.
@@ -244,4 +268,126 @@ contains
       enddo
    enddo
    endsubroutine check_split
+
+   subroutine random_prim(prim)
+   !< Return a random admissible primitive state: density and pressure log-uniform in [1e-4, 1e2], velocity components
+   !< uniform in +-3 a.
+   real(R8P), intent(out) :: prim(5) !< Primitive state (r, u, v, w, p).
+   integer(I4P)           :: c       !< Counter.
+
+   prim(1) = 10._R8P**(-4._R8P + 6._R8P * uniform())
+   prim(5) = 10._R8P**(-4._R8P + 6._R8P * uniform())
+   do c=2, 4
+      prim(c) = 3._R8P * sqrt(GAMMA * prim(5) / prim(1)) * (2._R8P * uniform() - 1._R8P)
+   enddo
+   endsubroutine random_prim
+
+   subroutine riemann(solver, d, qL, qR, f)
+   !< Return the flux of the Riemann solver `solver` (1 LLF, 2 HLL, 3 HLLC).
+   integer(I4P), intent(in)  :: solver       !< Solver.
+   integer(I4P), intent(in)  :: d            !< Direction.
+   real(R8P),    intent(in)  :: qL(NV_EULER) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_EULER) !< Right state.
+   real(R8P),    intent(out) :: f(NV_EULER)  !< Flux.
+
+   select case(solver)
+   case(1)
+      call compute_riemann_llf(gamma=GAMMA, d=d, qL=qL, qR=qR, f=f)
+   case(2)
+      call compute_riemann_hll(gamma=GAMMA, d=d, qL=qL, qR=qR, f=f)
+   case(3)
+      call compute_riemann_hllc(gamma=GAMMA, d=d, qL=qL, qR=qR, f=f)
+   endselect
+   endsubroutine riemann
+
+   subroutine check_consistency(d, prim, e)
+   !< Update `e` with `max |RS(q, q) - f(q)| / max(1, |f(q)|)` over the three solvers.
+   integer(I4P), intent(in)    :: d           !< Direction.
+   real(R8P),    intent(in)    :: prim(5)     !< Primitive state.
+   real(R8P),    intent(inout) :: e           !< Maximum error.
+   real(R8P)                   :: q(NV_EULER) !< Conservative variables.
+   real(R8P)                   :: qa(NV_AUX)  !< Auxiliary variables.
+   real(R8P)                   :: f(NV_EULER) !< Physical flux.
+   real(R8P)                   :: fr(NV_EULER) !< Riemann flux.
+   integer(I4P)                :: solver      !< Counter.
+
+   call primitive_to_conservative(gamma=GAMMA, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q)
+   call conservative_to_auxiliary(gamma=GAMMA, R=R, q=q, qa=qa)
+   call compute_flux(d=d, q=q, qa=qa, f=f)
+   do solver=1, 3
+      call riemann(solver=solver, d=d, qL=q, qR=q, f=fr)
+      e = max(e, maxval(abs(fr - f) / max(1._R8P, abs(f))))
+   enddo
+   endsubroutine check_consistency
+
+   subroutine check_contact(d, prim, e)
+   !< Update `e` with the HLLC error on an isolated contact built from `prim`: the right state has another density and
+   !< other tangential velocities, the same normal velocity and pressure; the exact flux is `f` of the upwind state.
+   integer(I4P), intent(in)    :: d            !< Direction.
+   real(R8P),    intent(in)    :: prim(5)      !< Primitive state.
+   real(R8P),    intent(inout) :: e            !< Maximum error.
+   real(R8P)                   :: primR(5)     !< Right primitive state.
+   real(R8P)                   :: qL(NV_EULER) !< Left conservative variables.
+   real(R8P)                   :: qR(NV_EULER) !< Right conservative variables.
+   real(R8P)                   :: qa(NV_AUX)   !< Auxiliary variables of the upwind state.
+   real(R8P)                   :: f(NV_EULER)  !< Exact flux.
+   real(R8P)                   :: fr(NV_EULER) !< HLLC flux.
+   real(R8P)                   :: smax         !< Largest wave speed of the two states.
+   integer(I4P)                :: c            !< Counter.
+
+   primR = prim
+   primR(1) = 10._R8P**(-4._R8P + 6._R8P * uniform())
+   do c=2, 4
+      if (c /= d + 1) primR(c) = 3._R8P * sqrt(GAMMA * prim(5) / prim(1)) * (2._R8P * uniform() - 1._R8P)
+   enddo
+   call primitive_to_conservative(gamma=GAMMA, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=qL)
+   call primitive_to_conservative(gamma=GAMMA, r=primR(1), u=primR(2), v=primR(3), w=primR(4), p=primR(5), q=qR)
+   if (prim(d+1) >= 0._R8P) then
+      call conservative_to_auxiliary(gamma=GAMMA, R=R, q=qL, qa=qa)
+      call compute_flux(d=d, q=qL, qa=qa, f=f)
+   else
+      call conservative_to_auxiliary(gamma=GAMMA, R=R, q=qR, qa=qa)
+      call compute_flux(d=d, q=qR, qa=qa, f=f)
+   endif
+   call compute_riemann_hllc(gamma=GAMMA, d=d, qL=qL, qR=qR, f=fr)
+   ! the star flux f + S (q* - q) carries a round-off ~ eps |S| |q|: relative to that scale, not to |f| alone
+   smax = abs(prim(d+1)) + sqrt(GAMMA * prim(5) / min(prim(1), primR(1)))
+   e = max(e, maxval(abs(fr - f)) / max(1._R8P, maxval(abs(f)), smax * max(maxval(abs(qL)), maxval(abs(qR)))))
+   endsubroutine check_contact
+
+   subroutine check_positivity(d, e)
+   !< Update the counts `e` of inadmissible first-order 1-D updates of the three solvers on a random triple of states.
+   integer(I4P), intent(in)    :: d                !< Direction.
+   real(R8P),    intent(inout) :: e(3)             !< Inadmissible updates count of each solver.
+   real(R8P)                   :: prim(5)          !< Primitive state.
+   real(R8P)                   :: q(NV_EULER,-1:1) !< Conservative variables of the triple.
+   real(R8P)                   :: qa(NV_AUX,-1:1)  !< Auxiliary variables of the triple.
+   real(R8P)                   :: roe(NV_AUX)      !< Roe average.
+   real(R8P)                   :: fm(NV_EULER)     !< Flux of the face i-1/2.
+   real(R8P)                   :: fp(NV_EULER)     !< Flux of the face i+1/2.
+   real(R8P)                   :: qn(NV_EULER)     !< Updated state.
+   real(R8P)                   :: smax             !< Largest wave speed.
+   real(R8P)                   :: pn               !< Updated pressure.
+   integer(I4P)                :: m, solver        !< Counters.
+
+   smax = 0._R8P
+   do m=-1, 1
+      call random_prim(prim=prim)
+      call primitive_to_conservative(gamma=GAMMA, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q(:,m))
+      call conservative_to_auxiliary(gamma=GAMMA, R=R, q=q(:,m), qa=qa(:,m))
+      smax = max(smax, abs(qa(IA_U+d-1,m)) + qa(IA_A,m))
+   enddo
+   do m=-1, 0
+      call compute_roe_average(gamma=GAMMA, qaL=qa(:,m), qaR=qa(:,m+1), roe=roe)
+      smax = max(smax, abs(roe(IA_U+d-1)) + roe(IA_A))
+   enddo
+   do solver=1, 3
+      call riemann(solver=solver, d=d, qL=q(:,-1), qR=q(:,0), f=fm)
+      call riemann(solver=solver, d=d, qL=q(:,0), qR=q(:,1), f=fp)
+      qn = q(:,0) - 0.5_R8P / smax * (fp - fm)
+      pn = -1._R8P
+      if (qn(1) > 0._R8P) pn = (GAMMA - 1._R8P) * (qn(5) - 0.5_R8P * (qn(2)**2 + qn(3)**2 + qn(4)**2) / qn(1))
+      if (.not.(pn > 0._R8P)) e(solver) = e(solver) + 1._R8P
+   enddo
+   endsubroutine check_positivity
 endprogram test_flume_euler_library
