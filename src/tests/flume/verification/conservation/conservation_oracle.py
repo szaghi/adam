@@ -11,12 +11,15 @@ exercise the seams and a passing reflux leg proves nothing (af54afee pattern).
 
 Usage:
     conservation_oracle.py --conserved <work-dir> [--max-drift D] [--leaky <work-dir> --min-drift M]
-    conservation_oracle.py --compare <work-dir-a> <work-dir-b> --tol T
+    conservation_oracle.py --compare <work-dir-a> <work-dir-b> --tol T [--ngc N] [--nonzero NAME ...]
 
 --compare checks two runs of the same case (e.g. CPU and FNL, V4) cell by cell on the last checkpoint, blocks matched
-by their origin (rank-independent); the difference of each variable is relative to its largest magnitude, so that one
-tolerance fits density and energy alike. `--ngc N` strips N ghost layers first (the digest semantics): edge and corner
-ghost cells that no map fills keep stale values, which the directional stencils never read.
+by their origin (rank-independent), every field the checkpoints hold (Euler r, ru, rv, rw, rE; MHD adds bx, by, bz,
+psi); the difference of each variable is relative to its largest magnitude, so that one tolerance fits density and
+energy alike (an identically zero variable is compared absolutely). `--ngc N` strips N ghost layers first (the digest
+semantics): edge and corner ghost cells that no map fills keep stale values, which the directional stencils never
+read. `--nonzero NAME` fails the comparison when a field is identically zero in the first run (a restart that must
+carry psi proves nothing on a zero psi).
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import h5py
 import numpy as np
 
 VARIABLES = ("r", "ru", "rv", "rw", "rE")
+GEOMETRY = ("origin", "dxdydz", "time_iteration")
 
 
 def drift(work: Path) -> tuple[tuple[str, ...], np.ndarray]:
@@ -51,17 +55,22 @@ def drift(work: Path) -> tuple[tuple[str, ...], np.ndarray]:
     return names, np.max(np.abs(h[:, 2:] - h[0, 2:]), axis=0) / scale
 
 
-def last_fields(work: Path) -> dict[tuple[float, ...], np.ndarray]:
-    """Return the conservative fields of the last checkpoint of one run, keyed by block origin."""
+def last_fields(work: Path) -> tuple[tuple[str, ...], dict[tuple[float, ...], np.ndarray]]:
+    """Return the field names and the fields of the last checkpoint of one run, keyed by block origin."""
     files = sorted(p for p in work.glob("*-proc*.h5") if "restart" not in p.name)
     last = max(int(p.name.split("-")[-2]) for p in files)
     out = {}
+    names: tuple[str, ...] = ()
     for path in (p for p in files if int(p.name.split("-")[-2]) == last):
         with h5py.File(path, "r") as h5:
+            found = tuple(sorted({k.rsplit("-", 1)[1] for k in h5} - set(GEOMETRY)))
+            if names and found != names:
+                sys.exit(f"conservation_oracle: {path} holds fields {found}, not {names}")
+            names = found
             for blk in {k.rsplit("-", 1)[0] for k in h5}:
                 key = tuple(float(x) for x in np.round(h5[f"{blk}-origin"][()], 12))
-                out[key] = np.stack([h5[f"{blk}-{v}"][()] for v in VARIABLES])
-    return out
+                out[key] = np.stack([h5[f"{blk}-{v}"][()] for v in names])
+    return names, out
 
 
 def report(work: Path, names: tuple[str, ...], d: np.ndarray) -> str:
@@ -80,6 +89,7 @@ def main() -> int:
     parser.add_argument("--compare", type=Path, nargs=2, help="two runs to compare cell by cell")
     parser.add_argument("--tol", type=float, default=0.0, help="relative comparison tolerance (default 0: bitwise)")
     parser.add_argument("--ngc", type=int, default=0, help="ghost layers stripped before the comparison")
+    parser.add_argument("--nonzero", nargs="+", default=[], help="fields that must not be identically zero (--compare)")
     args = parser.parse_args()
 
     status = 0
@@ -97,7 +107,9 @@ def main() -> int:
         print(f"{report(args.leaky, names, d)}  {'PASS' if ok else 'FAIL'} "
               f"(negative control, max >= {args.min_drift:.1e})")
     if args.compare is not None:
-        a, b = (last_fields(w) for w in args.compare)
+        (names_a, a), (names_b, b) = (last_fields(w) for w in args.compare)
+        if names_a != names_b:
+            sys.exit(f"conservation_oracle: the two runs hold different fields, {names_a} and {names_b}")
         if args.ngc > 0:
             g = args.ngc
             a = {k: v[:, g:-g, g:-g, g:-g] for k, v in a.items()}
@@ -111,8 +123,15 @@ def main() -> int:
         ok = diff <= args.tol
         status |= 0 if ok else 1
         kind = "bitwise" if args.tol == 0.0 else f"tol {args.tol:.1e}"
-        print(f"{args.compare[0].name} vs {args.compare[1].name}: {len(a)} blocks, max relative difference {diff:.3e}"
-              f"  {'PASS' if ok else 'FAIL'} ({kind})")
+        print(f"{args.compare[0].name} vs {args.compare[1].name}: {len(a)} blocks, {len(names_a)} fields "
+              f"({' '.join(names_a)}), max relative difference {diff:.3e}  {'PASS' if ok else 'FAIL'} ({kind})")
+        for name in args.nonzero:
+            if name not in names_a:
+                sys.exit(f"conservation_oracle: --nonzero {name}: no such field in {args.compare[0]}")
+            top = float(np.max([np.max(np.abs(a[k][names_a.index(name)])) for k in a]))
+            ok = top > 0.0
+            status |= 0 if ok else 1
+            print(f"   max |{name}| {top:.3e}  {'PASS' if ok else 'FAIL'} (must not be identically zero)")
     return status
 
 

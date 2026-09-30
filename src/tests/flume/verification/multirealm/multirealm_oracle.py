@@ -6,8 +6,9 @@ single-realm run (same cell size, same cell centres). With a mirror seam filled 
 cadence) the seam is a block interface like any other, so the union must reproduce the single-realm run. Two checks:
 
 * fields: the interior cells of every realm, keyed by their centre coordinates, against the single-realm cells at the
-  same step: the maximum relative difference per variable (scale: the maximum magnitude of the reference) must not
-  exceed the tolerance (0 = bitwise); the worst cell is reported by coordinates;
+  same step, every field the checkpoints hold (Euler r, ru, rv, rw, rE; MHD adds bx, by, bz, psi): the maximum
+  relative difference per variable (scale: the maximum magnitude of the reference) must not exceed the tolerance
+  (0 = bitwise); the worst cell is reported by coordinates;
 * conservation: the per-step sum over the realms of the volume integrals (`<basename>-conservation_history.dat`)
   against the single-realm integrals, within CONSERVATION_TOL: the realms sum their cells separately, so even
   bitwise-identical fields give integrals that differ by the summation order, whose worst case is n eps relative
@@ -30,7 +31,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-VARIABLES = ("r", "ru", "rv", "rw", "rE")
+ORDER = ("r", "ru", "rv", "rw", "rE", "bx", "by", "bz", "psi")  # report order; other fields follow alphabetically
+GEOMETRY = ("origin", "dxdydz", "time_iteration")
 CONSERVATION_TOL = 1.0e-11
 
 
@@ -56,16 +58,29 @@ def last_step(work: Path, names: list[str]) -> int:
     return max(steps)
 
 
-def load_cells(work: Path, names: list[str], step: int, ngc: int) -> dict[tuple[float, float, float], np.ndarray]:
-    """Return the interior cells of every basename at `step`, keyed by their rounded centre coordinates."""
+def fields(h5: h5py.File) -> tuple[str, ...]:
+    """Return the field names of a checkpoint (every dataset but the block geometry), in report order."""
+    found = {k.rsplit("-", 1)[1] for k in h5} - set(GEOMETRY)
+    return tuple(v for v in ORDER if v in found) + tuple(sorted(found - set(ORDER)))
+
+
+def load_cells(work: Path, names: list[str], step: int,
+               ngc: int) -> tuple[tuple[str, ...], dict[tuple[float, float, float], np.ndarray]]:
+    """Return the field names and the interior cells of every basename at `step`, keyed by their rounded centre
+    coordinates."""
     cells: dict[tuple[float, float, float], np.ndarray] = {}
+    variables: tuple[str, ...] = ()
     for name in names:
         for path in sorted(work.glob(f"{name}-{step:09d}-proc*.h5")):
             with h5py.File(path, "r") as h5:
+                if not variables:
+                    variables = fields(h5)
+                elif fields(h5) != variables:
+                    sys.exit(f"multirealm_oracle: {path} holds fields {fields(h5)}, not {variables}")
                 for blk in {k.rsplit("-", 1)[0] for k in h5}:
                     dx = h5[f"{blk}-dxdydz"][()][::-1]
                     lo = h5[f"{blk}-origin"][()][::-1] + ngc * dx
-                    q = np.stack([h5[f"{blk}-{v}"][()].transpose(2, 1, 0) for v in VARIABLES])
+                    q = np.stack([h5[f"{blk}-{v}"][()].transpose(2, 1, 0) for v in variables])
                     q = q[:, ngc:-ngc, ngc:-ngc, ngc:-ngc]
                     for i in range(q.shape[1]):
                         for j in range(q.shape[2]):
@@ -74,7 +89,7 @@ def load_cells(work: Path, names: list[str], step: int, ngc: int) -> dict[tuple[
                                        round(float(lo[1] + (j + 0.5) * dx[1]), 12),
                                        round(float(lo[2] + (k + 0.5) * dx[2]), 12))
                                 cells[key] = q[:, i, j, k]
-    return cells
+    return variables, cells
 
 
 def conservation_sum(work: Path, names: list[str]) -> np.ndarray:
@@ -107,8 +122,11 @@ def main() -> int:
         print(f"last saved steps differ: multi-realm {last_multi}, single-realm {last_single} (different time steps)  FAIL")
         return 1
     step = args.step if args.step is not None else last_single
-    multi = load_cells(args.multi, multi_names, step, args.ngc)
-    single = load_cells(args.single, single_names, step, args.ngc)
+    variables, multi = load_cells(args.multi, multi_names, step, args.ngc)
+    single_variables, single = load_cells(args.single, single_names, step, args.ngc)
+    if variables != single_variables:
+        print(f"fields differ: multi-realm {variables}, single-realm {single_variables}  FAIL")
+        return 1
     status = 0
 
     missing = set(single) ^ set(multi)
@@ -121,7 +139,7 @@ def main() -> int:
     scale = np.max(np.abs(b), axis=0)
     scale = np.where(scale > 0.0, scale, 1.0)
     rel = np.abs(a - b) / scale
-    for v, name in enumerate(VARIABLES):
+    for v, name in enumerate(variables):
         worst = int(np.argmax(rel[:, v]))
         ok = rel[worst, v] <= args.tol
         status |= 0 if ok else 1
