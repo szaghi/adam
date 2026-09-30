@@ -1,5 +1,5 @@
 [modes]
-modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-omp-amd flume-fnl-omp-amd-debug test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf test-flume-euler-library-fnl-omp-amd test-flume-mhd-library-gnu test-flume-mhd-library-fnl-nvf test-flume-mhd-library-fnl-omp-amd test-flume-weno-interpolation-gnu test-flume-weno-interpolation-fnl-nvf test-flume-weno-interpolation-fnl-omp-amd
+modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-omp-amd flume-fnl-omp-amd-debug test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf test-flume-euler-library-fnl-omp-amd test-flume-mhd-library-gnu test-flume-mhd-library-fnl-nvf test-flume-mhd-library-fnl-omp-amd test-flume-mhd-riemann-gnu test-flume-mhd-riemann-fnl-nvf test-flume-mhd-riemann-fnl-omp-amd test-flume-weno-interpolation-gnu test-flume-weno-interpolation-fnl-nvf test-flume-weno-interpolation-fnl-omp-amd
 
 [flume-cpu-gnu]
 template = template-gnu
@@ -69,6 +69,21 @@ target   = test_flume_mhd_library_fnl.F90
 template = template-omp-amd
 preproc  = -DDEV_OMP -DDEV_HIP -w
 target   = test_flume_mhd_library_fnl.F90
+
+[test-flume-mhd-riemann-gnu]
+template = template-gnu
+preproc  = -w
+target   = test_flume_mhd_riemann.F90
+
+[test-flume-mhd-riemann-fnl-nvf]
+template = template-nvf
+preproc  = -DDEV_OAC -DCOMPILER_NVF -w
+target   = test_flume_mhd_riemann_fnl.F90
+
+[test-flume-mhd-riemann-fnl-omp-amd]
+template = template-omp-amd
+preproc  = -DDEV_OMP -DDEV_HIP -w
+target   = test_flume_mhd_riemann_fnl.F90
 
 [test-flume-weno-interpolation-gnu]
 template = template-gnu

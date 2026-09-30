@@ -37,6 +37,7 @@ public :: mhd_face_flux_back_projection
 public :: mhd_face_split_fluxes
 public :: mhd_fast_speed
 public :: mhd_flux
+public :: mhd_frame_indexes
 public :: mhd_glm_eigenvalues
 public :: mhd_glm_eigenvectors
 public :: mhd_glm_face_flux_back_projection

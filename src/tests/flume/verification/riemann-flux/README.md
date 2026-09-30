@@ -164,3 +164,27 @@ positive ρ and p.
   and is run with explicit bounds.
 - The first Lax measurement was wrong: `sod/sod_oracle.py` took both velocities as zero (Sod only). It now reads the
   normal velocity of the input; the V1 Sod results are unchanged.
+
+## MHD Riemann solvers (2026-09-30, M3-P3a)
+
+`adam_flume_mhd_riemann_library`: LLF, HLL and HLLD (Miyoshi & Kusano 2005) without divergence control and with GLM
+(the `(B_n, psi)` subsystem solved exactly at the face), working in the frame of the direction so that rotated problems
+run the same arithmetic; face states from primitive (the MHD default) or characteristic fields. Unit tests
+`src/tests/flume/unit/test_flume_mhd_riemann{,_fnl}.F90` (RV-0, 5000 random states × 3 directions, γ = 5/3):
+
+| Check | Result |
+|---|---|
+| RS(q, q) = f(q), six solvers | 1.6e-14 |
+| HLLD exact on an isolated contact / tangential / rotational discontinuity | 1.4e-14 / 9.6e-14 / 2.6e-14 (construction Rankine–Hugoniot residual 3.5e-16) |
+| cyclic invariance, six solvers | bitwise |
+| first-order 1-D update positive, LLF, HLL, HLLD | 0 inadmissible updates |
+| device vs host | 5.8e-14, fallback flags identical |
+
+Errors relative to `max(1, |f|, s |q|)`, the round-off scale of the star fluxes. A mutation (the sign of the
+tangential-field term of the double-star velocity) fails the rotational check at 0.73.
+
+**HLLD fallback.** The first version tested the star pressure as `p*_T − |B*|²/2`, which differs from the pressure of
+the conservative star state in the approximate solver: it fell back on 18% of mild random pairs (ratios within
+10^0.25). With the pressure of the conservative star state (from its energy) the rate is 0.015%, 0.4% and 1.8% for
+density, pressure and field ratios within 10^0.25, 10 and 10², mostly from `S*_L ≤ S_L` (the speed estimate no longer
+bounds the Alfvén wave). The degeneracy threshold 1e-12 against 1e-8 changes nothing measurable.
