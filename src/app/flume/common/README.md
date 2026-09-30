@@ -2,23 +2,30 @@
 
 The `common/` directory contains the backend-independent modules shared by the CPU and FNL backends of FLUME. Following
 the PRISM design, every type defined here is aggregated into `flume_common_object`, the base type both backends extend.
+The pointwise libraries (`*_library.F90`) are `pure`, take explicit-size arguments and are tagged `!$acc routine seq` +
+`!$omp declare target`, so the CPU loops and the GPU kernels call the same source.
 
-> **Status: development** (milestone M1, compressible Euler).
+> **Status: development** (milestones M1 Euler and M2 ideal MHD complete; M3, issue #47, in progress).
 
 ## Modules
 
 | File | Content |
 |------|---------|
-| `adam_flume_parameters.F90` | Variable indexes (conservative `IQ_*`, auxiliary `IA_*`), accepted option values, `strip_control` |
-| `adam_flume_physics_object.F90` | `[physics]`: physical model (`euler`), `cp`, `cv`, variable counts |
-| `adam_flume_numerics_object.F90` | `[numerics]`: `scheme_space`, `reconstruction_variables`, `reflux` |
-| `adam_flume_euler_library.F90` | Pointwise Euler physics shared by host and device: conservative/primitive conversions, fluxes, Roe eigenvectors, flux splitting |
-| `adam_flume_bc_object.F90` | `[bc_*]`: boundary condition types and inflow states |
-| `adam_flume_ic_object.F90` | `[initial_conditions]`: uniform (seeded perturbation), isentropic vortex, Riemann regions; init-time AMR passes |
+| `adam_flume_parameters.F90` | Variable indexes (conservative `IQ_*`, auxiliary `IA_*`), model ids, accepted option values, `strip_control` |
+| `adam_flume_physics_object.F90` | `[physics]`: physical model (`euler`, `mhd-ideal`), `cp`, `cv`, variable counts; primitive-to-conservative dispatch |
+| `adam_flume_mhd_object.F90` | `[mhd]`: divergence control (`glm`, `none`), GLM speed, damping and check, div(B) monitor, positivity floors |
+| `adam_flume_numerics_object.F90` | `[numerics]`: `scheme_space` (`weno`, `weno-riemann`), `reconstruction_variables`, Riemann solver, flux correction and sensor, `reflux` |
+| `adam_flume_euler_library.F90` | Pointwise Euler physics: conversions, fluxes, Roe average and eigenvectors, flux splitting, face states, LLF/HLL/HLLC Riemann solvers |
+| `adam_flume_mhd_library.F90` | Pointwise ideal MHD physics: conversions, fluxes, fast speed, Roe–Balsara eigensystem (with and without GLM), flux splitting |
+| `adam_flume_mhd_riemann_library.F90` | MHD face states and Riemann solvers (LLF, HLL, HLLD; exact GLM subsystem) of `weno-riemann` |
+| `adam_flume_bc_object.F90` | `[bc_*]`: boundary condition types (extrapolation, inflow, inviscid wall, periodic) and inflow states |
+| `adam_flume_ic_object.F90` | `[initial_conditions]`: 13 initial conditions (uniform, isentropic vortex, Riemann regions, Shu–Osher, rotated Riemann, GLM pulse, div(B) peak, MHD linear wave, CPAW, magnetised vortex, Orszag–Tang, rotor, field loop); init-time AMR passes |
 | `adam_flume_time_object.F90` | `[time]`: CFL, iteration and time limits |
-| `adam_flume_diagnostics_object.F90` | `[diagnostics]`: conservation history |
-| `adam_flume_common_object.F90` | `flume_common_object`: initialization, AMR markers (box, gradient, solid), seam flux accumulation for reflux, immersed-boundary spacing, restart, slices, auxiliary fields |
+| `adam_flume_diagnostics_object.F90` | `[diagnostics]`: conservation (and div(B)) history cadence |
+| `adam_flume_common_object.F90` | `flume_common_object`: initialization and cross-section checks, AMR markers (box, gradient, solid), seam flux accumulation for reflux, immersed-boundary spacing, restart, slices, auxiliary and MHD derived fields |
 | `adam_flume_common_library.F90` | Barrel re-export of all common modules |
+
+The user documentation (models, numerics, input reference, verification gallery) is in `docs/applications/flume/`.
 
 ## License
 
