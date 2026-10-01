@@ -58,7 +58,7 @@ $NVF_CC      = cc89
 $HDF5_PREFIX = lib/hdf5/develop/amd/latest
 
 [varset:thera_amd]
-$HDF5_PREFIX = /home/mbycklin/code/spack/install/linux-zen4/hdf5-1.14.6-lzzz7d3z2qel7lvfkcgyeqtpwycivdlz
+$HDF5_PREFIX = /mnt/thera/data/incoming/mbycklin/spack/install/linux-zen4/hdf5-1.14.6-zwo77eq6dyjllcapikwnnc7v4lrjknik
 
 # CLI-selectable AMD GPU architecture overrides (set only $GPU_ARCH, so combine
 # with a varset that provides $HDF5_PREFIX, e.g. --varset "local_amd gfx90a").

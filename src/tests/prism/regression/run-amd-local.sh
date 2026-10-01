@@ -45,8 +45,10 @@ REGRESSION_DIR="$(cd "$(dirname "$0")" && pwd)"
 # AMD toolchain locations (must match the thera_amd HDF5 build in `fobos`)
 # ---------------------------------------------------------------------------
 # OpenMPI 5.0.10 built with amdflang; its mpif90 wrapper points at the AFAR
-# amdflang drop below. This is the MPI the thera_amd HDF5 links against.
-AMD_OMPI_PREFIX="${AMD_OMPI_PREFIX:-/home/mbycklin/code/spack/install/linux-zen4/openmpi-5.0.10-3rvtw7bdkzbm3tkapamurnizsr5v7hjn}"
+# amdflang drop below. This is the MPI the thera_amd HDF5 links against — keep
+# the spack hash in lock-step with $HDF5_PREFIX in `fobos` [varset:thera_amd]
+# (verify with: strings $HDF5_PREFIX/lib/libhdf5.so | grep -o 'openmpi-5[^ ]*').
+AMD_OMPI_PREFIX="${AMD_OMPI_PREFIX:-/mnt/thera/data/incoming/mbycklin/spack/install/linux-zen4/openmpi-5.0.10-3kcys5qsddn6mrgdl7qoordcrj3pp7jo}"
 # AFAR amdflang/amdclang drop (LLVM flang 23.0.0, gfx94X). Only its lib dir is
 # needed on the runtime/link path; mpif90 already invokes its amdflang by path.
 AMD_FLANG_PREFIX="${AMD_FLANG_PREFIX:-/home/mbycklin/amd/therock-23.2.1-gfx94X-7.13.0-7357b5084b}"
