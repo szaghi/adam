@@ -29,8 +29,8 @@ module adam_flume_mhd_riemann_library
 !< `psi~ = (psi_L + psi_R)/2 - c_h (B_nR - B_nL)/2`; both states take `B~_n` (pressure kept, energy recomputed: `psi`
 !< is not in the energy of the mixed GLM), the `B_n` flux is `psi~` and the `psi` flux `c_h^2 B~_n`.
 !<
-!< **Face states.** Interpolated fields: primitive `(rho, u, v, w, p, B_x, B_y, B_z[, psi])` (the MHD default, #47 D-5) or
-!< characteristic (the eigenvectors of the arithmetic face average, projected in the frame order); a face state with
+!< **Face states.** Interpolated fields: characteristic (the eigenvectors of the arithmetic face average, projected in the
+!< frame order; the MHD default, #47 D-5) or primitive `(rho, u, v, w, p, B_x, B_y, B_z[, psi])`; a face state with
 !< non-positive density or pressure is replaced by the adjacent cell's state.
 
 ! FLUME modules

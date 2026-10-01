@@ -21,7 +21,10 @@
 #     the peak of max|div B| of the uniform reference (measured 0.887 / 1.170 = 0.76; the shocks set both);
 # about 6 min on the CPU.
 #
-# Usage: ./check.sh [--np N] [--amr]
+# Usage: ./check.sh [--np N] [--amr] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+#
+# --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c): the bounds
+# measured on the flux-splitting scheme are then not asserted (measurement), the scheme-independent checks are.
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -32,6 +35,7 @@ VERIF_DIR="$(cd "$CASE_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
+source "$CASE_DIR/../numerics.sh"
 SYM_TOL="1.0e-8"
 CONS_TOL="1.0e-13"
 SEAM_REF_RATIO="1.0"
@@ -41,7 +45,8 @@ while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)  NP="$2" ; shift 2 ;;
       --amr) AMR=1 ; shift ;;
-      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr)" >&2 ; exit 2 ;;
+      --numerics) NUMERICS="$2" ; shift 2 ;;
+      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --numerics SPEC)" >&2 ; exit 2 ;;
    esac
 done
 if [[ ! -x "$EXE" ]]; then
@@ -49,13 +54,15 @@ if [[ ! -x "$EXE" ]]; then
    exit 2
 fi
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
-TAG="$(basename "$EXE")-np$NP"
+numerics_check
+TAG="$(basename "$EXE")-np$NP$(numerics_tag)"
 
 # run_ot <work> <make_orszag_tang.py options>: write the input and run it.
 run_ot() {
    local w="$1" ; shift
    rm -rf "$w" ; mkdir -p "$w"
    "$VENV_PY" "$CASE_DIR/make_orszag_tang.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$w/orszag-tang.ini" "$@"
+   numerics_apply "$w/orszag-tang.ini"
    if ! (cd "$w" && mpirun -np "$NP" "$EXE" orszag-tang.ini > log.txt 2>&1); then
       echo "check.sh: Orszag-Tang run failed (a floor stop is a positivity failure), see $w/log.txt" >&2
       exit 1

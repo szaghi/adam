@@ -10,7 +10,10 @@
 #   3. the same state with the floors disabled (0): the run stops on the non-positive state with its message.
 # One run at a time; checkpoints deleted after use.
 #
-# Usage: ./check.sh [--np N]
+# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+#
+# --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c): the bounds
+# measured on the flux-splitting scheme are then not asserted (measurement), the scheme-independent checks are.
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -21,11 +24,13 @@ VERIF_DIR="$(cd "$CASE_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
+source "$CASE_DIR/../numerics.sh"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --numerics) NUMERICS="$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC)" >&2 ; exit 2 ;;
    esac
 done
 if [[ ! -x "$EXE" ]]; then
@@ -33,13 +38,15 @@ if [[ ! -x "$EXE" ]]; then
    exit 2
 fi
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
-TAG="$(basename "$EXE")-np$NP"
+numerics_check
+TAG="$(basename "$EXE")-np$NP$(numerics_tag)"
 FAILED=0
 
 prepare() { # prepare <label> <make_riemann args...>: fresh work dir with input.ini, prints the work dir
    local w="$CASE_DIR/work-$TAG-$1" ; shift
    rm -rf "$w" ; mkdir -p "$w"
    "$VENV_PY" "$CASE_DIR/make_riemann.py" "$VERIF_DIR/sod/sod-x.ini" "$w/input.ini" "$@"
+   numerics_apply "$w/input.ini"
    echo "$w"
 }
 
@@ -78,6 +85,8 @@ for spec in "bw none" "bw glm" "rj4d none"; do
    n=$(grep -c "MHD floors:" "$w/log.txt" || true)
    if [[ "$n" -eq 0 ]]; then echo "   $1 ($2): no floored cell in any stage  PASS"
    else echo "   $1 ($2): $n stages floored cells  FAIL" ; FAILED=1 ; fi
+   n=$(grep -c "HLLD fallbacks to HLL" "$w/log.txt" || true)
+   [[ "$n" -gt 0 ]] && echo "   $1 ($2): HLLD fell back to HLL in $n stages (reported, not asserted)"
    positive "$w" || FAILED=1
    find "$w" -name '*.h5' -delete
 done

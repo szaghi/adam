@@ -33,15 +33,17 @@ def amplitude(work: Path) -> float:
 
 
 def profile(work: Path, step: str, ngc: int) -> dict[tuple[float, ...], np.ndarray]:
-    """Return the conservative variables of every interior cell of the first or last checkpoint, keyed by the cell
-    centre."""
+    """Return the conservative variables of every interior cell of the first or last checkpoint (or of the checkpoint
+    of a given step number), keyed by the cell centre."""
     files = sorted(p for p in work.glob("*-proc*.h5") if "restart" not in p.name)
     if not files:
         sys.exit(f"linear_wave_oracle: no checkpoint in {work}")
     steps = sorted({int(p.name.split("-")[-2]) for p in files})
     if len(steps) < 2:
         sys.exit(f"linear_wave_oracle: {work} needs the first and the last checkpoint")
-    pick = steps[0] if step == "first" else steps[-1]
+    pick = steps[0] if step == "first" else steps[-1] if step == "last" else int(step)
+    if pick not in steps:
+        sys.exit(f"linear_wave_oracle: {work} has no checkpoint of step {pick}")
     cells: dict[tuple[float, ...], np.ndarray] = {}
     for path in (p for p in files if int(p.name.split("-")[-2]) == pick):
         with h5py.File(path, "r") as h5:

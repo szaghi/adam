@@ -20,7 +20,12 @@
 # peak (measured 0.033, 0.011; the peak is the initial-data error of the loop edge at step 1, GLM removes it; the
 # collocated PRISM seam runs away instead, issue #29). About 28 min on the CPU (the N = 64 AMR run takes 23).
 #
-# Usage: ./check.sh [--np N] [--amr]
+# Usage: ./check.sh [--np N] [--amr] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+#
+# --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c). The specs
+# hlld:primitive and hlld:characteristic (6th, weno) assert the bounds measured on them (CPU, M3-P3c) on the uniform
+# ladder (the --amr ladder: measurement);
+# any other spec asserts only the scheme-independent checks (a measurement).
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -31,6 +36,7 @@ VERIF_DIR="$(cd "$CASE_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
+source "$CASE_DIR/../numerics.sh"
 LADDER=(64 128)
 BZ_MAX=(1.040e-03 6.003e-04)   # CPU baseline (M2-P6c) plus 2 %, per N of the ladder
 BZ_RATE_MIN="0.0"
@@ -45,7 +51,8 @@ while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)  NP="$2" ; shift 2 ;;
       --amr) AMR=1 ; shift ;;
-      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr)" >&2 ; exit 2 ;;
+      --numerics) NUMERICS="$2" ; shift 2 ;;
+      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --numerics SPEC)" >&2 ; exit 2 ;;
    esac
 done
 if [[ ! -x "$EXE" ]]; then
@@ -53,7 +60,8 @@ if [[ ! -x "$EXE" ]]; then
    exit 2
 fi
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
-TAG="$(basename "$EXE")-np$NP"
+numerics_check
+TAG="$(basename "$EXE")-np$NP$(numerics_tag)"
 MAKE_OPTS=()
 LEG=""
 if [[ $AMR -eq 1 ]]; then
@@ -69,14 +77,22 @@ for n in "${LADDER[@]}"; do
    rm -rf "$w" ; mkdir -p "$w"
    "$VENV_PY" "$CASE_DIR/make_field_loop.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$w/field-loop.ini" --cells "$n" \
       "${MAKE_OPTS[@]}"
+   numerics_apply "$w/field-loop.ini"
    if ! (cd "$w" && mpirun -np "$NP" "$EXE" field-loop.ini > log.txt 2>&1); then
       echo "check.sh: field loop N=$n run failed, see $w/log.txt" >&2
       exit 1
    fi
    works+=("$w")
 done
-if "$VENV_PY" "$CASE_DIR/field_loop_oracle.py" "${works[@]}" --bz-max "${BZ_MAX[@]}" --bz-order-min "$BZ_RATE_MIN" \
-      --energy-min "${ENERGY_MIN[@]}"; then
+case "$NUMERICS:$AMR" in # CPU weno-riemann HLLD (M3-P3c): B_z plus 2 %, energy minus 0.2 %
+   :*) ;;
+   hlld:primitive:6th:weno:0)      BZ_MAX=(9.950e-04 5.546e-04) ; ENERGY_MIN=(0.86757 0.93417) ;;
+   hlld:characteristic:6th:weno:0) BZ_MAX=(1.083e-03 5.923e-04) ; ENERGY_MIN=(0.88559 0.94189) ;;
+   *)                              BZ_MAX=() ;;
+esac
+BOUNDS=(--bz-max "${BZ_MAX[@]}" --energy-min "${ENERGY_MIN[@]}")
+[[ ${#BZ_MAX[@]} -eq 0 ]] && BOUNDS=()
+if "$VENV_PY" "$CASE_DIR/field_loop_oracle.py" "${works[@]}" "${BOUNDS[@]}" --bz-order-min "$BZ_RATE_MIN"; then
    STATUS=0
 else
    STATUS=1

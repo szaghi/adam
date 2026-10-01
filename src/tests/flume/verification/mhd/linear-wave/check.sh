@@ -14,7 +14,12 @@
 # and Alfven waves reach the floor (orders 2.6, 4.3 on 64/128).
 # One run at a time; checkpoints deleted after use.
 #
-# Usage: ./check.sh [--np N]
+# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+#
+# --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c). The specs
+# hlld:primitive and hlld:characteristic (6th, weno) assert the bounds measured on them (CPU, M3-P3c), ORDER_MIN 4.8
+# (#47 RV-5); the two interpolations agree to 3 digits here (smooth waves: linear WENO weights);
+# any other spec asserts only the scheme-independent checks (a measurement).
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -25,6 +30,7 @@ VERIF_DIR="$(cd "$CASE_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
+source "$CASE_DIR/../numerics.sh"
 ORDER_MIN="4.7"
 AMPLITUDE="1.0e-7"
 declare -A EPS_MAX=( # CPU baseline (M2-P5a) plus 2 %, per geometry, wave and N
@@ -41,7 +47,8 @@ declare -A EPS_MAX=( # CPU baseline (M2-P5a) plus 2 %, per geometry, wave and N
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --numerics) NUMERICS="$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC)" >&2 ; exit 2 ;;
    esac
 done
 if [[ ! -x "$EXE" ]]; then
@@ -50,7 +57,24 @@ if [[ ! -x "$EXE" ]]; then
 fi
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 ORACLE="$CASE_DIR/linear_wave_oracle.py"
-TAG="$(basename "$EXE")-np$NP"
+numerics_check
+case "$NUMERICS" in
+   "") ;;
+   hlld:primitive:6th:weno|hlld:characteristic:6th:weno)
+      ORDER_MIN="4.8"
+      EPS_MAX=( # CPU weno-riemann HLLD (M3-P3c) plus 2 %, the larger of the two interpolations
+         [1d-fast-16]=1.512e-10    [1d-fast-32]=4.842e-12
+         [1d-alfven-16]=8.693e-11  [1d-alfven-32]=2.784e-12
+         [1d-slow-16]=1.202e-10    [1d-slow-32]=3.851e-12
+         [1d-entropy-16]=9.220e-11 [1d-entropy-32]=2.952e-12
+         [2d-fast-32]=1.199e-10    [2d-fast-64]=3.824e-12
+         [2d-alfven-32]=1.222e-10  [2d-alfven-64]=3.897e-12
+         [2d-slow-32]=1.106e-10    [2d-slow-64]=3.496e-12
+         [2d-entropy-32]=7.502e-11 [2d-entropy-64]=2.387e-12
+      ) ;;
+   *) EPS_MAX=() ;;
+esac
+TAG="$(basename "$EXE")-np$NP$(numerics_tag)"
 FAILED=0
 
 case_run() { # case_run <geometry> <wave> <cells>: run one case, print its work directory
@@ -59,6 +83,7 @@ case_run() { # case_run <geometry> <wave> <cells>: run one case, print its work 
    rm -rf "$w" ; mkdir -p "$w"
    "$VENV_PY" "$CASE_DIR/make_linear_wave.py" "$base" "$w/linear-wave.ini" --wave "$2" --geometry "$1" --cells "$3" \
       --amplitude "$AMPLITUDE"
+   numerics_apply "$w/linear-wave.ini"
    if ! (cd "$w" && mpirun -np "$NP" "$EXE" linear-wave.ini > log.txt 2>&1); then
       echo "check.sh: linear wave $1 $2 N=$3 run failed, see $w/log.txt" >&2
       return 1
@@ -70,12 +95,13 @@ for geo in 1d 2d; do
    if [[ $geo == 1d ]]; then ladder=(16 32) ; else ladder=(32 64) ; fi
    for wave in fast alfven slow entropy; do
       echo ">> MV-5 $wave wave, $geo, N = ${ladder[*]} ($(basename "$EXE"), np $NP)"
-      works=() ; bounds=()
+      works=() ; bounds=(--eps-max)
       for n in "${ladder[@]}"; do
          w="$(case_run $geo $wave $n)" || exit 1
-         works+=("$w") ; bounds+=("${EPS_MAX[$geo-$wave-$n]}")
+         works+=("$w") ; bounds+=("${EPS_MAX[$geo-$wave-$n]:-}")
       done
-      "$VENV_PY" "$ORACLE" "${works[@]}" --eps-max "${bounds[@]}" --order-min "$ORDER_MIN" || FAILED=1
+      [[ ${#EPS_MAX[@]} -eq 0 ]] && bounds=()
+      "$VENV_PY" "$ORACLE" "${works[@]}" "${bounds[@]}" --order-min "$ORDER_MIN" || FAILED=1
       for w in "${works[@]}"; do find "$w" -name '*.h5' -delete; done
    done
 done

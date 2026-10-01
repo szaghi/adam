@@ -210,6 +210,35 @@ Ryu–Jones 1a rotated to 63.4° and 45° on a periodic square (`mhd/rotated-sho
 uniform, so its deviation measures the divergence error. At 256 cells $\delta B_\parallel = 2.79\cdot10^{-3}$ (63.4°) and
 $4.17\cdot10^{-3}$ (45°), first order; Tóth's second-order base scheme reports $3.7\cdot10^{-3}$ at 63.4°.
 
+### MHD on `weno-riemann`
+
+Every MHD script above also runs on the `weno-riemann` scheme ([numerics](./numerics)) through
+`--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]`, which rewrites the `[numerics]` block of the generated inputs
+(defaults: `characteristic`, `6th`, `weno`):
+
+```bash
+cd src/tests/flume/verification/mhd
+rj2a/check.sh --numerics hlld                     # HLLD, characteristic interpolation
+rotor/check.sh --numerics hlld:primitive          # HLLD, primitive interpolation
+```
+
+The specs `hlld:primitive` and `hlld:characteristic` assert bounds measured on them; any other spec runs the
+scheme-independent checks only (order, bitwise x/y/z and left/right, symmetry, conservation, positivity). Measured
+(issue #47, M3-P3c; CPU and FNL agree to the printed digits):
+
+| Problem | Splitting | HLLD primitive | HLLD characteristic |
+|---|---|---|---|
+| Ryu–Jones 2a, $L_1$ sum at 256 / 512 cells | $3.84 / 2.12\cdot10^{-2}$ | $5.13 / 2.93\cdot10^{-2}$ | $3.76 / 2.12\cdot10^{-2}$ |
+| linear waves, CPAW: observed order | 4.96–5.02 | 4.96–5.00 | 4.96–4.99 |
+| Brio–Wu, Ryu–Jones 4d: floored cells, HLLD fallbacks | 0 | 0, 0 | 0, 0 |
+| field loop, magnetic energy kept at 64 / 128 cells | 0.872 / 0.937 | 0.869 / 0.936 | 0.887 / 0.944 |
+
+On Ryu–Jones 2a HLLD is more accurate than HLL ($5.98$ and $4.32\cdot10^{-2}$). The GLM run differs from the run
+without cleaning by round-off ($10^{-12}$; bitwise with the splitting), because the interpolated uniform $B_n$ seeds
+$\psi$. The rotor's symmetry defect is round-off amplified by the flow and grows as the dissipation decreases (final
+$5\cdot10^{-9}$ to $6\cdot10^{-6}$ depending on the interpolation and the backend), so under `--numerics` it is checked at
+step 100 within $10^{-8}$ and at the end within $10^{-4}$.
+
 ## Unit tests
 
 | Test | What it pins |

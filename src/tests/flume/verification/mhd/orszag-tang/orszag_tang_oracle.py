@@ -17,7 +17,10 @@ with the sign flip B -> -B (the equations are invariant under it), so B_x, B_y a
 (--field-parity even); its outflow boundaries do not conserve, so it passes no --cons-tol (the check is skipped).
 
 Usage:
-    orszag_tang_oracle.py <work> [--sym-tol T] [--cons-tol T] [--field-parity odd|even] [--ngc N]
+    orszag_tang_oracle.py <work> [--sym-tol T] [--cons-tol T] [--field-parity odd|even] [--step last|N] [--ngc N]
+
+--step N measures the symmetry on the checkpoint of step N instead of the last one (the rotor under weno-riemann checks
+it early, before the flow amplifies the round-off seed).
 """
 
 from __future__ import annotations
@@ -40,13 +43,13 @@ GROUP = {"r": ("r",), "rE": ("rE",), "ru": ("ru", "rv", "rw"), "rv": ("ru", "rv"
          "bx": ("bx", "by", "bz"), "by": ("bx", "by", "bz"), "bz": ("bx", "by", "bz")}
 
 
-def pairs(work: Path, ngc: int) -> tuple[np.ndarray, np.ndarray]:
-    """Return the last checkpoint as two arrays [cells, 8]: every cell and its image under the 180 degrees rotation.
+def pairs(work: Path, ngc: int, step: str = "last") -> tuple[np.ndarray, np.ndarray]:
+    """Return a checkpoint (the last by default) as two arrays [cells, 8]: every cell and its image under the 180 degrees rotation.
 
     The image of the centre (x, y, z) is (x_min + x_max - x, y_min + y_max - y, z), the extremes over the cell centres:
     any grid symmetric under the rotation (uniform, or with a symmetric 2:1 refinement, M2-P7b), any number of cells
     along the null z axis. A cell without an image means an asymmetric grid, which is fatal."""
-    cells = {tuple(round(c, 10) for c in key): value for key, value in profile(work, "last", ngc).items()}
+    cells = {tuple(round(c, 10) for c in key): value for key, value in profile(work, step, ngc).items()}
     xs = [k[0] for k in cells]
     ys = [k[1] for k in cells]
     sx, sy = min(xs) + max(xs), min(ys) + max(ys)
@@ -66,20 +69,22 @@ def main() -> int:
     parser.add_argument("--sym-tol", type=float, default=None, help="bound of the relative symmetry defect")
     parser.add_argument("--cons-tol", type=float, default=None, help="bound of the relative conservation drift")
     parser.add_argument("--field-parity", choices=("odd", "even"), default="odd", help="in-plane field parity")
+    parser.add_argument("--step", default="last", help="checkpoint of the symmetry check: last (default) or a step")
     parser.add_argument("--ngc", type=int, default=3)
     args = parser.parse_args()
     parity = dict(PARITY)
     if args.field_parity == "even":
         parity.update({"bx": 1.0, "by": 1.0, "bz": -1.0})
     ok = True
-    q, rotated = pairs(args.work, args.ngc)
+    q, rotated = pairs(args.work, args.ngc, args.step)
     worst = 0.0
     for v, name in enumerate(NAMES):
         scale = max(float(np.abs(q[:, NAMES.index(g)]).max()) for g in GROUP[name])
         defect = float(np.abs(q[:, v] - parity[name] * rotated[:, v]).max() / scale) if scale > 0.0 else 0.0
         worst = max(worst, defect)
         print(f"   symmetry {name:3s}: {defect:.3e} (max|{name}| {np.abs(q[:, v]).max():.3e}, scale {scale:.3e})")
-    line = f"180-degree symmetry, worst relative defect {worst:.3e}"
+    at = "" if args.step == "last" else f" at step {args.step}"
+    line = f"180-degree symmetry{at}, worst relative defect {worst:.3e}"
     if args.sym_tol is not None:
         good = worst <= args.sym_tol
         ok &= good

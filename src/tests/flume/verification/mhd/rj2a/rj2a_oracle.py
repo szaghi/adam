@@ -12,12 +12,14 @@ fluxes, the rotation of the transverse components. Checks, on the last checkpoin
 * direction invariance (several runs): the runs equal the first one in the rotated frame within --dir-tol (0:
   bitwise, the check.sh setting): the MHD library sums |u|^2, |B|^2 and u.B independently of the order of the terms
   (mhd_sum3) and projects in the frame order of the direction, so a cyclic rotation reproduces the x run exactly;
-* --pair NONE GLM: the GLM run equals the run without cleaning BITWISE on the 8 shared variables and psi is exactly
-  zero (in 1-D B_n is uniform and psi starts at zero, the (B_n, psi) block is inert and block-diagonal).
+* --pair NONE GLM: the GLM run equals the run without cleaning on the 8 shared variables and |psi| stays at most
+  --pair-tol (0, the default: BITWISE and psi exactly zero; in 1-D B_n is uniform and psi starts at zero, so with the
+  flux splitting the (B_n, psi) block is inert and block-diagonal; weno-riemann interpolates B_n, whose face values
+  carry a round-off seed into psi, so check.sh passes a tolerance there).
 
 Usage:
     rj2a_oracle.py <work> [<work> ...] [--l1-max L] [--dir-tol T] [--ngc N]
-    rj2a_oracle.py --pair <work-none> <work-glm> [--ngc N]
+    rj2a_oracle.py --pair <work-none> <work-glm> [--pair-tol T] [--ngc N]
 """
 
 from __future__ import annotations
@@ -108,6 +110,7 @@ def main() -> int:
     parser.add_argument("--l1-max", type=float, default=None, help="bound on the L1 sum over the 8 variables")
     parser.add_argument("--dir-tol", type=float, default=0.0, help="direction comparison tolerance (0: bitwise)")
     parser.add_argument("--pair", type=Path, nargs=2, metavar=("NONE", "GLM"))
+    parser.add_argument("--pair-tol", type=float, default=0.0, help="GLM vs no cleaning tolerance (0: bitwise)")
     parser.add_argument("--ngc", type=int, default=3)
     args = parser.parse_args()
     status = 0
@@ -116,9 +119,10 @@ def main() -> int:
         _, _, q_glm, psi = load(args.pair[1], args.ngc)
         diff = float(np.max(np.abs(q_glm - q_none)))
         psi_max = float(np.max(np.abs(psi))) if psi is not None else math.inf
-        ok = diff == 0.0 and psi_max == 0.0
+        ok = diff <= args.pair_tol and psi_max <= args.pair_tol
+        kind = "bitwise, psi exactly zero" if args.pair_tol == 0.0 else f"tol {args.pair_tol:.1e}"
         print(f"{args.pair[1].name} vs {args.pair[0].name}: max |difference| {diff:.3e} (8 shared variables), "
-              f"max |psi| {psi_max:.3e}  {'PASS (bitwise, psi exactly zero)' if ok else 'FAIL'}")
+              f"max |psi| {psi_max:.3e}  {f'PASS ({kind})' if ok else 'FAIL'}")
         return 0 if ok else 1
     profiles = []
     for work in args.work:

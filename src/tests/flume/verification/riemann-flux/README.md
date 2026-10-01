@@ -117,6 +117,7 @@ GLM and EGLM give the same digits here (1-D: ψ = 0 and ∇·B = 0).
 - **The hybrid flux with primitive interpolation and EGLM passes the blast without the limiter**, at β = 2.5e-4 and
   2.5e-6; the limiter never engages. The split scheme with EGLM needs it. This measurement set the MHD default of
   `weno-riemann` to primitive interpolation (#47, D-5 amended); characteristic interpolation was not prototyped for MHD.
+  The default became characteristic after the M3-P3c measurements (below; owner decision 2026-10-01).
 - **The high-order update needs high-order EGLM sources**: 2nd-order sources drop the Alfvén wave to order 2.26.
 - The limiter is inactive on the smooth wave (identical errors).
 - The correction is not a source of oscillation at the Brio–Wu shocks (overshoot ≤ 5e-5, halved by the sensor).
@@ -169,7 +170,7 @@ positive ρ and p.
 
 `adam_flume_mhd_riemann_library`: LLF, HLL and HLLD (Miyoshi & Kusano 2005) without divergence control and with GLM
 (the `(B_n, psi)` subsystem solved exactly at the face), working in the frame of the direction so that rotated problems
-run the same arithmetic; face states from primitive (the MHD default) or characteristic fields. Unit tests
+run the same arithmetic; face states from primitive or characteristic fields (the MHD default since M3-P3c). Unit tests
 `src/tests/flume/unit/test_flume_mhd_riemann{,_fnl}.F90` (RV-0, 5000 random states × 3 directions, γ = 5/3):
 
 | Check | Result |
@@ -188,3 +189,55 @@ the conservative star state in the approximate solver: it fell back on 18% of mi
 10^0.25). With the pressure of the conservative star state (from its energy) the rate is 0.015%, 0.4% and 1.8% for
 density, pressure and field ratios within 10^0.25, 10 and 10², mostly from `S*_L ≤ S_L` (the speed estimate no longer
 bounds the Alfvén wave). The degeneracy threshold 1e-12 against 1e-8 changes nothing measurable.
+
+## MHD on `weno-riemann` (2026-10-01, M3-P3b, M3-P3c)
+
+The MHD verification scripts run on `weno-riemann` through `--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]`
+(`mhd/numerics.sh`; recon `characteristic`, correction `6th`, sensor `weno` by default), e.g.
+`mhd/rj2a/check.sh --numerics hlld` or `--numerics hlld:primitive`. Without the option they run the flux-splitting
+scheme as before. `hlld:primitive` and `hlld:characteristic` (6th, weno) assert bounds measured on them (CPU, plus 2 %;
+energy minus 0.2 %), any other spec is a measurement (scheme-independent checks only). np 2, WENO5, SSP; CPU and FNL
+agree to every printed digit except the round-off symmetry defects.
+
+| Check (RV) | split | HLLD primitive | HLLD characteristic |
+|---|---|---|---|
+| RJ2a L1 sum, N = 256 / 512 (RV-6) | 3.842e-2 / 2.117e-2 | 5.133e-2 / 2.926e-2 | 3.764e-2 / 2.123e-2 |
+| RJ2a HLL L1 sum, N = 256 (RV-6: HLLD ≤ HLL) | — | 5.983e-2 | 4.316e-2 |
+| RJ2a x/y/z (RV-6) | bitwise | bitwise | bitwise |
+| RJ2a GLM vs none, CPU / FNL | bitwise | 1.3e-12 / 3.3e-12 | 9.8e-13 |
+| Brio–Wu (none, GLM), RJ4d: floors, HLLD fallbacks (RV-6) | 0 | 0, 0 | 0, 0 |
+| linear waves, 8 families, finest-pair order (RV-5) | 4.96–5.02 | 4.96–4.98 | 4.96–4.98 |
+| CPAW eps N = 128, order; left = right (RV-5) | 1.09e-6, bitwise | 1.153e-6, 5.00, bitwise | 1.151e-6, 4.99, bitwise |
+| Orszag–Tang symmetry, conservation (RV-7) | — | 1.4e-11, 1.4e-17 | 9.8e-11, 1.4e-17 |
+| Orszag–Tang AMR symmetry, seam div(B) ratio (RV-7) | 9.1e-13, 0.76 | 3.3e-14, 0.585 | 1.4e-13, 0.597 |
+| field loop ⟨\|B_z\|⟩/A0, N = 64 / 128 (RV-7) | 1.02e-3 / 5.89e-4 | 9.76e-4 / 5.44e-4 | 1.06e-3 / 5.81e-4 |
+| field loop E_B(T)/E_B(0), N = 64 / 128 (RV-7) | 0.872 / 0.937 | 0.869 / 0.936 | 0.887 / 0.944 |
+| rotor symmetry, step 100 CPU / FNL (RV-7) | 3.3e-11 | 3.9e-12 / 2.1e-12 | 4.9e-10 / 7.9e-10 |
+| rotor symmetry, final CPU / FNL (RV-7) | 1.8e-9 | 5.4e-9 / 2.3e-7 | 1.1e-7 / 6.1e-6 |
+
+- **Interpolated variables (D-5).** On smooth waves the two interpolations agree to 3–4 digits: the WENO weights are the
+  linear ones, and a linear interpolation commutes with the frozen eigenvector projection. They differ at
+  discontinuities: characteristic is 27 % more accurate on RJ2a and dissipates less magnetic energy in the field loop;
+  primitive generates slightly less ⟨|B_z|⟩ and keeps the 7×7 eigenvector projection out of the face kernel, which
+  buys no occupancy (below). **Owner decision 2026-10-01: characteristic is the MHD default**; its positivity on the
+  Balsara–Spicer blast, where the prototype chose primitive, is settled with EGLM and the limiter (P4, P5). In the
+  1-D linear waves the weno-riemann and splitting errors coincide to 4 digits for three families (the time error
+  dominates there); the inputs and logs confirm `weno-riemann`.
+- **GLM vs no cleaning is no longer bitwise.** In 1-D B_n is uniform and psi starts at zero; the splitting's
+  characteristic (B_n, psi) block is inert, but `weno-riemann` interpolates B_n, whose face values differ by round-off,
+  which seeds psi (9e-16) and through the shocks the other variables (1e-12). `rj2a/check.sh` passes `--pair-tol 1e-11`
+  under `--numerics`.
+- **Rotor symmetry.** The final defect grows smoothly from round-off (time series every 50 steps: no jump, so no
+  discrete switch flips) and orders by the solver's dissipation, final 3.4e-11 HLL, 1.8e-9 split, 5.4e-9 HLLD, 7.4e-8
+  HLLD without the sensor, 1.1e-7 HLLD characteristic; the FNL FMA contraction seeds it 40–55 × larger. The sensor
+  does not amplify it (switching it off makes it larger). A symmetry defect of the scheme is at truncation level
+  (1e-3) from the first steps, so under `--numerics` the check asserts step 100 within 1e-8 and the end within 1e-4.
+
+**Nsight Compute record (R-2; RTX 4070, cc 8.9, first stage, block 128).** The face kernels are register-limited to two
+blocks per SM, MHD and Euler alike: MHD-GLM HLLD (Orszag–Tang 128²) 255 registers, theoretical occupancy 16.7 %, achieved
+16.2 %; Euler HLLC (vortex 64²) 174 registers, theoretical 16.7 % (achieved 8.3 %, the grid fills 0.37 waves). The
+per-thread local arrays (stencil, eigenvectors, interpolated fields) live in local memory: 528 MB of local load and
+store against 29 MB of global load for MHD, 75 MB against 5.2 MB for Euler, about 32 and 18 KB per face, the ratio of the
+variables (9 against 5). The 255 registers cost no occupancy relative to Euler, so the kernel split is not needed; the
+local-array traffic of the shared face loop (both models) belongs to the performance work. Each face launch is followed
+by a one-block kernel (16 registers), the finalisation of the `reduction(+:fallbacks)`. No WSL timing is quoted.

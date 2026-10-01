@@ -13,7 +13,7 @@ available, selected by `[numerics] scheme_space`:
 | `scheme_space` | Face flux | Models |
 |---|---|---|
 | `weno` | WENO reconstruction of the Lax–Friedrichs-split fluxes, per characteristic field | Euler, MHD |
-| `weno-riemann` | WENO interpolation of the face states, a Riemann solver and a high-order correction (Chen, Tóth & Gombosi 2016) | Euler (LLF, HLL, HLLC); MHD (LLF, HLL, HLLD), verification in progress (issue #47) |
+| `weno-riemann` | WENO interpolation of the face states, a Riemann solver and a high-order correction (Chen, Tóth & Gombosi 2016) | Euler (LLF, HLL, HLLC); MHD (LLF, HLL, HLLD) |
 
 Both operators store the face flux at the same place, so seams, AMR reflux and the flux difference are shared.
 
@@ -73,9 +73,9 @@ with $\mathbf{F}^{RS}$ the Riemann flux of the two interpolated face states, $\m
 $s \in \{0, 1\}$ a per-face sensor:
 
 1. **Face states.** The fields of the stencil are interpolated to the face from the left and from the right
-   (`reconstruction_variables`: `characteristic`, the Euler default, with the Roe eigenvectors of the face; or
-   `primitive`, $(\rho, u, v, w, p)$). A face state with non-positive density or pressure is replaced by the adjacent
-   cell's state.
+   (`reconstruction_variables`: `characteristic`, the recommended default for Euler and MHD, with the eigenvectors of
+   the face; or `primitive`, $(\rho, u, v, w, p)$, plus $\mathbf{B}$ and $\psi$ for MHD). A face state with non-positive
+   density or pressure is replaced by the adjacent cell's state.
 2. **Riemann flux** (`riemann_solver`):
    - `llf`: $\mathbf{F}^{RS} = \tfrac12(\mathbf{f}_L + \mathbf{f}_R) - \tfrac12\alpha(\mathbf{q}_R - \mathbf{q}_L)$,
      $\alpha = \max(|u_{n}| + a)$ of the two states;
@@ -105,7 +105,13 @@ with its degenerate cases and a per-face fallback to HLL when a star state is no
 of order; the fallbacks are counted and logged per stage (`HLLD fallbacks to HLL: N faces`). With GLM the
 $(B_n, \psi)$ subsystem is solved exactly at the face and both states take the resulting $\tilde B_n$. On Ryu–Jones 2a
 (256 cells) HLLD with characteristic interpolation reaches $L_1 = 3.76\cdot10^{-2}$ (splitting: $3.84\cdot10^{-2}$), with
-primitive interpolation $5.13\cdot10^{-2}$.
+primitive interpolation $5.13\cdot10^{-2}$; HLL is worse with either ($4.32$, $5.98\cdot10^{-2}$). The MHD verification
+suite runs on `weno-riemann` through the `--numerics` option of its scripts (issue #47, M3-P3c): the linear waves and the
+circularly polarised Alfvén wave converge at order 4.96–5.00, Brio–Wu and Ryu–Jones 4d need no floor and no HLLD
+fallback, Orszag–Tang keeps its symmetry and conserves to $10^{-16}$, the field loop loses as much magnetic energy as
+with the splitting (primitive) or less (characteristic). Both interpolations agree on smooth waves (the WENO weights are
+linear there); at discontinuities characteristic interpolation is more accurate (the recommended default, issue #47
+D-5), primitive keeps the 7×7 eigenvector projection out of the face kernel.
 
 **Measured** (np 2, WENO5, 6th-order correction, CPU and FNL identical to the printed digits; details in the
 [verification gallery](./verification)): on the isentropic vortex the HLLC variant reaches order 6.5 between 128² and
