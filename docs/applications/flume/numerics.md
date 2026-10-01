@@ -13,7 +13,7 @@ available, selected by `[numerics] scheme_space`:
 | `scheme_space` | Face flux | Models |
 |---|---|---|
 | `weno` | WENO reconstruction of the Lax–Friedrichs-split fluxes, per characteristic field | Euler, MHD |
-| `weno-riemann` | WENO interpolation of the face states, a Riemann solver and a high-order correction (Chen, Tóth & Gombosi 2016) | Euler (LLF, HLL, HLLC); MHD in development (issue #47) |
+| `weno-riemann` | WENO interpolation of the face states, a Riemann solver and a high-order correction (Chen, Tóth & Gombosi 2016) | Euler (LLF, HLL, HLLC); MHD (LLF, HLL, HLLD), verification in progress (issue #47) |
 
 Both operators store the face flux at the same place, so seams, AMR reflux and the flux difference are shared.
 
@@ -99,8 +99,13 @@ $s \in \{0, 1\}$ a per-face sensor:
    weights close to the linear ones, $\min_k \omega_k/d_k \ge 0.2$ on both sides of the face, and $s = 0$ elsewhere: the
    correction, which amplifies jumps by $64/45$, is switched off at discontinuities. `none` keeps it everywhere.
 
-The MHD solvers (LLF, HLL, and HLLD of Miyoshi & Kusano 2005, with the $(B_n, \psi)$ subsystem solved exactly and an HLL
-fallback) are implemented and unit-tested; their wiring into the scheme is in progress (issue #47, M3-P3).
+For MHD (`riemann_solver = llf | hll | hlld`) the solvers of `adam_flume_mhd_riemann_library` work in the frame of the
+direction, so the x, y and z runs of a rotated problem stay bitwise equal: LLF, HLL, and HLLD (Miyoshi & Kusano 2005)
+with its degenerate cases and a per-face fallback to HLL when a star state is not admissible or the wave speeds are out
+of order; the fallbacks are counted and logged per stage (`HLLD fallbacks to HLL: N faces`). With GLM the
+$(B_n, \psi)$ subsystem is solved exactly at the face and both states take the resulting $\tilde B_n$. On Ryu–Jones 2a
+(256 cells) HLLD with characteristic interpolation reaches $L_1 = 3.76\cdot10^{-2}$ (splitting: $3.84\cdot10^{-2}$), with
+primitive interpolation $5.13\cdot10^{-2}$.
 
 **Measured** (np 2, WENO5, 6th-order correction, CPU and FNL identical to the printed digits; details in the
 [verification gallery](./verification)): on the isentropic vortex the HLLC variant reaches order 6.5 between 128² and

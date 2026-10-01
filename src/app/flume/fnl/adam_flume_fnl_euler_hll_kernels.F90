@@ -62,18 +62,20 @@ contains
    call compute_face_states(gamma=gamma, is_characteristic=is_characteristic, er=er, vr=vr, q0=q0, q1=q1, qL=qL, qR=qR)
    endsubroutine face_states
 
-   pure subroutine riemann_flux(gamma, ch, d, qL, qR, f)
-   !< Riemann-solver adapter of the shared face kernel: Euler HLL, `ch` unused.
+   pure subroutine riemann_flux(gamma, ch, d, qL, qR, f, fallback)
+   !< Riemann-solver adapter of the shared face kernel: Euler HLL, `ch` unused, never a fallback.
    real(R8P),    intent(in)  :: gamma    !< Specific heats ratio.
    real(R8P),    intent(in)  :: ch       !< GLM cleaning speed.
    integer(I4P), intent(in)  :: d        !< Direction, 1=x, 2=y, 3=z.
    real(R8P),    intent(in)  :: qL(NV_K) !< Left state.
    real(R8P),    intent(in)  :: qR(NV_K) !< Right state.
    real(R8P),    intent(out) :: f(NV_K)  !< Flux.
+   logical,      intent(out) :: fallback !< Fallback flag (always false).
    !$acc routine seq
    !$omp declare target
 
    call compute_riemann_hll(gamma=gamma, d=d, qL=qL, qR=qR, f=f)
+   fallback = .false.
    endsubroutine riemann_flux
 
    pure subroutine cell_flux(gamma, ch, d, q, qa, f)

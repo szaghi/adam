@@ -8,7 +8,7 @@
 
    subroutine compute_riemann_face_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch,        &
                                               is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
-                                              cc, tau, q_gpu, q_aux_gpu, fl_gpu)
+                                              cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
    !< Compute the `weno-riemann` face fluxes of direction `d`: face `(i,j,k)` lies between cells `(i,j,k)` and
    !< `(i+di,j+dj,k+dk)`, so the face array starts at index 0 along `d`.
    !<
@@ -16,7 +16,7 @@
    !< into constant-bound privates, WENO-interpolate its fields to the two face states (`weno_a_gpu`, `weno_p_gpu` are
    !< the INTERPOLATION tables), take the Riemann flux `F` and add the correction
    !< `F^ = F + s (cc(1) F + cc(2) (f_0 + f_1) + cc(3) (f_-1 + f_2) - F)`, `s = 1` where every WENO weights ratio is
-   !< `>= tau`, else 0.
+   !< `>= tau`, else 0; `fallbacks` counts the faces whose Riemann solver fell back (HLLD to HLL).
    integer(I4P), intent(in)    :: d                                       !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)    :: di, dj, dk                              !< Unit step along `d`.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                         !< Grid dimensions.
@@ -34,6 +34,7 @@
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Conservative variables.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)         !< Face fluxes of direction `d`.
+   integer(I4P), intent(out)   :: fallbacks                               !< Faces whose Riemann solver fell back.
    real(R8P)                   :: qs(NV_K,1-S_MAX:S_MAX)                  !< Private stencil conservative variables.
    real(R8P)                   :: qas(NV_AUX_K,1-S_MAX:S_MAX)             !< Private stencil auxiliary variables.
    real(R8P)                   :: fint(2,1-S_MAX:S_MAX-1,NV_K)            !< Private fields to interpolate.
@@ -47,15 +48,18 @@
    real(R8P)                   :: fc(NV_K,-1:2)                           !< Private physical fluxes of cells -1 ... 2.
    real(R8P)                   :: wmin                                    !< Private minimum WENO weights ratio.
    real(R8P)                   :: sensor                                  !< Private correction switch.
+   logical                     :: fallback                                !< Private Riemann solver fallback flag.
    integer(I4P)                :: b, i, j, k, m, f, w                     !< Counters.
 
-   !$acc parallel loop independent gang vector collapse(4)                                                        &
+   fallbacks = 0_I4P
+   !$acc parallel loop independent gang vector collapse(4) reduction(+:fallbacks)                                 &
    !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu)                                       &
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,cc,tau)          &
-   !$acc& private(qs,qas,fint,er,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu) &
+   !$acc& private(qs,qas,fint,er,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
+   !$omp OMPLOOP collapse(4) reduction(+:fallbacks) &
+   !$omp& DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu) &
    !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,cc,tau) &
-   !$omp& private(qs,qas,fint,er,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor)
+   !$omp& private(qs,qas,fint,er,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
@@ -89,7 +93,8 @@
       enddo
       call face_states(gamma=gamma, ch=ch, is_characteristic=is_characteristic, er=er, vr=vr, q0=qs(:,0), q1=qs(:,1), &
                        qL=qL, qR=qR)
-      call riemann_flux(gamma=gamma, ch=ch, d=d, qL=qL, qR=qR, f=fr)
+      call riemann_flux(gamma=gamma, ch=ch, d=d, qL=qL, qR=qR, f=fr, fallback=fallback)
+      if (fallback) fallbacks = fallbacks + 1_I4P
       !$acc loop seq
       do m=-1, 2
          call cell_flux(gamma=gamma, ch=ch, d=d, q=qs(:,m), qa=qas(:,m), f=fc(:,m))

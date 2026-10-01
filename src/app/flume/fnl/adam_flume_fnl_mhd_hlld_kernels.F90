@@ -1,32 +1,35 @@
-!< ADAM, FLUME CPU kernels of the Euler model with the HLL Riemann solver (scheme `weno-riemann`).
+!< ADAM, FLUME FNL device kernels of the MHD (no divergence control) model with the HLLD Riemann solver (scheme `weno-riemann`).
 
-module adam_flume_cpu_euler_hll_kernels
-!< ADAM, FLUME CPU kernels of the Euler model with the HLL Riemann solver (scheme `weno-riemann`).
+#include "fundal.H"
+
+module adam_flume_fnl_mhd_hlld_kernels
+!< ADAM, FLUME FNL device kernels of the MHD (no divergence control) model with the HLLD Riemann solver (scheme `weno-riemann`).
 !<
-!< The model- and solver-agnostic face loop (`adam_flume_cpu_riemann_face_kernels_agnostic.INC`, issue #47) instantiated
-!< on the Euler physics and the HLL solver (Einfeldt speeds): the local arrays are sized by the Euler constants
-!< `NV_K = NV_EULER`, `NV_AUX_K = NV_AUX`, and the four adapters call the Euler library.
+!< The model- and solver-agnostic face loop (`adam_flume_fnl_riemann_face_kernels_agnostic.INC`, issue #47)
+!< instantiated on the MHD (no divergence control) model and the HLLD solver of `adam_flume_mhd_riemann_library`: the local arrays
+!< are sized by `NV_K = NV_MHD`, `NV_AUX_K = NV_AUX_MHD`, and the four adapters call the MHD libraries.
 
-! ADAM classes, libraries, parameters
-use :: adam_weno_object,         only : weno_object, weno_reconstruct_upwind_wratio
+! ADAM FNL classes, libraries
+use :: adam_fnl_weno_kernels,          only : weno_reconstruct_upwind_wratio_dev
 ! FLUME modules
-use :: adam_flume_euler_library, only : compute_face_interpolation_fields, compute_face_states, compute_flux, &
-                                        compute_riemann_hll
-use :: adam_flume_parameters,    only : NV_AUX_K=>NV_AUX, NV_K=>NV_EULER, S_MAX
+use :: adam_flume_mhd_library,         only : mhd_flux
+use :: adam_flume_mhd_riemann_library, only : mhd_face_interpolation_fields, mhd_face_states, &
+                                              mhd_riemann_hlld
+use :: adam_flume_parameters,          only : NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD, S_MAX
 ! third party modules
-use :: penf,                     only : I4P, R8P
+use :: penf,                           only : I4P, R8P
 
 implicit none
 private
-public :: compute_riemann_face_fluxes
+public :: compute_riemann_face_fluxes_dev
 
 contains
    ! public procedures
-#include "adam_flume_cpu_riemann_face_kernels_agnostic.INC"
+#include "adam_flume_fnl_riemann_face_kernels_agnostic.INC"
 
    ! private procedures
    pure subroutine face_interpolation_fields(gamma, ch, d, S, is_characteristic, qs, qas, fint, er)
-   !< Interpolation-fields adapter of the shared face kernel: the Euler fields, `ch` unused.
+   !< Interpolation-fields adapter of the shared face kernel: the MHD fields, `ch` unused.
    real(R8P),    intent(in)  :: gamma                        !< Specific heats ratio.
    real(R8P),    intent(in)  :: ch                           !< GLM cleaning speed.
    integer(I4P), intent(in)  :: d                            !< Direction, 1=x, 2=y, 3=z.
@@ -39,12 +42,12 @@ contains
    !$acc routine seq
    !$omp declare target
 
-   call compute_face_interpolation_fields(gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
-                                          fint=fint, er=er)
+   call mhd_face_interpolation_fields(gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, &
+                                      qas=qas, fint=fint, er=er)
    endsubroutine face_interpolation_fields
 
    pure subroutine face_states(gamma, ch, is_characteristic, er, vr, q0, q1, qL, qR)
-   !< Face-states adapter of the shared face kernel: the Euler states, `ch` unused.
+   !< Face-states adapter of the shared face kernel: the MHD states, `ch` unused.
    real(R8P), intent(in)  :: gamma             !< Specific heats ratio.
    real(R8P), intent(in)  :: ch                !< GLM cleaning speed.
    logical,   intent(in)  :: is_characteristic !< Characteristic (or primitive) variables.
@@ -57,27 +60,26 @@ contains
    !$acc routine seq
    !$omp declare target
 
-   call compute_face_states(gamma=gamma, is_characteristic=is_characteristic, er=er, vr=vr, q0=q0, q1=q1, qL=qL, qR=qR)
+   call mhd_face_states(gamma=gamma, is_characteristic=is_characteristic, er=er, vr=vr, q0=q0, q1=q1, qL=qL, qR=qR)
    endsubroutine face_states
 
    pure subroutine riemann_flux(gamma, ch, d, qL, qR, f, fallback)
-   !< Riemann-solver adapter of the shared face kernel: Euler HLL, `ch` unused, never a fallback.
+   !< Riemann-solver adapter of the shared face kernel: MHD HLLD, `ch` unused, fallback to HLL flagged.
    real(R8P),    intent(in)  :: gamma    !< Specific heats ratio.
    real(R8P),    intent(in)  :: ch       !< GLM cleaning speed.
    integer(I4P), intent(in)  :: d        !< Direction, 1=x, 2=y, 3=z.
    real(R8P),    intent(in)  :: qL(NV_K) !< Left state.
    real(R8P),    intent(in)  :: qR(NV_K) !< Right state.
    real(R8P),    intent(out) :: f(NV_K)  !< Flux.
-   logical,      intent(out) :: fallback !< Fallback flag (always false).
+   logical,      intent(out) :: fallback !< Fallback flag (HLL used instead of HLLD).
    !$acc routine seq
    !$omp declare target
 
-   call compute_riemann_hll(gamma=gamma, d=d, qL=qL, qR=qR, f=f)
-   fallback = .false.
+   call mhd_riemann_hlld(gamma=gamma, d=d, qL=qL, qR=qR, f=f, fallback=fallback)
    endsubroutine riemann_flux
 
    pure subroutine cell_flux(gamma, ch, d, q, qa, f)
-   !< Cell-flux adapter of the shared face kernel: the Euler physical flux, `gamma` and `ch` unused.
+   !< Cell-flux adapter of the shared face kernel: the MHD physical flux, `gamma` unused.
    real(R8P),    intent(in)  :: gamma        !< Specific heats ratio.
    real(R8P),    intent(in)  :: ch           !< GLM cleaning speed.
    integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
@@ -87,6 +89,6 @@ contains
    !$acc routine seq
    !$omp declare target
 
-   call compute_flux(d=d, q=q, qa=qa, f=f)
+   call mhd_flux(d=d, q=q, qa=qa, f=f)
    endsubroutine cell_flux
-endmodule adam_flume_cpu_euler_hll_kernels
+endmodule adam_flume_fnl_mhd_hlld_kernels

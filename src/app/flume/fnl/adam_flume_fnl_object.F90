@@ -28,10 +28,17 @@ use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM,                &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,            &
-                                              RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO, SCHEME_SPACE_WENO_RIEMANN
+                                              RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,              &
+                                              SCHEME_SPACE_WENO_RIEMANN
 use :: adam_flume_fnl_euler_hll_kernels,  only : compute_riemann_face_fluxes_euler_hll_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_euler_hllc_kernels, only : compute_riemann_face_fluxes_euler_hllc_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_euler_llf_kernels,  only : compute_riemann_face_fluxes_euler_llf_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_mhd_hll_kernels,          only : compute_riemann_face_fluxes_mhd_hll_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_mhd_hlld_kernels,         only : compute_riemann_face_fluxes_mhd_hlld_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_mhd_llf_kernels,          only : compute_riemann_face_fluxes_mhd_llf_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_mhd_glm_hll_kernels,      only : compute_riemann_face_fluxes_mhd_glm_hll_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_mhd_glm_hlld_kernels,     only : compute_riemann_face_fluxes_mhd_glm_hlld_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_mhd_glm_llf_kernels,      only : compute_riemann_face_fluxes_mhd_glm_llf_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_euler_kernels,   only : compute_conservation_euler_dev=>compute_conservation_dev,                &
                                               compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
                                               compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
@@ -1050,6 +1057,7 @@ contains
    real(R8P)                                            :: tau               !< Correction sensor threshold.
    integer(I4P)                                         :: e                 !< Eikonal iterations counter.
    procedure(compute_riemann_face_fluxes_euler_llf_dev), pointer :: face_fluxes !< Kernel of the (model, solver) pair.
+   integer(I4P)                                         :: fallbacks(3)      !< Riemann solver fallbacks per direction.
 
    if (self%ib%solids_number > 0_I4P) then
       call self%update_ghost(q_gpu=q_gpu)
@@ -1080,25 +1088,52 @@ contains
       case(RIEMANN_SOLVER_HLLC)
          face_fluxes => compute_riemann_face_fluxes_euler_hllc_dev
       endselect
+   elseif (self%physics%model == MODEL_MHD) then
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_mhd_llf_dev
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_mhd_hll_dev
+      case(RIEMANN_SOLVER_HLLD)
+         face_fluxes => compute_riemann_face_fluxes_mhd_hlld_dev
+      endselect
+   elseif (self%physics%model == MODEL_MHD_GLM) then
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_mhd_glm_llf_dev
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_mhd_glm_hll_dev
+      case(RIEMANN_SOLVER_HLLD)
+         face_fluxes => compute_riemann_face_fluxes_mhd_glm_hlld_dev
+      endselect
    endif
    if (.not.associated(face_fluxes)) call mpih_fnl%error_stop(msg=': no FNL weno-riemann kernels yet for '//      &
                                                                   '[physics].(physical_model)='//                 &
                                                                   self%physics%physical_model//                   &
                                                                   ' with [numerics].(riemann_solver)='//          &
-                                                                  self%numerics%riemann_solver//                  &
-                                                                  ' (issue #47: MHD in M3-P3)')
+                                                                  self%numerics%riemann_solver)
+   fallbacks = 0_I4P
    if (.not.is_null(1)) call face_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,         &
                                          blocks_number=nb, S=weno_s, gamma=gamma, ch=ch, is_characteristic=is_char,   &
                                          weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps, cc=cc, &
-                                         tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
+                                         tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu,   &
+                                         fallbacks=fallbacks(1))
    if (.not.is_null(2)) call face_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,         &
                                          blocks_number=nb, S=weno_s, gamma=gamma, ch=ch, is_characteristic=is_char,   &
                                          weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps, cc=cc, &
-                                         tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
+                                         tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu,   &
+                                         fallbacks=fallbacks(2))
    if (.not.is_null(3)) call face_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,         &
                                          blocks_number=nb, S=weno_s, gamma=gamma, ch=ch, is_characteristic=is_char,   &
                                          weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps, cc=cc, &
-                                         tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+                                         tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu,   &
+                                         fallbacks=fallbacks(3))
+   if (self%numerics%riemann_solver == RIEMANN_SOLVER_HLLD) then
+      call MPI_ALLREDUCE(MPI_IN_PLACE, fallbacks, 3, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+      if (sum(fallbacks) > 0_I4P .and. mpih_fnl%myrank == 0) &
+         print '(A)', mpih_fnl%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
+                      trim(str(self%time%it))
+   endif
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif

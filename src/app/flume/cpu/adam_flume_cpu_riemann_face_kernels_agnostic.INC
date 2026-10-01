@@ -6,18 +6,20 @@
    ! `weno_reconstruct_upwind_wratio`, and four adapters with one argument list for every model (the GLM cleaning speed
    ! `ch` is ignored by the models without cleaning): `face_interpolation_fields` (the stencil fields to interpolate, in
    ! the WENO upwind layout), `face_states` (the conservative face states, with the first-order fallback),
-   ! `riemann_flux` (the solver) and `cell_flux` (the physical flux of a cell). The host selects the module by
+   ! `riemann_flux` (the solver, with a flag set when it fell back to a simpler solver, e.g. HLLD to HLL) and `cell_flux`
+! (the physical flux of a cell). The host selects the module by
    ! `select case` on the model and the solver, outside the loops.
 
    subroutine compute_riemann_face_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
-                                          weno, cc, tau, q, q_aux, fl)
+                                          weno, cc, tau, q, q_aux, fl, fallbacks)
    !< Compute the `weno-riemann` face fluxes of direction `d`: face `(i,j,k)` lies between cells `(i,j,k)` and
    !< `(i+di,j+dj,k+dk)`, so the face array starts at index 0 along `d`.
    !<
    !< Per face: gather the stencil `m = min(1-S,-1) ... max(S,2)`, WENO-interpolate its fields to the two face states
    !< (interpolation tables `weno%a_interp`, `weno%p_interp`), take the Riemann flux `F` of the states and add the
    !< correction `F^ = F + s (cc(1) F + cc(2) (f_0 + f_1) + cc(3) (f_-1 + f_2) - F)`, with `f_m` the physical flux of
-   !< cell `m` and the sensor `s = 1` where the WENO weights ratio of every field on both sides is `>= tau`, else 0.
+   !< cell `m` and the sensor `s = 1` where the WENO weights ratio of every field on both sides is `>= tau`, else 0;
+   !< `fallbacks` counts the faces whose Riemann solver fell back (HLLD to HLL; always 0 for the other solvers).
    integer(I4P),      intent(in)    :: d                                 !< Direction, 1=x, 2=y, 3=z.
    integer(I4P),      intent(in)    :: di, dj, dk                        !< Unit step along `d`.
    integer(I4P),      intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
@@ -31,6 +33,7 @@
    real(R8P),         intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
    real(R8P),         intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),         intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)       !< Face fluxes of direction `d`.
+   integer(I4P),      intent(out)   :: fallbacks                         !< Faces whose Riemann solver fell back.
    real(R8P)                        :: qs(NV_K,1-S_MAX:S_MAX)            !< Stencil conservative variables.
    real(R8P)                        :: qas(NV_AUX_K,1-S_MAX:S_MAX)       !< Stencil auxiliary variables.
    real(R8P)                        :: fint(2,1-S_MAX:S_MAX-1,NV_K)      !< Fields to interpolate.
@@ -43,11 +46,13 @@
    real(R8P)                        :: fr(NV_K)                          !< Riemann flux.
    real(R8P)                        :: fc(NV_K,-1:2)                     !< Physical fluxes of the cells -1 ... 2.
    real(R8P)                        :: sensor                            !< Correction switch, 0 or 1.
+   logical                          :: fallback                          !< Riemann solver fallback flag of a face.
    integer(I4P)                     :: S                                 !< WENO stencil half-width.
    integer(I4P)                     :: b, i, j, k, m, f                  !< Counters.
 
    S = weno%S
-   !$omp parallel do collapse(4) default(firstprivate) shared(weno, q, q_aux, fl)
+   fallbacks = 0_I4P
+   !$omp parallel do collapse(4) default(firstprivate) shared(weno, q, q_aux, fl) reduction(+:fallbacks)
    do b=1, blocks_number
       do k=1-dk, nk
          do j=1-dj, nj
@@ -69,7 +74,8 @@
                enddo
                call face_states(gamma=gamma, ch=ch, is_characteristic=is_characteristic, er=er, vr=vr, q0=qs(:,0), &
                                 q1=qs(:,1), qL=qL, qR=qR)
-               call riemann_flux(gamma=gamma, ch=ch, d=d, qL=qL, qR=qR, f=fr)
+               call riemann_flux(gamma=gamma, ch=ch, d=d, qL=qL, qR=qR, f=fr, fallback=fallback)
+               if (fallback) fallbacks = fallbacks + 1_I4P
                do m=-1, 2
                   call cell_flux(gamma=gamma, ch=ch, d=d, q=qs(:,m), qa=qas(:,m), f=fc(:,m))
                enddo
