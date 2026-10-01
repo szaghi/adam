@@ -8,9 +8,10 @@ program test_flume_mhd_riemann
 !< x, y and z runs of a problem bitwise equal (issue #41, MV-4).
 !<
 !< **What it pins**, on N deterministic random admissible states and each direction d, for LLF, HLL, HLLD without
-!< divergence control and with GLM (errors relative to `max(1, |f|, s |q|)`, the round-off scale of the star fluxes,
-!< `s` the largest `|u_n| + c_f`):
-!< 1. consistency `RS(q, q) = f(q)` (all six solvers);
+!< divergence control, with GLM and with EGLM (errors relative to `max(1, |f|, s |q|)`, the round-off scale of the star
+!< fluxes, `s` the largest `|u_n| + c_f`); the EGLM states are the GLM ones with `psi^2 / 2` added to the energy (`psi`
+!< in B units), so checks 1-8 draw the same random numbers as before EGLM:
+!< 1. consistency `RS(q, q) = f(q)` (all nine solvers, `psi /= 0`);
 !< 2. HLLD exact on an isolated contact (`B_n /= 0`, only the density jumps): the flux of the upwind state;
 !< 3. HLLD exact on an isolated tangential discontinuity (`B_n = 0`; density, tangential velocity and field jump, total
 !<    pressure continuous);
@@ -18,23 +19,31 @@ program test_flume_mhd_riemann
 !<    field rotated, the velocity jump `-(S - u_n) [B_t] / B_n`); the construction is checked first by its
 !<    Rankine-Hugoniot residual `|F_R - F_L - S (U_R - U_L)|`, printed and required below the same tolerance;
 !< 5. cyclic invariance, BITWISE: the flux in direction d of a pair equals the direction-1 flux of the cyclically
-!<    permuted pair, components permuted back (all six solvers);
+!<    permuted pair, components permuted back (all nine solvers, `psi /= 0`);
 !< 6. the first-order 1-D update `q_i - dt/dx (F(q_i, q_i+1) - F(q_i-1, q_i))` keeps density and pressure positive
 !<    for LLF and HLL at `dt/dx = 1/(2 s)` (count of inadmissible updates; one `B_n` per triple, 1-D div B = 0);
 !< 7. the same update with HLLD (count, reported; not part of the issue's criterion);
-!< 8. HLLD fallbacks to HLL on random pairs (count, reported).
+!< 8. HLLD fallbacks to HLL on random pairs (count, reported);
+!< 9. EGLM = GLM, BITWISE, on random pairs with `psi = 0` and one `B_n` (the flux-level EV-3, issue #47, M3-P4b): the
+!<    `(B_n, psi)` subsystem leaves `B~_n = B_n`, `psi~ = 0`, the cleaning-energy terms are exactly zero, and the `psi`
+!<    fluxes agree up to the unit `psi_GLM = c_h psi_EGLM` (`c_h = 2`, exact in floating point).
+!<
+!< HLLD exactness (checks 2-4) also covers the EGLM HLLD (`psi = 0`).
 
-use :: adam_flume_mhd_library,         only : mhd_conservative_to_auxiliary, mhd_fast_speed, mhd_flux, mhd_glm_flux, &
+use :: adam_flume_mhd_library,         only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary,      &
+                                              mhd_eglm_flux, mhd_fast_speed, mhd_flux, mhd_glm_flux,                    &
                                               mhd_primitive_to_conservative
-use :: adam_flume_mhd_riemann_library, only : mhd_glm_riemann_hll, mhd_glm_riemann_hlld, mhd_glm_riemann_llf,        &
+use :: adam_flume_mhd_riemann_library, only : mhd_eglm_riemann_hll, mhd_eglm_riemann_hlld, mhd_eglm_riemann_llf,     &
+                                              mhd_glm_riemann_hll, mhd_glm_riemann_hlld, mhd_glm_riemann_llf,        &
                                               mhd_riemann_hll, mhd_riemann_hlld, mhd_riemann_llf
-use :: adam_flume_parameters,          only : IA_U, IQ_BX, IQ_PSI, IQ_R, IQ_RE, IQ_RU, NV_AUX_MHD, NV_MHD, NV_MHD_GLM
+use :: adam_flume_parameters,          only : IA_U, IQ_BX, IQ_PSI, IQ_R, IQ_RE, IQ_RU, NV_AUX_MHD, NV_MHD, NV_MHD_EGLM, &
+                                              NV_MHD_GLM
 use :: penf,                           only : I4P, R8P, str
 
 implicit none
 
 integer(I4P), parameter :: N=5000_I4P           !< Random states number.
-integer(I4P), parameter :: NC=8_I4P             !< Checks number.
+integer(I4P), parameter :: NC=9_I4P             !< Checks number.
 real(R8P),    parameter :: GAMMA=5._R8P/3._R8P  !< Specific heats ratio.
 real(R8P),    parameter :: R=1._R8P             !< Gas constant.
 real(R8P),    parameter :: CH=2._R8P            !< GLM cleaning speed.
@@ -46,14 +55,15 @@ integer(I4P)            :: n_, c, d, ns         !< Counters, seed size.
 logical                 :: test_passed          !< Aggregate pass flag.
 character(len=48)       :: check_name(NC)       !< Checks names.
 
-check_name = ['RS(q, q) = f(q), 6 solvers                      ', &
+check_name = ['RS(q, q) = f(q), 9 solvers                      ', &
               'HLLD exact on an isolated contact               ', &
               'HLLD exact on a tangential discontinuity        ', &
               'HLLD exact on a rotational discontinuity        ', &
-              'cyclic invariance, bitwise, 6 solvers           ', &
+              'cyclic invariance, bitwise, 9 solvers           ', &
               '1-D update positive, LLF + HLL (count)          ', &
               '1-D update positive, HLLD (count, info)         ', &
-              'HLLD fallbacks on random pairs (count, info)    ']
+              'HLLD fallbacks on random pairs (count, info)    ', &
+              'EGLM = GLM at psi = 0, one B_n, bitwise         ']
 err = 0._R8P
 rh = 0._R8P
 call random_seed(size=ns)
@@ -71,11 +81,17 @@ do n_=1, N
       call check_fallback(d=d, e=err(8))
    enddo
 enddo
+! after the loop above, so checks 1-8 draw the random numbers they drew before EGLM
+do n_=1, N
+   do d=1, 3
+      call check_eglm_glm(d=d, e=err(9))
+   enddo
+enddo
 
 test_passed = rh <= TOL_EXACT
 print '(A)', 'rotational discontinuity construction: max Rankine-Hugoniot residual '//trim(str(rh))
 do c=1, NC
-   if ((c <= 4 .and. err(c) > TOL_EXACT) .or. ((c == 5 .or. c == 6) .and. err(c) > 0._R8P)) then
+   if ((c <= 4 .and. err(c) > TOL_EXACT) .or. ((c == 5 .or. c == 6 .or. c == 9) .and. err(c) > 0._R8P)) then
       print '(A)', 'FAIL: '//check_name(c)//' max error '//trim(str(err(c)))
       test_passed = .false.
    else
@@ -126,9 +142,18 @@ contains
    q(IQ_PSI) = psi
    endsubroutine to_conservative
 
+   function eglm_state(q) result(qe)
+   !< Return the EGLM state of a GLM-sized state: the same variables, `psi^2 / 2` added to the energy.
+   real(R8P), intent(in) :: q(NV_MHD_GLM)   !< Conservative variables (energy without `psi^2 / 2`).
+   real(R8P)             :: qe(NV_MHD_EGLM) !< EGLM conservative variables.
+
+   qe = q
+   qe(IQ_RE) = q(IQ_RE) + 0.5_R8P * q(IQ_PSI)**2
+   endfunction eglm_state
+
    subroutine solver(s, d, qL, qR, f, fallback)
-   !< Return the flux of solver `s`: 1-3 LLF, HLL, HLLD without divergence control, 4-6 the same with GLM (1-3 set the
-   !< first `NV_MHD` components of `f`, the last one zero).
+   !< Return the flux of solver `s`: 1-3 LLF, HLL, HLLD without divergence control, 4-6 the same with GLM, 7-9 with EGLM
+   !< (1-3 set the first `NV_MHD` components of `f`, the last one zero; `NV_MHD_EGLM = NV_MHD_GLM`).
    integer(I4P), intent(in)  :: s              !< Solver.
    integer(I4P), intent(in)  :: d              !< Direction.
    real(R8P),    intent(in)  :: qL(NV_MHD_GLM) !< Left state.
@@ -151,25 +176,36 @@ contains
       call mhd_glm_riemann_hll(ch=CH, gamma=GAMMA, d=d, qL=qL, qR=qR, f=f)
    case(6)
       call mhd_glm_riemann_hlld(ch=CH, gamma=GAMMA, d=d, qL=qL, qR=qR, f=f, fallback=fallback)
+   case(7)
+      call mhd_eglm_riemann_llf(ch=CH, gamma=GAMMA, d=d, qL=qL, qR=qR, f=f)
+   case(8)
+      call mhd_eglm_riemann_hll(ch=CH, gamma=GAMMA, d=d, qL=qL, qR=qR, f=f)
+   case(9)
+      call mhd_eglm_riemann_hlld(ch=CH, gamma=GAMMA, d=d, qL=qL, qR=qR, f=f, fallback=fallback)
    endselect
    endsubroutine solver
 
-   subroutine physical_flux(glm, d, q, f, s)
-   !< Return the physical flux of a state (without divergence control or with GLM) and its `|u_n| + c_f`.
-   logical,      intent(in)  :: glm            !< GLM flux.
+   subroutine physical_flux(model, d, q, f, s)
+   !< Return the physical flux of a state (model 0 without divergence control, 1 GLM, 2 EGLM) and its `|u_n| + c_f`.
+   integer(I4P), intent(in)  :: model          !< Model: 0 none, 1 GLM, 2 EGLM.
    integer(I4P), intent(in)  :: d              !< Direction.
-   real(R8P),    intent(in)  :: q(NV_MHD_GLM)  !< Conservative variables.
+   real(R8P),    intent(in)  :: q(NV_MHD_GLM)  !< Conservative variables (EGLM: with `psi^2 / 2` in the energy).
    real(R8P),    intent(out) :: f(NV_MHD_GLM)  !< Physical flux.
    real(R8P),    intent(out) :: s              !< |u_n| + c_f.
    real(R8P)                 :: qa(NV_AUX_MHD) !< Auxiliary variables.
 
-   call mhd_conservative_to_auxiliary(gamma=GAMMA, R=R, q=q(1:NV_MHD), qa=qa)
    f = 0._R8P
-   if (glm) then
-      call mhd_glm_flux(ch=CH, d=d, q=q, qa=qa, f=f)
-   else
+   select case(model)
+   case(0)
+      call mhd_conservative_to_auxiliary(gamma=GAMMA, R=R, q=q(1:NV_MHD), qa=qa)
       call mhd_flux(d=d, q=q(1:NV_MHD), qa=qa, f=f(1:NV_MHD))
-   endif
+   case(1)
+      call mhd_conservative_to_auxiliary(gamma=GAMMA, R=R, q=q(1:NV_MHD), qa=qa)
+      call mhd_glm_flux(ch=CH, d=d, q=q, qa=qa, f=f)
+   case default
+      call mhd_eglm_conservative_to_auxiliary(gamma=GAMMA, R=R, q=q, qa=qa)
+      call mhd_eglm_flux(ch=CH, d=d, q=q, qa=qa, f=f)
+   endselect
    s = abs(qa(IA_U+d-1)) + mhd_fast_speed(d=d, qa=qa)
    endsubroutine physical_flux
 
@@ -208,7 +244,7 @@ contains
    endsubroutine frame_to_prim
 
    subroutine check_consistency(d, e)
-   !< Update `e` with the consistency error `RS(q, q) - f(q)` of the six solvers on a random state.
+   !< Update `e` with the consistency error `RS(q, q) - f(q)` of the nine solvers on a random state.
    integer(I4P), intent(in)    :: d              !< Direction.
    real(R8P),    intent(inout) :: e              !< Maximum error.
    real(R8P)                   :: prim(8)        !< Primitive state.
@@ -221,8 +257,9 @@ contains
 
    call random_prim(prim=prim)
    call to_conservative(prim=prim, psi=2._R8P * uniform() - 1._R8P, q=q)
-   do k=1, 6
-      call physical_flux(glm=(k > 3), d=d, q=q, f=f, s=s)
+   do k=1, 9
+      if (k == 7) q = eglm_state(q=q)
+      call physical_flux(model=(k - 1) / 3, d=d, q=q, f=f, s=s)
       call solver(s=k, d=d, qL=q, qR=q, f=fr, fallback=fb)
       e = max(e, scaled_error(fr=fr, f=f, s=max(s, CH), qL=q, qR=q, nv=merge(NV_MHD_GLM, NV_MHD, k > 3)))
    enddo
@@ -247,10 +284,10 @@ contains
    primR(1) = 10._R8P**(-3._R8P + 4._R8P * uniform())
    call to_conservative(prim=prim, psi=0._R8P, q=qL)
    call to_conservative(prim=primR, psi=0._R8P, q=qR)
-   do k=3, 6, 3
-      call physical_flux(glm=(k > 3), d=d, q=qR, f=f, s=sR)
+   do k=3, 9, 3
+      call physical_flux(model=(k - 1) / 3, d=d, q=qR, f=f, s=sR)
       s = sR
-      if (prim(1+d) >= 0._R8P) call physical_flux(glm=(k > 3), d=d, q=qL, f=f, s=s)
+      if (prim(1+d) >= 0._R8P) call physical_flux(model=(k - 1) / 3, d=d, q=qL, f=f, s=s)
       call solver(s=k, d=d, qL=qL, qR=qR, f=fr, fallback=fb)
       e = max(e, scaled_error(fr=fr, f=f, s=max(s, sR), qL=qL, qR=qR, nv=NV_MHD))
    enddo
@@ -284,10 +321,10 @@ contains
    call to_conservative(prim=prim, psi=0._R8P, q=qL)
    call frame_to_prim(d=d, fp=fpR, prim=prim)
    call to_conservative(prim=prim, psi=0._R8P, q=qR)
-   do k=3, 6, 3
-      call physical_flux(glm=(k > 3), d=d, q=qR, f=f, s=sR)
+   do k=3, 9, 3
+      call physical_flux(model=(k - 1) / 3, d=d, q=qR, f=f, s=sR)
       s = sR
-      if (fp(2) >= 0._R8P) call physical_flux(glm=(k > 3), d=d, q=qL, f=f, s=s)
+      if (fp(2) >= 0._R8P) call physical_flux(model=(k - 1) / 3, d=d, q=qL, f=f, s=s)
       call solver(s=k, d=d, qL=qL, qR=qR, f=fr, fallback=fb)
       e = max(e, scaled_error(fr=fr, f=f, s=max(s, sR), qL=qL, qR=qR, nv=NV_MHD))
    enddo
@@ -327,14 +364,14 @@ contains
    call to_conservative(prim=prim, psi=0._R8P, q=qL)
    call frame_to_prim(d=d, fp=fpR, prim=prim)
    call to_conservative(prim=prim, psi=0._R8P, q=qR)
-   call physical_flux(glm=.false., d=d, q=qL, f=fL, s=sL_)
-   call physical_flux(glm=.false., d=d, q=qR, f=fR, s=sR_)
+   call physical_flux(model=0, d=d, q=qL, f=fL, s=sL_)
+   call physical_flux(model=0, d=d, q=qR, f=fR, s=sR_)
    rh = max(rh, maxval(abs(fR(1:NV_MHD) - fL(1:NV_MHD) - s * (qR(1:NV_MHD) - qL(1:NV_MHD)))) / &
                 max(1._R8P, maxval(abs(fL(1:NV_MHD))), max(sL_, sR_) * max(maxval(abs(qL(1:NV_MHD))), &
                                                                           maxval(abs(qR(1:NV_MHD))))))
-   do k=3, 6, 3
-      call physical_flux(glm=(k > 3), d=d, q=qL, f=fL, s=sL_)
-      call physical_flux(glm=(k > 3), d=d, q=qR, f=fR, s=sR_)
+   do k=3, 9, 3
+      call physical_flux(model=(k - 1) / 3, d=d, q=qL, f=fL, s=sL_)
+      call physical_flux(model=(k - 1) / 3, d=d, q=qR, f=fR, s=sR_)
       call solver(s=k, d=d, qL=qL, qR=qR, f=fr_, fallback=fb)
       if (s >= 0._R8P) then
          e = max(e, scaled_error(fr=fr_, f=fL, s=max(sL_, sR_), qL=qL, qR=qR, nv=NV_MHD))
@@ -376,7 +413,13 @@ contains
    call to_conservative(prim=pR, psi=psiR, q=qR)
    call to_conservative(prim=gL, psi=psiL, q=q1L)
    call to_conservative(prim=gR, psi=psiR, q=q1R)
-   do k=1, 6
+   do k=1, 9
+      if (k == 7) then
+         qL  = eglm_state(q=qL)
+         qR  = eglm_state(q=qR)
+         q1L = eglm_state(q=q1L)
+         q1R = eglm_state(q=q1R)
+      endif
       call solver(s=k, d=d, qL=qL, qR=qR, f=f, fallback=fb)
       call solver(s=k, d=1, qL=q1L, qR=q1R, f=f1, fallback=fb)
       e = max(e, abs(f(IQ_R) - f1(IQ_R)), abs(f(IQ_RE) - f1(IQ_RE)), abs(f(IQ_PSI) - f1(IQ_PSI)),                  &
@@ -407,7 +450,7 @@ contains
       if (m == -1) bn = prim(5+d)
       prim(5+d) = bn
       call to_conservative(prim=prim, psi=0._R8P, q=q(:,m))
-      call physical_flux(glm=.false., d=d, q=q(:,m), f=f, s=s)
+      call physical_flux(model=0, d=d, q=q(:,m), f=f, s=s)
       smax = max(smax, s)
    enddo
    do k=1, 3
@@ -428,7 +471,7 @@ contains
    endsubroutine check_positivity
 
    subroutine check_fallback(d, e)
-   !< Update the count `e` of HLLD fallbacks to HLL on a random pair (both variants).
+   !< Update the count `e` of HLLD fallbacks to HLL on a random pair (the three variants).
    integer(I4P), intent(in)    :: d              !< Direction.
    real(R8P),    intent(inout) :: e              !< Fallbacks count.
    real(R8P)                   :: pL(8), pR(8)   !< Primitive states.
@@ -442,9 +485,35 @@ contains
    call random_prim(prim=pR)
    call to_conservative(prim=pL, psi=0._R8P, q=qL)
    call to_conservative(prim=pR, psi=0._R8P, q=qR)
-   do k=3, 6, 3
+   do k=3, 9, 3
       call solver(s=k, d=d, qL=qL, qR=qR, f=f, fallback=fb)
       if (fb) e = e + 1._R8P
    enddo
    endsubroutine check_fallback
+
+   subroutine check_eglm_glm(d, e)
+   !< Update `e` with the largest difference between the EGLM and GLM fluxes of a random pair with `psi = 0` and one
+   !< `B_n` (the `psi` flux compared in GLM units, `c_h f_EGLM(psi)`), for LLF, HLL, HLLD; must be exactly zero.
+   integer(I4P), intent(in)    :: d              !< Direction.
+   real(R8P),    intent(inout) :: e              !< Maximum difference.
+   real(R8P)                   :: pL(8), pR(8)   !< Primitive states.
+   real(R8P)                   :: qL(NV_MHD_GLM) !< Left state.
+   real(R8P)                   :: qR(NV_MHD_GLM) !< Right state.
+   real(R8P)                   :: fg(NV_MHD_GLM) !< GLM flux.
+   real(R8P)                   :: fe(NV_MHD_GLM) !< EGLM flux.
+   logical                     :: fb             !< Fallback flag.
+   integer(I4P)                :: k              !< Counter.
+
+   call random_prim(prim=pL)
+   call random_prim(prim=pR)
+   pR(5+d) = pL(5+d)
+   call to_conservative(prim=pL, psi=0._R8P, q=qL)
+   call to_conservative(prim=pR, psi=0._R8P, q=qR)
+   do k=4, 6
+      call solver(s=k, d=d, qL=qL, qR=qR, f=fg, fallback=fb)
+      call solver(s=k+3, d=d, qL=eglm_state(q=qL), qR=eglm_state(q=qR), f=fe, fallback=fb)
+      fe(IQ_PSI) = CH * fe(IQ_PSI)
+      e = max(e, maxval(abs(fe - fg)))
+   enddo
+   endsubroutine check_eglm_glm
 endprogram test_flume_mhd_riemann

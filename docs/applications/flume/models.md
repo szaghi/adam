@@ -144,8 +144,11 @@ $-\alpha (c_h/L)\,\psi$ uses the GLM keys and acts on $\psi$ only, so the remove
 is conserved exactly; momentum, energy and $\mathbf{B}$ up to the $O(\nabla\cdot\mathbf{B})$ sources. In the flux
 splitting the $(B_n, \psi)$ block has eigenvectors $\mathbf{r} = (1, \mp 1)$ at speeds $\mp c_h$ and the energy couples
 it to the core ($\mathbf{r}(E) = \mp\psi$, $\mathbf{l}_k(\psi) = -\psi\,\mathbf{l}_k(E)$), so with $\psi = 0$ the arithmetic
-of the core is that of GLM. EGLM runs with `scheme_space = weno`; with `weno-riemann` it is not available yet (issue
-#47, M3-P4b): the run stops.
+of the core is that of GLM. With `weno-riemann` the $(B_n, \psi)$ subsystem is solved exactly at the face in field
+units, $\tilde B_n = \tfrac12(B_{nL} + B_{nR}) - \tfrac12(\psi_R - \psi_L)$,
+$\tilde\psi = \tfrac12(\psi_L + \psi_R) - \tfrac12(B_{nR} - B_{nL})$; the Riemann solver sees the MHD states (energy
+without $\psi^2/2$), and the energy flux gains $c_h\tilde\psi\tilde B_n$ plus the cleaning energy carried by the mass
+flux, $F_\rho\,\tilde\psi^2/(2\rho_{\text{up}})$ (a passive scalar, upwind density). Both schemes run EGLM.
 
 ### Positivity floors
 

@@ -103,7 +103,9 @@ For MHD (`riemann_solver = llf | hll | hlld`) the solvers of `adam_flume_mhd_rie
 direction, so the x, y and z runs of a rotated problem stay bitwise equal: LLF, HLL, and HLLD (Miyoshi & Kusano 2005)
 with its degenerate cases and a per-face fallback to HLL when a star state is not admissible or the wave speeds are out
 of order; the fallbacks are counted and logged per stage (`HLLD fallbacks to HLL: N faces`). With GLM the
-$(B_n, \psi)$ subsystem is solved exactly at the face and both states take the resulting $\tilde B_n$. On Ryu–Jones 2a
+$(B_n, \psi)$ subsystem is solved exactly at the face and both states take the resulting $\tilde B_n$; with EGLM the
+same in field units, the cleaning energy $\psi^2/2$ kept out of the solver states and added to the energy flux (see
+[EGLM](./models#divergence-control-eglm)). On Ryu–Jones 2a
 (256 cells) HLLD with characteristic interpolation reaches $L_1 = 3.76\cdot10^{-2}$ (splitting: $3.84\cdot10^{-2}$), with
 primitive interpolation $5.13\cdot10^{-2}$; HLL is worse with either ($4.32$, $5.98\cdot10^{-2}$). The MHD verification
 suite runs on `weno-riemann` through the `--numerics` option of its scripts (issue #47, M3-P3c): the linear waves and the

@@ -4,7 +4,8 @@ module adam_flume_mhd_riemann_library
 !<
 !< Same contract as `adam_flume_mhd_library`: `pure`, explicit-size dummies, `!$acc routine seq` + `!$omp declare target`,
 !< no branching on the model; one set of public routines per model variant (`mhd_*`: `NV_MHD`, no divergence control;
-!< `mhd_glm_*`: `NV_MHD_GLM`, mixed GLM cleaning with speed `ch`).
+!< `mhd_glm_*`: `NV_MHD_GLM`, mixed GLM cleaning with speed `ch`; `mhd_eglm_*`: `NV_MHD_EGLM`, EGLM cleaning, `psi` in B
+!< units and `psi^2 / 2` in the energy).
 !<
 !< **Frame.** Every solver works in the frame of direction `d`, primitive `w = (rho, u_n, u_t1, u_t2, p, B_n, B_t1, B_t2)`
 !< and conservative `u = (rho, rho u_n, rho u_t1, rho u_t2, E, B_n, B_t1, B_t2)`, tangents cyclic
@@ -27,23 +28,34 @@ module adam_flume_mhd_riemann_library
 !< jump is dissipated), HLLD the average. With GLM the linear `(B_n, psi)` subsystem is solved exactly at the face
 !< (Dedner et al. 2002, eq. 42): `B~_n = (B_nL + B_nR)/2 - (psi_R - psi_L)/(2 c_h)`,
 !< `psi~ = (psi_L + psi_R)/2 - c_h (B_nR - B_nL)/2`; both states take `B~_n` (pressure kept, energy recomputed: `psi`
-!< is not in the energy of the mixed GLM), the `B_n` flux is `psi~` and the `psi` flux `c_h^2 B~_n`.
+!< is not in the energy of the mixed GLM), the `B_n` flux is `psi~` and the `psi` flux `c_h^2 B~_n`. With EGLM (issue
+!< #47, section 3.2) the subsystem in B units, `B~_n = (B_nL + B_nR)/2 - (psi_R - psi_L)/2`,
+!< `psi~ = (psi_L + psi_R)/2 - (B_nR - B_nL)/2`; the solvers see the MHD states (energy without `psi^2 / 2`); the `B_n`
+!< flux is `c_h psi~`, the `psi` flux `c_h B~_n`, and the energy flux gains `c_h psi~ B~_n` plus the advected cleaning
+!< energy, a passive scalar carried by the mass flux, `F_rho psi~^2 / (2 rho_up)` with the upwind density of the sign of
+!< `F_rho` (Larrouturou 1991): the flux of two equal states is the physical flux.
 !<
 !< **Face states.** Interpolated fields: characteristic (the eigenvectors of the arithmetic face average, projected in the
-!< frame order; the MHD default, #47 D-5) or primitive `(rho, u, v, w, p, B_x, B_y, B_z[, psi])`; a face state with
-!< non-positive density or pressure is replaced by the adjacent cell's state.
+!< frame order; the MHD default, #47 D-5) or primitive `(rho, u, v, w, p, B_x, B_y, B_z[, psi])`, `p` the thermal
+!< pressure; a face state with non-positive density or pressure is replaced by the adjacent cell's state.
 
 ! FLUME modules
-use :: adam_flume_mhd_library, only : mhd_eigenvectors, mhd_face_average, mhd_frame_indexes, mhd_glm_eigenvectors, &
-                                      mhd_primitive_to_conservative, mhd_sum3
+use :: adam_flume_mhd_library, only : mhd_eglm_eigenvectors, mhd_eigenvectors, mhd_face_average, mhd_frame_indexes, &
+                                      mhd_glm_eigenvectors, mhd_primitive_to_conservative, mhd_sum3
 use :: adam_flume_parameters,  only : IA_BX, IA_BY, IA_BZ, IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, &
-                                      IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_MHD, NV_MHD, NV_MHD_GLM, S_MAX
+                                      IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_MHD, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM,  &
+                                      S_MAX
 ! third party modules
 use :: penf,                   only : I4P, R8P
 
 implicit none
 private
 public :: EPS_HLLD
+public :: mhd_eglm_face_interpolation_fields
+public :: mhd_eglm_face_states
+public :: mhd_eglm_riemann_hll
+public :: mhd_eglm_riemann_hlld
+public :: mhd_eglm_riemann_llf
 public :: mhd_face_interpolation_fields
 public :: mhd_face_states
 public :: mhd_glm_face_interpolation_fields
@@ -59,6 +71,178 @@ real(R8P), parameter :: EPS_HLLD=1.e-12_R8P !< Degenerate HLLD star: |rho d (S-S
 
 contains
    ! public procedures
+   pure subroutine mhd_eglm_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er)
+   !< Compute the fields of the stencil of face `i+1/2` to interpolate (MHD with EGLM): as
+   !< `mhd_glm_face_interpolation_fields`, with the EGLM eigenvectors (`psi` the average of cells 0 and 1) or the
+   !< primitive fields with the thermal pressure.
+   real(R8P),    intent(in)  :: gamma                               !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d                                   !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)  :: S                                   !< WENO stencil half-width, S <= S_MAX.
+   logical,      intent(in)  :: is_characteristic                   !< Characteristic (or primitive) variables.
+   real(R8P),    intent(in)  :: qs(NV_MHD_EGLM,1-S_MAX:S_MAX)       !< Stencil conservative variables.
+   real(R8P),    intent(in)  :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)       !< Stencil auxiliary variables.
+   real(R8P),    intent(out) :: fint(2,1-S_MAX:S_MAX-1,NV_MHD_EGLM) !< Fields in the WENO upwind layout.
+   real(R8P),    intent(out) :: er(NV_MHD_EGLM,NV_MHD_EGLM)          !< Right eigenvectors (unused if primitive).
+   real(R8P)                 :: el(NV_MHD_EGLM,NV_MHD_EGLM)          !< Left eigenvectors.
+   real(R8P)                 :: avg(NV_AUX_MHD)                     !< Face average of cells 0 and 1.
+   real(R8P)                 :: w(NV_MHD_EGLM)                      !< Fields of one cell.
+   integer(I4P)              :: pv(NV_MHD_EGLM)                     !< State in the frame order of direction `d`.
+   integer(I4P)              :: k, m, v                             !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_frame_indexes(d=d, pv=pv)
+   pv(NV_MHD_EGLM) = IQ_PSI
+   if (is_characteristic) then
+      call mhd_face_average(gamma=gamma, qaL=qas(:,0), qaR=qas(:,1), avg=avg)
+      call mhd_eglm_eigenvectors(gamma=gamma, d=d, qa=avg, psi=0.5_R8P * (qs(IQ_PSI,0) + qs(IQ_PSI,1)), el=el, er=er)
+   else
+      er = 0._R8P
+   endif
+   do m=1-S, S
+      if (is_characteristic) then
+         do k=1, NV_MHD_EGLM
+            w(k) = 0._R8P
+            do v=1, NV_MHD_EGLM
+               w(k) = w(k) + el(k,pv(v)) * qs(pv(v),m)
+            enddo
+         enddo
+      else
+         w(1) = qas(IA_R,m)
+         w(2) = qas(IA_U,m)
+         w(3) = qas(IA_V,m)
+         w(4) = qas(IA_W,m)
+         w(5) = qas(IA_P,m)
+         w(6) = qas(IA_BX,m)
+         w(7) = qas(IA_BY,m)
+         w(8) = qas(IA_BZ,m)
+         w(9) = qs(IQ_PSI,m)
+      endif
+      do k=1, NV_MHD_EGLM
+         if (m < S)     fint(2,m,k)   = w(k)
+         if (m > 1 - S) fint(1,m-1,k) = w(k)
+      enddo
+   enddo
+   endsubroutine mhd_eglm_face_interpolation_fields
+
+   pure subroutine mhd_eglm_face_states(gamma, is_characteristic, er, vr, q0, q1, qL, qR)
+   !< Compute the two face states from the interpolated fields (MHD with EGLM): as `mhd_glm_face_states`, the primitive
+   !< states with `psi^2 / 2` in the energy; the admissibility is that of the thermal pressure.
+   real(R8P), intent(in)  :: gamma                       !< Specific heats ratio.
+   logical,   intent(in)  :: is_characteristic           !< Characteristic (or primitive) variables.
+   real(R8P), intent(in)  :: er(NV_MHD_EGLM,NV_MHD_EGLM) !< Right eigenvectors (unused if primitive).
+   real(R8P), intent(in)  :: vr(2,NV_MHD_EGLM)          !< Interpolated fields.
+   real(R8P), intent(in)  :: q0(NV_MHD_EGLM)            !< Conservative variables of cell 0.
+   real(R8P), intent(in)  :: q1(NV_MHD_EGLM)            !< Conservative variables of cell 1.
+   real(R8P), intent(out) :: qL(NV_MHD_EGLM)            !< Left state.
+   real(R8P), intent(out) :: qR(NV_MHD_EGLM)            !< Right state.
+   integer(I4P)           :: k, v                        !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   if (is_characteristic) then
+      do v=1, NV_MHD_EGLM
+         qL(v) = 0._R8P
+         qR(v) = 0._R8P
+         do k=1, NV_MHD_EGLM
+            qL(v) = qL(v) + er(v,k) * vr(2,k)
+            qR(v) = qR(v) + er(v,k) * vr(1,k)
+         enddo
+      enddo
+   else
+      call mhd_primitive_to_conservative(gamma=gamma, r=vr(2,1), u=vr(2,2), v=vr(2,3), w=vr(2,4), p=vr(2,5), &
+                                         bx=vr(2,6), by=vr(2,7), bz=vr(2,8), q=qL)
+      call mhd_primitive_to_conservative(gamma=gamma, r=vr(1,1), u=vr(1,2), v=vr(1,3), w=vr(1,4), p=vr(1,5), &
+                                         bx=vr(1,6), by=vr(1,7), bz=vr(1,8), q=qR)
+      qL(IQ_PSI) = vr(2,9)
+      qR(IQ_PSI) = vr(1,9)
+      qL(IQ_RE)  = qL(IQ_RE) + 0.5_R8P * qL(IQ_PSI)**2
+      qR(IQ_RE)  = qR(IQ_RE) + 0.5_R8P * qR(IQ_PSI)**2
+   endif
+   if (.not.eglm_is_admissible(q=qL)) qL = q0
+   if (.not.eglm_is_admissible(q=qR)) qR = q1
+   endsubroutine mhd_eglm_face_states
+
+   pure subroutine mhd_eglm_riemann_hll(ch, gamma, d, qL, qR, f)
+   !< Compute the HLL flux of two states in direction `d` (MHD with EGLM, the `(B_n, psi)` subsystem solved exactly).
+   real(R8P),    intent(in)  :: ch              !< GLM cleaning speed.
+   real(R8P),    intent(in)  :: gamma           !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d               !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_MHD_EGLM) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_MHD_EGLM) !< Right state.
+   real(R8P),    intent(out) :: f(NV_MHD_EGLM)  !< Flux.
+   real(R8P)                 :: wL(NV_MHD)      !< Left frame primitive variables.
+   real(R8P)                 :: wR(NV_MHD)      !< Right frame primitive variables.
+   real(R8P)                 :: uL(NV_MHD)      !< Left frame conservative variables.
+   real(R8P)                 :: uR(NV_MHD)      !< Right frame conservative variables.
+   real(R8P)                 :: fr(NV_MHD)      !< Frame flux.
+   real(R8P)                 :: bn, psi         !< Face normal field and EGLM scalar.
+   integer(I4P)              :: pv(NV_MHD)      !< State in the frame order of direction `d`.
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_frame_indexes(d=d, pv=pv)
+   call eglm_face_subsystem(bnL=qL(pv(6)), bnR=qR(pv(6)), psiL=qL(IQ_PSI), psiR=qR(IQ_PSI), bn=bn, psi=psi)
+   call eglm_frame_state(gamma=gamma, pv=pv, q=qL, bn=bn, w=wL, u=uL)
+   call eglm_frame_state(gamma=gamma, pv=pv, q=qR, bn=bn, w=wR, u=uR)
+   call frame_hll(gamma=gamma, wL=wL, uL=uL, wR=wR, uR=uR, f=fr)
+   call scatter_eglm_flux(ch=ch, pv=pv, fr=fr, bn=bn, psi=psi, rhoL=qL(IQ_R), rhoR=qR(IQ_R), f=f)
+   endsubroutine mhd_eglm_riemann_hll
+
+   pure subroutine mhd_eglm_riemann_hlld(ch, gamma, d, qL, qR, f, fallback)
+   !< Compute the HLLD flux of two states in direction `d` (MHD with EGLM, the `(B_n, psi)` subsystem solved exactly);
+   !< `fallback` is set when HLL replaced HLLD.
+   real(R8P),    intent(in)  :: ch              !< GLM cleaning speed.
+   real(R8P),    intent(in)  :: gamma           !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d               !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_MHD_EGLM) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_MHD_EGLM) !< Right state.
+   real(R8P),    intent(out) :: f(NV_MHD_EGLM)  !< Flux.
+   logical,      intent(out) :: fallback        !< HLL used instead of HLLD.
+   real(R8P)                 :: wL(NV_MHD)      !< Left frame primitive variables.
+   real(R8P)                 :: wR(NV_MHD)      !< Right frame primitive variables.
+   real(R8P)                 :: uL(NV_MHD)      !< Left frame conservative variables.
+   real(R8P)                 :: uR(NV_MHD)      !< Right frame conservative variables.
+   real(R8P)                 :: fr(NV_MHD)      !< Frame flux.
+   real(R8P)                 :: bn, psi         !< Face normal field and EGLM scalar.
+   integer(I4P)              :: pv(NV_MHD)      !< State in the frame order of direction `d`.
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_frame_indexes(d=d, pv=pv)
+   call eglm_face_subsystem(bnL=qL(pv(6)), bnR=qR(pv(6)), psiL=qL(IQ_PSI), psiR=qR(IQ_PSI), bn=bn, psi=psi)
+   call eglm_frame_state(gamma=gamma, pv=pv, q=qL, bn=bn, w=wL, u=uL)
+   call eglm_frame_state(gamma=gamma, pv=pv, q=qR, bn=bn, w=wR, u=uR)
+   call frame_hlld(gamma=gamma, wL=wL, uL=uL, wR=wR, uR=uR, f=fr, fallback=fallback)
+   call scatter_eglm_flux(ch=ch, pv=pv, fr=fr, bn=bn, psi=psi, rhoL=qL(IQ_R), rhoR=qR(IQ_R), f=f)
+   endsubroutine mhd_eglm_riemann_hlld
+
+   pure subroutine mhd_eglm_riemann_llf(ch, gamma, d, qL, qR, f)
+   !< Compute the LLF flux of two states in direction `d` (MHD with EGLM, the `(B_n, psi)` subsystem solved exactly).
+   real(R8P),    intent(in)  :: ch              !< GLM cleaning speed.
+   real(R8P),    intent(in)  :: gamma           !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d               !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_MHD_EGLM) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_MHD_EGLM) !< Right state.
+   real(R8P),    intent(out) :: f(NV_MHD_EGLM)  !< Flux.
+   real(R8P)                 :: wL(NV_MHD)      !< Left frame primitive variables.
+   real(R8P)                 :: wR(NV_MHD)      !< Right frame primitive variables.
+   real(R8P)                 :: uL(NV_MHD)      !< Left frame conservative variables.
+   real(R8P)                 :: uR(NV_MHD)      !< Right frame conservative variables.
+   real(R8P)                 :: fr(NV_MHD)      !< Frame flux.
+   real(R8P)                 :: bn, psi         !< Face normal field and EGLM scalar.
+   integer(I4P)              :: pv(NV_MHD)      !< State in the frame order of direction `d`.
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_frame_indexes(d=d, pv=pv)
+   call eglm_face_subsystem(bnL=qL(pv(6)), bnR=qR(pv(6)), psiL=qL(IQ_PSI), psiR=qR(IQ_PSI), bn=bn, psi=psi)
+   call eglm_frame_state(gamma=gamma, pv=pv, q=qL, bn=bn, w=wL, u=uL)
+   call eglm_frame_state(gamma=gamma, pv=pv, q=qR, bn=bn, w=wR, u=uR)
+   call frame_llf(gamma=gamma, wL=wL, uL=uL, wR=wR, uR=uR, f=fr)
+   call scatter_eglm_flux(ch=ch, pv=pv, fr=fr, bn=bn, psi=psi, rhoL=qL(IQ_R), rhoR=qR(IQ_R), f=f)
+   endsubroutine mhd_eglm_riemann_llf
+
    pure subroutine mhd_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er)
    !< Compute the fields of the stencil of face `i+1/2` to interpolate (MHD without divergence control), in the WENO
    !< upwind layout of the Euler `compute_face_interpolation_fields`: `fint(2,m,k)` and `fint(1,m-1,k)` hold field `k`
@@ -417,6 +601,50 @@ contains
    uss(8) = bss(2)
    endsubroutine double_star
 
+   pure subroutine eglm_face_subsystem(bnL, bnR, psiL, psiR, bn, psi)
+   !< Solve the linear `(B_n, psi)` subsystem of EGLM (flux `c_h (psi, B_n)`, `psi` in B units) exactly at the face:
+   !< the characteristic fields `B_n + psi` (speed `+c_h`, from the left) and `B_n - psi` (`-c_h`, from the right).
+   real(R8P), intent(in)  :: bnL, bnR   !< Normal fields of the two states.
+   real(R8P), intent(in)  :: psiL, psiR !< EGLM scalars of the two states.
+   real(R8P), intent(out) :: bn, psi    !< Face normal field and EGLM scalar.
+   !$acc routine seq
+   !$omp declare target
+
+   bn  = 0.5_R8P * (bnL + bnR) - 0.5_R8P * (psiR - psiL)
+   psi = 0.5_R8P * (psiL + psiR) - 0.5_R8P * (bnR - bnL)
+   endsubroutine eglm_face_subsystem
+
+   pure subroutine eglm_frame_state(gamma, pv, q, bn, w, u)
+   !< Compute the frame primitive and conservative variables of an EGLM state whose normal field is set to `bn`: the
+   !< MHD state, the energy without the cleaning energy `psi^2 / 2` (as `frame_state`).
+   real(R8P),    intent(in)  :: gamma           !< Specific heats ratio.
+   integer(I4P), intent(in)  :: pv(NV_MHD)      !< State in the frame order.
+   real(R8P),    intent(in)  :: q(NV_MHD_EGLM)  !< Conservative variables.
+   real(R8P),    intent(in)  :: bn              !< Normal field of the frame state.
+   real(R8P),    intent(out) :: w(NV_MHD)       !< Frame primitive variables.
+   real(R8P),    intent(out) :: u(NV_MHD)       !< Frame conservative variables.
+   real(R8P)                 :: q8(NV_MHD)      !< MHD state.
+   !$acc routine seq
+   !$omp declare target
+
+   q8 = q(1:NV_MHD)
+   q8(IQ_RE) = q(IQ_RE) - 0.5_R8P * q(IQ_PSI)**2
+   call frame_state(gamma=gamma, pv=pv, q=q8, bn=bn, w=w, u=u)
+   endsubroutine eglm_frame_state
+
+   pure function eglm_is_admissible(q) result(ok)
+   !< Return true when an EGLM state has positive density and thermal pressure (energy without `psi^2 / 2`).
+   real(R8P), intent(in) :: q(NV_MHD_EGLM) !< Conservative variables.
+   logical               :: ok             !< Admissible state.
+   real(R8P)             :: q8(NV_MHD)     !< MHD state.
+   !$acc routine seq
+   !$omp declare target
+
+   q8 = q(1:NV_MHD)
+   q8(IQ_RE) = q(IQ_RE) - 0.5_R8P * q(IQ_PSI)**2
+   ok = is_admissible(q=q8)
+   endfunction eglm_is_admissible
+
    pure function frame_fast_speed(gamma, w) result(cf)
    !< Return the fast magnetosonic speed along the frame normal (as `mhd_fast_speed`, from the frame primitive state).
    real(R8P), intent(in) :: gamma     !< Specific heats ratio.
@@ -762,4 +990,28 @@ contains
    f(pv(6))  = psi
    f(IQ_PSI) = ch * ch * bn
    endsubroutine scatter_glm_flux
+
+   pure subroutine scatter_eglm_flux(ch, pv, fr, bn, psi, rhoL, rhoR, f)
+   !< Return the EGLM face flux in the global order: the frame flux scattered, the `B_n` flux `c_h psi~`, the `psi`
+   !< flux `c_h B~_n`, the energy flux plus `c_h psi~ B~_n` and the cleaning energy carried by the mass flux,
+   !< `F_rho psi~^2 / (2 rho_up)`, `rho_up` the density of the side the mass flows from.
+   real(R8P),    intent(in)  :: ch             !< GLM cleaning speed.
+   integer(I4P), intent(in)  :: pv(NV_MHD)     !< State in the frame order.
+   real(R8P),    intent(in)  :: fr(NV_MHD)     !< Frame flux.
+   real(R8P),    intent(in)  :: bn, psi        !< Face normal field and EGLM scalar.
+   real(R8P),    intent(in)  :: rhoL, rhoR     !< Densities of the two states.
+   real(R8P),    intent(out) :: f(NV_MHD_EGLM) !< Flux.
+   real(R8P)                 :: rho_up         !< Upwind density.
+   integer(I4P)              :: k              !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   do k=1, NV_MHD
+      f(pv(k)) = fr(k)
+   enddo
+   rho_up = merge(rhoL, rhoR, fr(1) >= 0._R8P)
+   f(pv(6))  = ch * psi
+   f(IQ_PSI) = ch * bn
+   f(IQ_RE)  = f(IQ_RE) + ch * psi * bn + fr(1) * (0.5_R8P * psi**2 / rho_up)
+   endsubroutine scatter_eglm_flux
 endmodule adam_flume_mhd_riemann_library

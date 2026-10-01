@@ -40,6 +40,10 @@ use :: adam_flume_fnl_mhd_llf_kernels,          only : compute_riemann_face_flux
 use :: adam_flume_fnl_mhd_glm_hll_kernels,      only : compute_riemann_face_fluxes_mhd_glm_hll_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_mhd_glm_hlld_kernels,     only : compute_riemann_face_fluxes_mhd_glm_hlld_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_mhd_glm_llf_kernels,      only : compute_riemann_face_fluxes_mhd_glm_llf_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_mhd_eglm_hll_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_hll_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_mhd_eglm_hlld_kernels,    only : &
+                                                   compute_riemann_face_fluxes_mhd_eglm_hlld_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_euler_kernels,   only : compute_conservation_euler_dev=>compute_conservation_dev,                &
                                               compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
                                               compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
@@ -1174,6 +1178,15 @@ contains
       case(RIEMANN_SOLVER_HLLD)
          face_fluxes => compute_riemann_face_fluxes_mhd_glm_hlld_dev
       endselect
+   elseif (self%physics%model == MODEL_MHD_EGLM) then
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_mhd_eglm_llf_dev
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_mhd_eglm_hll_dev
+      case(RIEMANN_SOLVER_HLLD)
+         face_fluxes => compute_riemann_face_fluxes_mhd_eglm_hlld_dev
+      endselect
    endif
    if (.not.associated(face_fluxes)) call mpih_fnl%error_stop(msg=': no FNL weno-riemann kernels yet for '//      &
                                                                   '[physics].(physical_model)='//                 &
@@ -1220,6 +1233,13 @@ contains
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,      &
                                                                       damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, &
                                                                       dq_gpu=dq_gpu)
+   if (self%physics%model == MODEL_MHD_EGLM) then
+      call add_glm_damping_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,                               &
+                                    damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, dq_gpu=dq_gpu)
+      call add_eglm_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=weno_s,                         &
+                                dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                    &
+                                q_aux_gpu=self%q_aux_gpu, dq_gpu=dq_gpu)
+   endif
    endassociate
    endsubroutine compute_residuals_riemann_dev
 

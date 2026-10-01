@@ -33,6 +33,9 @@ use :: adam_flume_cpu_mhd_llf_kernels,          only : compute_riemann_face_flux
 use :: adam_flume_cpu_mhd_glm_hll_kernels,      only : compute_riemann_face_fluxes_mhd_glm_hll=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_glm_hlld_kernels,     only : compute_riemann_face_fluxes_mhd_glm_hlld=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_glm_llf_kernels,      only : compute_riemann_face_fluxes_mhd_glm_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_eglm_hll_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_eglm_hlld_kernels,    only : compute_riemann_face_fluxes_mhd_eglm_hlld=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_euler_kernels,   only : compute_face_fluxes_euler=>compute_face_fluxes,                        &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
                                               compute_q_aux_euler=>compute_q_aux,                                    &
@@ -1073,8 +1076,8 @@ contains
    !< face fluxes of the WENO interpolation, the Riemann solver and the high-order correction.
    !<
    !< The host selects the kernel of the (model, solver) pair; a pair without kernels is fatal. The pre-steps (immersed
-   !< solids, floors, ghosts, auxiliary variables) and the post-steps (seam accumulation, flux difference, GLM damping)
-   !< are those of `compute_residuals_weno`.
+   !< solids, floors, ghosts, auxiliary variables) and the post-steps (seam accumulation, flux difference, GLM damping,
+   !< EGLM damping and sources) are those of `compute_residuals_weno`.
    class(flume_cpu_object),     intent(inout)           :: self          !< The equation.
    real(R8P),                   intent(inout)           :: q(1:,         &
                                                              1-self%ngc:,&
@@ -1139,6 +1142,15 @@ contains
       case(RIEMANN_SOLVER_HLLD)
          face_fluxes => compute_riemann_face_fluxes_mhd_glm_hlld
       endselect
+   elseif (self%physics%model == MODEL_MHD_EGLM) then
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_mhd_eglm_llf
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_mhd_eglm_hll
+      case(RIEMANN_SOLVER_HLLD)
+         face_fluxes => compute_riemann_face_fluxes_mhd_eglm_hlld
+      endselect
    endif
    if (.not.associated(face_fluxes)) call mpih%error_stop(msg=': no CPU weno-riemann kernels yet for '//          &
                                                               '[physics].(physical_model)='//                     &
@@ -1173,6 +1185,12 @@ contains
                                 phi=self%ib%phi)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
                                                                   damping=self%physics%mhd%glm_damping, q=q, dq=dq)
+   if (self%physics%model == MODEL_MHD_EGLM) then
+      call add_glm_damping_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, damping=self%physics%mhd%glm_damping, &
+                                q=q, dq=dq)
+      call add_eglm_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=self%weno%S, dxyz=self%adam%field%dxyz, &
+                            is_null=is_null, q=q, q_aux=self%q_aux, dq=dq)
+   endif
    endassociate
    endsubroutine compute_residuals_riemann
 
