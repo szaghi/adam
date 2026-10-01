@@ -851,7 +851,7 @@ contains
    real(R8P),    intent(out) :: vr(1:2      ) !< Left and right (1,2) interface value of reconstructed v.
    integer(I4P)              :: k,f           !< Counter.
 
-#ifdef _GMP_
+#ifdef DEV_OMP
    !$omp declare target(weno_compute_convolution)
 #endif
    vr = 0._R8P
@@ -870,7 +870,7 @@ contains
    real(R8P),    intent(out) :: vp(1:2,0:S-1   )    !< Polynomial reconstructions.
    integer(I4P)              :: s1,s2,f             !< Counter.
 
-#ifdef _GMP_
+#ifdef DEV_OMP
    !$omp declare target(weno_compute_polynomials_upwind)
 #endif
    vp = 0._R8P
@@ -897,7 +897,7 @@ contains
    integer(I4P)              :: wexp                !< Exponent of the smoothness indicators.
    integer(I4P)              :: s1,s2,s3,f          !< Counter.
 
-#ifdef _GMP_
+#ifdef DEV_OMP
    !$omp declare target(weno_compute_weights_upwind)
 #endif
    wexp = weno_weights_exponent(S=S)
@@ -945,7 +945,7 @@ contains
    real(R8P)                 :: phi                 !< Centered-upwind blending coefficient.
    integer(I4P)              :: s1, f               !< Counter.
 
-#ifdef _GMP_
+#ifdef DEV_OMP
    !$omp declare target(weno_reconstruct_centered)
 #endif
    ! upwind reconstruction
@@ -987,7 +987,7 @@ contains
    real(R8P)                 :: vp(1:2,0:S-1   )    !< Polynomial reconstructions.
    real(R8P)                 :: w (1:2,0:S-1   )    !< Weights of the stencils.
 
-#ifdef _GMP_
+#ifdef DEV_OMP
    !$omp declare target(weno_reconstruct_upwind)
 #endif
    call weno_compute_polynomials_upwind(S=S, weno_p=weno_p, v=v(1:2,1-S:-1+S), vp=vp(1:2,0:S-1))
@@ -1011,7 +1011,7 @@ contains
    real(R8P)                 :: w (1:2,0:S-1   )    !< Weights of the stencils.
    integer(I4P)              :: k, f                !< Counters.
 
-#ifdef _GMP_
+#ifdef DEV_OMP
    !$omp declare target(weno_reconstruct_upwind_wratio)
 #endif
    call weno_compute_polynomials_upwind(S=S, weno_p=weno_p, v=v(1:2,1-S:-1+S), vp=vp(1:2,0:S-1))
