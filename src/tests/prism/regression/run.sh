@@ -8,18 +8,27 @@
 #   golden/<backend>/digest.txt        — per-variable field digest (digest.py)
 #   golden/<backend>/*-residuals.dat   — per-iteration residuals log (byte-exact)
 #
+# Backends (first positional arg) — each pins ONE fobis mode, hence ONE compiler:
+#   cpu       gfortran, no offload        -> prism-cpu-gnu      vs golden/cpu
+#   fnl       nvfortran, OpenACC (NVIDIA) -> prism-fnl-nvf      vs golden/fnl
+#   amd       amdflang, no offload        -> prism-cpu-amd      vs golden/cpu
+#   amd-omp   amdflang, OpenMP offload    -> prism-fnl-omp-amd  vs golden/fnl
+#
 # Usage:
-#   ./run.sh cpu                       # build prism-cpu-gnu (default varset), run, diff
-#   ./run.sh fnl --varset local_nvf    # build prism-fnl-nvf with that varset, run, diff
-#   ./run.sh cpu --no-build            # skip the build step (use existing exe/)
+#   ./run.sh cpu                                 # build prism-cpu-gnu (default varset), run, diff
+#   ./run.sh fnl --varset local_nvf              # NVIDIA OpenACC GPU build
+#   ./run.sh amd-omp --varset "thera_amd gfx942" # AMD OpenMP-offload GPU build
+#   ./run.sh cpu --no-build                      # skip the build step (use existing exe/)
 #
 # Exits 0 on full pass, non-zero on any case failure.
 #
-# HDF5 paths and NVF_CC are fobos *variables* resolved from the active varset
-# (see the repo `fobos` [varset:*] sections) — they are NOT shell environment
-# variables and this harness does not set them. The CPU backend uses fobos's
-# default varset; the FNL backend needs `--varset local_nvf`, which the
-# run-fnl-local.sh wrapper supplies.
+# HDF5 paths, NVF_CC and GPU_ARCH are fobos *variables* resolved from the active
+# varset (see the repo `fobos` [varset:*] sections) — they are NOT shell
+# environment variables and this harness does not set them. The varset selects
+# values, never the compiler: the backend does that. The CPU backend uses
+# fobos's default varset; the FNL backend needs `--varset local_nvf` (supplied
+# by run-fnl-local.sh) and the AMD backends an AMD varset plus a GPU arch, e.g.
+# `--varset "thera_amd gfx942"` (supplied by run-amd-local.sh).
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on
 # first run to provide h5py for digest.py.
@@ -79,9 +88,47 @@ case "$BACKEND" in
       ;;
    *)
       echo "Usage: $0 {cpu|fnl|amd|amd-omp} [--no-build] [--varset <name>]" >&2
+      echo "  cpu      gfortran, no offload        (prism-cpu-gnu)" >&2
+      echo "  fnl      nvfortran, OpenACC offload  (prism-fnl-nvf,     --varset local_nvf)" >&2
+      echo "  amd      amdflang, no offload        (prism-cpu-amd,     --varset thera_amd)" >&2
+      echo "  amd-omp  amdflang, OpenMP offload    (prism-fnl-omp-amd, --varset \"thera_amd gfx942\")" >&2
       exit 2
       ;;
 esac
+
+# ---------------------------------------------------------------------------
+# Backend / varset toolchain guard
+# ---------------------------------------------------------------------------
+# A varset only binds fobos *variables* ($HDF5_PREFIX, $NVF_CC, $GPU_ARCH) — it
+# does NOT switch compiler. The compiler comes from the mode the BACKEND pins.
+# So `run.sh fnl --varset thera_amd` still builds prism-fnl-nvf and feeds
+# nvfortran flags (-acc, -gpu=$NVF_CC) to an amdflang toolchain, dying in the
+# first compile with a wall of driver errors that name neither cause. Catch the
+# mismatch here and name the backend the caller actually wanted.
+if [[ -n "$VARSET" ]]; then
+   varset_family=""
+   case " ${VARSET//,/ } " in
+      *amd*|*gfx*)                 varset_family="amd" ;;
+      *nvf*|*leonardo*|*spacehpc*) varset_family="nvidia" ;;
+   esac
+   case "$BACKEND" in
+      fnl)          backend_family="nvidia" ;;
+      amd|amd-omp)  backend_family="amd" ;;
+      *)            backend_family="$varset_family" ;;   # cpu: any varset is fine
+   esac
+   if [[ -n "$varset_family" && "$varset_family" != "$backend_family" ]]; then
+      echo "ERROR: backend '$BACKEND' builds $MODE ($backend_family toolchain), but" >&2
+      echo "       --varset '$VARSET' is an $varset_family varset. A varset selects values" >&2
+      echo "       (\$HDF5_PREFIX/\$NVF_CC/\$GPU_ARCH), never the compiler — the backend does." >&2
+      if [[ "$varset_family" == "amd" ]]; then
+         echo "       For AMD GPUs (OpenMP target offload) use:  $0 amd-omp --varset '$VARSET'" >&2
+         echo "       For AMD CPU-only (amdflang, no offload):   $0 amd --varset '$VARSET'" >&2
+      else
+         echo "       For NVIDIA GPUs (OpenACC) use:  $0 fnl --varset '$VARSET'" >&2
+      fi
+      exit 2
+   fi
+fi
 
 # ---------------------------------------------------------------------------
 # Paths and environment checks
