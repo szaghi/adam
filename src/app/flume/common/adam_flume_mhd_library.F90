@@ -10,6 +10,8 @@ module adam_flume_mhd_library
 !<```
 !< The routines work on the first `NV_MHD` conservative variables: the GLM variant (`NV_MHD_GLM`) passes its whole
 !< state, whose leading `NV_MHD` entries are the same (sequence association); `psi` is not part of the energy (D-3).
+!< The EGLM variant (`mhd_eglm_*`, `NV_MHD_EGLM`; Derigs et al. 2018, issue #47 D-8) puts `psi^2 / 2` in `E` and
+!< passes the MHD routines its state with that energy removed (`mhd_eglm_conservative_to_auxiliary`).
 !<
 !< Two model variants (issue #41, D-1/D-14): without divergence control (`mhd_*`, `NV_MHD`) and with mixed GLM cleaning
 !< (`mhd_glm_*`, `NV_MHD_GLM`, the cleaning speed `ch` an explicit argument). Their eigensystems share the 7x7
@@ -21,7 +23,7 @@ module adam_flume_mhd_library
 ! FLUME modules
 use :: adam_flume_parameters, only : IA_A, IA_BX, IA_BY, IA_BZ, IA_H, IA_P, IA_R, IA_T, IA_U, IA_V, IA_W,  &
                                      IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_MHD, &
-                                     NV_MHD, NV_MHD_GLM, S_MAX
+                                     NV_MHD, NV_MHD_EGLM, NV_MHD_GLM, S_MAX
 ! third party modules
 use :: penf,                  only : I4P, R8P
 
@@ -30,6 +32,10 @@ private
 public :: EPS_BT
 public :: EPS_FS
 public :: mhd_conservative_to_auxiliary
+public :: mhd_eglm_conservative_to_auxiliary
+public :: mhd_eglm_eigenvectors
+public :: mhd_eglm_face_split_fluxes
+public :: mhd_eglm_flux
 public :: mhd_eigenvalues
 public :: mhd_eigenvectors
 public :: mhd_face_average
@@ -77,6 +83,148 @@ contains
    qa(IA_BY) = q(IQ_BY)
    qa(IA_BZ) = q(IQ_BZ)
    endsubroutine mhd_conservative_to_auxiliary
+
+   pure subroutine mhd_eglm_conservative_to_auxiliary(gamma, R, q, qa)
+   !< Compute the auxiliary variables of a cell of the EGLM model (Derigs et al. 2018): those of the MHD state whose
+   !< energy excludes the cleaning energy `psi^2 / 2`, so `qa(IA_P)` is the thermal pressure and `qa(IA_H)` the MHD
+   !< total specific enthalpy of the 7x7 core.
+   real(R8P), intent(in)  :: gamma          !< Specific heats ratio.
+   real(R8P), intent(in)  :: R              !< Gas constant.
+   real(R8P), intent(in)  :: q(NV_MHD_EGLM) !< Conservative variables.
+   real(R8P), intent(out) :: qa(NV_AUX_MHD) !< Auxiliary variables.
+   real(R8P)              :: q8(NV_MHD)     !< MHD state, energy without psi^2 / 2.
+   !$acc routine seq
+   !$omp declare target
+
+   q8 = q(1:NV_MHD)
+   q8(IQ_RE) = q(IQ_RE) - 0.5_R8P * q(IQ_PSI)**2
+   call mhd_conservative_to_auxiliary(gamma=gamma, R=R, q=q8, qa=qa)
+   endsubroutine mhd_eglm_conservative_to_auxiliary
+
+   pure subroutine mhd_eglm_eigenvectors(gamma, d, qa, psi, el, er)
+   !< Compute the left (rows) and right (columns) eigenvectors of the MHD system with EGLM cleaning in direction `d`
+   !< (issue #47, section 3.3): the 7x7 Roe-Balsara core and the `(B_n, psi)` pair of the flux `(c_h psi, c_h B_n)`
+   !< (`psi` in B units), `r = (1, -+1)`, `l = (1, -+1) / 2`, at speeds `-+c_h`, as GLM with `B_n` a parameter of the
+   !< core. The energy includes `psi^2 / 2`: a `psi` wave carries `dE = psi dpsi`, `r(E) = -+psi`, and the core waves
+   !< read the pressure from `E - psi^2 / 2`, `l_k(psi) = -psi l_k(E)`; `L R = I` holds exactly. `psi` is the face
+   !< value (the arithmetic average); with `psi = 0` the core rows are those of GLM.
+   real(R8P),    intent(in)  :: gamma                       !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d                           !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qa(NV_AUX_MHD)              !< Auxiliary variables (e.g. a face average).
+   real(R8P),    intent(in)  :: psi                         !< Cleaning scalar at the face.
+   real(R8P),    intent(out) :: el(NV_MHD_EGLM,NV_MHD_EGLM) !< Left eigenvectors, el(k,:) = l_k.
+   real(R8P),    intent(out) :: er(NV_MHD_EGLM,NV_MHD_EGLM) !< Right eigenvectors, er(:,k) = r_k.
+   real(R8P)                 :: l7(7,7)                     !< Core left eigenvectors.
+   real(R8P)                 :: r7(7,7)                     !< Core right eigenvectors.
+   integer(I4P)              :: mp(7)                       !< Core variables in the full state.
+   integer(I4P)              :: i, k                        !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_eigenvectors_core(gamma=gamma, d=d, qa=qa, l7=l7, r7=r7, mp=mp)
+   er = 0._R8P
+   el = 0._R8P
+   do k=1, 7
+      do i=1, 7
+         er(mp(i),k) = r7(i,k)
+         el(k,mp(i)) = l7(k,i)
+      enddo
+      el(k,IQ_PSI) = -psi * el(k,IQ_RE)
+   enddo
+   er(IQ_BX+d-1,8) =  1._R8P
+   er(IQ_PSI,8)    = -1._R8P
+   er(IQ_RE,8)     = -psi
+   er(IQ_BX+d-1,9) =  1._R8P
+   er(IQ_PSI,9)    =  1._R8P
+   er(IQ_RE,9)     =  psi
+   el(8,IQ_BX+d-1) =  0.5_R8P
+   el(8,IQ_PSI)    = -0.5_R8P
+   el(9,IQ_BX+d-1) =  0.5_R8P
+   el(9,IQ_PSI)    =  0.5_R8P
+   endsubroutine mhd_eglm_eigenvectors
+
+   pure subroutine mhd_eglm_face_split_fluxes(ch, gamma, d, S, is_characteristic, qs, qas, fsplit, er)
+   !< Project and Lax-Friedrichs-split the stencil of face `i+1/2` (MHD with EGLM cleaning): as
+   !< `mhd_glm_face_split_fluxes`, with the EGLM flux and eigenvectors (`psi` the average of cells 0 and 1).
+   real(R8P),    intent(in)  :: ch                                    !< GLM cleaning speed.
+   real(R8P),    intent(in)  :: gamma                                 !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d                                     !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)  :: S                                     !< WENO stencil half-width, S <= S_MAX.
+   logical,      intent(in)  :: is_characteristic                     !< Characteristic (or conservative) variables.
+   real(R8P),    intent(in)  :: qs(NV_MHD_EGLM,1-S_MAX:S_MAX)         !< Stencil conservative variables.
+   real(R8P),    intent(in)  :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)         !< Stencil auxiliary variables.
+   real(R8P),    intent(out) :: fsplit(2,1-S_MAX:S_MAX-1,NV_MHD_EGLM) !< Split fields in the WENO upwind layout.
+   real(R8P),    intent(out) :: er(NV_MHD_EGLM,NV_MHD_EGLM)            !< Right eigenvectors (identity if conservative).
+   real(R8P)                 :: el(NV_MHD_EGLM,NV_MHD_EGLM)            !< Left eigenvectors (identity if conservative).
+   real(R8P)                 :: avg(NV_AUX_MHD)                       !< Face average of cells 0 and 1.
+   real(R8P)                 :: lambda(NV_MHD_EGLM)                   !< Eigenvalues of one cell.
+   real(R8P)                 :: alpha(NV_MHD_EGLM)                    !< Lax-Friedrichs speeds.
+   real(R8P)                 :: f(NV_MHD_EGLM)                        !< Physical flux of one cell.
+   real(R8P)                 :: w, g, fp                              !< Projected state, projected flux, split flux.
+   integer(I4P)              :: pv(NV_MHD_EGLM)                       !< State in the frame order of direction `d`.
+   integer(I4P)              :: k, m, v                               !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_frame_indexes(d=d, pv=pv)
+   pv(NV_MHD_EGLM) = IQ_PSI
+   if (is_characteristic) then
+      call mhd_face_average(gamma=gamma, qaL=qas(:,0), qaR=qas(:,1), avg=avg)
+      call mhd_eglm_eigenvectors(gamma=gamma, d=d, qa=avg, psi=0.5_R8P * (qs(IQ_PSI,0) + qs(IQ_PSI,1)), el=el, er=er)
+      alpha = 0._R8P
+      do m=1-S, S
+         call mhd_glm_eigenvalues(ch=ch, d=d, qa=qas(:,m), lambda=lambda)
+         do k=1, NV_MHD_EGLM
+            alpha(k) = max(alpha(k), abs(lambda(k)))
+         enddo
+      enddo
+   else
+      el = 0._R8P
+      er = 0._R8P
+      do k=1, NV_MHD_EGLM
+         el(k,k) = 1._R8P
+         er(k,k) = 1._R8P
+      enddo
+      alpha = ch
+      do m=1-S, S
+         alpha(1) = max(alpha(1), abs(qas(IA_U+d-1,m)) + mhd_fast_speed(d=d, qa=qas(:,m)))
+      enddo
+      alpha = alpha(1)
+   endif
+   do m=1-S, S
+      call mhd_eglm_flux(ch=ch, d=d, q=qs(:,m), qa=qas(:,m), f=f)
+      do k=1, NV_MHD_EGLM
+         w = 0._R8P
+         g = 0._R8P
+         do v=1, NV_MHD_EGLM
+            w = w + el(k,pv(v)) * qs(pv(v),m)
+            g = g + el(k,pv(v)) * f(pv(v))
+         enddo
+         fp = 0.5_R8P * (g + alpha(k) * w)
+         if (m < S)     fsplit(2,m,k)   = fp
+         if (m > 1 - S) fsplit(1,m-1,k) = g - fp
+      enddo
+   enddo
+   endsubroutine mhd_eglm_face_split_fluxes
+
+   pure subroutine mhd_eglm_flux(ch, d, q, qa, f)
+   !< Compute the physical flux of the MHD system with EGLM cleaning in direction `d` (Derigs et al. 2018, eqs.
+   !< 3.16-3.18, `psi` in B units; issue #47, section 3.3): the MHD flux of the total energy `E` (which includes
+   !< `psi^2 / 2`) plus `c_h psi B_n`, the `B_n` component `c_h psi` and the `psi` component `c_h B_n`. `qa` comes from
+   !< `mhd_eglm_conservative_to_auxiliary` (thermal pressure).
+   real(R8P),    intent(in)  :: ch              !< GLM cleaning speed.
+   integer(I4P), intent(in)  :: d               !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: q(NV_MHD_EGLM)  !< Conservative variables.
+   real(R8P),    intent(in)  :: qa(NV_AUX_MHD)  !< Auxiliary variables.
+   real(R8P),    intent(out) :: f(NV_MHD_EGLM)  !< Physical flux.
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_flux(d=d, q=q, qa=qa, f=f)
+   f(IQ_RE)     = f(IQ_RE) + ch * q(IQ_PSI) * q(IQ_BX+d-1)
+   f(IQ_BX+d-1) = ch * q(IQ_PSI)
+   f(IQ_PSI)    = ch * q(IQ_BX+d-1)
+   endsubroutine mhd_eglm_flux
 
    pure subroutine mhd_eigenvalues(d, qa, lambda)
    !< Compute the eigenvalues of the MHD system without divergence control in direction `d`:

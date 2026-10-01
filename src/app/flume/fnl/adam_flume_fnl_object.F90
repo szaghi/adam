@@ -26,7 +26,8 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
-use :: adam_flume_common_library,      only : flume_common_object, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM,                &
+use :: adam_flume_common_library,      only : flume_common_object, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM,               &
+                                              MODEL_MHD_GLM,                                                         &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,            &
                                               RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,              &
                                               SCHEME_SPACE_WENO_RIEMANN
@@ -51,6 +52,15 @@ use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors
                                               compute_lambda_max_mhd_dev=>compute_lambda_max_dev,                     &
                                               compute_q_aux_mhd_dev=>compute_q_aux_dev,                               &
                                               count_nonfinite_mhd_dev=>count_nonfinite_dev
+use :: adam_flume_fnl_mhd_eglm_kernels, only : add_eglm_sources_dev, add_glm_damping_eglm_dev=>add_glm_damping_dev,   &
+                                               apply_floors_mhd_eglm_dev=>apply_floors_dev,                           &
+                                               compute_divb_norms_mhd_eglm_dev=>compute_divb_norms_dev,               &
+                                               compute_conservation_mhd_eglm_dev=>compute_conservation_dev,           &
+                                               compute_face_fluxes_mhd_eglm_dev=>compute_face_fluxes_dev,             &
+                                               compute_lambda_max_mhd_eglm_dev=>compute_lambda_max_dev,               &
+                                               compute_q_aux_mhd_eglm_dev=>compute_q_aux_dev,                         &
+                                               compute_speed_max_mhd_eglm_dev=>compute_speed_max_dev,                 &
+                                               count_nonfinite_mhd_eglm_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_mhd_glm_dev=>apply_floors_dev,  &
                                               compute_divb_norms_mhd_glm_dev=>compute_divb_norms_dev,                 &
                                               compute_conservation_mhd_glm_dev=>compute_conservation_dev,             &
@@ -228,6 +238,11 @@ contains
                                     gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
                                     p_floor=self%physics%mhd%p_floor, q_gpu=q_gpu,            &
                                     floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
+   case(MODEL_MHD_EGLM)
+      call apply_floors_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                    gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
+                                    p_floor=self%physics%mhd%p_floor, q_gpu=q_gpu,            &
+                                    floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
    case default
       call mpih_fnl%error_stop(msg=': no floors for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -294,6 +309,9 @@ contains
    case(MODEL_MHD_GLM)
       call count_nonfinite_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                  &
                                        blocks_number=self%blocks_number, q_gpu=self%q_gpu, n=n)
+   case(MODEL_MHD_EGLM)
+      call count_nonfinite_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                  &
+                                       blocks_number=self%blocks_number, q_gpu=self%q_gpu, n=n)
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -315,6 +333,10 @@ contains
       return
    case(MODEL_MHD_GLM)
       call compute_speed_max_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                         is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, speed_max=speed_max)
+   case(MODEL_MHD_EGLM)
+      call compute_speed_max_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
                                          blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                          is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, speed_max=speed_max)
    case default
@@ -341,6 +363,10 @@ contains
                                         q_gpu=self%q_gpu, integrals=integrals)
    case(MODEL_MHD_GLM)
       call compute_conservation_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                   &
+                                            blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                            q_gpu=self%q_gpu, integrals=integrals)
+   case(MODEL_MHD_EGLM)
+      call compute_conservation_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                   &
                                             blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
                                             q_gpu=self%q_gpu, integrals=integrals)
    case default
@@ -392,6 +418,12 @@ contains
                                           dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,         &
                                           seam_gpu=self%divb_seam_gpu, q_gpu=self%q_gpu, divb_max=norms(1),           &
                                           divb_l1=norms(2), divb_seam_max=norms(3))
+   case(MODEL_MHD_EGLM)
+      call compute_divb_norms_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                          &
+                                          blocks_number=self%blocks_number, hs=hs, band=self%ngc,                    &
+                                          dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,         &
+                                          seam_gpu=self%divb_seam_gpu, q_gpu=self%q_gpu, divb_max=norms(1),           &
+                                          divb_l1=norms(2), divb_seam_max=norms(3))
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -417,6 +449,10 @@ contains
                                  gamma=self%physics%gamma, R=self%physics%R, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
    case(MODEL_MHD_GLM)
       call compute_q_aux_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                           &
+                                     blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                     q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
+   case(MODEL_MHD_EGLM)
+      call compute_q_aux_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                           &
                                      blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                      q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
    case default
@@ -734,6 +770,12 @@ contains
                                           dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
                                           q_gpu=self%q_gpu, lambda_max=lambda_max)
       lambda_max = max(lambda_max, self%glm_lambda())
+   case(MODEL_MHD_EGLM)
+      call compute_lambda_max_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                          blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                          dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
+                                          q_gpu=self%q_gpu, lambda_max=lambda_max)
+      lambda_max = max(lambda_max, self%glm_lambda())
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -1011,6 +1053,25 @@ contains
                                                                 weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                                 weno_zeps=zeps, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu,   &
                                                                 fl_gpu=self%flz_f_gpu)
+   case(MODEL_MHD_EGLM)
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_eglm_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
+                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
+                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
+                                                                weno_zeps=zeps, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu,   &
+                                                                fl_gpu=self%flx_f_gpu)
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_eglm_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
+                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
+                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
+                                                                weno_zeps=zeps, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu,   &
+                                                                fl_gpu=self%fly_f_gpu)
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_eglm_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
+                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
+                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
+                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
+                                                                weno_zeps=zeps, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu,   &
+                                                                fl_gpu=self%flz_f_gpu)
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -1032,6 +1093,13 @@ contains
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,      &
                                                                       damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, &
                                                                       dq_gpu=dq_gpu)
+   if (self%physics%model == MODEL_MHD_EGLM) then
+      call add_glm_damping_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,                               &
+                                    damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, dq_gpu=dq_gpu)
+      call add_eglm_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=weno_s,                         &
+                                dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                    &
+                                q_aux_gpu=self%q_aux_gpu, dq_gpu=dq_gpu)
+   endif
    endassociate
    endsubroutine compute_residuals_weno_dev
 

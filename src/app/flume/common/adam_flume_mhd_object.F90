@@ -14,7 +14,8 @@ module adam_flume_mhd_object
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
-use :: adam_flume_parameters, only : DIVERGENCE_CONTROL_GLM, DIVERGENCE_CONTROL_NONE, GLM_CH_CHECK_ERROR, &
+use :: adam_flume_parameters, only : DIVERGENCE_CONTROL_EGLM, DIVERGENCE_CONTROL_GLM, DIVERGENCE_CONTROL_NONE, &
+                                     GLM_CH_CHECK_ERROR,                                                    &
                                      GLM_CH_CHECK_WARNING, GLM_DAMPING_LENGTH_MIN_CELL, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
@@ -28,8 +29,9 @@ character(len=3), parameter :: INI_SECTION_NAME="mhd" !< INI (config) file secti
 
 type :: flume_mhd_object
    !< FLUME MHD class definition.
-   character(:), allocatable :: divergence_control        !< Divergence control: glm or none.
-   logical                   :: has_glm=.false.           !< GLM cleaning active (host-side flag only).
+   character(:), allocatable :: divergence_control        !< Divergence control: glm, eglm or none.
+   logical                   :: has_glm=.false.           !< GLM or EGLM cleaning active (host-side flag only).
+   logical                   :: has_eglm=.false.          !< EGLM cleaning active (host-side flag only).
    real(R8P)                 :: glm_ch=0._R8P             !< GLM cleaning speed (constant, uniform).
    real(R8P)                 :: glm_alpha=0._R8P          !< GLM damping parameter.
    real(R8P)                 :: glm_damping_length=0._R8P !< GLM damping length (min-cell: set by set_glm_damping).
@@ -98,11 +100,15 @@ contains
    select case(self%divergence_control)
    case(DIVERGENCE_CONTROL_GLM)
       self%has_glm = .true.
+   case(DIVERGENCE_CONTROL_EGLM) ! the GLM keys, speed and damping; the EGLM energy, flux and sources
+      self%has_glm  = .true.
+      self%has_eglm = .true.
    case(DIVERGENCE_CONTROL_NONE)
       self%has_glm = .false.
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(divergence_control) "'//self%divergence_control// &
-                               '"; expected one of '//DIVERGENCE_CONTROL_GLM//', '//DIVERGENCE_CONTROL_NONE)
+                               '"; expected one of '//DIVERGENCE_CONTROL_GLM//', '//DIVERGENCE_CONTROL_EGLM//', '// &
+                               DIVERGENCE_CONTROL_NONE)
    endselect
 
    if (self%has_glm) then

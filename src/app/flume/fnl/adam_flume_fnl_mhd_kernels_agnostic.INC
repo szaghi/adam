@@ -84,7 +84,8 @@
                                rho_min, p_min)
    !< Apply the MHD positivity floors to the interior cells of a stage state, before its ghost exchange (issue #41,
    !< section 3.8): a cell with `rho < rho_floor` or `p < p_floor` gets `rho = max(rho, rho_floor)` at fixed velocity and
-   !< `p = max(p, p_floor)` (internal energy added). Interior only: the exchange then carries the floored values to the
+   !< `p = max(p, p_floor)` (internal energy added; the model's `cleaning_energy` adapter adds `psi^2 / 2` under EGLM,
+   !< zero otherwise). Interior only: the exchange then carries the floored values to the
    !< ghost cells, and ghost cells that no map fills (never read by the stencils) are not inspected. Returns the floored
    !< cells, the cells with a non-positive density or pressure (counted before flooring) and the minimum density and
    !< pressure. Floors are not conservative: the caller logs the counters.
@@ -132,7 +133,7 @@
          q_(IQ_RV) = rho * qa_(IA_V)
          q_(IQ_RW) = rho * qa_(IA_W)
          q_(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * mhd_sum3(q_(IQ_RU)**2, q_(IQ_RV)**2, q_(IQ_RW)**2) / rho + &
-                     0.5_R8P * mhd_sum3(q_(IQ_BX)**2, q_(IQ_BY)**2, q_(IQ_BZ)**2)
+                     0.5_R8P * mhd_sum3(q_(IQ_BX)**2, q_(IQ_BY)**2, q_(IQ_BZ)**2) + cleaning_energy(q=q_)
          !$acc loop seq
          do v=1, NV_K
             q_gpu(b,i,j,k,v) = q_(v)

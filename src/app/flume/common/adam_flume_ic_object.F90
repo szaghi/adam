@@ -82,7 +82,8 @@ use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library,  only : primitive_to_conservative
 use :: adam_flume_mhd_library,    only : mhd_conservative_to_auxiliary, mhd_eigenvectors, mhd_primitive_to_conservative
-use :: adam_flume_parameters,     only : IQ_BX, IQ_BY, IQ_RU, IQ_RV, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM, NV_AUX_MHD, &
+use :: adam_flume_parameters,     only : IQ_BX, IQ_BY, IQ_RU, IQ_RV, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,  &
+                                        NV_AUX_MHD, &
                                         NV_EULER, NV_MHD, &
                                         strip_control
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
@@ -244,7 +245,7 @@ contains
    select case(self%model)
    case(MODEL_EULER)
       self%nprim = 5_I4P
-   case(MODEL_MHD, MODEL_MHD_GLM)
+   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
       self%nprim = 8_I4P
    case default
       call mpih%error_stop(msg=': no initial conditions for physical model "'//physics%physical_model//'"')
@@ -275,7 +276,7 @@ contains
       enddo
       if (self%vortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
    case(IC_GLM_PULSE_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_GLM_PULSE_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -299,7 +300,7 @@ contains
       enddo
       if (self%pulse(2) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(pulse_width) must be positive')
    case(IC_DIVB_PEAK_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_DIVB_PEAK_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -310,7 +311,7 @@ contains
       enddo
       if (self%peak(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(peak_radius) must be positive')
    case(IC_MHD_LINEAR_WAVE_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_LINEAR_WAVE_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -330,7 +331,7 @@ contains
       enddo
       if (self%wave_par(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
    case(IC_MHD_CPAW_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_CPAW_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -355,7 +356,7 @@ contains
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(b_par)')
       if (self%b_par == 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(b_par) must be non-zero')
    case(IC_MHD_VORTEX_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_VORTEX_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -367,12 +368,12 @@ contains
       enddo
       if (self%mvortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
    case(IC_ORSZAG_TANG_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_ORSZAG_TANG_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 0_I4P
    case(IC_MHD_ROTOR_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_ROTOR_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -385,7 +386,7 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs 0 < r0 < r1')
       if (self%rotor(5) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(rho_in) must be positive')
    case(IC_FIELD_LOOP_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM) &
+      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_FIELD_LOOP_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P

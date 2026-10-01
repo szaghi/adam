@@ -167,7 +167,7 @@ Variable indices for the gradient marker:
 | 6 | `bx` (MHD) | `T` |
 | 7 | `by` (MHD) | `H` |
 | 8 | `bz` (MHD) | `a` |
-| 9 | `psi` (MHD + GLM) | `Bx` (MHD) |
+| 9 | `psi` (MHD + GLM or EGLM) | `Bx` (MHD) |
 | 10 | — | `By` (MHD) |
 | 11 | — | `Bz` (MHD) |
 
@@ -350,7 +350,7 @@ Every key is required.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `physical_model` | string | yes | `euler` (nv = 5) or `mhd-ideal` (nv = 8, or 9 with GLM). Other → fatal. | Equation set. `mhd-ideal` also loads `[mhd]`. |
+| `physical_model` | string | yes | `euler` (nv = 5) or `mhd-ideal` (nv = 8, or 9 with GLM or EGLM). Other → fatal. | Equation set. `mhd-ideal` also loads `[mhd]`. |
 | `cp` | real | yes | `cp > cv > 0`, otherwise fatal | Specific heat at constant pressure. |
 | `cv` | real | yes | as above | Specific heat at constant volume. `gamma = cp/cv`, `R = cp - cv`. |
 
@@ -362,11 +362,11 @@ The section is not read for `euler`.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `divergence_control` | string | yes | `glm` (nv = 9, psi added) or `none` (nv = 8). Other → fatal. | div(B) control. |
-| `glm_ch` | real | `glm` | `> 0`, otherwise fatal | Constant cleaning speed `c_h`. It also bounds the time step (`c_h * sum 1/dx`). |
-| `glm_alpha` | real | `glm` | `>= 0`, otherwise fatal | Damping parameter: `c_h^2/c_p^2 = glm_alpha * c_h / L`. |
-| `glm_damping_length` | real or `min-cell` | `glm` | A positive real, or the literal `min-cell` (the minimum cell spacing over the active directions, MPI-reduced). A non-number or a value `<= 0` is fatal. | Damping length `L`. |
-| `glm_ch_check` | string | `glm` | `warning` or `error`. Other → fatal. Without GLM it is forced to `warning` and not read. | What happens when `max(\|u\|+c_f) > glm_ch`: warn (logged each time a new maximum appears) or stop. |
+| `divergence_control` | string | yes | `glm` (nv = 9, psi added), `eglm` (nv = 9, psi also in the energy; the `glm_*` keys apply) or `none` (nv = 8). Other → fatal. | div(B) control. |
+| `glm_ch` | real | `glm`, `eglm` | `> 0`, otherwise fatal | Constant cleaning speed `c_h`. It also bounds the time step (`c_h * sum 1/dx`). |
+| `glm_alpha` | real | `glm`, `eglm` | `>= 0`, otherwise fatal | Damping parameter: `c_h^2/c_p^2 = glm_alpha * c_h / L`. |
+| `glm_damping_length` | real or `min-cell` | `glm`, `eglm` | A positive real, or the literal `min-cell` (the minimum cell spacing over the active directions, MPI-reduced). A non-number or a value `<= 0` is fatal. | Damping length `L`. |
+| `glm_ch_check` | string | `glm`, `eglm` | `warning` or `error`. Other → fatal. Without GLM it is forced to `warning` and not read. | What happens when `max(\|u\|+c_f) > glm_ch`: warn (logged each time a new maximum appears) or stop. |
 | `divb_tol` | real | yes | `>= 0`, otherwise fatal. `0` disables the monitor. | Monitor: `max\|div B\| > divb_tol` warns or stops. |
 | `divb_error` | logical | yes | logical | `.true.`: exceeding `divb_tol` is fatal. |
 | `rho_floor` | real | yes | `>= 0`, otherwise fatal. `0` disables it. | Density positivity floor. |

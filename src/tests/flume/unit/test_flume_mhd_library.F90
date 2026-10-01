@@ -22,21 +22,25 @@ program test_flume_mhd_library
 !< 7. split + back-projection consistency: a uniform stencil returns the physical flux, S = 1..S_MAX, both variants,
 !<    characteristic and conservative;
 !< 8. the degenerate states: B = 0 (hydrodynamic limit), B along one axis (B_t = 0 in that direction, B_n = 0 in the
-!<    others), the triple umbilic, and the transverse-field threshold `EPS_BT` straddled by one ulp, through checks 1-3.
+!<    others), the triple umbilic, and the transverse-field threshold `EPS_BT` straddled by one ulp, through checks 1-3;
+!< 9. the EGLM variant (issue #47 EV-1, `check_eglm`): conversion, eigenvectors (`L R = I`, GLM core, energy
+!<    coupling, `(B_n, psi)` block), flux identities, uniform-stencil split consistency.
 
-use :: adam_flume_mhd_library, only : EPS_BT, mhd_conservative_to_auxiliary, mhd_eigenvalues, mhd_eigenvectors,    &
+use :: adam_flume_mhd_library, only : EPS_BT, mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary,   &
+                                      mhd_eglm_eigenvectors, mhd_eglm_face_split_fluxes, mhd_eglm_flux,            &
+                                      mhd_eigenvalues, mhd_eigenvectors,                                           &
                                       mhd_face_average, mhd_face_flux_back_projection, mhd_face_split_fluxes,      &
                                       mhd_fast_speed, mhd_flux, mhd_glm_eigenvalues, mhd_glm_eigenvectors,         &
                                       mhd_glm_face_flux_back_projection, mhd_glm_face_split_fluxes, mhd_glm_flux, &
                                       mhd_primitive_to_conservative
 use :: adam_flume_parameters,  only : IA_A, IA_BX, IA_H, IA_P, IA_R, IA_U, IQ_BX, IQ_PSI, IQ_R, IQ_RE, IQ_RU, &
-                                      NV_AUX_MHD, NV_MHD, NV_MHD_GLM, S_MAX
+                                      NV_AUX_MHD, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM, S_MAX
 use :: penf,                   only : I4P, R8P, str
 
 implicit none
 
 integer(I4P), parameter :: N=5000_I4P           !< Random states number.
-integer(I4P), parameter :: NC=8_I4P             !< Checks number.
+integer(I4P), parameter :: NC=9_I4P             !< Checks number.
 real(R8P),    parameter :: GAMMA=5._R8P/3._R8P  !< Specific heats ratio.
 real(R8P),    parameter :: R=1._R8P             !< Gas constant.
 real(R8P),    parameter :: TOL_EXACT=1.e-11_R8P !< Tolerance of the exact identities (relative).
@@ -57,7 +61,8 @@ check_name = ['L R = I (8x8, 9x9)                              ', &
               'face average of a state with itself             ', &
               'cyclic invariance of fluxes, eigenvectors       ', &
               'uniform stencil split -> physical flux          ', &
-              'degenerate states (checks 1-3 at degeneracies)  ']
+              'degenerate states (checks 1-3 at degeneracies)  ', &
+              'EGLM: eigenvectors, flux, conversion, split     ']
 err = 0._R8P
 call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
@@ -80,6 +85,7 @@ do n_=1, N
    call check_average(prim=prim, e=err(5))
    call check_cyclic(prim=prim, psi=psi, ch=ch, e=err(6))
    call check_split(prim=prim, psi=psi, ch=ch, e=err(7))
+   call check_eglm(prim=prim, psi=psi, ch=ch, e=err(9))
 enddo
 call check_degenerate(e=err(8))
 
@@ -93,7 +99,7 @@ do c=1, NC
    endif
 enddo
 if (test_passed) then
-   print '(A)', 'TEST PASSED: flume mhd library ('//trim(str(N))//' states x 3 directions x 2 variants)'
+   print '(A)', 'TEST PASSED: flume mhd library ('//trim(str(N))//' states x 3 directions x 3 variants)'
 else
    print '(A)', 'TEST FAILED: flume mhd library'
    error stop 1
@@ -356,4 +362,76 @@ contains
    print '(A)', 'degenerate states: L R = I '//trim(str(ed(1)))//', core fin. diff. '//trim(str(ed(2)))// &
                 ', GLM block '//trim(str(ed(3)))
    endsubroutine check_degenerate
+
+   subroutine check_eglm(prim, psi, ch, e)
+   !< EV-1 (issue #47, M3-P4a): the EGLM variant on one state, all directions. The energy holds `psi^2 / 2`: the
+   !< auxiliary variables equal those of the MHD state with that energy removed; the eigenvectors are GLM's 7x7 core,
+   !< the `(B_n, psi)` block of the flux `(c_h psi, c_h B_n)` and the energy coupling `l_k(psi) = -psi l_k(E)`,
+   !< `r_{8,9}(E) = -+psi` (`L R = I` exact); the flux is the MHD flux of the total energy plus `c_h psi B_n`, with
+   !< `B_n` and `psi` components `c_h psi`, `c_h B_n`, i.e. the MHD flux of the state without `psi^2 / 2` plus
+   !< `u_n psi^2 / 2 + c_h psi B_n` in the energy; a uniform stencil split and back-projected returns it.
+   real(R8P), intent(in)    :: prim(8)                                          !< Primitive state.
+   real(R8P), intent(in)    :: psi, ch                                          !< Cleaning scalar and speed.
+   real(R8P), intent(inout) :: e                                                !< Maximum error.
+   real(R8P)                :: q8(NV_MHD), q9(NV_MHD_GLM), qe(NV_MHD_EGLM)      !< Conservative variables.
+   real(R8P)                :: qa(NV_AUX_MHD), qae(NV_AUX_MHD)                  !< Auxiliary variables.
+   real(R8P)                :: elg(NV_MHD_GLM,NV_MHD_GLM), erg(NV_MHD_GLM,NV_MHD_GLM)       !< GLM eigenvectors.
+   real(R8P)                :: ele(NV_MHD_EGLM,NV_MHD_EGLM), ere(NV_MHD_EGLM,NV_MHD_EGLM)   !< EGLM eigenvectors.
+   real(R8P)                :: A2(2,2), D2(2,2)                                 !< Block Jacobian, residual.
+   real(R8P)                :: f8(NV_MHD), fe(NV_MHD_EGLM), fl(NV_MHD_EGLM)     !< Fluxes.
+   real(R8P)                :: qs(NV_MHD_EGLM,1-S_MAX:S_MAX)                    !< Uniform stencil.
+   real(R8P)                :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)                    !< Stencil auxiliary variables.
+   real(R8P)                :: fs(2,1-S_MAX:S_MAX-1,NV_MHD_EGLM)                !< Split fields.
+   real(R8P)                :: sc                                               !< Flux scale.
+   integer(I4P)             :: mp(7), bp(2)                                     !< Core and block indexes.
+   integer(I4P)             :: d, S, m, variant, k                              !< Counters.
+
+   call state(prim=prim, psi=psi, q8=q8, q9=q9, qa=qa)
+   qe = q9
+   qe(IQ_RE) = q9(IQ_RE) + 0.5_R8P * psi**2
+   call mhd_eglm_conservative_to_auxiliary(gamma=GAMMA, R=R, q=qe, qa=qae)
+   e = max(e, maxval(abs(qae - qa) / max(1._R8P, abs(qa))))
+   do m=1-S_MAX, S_MAX
+      qs(:,m)  = qe
+      qas(:,m) = qae
+   enddo
+   do d=1, 3
+      call core_map(d=d, mp=mp)
+      bp = [IQ_BX+d-1, IQ_PSI]
+      call mhd_glm_eigenvectors(ch=ch, gamma=GAMMA, d=d, qa=qae, el=elg, er=erg)
+      call mhd_eglm_eigenvectors(gamma=GAMMA, d=d, qa=qae, psi=psi, el=ele, er=ere)
+      ! L R = I, the core of GLM, the energy coupling
+      e = max(e, identity_error(matmul(ele, ere), NV_MHD_EGLM))
+      e = max(e, maxval(abs(ele(1:7,mp) - elg(1:7,mp))), maxval(abs(ere(mp,1:7) - erg(mp,1:7))))
+      e = max(e, maxval(abs(ele(1:7,IQ_PSI) + psi * ele(1:7,IQ_RE))), abs(ere(IQ_RE,8) + psi), abs(ere(IQ_RE,9) - psi), &
+                 maxval(abs(ele(1:7,bp(1)))))
+      ! the (B_n, psi) block and its structure
+      A2 = reshape([0._R8P, ch, ch, 0._R8P], [2, 2])
+      D2 = matmul(ele(8:9,bp), matmul(A2, ere(bp,8:9)))
+      D2(1,1) = D2(1,1) + ch
+      D2(2,2) = D2(2,2) - ch
+      e = max(e, maxval(abs(D2)) / ch, maxval(abs(ele(8:9,mp))))
+      do k=1, 7
+         if (mp(k) /= IQ_RE) e = max(e, maxval(abs(ere(mp(k),8:9))))
+      enddo
+      ! flux
+      call mhd_eglm_flux(ch=ch, d=d, q=qe, qa=qae, f=fe)
+      call mhd_flux(d=d, q=q8, qa=qa, f=f8)
+      sc = max(1._R8P, maxval(abs(f8)))
+      e = max(e, abs(fe(IQ_BX+d-1) - ch * psi) / ch, abs(fe(IQ_PSI) - ch * qe(IQ_BX+d-1)) / ch)
+      do k=1, 7
+         if (mp(k) /= IQ_RE) e = max(e, abs(fe(mp(k)) - f8(mp(k))) / sc)
+      enddo
+      e = max(e, abs(fe(IQ_RE) - f8(IQ_RE) - qa(IA_U+d-1) * 0.5_R8P * psi**2 - ch * psi * qe(IQ_BX+d-1)) / sc)
+      ! uniform stencil split -> physical flux
+      do variant=1, 2
+         do S=1, S_MAX
+            call mhd_eglm_face_split_fluxes(ch=ch, gamma=GAMMA, d=d, S=S, is_characteristic=(variant == 1), qs=qs, &
+                                            qas=qas, fsplit=fs, er=ere)
+            call mhd_glm_face_flux_back_projection(is_characteristic=(variant == 1), er=ere, vr=fs(:,0,:), flux=fl)
+            e = max(e, maxval(abs(fl - fe)) / max(1._R8P, maxval(abs(fe))))
+         enddo
+      enddo
+   enddo
+   endsubroutine check_eglm
 endprogram test_flume_mhd_library

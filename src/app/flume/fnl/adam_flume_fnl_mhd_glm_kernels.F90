@@ -87,4 +87,14 @@ contains
    call mhd_glm_face_split_fluxes(ch=ch, gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
                                   fsplit=fsplit, er=er)
    endsubroutine face_split_fluxes
+
+   pure function cleaning_energy(q) result(e)
+   !< Cleaning-energy adapter of the floors kernel: zero, `psi` (if any) is not part of the energy of this model.
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: e       !< Cleaning energy.
+   !$acc routine seq
+   !$omp declare target
+
+   e = 0._R8P
+   endfunction cleaning_energy
 endmodule adam_flume_fnl_mhd_glm_kernels

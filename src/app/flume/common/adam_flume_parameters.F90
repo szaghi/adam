@@ -34,14 +34,17 @@ public :: NV_EULER
 public :: NV_AUX
 public :: NV_MHD
 public :: NV_MHD_GLM
+public :: NV_MHD_EGLM
 public :: NV_AUX_MHD
 public :: S_MAX
 public :: MODEL_EULER
 public :: MODEL_MHD
 public :: MODEL_MHD_GLM
+public :: MODEL_MHD_EGLM
 public :: PHYSICAL_MODEL_EULER
 public :: PHYSICAL_MODEL_MHD_IDEAL
 public :: DIVERGENCE_CONTROL_GLM
+public :: DIVERGENCE_CONTROL_EGLM
 public :: DIVERGENCE_CONTROL_NONE
 public :: GLM_CH_CHECK_WARNING
 public :: GLM_CH_CHECK_ERROR
@@ -72,7 +75,7 @@ integer(I4P), parameter :: IQ_RE  = 5_I4P !< Total energy per unit volume (MHD: 
 integer(I4P), parameter :: IQ_BX  = 6_I4P !< Magnetic field, x component (MHD).
 integer(I4P), parameter :: IQ_BY  = 7_I4P !< Magnetic field, y component (MHD).
 integer(I4P), parameter :: IQ_BZ  = 8_I4P !< Magnetic field, z component (MHD).
-integer(I4P), parameter :: IQ_PSI = 9_I4P !< GLM divergence-cleaning scalar (MHD with GLM).
+integer(I4P), parameter :: IQ_PSI = 9_I4P !< GLM divergence-cleaning scalar (MHD with GLM or EGLM).
 ! auxiliary (primitive and derived) variables
 integer(I4P), parameter :: IA_R  = 1_I4P  !< Density.
 integer(I4P), parameter :: IA_U  = 2_I4P  !< Velocity, x component.
@@ -90,16 +93,19 @@ integer(I4P), parameter :: NV_EULER   = 5_I4P  !< Conservative variables number,
 integer(I4P), parameter :: NV_AUX     = 8_I4P  !< Auxiliary variables number, Euler model.
 integer(I4P), parameter :: NV_MHD     = 8_I4P  !< Conservative variables number, MHD without divergence control.
 integer(I4P), parameter :: NV_MHD_GLM = 9_I4P  !< Conservative variables number, MHD with GLM divergence cleaning.
+integer(I4P), parameter :: NV_MHD_EGLM = 9_I4P !< Conservative variables number, MHD with EGLM divergence cleaning.
 integer(I4P), parameter :: NV_AUX_MHD = 11_I4P !< Auxiliary variables number, MHD (both variants).
 integer(I4P), parameter :: S_MAX      = 5_I4P  !< Maximum WENO stencil half-width (weno-u-9).
 ! physical models: the id the host controllers dispatch on, never inside a kernel (issue #41, section 4)
 integer(I4P), parameter :: MODEL_EULER   = 1_I4P !< Compressible Euler (nv = 5).
 integer(I4P), parameter :: MODEL_MHD     = 2_I4P !< Ideal compressible MHD without divergence control (nv = 8).
 integer(I4P), parameter :: MODEL_MHD_GLM = 3_I4P !< Ideal compressible MHD with GLM divergence cleaning (nv = 9).
+integer(I4P), parameter :: MODEL_MHD_EGLM = 4_I4P !< Ideal compressible MHD with EGLM divergence cleaning (nv = 9).
 ! accepted option values
 character(len=5),  parameter :: PHYSICAL_MODEL_EULER="euler"          !< [physics].(physical_model): compressible Euler.
 character(len=9),  parameter :: PHYSICAL_MODEL_MHD_IDEAL="mhd-ideal"  !< [physics].(physical_model): ideal MHD.
 character(len=3),  parameter :: DIVERGENCE_CONTROL_GLM="glm"          !< [mhd].(divergence_control): GLM cleaning.
+character(len=4),  parameter :: DIVERGENCE_CONTROL_EGLM="eglm"        !< [mhd].(divergence_control): EGLM cleaning.
 character(len=4),  parameter :: DIVERGENCE_CONTROL_NONE="none"        !< [mhd].(divergence_control): none.
 character(len=7),  parameter :: GLM_CH_CHECK_WARNING="warning"        !< [mhd].(glm_ch_check): warn if c_h is slow.
 character(len=5),  parameter :: GLM_CH_CHECK_ERROR="error"            !< [mhd].(glm_ch_check): stop if c_h is slow.

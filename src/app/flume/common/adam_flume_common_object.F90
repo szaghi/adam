@@ -24,9 +24,10 @@ use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
-use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary
+use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
 use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_RU, &
-                                             MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM, RIEMANN_SOLVER_HLL,               &
+                                             MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,                   &
+                                             RIEMANN_SOLVER_HLL,                                                      &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
                                              SCHEME_SPACE_WENO_RIEMANN
 use :: adam_flume_physics_object,     only : flume_physics_object
@@ -508,7 +509,7 @@ contains
       do d=1, 3
          if (self%adam%grid%null_xyz(d)) freeze(d) = IQ_RU + d - 1
       enddo
-   case(MODEL_MHD, MODEL_MHD_GLM)
+   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
    case default
       call mpih%error_stop(msg=': no null-direction rule for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -906,6 +907,17 @@ contains
             enddo
          enddo
       enddo
+   case(MODEL_MHD_EGLM)
+      do b=1, self%blocks_number
+         do k=1-self%ngc, self%nk+self%ngc
+            do j=1-self%ngc, self%nj+self%ngc
+               do i=1-self%ngc, self%ni+self%ngc
+                  call mhd_eglm_conservative_to_auxiliary(gamma=self%physics%gamma, R=self%physics%R,             &
+                                                          q=self%q(:,i,j,k,b), qa=self%q_aux(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
    case default
       call mpih%error_stop(msg=': no host auxiliary variables for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -1017,11 +1029,11 @@ contains
    self%q_aux_name(7) = 'H'
    self%q_aux_name(8) = 'a'
    select case(self%physics%model)
-   case(MODEL_MHD, MODEL_MHD_GLM)
+   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
       self%q_name(6) = 'bx'
       self%q_name(7) = 'by'
       self%q_name(8) = 'bz'
-      if (self%physics%model == MODEL_MHD_GLM) self%q_name(9) = 'psi'
+      if (self%physics%model /= MODEL_MHD) self%q_name(9) = 'psi'
       ! the auxiliary copies of B share the XH5F file with the conservative bx, by, bz: distinct names
       self%q_aux_name(9)  = 'Bx'
       self%q_aux_name(10) = 'By'

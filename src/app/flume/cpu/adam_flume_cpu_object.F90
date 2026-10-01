@@ -19,7 +19,8 @@ use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION,  &
                                               BC_INFLOW, BC_WALL_INVISCID, MODEL_EULER,                                 &
-                                              MODEL_MHD, MODEL_MHD_GLM, RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,       &
+                                              MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, RECON_CHARACTERISTIC,           &
+                                              RIEMANN_SOLVER_HLL,                                                       &
                                               RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
                                               SCHEME_SPACE_WENO,                                                        &
                                               SCHEME_SPACE_WENO_RIEMANN
@@ -42,6 +43,14 @@ use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,   
                                               compute_lambda_max_mhd=>compute_lambda_max,                            &
                                               compute_q_aux_mhd=>compute_q_aux,                                      &
                                               count_nonfinite_mhd=>count_nonfinite
+use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources, add_glm_damping_eglm=>add_glm_damping,         &
+                                               apply_floors_mhd_eglm=>apply_floors,                             &
+                                               compute_divb_norms_mhd_eglm=>compute_divb_norms,                 &
+                                               compute_face_fluxes_mhd_eglm=>compute_face_fluxes,               &
+                                               compute_lambda_max_mhd_eglm=>compute_lambda_max,                 &
+                                               compute_q_aux_mhd_eglm=>compute_q_aux,                           &
+                                               compute_speed_max_mhd_eglm=>compute_speed_max,                   &
+                                               count_nonfinite_mhd_eglm=>count_nonfinite
 use :: adam_flume_cpu_mhd_glm_kernels, only : add_glm_damping, apply_floors_mhd_glm=>apply_floors,              &
                                               compute_divb_norms_mhd_glm=>compute_divb_norms,                      &
                                               compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
@@ -203,6 +212,11 @@ contains
                                 gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
                                 p_floor=self%physics%mhd%p_floor, q=q,                            &
                                 floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
+   case(MODEL_MHD_EGLM)
+      call apply_floors_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
+                                p_floor=self%physics%mhd%p_floor, q=q,                            &
+                                floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
    case default
       call mpih%error_stop(msg=': no floors for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -249,6 +263,10 @@ contains
       call compute_speed_max_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                      gamma=self%physics%gamma, R=self%physics%R, is_null=self%adam%grid%null_xyz,       &
                                      q=self%q, speed_max=speed_max)
+   case(MODEL_MHD_EGLM)
+      call compute_speed_max_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     gamma=self%physics%gamma, R=self%physics%R, is_null=self%adam%grid%null_xyz,       &
+                                     q=self%q, speed_max=speed_max)
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -270,6 +288,9 @@ contains
                                q=self%q, n=n)
    case(MODEL_MHD_GLM)
       call count_nonfinite_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                   q=self%q, n=n)
+   case(MODEL_MHD_EGLM)
+      call count_nonfinite_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                    q=self%q, n=n)
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
@@ -354,6 +375,11 @@ contains
                                       blocks_number=self%blocks_number, hs=hs, band=self%ngc,                       &
                                       dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, seam=self%divb_seam, &
                                       q=self%q, divb_max=norms(1), divb_l1=norms(2), divb_seam_max=norms(3))
+   case(MODEL_MHD_EGLM)
+      call compute_divb_norms_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                             &
+                                      blocks_number=self%blocks_number, hs=hs, band=self%ngc,                       &
+                                      dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, seam=self%divb_seam, &
+                                      q=self%q, divb_max=norms(1), divb_l1=norms(2), divb_seam_max=norms(3))
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -379,6 +405,9 @@ contains
                              gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
    case(MODEL_MHD_GLM)
       call compute_q_aux_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                 gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
+   case(MODEL_MHD_EGLM)
+      call compute_q_aux_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                  gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
@@ -631,6 +660,12 @@ contains
                                   is_null=self%adam%grid%null_xyz, q=self%q, lambda_max=lambda_max)
    case(MODEL_MHD_GLM)
       call compute_lambda_max_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                                &
+                                      blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                      dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
+                                      lambda_max=lambda_max)
+      lambda_max = max(lambda_max, self%glm_lambda())
+   case(MODEL_MHD_EGLM)
+      call compute_lambda_max_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                                &
                                       blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                       dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
                                       lambda_max=lambda_max)
@@ -999,6 +1034,19 @@ contains
                                                             nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
                                                             ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                             weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   case(MODEL_MHD_EGLM)
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_eglm(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_eglm(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_eglm(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -1011,6 +1059,12 @@ contains
                                 phi=self%ib%phi)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
                                                                   damping=self%physics%mhd%glm_damping, q=q, dq=dq)
+   if (self%physics%model == MODEL_MHD_EGLM) then
+      call add_glm_damping_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, damping=self%physics%mhd%glm_damping, &
+                                q=q, dq=dq)
+      call add_eglm_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=self%weno%S, dxyz=self%adam%field%dxyz, &
+                            is_null=is_null, q=q, q_aux=self%q_aux, dq=dq)
+   endif
    endassociate
    endsubroutine compute_residuals_weno
 

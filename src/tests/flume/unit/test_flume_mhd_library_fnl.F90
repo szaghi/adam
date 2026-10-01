@@ -4,10 +4,12 @@ module test_flume_mhd_library_fnl_kernels
 !<
 !< Module-level (not a `contains`-internal procedure): device routines must be module procedures.
 
-use :: adam_flume_mhd_library, only : mhd_conservative_to_auxiliary, mhd_eigenvalues, mhd_eigenvectors,               &
+use :: adam_flume_mhd_library, only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary,              &
+                                      mhd_eglm_eigenvectors, mhd_eglm_face_split_fluxes, mhd_eglm_flux,               &
+                                      mhd_eigenvalues, mhd_eigenvectors,                                              &
                                       mhd_face_split_fluxes, mhd_flux, mhd_glm_eigenvalues, mhd_glm_eigenvectors,     &
                                       mhd_glm_face_split_fluxes, mhd_glm_flux, mhd_primitive_to_conservative
-use :: adam_flume_parameters,  only : IQ_PSI, NV_AUX_MHD, NV_MHD, NV_MHD_GLM, S_MAX
+use :: adam_flume_parameters,  only : IQ_PSI, IQ_RE, NV_AUX_MHD, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM, S_MAX
 use :: penf,                   only : I4P, R8P
 
 implicit none
@@ -18,16 +20,16 @@ public :: NR
 public :: NS
 
 integer(I4P), parameter :: S=3_I4P                                        !< WENO stencil half-width of the split test.
-integer(I4P), parameter :: NR=NV_AUX_MHD+2*(NV_MHD+NV_MHD_GLM)+ &
-                              2*(NV_MHD**2+NV_MHD_GLM**2)                  !< Pointwise results per state and direction.
-integer(I4P), parameter :: NS=2*(2*S_MAX)*(NV_MHD+NV_MHD_GLM)             !< Split results per state and direction.
+integer(I4P), parameter :: NR=2*NV_AUX_MHD+2*(NV_MHD+NV_MHD_GLM)+NV_MHD_EGLM+ &
+                              2*(NV_MHD**2+NV_MHD_GLM**2+NV_MHD_EGLM**2)   !< Pointwise results per state and direction.
+integer(I4P), parameter :: NS=2*(2*S_MAX)*(NV_MHD+NV_MHD_GLM+NV_MHD_EGLM) !< Split results per state and direction.
 real(R8P),    parameter :: GAMMA=5._R8P/3._R8P                            !< Specific heats ratio.
 real(R8P),    parameter :: R=1._R8P                                       !< Gas constant.
 
 contains
    subroutine evaluate(d, ch, prim, res, split)
-   !< Evaluate the library on one stencil of primitive states (both variants), direction `d`: pointwise results of
-   !< cell 0 and the characteristic split fields of the whole stencil.
+   !< Evaluate the library on one stencil of primitive states (the three variants; EGLM with `psi^2 / 2` in the energy),
+   !< direction `d`: pointwise results of cell 0 and the characteristic split fields of the whole stencil.
    integer(I4P), intent(in)  :: d                                      !< Direction.
    real(R8P),    intent(in)  :: ch                                     !< GLM cleaning speed.
    real(R8P),    intent(in)  :: prim(9,1-S_MAX:S_MAX)                  !< Stencil of primitive states and psi.
@@ -43,6 +45,12 @@ contains
    real(R8P)                 :: f8(NV_MHD), f9(NV_MHD_GLM)             !< Fluxes.
    real(R8P)                 :: fs8(2,1-S_MAX:S_MAX-1,NV_MHD)          !< Split fields, no cleaning.
    real(R8P)                 :: fs9(2,1-S_MAX:S_MAX-1,NV_MHD_GLM)      !< Split fields, GLM.
+   real(R8P)                 :: qse(NV_MHD_EGLM,1-S_MAX:S_MAX)         !< Stencil, EGLM.
+   real(R8P)                 :: qase(NV_AUX_MHD,1-S_MAX:S_MAX)         !< Stencil auxiliary variables, EGLM.
+   real(R8P)                 :: ele(NV_MHD_EGLM,NV_MHD_EGLM)           !< Left eigenvectors, EGLM.
+   real(R8P)                 :: ere(NV_MHD_EGLM,NV_MHD_EGLM)           !< Right eigenvectors, EGLM.
+   real(R8P)                 :: fe(NV_MHD_EGLM)                        !< Flux, EGLM.
+   real(R8P)                 :: fse(2,1-S_MAX:S_MAX-1,NV_MHD_EGLM)     !< Split fields, EGLM.
    integer(I4P)              :: m, i, j, k, c                          !< Counters.
    !$acc routine seq
    !$omp declare target
@@ -55,7 +63,14 @@ contains
       enddo
       qs9(IQ_PSI,m) = prim(9,m)
       call mhd_conservative_to_auxiliary(gamma=GAMMA, R=R, q=qs8(:,m), qa=qas(:,m))
+      do i=1, NV_MHD_EGLM
+         qse(i,m) = qs9(i,m)
+      enddo
+      qse(IQ_RE,m) = qse(IQ_RE,m) + 0.5_R8P * prim(9,m)**2
+      call mhd_eglm_conservative_to_auxiliary(gamma=GAMMA, R=R, q=qse(:,m), qa=qase(:,m))
    enddo
+   call mhd_eglm_flux(ch=ch, d=d, q=qse(:,0), qa=qase(:,0), f=fe)
+   call mhd_eglm_eigenvectors(gamma=GAMMA, d=d, qa=qase(:,0), psi=prim(9,0), el=ele, er=ere)
    call mhd_eigenvalues(d=d, qa=qas(:,0), lambda=lam8)
    call mhd_glm_eigenvalues(ch=ch, d=d, qa=qas(:,0), lambda=lam9)
    call mhd_flux(d=d, q=qs8(:,0), qa=qas(:,0), f=f8)
@@ -86,9 +101,23 @@ contains
          c = c + 1 ; res(c) = er9(i,j)
       enddo
    enddo
+   do i=1, NV_AUX_MHD
+      c = c + 1 ; res(c) = qase(i,0)
+   enddo
+   do i=1, NV_MHD_EGLM
+      c = c + 1 ; res(c) = fe(i)
+   enddo
+   do j=1, NV_MHD_EGLM
+      do i=1, NV_MHD_EGLM
+         c = c + 1 ; res(c) = ele(i,j)
+         c = c + 1 ; res(c) = ere(i,j)
+      enddo
+   enddo
    call mhd_face_split_fluxes(gamma=GAMMA, d=d, S=S, is_characteristic=.true., qs=qs8, qas=qas, fsplit=fs8, er=er8)
    call mhd_glm_face_split_fluxes(ch=ch, gamma=GAMMA, d=d, S=S, is_characteristic=.true., qs=qs9, qas=qas, &
                                   fsplit=fs9, er=er9)
+   call mhd_eglm_face_split_fluxes(ch=ch, gamma=GAMMA, d=d, S=S, is_characteristic=.true., qs=qse, qas=qase, &
+                                   fsplit=fse, er=ere)
    split = 0._R8P
    c = 0
    do k=1, NV_MHD
@@ -107,6 +136,14 @@ contains
          enddo
       enddo
    enddo
+   do k=1, NV_MHD_EGLM
+      do m=1-S_MAX, S_MAX-1
+         do i=1, 2
+            c = c + 1
+            if (m >= 1-S .and. m <= S-1) split(c) = fse(i,m,k)
+         enddo
+      enddo
+   enddo
    endsubroutine evaluate
 endmodule test_flume_mhd_library_fnl_kernels
 
@@ -116,7 +153,7 @@ program test_flume_mhd_library_fnl
 !< **Why this test exists** (issue #41, section 9, MV-0). The MHD library is shared by the CPU loops and the FNL kernels
 !< (`!$acc routine seq` + `!$omp declare target`); its correctness is pinned on the host by `test_flume_mhd_library`.
 !< This test pins that the device build of the SAME source returns the host results: for N random admissible stencils,
-!< every direction and both variants (no cleaning, GLM), auxiliary variables, eigenvalues, fluxes and eigenvectors of
+!< every direction and the three variants (no cleaning, GLM, EGLM), auxiliary variables, eigenvalues, fluxes and eigenvectors of
 !< the central cell, and the characteristic split fields of the non-uniform stencil (S = 3, exercising the face average
 !< and the per-wave speeds), computed in an offloaded loop and compared with the host evaluation, relative to each
 !< quantity's magnitude. Host and device may contract differently into FMAs: the comparison is not required bitwise.

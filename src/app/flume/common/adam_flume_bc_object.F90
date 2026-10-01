@@ -11,7 +11,7 @@ use :: adam_parameters,           only : BC_PERIODIC
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_parameters,     only : IQ_BX, IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM, strip_control
+use :: adam_flume_parameters,     only : IQ_BX, IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, strip_control
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 ! third party modules
 use :: finer,                     only : file_ini
@@ -103,7 +103,7 @@ contains
       do d=1, 3
          self%wall_sign(IQ_RU+d-1,d) = -1._R8P
       enddo
-   case(MODEL_MHD, MODEL_MHD_GLM)
+   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
       nprim = 8_I4P
       do d=1, 3
          self%wall_sign(IQ_RU+d-1,d) = -1._R8P

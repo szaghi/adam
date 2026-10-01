@@ -5,7 +5,7 @@ module adam_flume_physics_object
 !< The physical model is the ONE predicate that decides the state vector width `nv` (and `nv_aux`): the name arrays
 !< of the common object are built from the same predicate, so allocation and names cannot disagree. For
 !< `mhd-ideal` the predicate is `(physical_model, [mhd].(divergence_control))` (issue #41, D-4): `none` gives
-!< `MODEL_MHD` (`nv = 8`), `glm` gives `MODEL_MHD_GLM` (`nv = 9`).
+!< `MODEL_MHD` (`nv = 8`), `glm` gives `MODEL_MHD_GLM` (`nv = 9`), `eglm` gives `MODEL_MHD_EGLM` (`nv = 9`).
 
 ! ADAM singleton objects
 use :: adam_mpih_global,         only : mpih
@@ -13,8 +13,9 @@ use :: adam_mpih_global,         only : mpih
 use :: adam_flume_euler_library, only : primitive_to_conservative
 use :: adam_flume_mhd_library,   only : mhd_primitive_to_conservative
 use :: adam_flume_mhd_object,    only : flume_mhd_object
-use :: adam_flume_parameters,    only : IQ_PSI, MODEL_EULER, MODEL_MHD, MODEL_MHD_GLM, NV_AUX, NV_AUX_MHD, NV_EULER, NV_MHD,     &
-                                        NV_MHD_GLM, PHYSICAL_MODEL_EULER, PHYSICAL_MODEL_MHD_IDEAL, strip_control
+use :: adam_flume_parameters,    only : IQ_PSI, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, NV_AUX, NV_AUX_MHD, &
+                                        NV_EULER, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM, PHYSICAL_MODEL_EULER,                 &
+                                        PHYSICAL_MODEL_MHD_IDEAL, strip_control
 ! third party modules
 use :: finer,                    only : file_ini
 use :: penf,                     only : I4P, R8P, str
@@ -73,7 +74,10 @@ contains
       self%nv_aux = NV_AUX
    case(PHYSICAL_MODEL_MHD_IDEAL)
       call self%mhd%initialize(file_parameters=file_parameters)
-      if (self%mhd%has_glm) then
+      if (self%mhd%has_eglm) then
+         self%model = MODEL_MHD_EGLM
+         self%nv    = NV_MHD_EGLM
+      elseif (self%mhd%has_glm) then
          self%model = MODEL_MHD_GLM
          self%nv    = NV_MHD_GLM
       else
@@ -129,7 +133,7 @@ contains
    case(MODEL_MHD)
       call mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
                                          bx=prim(6), by=prim(7), bz=prim(8), q=q)
-   case(MODEL_MHD_GLM)
+   case(MODEL_MHD_GLM, MODEL_MHD_EGLM) ! psi = 0: the EGLM energy psi^2 / 2 vanishes
       call mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
                                          bx=prim(6), by=prim(7), bz=prim(8), q=q)
       q(IQ_PSI) = 0._R8P

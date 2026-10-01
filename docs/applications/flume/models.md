@@ -5,13 +5,14 @@ FLUME solves hyperbolic conservation laws of compressible, inviscid flow in the 
 $$\frac{\partial \mathbf{q}}{\partial t} + \sum_{d=1}^{3} \frac{\partial \mathbf{F}_d(\mathbf{q})}{\partial x_d} = \mathbf{S}(\mathbf{q}),$$
 
 with $\mathbf{q}$ the conservative state, $\mathbf{F}_d$ the flux along direction $d$ and $\mathbf{S}$ a source, present only
-in the GLM damping of the MHD model. Three models are implemented; the model fixes the state width `nv` and selects,
+in the GLM damping of the MHD model. Four models are implemented; the model fixes the state width `nv` and selects,
 on the host, the compute kernels compiled for that width (no branching on the model inside a kernel).
 
 | Model | `[physics] physical_model` | `[mhd] divergence_control` | $\mathbf{q}$ | `nv` |
 |---|---|---|---|---|
 | Compressible Euler | `euler` | — | $(\rho, \rho u, \rho v, \rho w, E)$ | 5 |
 | Ideal MHD with mixed GLM cleaning | `mhd-ideal` | `glm` | $(\rho, \rho u, \rho v, \rho w, E, B_x, B_y, B_z, \psi)$ | 9 |
+| Ideal MHD with EGLM cleaning ($E$ includes $\psi^2/2$) | `mhd-ideal` | `eglm` | as GLM | 9 |
 | Ideal MHD without divergence control | `mhd-ideal` | `none` | the first 8 of the above | 8 |
 
 All models are inviscid and use a calorically perfect ideal gas; viscosity, heat conduction and resistivity are
@@ -122,12 +123,29 @@ $$\tilde B_n = \tfrac12(B_{n,L} + B_{n,R}) - \frac{\psi_R - \psi_L}{2c_h}, \qqua
 `divergence_control = none` drops $\psi$ ($\mathrm{nv} = 8$). It is a diagnostic variant: in multi-dimensional runs the
 divergence error grows unchecked (the magnetised vortex reaches a negative pressure), so production runs use `glm`.
 
-::: info EGLM (planned, issue #47)
+### Divergence control: EGLM
+
 In the mixed GLM $\psi$ changes $B_n$ without appearing in the energy, so the change of magnetic energy is taken from the
 thermal pressure; at very low plasma $\beta$ this makes the first-order update of high-order stage states
-inadmissible (the Balsara–Spicer blast fails). The energy-consistent EGLM of Derigs et al. (2018) is planned as
-`divergence_control = eglm` (milestone M3).
-:::
+inadmissible (the Balsara–Spicer blast fails, issue #47). `divergence_control = eglm` selects the ideal GLM-MHD of
+Derigs et al. (2018, eqs. 3.16–3.18), with $\psi$ in field units and part of the energy:
+
+$$E = \frac{p}{\gamma - 1} + \frac{\rho|\mathbf{u}|^2}{2} + \frac{|\mathbf{B}|^2}{2} + \frac{\psi^2}{2},$$
+
+the $B_n$ flux $c_h\psi$, the $\psi$ flux $c_h B_n$, the energy flux augmented by $c_h\psi B_n$, and the
+nonconservative sources
+
+$$-(\nabla\cdot\mathbf{B})\,(0,\ \mathbf{B},\ \mathbf{u}\cdot\mathbf{B},\ \mathbf{u},\ 0)
+- (\mathbf{u}\cdot\nabla\psi)\,(0,\ \mathbf{0},\ \psi,\ \mathbf{0},\ 1)$$
+
+in the order $(\rho, \rho\mathbf{u}, E, \mathbf{B}, \psi)$. $\nabla\cdot\mathbf{B}$ and $\nabla\psi$ are centred
+differences of order $2S$, the WENO order (second-order sources drop the Alfvén wave to order 2.26). The damping
+$-\alpha (c_h/L)\,\psi$ uses the GLM keys and acts on $\psi$ only, so the removed cleaning energy becomes heat. Density
+is conserved exactly; momentum, energy and $\mathbf{B}$ up to the $O(\nabla\cdot\mathbf{B})$ sources. In the flux
+splitting the $(B_n, \psi)$ block has eigenvectors $\mathbf{r} = (1, \mp 1)$ at speeds $\mp c_h$ and the energy couples
+it to the core ($\mathbf{r}(E) = \mp\psi$, $\mathbf{l}_k(\psi) = -\psi\,\mathbf{l}_k(E)$), so with $\psi = 0$ the arithmetic
+of the core is that of GLM. EGLM runs with `scheme_space = weno`; with `weno-riemann` it is not available yet (issue
+#47, M3-P4b): the run stops.
 
 ### Positivity floors
 
