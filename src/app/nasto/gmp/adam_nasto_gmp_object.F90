@@ -139,7 +139,7 @@ contains
    call self%mpih_gpu%print_message('nasto_gmp_object%initialize start')
    call self%initialize_common(filename=filename, memory_avail=self%mpih_gpu%memory_avail)
    call self%field_gpu%initialize(mpih=self%mpih_gpu, field=self%adam%field, nv_aux=self%nv_aux, verbose=.false.)
-   call self%ib_gpu%initialize(mpih=self%mpih_gpu, ib=self%ib, field_gpu=self%field_gpu)
+   call self%ib_gpu%initialize(mpih=self%mpih_gpu, grid=self%adam%grid, ib=self%ib, field_gpu=self%field_gpu)
    call self%rk_gpu%initialize(mpih=self%mpih_gpu,rk=self%rk,nb=self%nb,ngc=self%ngc,ni=self%ni,nj=self%nj,nk=self%nk,nv=self%nv)
    call self%weno_gpu%initialize(mpih=self%mpih_gpu, weno=self%weno)
    call self%allocate_gpu(q_gpu=self%field_gpu%q_gpu)

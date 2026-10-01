@@ -3,7 +3,7 @@ module adam_ib_nvf_object
 !< ADAM, IB class NVF (NVF backend of [[ib_object]]).
 
 use adam_ib_object
-use adam_grid_global, only: grid
+use adam_grid_object, only: grid_object
 use adam_ib_nvf_kernels
 use adam_field_nvf_object
 use adam_memory_nvf_library
@@ -71,9 +71,10 @@ contains
    endassociate
    endsubroutine evolve_eikonal
 
-   subroutine initialize(self, ib, field_gpu)
-   !< Initialize class.
+   subroutine initialize(self, grid, ib, field_gpu)
+   !< Initialize class from the host `grid`/`ib` sibling realm components (threaded in).
    class(ib_nvf_object),   intent(inout)      :: self      !< IB NVF object.
+   type(grid_object),      intent(in), target :: grid      !< Grid (sibling realm component, threaded in).
    type(ib_object),        intent(in), target :: ib        !< IB object.
    type(field_nvf_object), intent(in), target :: field_gpu !< The field.
    character(:), allocatable                  :: msg_      !< Allocating message base.

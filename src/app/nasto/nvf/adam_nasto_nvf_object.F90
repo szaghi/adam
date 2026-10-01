@@ -140,7 +140,7 @@ contains
    call self%initialize_common(filename=filename, memory_avail=self%mpih_gpu%memory_avail)
    call self%mpih_gpu%load_from_file(file_parameters=self%io%file_parameters)
    call self%field_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.false.)
-   call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
+   call self%ib_gpu%initialize(grid=self%adam%grid, ib=self%ib, field_gpu=self%field_gpu)
    call self%rk_gpu%initialize(rk=self%rk, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv)
    call self%weno_gpu%initialize(weno=self%weno)
    call self%allocate_gpu(q_gpu=self%field_gpu%q_gpu)

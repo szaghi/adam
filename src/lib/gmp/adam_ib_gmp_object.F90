@@ -3,7 +3,7 @@ module adam_ib_gmp_object
 !< ADAM, IB class GMP (GMP backend of [[ib_object]]).
 
 use adam_ib_object
-use adam_grid_global, only: grid
+use adam_grid_object, only: grid_object
 use adam_ib_gmp_kernels
 use adam_field_gmp_object
 use adam_memory_gmp_library
@@ -69,10 +69,11 @@ contains
    endassociate
    endsubroutine evolve_eikonal
 
-   subroutine initialize(self, mpih, ib, field_gpu)
-   !< Initialize class.
+   subroutine initialize(self, mpih, grid, ib, field_gpu)
+   !< Initialize class from the host `grid`/`ib` sibling realm components (threaded in).
    class(ib_gmp_object),   intent(inout)      :: self      !< IB GMP object.
    type(mpih_gmp_object),  intent(in), target :: mpih      !< MPI handler, GMP backend.
+   type(grid_object),      intent(in), target :: grid      !< Grid (sibling realm component, threaded in).
    type(ib_object),        intent(in), target :: ib        !< IB object.
    type(field_gmp_object), intent(in), target :: field_gpu !< The field.
    character(:), allocatable                  :: msg_      !< Allocating message base.
