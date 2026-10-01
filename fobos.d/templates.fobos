@@ -8,6 +8,15 @@ quiet        = False
 log          = True
 jobs         = 4
 mpi          = True
+# `cudafor` (and its CUDA-runtime siblings) ship as intrinsic modules with
+# nvfortran only.  FoBiS parses the whole `src/` tree for every mode, so the
+# CUDA Fortran backend (src/lib/nvf/, src/app/*/nvf/) is scanned even by GNU
+# and AMD modes that never compile it -- emitting "depends on 'cudafor' that
+# is unreachable" noise whose only "fix" would be to switch compiler.  Declare
+# them intrinsic project-wide so the dependency scanner skips the `use` lines
+# regardless of the active compiler.  Matching is case-insensitive, so this
+# also covers the `use CUDAFOR` spelling in adam_{field,ib}_nvf_kernels.F90.
+intrinsic_modules = cudafor cudadeviceprop
 ext_libs     = z hdf5_fortran dl
 libs         = $HDF5_PREFIX/lib/libhdf5_fortran.a $HDF5_PREFIX/lib/libhdf5_f90cstub.a $HDF5_PREFIX/lib/libhdf5.a
 lib_dir      = $HDF5_PREFIX/lib
