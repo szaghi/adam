@@ -16,7 +16,8 @@ use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_fac
                                       mhd_fast_speed, mhd_face_split_fluxes, mhd_sum3
 use :: adam_flume_mhd_riemann_library, only : mhd_backbone_flux
 use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
-                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD, POSITIVITY_LIMITER_EPS, S_MAX
+                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD, POSITIVITY_LIMITER_EPS, &
+                                      POSITIVITY_LIMITER_KAPPA, S_MAX
 ! third party modules
 use :: penf,                   only : I4P, I8P, R8P
 

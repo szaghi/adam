@@ -3,7 +3,7 @@
    !
    ! Included in the `contains` part of the device kernel modules of the models that accept the limiter (Euler, MHD
    ! without divergence control, MHD with EGLM), which provide by use association `NV_K`, `NV_AUX_K`, `IQ_R`, `S_MAX`,
-   ! `POSITIVITY_LIMITER_EPS` and three device adapters (`!$acc routine seq`):
+   ! `POSITIVITY_LIMITER_EPS`, `POSITIVITY_LIMITER_KAPPA` and three device adapters (`!$acc routine seq`):
    ! * `backbone_face_flux(gamma, ch, d, qL, qR, f)`, `internal_energy(q)`: as on the CPU;
    ! * `cell_sources(hs, damping, ds, w, qsx, qsy, qsz, qac, s_lo, s_hi)`: the cell sources from the private stencils of
    !   the three directions (`qs*(:,m)`, `m = -hs ... hs`, gathered by the kernel) and the cell's auxiliary variables.
@@ -144,8 +144,10 @@
          bad = bad + 1_I4P
          lam_gpu(b,i,j,k,1) = 0._R8P
       else
-         er = min(POSITIVITY_LIMITER_EPS, 0.5_R8P * rb)
-         ee = min(POSITIVITY_LIMITER_EPS, 0.5_R8P * eb)
+         ! the larger of the absolute and the relative floor: a stage may not take the cell below KAPPA times its backbone
+         ! value, else a drained cell (rho ~ EPS, its energy kept) makes the next stage's backbone inadmissible
+         er = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * rb), POSITIVITY_LIMITER_KAPPA * rb)
+         ee = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * eb), POSITIVITY_LIMITER_KAPPA * eb)
          lc = 1._R8P
          !$acc loop seq
          do c=0, 2**nf - 1

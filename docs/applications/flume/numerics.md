@@ -130,8 +130,14 @@ for EGLM, the second-order nonconservative sources; with the Godunov–Powell (E
 CFL bound (Wu 2018, Wu & Shu 2018). Each face carries the antidiffusive difference $\pm\Delta t/\Delta x\,(F - F^{LF})$
 of the high-order flux $F$ (and EGLM the difference of the high- and second-order sources). The cell factor $\Lambda$
 is the largest value in $[0, 1]$ for which every corner of the box $[0, \Lambda]^{\text{faces}}$ keeps $\rho$ and the
-internal energy above $\varepsilon$; both are concave in the conservative state, so each corner has a closed-form
-factor (Zhang & Shu 2012), and $2^{2D}$ corners (16 in 2-D, 64 in 3-D) bound every combination. A face takes the smaller
+internal energy above their floors; both are concave in the conservative state, so each corner has a closed-form
+factor (Zhang & Shu 2012), and $2^{2D}$ corners (16 in 2-D, 64 in 3-D) bound every combination. The floor of a quantity
+is the larger of the absolute one, $\min(10^{-13}, \tfrac12\,\text{backbone value})$, and the relative one, $\kappa$
+times the backbone value with $\kappa = 0.1$: positivity alone leaves a state admissible but not usable (on the planar
+Sedov blast with HLLC one stage drains the centre cell to $\rho = 10^{-13}$ with its energy kept, the sound speed grows
+by $10^6$ and the next stage, whose $\Delta t$ is that of the step's first state, has no admissible backbone), so a
+stage may not take a cell below a tenth of its first-order update. A smooth update differs from the backbone by
+$O(\Delta x)$, so the relative floor does not act there. A face takes the smaller
 factor of its two cells, $F \leftarrow F^{LF} + \theta(F - F^{LF})$ (Xu 2014; Christlieb et al. 2015), so the update is
 conservative and each forward-Euler step of size $\Delta t$ is admissible; an SSP Runge–Kutta stage is a convex
 combination of such steps, which is why the limiter requires an SSP scheme. A face whose two cells keep $\Lambda = 1$ is

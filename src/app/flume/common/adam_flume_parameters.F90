@@ -66,6 +66,7 @@ public :: FLUX_CORRECTION_SENSOR_NONE
 public :: FLUX_CORRECTION_SENSOR_TAU
 public :: POSITIVITY_LIMITER_CELL
 public :: POSITIVITY_LIMITER_EPS
+public :: POSITIVITY_LIMITER_KAPPA
 public :: POSITIVITY_LIMITER_NONE
 public :: strip_control
 
@@ -133,8 +134,11 @@ real(R8P),         parameter :: FLUX_CORRECTION_SENSOR_TAU=0.2_R8P    !< Correct
 character(len=4),  parameter :: POSITIVITY_LIMITER_NONE="none"        !< [numerics].(positivity_limiter): off.
 character(len=4),  parameter :: POSITIVITY_LIMITER_CELL="cell"        !< [numerics].(positivity_limiter): cell-based
                                                                       !< parametrised flux limiter (issue #47, D-9).
-real(R8P),         parameter :: POSITIVITY_LIMITER_EPS=1.e-13_R8P     !< Admissibility floor of the limiter: rho, the
+real(R8P),         parameter :: POSITIVITY_LIMITER_EPS=1.e-13_R8P     !< Absolute floor of the limiter: rho, the
                                                                       !< internal energy >= min(EPS, backbone / 2).
+real(R8P),         parameter :: POSITIVITY_LIMITER_KAPPA=0.1_R8P      !< Relative floor of the limiter: rho, the
+                                                                      !< internal energy >= KAPPA backbone (the larger
+                                                                      !< of the two floors holds; issue #47, M3-P5c).
 
 contains
    ! public procedures

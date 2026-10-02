@@ -20,7 +20,10 @@ program test_flume_positivity
 !<    failures, must be 0);
 !< 2. the limiter is needed and acts: without it some updates are inadmissible, and some cells get `Lambda < 1` (both
 !<    must be > 0, else the test exercises nothing);
-!< 3. inadmissible backbones (count, reported: the backbone's own CFL-type condition is not part of the guarantee).
+!< 3. inadmissible backbones (count, reported: the backbone's own CFL-type condition is not part of the guarantee);
+!< 4. the relative floor (issue #47, M3-P5c): the same cells keep density and internal energy above
+!<    `POSITIVITY_LIMITER_KAPPA` times those of their backbone update (count of failures, must be 0; the internal energy
+!<    within the round-off of the total energy).
 !<
 !< **Not pinned: the source term of the corners** (`dt (s_hi - s_lo)`, EGLM). Measured (M3-P5a): removing it is not
 !< detected, and a case with the high-order fluxes equal to the backbone ones never needs limiting, not even on cold,
@@ -40,7 +43,8 @@ use :: adam_flume_mhd_library,          only : mhd_conservative_to_auxiliary, mh
                                                mhd_fast_speed
 use :: adam_flume_mhd_riemann_library,  only : mhd_backbone_flux, mhd_eglm_backbone_flux
 use :: adam_flume_parameters,           only : IA_A, IA_BX, IA_BZ, IA_R, IA_U, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R,      &
-                                               IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX, NV_AUX_MHD, NV_EULER, NV_MHD, NV_MHD_EGLM
+                                               IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX, NV_AUX_MHD, NV_EULER, NV_MHD,       &
+                                               NV_MHD_EGLM, POSITIVITY_LIMITER_KAPPA
 use :: penf,                            only : I4P, R8P, str
 
 implicit none
@@ -57,6 +61,7 @@ integer(I4P)            :: fails(3)            !< Inadmissible updates per model
 integer(I4P)            :: limited(3)          !< Cells with Lambda < 1 per model.
 integer(I4P)            :: bad(3)              !< Inadmissible backbones per model.
 integer(I4P)            :: unlim(3)            !< Inadmissible updates without the limiter per model.
+integer(I4P)            :: below(3)            !< Updates below the relative floor per model.
 integer(I4P)            :: seed(64)            !< Random generator seed.
 integer(I4P)            :: ns, n_, m           !< Seed size, counters.
 logical                 :: test_passed         !< Aggregate pass flag.
@@ -67,19 +72,20 @@ call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
 seed = [(20261002_I4P + n_, n_=1, size(seed))]
 call random_seed(put=seed(1:ns))
-fails = 0 ; limited = 0 ; bad = 0 ; unlim = 0
+fails = 0 ; limited = 0 ; bad = 0 ; unlim = 0 ; below = 0
 do n_=1, N
    do m=1, 3
-      call trial(model=m, fails=fails(m), limited=limited(m), bad=bad(m), unlim=unlim(m))
+      call trial(model=m, fails=fails(m), limited=limited(m), bad=bad(m), unlim=unlim(m), below=below(m))
    enddo
 enddo
 test_passed = .true.
 do m=1, 3
    print '(A)', names(m)//': inadmissible updates '//trim(str(fails(m)))//', limited cells '//trim(str(limited(m)))// &
                 ', inadmissible backbones '//trim(str(bad(m)))//', unlimited inadmissible '//        &
-                trim(str(unlim(m)))//' ('//trim(str(N))//' trials of '//         &
-                trim(str(NC**3))//' cells)'
-   test_passed = test_passed .and. fails(m) == 0_I4P .and. limited(m) > 0_I4P .and. unlim(m) > 0_I4P
+                trim(str(unlim(m)))//', below the relative floor '//trim(str(below(m)))//      &
+                ' ('//trim(str(N))//' trials of '//trim(str(NC**3))//' cells)'
+   test_passed = test_passed .and. fails(m) == 0_I4P .and. limited(m) > 0_I4P .and. unlim(m) > 0_I4P .and. &
+                 below(m) == 0_I4P
 enddo
 if (test_passed) then
    print '(A)', 'TEST PASSED: flume positivity limiter'
@@ -106,11 +112,13 @@ contains
    if (size(q) == NV_MHD_EGLM) e = e - 0.5_R8P * q(IQ_PSI)**2
    endfunction energy
 
-   subroutine trial(model, fails, limited, bad, unlim)
+   subroutine trial(model, fails, limited, bad, unlim, below)
    !< One random trial of a model (1 Euler, 2 MHD, 3 EGLM).
    integer(I4P), intent(in)    :: model                     !< Model.
    integer(I4P), intent(inout) :: fails, limited, bad       !< Counters.
    integer(I4P), intent(inout) :: unlim                     !< Inadmissible updates without the limiter.
+   integer(I4P), intent(inout) :: below                     !< Updates below the relative floor.
+   real(R8P), allocatable      :: fbx(:,:,:,:,:), fby(:,:,:,:,:), fbz(:,:,:,:,:) !< Backbone face fluxes.
    real(R8P), allocatable      :: q(:,:,:,:,:)              !< State.
    real(R8P), allocatable      :: qa(:,:,:,:,:)             !< Auxiliary variables.
    real(R8P), allocatable      :: dq(:,:,:,:,:)             !< Residuals.
@@ -137,6 +145,7 @@ contains
    allocate(q(nv,1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1), qa(na,1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1))
    allocate(dq(nv,1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1), lam(nv,1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1))
    allocate(flx(nv,0:NC,1:NC,1:NC,1), fly(nv,1:NC,0:NC,1:NC,1), flz(nv,1:NC,1:NC,0:NC,1))
+   allocate(fbx(nv,0:NC,1:NC,1:NC,1), fby(nv,1:NC,0:NC,1:NC,1), fbz(nv,1:NC,1:NC,0:NC,1))
    smax = 0._R8P
    do k=1-NGC, NC+NGC
       do j=1-NGC, NC+NGC
@@ -197,14 +206,17 @@ contains
    dt = 0.4_R8P * DX / (3._R8P * smax)
    do k=1, NC ; do j=1, NC ; do i=0, NC
       call backbone(model=model, d=1, qL=q(:,i,j,k,1), qR=q(:,i+1,j,k,1), f=flx(:,i,j,k,1))
+      fbx(:,i,j,k,1) = flx(:,i,j,k,1)
       call perturb(f=flx(:,i,j,k,1), q=q(:,i,j,k,1), sigma=smax)
    enddo ; enddo ; enddo
    do k=1, NC ; do j=0, NC ; do i=1, NC
       call backbone(model=model, d=2, qL=q(:,i,j,k,1), qR=q(:,i,j+1,k,1), f=fly(:,i,j,k,1))
+      fby(:,i,j,k,1) = fly(:,i,j,k,1)
       call perturb(f=fly(:,i,j,k,1), q=q(:,i,j,k,1), sigma=smax)
    enddo ; enddo ; enddo
    do k=0, NC ; do j=1, NC ; do i=1, NC
       call backbone(model=model, d=3, qL=q(:,i,j,k,1), qR=q(:,i,j,k+1,1), f=flz(:,i,j,k,1))
+      fbz(:,i,j,k,1) = flz(:,i,j,k,1)
       call perturb(f=flz(:,i,j,k,1), q=q(:,i,j,k,1), sigma=smax)
    enddo ; enddo ; enddo
    lam = 1._R8P
@@ -240,6 +252,7 @@ contains
    endselect
    bad = bad + nb
    call update(model, q, qa, lam, flx, fly, flz, dt, dxyz, is_null, fails)
+   call floor_check(model, q, qa, lam, flx, fly, flz, fbx, fby, fbz, dt, dxyz, is_null, below)
    do k=1, NC
       do j=1, NC
          do i=1, NC
@@ -310,6 +323,35 @@ contains
    real(R8P)                   :: dq(size(q,1),1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1) !< Residuals.
    integer(I4P)                :: i, j, k                         !< Counters.
 
+   call residual(model, q, qa, lam, flx, fly, flz, dxyz, is_null, dq)
+   do k=1, NC
+      do j=1, NC
+         do i=1, NC
+            if (lam(1,i,j,k,1) == 0._R8P) cycle ! an inadmissible backbone (counted in bad) carries no guarantee
+            if (.not.(q(IQ_R,i,j,k,1) + dt * dq(IQ_R,i,j,k,1) > 0._R8P)) then
+               count = count + 1_I4P
+            elseif (.not.(energy(q(:,i,j,k,1) + dt * dq(:,i,j,k,1)) > 0._R8P)) then
+               count = count + 1_I4P
+            endif
+         enddo
+      enddo
+   enddo
+   endsubroutine update
+
+   subroutine residual(model, q, qa, lam, flx, fly, flz, dxyz, is_null, dq)
+   !< Return the residuals of the given fluxes and factors (the EGLM damping and the sources limited by `lam`).
+   integer(I4P), intent(in)  :: model                           !< Model.
+   real(R8P),    intent(in)  :: q(1:,1-NGC:,1-NGC:,1-NGC:,1:)    !< State.
+   real(R8P),    intent(in)  :: qa(1:,1-NGC:,1-NGC:,1-NGC:,1:)   !< Auxiliary variables.
+   real(R8P),    intent(in)  :: lam(1:,1-NGC:,1-NGC:,1-NGC:,1:)  !< Cell factors.
+   real(R8P),    intent(in)  :: flx(1:,0:,1:,1:,1:)              !< X-face fluxes.
+   real(R8P),    intent(in)  :: fly(1:,1:,0:,1:,1:)              !< Y-face fluxes.
+   real(R8P),    intent(in)  :: flz(1:,1:,1:,0:,1:)              !< Z-face fluxes.
+   real(R8P),    intent(in)  :: dxyz(3,1)                        !< Space steps.
+   logical,      intent(in)  :: is_null(3)                       !< Null directions.
+   real(R8P),    intent(out) :: dq(1:,1-NGC:,1-NGC:,1-NGC:,1:)   !< Residuals.
+   integer(I4P)              :: i, j, k                          !< Counters.
+
    dq = 0._R8P
    do k=1, NC
       do j=1, NC
@@ -324,17 +366,48 @@ contains
       call add_eglm_sources_limited(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, hs=HS, dxyz=dxyz, &
                                     is_null=is_null, q=q, q_aux=qa, lam=lam, dq=dq)
    endif
+   endsubroutine residual
+
+   subroutine floor_check(model, q, qa, lam, flx, fly, flz, fbx, fby, fbz, dt, dxyz, is_null, count)
+   !< Count the interior cells (with an admissible backbone) whose limited update has a density or an internal energy
+   !< below `POSITIVITY_LIMITER_KAPPA` times that of the backbone update (backbone fluxes, zero factors: the EGLM sources
+   !< at second order); the internal energy within the round-off of the total energy.
+   integer(I4P), intent(in)    :: model                            !< Model.
+   real(R8P),    intent(in)    :: q(1:,1-NGC:,1-NGC:,1-NGC:,1:)     !< State.
+   real(R8P),    intent(in)    :: qa(1:,1-NGC:,1-NGC:,1-NGC:,1:)    !< Auxiliary variables.
+   real(R8P),    intent(in)    :: lam(1:,1-NGC:,1-NGC:,1-NGC:,1:)   !< Cell factors.
+   real(R8P),    intent(in)    :: flx(1:,0:,1:,1:,1:)               !< X-face limited fluxes.
+   real(R8P),    intent(in)    :: fly(1:,1:,0:,1:,1:)               !< Y-face limited fluxes.
+   real(R8P),    intent(in)    :: flz(1:,1:,1:,0:,1:)               !< Z-face limited fluxes.
+   real(R8P),    intent(in)    :: fbx(1:,0:,1:,1:,1:)               !< X-face backbone fluxes.
+   real(R8P),    intent(in)    :: fby(1:,1:,0:,1:,1:)               !< Y-face backbone fluxes.
+   real(R8P),    intent(in)    :: fbz(1:,1:,1:,0:,1:)               !< Z-face backbone fluxes.
+   real(R8P),    intent(in)    :: dt                                !< Time step.
+   real(R8P),    intent(in)    :: dxyz(3,1)                         !< Space steps.
+   logical,      intent(in)    :: is_null(3)                        !< Null directions.
+   integer(I4P), intent(inout) :: count                             !< Counter.
+   real(R8P)                   :: dq(size(q,1),1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1)  !< Limited residuals.
+   real(R8P)                   :: dqb(size(q,1),1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1) !< Backbone residuals.
+   real(R8P)                   :: lam0(1,1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1)        !< Zero factors.
+   real(R8P)                   :: qn(size(q,1)), qb(size(q,1))      !< Limited and backbone updates.
+   integer(I4P)                :: i, j, k                           !< Counters.
+
+   lam0 = 0._R8P
+   call residual(model, q, qa, lam, flx, fly, flz, dxyz, is_null, dq)
+   call residual(model, q, qa, lam0, fbx, fby, fbz, dxyz, is_null, dqb)
    do k=1, NC
       do j=1, NC
          do i=1, NC
-            if (lam(1,i,j,k,1) == 0._R8P) cycle ! an inadmissible backbone (counted in bad) carries no guarantee
-            if (.not.(q(IQ_R,i,j,k,1) + dt * dq(IQ_R,i,j,k,1) > 0._R8P)) then
+            if (lam(1,i,j,k,1) == 0._R8P) cycle ! an inadmissible backbone carries no guarantee
+            qn = q(:,i,j,k,1) + dt * dq(:,i,j,k,1)
+            qb = q(:,i,j,k,1) + dt * dqb(:,i,j,k,1)
+            if (qn(IQ_R) < POSITIVITY_LIMITER_KAPPA * qb(IQ_R) * (1._R8P - 1.e-12_R8P)) then
                count = count + 1_I4P
-            elseif (.not.(energy(q(:,i,j,k,1) + dt * dq(:,i,j,k,1)) > 0._R8P)) then
+            elseif (energy(qn) < POSITIVITY_LIMITER_KAPPA * energy(qb) - 1.e-11_R8P * abs(qn(IQ_RE))) then
                count = count + 1_I4P
             endif
          enddo
       enddo
    enddo
-   endsubroutine update
+   endsubroutine floor_check
 endprogram test_flume_positivity
