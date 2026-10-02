@@ -14,16 +14,19 @@ module adam_flume_fnl_euler_kernels
 use :: adam_fnl_weno_kernels,    only : weno_reconstruct_upwind_dev
 ! FLUME modules
 use :: adam_flume_euler_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &
-                                        conservative_to_auxiliary
-use :: adam_flume_parameters,    only : IA_A, IA_U, IA_V, IA_W, NV_AUX_K=>NV_AUX, NV_K=>NV_EULER, S_MAX
+                                        compute_riemann_llf, conservative_to_auxiliary
+use :: adam_flume_parameters,    only : IA_A, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_K=>NV_AUX,     &
+                                        NV_K=>NV_EULER, POSITIVITY_LIMITER_EPS, S_MAX
 ! third party modules
 use :: penf,                     only : I4P, I8P, R8P
 
 implicit none
 private
+public :: blend_positivity_fluxes_dev
 public :: compute_conservation_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
+public :: compute_positivity_factors_dev
 public :: compute_q_aux_dev
 public :: count_nonfinite_dev
 
@@ -32,6 +35,8 @@ contains
 #include "adam_flume_fnl_face_kernels_agnostic.INC"
 
 #include "adam_flume_fnl_aux_kernels_agnostic.INC"
+
+#include "adam_flume_fnl_positivity_kernels_agnostic.INC"
 
    subroutine compute_conservation_dev(ni, nj, nk, ngc, blocks_number, dxyz_gpu, q_gpu, integrals)
    !< Compute the volume integrals of the conservative variables (interior cells). The cell volume includes the null
@@ -132,4 +137,47 @@ contains
    call compute_face_split_fluxes(gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
                                   fsplit=fsplit, er=er)
    endsubroutine face_split_fluxes
+
+   pure subroutine backbone_face_flux(gamma, ch, d, qL, qR, f)
+   !< Backbone adapter of the positivity limiter: the Rusanov flux, `ch` unused.
+   real(R8P),    intent(in)  :: gamma    !< Specific heats ratio.
+   real(R8P),    intent(in)  :: ch       !< GLM cleaning speed.
+   integer(I4P), intent(in)  :: d        !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_K) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_K) !< Right state.
+   real(R8P),    intent(out) :: f(NV_K)  !< Flux.
+   !$acc routine seq
+   !$omp declare target
+
+   call compute_riemann_llf(gamma=gamma, d=d, qL=qL, qR=qR, f=f)
+   endsubroutine backbone_face_flux
+
+   pure function internal_energy(q) result(e)
+   !< Internal-energy adapter of the positivity limiter: `E` minus the kinetic energy, per unit volume.
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: e       !< Internal energy per unit volume.
+   !$acc routine seq
+   !$omp declare target
+
+   e = q(IQ_RE) - 0.5_R8P * (q(IQ_RU)**2 + q(IQ_RV)**2 + q(IQ_RW)**2) / q(IQ_R)
+   endfunction internal_energy
+
+   pure subroutine cell_sources(hs, damping, ds, w, qsx, qsy, qsz, qac, s_lo, s_hi)
+   !< Sources adapter of the positivity limiter: none (Euler).
+   integer(I4P), intent(in)  :: hs                     !< Half stencil of the high-order sources.
+   real(R8P),    intent(in)  :: damping                !< GLM damping rate.
+   real(R8P),    intent(in)  :: ds(3)                  !< Block space steps.
+   real(R8P),    intent(in)  :: w(3)                   !< Direction weights: 1 active, 0 null.
+   real(R8P),    intent(in)  :: qsx(NV_K,-S_MAX:S_MAX) !< Stencil along x.
+   real(R8P),    intent(in)  :: qsy(NV_K,-S_MAX:S_MAX) !< Stencil along y.
+   real(R8P),    intent(in)  :: qsz(NV_K,-S_MAX:S_MAX) !< Stencil along z.
+   real(R8P),    intent(in)  :: qac(NV_AUX_K)          !< Cell auxiliary variables.
+   real(R8P),    intent(out) :: s_lo(NV_K)             !< Backbone sources.
+   real(R8P),    intent(out) :: s_hi(NV_K)             !< High-order sources.
+   !$acc routine seq
+   !$omp declare target
+
+   s_lo = 0._R8P
+   s_hi = 0._R8P
+   endsubroutine cell_sources
 endmodule adam_flume_fnl_euler_kernels

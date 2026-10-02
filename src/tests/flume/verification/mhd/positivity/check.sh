@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FLUME verification PV-1 and PV-4 (issue #47, M3-P5a): the positivity limiter, `[numerics] positivity_limiter = cell`.
+# FLUME verification PV-1 and PV-4 (issue #47, M3-P5a, M3-P5b): the positivity limiter, `[numerics] positivity_limiter = cell`.
 #
 # Why: the limiter (D-9) blends every face flux with the first-order Lax-Friedrichs backbone so that each stage keeps
 # the density and the pressure positive; it must make the hard problems run without floors, and leave the smooth ones
@@ -9,13 +9,14 @@
 #      characteristic: the run reaches t = 0.01, and the limiter never meets an inadmissible backbone (the log line
 #      `positivity limiter: N faces limited, M inadmissible backbones` has M = 0 at every stage);
 #   2. PV-4, inactive on smooth problems: with the limiter on, the isentropic vortex (Euler, N = 64, 128) and the 1-D
-#      fast wave (EGLM, N = 16, 32) are BITWISE equal to the runs without it (a face whose two cells keep Lambda = 1 is
+#      fast wave (EGLM, N = 16, 32) are BITWISE equal to the runs without it (interior cells) (a face whose two cells keep Lambda = 1 is
 #      not touched, and the EGLM sources with Lambda = 1 take the unlimited arithmetic), so their orders are unchanged.
 # About 8 min on the CPU. One run at a time; checkpoints deleted after use.
 #
 # Usage: ./check.sh [--np N]
 #
-# FLUME_EXE overrides the executable under test (the FNL backend refuses the limiter until M3-P5b).
+# FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh (M3-P5b)
+# The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -50,7 +51,8 @@ run() { # run <work> <ini>: run one case, fail the check if the run fails
       return 1
    fi
 }
-same() { # same <work-a> <work-b>: the last checkpoints of the two runs bitwise equal
+same() { # same <work-a> <work-b>: the interiors of the last checkpoints of the two runs bitwise equal (FNL ghost
+         # cells are not reproducible run to run, M3-P3b)
    "$VENV_PY" - "$1" "$2" <<'EOF'
 import glob
 import sys
@@ -66,7 +68,7 @@ for f in (f for f in fa if int(f.split("-")[-2]) == last):
     with h5py.File(f) as x, h5py.File(f.replace(a, b)) as y:
         for k in x:
             if x[k].ndim == 3:
-                diff = max(diff, float(np.max(np.abs(x[k][()] - y[k][()]))))
+                diff = max(diff, float(np.max(np.abs(x[k][()][3:-3, 3:-3, 3:-3] - y[k][()][3:-3, 3:-3, 3:-3]))))
 ok = diff == 0.0
 print(f"   {b.split('/')[-1]} vs {a.split('/')[-1]}: step {last}, max |difference| {diff:.3e}  "
       f"{'PASS (bitwise)' if ok else 'FAIL'}")

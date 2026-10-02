@@ -384,7 +384,7 @@ The section is not read for `euler`.
 | `flux_correction` | string | `weno-riemann` | `6th`, `4th`, `none` (2nd order). Other → fatal. | Face-flux correction `F^ = c1 F + c2 (f_i+f_i+1) + c3 (f_i-1+f_i+2)`. |
 | `flux_correction_sensor` | string | `weno-riemann` | `weno` or `none`. Other → fatal. | `weno`: the correction is switched off at faces where `min_k w_k/d_k < 0.2` (fixed threshold `FLUX_CORRECTION_SENSOR_TAU`). `none`: always on. |
 | `reflux` | logical | yes | logical | Berger–Colella reflux at AMR coarse-fine faces (and inter-realm seams). `.false.` is a diagnostic only: the run is then not conservative across 2:1 faces. |
-| `positivity_limiter` | string | no (default `none`) | `none` or `cell`. Other → fatal. `cell` is fatal with `[mhd] divergence_control = glm`, a non-SSP `[runge_kutta] scheme`, immersed solids, multi-realm runs, and (until M3-P5b) the FNL backend. | `cell`: the cell-based positivity limiter ([numerics](./numerics#positivity-limiter)): every face flux blended with the first-order Lax–Friedrichs backbone so that each stage keeps the density and the pressure positive; the limited faces are logged per stage. |
+| `positivity_limiter` | string | no (default `none`) | `none` or `cell`. Other → fatal. `cell` is fatal with `[mhd] divergence_control = glm`, a non-SSP `[runge_kutta] scheme`, immersed solids and multi-realm runs. | `cell`: the cell-based positivity limiter ([numerics](./numerics#positivity-limiter)): every face flux blended with the first-order Lax–Friedrichs backbone so that each stage keeps the density and the pressure positive; the limited faces are logged per stage. |
 
 ---
 

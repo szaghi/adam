@@ -27,7 +27,7 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM,               &
-                                              MODEL_MHD_GLM,                                                         &
+                                              MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,                                &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,            &
                                               RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,              &
                                               SCHEME_SPACE_WENO_RIEMANN
@@ -44,19 +44,27 @@ use :: adam_flume_fnl_mhd_eglm_hll_kernels,     only : compute_riemann_face_flux
 use :: adam_flume_fnl_mhd_eglm_hlld_kernels,    only : &
                                                    compute_riemann_face_fluxes_mhd_eglm_hlld_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf_dev=>compute_riemann_face_fluxes_dev
-use :: adam_flume_fnl_euler_kernels,   only : compute_conservation_euler_dev=>compute_conservation_dev,                &
+use :: adam_flume_fnl_euler_kernels,   only : blend_positivity_fluxes_euler_dev=>blend_positivity_fluxes_dev,          &
+                                              compute_conservation_euler_dev=>compute_conservation_dev,                &
+                                              compute_positivity_factors_euler_dev=>compute_positivity_factors_dev,    &
                                               compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
                                               compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
                                               compute_q_aux_euler_dev=>compute_q_aux_dev,                              &
                                               count_nonfinite_euler_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors_dev,                           &
+                                              blend_positivity_fluxes_mhd_dev=>blend_positivity_fluxes_dev,           &
+                                              compute_positivity_factors_mhd_dev=>compute_positivity_factors_dev,     &
                                               compute_divb_norms_mhd_dev=>compute_divb_norms_dev,                     &
                                               compute_conservation_mhd_dev=>compute_conservation_dev,                 &
                                               compute_face_fluxes_mhd_dev=>compute_face_fluxes_dev,                   &
                                               compute_lambda_max_mhd_dev=>compute_lambda_max_dev,                     &
                                               compute_q_aux_mhd_dev=>compute_q_aux_dev,                               &
                                               count_nonfinite_mhd_dev=>count_nonfinite_dev
-use :: adam_flume_fnl_mhd_eglm_kernels, only : add_eglm_sources_dev, add_glm_damping_eglm_dev=>add_glm_damping_dev,   &
+use :: adam_flume_fnl_mhd_eglm_kernels, only : add_eglm_sources_dev, add_eglm_sources_limited_dev,                  &
+                                               add_glm_damping_eglm_dev=>add_glm_damping_dev,                         &
+                                               blend_positivity_fluxes_mhd_eglm_dev=>blend_positivity_fluxes_dev,     &
+                                               compute_positivity_factors_mhd_eglm_dev=>                              &
+                                               compute_positivity_factors_dev,                                        &
                                                apply_floors_mhd_eglm_dev=>apply_floors_dev,                           &
                                                compute_divb_norms_mhd_eglm_dev=>compute_divb_norms_dev,               &
                                                compute_conservation_mhd_eglm_dev=>compute_conservation_dev,           &
@@ -101,6 +109,8 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: flx_f_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, nv].
    real(R8P), pointer     :: fly_f_gpu(:,:,:,:,:)=>null() !< Y-face fluxes [nb, 1:ni, 0:nj, 1:nk, nv].
    real(R8P), pointer     :: flz_f_gpu(:,:,:,:,:)=>null() !< Z-face fluxes [nb, 1:ni, 1:nj, 0:nk, nv].
+   real(R8P), pointer     :: lam_gpu(:,:,:,:,:)=>null()   !< Positivity limiter cell factors (component 1, q-shaped for
+                                                          !< the ghost exchange) [nb, i, j, k, nv]; with the limiter.
    real(R8P), pointer     :: q_inflow_gpu(:,:)=>null()    !< Conservative inflow state of each face [nv, 6].
    real(R8P), pointer     :: wall_sign_gpu(:,:)=>null()   !< Wall mirror sign per variable and direction [nv, 3].
    integer(I4P), pointer  :: divb_seam_gpu(:,:)=>null()   !< Seam faces flags of the div(B) history [nb, 6].
@@ -126,6 +136,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
       procedure, pass(self) :: destroy                 !< Free device and host data.
       procedure, pass(self) :: initialize_flume        !< Initialize the FNL backend.
+      procedure, pass(self) :: limit_positivity_dev    !< Apply the positivity limiter to the stage face fluxes.
       procedure, pass(self) :: save_residuals          !< Save residuals history.
       procedure, pass(self) :: save_simulation_data    !< Save fields, restart and diagnostics on their cadence.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions on the device crown maps.
@@ -285,6 +296,11 @@ contains
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate fly_f_gpu in flume_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%flz_f_gpu, ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,1,0,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flz_f_gpu in flume_fnl_object%allocate_gpu')
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
+      call dev_alloc(fptr_dev=self%lam_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
+                     init_value=1._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate lam_gpu in flume_fnl_object%allocate_gpu')
+   endif
    call dev_assign_to_device(src=self%bc%q_inflow,  dst=self%q_inflow_gpu)
    call dev_assign_to_device(src=self%bc%wall_sign, dst=self%wall_sign_gpu)
    allocate(self%buf_5D_R8P(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv), stat=alloc_stat, errmsg=alloc_msg)
@@ -510,6 +526,7 @@ contains
    call free_gpu(self%flx_f_gpu)
    call free_gpu(self%fly_f_gpu)
    call free_gpu(self%flz_f_gpu)
+   call free_gpu(self%lam_gpu)
    if (associated(self%q_inflow_gpu)) then
       call dev_free(self%q_inflow_gpu, mydev)
       nullify(self%q_inflow_gpu)
@@ -560,9 +577,9 @@ contains
    endif
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
-   if (self%numerics%positivity_limiter /= 'none') &
-      call mpih_fnl%error_stop(msg=': [numerics].(positivity_limiter)='//self%numerics%positivity_limiter// &
-                                   ' is not available on the FNL backend yet (issue #47, M3-P5b)')
+   if (realms_number_ > 1_I4P .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
+      call mpih_fnl%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported on multi-realm runs (the '// &
+                                   'inter-realm seam faces carry no limiting factor)')
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
@@ -586,6 +603,110 @@ contains
       call mpih_fnl%error_stop(msg=': no FNL time integrator for [runge_kutta].(scheme) "'//trim(self%rk%scheme)//'"')
    endselect
    endsubroutine initialize_flume
+
+   subroutine limit_positivity_dev(self, q_gpu)
+   !< Apply the positivity limiter to the device face fluxes of the stage (issue #47, D-9; device twin of the CPU
+   !< `limit_positivity`): the model's factors kernel, the ghost exchange of the factors on the device (intra-realm copies
+   !< and GPU-direct MPI only: a physical-boundary ghost keeps the factor 1 it was allocated with), the blending of the
+   !< active directions; the counters are reduced over the ranks and logged.
+   class(flume_fnl_object), intent(inout) :: self      !< The equation.
+   real(R8P),               intent(in)    :: q_gpu(1:,         &
+                                                     1-self%ngc:,&
+                                                     1-self%ngc:,&
+                                                     1-self%ngc:,&
+                                                     1:)         !< Conservative variables of the stage.
+   integer(I4P)                           :: counts(4) !< Inadmissible backbones, limited faces per direction.
+   integer(I4P)                           :: d         !< Counter.
+   integer(I4P)                           :: di(3,3)   !< Unit steps of the directions.
+
+   counts = 0_I4P
+   di = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+             ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
+             dxyz_gpu=>self%field_fnl%dxyz_gpu)
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call compute_positivity_factors_euler_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,    &
+                                                damping=0._R8P, hs=hs, dt=dt, dxyz_gpu=dxyz_gpu, is_null=is_null,      &
+                                                q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
+                                                fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, lam_gpu=self%lam_gpu,  &
+                                                bad=counts(1))
+   case(MODEL_MHD)
+      call compute_positivity_factors_mhd_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
+                                              damping=0._R8P, hs=hs, dt=dt, dxyz_gpu=dxyz_gpu, is_null=is_null,        &
+                                              q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,           &
+                                              fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, lam_gpu=self%lam_gpu,    &
+                                              bad=counts(1))
+   case(MODEL_MHD_EGLM)
+      call compute_positivity_factors_mhd_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
+                                                   damping=self%physics%mhd%glm_damping, hs=hs, dt=dt,                 &
+                                                   dxyz_gpu=dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                    &
+                                                   q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,                   &
+                                                   fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu,                     &
+                                                   lam_gpu=self%lam_gpu, bad=counts(1))
+   case default
+      call mpih_fnl%error_stop(msg=': no FNL positivity limiter for physical model "'//self%physics%physical_model//'"')
+   endselect
+   call self%field_fnl%update_ghost_local_gpu(q_gpu=self%lam_gpu)
+   call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                            comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                            q_gpu=self%lam_gpu)
+   do d=1, 3
+      if (is_null(d)) cycle
+      select case(self%physics%model)
+      case(MODEL_EULER)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_euler_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flx_f_gpu, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_euler_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%fly_f_gpu, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_euler_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flz_f_gpu, limited=counts(1+d))
+         endselect
+      case(MODEL_MHD)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_mhd_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,        &
+                                                 ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,        &
+                                                 lam_gpu=self%lam_gpu, fl_gpu=self%flx_f_gpu, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_mhd_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,        &
+                                                 ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,        &
+                                                 lam_gpu=self%lam_gpu, fl_gpu=self%fly_f_gpu, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_mhd_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,        &
+                                                 ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,        &
+                                                 lam_gpu=self%lam_gpu, fl_gpu=self%flz_f_gpu, limited=counts(1+d))
+         endselect
+      case(MODEL_MHD_EGLM)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_mhd_eglm_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,   &
+                                                      ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,   &
+                                                      lam_gpu=self%lam_gpu, fl_gpu=self%flx_f_gpu, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_mhd_eglm_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,   &
+                                                      ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,   &
+                                                      lam_gpu=self%lam_gpu, fl_gpu=self%fly_f_gpu, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_mhd_eglm_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,   &
+                                                      ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,   &
+                                                      lam_gpu=self%lam_gpu, fl_gpu=self%flz_f_gpu, limited=counts(1+d))
+         endselect
+      endselect
+   enddo
+   endassociate
+   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 4, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   if (sum(counts) > 0_I4P .and. mpih_fnl%myrank == 0) &
+      print '(A)', mpih_fnl%myrankstr//'positivity limiter: '//trim(str(sum(counts(2:4))))//' faces limited, '// &
+                   trim(str(counts(1)))//' inadmissible backbones at step '//trim(str(self%time%it))
+   endsubroutine limit_positivity_dev
 
    subroutine save_residuals(self)
    !< Save residuals history (L2 norm of dq on the device, MPI-reduced, rank 0 writes).
@@ -1082,6 +1203,7 @@ contains
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
@@ -1103,9 +1225,15 @@ contains
    if (self%physics%model == MODEL_MHD_EGLM) then
       call add_glm_damping_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,                               &
                                     damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, dq_gpu=dq_gpu)
-      call add_eglm_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=weno_s,                         &
-                                dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                    &
-                                q_aux_gpu=self%q_aux_gpu, dq_gpu=dq_gpu)
+      if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
+         call add_eglm_sources_limited_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=weno_s,              &
+                                           dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, q_gpu=q_gpu,         &
+                                           q_aux_gpu=self%q_aux_gpu, lam_gpu=self%lam_gpu, dq_gpu=dq_gpu)
+      else
+         call add_eglm_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=weno_s,                      &
+                                   dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                 &
+                                   q_aux_gpu=self%q_aux_gpu, dq_gpu=dq_gpu)
+      endif
    endif
    endassociate
    endsubroutine compute_residuals_weno_dev
@@ -1218,6 +1346,7 @@ contains
          print '(A)', mpih_fnl%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
@@ -1239,9 +1368,15 @@ contains
    if (self%physics%model == MODEL_MHD_EGLM) then
       call add_glm_damping_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,                               &
                                     damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, dq_gpu=dq_gpu)
-      call add_eglm_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=weno_s,                         &
-                                dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                    &
-                                q_aux_gpu=self%q_aux_gpu, dq_gpu=dq_gpu)
+      if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
+         call add_eglm_sources_limited_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=weno_s,              &
+                                           dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, q_gpu=q_gpu,         &
+                                           q_aux_gpu=self%q_aux_gpu, lam_gpu=self%lam_gpu, dq_gpu=dq_gpu)
+      else
+         call add_eglm_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=weno_s,                      &
+                                   dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                 &
+                                   q_aux_gpu=self%q_aux_gpu, dq_gpu=dq_gpu)
+      endif
    endif
    endassociate
    endsubroutine compute_residuals_riemann_dev
