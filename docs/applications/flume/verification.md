@@ -273,6 +273,46 @@ cancel. The symmetry defect is round-off amplified by the flow, more by the EGLM
 is checked at step 100 within $10^{-8}$ and at the end within $10^{-4}$, as for the rotor. On the blast HLLD with
 primitive interpolation also reaches $t = 0.01$; the splitting scheme needs the positivity limiter (M3-P5).
 
+### Positivity limiter
+
+`mhd/positivity/check.sh` runs the limiter (`positivity_limiter = cell`, [numerics](./numerics#positivity-limiter)) with
+the floors disabled, on the splitting scheme and on `weno-riemann` (HLLD or HLLC, characteristic; issue #47, M3-P5). A
+leg passes when the run reaches its final time and no stage meets an inadmissible backbone; the Euler legs, which have
+no floors to stop a run, also assert a positive density and pressure in the last checkpoint.
+
+```bash
+cd src/tests/flume/verification/mhd/positivity
+./check.sh                       # PV-1, PV-2, PV-3, PV-4 (about 70 min on the CPU, PV-3 takes 55)
+./check.sh --legs pv1-3d         # the blast as a sphere on 64^3 (about 1 h per scheme on the CPU)
+```
+
+| Problem | Without the limiter | Splitting + limiter | Riemann + limiter |
+|---|---|---|---|
+| PV-1, Balsara–Spicer blast, $\beta = 2.5\cdot10^{-4}$, $128^2$, EGLM | splitting fails at step 3; HLLD runs | passes, up to 1540 faces limited per stage | passes, up to 280 |
+| PV-1 as a sphere, $64^3$ (FNL) | not run | passes, up to 51566 | passes, up to 2976 |
+| PV-2, Wu–Shu blast, $\beta = 2.51\cdot10^{-6}$, $128^2$, EGLM | splitting fails at step 1, HLLD at step 41 | passes, up to 10333 | passes, up to 352 |
+| PV-3, LeBlanc shock tube, 400 cells | both run | passes, never limited | passes, up to 512 |
+| PV-3, double rarefaction, 400 cells | splitting runs; HLLC fails at step 79 | passes, never limited | passes, up to 1024 |
+| PV-3, planar Sedov blast, 800 cells | splitting runs; HLLC fails at step 69 | passes, never limited | passes, up to 768 |
+| PV-4, isentropic vortex ($64^2$, $128^2$) and fast wave (16, 32 cells, EGLM) | — | bitwise equal to the run without the limiter | — |
+
+PV-2 is the second blast of Wu & Shu (2018, Example 4.4): $p = 10^4$ in the disc, $\mathbf{B} = (1000/\sqrt{4\pi}, 0, 0)$,
+$t = 0.001$. PV-3 takes the near-vacuum problems of Zhang & Shu (2010): LeBlanc ($\gamma = 5/3$, $(\rho, e) = (1, 0.1)$
+and $(10^{-3}, 10^{-7})$, $t = 6$), the double rarefaction ($\rho = 7$, $u = \mp1$, $p = 0.2$, $t = 0.6$) and the planar
+Sedov blast ($p = 4\cdot10^{-13}$ but $2.56\cdot10^8$ in the centre cell, $t = 0.001$); the final states keep
+$\rho \ge 9.9\cdot10^{-4}$ and $p \ge 4\cdot10^{-13}$, the ambient value. The Euler splitting scheme needs no limiting on
+any of the three at these resolutions: the limiter matters for `weno-riemann`. The face counts include the copies along
+the null directions (256 per 1-D face). The counts are those of the CPU; the device ones differ in the splitting
+blasts (1468 and 10955), whose limited runs are not bitwise reproducible across backends, and agree elsewhere. The 3-D
+blast was run with the relative floor on the device only.
+
+Sedov on HLLC is the case that set the limiter's relative floor. With the absolute floor alone the run stopped at step
+10, at every CFL from 0.2 to 0.5: one stage drained the centre cell to $\rho = 10^{-13}$ with its energy kept, and the
+next stage, whose time step is that of the step's first state, had no admissible backbone. With the relative floor
+($\kappa = 0.1$) the limiter acts in 15 stages and the run completes; the smooth cases of PV-4 stay bitwise. The
+splitting scheme takes 614 steps on PV-2 against 284 for HLLD (779 with the absolute floor alone): its limited states
+keep low-density cells with large Alfvén speeds, which cost time steps but not admissibility.
+
 ## Unit tests
 
 | Test | What it pins |
@@ -280,6 +320,7 @@ primitive interpolation also reaches $t = 0.01$; the splitting scheme needs the 
 | `test_flume_euler_library` (+ `_fnl`) | Euler eigensystem, flux, Roe average, split consistency; RS(q, q) = f(q) for LLF/HLL/HLLC, HLLC exact on a contact, positive first-order updates; device = host |
 | `test_flume_mhd_library` (+ `_fnl`) | MHD, GLM and EGLM eigensystems (including degenerate states), fluxes, auxiliary variables, cyclic invariance; device = host |
 | `test_flume_mhd_riemann` (+ `_fnl`) | MHD LLF/HLL/HLLD without cleaning, with GLM and with EGLM: consistency, HLLD exact on contact, tangential and rotational discontinuities, cyclic invariance bitwise, positive updates, EGLM = GLM bitwise at $\psi = 0$; device = host |
+| `test_flume_positivity` | PV-0, the limiter on random admissible states with perturbed fluxes (Euler, MHD, EGLM): every limited update positive and above the relative floor, the limiter needed and acting |
 | `test_flume_weno_interpolation` (+ `_fnl`) | WENO interpolation tables: exactness, convergence, device = host; the reconstruction tables unchanged |
 
 Build and run with `fobis build --mode test-flume-<name>-gnu` (`-fnl-nvf --varset local_nvf` for the device twin).
