@@ -239,13 +239,47 @@ $\psi$. The rotor's symmetry defect is round-off amplified by the flow and grows
 $5\cdot10^{-9}$ to $6\cdot10^{-6}$ depending on the interpolation and the backend), so under `--numerics` it is checked at
 step 100 within $10^{-8}$ and at the end within $10^{-4}$.
 
+### EGLM cleaning
+
+The energy-consistent cleaning (`divergence_control = eglm`, [models](./models#divergence-control-eglm)) runs through
+the `--divergence-control eglm` option of the glm-pulse, Orszag–Tang and linear-wave scripts, and `rj2a/check.sh`
+compares it with GLM (issue #47, M3-P4; CPU and FNL agree to the printed digits):
+
+```bash
+cd src/tests/flume/verification/mhd
+glm-pulse/check.sh --divergence-control eglm                                  # EV-2
+orszag-tang/check.sh --divergence-control eglm [--numerics hlld]              # EV-4, symmetry
+linear-wave/check.sh --divergence-control eglm [--numerics hlld]              # MV-5 under EGLM
+rj2a/check.sh [--numerics hlld]                                               # EV-3 (EGLM leg)
+```
+
+| Check | Splitting | HLLD characteristic |
+|---|---|---|
+| EV-2, pulse against the telegraph solution (amplitude $10^{-3}$): $L_1$ at 256 cells, d'Alembert / damped | $6.36\cdot10^{-9}$ / $1.38\cdot10^{-9}$ | — |
+| EV-3, Ryu–Jones 2a, EGLM against GLM | bitwise, $\psi = 0$ | $6.3\cdot10^{-13}$ (FNL: bitwise) |
+| EV-4, Orszag–Tang: $\int\rho$ drift; $\int E$ drift / its source bound | $3\cdot10^{-17}$; $2.8\cdot10^{-3}$ | 0; $7.0\cdot10^{-3}$ |
+| Orszag–Tang symmetry at step 100 / at $t = 0.5$ | $5.4\cdot10^{-13}$ / $4.3\cdot10^{-7}$ | $1.2\cdot10^{-12}$ / $1.1\cdot10^{-11}$ |
+| linear waves, observed order | 4.96–4.98 | 4.96–4.97 |
+| Balsara–Spicer blast ($\beta = 2.5\cdot10^{-4}$, $128^2$, no limiter, no floors) | non-positive pressure at step 3 | reaches $t = 0.01$ (396 steps) |
+
+EV-2 runs at amplitude $10^{-3}$: EGLM couples the $(B_x, \psi)$ pair to the fluid (the damped cleaning energy becomes
+heat, the heat drives a flow, the source $-(\nabla\cdot\mathbf{B})\mathbf{u}$ moves $B_x$), which at the GLM amplitude
+0.1 floors the damped legs at a relative $L_1$ of $8\cdot10^{-5}$; at $10^{-3}$ EGLM equals GLM to 3 digits. EV-4
+asserts $\int\rho$ to round-off and bounds every other drift, at every step, by twice the time integral of its source
+magnitude: $\max|\mathbf{B}|\int\|\nabla\cdot\mathbf{B}\|_1$ (momentum), $\max|\mathbf{u}|\int\|\nabla\cdot\mathbf{B}\|_1$
+($\mathbf{B}$), $\max|\mathbf{u}\cdot\mathbf{B}|\int\|\nabla\cdot\mathbf{B}\|_1 + \int\|\psi\,\mathbf{u}\cdot\nabla\psi\|_1$
+(energy; `mhd/eglm_conservation_oracle.py`): a necessary bound, not a tight one, since the signed sources largely
+cancel. The symmetry defect is round-off amplified by the flow, more by the EGLM sources on the splitting scheme, so it
+is checked at step 100 within $10^{-8}$ and at the end within $10^{-4}$, as for the rotor. On the blast HLLD with
+primitive interpolation also reaches $t = 0.01$; the splitting scheme needs the positivity limiter (M3-P5).
+
 ## Unit tests
 
 | Test | What it pins |
 |---|---|
 | `test_flume_euler_library` (+ `_fnl`) | Euler eigensystem, flux, Roe average, split consistency; RS(q, q) = f(q) for LLF/HLL/HLLC, HLLC exact on a contact, positive first-order updates; device = host |
-| `test_flume_mhd_library` (+ `_fnl`) | MHD eigensystem (including degenerate states), fluxes, cyclic invariance; device = host |
-| `test_flume_mhd_riemann` (+ `_fnl`) | MHD LLF/HLL/HLLD: consistency, HLLD exact on contact, tangential and rotational discontinuities, cyclic invariance bitwise, positive updates; device = host |
+| `test_flume_mhd_library` (+ `_fnl`) | MHD, GLM and EGLM eigensystems (including degenerate states), fluxes, auxiliary variables, cyclic invariance; device = host |
+| `test_flume_mhd_riemann` (+ `_fnl`) | MHD LLF/HLL/HLLD without cleaning, with GLM and with EGLM: consistency, HLLD exact on contact, tangential and rotational discontinuities, cyclic invariance bitwise, positive updates, EGLM = GLM bitwise at $\psi = 0$; device = host |
 | `test_flume_weno_interpolation` (+ `_fnl`) | WENO interpolation tables: exactness, convergence, device = host; the reconstruction tables unchanged |
 
 Build and run with `fobis build --mode test-flume-<name>-gnu` (`-fnl-nvf --varset local_nvf` for the device twin).

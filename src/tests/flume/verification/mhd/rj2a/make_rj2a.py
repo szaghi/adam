@@ -8,7 +8,7 @@ tangents cyclic as in FLUME (and Athena++): axis y -> (y, z, x), axis z -> (z, x
 i.e. the Gaussian values divided by sqrt(4 pi).
 
 Usage:
-    make_rj2a.py <sod-axis.ini> <out.ini> --axis x|y|z --cells N --divergence-control none|glm
+    make_rj2a.py <sod-axis.ini> <out.ini> --axis x|y|z --cells N --divergence-control none|glm|eglm
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def main() -> None:
     parser.add_argument("out", type=Path)
     parser.add_argument("--axis", choices=("x", "y", "z"), required=True)
     parser.add_argument("--cells", type=int, required=True, help="cells along the axis (a multiple of 8)")
-    parser.add_argument("--divergence-control", choices=("none", "glm"), required=True)
+    parser.add_argument("--divergence-control", choices=("none", "glm", "eglm"), required=True)
     args = parser.parse_args()
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
     ini.optionxform = str
@@ -40,13 +40,13 @@ def main() -> None:
     ini["physics"].update({"physical_model": "mhd-ideal", "cp": "2.5", "cv": "1.5"})  # gamma = 5/3
     ini["mhd"] = {"divergence_control": args.divergence_control, "divb_tol": "0.0", "divb_error": ".false.",
                   "rho_floor": "0.0", "p_floor": "0.0"}
-    if args.divergence_control == "glm":
+    if args.divergence_control in ("glm", "eglm"):
         # c_h below the fastest wave (the left state alone has |u| + c_f = 2.89 and persists at x = 0 up to
         # t = 0.2): the fluid sets dt, so the GLM run takes the steps of the run without cleaning (the pair check is
         # bitwise); the c_h check warns, as it should
         ini["mhd"].update({"glm_ch": "2.0", "glm_alpha": "0.18", "glm_damping_length": "1.0",
                            "glm_ch_check": "warning"})
-    ini["field"]["nv"] = "9" if args.divergence_control == "glm" else "8"
+    ini["field"]["nv"] = "8" if args.divergence_control == "none" else "9"
     ini["grid"]["n" + "ijk"["xyz".index(args.axis)]] = str(args.cells // 4)  # four blocks along the axis
     frame = FRAME[args.axis]
     for region, state in (("initial_conditions_region_1", LEFT), ("initial_conditions_region_2", RIGHT)):

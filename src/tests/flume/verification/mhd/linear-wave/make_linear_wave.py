@@ -14,6 +14,10 @@ periodic. WENO-5 characteristic, SSP-54, CFL 0.1 (the spatial error dominates), 
 
 Usage:
     make_linear_wave.py <base.ini> <out.ini> --wave fast|alfven|slow|entropy --geometry 1d|2d --cells N [--amplitude A]
+                        [--divergence-control none|glm|eglm]
+
+With GLM or EGLM (issue #47, M3-P4c) the mode is the same (psi = 0, div B = 0), c_h = 1.1 (|u_n| + c_f) just above the
+fastest wave (it sets the time step: 2.2, entropy 3.3), no damping.
 """
 
 from __future__ import annotations
@@ -36,14 +40,15 @@ def main() -> None:
     parser.add_argument("--geometry", choices=("1d", "2d"), required=True)
     parser.add_argument("--cells", type=int, required=True, help="1d: cells along x; 2d: cells along x (2 x along y)")
     parser.add_argument("--amplitude", default="1.0e-6", help="wave amplitude")
+    parser.add_argument("--divergence-control", choices=("none", "glm", "eglm"), default="none")
     args = parser.parse_args()
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
     ini.optionxform = str
     ini.read(args.base)
     ini["physics"].update({"physical_model": "mhd-ideal", "cp": "2.5", "cv": "1.5"})  # gamma = 5/3
-    ini["mhd"] = {"divergence_control": "none", "divb_tol": "0.0", "divb_error": ".false.", "rho_floor": "0.0",
-                  "p_floor": "0.0"}
-    ini["field"]["nv"] = "8"
+    ini["mhd"] = {"divergence_control": args.divergence_control, "divb_tol": "0.0", "divb_error": ".false.",
+                  "rho_floor": "0.0", "p_floor": "0.0"}
+    ini["field"]["nv"] = "8" if args.divergence_control == "none" else "9"
     angle = math.degrees(math.atan(TAN_A)) if args.geometry == "2d" else 0.0
     c, s = math.cos(math.radians(angle)), math.sin(math.radians(angle))
     if args.geometry == "1d":
@@ -57,6 +62,9 @@ def main() -> None:
         ini[f"bc_{f}_min"]["type"] = "periodic"
         ini[f"bc_{f}_max"]["type"] = "periodic"
     un = 1.0 if args.wave == "entropy" else 0.0
+    if args.divergence_control != "none":
+        ini["mhd"].update({"glm_ch": repr(1.1 * (un + 2.0)), "glm_alpha": "0.0", "glm_damping_length": "1.0",
+                           "glm_ch_check": "error"})
     bn, bt1, bt2 = 1.0, math.sqrt(2.0), 0.5  # wave frame
     region = {"r": "1.0", "u": repr(un * c), "v": repr(un * s), "w": "0.0", "p": repr(0.6),
               "bx": repr(c * bn - s * bt1), "by": repr(s * bn + c * bt1), "bz": repr(bt2)}

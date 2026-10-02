@@ -5,9 +5,10 @@ rho = 1, p = 0.1 outside, p = 1000 for r < 0.1 around (0.5, 0.5), B = 100/sqrt(4
 beta = 2.5e-4), gamma = 1.4, t = 0.01. The disk is the cell-centre sampling of r < 0.1: one riemann-problem strip
 region per cell row (first match wins), the ambient region last. The grid is the Orszag-Tang one (2-D periodic
 [0, 1]^2, make_orszag_tang.py). --limiter writes [mhd] positivity_limiter, read only by a build with
-one-sided-limiter-cpu.patch applied (the key is ignored otherwise).
+one-sided-limiter-cpu.patch applied (the key is ignored otherwise). --eglm selects EGLM cleaning (issue #47, M3-P4c),
+--none no cleaning (GLM by default).
 Usage: make_blast.py <out.ini> --cells N [--p-floor F] [--rho-floor F] [--glm-ch C] [--p-in P] [--b0 B] [--cfl C]
-                     [--limiter] [--none]
+                     [--limiter] [--none | --eglm]
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ parser.add_argument("--p-in", default="1000.0")
 parser.add_argument("--cfl", default=None)
 parser.add_argument("--limiter", action="store_true")
 parser.add_argument("--none", action="store_true")
+parser.add_argument("--eglm", action="store_true")
 parser.add_argument("--b0", type=float, default=100.0 / (4.0 * 3.141592653589793) ** 0.5)
 args = parser.parse_args()
 subprocess.run([sys.executable, str(V / "mhd/orszag-tang/make_orszag_tang.py"), str(V / "vortex/vortex-n064.ini"),
@@ -69,6 +71,8 @@ if args.cfl:
     ini["time"]["CFL"] = args.cfl
 if args.none:
     ini["mhd"]["divergence_control"] = "none"
+if args.eglm:
+    ini["mhd"]["divergence_control"] = "eglm"
 if args.limiter:
     ini["mhd"]["positivity_limiter"] = ".true."
 ini["IO"].update({"output_basename": "blast", "it_save": "100000"})

@@ -21,7 +21,17 @@
 #     the peak of max|div B| of the uniform reference (measured 0.887 / 1.170 = 0.76; the shocks set both);
 # about 6 min on the CPU.
 #
-# Usage: ./check.sh [--np N] [--amr] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+# --divergence-control eglm runs the uniform leg with EGLM (issue #47, M3-P4c, EV-4), checkpoints every 25 steps:
+#   - symmetry asserted twice, as for the rotor: at step 100 within EARLY_SYM_TOL (measured, CPU: 5.4e-13 splitting,
+#     1.2e-12 weno-riemann HLLD) and at the end within 1e-4 (the EGLM sources amplify the round-off seed more than GLM
+#     on the splitting scheme: 4.3e-7 against 5.9e-10 at t = 0.5; weno-riemann HLLD 1.1e-11);
+#   - EV-4 (../eglm_conservation_oracle.py) instead of CONS_TOL: rho to round-off, the momentum, B and energy drifts
+#     within twice the time integral of their source magnitudes (div B from the div(B) history, psi u.grad psi from the
+#     checkpoints); a necessary bound, not a tight one (OT: energy drift 2.8e-3 of it; rho u and B ~1e-11, the 180
+#     degrees symmetry cancels their sources).
+# --amr is not combined with eglm (the EGLM sources at 2:1 seams are out of scope).
+#
+# Usage: ./check.sh [--np N] [--amr] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]] [--divergence-control glm|eglm]
 #
 # --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c): the bounds
 # measured on the flux-splitting scheme are then not asserted (measurement), the scheme-independent checks are.
@@ -39,14 +49,18 @@ source "$CASE_DIR/../numerics.sh"
 SYM_TOL="1.0e-8"
 CONS_TOL="1.0e-13"
 SEAM_REF_RATIO="1.0"
+EARLY_SYM_TOL="1.0e-8"
 AMR=0
+DC="glm"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)  NP="$2" ; shift 2 ;;
       --amr) AMR=1 ; shift ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
-      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --numerics SPEC)" >&2 ; exit 2 ;;
+      --divergence-control) DC="$2" ; shift 2 ;;
+      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --numerics SPEC," \
+                  "--divergence-control glm|eglm)" >&2 ; exit 2 ;;
    esac
 done
 if [[ ! -x "$EXE" ]]; then
@@ -55,7 +69,12 @@ if [[ ! -x "$EXE" ]]; then
 fi
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 numerics_check
+if [[ ! $DC =~ ^(glm|eglm)$ || ( $DC == eglm && $AMR -eq 1 ) ]]; then
+   echo "check.sh: --divergence-control '$DC' is not glm or eglm, or eglm with --amr" >&2
+   exit 2
+fi
 TAG="$(basename "$EXE")-np$NP$(numerics_tag)"
+[[ $DC == eglm ]] && TAG="$TAG-eglm"
 
 # run_ot <work> <make_orszag_tang.py options>: write the input and run it.
 run_ot() {
@@ -70,7 +89,15 @@ run_ot() {
 }
 
 STATUS=0
-if [[ $AMR -eq 0 ]]; then
+if [[ $AMR -eq 0 && $DC == eglm ]]; then
+   echo ">> MV-12 / EV-4 Orszag-Tang 128^2, EGLM ($(basename "$EXE"), np $NP)"
+   w="$CASE_DIR/work-$TAG"
+   run_ot "$w" --cells 128 --divergence-control eglm --it-save 25
+   "$VENV_PY" "$CASE_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$EARLY_SYM_TOL" --step 100 || STATUS=1
+   "$VENV_PY" "$CASE_DIR/orszag_tang_oracle.py" "$w" --sym-tol "1.0e-4" || STATUS=1
+   "$VENV_PY" "$CASE_DIR/../eglm_conservation_oracle.py" "$w" || STATUS=1
+   works=("$w")
+elif [[ $AMR -eq 0 ]]; then
    echo ">> MV-12 Orszag-Tang 128^2 ($(basename "$EXE"), np $NP)"
    w="$CASE_DIR/work-$TAG"
    run_ot "$w" --cells 128

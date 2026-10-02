@@ -11,7 +11,8 @@ checkpoint (and the first one with --unchanged):
 
 * 1-D consistency: every transverse copy of a column is bitwise identical, and blocks agree on shared columns;
 * --l1-max: L1 of B_x and of psi / c_h against the exact solution, their sum below the bound (one bound, or one per
-  run); the relative error (to the L1 norm of the exact solution) is reported;
+  run); the relative error (to the L1 norm of the exact solution) is reported. With EGLM (divergence_control = eglm,
+  issue #47 EV-2) psi is in field units, the GLM psi is c_h psi: the saved psi is multiplied by c_h first;
 * --order-min: the observed order of the L1 sum between successive resolutions (several runs) at least the bound;
 * --conserved TOL: the integral of B_x (conservation history) never moves more than TOL from its first value;
 * --unchanged (divergence_control = none): B_x of the last checkpoint equals the first one BITWISE (its flux is zero).
@@ -123,6 +124,8 @@ def l1(work: Path, ngc: int) -> tuple[float, float, float]:
     bx, psi = exact(ini, xs, final_time(work))
     dx = xs[1] - xs[0]
     ch = float(ini["mhd"]["glm_ch"])
+    if ini["mhd"]["divergence_control"].strip() == "eglm":  # psi in field units: psi_GLM = c_h psi
+        prof["psi"] = prof["psi"] * ch
     norm = float(np.sum(np.abs(bx)) * dx + np.sum(np.abs(psi)) * dx / ch)
     return float(np.sum(np.abs(prof["bx"] - bx)) * dx), float(np.sum(np.abs(prof["psi"] - psi)) * dx / ch), norm
 

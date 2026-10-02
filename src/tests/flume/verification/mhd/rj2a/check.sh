@@ -15,7 +15,10 @@
 #      PAIR_TOL = 1e-11: the face values of the interpolated uniform B_n differ by round-off, which seeds psi (measured
 #      9.2e-16, HLLD primitive) and, through the shocks, the shared variables (1.3e-12), the scale of the x/y/z
 #      round-off before M2-P3d;
-#   4. (--numerics with HLLD) RV-6 of issue #47: the HLLD L1 sum at N = 256 at most the HLL one.
+#   4. (--numerics with HLLD) RV-6 of issue #47: the HLLD L1 sum at N = 256 at most the HLL one;
+#   5. EV-3 of issue #47 (M3-P4c): EGLM (N = 256, x) equal to GLM BITWISE on the 8 shared variables, psi exactly zero
+#      (psi = 0 makes the EGLM energy coupling and sources vanish); under --numerics within PAIR_TOL (measured, M3-P4b,
+#      HLLD characteristic: 6.3e-13 CPU, 0 FNL).
 # One run at a time; checkpoints deleted after use.
 #
 # Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
@@ -111,7 +114,10 @@ fi
 echo ">> MV-4 RJ2a, N = 256, x, GLM against no cleaning"
 WGLM="$(case_run x 256 glm)" || exit 1
 "$VENV_PY" "$ORACLE" --pair "${W256[0]}" "$WGLM" --pair-tol "$PAIR_TOL" || FAILED=1
-for w in "${W256[@]}" "$WGLM"; do find "$w" -name '*.h5' -delete; done
+echo ">> EV-3 RJ2a, N = 256, x, EGLM against GLM"
+WEGLM="$(case_run x 256 eglm)" || exit 1
+"$VENV_PY" "$ORACLE" --pair "$WGLM" "$WEGLM" --pair-tol "$PAIR_TOL" || FAILED=1
+for w in "${W256[@]}" "$WGLM" "$WEGLM"; do find "$w" -name '*.h5' -delete; done
 
 if [[ $FAILED -eq 0 ]]; then
    echo "MV-4 PASSED ($TAG)"

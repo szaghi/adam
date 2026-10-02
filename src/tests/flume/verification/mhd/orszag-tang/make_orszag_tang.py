@@ -12,6 +12,7 @@ Grid: the vortex grid of V2 (verification/vortex, [0, 1]^2, 4x4 blocks), N cells
 
 Usage:
     make_orszag_tang.py <base.ini> <out.ini> --cells N [--cfl C] [--time-max T] [--glm-ch C] [--it-save N]
+                        [--divergence-control glm|eglm]
                         [--refine-box XMIN YMIN XMAX YMAX]
 """
 
@@ -35,6 +36,7 @@ def main() -> None:
     parser.add_argument("--cfl", default="0.4")
     parser.add_argument("--time-max", default="0.5")
     parser.add_argument("--glm-ch", default="4.0")
+    parser.add_argument("--divergence-control", choices=("glm", "eglm"), default="glm")
     parser.add_argument("--it-save", default="1000000", help="checkpoint period (the first and last are always saved)")
     parser.add_argument("--refine-box", type=float, nargs=4, default=None, metavar=("XMIN", "YMIN", "XMAX", "YMAX"),
                         help="refine the blocks whose centroid lies in the box by one 2:1 level (AMR variant)")
@@ -43,9 +45,9 @@ def main() -> None:
     ini.optionxform = str
     ini.read(args.base)
     ini["physics"].update({"physical_model": "mhd-ideal", "cp": "2.5", "cv": "1.5"})  # gamma = 5/3
-    ini["mhd"] = {"divergence_control": "glm", "divb_tol": "0.0", "divb_error": ".false.", "rho_floor": "0.0",
-                  "p_floor": "0.0", "glm_ch": args.glm_ch, "glm_alpha": "0.18", "glm_damping_length": "1.0",
-                  "glm_ch_check": "error"}
+    ini["mhd"] = {"divergence_control": args.divergence_control, "divb_tol": "0.0", "divb_error": ".false.",
+                  "rho_floor": "0.0", "p_floor": "0.0", "glm_ch": args.glm_ch, "glm_alpha": "0.18",
+                  "glm_damping_length": "1.0", "glm_ch_check": "error"}
     ini["field"]["nv"] = "9"
     ini["grid"].update({"ni": str(args.cells // 4), "nj": str(args.cells // 4), "emin_x": "0.0", "emin_y": "0.0",
                         "emax_x": "1.0", "emax_y": "1.0"})
