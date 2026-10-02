@@ -19,8 +19,8 @@ use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION,  &
                                               BC_INFLOW, BC_WALL_INVISCID, MODEL_EULER,                                 &
-                                              MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, RECON_CHARACTERISTIC,           &
-                                              RIEMANN_SOLVER_HLL,                                                       &
+                                              MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,        &
+                                              RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,                                 &
                                               RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
                                               SCHEME_SPACE_WENO,                                                        &
                                               SCHEME_SPACE_WENO_RIEMANN
@@ -36,17 +36,24 @@ use :: adam_flume_cpu_mhd_glm_llf_kernels,      only : compute_riemann_face_flux
 use :: adam_flume_cpu_mhd_eglm_hll_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_hll=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_eglm_hlld_kernels,    only : compute_riemann_face_fluxes_mhd_eglm_hlld=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_euler_kernels,   only : compute_face_fluxes_euler=>compute_face_fluxes,                        &
+use :: adam_flume_cpu_euler_kernels,   only : blend_positivity_fluxes_euler=>blend_positivity_fluxes,                &
+                                              compute_face_fluxes_euler=>compute_face_fluxes,                        &
+                                              compute_positivity_factors_euler=>compute_positivity_factors,          &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
                                               compute_q_aux_euler=>compute_q_aux,                                    &
                                               count_nonfinite_euler=>count_nonfinite
 use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,                                   &
+                                              blend_positivity_fluxes_mhd=>blend_positivity_fluxes,                &
+                                              compute_positivity_factors_mhd=>compute_positivity_factors,          &
                                               compute_divb_norms_mhd=>compute_divb_norms,                          &
                                               compute_face_fluxes_mhd=>compute_face_fluxes,                        &
                                               compute_lambda_max_mhd=>compute_lambda_max,                            &
                                               compute_q_aux_mhd=>compute_q_aux,                                      &
                                               count_nonfinite_mhd=>count_nonfinite
-use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources, add_glm_damping_eglm=>add_glm_damping,         &
+use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources, add_eglm_sources_limited,                      &
+                                               add_glm_damping_eglm=>add_glm_damping,                           &
+                                               blend_positivity_fluxes_mhd_eglm=>blend_positivity_fluxes,       &
+                                               compute_positivity_factors_mhd_eglm=>compute_positivity_factors, &
                                                apply_floors_mhd_eglm=>apply_floors,                             &
                                                compute_divb_norms_mhd_eglm=>compute_divb_norms,                 &
                                                compute_face_fluxes_mhd_eglm=>compute_face_fluxes,               &
@@ -75,6 +82,9 @@ type, extends(flume_common_object) :: flume_cpu_object
    real(R8P), allocatable :: flx_f(:,:,:,:,:) !< X-face fluxes [nv, 0:ni, 1:nj, 1:nk, nb], face i = i+1/2.
    real(R8P), allocatable :: fly_f(:,:,:,:,:) !< Y-face fluxes [nv, 1:ni, 0:nj, 1:nk, nb], face j = j+1/2.
    real(R8P), allocatable :: flz_f(:,:,:,:,:) !< Z-face fluxes [nv, 1:ni, 1:nj, 0:nk, nb], face k = k+1/2.
+   ! positivity limiter data
+   real(R8P), allocatable :: lam(:,:,:,:,:)   !< Cell factors of the positivity limiter (component 1, q-shaped for the
+                                              !< ghost exchange) [nv, 1-ngc:ni+ngc, ..., nb]; allocated with the limiter.
    ! dispatch
    procedure(compute_residuals_interface), pass(self), pointer :: compute_residuals=>null() !< Space operator.
    procedure(integrate_interface),         pass(self), pointer :: integrate=>null()         !< Time operator.
@@ -89,6 +99,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
+      procedure, pass(self) :: limit_positivity        !< Apply the positivity limiter to the stage face fluxes.
       procedure, pass(self) :: save_residuals          !< Save residuals history.
       procedure, pass(self) :: save_simulation_data    !< Save fields, restart and diagnostics on their cadence.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions on the crown maps.
@@ -247,6 +258,12 @@ contains
    if (alloc_stat /= 0_I4P) call mpih%error_stop(msg=': failed to allocate fly_f: '//trim(alloc_msg))
    allocate(self%flz_f(1:nv,1:ni,1:nj,0:nk,1:nb), stat=alloc_stat, errmsg=alloc_msg)
    if (alloc_stat /= 0_I4P) call mpih%error_stop(msg=': failed to allocate flz_f: '//trim(alloc_msg))
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
+      allocate(self%lam(1:nv,1-self%ngc:ni+self%ngc,1-self%ngc:nj+self%ngc,1-self%ngc:nk+self%ngc,1:nb), &
+               stat=alloc_stat, errmsg=alloc_msg)
+      if (alloc_stat /= 0_I4P) call mpih%error_stop(msg=': failed to allocate lam: '//trim(alloc_msg))
+      self%lam = 1._R8P
+   endif
    endassociate
    self%flx_f = 0._R8P
    self%fly_f = 0._R8P
@@ -428,6 +445,9 @@ contains
    call mpih%initialize(do_mpi_init=.true., verbose=.true.)
    call self%flume_common_object%initialize(filename=filename, memory_avail=mpih%memory_avail/realms_number_, &
                                             verbose=.true.)
+   if (realms_number_ > 1_I4P .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
+      call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported on multi-realm runs (the '// &
+                               'inter-realm seam faces carry no limiting factor)')
    call self%allocate_cpu
    select case(self%numerics%scheme_space)
    case(SCHEME_SPACE_WENO)
@@ -446,6 +466,104 @@ contains
       call mpih%error_stop(msg=': no CPU time integrator for [runge_kutta].(scheme) "'//trim(self%rk%scheme)//'"')
    endselect
    endsubroutine initialize_flume
+
+   subroutine limit_positivity(self, q)
+   !< Apply the positivity limiter to the face fluxes of the stage (issue #47, D-9): the cell factors of the model's
+   !< kernel, their ghost exchange (intra-realm copies and MPI only: a ghost the exchange does not fill, at a physical
+   !< boundary, keeps the factor 1 it was allocated with, so the face takes the interior cell's factor), the blending of
+   !< the active directions. The limited faces and the cells with an inadmissible backbone are reduced over the ranks and
+   !< logged. The forward-Euler step of the limiter is the step `time%dt` (every stage of an SSP scheme is a convex
+   !< combination of forward-Euler steps of size at most `dt`).
+   class(flume_cpu_object), intent(inout) :: self      !< The equation.
+   real(R8P),               intent(in)    :: q(1:,         &
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1:)         !< Conservative variables of the stage.
+   integer(I4P)                           :: counts(4) !< Inadmissible backbones, limited faces per direction.
+   integer(I4P)                           :: d         !< Counter.
+
+   counts = 0_I4P
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+             ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
+             dxyz=>self%adam%field%dxyz)
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call compute_positivity_factors_euler(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,         &
+                                            damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, is_null=is_null, q=q,             &
+                                            q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,          &
+                                            lam=self%lam, bad=counts(1))
+   case(MODEL_MHD)
+      call compute_positivity_factors_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,           &
+                                          damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, is_null=is_null, q=q,               &
+                                          q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,            &
+                                          lam=self%lam, bad=counts(1))
+   case(MODEL_MHD_EGLM)
+      call compute_positivity_factors_mhd_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
+                                               damping=self%physics%mhd%glm_damping, hs=hs, dt=dt, dxyz=dxyz,          &
+                                               is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f,                 &
+                                               fly=self%fly_f, flz=self%flz_f, lam=self%lam, bad=counts(1))
+   case default
+      call mpih%error_stop(msg=': no CPU positivity limiter for physical model "'//self%physics%physical_model//'"')
+   endselect
+   call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%lam)
+   call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%lam)
+   do d=1, 3
+      if (is_null(d)) cycle
+      select case(self%physics%model)
+      case(MODEL_EULER)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_euler(d=d, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%flx_f, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_euler(d=d, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%fly_f, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_euler(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%flz_f, limited=counts(1+d))
+         endselect
+      case(MODEL_MHD)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_mhd(d=d, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,        &
+                                             blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
+                                             fl=self%flx_f, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_mhd(d=d, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,        &
+                                             blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
+                                             fl=self%fly_f, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_mhd(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,        &
+                                             blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
+                                             fl=self%flz_f, limited=counts(1+d))
+         endselect
+      case(MODEL_MHD_EGLM)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_mhd_eglm(d=d, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,   &
+                                                  blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,         &
+                                                  fl=self%flx_f, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_mhd_eglm(d=d, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,   &
+                                                  blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,         &
+                                                  fl=self%fly_f, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_mhd_eglm(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,   &
+                                                  blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,         &
+                                                  fl=self%flz_f, limited=counts(1+d))
+         endselect
+      endselect
+   enddo
+   endassociate
+   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 4, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (sum(counts) > 0_I4P .and. mpih%myrank == 0) &
+      print '(A)', mpih%myrankstr//'positivity limiter: '//trim(str(sum(counts(2:4))))//' faces limited, '// &
+                   trim(str(counts(1)))//' inadmissible backbones at step '//trim(str(self%time%it))
+   endsubroutine limit_positivity
 
    subroutine save_residuals(self)
    !< Save residuals history (L2 norm of dq, MPI-reduced, rank 0 writes).
@@ -747,6 +865,7 @@ contains
    if (allocated(self%flx_f)) deallocate(self%flx_f)
    if (allocated(self%fly_f)) deallocate(self%fly_f)
    if (allocated(self%flz_f)) deallocate(self%flz_f)
+   if (allocated(self%lam)) deallocate(self%lam)
    nullify(self%compute_residuals)
    nullify(self%integrate)
    endsubroutine finalize_forest
@@ -1053,6 +1172,7 @@ contains
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
@@ -1065,8 +1185,14 @@ contains
    if (self%physics%model == MODEL_MHD_EGLM) then
       call add_glm_damping_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, damping=self%physics%mhd%glm_damping, &
                                 q=q, dq=dq)
-      call add_eglm_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=self%weno%S, dxyz=self%adam%field%dxyz, &
-                            is_null=is_null, q=q, q_aux=self%q_aux, dq=dq)
+      if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
+         call add_eglm_sources_limited(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=self%weno%S,              &
+                                       dxyz=self%adam%field%dxyz, is_null=is_null, q=q, q_aux=self%q_aux,         &
+                                       lam=self%lam, dq=dq)
+      else
+         call add_eglm_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=self%weno%S,                      &
+                               dxyz=self%adam%field%dxyz, is_null=is_null, q=q, q_aux=self%q_aux, dq=dq)
+      endif
    endif
    endassociate
    endsubroutine compute_residuals_weno
@@ -1176,6 +1302,7 @@ contains
          print '(A)', mpih%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
@@ -1188,8 +1315,14 @@ contains
    if (self%physics%model == MODEL_MHD_EGLM) then
       call add_glm_damping_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, damping=self%physics%mhd%glm_damping, &
                                 q=q, dq=dq)
-      call add_eglm_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=self%weno%S, dxyz=self%adam%field%dxyz, &
-                            is_null=is_null, q=q, q_aux=self%q_aux, dq=dq)
+      if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
+         call add_eglm_sources_limited(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=self%weno%S,              &
+                                       dxyz=self%adam%field%dxyz, is_null=is_null, q=q, q_aux=self%q_aux,         &
+                                       lam=self%lam, dq=dq)
+      else
+         call add_eglm_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, hs=self%weno%S,                      &
+                               dxyz=self%adam%field%dxyz, is_null=is_null, q=q, q_aux=self%q_aux, dq=dq)
+      endif
    endif
    endassociate
    endsubroutine compute_residuals_riemann

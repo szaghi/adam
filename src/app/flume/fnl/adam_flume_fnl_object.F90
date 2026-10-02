@@ -560,6 +560,9 @@ contains
    endif
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+   if (self%numerics%positivity_limiter /= 'none') &
+      call mpih_fnl%error_stop(msg=': [numerics].(positivity_limiter)='//self%numerics%positivity_limiter// &
+                                   ' is not available on the FNL backend yet (issue #47, M3-P5b)')
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)

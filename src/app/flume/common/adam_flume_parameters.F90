@@ -64,6 +64,9 @@ public :: FLUX_CORRECTION_NONE
 public :: FLUX_CORRECTION_SENSOR_WENO
 public :: FLUX_CORRECTION_SENSOR_NONE
 public :: FLUX_CORRECTION_SENSOR_TAU
+public :: POSITIVITY_LIMITER_CELL
+public :: POSITIVITY_LIMITER_EPS
+public :: POSITIVITY_LIMITER_NONE
 public :: strip_control
 
 ! conservative variables
@@ -127,6 +130,11 @@ character(len=4),  parameter :: FLUX_CORRECTION_SENSOR_WENO="weno"    !< [numeri
 character(len=4),  parameter :: FLUX_CORRECTION_SENSOR_NONE="none"    !< [numerics].(flux_correction_sensor): always on.
 real(R8P),         parameter :: FLUX_CORRECTION_SENSOR_TAU=0.2_R8P    !< Correction off at a face where the WENO weights
                                                                       !< ratio min_k w_k/d_k < TAU (issue #47, M3-P0).
+character(len=4),  parameter :: POSITIVITY_LIMITER_NONE="none"        !< [numerics].(positivity_limiter): off.
+character(len=4),  parameter :: POSITIVITY_LIMITER_CELL="cell"        !< [numerics].(positivity_limiter): cell-based
+                                                                      !< parametrised flux limiter (issue #47, D-9).
+real(R8P),         parameter :: POSITIVITY_LIMITER_EPS=1.e-13_R8P     !< Admissibility floor of the limiter: rho, the
+                                                                      !< internal energy >= min(EPS, backbone / 2).
 
 contains
    ! public procedures

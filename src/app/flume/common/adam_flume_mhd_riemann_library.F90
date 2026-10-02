@@ -35,13 +35,22 @@ module adam_flume_mhd_riemann_library
 !< energy, a passive scalar carried by the mass flux, `F_rho psi~^2 / (2 rho_up)` with the upwind density of the sign of
 !< `F_rho` (Larrouturou 1991): the flux of two equal states is the physical flux.
 !<
+!< **Positivity backbone** (issue #47, D-9): the first-order Lax-Friedrichs flux of the cell states, `(f(qL) + f(qR)) /
+!< 2 - sigma (qR - qL) / 2`, each state with its own `B_n`, `sigma` the Wu (2018, doi:10.1137/18M1168017) speed
+!< `max(s_L, s_R, |u~_n| + max(c_fL, c_fR)) + |B_L - B_R| / (sqrt(rho_L) + sqrt(rho_R))`, `s = |u_n| + c_f`, `u~_n` the
+!< sqrt(rho)-weighted normal velocity (with EGLM at least `c_h`): with the Godunov-Powell (EGLM) sources it keeps the
+!< first-order update admissible (Wu & Shu 2018, doi:10.1137/18M1168042), the backbone of the M3 limiter (prototype
+!< M3-P0).
+!<
 !< **Face states.** Interpolated fields: characteristic (the eigenvectors of the arithmetic face average, projected in the
 !< frame order; the MHD default, #47 D-5) or primitive `(rho, u, v, w, p, B_x, B_y, B_z[, psi])`, `p` the thermal
 !< pressure; a face state with non-positive density or pressure is replaced by the adjacent cell's state.
 
 ! FLUME modules
-use :: adam_flume_mhd_library, only : mhd_eglm_eigenvectors, mhd_eigenvectors, mhd_face_average, mhd_frame_indexes, &
-                                      mhd_glm_eigenvectors, mhd_primitive_to_conservative, mhd_sum3
+use :: adam_flume_mhd_library, only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary,         &
+                                      mhd_eglm_eigenvectors, mhd_eglm_flux, mhd_eigenvectors, mhd_face_average,     &
+                                      mhd_fast_speed, mhd_flux, mhd_frame_indexes, mhd_glm_eigenvectors,            &
+                                      mhd_primitive_to_conservative, mhd_sum3
 use :: adam_flume_parameters,  only : IA_BX, IA_BY, IA_BZ, IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, &
                                       IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_MHD, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM,  &
                                       S_MAX
@@ -51,6 +60,8 @@ use :: penf,                   only : I4P, R8P
 implicit none
 private
 public :: EPS_HLLD
+public :: mhd_backbone_flux
+public :: mhd_eglm_backbone_flux
 public :: mhd_eglm_face_interpolation_fields
 public :: mhd_eglm_face_states
 public :: mhd_eglm_riemann_hll
@@ -71,6 +82,62 @@ real(R8P), parameter :: EPS_HLLD=1.e-12_R8P !< Degenerate HLLD star: |rho d (S-S
 
 contains
    ! public procedures
+   pure subroutine mhd_backbone_flux(gamma, d, qL, qR, f)
+   !< Compute the positivity backbone flux of two states in direction `d` (MHD without divergence control): the
+   !< Lax-Friedrichs flux with the Wu speed.
+   real(R8P),    intent(in)  :: gamma          !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d              !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_MHD)     !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_MHD)     !< Right state.
+   real(R8P),    intent(out) :: f(NV_MHD)      !< Flux.
+   real(R8P)                 :: qaL(NV_AUX_MHD) !< Left auxiliary variables.
+   real(R8P)                 :: qaR(NV_AUX_MHD) !< Right auxiliary variables.
+   real(R8P)                 :: fL(NV_MHD)     !< Left physical flux.
+   real(R8P)                 :: fR(NV_MHD)     !< Right physical flux.
+   real(R8P)                 :: sigma          !< Lax-Friedrichs speed.
+   integer(I4P)              :: v              !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   ! the gas constant only sets the temperature, which the flux does not use
+   call mhd_conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qL, qa=qaL)
+   call mhd_conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qR, qa=qaR)
+   call mhd_flux(d=d, q=qL, qa=qaL, f=fL)
+   call mhd_flux(d=d, q=qR, qa=qaR, f=fR)
+   sigma = wu_speed(d=d, qaL=qaL, qaR=qaR)
+   do v=1, NV_MHD
+      f(v) = 0.5_R8P * (fL(v) + fR(v)) - 0.5_R8P * sigma * (qR(v) - qL(v))
+   enddo
+   endsubroutine mhd_backbone_flux
+
+   pure subroutine mhd_eglm_backbone_flux(ch, gamma, d, qL, qR, f)
+   !< Compute the positivity backbone flux of two states in direction `d` (MHD with EGLM): the Lax-Friedrichs flux of the
+   !< EGLM physical fluxes with the Wu speed, at least `c_h`.
+   real(R8P),    intent(in)  :: ch              !< GLM cleaning speed.
+   real(R8P),    intent(in)  :: gamma           !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d               !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_MHD_EGLM) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_MHD_EGLM) !< Right state.
+   real(R8P),    intent(out) :: f(NV_MHD_EGLM)  !< Flux.
+   real(R8P)                 :: qaL(NV_AUX_MHD) !< Left auxiliary variables.
+   real(R8P)                 :: qaR(NV_AUX_MHD) !< Right auxiliary variables.
+   real(R8P)                 :: fL(NV_MHD_EGLM) !< Left physical flux.
+   real(R8P)                 :: fR(NV_MHD_EGLM) !< Right physical flux.
+   real(R8P)                 :: sigma           !< Lax-Friedrichs speed.
+   integer(I4P)              :: v               !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_eglm_conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qL, qa=qaL)
+   call mhd_eglm_conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qR, qa=qaR)
+   call mhd_eglm_flux(ch=ch, d=d, q=qL, qa=qaL, f=fL)
+   call mhd_eglm_flux(ch=ch, d=d, q=qR, qa=qaR, f=fR)
+   sigma = max(wu_speed(d=d, qaL=qaL, qaR=qaR), ch)
+   do v=1, NV_MHD_EGLM
+      f(v) = 0.5_R8P * (fL(v) + fR(v)) - 0.5_R8P * sigma * (qR(v) - qL(v))
+   enddo
+   endsubroutine mhd_eglm_backbone_flux
+
    pure subroutine mhd_eglm_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er)
    !< Compute the fields of the stencil of face `i+1/2` to interpolate (MHD with EGLM): as
    !< `mhd_glm_face_interpolation_fields`, with the EGLM eigenvectors (`psi` the average of cells 0 and 1) or the
@@ -990,6 +1057,28 @@ contains
    f(pv(6))  = psi
    f(IQ_PSI) = ch * ch * bn
    endsubroutine scatter_glm_flux
+
+   pure function wu_speed(d, qaL, qaR) result(sigma)
+   !< Return the Wu (2018) Lax-Friedrichs speed of two states in direction `d` (see the module header).
+   integer(I4P), intent(in) :: d               !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in) :: qaL(NV_AUX_MHD) !< Left auxiliary variables.
+   real(R8P),    intent(in) :: qaR(NV_AUX_MHD) !< Right auxiliary variables.
+   real(R8P)                :: sigma           !< Speed.
+   real(R8P)                :: srL, srR        !< sqrt(rho) of the two states.
+   real(R8P)                :: cfL, cfR        !< Fast speeds.
+   real(R8P)                :: un              !< sqrt(rho)-weighted normal velocity.
+   !$acc routine seq
+   !$omp declare target
+
+   srL = sqrt(qaL(IA_R))
+   srR = sqrt(qaR(IA_R))
+   cfL = mhd_fast_speed(d=d, qa=qaL)
+   cfR = mhd_fast_speed(d=d, qa=qaR)
+   un  = (srL * qaL(IA_U+d-1) + srR * qaR(IA_U+d-1)) / (srL + srR)
+   sigma = max(abs(qaL(IA_U+d-1)) + cfL, abs(qaR(IA_U+d-1)) + cfR, abs(un) + max(cfL, cfR)) + &
+           sqrt(mhd_sum3((qaL(IA_BX) - qaR(IA_BX))**2, (qaL(IA_BY) - qaR(IA_BY))**2, (qaL(IA_BZ) - qaR(IA_BZ))**2)) / &
+           (srL + srR)
+   endfunction wu_speed
 
    pure subroutine scatter_eglm_flux(ch, pv, fr, bn, psi, rhoL, rhoR, f)
    !< Return the EGLM face flux in the global order: the frame flux scattered, the `B_n` flux `c_h psi~`, the `psi`

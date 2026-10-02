@@ -11,14 +11,18 @@ module adam_flume_numerics_object
 !< `scheme_space = weno-riemann` (issue #47) interpolates the `reconstruction_variables` (`characteristic` or
 !< `primitive`) to the faces by WENO, takes the `riemann_solver` flux of the two face states and adds the
 !< `flux_correction` (6th or 4th order, or none), switched off at a face by the `flux_correction_sensor`.
+!<
+!< `positivity_limiter = cell` (issue #47, D-9; optional, default `none`) blends every face flux with the first-order
+!< local Lax-Friedrichs backbone so that each stage keeps the density and the pressure positive.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : FLUX_CORRECTION_4TH, FLUX_CORRECTION_6TH, FLUX_CORRECTION_NONE,                  &
                                      FLUX_CORRECTION_SENSOR_NONE, FLUX_CORRECTION_SENSOR_TAU, FLUX_CORRECTION_SENSOR_WENO, &
-                                     RECON_CHARACTERISTIC, RECON_CONSERVATIVE, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,        &
-                                     RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,      &
+                                     POSITIVITY_LIMITER_CELL, POSITIVITY_LIMITER_NONE, RECON_CHARACTERISTIC,               &
+                                     RECON_CONSERVATIVE, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,         &
+                                     RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,                           &
                                      SCHEME_SPACE_WENO_RIEMANN, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
@@ -38,6 +42,7 @@ type :: flume_numerics_object
    character(:), allocatable :: riemann_solver           !< Riemann solver (weno-riemann only).
    character(:), allocatable :: flux_correction          !< Face flux correction order (weno-riemann only).
    character(:), allocatable :: flux_correction_sensor   !< Face flux correction sensor (weno-riemann only).
+   character(:), allocatable :: positivity_limiter       !< Positivity limiter: none or cell.
    contains
       ! public methods
       procedure, pass(self) :: correction_coefficients !< Return the face flux correction coefficients.
@@ -88,6 +93,7 @@ contains
    desc = desc//mpih%myrankstr//'  scheme_space:             '//self%scheme_space//NL
    desc = desc//mpih%myrankstr//'  reconstruction_variables: '//self%reconstruction_variables//NL
    desc = desc//mpih%myrankstr//'  reflux:                   '//trim(merge('.true. ', '.false.', self%reflux))
+   desc = desc//NL//mpih%myrankstr//'  positivity_limiter:       '//self%positivity_limiter
    if (self%scheme_space == SCHEME_SPACE_WENO_RIEMANN) then
       desc = desc//NL//mpih%myrankstr//'  riemann_solver:           '//self%riemann_solver
       desc = desc//NL//mpih%myrankstr//'  flux_correction:          '//self%flux_correction
@@ -152,6 +158,15 @@ contains
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux', val=self%reflux, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reflux)')
+
+   ! optional (default none): an absent key keeps every pre-M3-P5 input valid
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='positivity_limiter', val=buff, error=error)
+   if (error > 0) then
+      self%positivity_limiter = POSITIVITY_LIMITER_NONE
+   else
+      call load_choice(key='positivity_limiter', val=self%positivity_limiter,                                 &
+                       accepted=[character(4) :: POSITIVITY_LIMITER_NONE, POSITIVITY_LIMITER_CELL])
+   endif
    contains
       subroutine load_choice(key, val, accepted)
       !< Load a required key whose value must be one of `accepted`.

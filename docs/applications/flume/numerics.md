@@ -120,6 +120,28 @@ D-5), primitive keeps the 7×7 eigenvector projection out of the face kernel.
 256² with $L_1(\rho) = 8.0\cdot10^{-8}$ (splitting: $8.4\cdot10^{-8}$); on Sod and Shu–Osher its $L_1$ error is 9% and 7%
 below the splitting scheme's, on Lax 1.6% above.
 
+## Positivity limiter
+
+`[numerics] positivity_limiter = cell` (issue #47, D-9; both space schemes) makes each stage keep the density and the
+pressure positive, so the floors are no longer needed on hard problems. Per cell, the **backbone** is the forward-Euler
+update with the first-order Lax–Friedrichs fluxes of the cell states (Euler: Rusanov; MHD: the Wu speed, which adds
+$|\mathbf{B}_L - \mathbf{B}_R| / (\sqrt{\rho_L} + \sqrt{\rho_R})$ to the fastest wave, and with EGLM at least $c_h$) and,
+for EGLM, the second-order nonconservative sources; with the Godunov–Powell (EGLM) sources it is admissible under the
+CFL bound (Wu 2018, Wu & Shu 2018). Each face carries the antidiffusive difference $\pm\Delta t/\Delta x\,(F - F^{LF})$
+of the high-order flux $F$ (and EGLM the difference of the high- and second-order sources). The cell factor $\Lambda$
+is the largest value in $[0, 1]$ for which every corner of the box $[0, \Lambda]^{\text{faces}}$ keeps $\rho$ and the
+internal energy above $\varepsilon$; both are concave in the conservative state, so each corner has a closed-form
+factor (Zhang & Shu 2012), and $2^{2D}$ corners (16 in 2-D, 64 in 3-D) bound every combination. A face takes the smaller
+factor of its two cells, $F \leftarrow F^{LF} + \theta(F - F^{LF})$ (Xu 2014; Christlieb et al. 2015), so the update is
+conservative and each forward-Euler step of size $\Delta t$ is admissible; an SSP Runge–Kutta stage is a convex
+combination of such steps, which is why the limiter requires an SSP scheme. A face whose two cells keep $\Lambda = 1$ is
+not touched, so smooth runs are bitwise unchanged. The cell factors are exchanged like a field (intra-realm copies and
+MPI); a physical-boundary face takes the interior cell's factor. The log reports, per stage, the limited faces and the
+cells whose backbone is inadmissible (zero in every verified case; they would fall back to the floors).
+
+On the Balsara–Spicer blast (β = 2.5·10⁻⁴, EGLM) the splitting scheme fails at step 3 without the limiter and reaches
+$t = 0.01$ with it (at most 4% of the faces limited per stage); `weno-riemann` HLLD passes with or without it.
+
 ## Time integration
 
 The library Runge–Kutta schemes (`[runge_kutta] scheme`, listed in the [input reference](./input)) integrate the
@@ -180,12 +202,21 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`)
 - Berger M. J., Colella P. (1989), Local adaptive mesh refinement for shock hydrodynamics, *J. Comput. Phys.* 82, 64–84.
 - Chen Y., Tóth G., Gombosi T. I. (2016), A fifth-order finite difference scheme for hyperbolic equations on
   block-adaptive curvilinear grids, *J. Comput. Phys.* 305, 604–621.
+- Christlieb A. J., Liu Y., Tang Q., Xu Z. (2015), Positivity-preserving finite difference weighted ENO schemes with
+  constrained transport for ideal magnetohydrodynamic equations, *SIAM J. Sci. Comput.* 37, A1825–A1845,
+  doi:10.1137/140971208.
 - Einfeldt B. et al. (1991), On Godunov-type methods near low densities, *J. Comput. Phys.* 92, 273–295.
 - Jiang G.-S., Shu C.-W. (1996), Efficient implementation of weighted ENO schemes, *J. Comput. Phys.* 126, 202–228.
 - Miyoshi T., Kusano K. (2005), A multi-state HLL approximate Riemann solver for ideal MHD, *J. Comput. Phys.* 208, 315–344.
 - Shu C.-W., Osher S. (1989), Efficient implementation of essentially non-oscillatory shock-capturing schemes II,
   *J. Comput. Phys.* 83, 32–78.
-- Tóth G., Roe P. L. (2002), Divergence- and curl-preserving prolongation and restriction formulas,
-  *J. Comput. Phys.* 180, 736–750.
 - Toro E. F., Spruce M., Speares W. (1994), Restoration of the contact surface in the HLL-Riemann solver,
   *Shock Waves* 4, 25–34.
+- Tóth G., Roe P. L. (2002), Divergence- and curl-preserving prolongation and restriction formulas,
+  *J. Comput. Phys.* 180, 736–750.
+- Wu K. (2018), doi:10.1137/18M1168017; Wu K., Shu C.-W. (2018), doi:10.1137/18M1168042: positivity of the first-order
+  and high-order schemes for ideal MHD with the Godunov–Powell source.
+- Xu Z. (2014), Parametrized maximum principle preserving flux limiters for high order schemes solving hyperbolic
+  conservation laws, *Math. Comp.* 83, 2213–2238, doi:10.1090/S0025-5718-2013-02788-3.
+- Zhang X., Shu C.-W. (2012), Positivity-preserving high order finite difference WENO schemes for compressible Euler
+  equations, *J. Comput. Phys.* 231, 2245–2258, doi:10.1016/j.jcp.2011.11.020.

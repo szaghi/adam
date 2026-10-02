@@ -15,7 +15,7 @@ use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : flux_register_object, restrict_fine_face_to_quadrant, SEAM_KIND_INTER_REALM
 use :: adam_parameters,               only : TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,             only : realm_object
-use :: adam_rk_object,                only : rk_stored_stages_number
+use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
 use :: adam_mpih_global,              only : mpih
 ! FLUME modules
@@ -27,7 +27,7 @@ use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
 use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_RU, &
                                              MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,                   &
-                                             RIEMANN_SOLVER_HLL,                                                      &
+                                             POSITIVITY_LIMITER_CELL, RIEMANN_SOLVER_HLL,                             &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
                                              SCHEME_SPACE_WENO_RIEMANN
 use :: adam_flume_physics_object,     only : flume_physics_object
@@ -102,6 +102,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: block_spacing    !< Return the spacing of a block by a delta criterion.
       procedure, pass(self), private :: check_amr_block_cells !< Check the block cells numbers against the 2:1 refinement.
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
+      procedure, pass(self), private :: check_positivity_limiter !< Refuse the limiter where it cannot work.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
       procedure, pass(self), private :: check_weno_scheme     !< Refuse the centred WENO schemes.
       procedure, pass(self), private :: initialize_riemann_scheme !< Check and set up the weno-riemann scheme.
@@ -394,7 +395,8 @@ contains
    !<
    !< Both backends allocate the same nb-sized arrays, on the host (CPU) or on the device (FNL): `q`, `dq` (2 nv),
    !< `q_aux` (nv_aux), the three face fluxes (3 nv, counted as full block fields) and the Runge-Kutta stages
-   !< (`rk_stored_stages_number` nv). Requires `physics` initialized.
+   !< (`rk_stored_stages_number` nv), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange).
+   !< Requires `physics` and `numerics` initialized.
    class(flume_common_object), intent(inout) :: self            !< The equation.
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),               intent(out)   :: fields_number   !< Block-sized fields allocated per block.
@@ -408,6 +410,7 @@ contains
    if (stages_number < 0_I4P) &
       call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//trim(adjustl(rk_scheme))//'" in [runge_kutta].(scheme)')
    fields_number = self%physics%nv * (2_I4P + 3_I4P + stages_number) + self%physics%nv_aux
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) fields_number = fields_number + self%physics%nv
    endsubroutine compute_fields_number
 
    subroutine destroy_common(self)
@@ -482,6 +485,7 @@ contains
    call self%check_slices
    call self%check_weno_scheme
    call self%initialize_riemann_scheme
+   call self%check_positivity_limiter
    call self%check_ngc_number
    call self%check_amr_block_cells
    call self%allocate_common
@@ -980,6 +984,25 @@ contains
       call mpih%error_stop(msg=': [grid].(ngc)='//trim(str(self%ngc))//' is smaller than 2, the stencil of the '// &
                                'weno-riemann face flux correction')
    endsubroutine check_ngc_number
+
+   subroutine check_positivity_limiter(self)
+   !< Refuse the positivity limiter (issue #47, D-9, D-10) where it cannot work: with the mixed GLM (psi changes B_n
+   !< outside the energy, so no backbone is admissible, M3-P0), with a Runge-Kutta scheme that is not SSP (the limiter
+   !< makes each forward-Euler step of size dt admissible, and only an SSP scheme is a convex combination of such steps,
+   !< all of size at most dt), and with immersed solids (the cut-cell flux difference is not the backbone's). The backends
+   !< refuse it on multi-realm runs (the inter-realm seam carries no limiting factor).
+   class(flume_common_object), intent(in) :: self !< The equation.
+
+   if (self%numerics%positivity_limiter /= POSITIVITY_LIMITER_CELL) return
+   if (self%physics%model == MODEL_MHD_GLM) &
+      call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is refused with [mhd].(divergence_control)=glm: '//&
+                               'use eglm (issue #47, D-10)')
+   if (.not.any(self%rk%scheme == [character(18) :: RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54])) &
+      call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell needs an SSP Runge-Kutta scheme, not '// &
+                               '[runge_kutta].(scheme)='//self%rk%scheme)
+   if (self%ib%solids_number > 0_I4P) &
+      call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported with immersed solids')
+   endsubroutine check_positivity_limiter
 
    subroutine check_weno_scheme(self)
    !< Refuse the centred WENO schemes: the flux splitting calls the upwind primitive only, so a `weno-c-*` scheme would
