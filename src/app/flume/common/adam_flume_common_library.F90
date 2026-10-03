@@ -13,6 +13,7 @@ use :: adam_flume_mhd_object
 use :: adam_flume_numerics_object
 use :: adam_flume_parameters
 use :: adam_flume_physics_object
+use :: adam_flume_seam_sync_object
 use :: adam_flume_time_object
 
 implicit none

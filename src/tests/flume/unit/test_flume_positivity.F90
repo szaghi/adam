@@ -32,6 +32,15 @@ program test_flume_positivity
 !<    blend must count exactly the three face ghosts, take each above `POSITIVITY_LIMITER_KAPPA` times the density and
 !<    internal energy of its interior anchor (within the round-off of the total energy), and leave every other value,
 !<    the edge ghost included, bitwise unchanged (count of failures, must be 0).
+!< 7. the seam path (issue #50, P1, `compute_seam_positivity_factors`): the +x face of cell (NC, 2, 3) becomes a 2:1
+!<    seam face with four random admissible fine states beyond it; its backbone is the mean of the four backbones
+!<    `F^LF(q_C, q_f)` and its high-order flux the mean of four perturbed ones. After the regular factors, the seam
+!<    kernel recomputes the cell's factor with that pair, the faces are blended and the seam face is set to
+!<    `F^LF + theta_s (F - F^LF)` with a random `theta_s` in [0, Lambda_C]: every interior cell must stay admissible
+!<    (count of failures, must be 0), the cell's backbone must be admissible (count, must be 0: the mean of donor-state
+!<    backbones is a convex combination of Lax-Friedrichs updates), and the same update with `theta_s = 1` must fail
+!<    on some trials (count, must be > 0, else the check exercises nothing). The step is a quarter of the trial's, as
+!<    the fine states are not neighbours of the cell in the trial's CFL bound.
 !<
 !< **Not pinned: the source term of the corners** (`dt (s_hi - s_lo)`, EGLM). Measured (M3-P5a): removing it is not
 !< detected, and a case with the high-order fluxes equal to the backbone ones never needs limiting, not even on cold,
@@ -41,13 +50,16 @@ program test_flume_positivity
 
 use :: adam_flume_cpu_euler_kernels,    only : blend_euler=>blend_positivity_fluxes,                &
                                                factors_euler=>compute_positivity_factors,           &
+                                               seam_euler=>compute_seam_positivity_factors,         &
                                                ghosts_euler=>blend_inadmissible_ghosts
 use :: adam_flume_cpu_mhd_kernels,      only : blend_mhd=>blend_positivity_fluxes,                  &
                                                factors_mhd=>compute_positivity_factors,             &
+                                               seam_mhd=>compute_seam_positivity_factors,           &
                                                ghosts_mhd=>blend_inadmissible_ghosts
 use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources_limited, add_glm_damping,           &
                                                blend_eglm=>blend_positivity_fluxes,                 &
                                                ghosts_eglm=>blend_inadmissible_ghosts,              &
+                                               seam_eglm=>compute_seam_positivity_factors,          &
                                                factors_eglm=>compute_positivity_factors
 use :: adam_flume_euler_library,        only : compute_riemann_llf, conservative_to_auxiliary
 use :: adam_flume_mhd_library,          only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary, &
@@ -77,6 +89,9 @@ integer(I4P)            :: below(3)            !< Updates below the relative flo
 integer(I4P)            :: nonf(3)             !< Cells flagged for a non-finite high-order flux per model.
 integer(I4P)            :: leak(3)             !< Non-finite face flux values after the blend per model.
 integer(I4P)            :: gfail(3)            !< Ghost blend failures per model.
+integer(I4P)            :: sfail(3)            !< Seam path failures per model.
+integer(I4P)            :: sbad(3)             !< Seam path inadmissible backbones per model.
+integer(I4P)            :: sunl(3)             !< Seam path failures with theta_s = 1 per model.
 integer(I4P)            :: seed(64)            !< Random generator seed.
 integer(I4P)            :: ns, n_, m           !< Seed size, counters.
 logical                 :: test_passed         !< Aggregate pass flag.
@@ -87,11 +102,11 @@ call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
 seed = [(20261002_I4P + n_, n_=1, size(seed))]
 call random_seed(put=seed(1:ns))
-fails = 0 ; limited = 0 ; bad = 0 ; unlim = 0 ; below = 0 ; nonf = 0 ; leak = 0 ; gfail = 0
+fails = 0 ; limited = 0 ; bad = 0 ; unlim = 0 ; below = 0 ; nonf = 0 ; leak = 0 ; gfail = 0 ; sfail = 0 ; sbad = 0 ; sunl = 0
 do n_=1, N
    do m=1, 3
       call trial(model=m, fails=fails(m), limited=limited(m), bad=bad(m), unlim=unlim(m), below=below(m), &
-                 nonf=nonf(m), leak=leak(m), gfail=gfail(m))
+                 nonf=nonf(m), leak=leak(m), gfail=gfail(m), sfail=sfail(m), sbad=sbad(m), sunl=sunl(m))
    enddo
 enddo
 test_passed = .true.
@@ -100,10 +115,13 @@ do m=1, 3
                 ', inadmissible backbones '//trim(str(bad(m)))//', unlimited inadmissible '//        &
                 trim(str(unlim(m)))//', below the relative floor '//trim(str(below(m)))//      &
                 ', non-finite flux cells '//trim(str(nonf(m)))//', non-finite fluxes after the blend '//  &
-                trim(str(leak(m)))//', ghost blend failures '//trim(str(gfail(m)))//' ('//trim(str(N))//      &
-                ' trials of '//trim(str(NC**3))//' cells)'
+                trim(str(leak(m)))//', ghost blend failures '//trim(str(gfail(m)))//', seam failures '//       &
+                trim(str(sfail(m)))//', seam inadmissible backbones '//trim(str(sbad(m)))//                   &
+                ', seam failures unlimited '//trim(str(sunl(m)))//' ('//trim(str(N))//' trials of '//         &
+                trim(str(NC**3))//' cells)'
    test_passed = test_passed .and. fails(m) == 0_I4P .and. limited(m) > 0_I4P .and. unlim(m) > 0_I4P .and. &
-                 below(m) == 0_I4P .and. nonf(m) > 0_I4P .and. leak(m) == 0_I4P .and. gfail(m) == 0_I4P
+                 below(m) == 0_I4P .and. nonf(m) > 0_I4P .and. leak(m) == 0_I4P .and. gfail(m) == 0_I4P .and. &
+                 sfail(m) == 0_I4P .and. sbad(m) == 0_I4P .and. sunl(m) > 0_I4P
 enddo
 if (test_passed) then
    print '(A)', 'TEST PASSED: flume positivity limiter'
@@ -138,7 +156,7 @@ contains
    if (size(q) == NV_MHD_EGLM) e = e - 0.5_R8P * q(IQ_PSI)**2
    endfunction energy
 
-   subroutine trial(model, fails, limited, bad, unlim, below, nonf, leak, gfail)
+   subroutine trial(model, fails, limited, bad, unlim, below, nonf, leak, gfail, sfail, sbad, sunl)
    !< One random trial of a model (1 Euler, 2 MHD, 3 EGLM).
    integer(I4P), intent(in)    :: model                     !< Model.
    integer(I4P), intent(inout) :: fails, limited, bad       !< Counters.
@@ -147,6 +165,7 @@ contains
    integer(I4P), intent(inout) :: nonf                      !< Cells flagged for a non-finite high-order flux.
    integer(I4P), intent(inout) :: leak                      !< Non-finite face flux values after the blend.
    integer(I4P), intent(inout) :: gfail                     !< Ghost blend failures.
+   integer(I4P), intent(inout) :: sfail, sbad, sunl         !< Seam path failures, backbones, unlimited failures.
    integer(I4P)                :: nn                        !< Flagged cells of the trial.
    real(R8P), allocatable      :: fbx(:,:,:,:,:), fby(:,:,:,:,:), fbz(:,:,:,:,:) !< Backbone face fluxes.
    real(R8P), allocatable      :: q(:,:,:,:,:)              !< State.
@@ -250,6 +269,7 @@ contains
       call perturb(f=flz(:,i,j,k,1), q=q(:,i,j,k,1), sigma=smax)
    enddo ; enddo ; enddo
    call ghost_check(model, q, is_null, gfail)
+   call seam_check(model, q, qa, flx, fly, flz, smax, 0.25_R8P * dt, dxyz, is_null, sfail, sbad, sunl)
    lam = 1._R8P
    call update(model, q, qa, lam, flx, fly, flz, dt, dxyz, is_null, unlim)
    flx(IQ_R,2,2,2,1) = ieee_value(1._R8P, ieee_quiet_nan)
@@ -338,6 +358,95 @@ contains
    enddo
    if (any(transfer(qg, 0_I8P, size(qg)) /= transfer(q0, 0_I8P, size(q0)))) gfail = gfail + 1_I4P
    endsubroutine ghost_check
+
+   subroutine seam_check(model, q, qa, flx0, fly0, flz0, smax, dt, dxyz, is_null, sfail, sbad, sunl)
+   !< Check 7: the seam path of the limiter on the +x face of cell (NC, 2, 3).
+   integer(I4P), intent(in)    :: model                            !< Model.
+   real(R8P),    intent(in)    :: q(1:,1-NGC:,1-NGC:,1-NGC:,1:)     !< State.
+   real(R8P),    intent(in)    :: qa(1:,1-NGC:,1-NGC:,1-NGC:,1:)    !< Auxiliary variables.
+   real(R8P),    intent(in)    :: flx0(1:,0:,1:,1:,1:)              !< X-face high-order fluxes.
+   real(R8P),    intent(in)    :: fly0(1:,1:,0:,1:,1:)              !< Y-face high-order fluxes.
+   real(R8P),    intent(in)    :: flz0(1:,1:,1:,0:,1:)              !< Z-face high-order fluxes.
+   real(R8P),    intent(in)    :: smax                             !< Speed scale.
+   real(R8P),    intent(in)    :: dt                               !< Step.
+   real(R8P),    intent(in)    :: dxyz(3,1)                        !< Space steps.
+   logical,      intent(in)    :: is_null(3)                       !< Null directions.
+   integer(I4P), intent(inout) :: sfail, sbad, sunl                !< Counters.
+   real(R8P), allocatable      :: flx(:,:,:,:,:), fly(:,:,:,:,:), flz(:,:,:,:,:) !< Face fluxes.
+   real(R8P), allocatable      :: lam(:,:,:,:,:)                   !< Cell factors.
+   real(R8P), allocatable      :: flo(:), fhi(:), fl(:), fh(:)     !< Seam pair, one fine pair.
+   real(R8P), allocatable      :: olo(:,:,:), ohi(:,:,:)           !< Overrides.
+   logical                     :: omask(6,1)                       !< Overridden faces.
+   integer(I4P)                :: cell(4,1)                        !< Seam cell.
+   integer(I4P)                :: nb, nn, nl, db, dn, m            !< Counts, counter.
+   real(R8P)                   :: th                               !< Seam factor.
+
+   flx = flx0 ; fly = fly0 ; flz = flz0
+   allocate(lam(size(q,1),1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1))
+   allocate(flo(size(q,1)), fhi(size(q,1)), fl(size(q,1)), fh(size(q,1)))
+   allocate(olo(size(q,1),6,1), ohi(size(q,1),6,1))
+   lam = 1._R8P
+   flo = 0._R8P ; fhi = 0._R8P
+   do m=1, 4 ! the fine states: four ghost cells of the block, random and admissible
+      call backbone(model=model, d=1, qL=q(:,NC,2,3,1), qR=q(:,NC+1+(m-1)/2,m,1,1), f=fl)
+      fh = fl
+      call perturb(f=fh, q=q(:,NC,2,3,1), sigma=smax)
+      flo = flo + 0.25_R8P * fl
+      fhi = fhi + 0.25_R8P * fh
+   enddo
+   cell(:,1) = [NC, 2, 3, 1]
+   omask = .false. ; omask(2,1) = .true.
+   olo = 0._R8P ; ohi = 0._R8P
+   olo(:,2,1) = flo ; ohi(:,2,1) = fhi
+   select case(model)
+   case(1)
+      call factors_euler(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, &
+                         dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                         nonfinite=nn)
+      call seam_euler(ngc=NGC, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, dt=dt, dxyz=dxyz, is_null=is_null, q=q, &
+                      q_aux=qa, flx=flx, fly=fly, flz=flz, ncells=1, cell=cell, omask=omask, olo=olo, ohi=ohi,  &
+                      lam=lam, dbad=db, dnonfinite=dn)
+      call blend_euler(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
+                       lam=lam, fl=flx, limited=nl)
+      call blend_euler(d=2, di=0, dj=1, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
+                       lam=lam, fl=fly, limited=nl)
+      call blend_euler(d=3, di=0, dj=0, dk=1, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
+                       lam=lam, fl=flz, limited=nl)
+   case(2)
+      call factors_mhd(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, &
+                       dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                       nonfinite=nn)
+      call seam_mhd(ngc=NGC, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, dt=dt, dxyz=dxyz, is_null=is_null, q=q, &
+                    q_aux=qa, flx=flx, fly=fly, flz=flz, ncells=1, cell=cell, omask=omask, olo=olo, ohi=ohi,  &
+                    lam=lam, dbad=db, dnonfinite=dn)
+      call blend_mhd(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
+                     lam=lam, fl=flx, limited=nl)
+      call blend_mhd(d=2, di=0, dj=1, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
+                     lam=lam, fl=fly, limited=nl)
+      call blend_mhd(d=3, di=0, dj=0, dk=1, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
+                     lam=lam, fl=flz, limited=nl)
+   case default
+      call factors_eglm(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=DAMPING, hs=HS, &
+                        dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                        nonfinite=nn)
+      call seam_eglm(ngc=NGC, gamma=GAMMA, ch=CH, damping=DAMPING, hs=HS, dt=dt, dxyz=dxyz, is_null=is_null, q=q, &
+                     q_aux=qa, flx=flx, fly=fly, flz=flz, ncells=1, cell=cell, omask=omask, olo=olo, ohi=ohi,  &
+                     lam=lam, dbad=db, dnonfinite=dn)
+      call blend_eglm(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
+                      lam=lam, fl=flx, limited=nl)
+      call blend_eglm(d=2, di=0, dj=1, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
+                      lam=lam, fl=fly, limited=nl)
+      call blend_eglm(d=3, di=0, dj=0, dk=1, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
+                      lam=lam, fl=flz, limited=nl)
+   endselect
+   if (lam(1,NC,2,3,1) == 0._R8P) sbad = sbad + 1_I4P
+   th = lam(1,NC,2,3,1) * uniform()
+   flx(:,NC,2,3,1) = flo
+   if (th > 0._R8P) flx(:,NC,2,3,1) = flo + th * (fhi - flo)
+   call update(model, q, qa, lam, flx, fly, flz, dt, dxyz, is_null, sfail)
+   flx(:,NC,2,3,1) = fhi
+   call update(model, q, qa, lam, flx, fly, flz, dt, dxyz, is_null, sunl)
+   endsubroutine seam_check
 
    subroutine backbone(model, d, qL, qR, f)
    !< The backbone flux of a model (1 Euler, 2 MHD, 3 EGLM).

@@ -17,7 +17,9 @@ use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22,
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_common_library,      only : flume_common_object, ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION,  &
+use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, ib_cut_spacing,             &
+                                              seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
+                                              BC_EXTRAPOLATION,                                                        &
                                               BC_INFLOW, BC_WALL_INVISCID, MODEL_EULER,                                 &
                                               MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,        &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,                                 &
@@ -38,6 +40,8 @@ use :: adam_flume_cpu_mhd_eglm_hlld_kernels,    only : compute_riemann_face_flux
 use :: adam_flume_cpu_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>blend_inadmissible_ghosts,            &
                                               blend_positivity_fluxes_euler=>blend_positivity_fluxes,                &
+                                              compute_backbone_fluxes_euler=>compute_backbone_fluxes,                &
+                                              compute_seam_positivity_factors_euler=>compute_seam_positivity_factors,&
                                               compute_face_fluxes_euler=>compute_face_fluxes,                        &
                                               compute_positivity_factors_euler=>compute_positivity_factors,          &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
@@ -46,6 +50,8 @@ use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>b
 use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,                                   &
                                               blend_inadmissible_ghosts_mhd=>blend_inadmissible_ghosts,            &
                                               blend_positivity_fluxes_mhd=>blend_positivity_fluxes,                &
+                                              compute_backbone_fluxes_mhd=>compute_backbone_fluxes,                &
+                                              compute_seam_positivity_factors_mhd=>compute_seam_positivity_factors,&
                                               compute_positivity_factors_mhd=>compute_positivity_factors,          &
                                               compute_divb_norms_mhd=>compute_divb_norms,                          &
                                               compute_face_fluxes_mhd=>compute_face_fluxes,                        &
@@ -56,6 +62,9 @@ use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources, add_eglm_source
                                                add_glm_damping_eglm=>add_glm_damping,                           &
                                                blend_inadmissible_ghosts_mhd_eglm=>blend_inadmissible_ghosts,   &
                                                blend_positivity_fluxes_mhd_eglm=>blend_positivity_fluxes,       &
+                                               compute_backbone_fluxes_mhd_eglm=>compute_backbone_fluxes,       &
+                                               compute_seam_positivity_factors_mhd_eglm=>                       &
+                                                  compute_seam_positivity_factors,                             &
                                                compute_positivity_factors_mhd_eglm=>compute_positivity_factors, &
                                                apply_floors_mhd_eglm=>apply_floors,                             &
                                                compute_divb_norms_mhd_eglm=>compute_divb_norms,                 &
@@ -87,6 +96,7 @@ type, extends(flume_common_object) :: flume_cpu_object
    real(R8P), allocatable :: fly_f(:,:,:,:,:) !< Y-face fluxes [nv, 1:ni, 0:nj, 1:nk, nb], face j = j+1/2.
    real(R8P), allocatable :: flz_f(:,:,:,:,:) !< Z-face fluxes [nv, 1:ni, 1:nj, 0:nk, nb], face k = k+1/2.
    ! positivity limiter data
+   type(flume_seam_sync_object) :: seam        !< Per-stage seam flux synchronisation of the limiter (issue #50).
    real(R8P), allocatable :: lam(:,:,:,:,:)   !< Cell factors of the positivity limiter (component 1, q-shaped for the
                                               !< ghost exchange) [nv, 1-ngc:ni+ngc, ..., nb]; allocated with the limiter.
    ! dispatch
@@ -104,6 +114,10 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
       procedure, pass(self) :: limit_positivity        !< Apply the positivity limiter to the stage face fluxes.
+      procedure, pass(self) :: seam_sync_blend         !< Set the seam face fluxes with the seam factors (issue #50).
+      procedure, pass(self) :: seam_sync_factors       !< Recompute the seam cells' factors (issue #50).
+      procedure, pass(self) :: seam_sync_fluxes        !< Publish the donor states and the fine means (issue #50).
+      procedure, pass(self) :: seam_sync_theta         !< Compute the seam factors (issue #50).
       procedure, pass(self) :: save_residuals          !< Save residuals history.
       procedure, pass(self) :: save_simulation_data    !< Save fields, restart and diagnostics on their cadence.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions on the crown maps.
@@ -471,24 +485,51 @@ contains
    endselect
    endsubroutine initialize_flume
 
-   subroutine limit_positivity(self, q)
+   subroutine limit_positivity(self, q, flux_register)
    !< Apply the positivity limiter to the face fluxes of the stage (issue #47, D-9): the cell factors of the model's
    !< kernel, their ghost exchange (intra-realm copies and MPI only: a ghost the exchange does not fill, at a physical
    !< boundary, keeps the factor 1 it was allocated with, so the face takes the interior cell's factor), the blending of
    !< the active directions. The limited faces and the cells with an inadmissible backbone are reduced over the ranks and
    !< logged. The forward-Euler step of the limiter is the step `time%dt` (every stage of an SSP scheme is a convex
    !< combination of forward-Euler steps of size at most `dt`).
-   class(flume_cpu_object), intent(inout) :: self      !< The equation.
-   real(R8P),               intent(in)    :: q(1:,         &
-                                                 1-self%ngc:,&
-                                                 1-self%ngc:,&
-                                                 1-self%ngc:,&
-                                                 1:)         !< Conservative variables of the stage.
-   integer(I4P)                           :: counts(5) !< Inadmissible backbones, limited faces per direction,
-                                                       !< cells with a non-finite high-order flux.
-   integer(I4P)                           :: d         !< Counter.
+   !<
+   !< With 2:1 AMR seams (an intra-realm face in the forest's register) the seam flux is synchronised at this stage
+   !< (issue #50, D1; `adam_flume_seam_sync_object`): the fine seam faces take the coarse donor state as backbone outer
+   !< state, the coarse seam cells' factors use the means of the fine fluxes, and both sides of a seam face blend with
+   !< `theta_s = min(Lambda_C, min Lambda_f)`, so the coarse flux is the mean of the fine ones and every cell stays in its
+   !< corner box; the end-of-step reflux then corrects round-off only.
+   class(flume_cpu_object),     intent(inout)           :: self          !< The equation.
+   real(R8P),                   intent(in)              :: q(1:,         &
+                                                             1-self%ngc:,&
+                                                             1-self%ngc:,&
+                                                             1-self%ngc:,&
+                                                             1:)         !< Conservative variables of the stage.
+   class(flux_register_object), intent(in),    optional :: flux_register !< Forest's flux register.
+   integer(I4P)                                         :: counts(5)     !< Inadmissible backbones, limited faces per
+                                                                         !< direction, cells with a non-finite flux.
+   integer(I4P), allocatable                            :: ridx(:,:)     !< Register index when the map is unallocated.
+   logical                                              :: seam          !< The stage synchronises seam faces.
+   integer(I4P)                                         :: d             !< Counter.
 
    counts = 0_I4P
+   seam = .false.
+   if (present(flux_register)) then
+      select type(flux_register)
+      type is(flux_register_object)
+         if (allocated(self%adam%maps%inter_realm_face_register_index)) then
+            seam = self%seam%build(flux_register=flux_register,                                         &
+                                   register_index=self%adam%maps%inter_realm_face_register_index,       &
+                                   blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, &
+                                   nv=self%physics%nv)
+         else
+            allocate(ridx(self%blocks_number, 6)) ; ridx = 0_I4P
+            seam = self%seam%build(flux_register=flux_register, register_index=ridx,                    &
+                                   blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, &
+                                   nv=self%physics%nv)
+         endif
+      endselect
+   endif
+   if (seam) call self%seam_sync_fluxes(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
              ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
              dxyz=>self%adam%field%dxyz)
@@ -512,8 +553,10 @@ contains
    case default
       call mpih%error_stop(msg=': no CPU positivity limiter for physical model "'//self%physics%physical_model//'"')
    endselect
+   if (seam) call self%seam_sync_factors(q=q, dbad=counts(1), dnonfinite=counts(5))
    call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%lam)
    call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%lam)
+   if (seam) call self%seam_sync_theta
    do d=1, 3
       if (is_null(d)) cycle
       select case(self%physics%model)
@@ -565,6 +608,7 @@ contains
       endselect
    enddo
    endassociate
+   if (seam) call self%seam_sync_blend
    call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 5, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    if (sum(counts) > 0_I4P .and. mpih%myrank == 0) &
       print '(A)', mpih%myrankstr//'positivity limiter: '//trim(str(sum(counts(2:4))))//' faces limited, '// &
@@ -573,6 +617,290 @@ contains
       print '(A)', mpih%myrankstr//'positivity limiter (non-finite): '//trim(str(counts(5)))// &
                    ' cells with a non-finite high-order flux took the backbone at step '//trim(str(self%time%it))
    endsubroutine limit_positivity
+
+   subroutine seam_sync_fluxes(self, q)
+   !< Seam synchronisation, first phase (issue #50): publish the coarse donor states of the seam skins, then on every
+   !< fine seam face compute the backbone with the donor state as outer state, keep it with the face's high-order flux,
+   !< and accumulate the 2x2 means of both into the coarse skins.
+   class(flume_cpu_object), intent(inout) :: self                     !< The equation.
+   real(R8P),               intent(in)    :: q(1:,         &
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1:)                    !< Conservative variables of the stage.
+   real(R8P), allocatable                 :: qL(:,:), qR(:,:), fl(:,:) !< Face states, backbone fluxes.
+   integer(I4P)                           :: b, fec, s, f, c, cc       !< Counters.
+   integer(I4P)                           :: axis, sg, nc, off, foff   !< Face axis, side, cells, offsets.
+   integer(I4P)                           :: ioff, joff                !< Fine quadrant offsets.
+   integer(I4P)                           :: i, j, k                   !< Cell indexes.
+
+   if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) then ! no block on this rank: collectives only
+      call self%seam%reduce_states
+      call self%seam%reduce_fluxes
+      return
+   endif
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv=>self%physics%nv, idx=>self%adam%maps%inter_realm_face_register_index)
+   do b=1, self%blocks_number
+      do fec=1, 6
+         s = idx(b, fec)
+         if (s <= 0_I4P) cycle
+         off = self%seam%off(s)
+         if (off < 0_I4P) cycle
+         axis = (fec + 1_I4P) / 2_I4P ; sg = merge(-1_I4P, 1_I4P, mod(fec, 2_I4P) == 1_I4P)
+         do c=1, seam_face_cells(fec=fec, ni=ni, nj=nj, nk=nk)
+            call seam_skin_cell(axis=axis, sgn=sg, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
+            self%seam%qc(1:nv,off+c) = q(1:nv,i,j,k,b)
+         enddo
+      enddo
+   enddo
+   call self%seam%reduce_states
+   do b=1, self%blocks_number
+      do fec=1, 6
+         foff = self%seam%fine_off(b, fec)
+         if (foff < 0_I4P) cycle
+         f = -idx(b, fec) ; off = self%seam%off(f)
+         axis = (fec + 1_I4P) / 2_I4P ; sg = merge(-1_I4P, 1_I4P, mod(fec, 2_I4P) == 1_I4P)
+         ioff = 0_I4P ; joff = 0_I4P
+         if (allocated(self%adam%maps%amr_seam_quadrant)) then
+            ioff = self%adam%maps%amr_seam_quadrant(1, b, fec) ; joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
+         endif
+         nc = seam_face_cells(fec=fec, ni=ni, nj=nj, nk=nk)
+         allocate(qL(nv,nc), qR(nv,nc), fl(nv,nc))
+         do c=1, nc
+            call seam_skin_cell(axis=axis, sgn=sg, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
+            cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+            if (sg < 0_I4P) then
+               qL(:,c) = self%seam%qc(1:nv,off+cc) ; qR(:,c) = q(1:nv,i,j,k,b)
+            else
+               qL(:,c) = q(1:nv,i,j,k,b) ; qR(:,c) = self%seam%qc(1:nv,off+cc)
+            endif
+            select case(axis)
+            case(1)
+               self%seam%fine_hi(1:nv,foff+c) = self%flx_f(1:nv,merge(0_I4P, ni, sg < 0_I4P),j,k,b)
+            case(2)
+               self%seam%fine_hi(1:nv,foff+c) = self%fly_f(1:nv,i,merge(0_I4P, nj, sg < 0_I4P),k,b)
+            case default
+               self%seam%fine_hi(1:nv,foff+c) = self%flz_f(1:nv,i,j,merge(0_I4P, nk, sg < 0_I4P),b)
+            endselect
+         enddo
+         select case(self%physics%model)
+         case(MODEL_EULER)
+            call compute_backbone_fluxes_euler(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
+                                               qL=qL, qR=qR, flo=fl)
+         case(MODEL_MHD)
+            call compute_backbone_fluxes_mhd(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
+                                             qL=qL, qR=qR, flo=fl)
+         case(MODEL_MHD_EGLM)
+            call compute_backbone_fluxes_mhd_eglm(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
+                                                  qL=qL, qR=qR, flo=fl)
+         endselect
+         do c=1, nc
+            cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+            self%seam%fine_lo(1:nv,foff+c) = fl(:,c)
+            self%seam%flo(1:nv,off+cc) = self%seam%flo(1:nv,off+cc) + 0.25_R8P * fl(:,c)
+            self%seam%fhi(1:nv,off+cc) = self%seam%fhi(1:nv,off+cc) + 0.25_R8P * self%seam%fine_hi(1:nv,foff+c)
+         enddo
+         deallocate(qL, qR, fl)
+      enddo
+   enddo
+   endassociate
+   call self%seam%reduce_fluxes
+   endsubroutine seam_sync_fluxes
+
+   subroutine seam_sync_factors(self, q, dbad, dnonfinite)
+   !< Seam synchronisation, second phase (issue #50): recompute the factor of every cell beside a seam face with that
+   !< face's pair overridden, the coarse side by the fine means, the fine side by its donor-state backbone (and its own
+   !< high-order flux), and add the change of the counts.
+   class(flume_cpu_object), intent(inout) :: self                     !< The equation.
+   real(R8P),               intent(in)    :: q(1:,         &
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1:)                    !< Conservative variables of the stage.
+   integer(I4P),            intent(inout) :: dbad                      !< Inadmissible backbones count.
+   integer(I4P),            intent(inout) :: dnonfinite                !< Non-finite cells count.
+   integer(I4P), allocatable              :: cell(:,:)                 !< Seam cells (i, j, k, b).
+   logical,      allocatable              :: omask(:,:)                !< Overridden faces.
+   real(R8P),    allocatable              :: olo(:,:,:), ohi(:,:,:)    !< Override fluxes.
+   logical                                :: mask(6)                   !< Seam faces of a cell.
+   integer(I4P)                           :: n, m, b, i, j, k, fec, s  !< Counters.
+   integer(I4P)                           :: c, db, dn                 !< Skin index, count changes.
+
+   if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) return
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv=>self%physics%nv, idx=>self%adam%maps%inter_realm_face_register_index)
+   do m=1, 2 ! count, then fill
+      n = 0
+      do b=1, self%blocks_number
+         if (all(idx(b,:) == 0_I4P)) cycle
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do fec=1, 6
+                     s = idx(b, fec)
+                     mask(fec) = .false.
+                     if (s == 0_I4P .or. self%adam%grid%null_xyz((fec + 1) / 2)) cycle
+                     if (self%seam%off(abs(s)) < 0_I4P) cycle
+                     select case(fec)
+                     case(1) ; mask(fec) = i == 1
+                     case(2) ; mask(fec) = i == ni
+                     case(3) ; mask(fec) = j == 1
+                     case(4) ; mask(fec) = j == nj
+                     case(5) ; mask(fec) = k == 1
+                     case(6) ; mask(fec) = k == nk
+                     endselect
+                  enddo
+                  if (.not.any(mask)) cycle
+                  n = n + 1
+                  if (m == 1) cycle
+                  cell(:,n) = [i, j, k, b]
+                  omask(:,n) = mask
+                  do fec=1, 6
+                     if (.not.mask(fec)) cycle
+                     s = idx(b, fec)
+                     c = seam_skin_index(fec=fec, ni=ni, nj=nj, i=i, j=j, k=k)
+                     if (s > 0_I4P) then
+                        olo(:,fec,n) = self%seam%flo(1:nv,self%seam%off(s)+c)
+                        ohi(:,fec,n) = self%seam%fhi(1:nv,self%seam%off(s)+c)
+                     else
+                        olo(:,fec,n) = self%seam%fine_lo(1:nv,self%seam%fine_off(b,fec)+c)
+                        ohi(:,fec,n) = self%seam%fine_hi(1:nv,self%seam%fine_off(b,fec)+c)
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      if (m == 1) then
+         allocate(cell(4,max(1,n)), omask(6,max(1,n)), olo(nv,6,max(1,n)), ohi(nv,6,max(1,n)))
+         olo = 0._R8P ; ohi = 0._R8P
+      endif
+   enddo
+   endassociate
+   if (n == 0) return
+   associate(ngc=>self%ngc, gamma=>self%physics%gamma, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
+             dt=>self%time%dt, hs=>self%weno%S, dxyz=>self%adam%field%dxyz)
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call compute_seam_positivity_factors_euler(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, &
+                                                 is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
+                                                 flz=self%flz_f, ncells=n, cell=cell, omask=omask, olo=olo, ohi=ohi,    &
+                                                 lam=self%lam, dbad=db, dnonfinite=dn)
+   case(MODEL_MHD)
+      call compute_seam_positivity_factors_mhd(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, &
+                                               is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
+                                               flz=self%flz_f, ncells=n, cell=cell, omask=omask, olo=olo, ohi=ohi,    &
+                                               lam=self%lam, dbad=db, dnonfinite=dn)
+   case(MODEL_MHD_EGLM)
+      call compute_seam_positivity_factors_mhd_eglm(ngc=ngc, gamma=gamma, ch=ch, damping=self%physics%mhd%glm_damping, &
+                                                    hs=hs, dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=self%q_aux,   &
+                                                    flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, ncells=n,          &
+                                                    cell=cell, omask=omask, olo=olo, ohi=ohi, lam=self%lam, dbad=db,   &
+                                                    dnonfinite=dn)
+   endselect
+   endassociate
+   dbad = dbad + db
+   dnonfinite = dnonfinite + dn
+   endsubroutine seam_sync_factors
+
+   subroutine seam_sync_theta(self)
+   !< Seam synchronisation, third phase (issue #50): the smallest factor of the fine cells under every coarse skin cell,
+   !< then the seam factor `theta_s = min(Lambda_C, min Lambda_f)` in [0, 1] written by the coarse owner.
+   class(flume_cpu_object), intent(inout) :: self               !< The equation.
+   integer(I4P)                           :: b, fec, s, c, cc   !< Counters.
+   integer(I4P)                           :: axis, sg, off, foff !< Face axis, side, offsets.
+   integer(I4P)                           :: ioff, joff, i, j, k !< Fine quadrant offsets, cell indexes.
+
+   if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) then ! no block on this rank: collectives only
+      call self%seam%reduce_factors
+      call self%seam%reduce_theta
+      return
+   endif
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, idx=>self%adam%maps%inter_realm_face_register_index)
+   do b=1, self%blocks_number
+      do fec=1, 6
+         foff = self%seam%fine_off(b, fec)
+         if (foff < 0_I4P) cycle
+         off = self%seam%off(-idx(b, fec))
+         axis = (fec + 1_I4P) / 2_I4P ; sg = merge(-1_I4P, 1_I4P, mod(fec, 2_I4P) == 1_I4P)
+         ioff = 0_I4P ; joff = 0_I4P
+         if (allocated(self%adam%maps%amr_seam_quadrant)) then
+            ioff = self%adam%maps%amr_seam_quadrant(1, b, fec) ; joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
+         endif
+         do c=1, seam_face_cells(fec=fec, ni=ni, nj=nj, nk=nk)
+            call seam_skin_cell(axis=axis, sgn=sg, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
+            cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+            self%seam%lmin(off+cc) = min(self%seam%lmin(off+cc), self%lam(1,i,j,k,b))
+         enddo
+      enddo
+   enddo
+   call self%seam%reduce_factors
+   do b=1, self%blocks_number
+      do fec=1, 6
+         s = idx(b, fec)
+         if (s <= 0_I4P) cycle
+         off = self%seam%off(s)
+         if (off < 0_I4P) cycle
+         axis = (fec + 1_I4P) / 2_I4P ; sg = merge(-1_I4P, 1_I4P, mod(fec, 2_I4P) == 1_I4P)
+         do c=1, seam_face_cells(fec=fec, ni=ni, nj=nj, nk=nk)
+            call seam_skin_cell(axis=axis, sgn=sg, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
+            self%seam%th(off+c) = max(0._R8P, min(1._R8P, self%lam(1,i,j,k,b), self%seam%lmin(off+c)))
+         enddo
+      enddo
+   enddo
+   endassociate
+   call self%seam%reduce_theta
+   endsubroutine seam_sync_theta
+
+   subroutine seam_sync_blend(self)
+   !< Seam synchronisation, last phase (issue #50): set the seam face fluxes with the seam factor, after the blend of
+   !< the other faces. Coarse face `F_LF + theta_s (F_H - F_LF)` of the fine means, fine face the same of its own pair:
+   !< the coarse flux is the mean of the four fine ones.
+   class(flume_cpu_object), intent(inout) :: self                   !< The equation.
+   real(R8P)                              :: fl(self%physics%nv)    !< Face flux.
+   real(R8P)                              :: th                     !< Seam factor.
+   integer(I4P)                           :: b, fec, s, c, cc       !< Counters.
+   integer(I4P)                           :: axis, sg, off, foff    !< Face axis, side, offsets.
+   integer(I4P)                           :: ioff, joff, i, j, k    !< Fine quadrant offsets, cell indexes.
+
+   if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) return
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv=>self%physics%nv, idx=>self%adam%maps%inter_realm_face_register_index)
+   do b=1, self%blocks_number
+      do fec=1, 6
+         s = idx(b, fec)
+         if (s == 0_I4P) cycle
+         off = self%seam%off(abs(s))
+         if (off < 0_I4P) cycle
+         axis = (fec + 1_I4P) / 2_I4P ; sg = merge(-1_I4P, 1_I4P, mod(fec, 2_I4P) == 1_I4P)
+         foff = self%seam%fine_off(b, fec)
+         ioff = 0_I4P ; joff = 0_I4P
+         if (s < 0_I4P .and. allocated(self%adam%maps%amr_seam_quadrant)) then
+            ioff = self%adam%maps%amr_seam_quadrant(1, b, fec) ; joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
+         endif
+         do c=1, seam_face_cells(fec=fec, ni=ni, nj=nj, nk=nk)
+            call seam_skin_cell(axis=axis, sgn=sg, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
+            if (s > 0_I4P) then
+               th = self%seam%th(off+c)
+               fl = self%seam%flo(1:nv,off+c)
+               if (th > 0._R8P) fl = fl + th * (self%seam%fhi(1:nv,off+c) - fl)
+            else
+               cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+               th = self%seam%th(off+cc)
+               fl = self%seam%fine_lo(1:nv,foff+c)
+               if (th > 0._R8P) fl = fl + th * (self%seam%fine_hi(1:nv,foff+c) - fl)
+            endif
+            select case(axis)
+            case(1)
+               self%flx_f(1:nv,merge(0_I4P, ni, sg < 0_I4P),j,k,b) = fl
+            case(2)
+               self%fly_f(1:nv,i,merge(0_I4P, nj, sg < 0_I4P),k,b) = fl
+            case default
+               self%flz_f(1:nv,i,j,merge(0_I4P, nk, sg < 0_I4P),b) = fl
+            endselect
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine seam_sync_blend
 
    subroutine save_residuals(self)
    !< Save residuals history (L2 norm of dq, MPI-reduced, rank 0 writes).
@@ -1203,7 +1531,8 @@ contains
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
-   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q)
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
+                                                                                         flux_register=flux_register)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
@@ -1333,7 +1662,8 @@ contains
          print '(A)', mpih%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
-   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q)
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
+                                                                                         flux_register=flux_register)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif

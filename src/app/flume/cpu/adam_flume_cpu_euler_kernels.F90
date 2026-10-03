@@ -23,7 +23,9 @@ public :: blend_inadmissible_ghosts
 public :: blend_positivity_fluxes
 public :: compute_face_fluxes
 public :: compute_lambda_max
+public :: compute_backbone_fluxes
 public :: compute_positivity_factors
+public :: compute_seam_positivity_factors
 public :: compute_q_aux
 public :: count_nonfinite
 
