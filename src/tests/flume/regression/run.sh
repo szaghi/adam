@@ -39,6 +39,13 @@
 #   brio-wu                  Brio-Wu shock tube, MHD + GLM, N = 128, t = 0.1 (verification/mhd/riemann)
 #   glm-pulse                MV-3 GLM pulse, periodic x, N = 128, t = 0.3: the psi / B_n telegraph system
 #   uniform-amr-mhd          MV-2 uniform MHD state (rho, u, p, B) across the V3 2:1 patch, GLM, 10 steps
+#   sod-hllc                 sod-x on weno-riemann, HLLC, characteristic, 6th-order correction (issue #47, M3-P6)
+#   rj2a-hlld                rj2a-x on weno-riemann, HLLD, characteristic, 6th-order correction (M3-P6)
+#   orszag-tang-eglm         orszag-tang with EGLM cleaning, splitting scheme, 100 steps (M3-P6)
+#   blast-limiter            Balsara-Spicer blast 64^2, EGLM, splitting scheme with the positivity limiter, 100 steps;
+#                            the limited runs are not bitwise across backends, each backend has its own golden (M3-P6)
+#   blast3d-limiter          the same blast as a sphere on 32^3 (octree, 64 blocks), 40 steps: the 3-D paths of EGLM and of
+#                            the limiter; same host memory as the 2-D cases (18 GB CPU, 10 GB host + 10 GB GPU on FNL, M3-P6)
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 
