@@ -615,7 +615,8 @@ contains
                                                      1-self%ngc:,&
                                                      1-self%ngc:,&
                                                      1:)         !< Conservative variables of the stage.
-   integer(I4P)                           :: counts(4) !< Inadmissible backbones, limited faces per direction.
+   integer(I4P)                           :: counts(5) !< Inadmissible backbones, limited faces per direction,
+                                                       !< cells with a non-finite high-order flux.
    integer(I4P)                           :: d         !< Counter.
    integer(I4P)                           :: di(3,3)   !< Unit steps of the directions.
 
@@ -630,20 +631,20 @@ contains
                                                 damping=0._R8P, hs=hs, dt=dt, dxyz_gpu=dxyz_gpu, is_null=is_null,      &
                                                 q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
                                                 fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, lam_gpu=self%lam_gpu,  &
-                                                bad=counts(1))
+                                                bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD)
       call compute_positivity_factors_mhd_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
                                               damping=0._R8P, hs=hs, dt=dt, dxyz_gpu=dxyz_gpu, is_null=is_null,        &
                                               q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,           &
                                               fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, lam_gpu=self%lam_gpu,    &
-                                              bad=counts(1))
+                                              bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD_EGLM)
       call compute_positivity_factors_mhd_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
                                                    damping=self%physics%mhd%glm_damping, hs=hs, dt=dt,                 &
                                                    dxyz_gpu=dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                    &
                                                    q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,                   &
                                                    fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu,                     &
-                                                   lam_gpu=self%lam_gpu, bad=counts(1))
+                                                   lam_gpu=self%lam_gpu, bad=counts(1), nonfinite=counts(5))
    case default
       call mpih_fnl%error_stop(msg=': no FNL positivity limiter for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -702,10 +703,13 @@ contains
       endselect
    enddo
    endassociate
-   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 4, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 5, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    if (sum(counts) > 0_I4P .and. mpih_fnl%myrank == 0) &
       print '(A)', mpih_fnl%myrankstr//'positivity limiter: '//trim(str(sum(counts(2:4))))//' faces limited, '// &
                    trim(str(counts(1)))//' inadmissible backbones at step '//trim(str(self%time%it))
+   if (counts(5) > 0_I4P .and. mpih_fnl%myrank == 0) &
+      print '(A)', mpih_fnl%myrankstr//'positivity limiter (non-finite): '//trim(str(counts(5)))// &
+                   ' cells with a non-finite high-order flux took the backbone at step '//trim(str(self%time%it))
    endsubroutine limit_positivity_dev
 
    subroutine save_residuals(self)

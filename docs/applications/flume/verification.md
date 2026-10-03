@@ -5,7 +5,7 @@ case (CPU by default, `FLUME_EXE=exe/adam_flume_fnl` for the GPU backend) and an
 exact solution, a reference, a symmetry or a conservation property), not a stored golden. This page shows the main
 cases, with the input that defines them and the measured results. The figures are drawn from the runs by
 `src/tests/flume/verification/make_doc_figures.py`; all runs use 2 MPI ranks and WENO5 unless stated, and the CPU and
-GPU (FNL) backends agree to the printed digits (bitwise wherever the table says so).
+GPU (FNL) backends agree to the printed digits (bitwise wherever the table says so) unless a section says otherwise.
 
 Run any case from its directory:
 
@@ -320,7 +320,7 @@ keep low-density cells with large Alfvén speeds, which cost time steps but not 
 | `test_flume_euler_library` (+ `_fnl`) | Euler eigensystem, flux, Roe average, split consistency; RS(q, q) = f(q) for LLF/HLL/HLLC, HLLC exact on a contact, positive first-order updates; device = host |
 | `test_flume_mhd_library` (+ `_fnl`) | MHD, GLM and EGLM eigensystems (including degenerate states), fluxes, auxiliary variables, cyclic invariance; device = host |
 | `test_flume_mhd_riemann` (+ `_fnl`) | MHD LLF/HLL/HLLD without cleaning, with GLM and with EGLM: consistency, HLLD exact on contact, tangential and rotational discontinuities, cyclic invariance bitwise, positive updates, EGLM = GLM bitwise at $\psi = 0$; device = host |
-| `test_flume_positivity` | PV-0, the limiter on random admissible states with perturbed fluxes (Euler, MHD, EGLM): every limited update positive and above the relative floor, the limiter needed and acting |
+| `test_flume_positivity` | PV-0, the limiter on random admissible states with perturbed fluxes (Euler, MHD, EGLM): every limited update positive and above the relative floor, the limiter needed and acting; a NaN or infinite high-order flux replaced by the backbone flux |
 | `test_flume_weno_interpolation` (+ `_fnl`) | WENO interpolation tables: exactness, convergence, device = host; the reconstruction tables unchanged |
 
 Build and run with `fobis build --mode test-flume-<name>-gnu` (`-fnl-nvf --varset local_nvf` for the device twin).

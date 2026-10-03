@@ -26,9 +26,11 @@
    ! size `dt` is admissible; an SSP Runge-Kutta stage is a convex combination of such steps (all of size at most `dt`).
 
    subroutine compute_positivity_factors(ni, nj, nk, ngc, blocks_number, gamma, ch, damping, hs, dt, dxyz, is_null, q, &
-                                         q_aux, flx, fly, flz, lam, bad)
+                                         q_aux, flx, fly, flz, lam, bad, nonfinite)
    !< Compute the cell factor `Lambda` of every interior cell into `lam(1,:,:,:,:)` (the other components untouched) and
-   !< count the cells whose backbone is not admissible (`Lambda = 0` there: the floors, if enabled, take over).
+   !< count the cells whose backbone is not admissible (`Lambda = 0` there: the floors, if enabled, take over) and those
+   !< with a non-finite high-order face flux (`Lambda = 0` too: a NaN or infinite flux carries no information, and every
+   !< comparison with it is false, so the corner factors would keep it; tested on the bit pattern as `count_nonfinite`).
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
    real(R8P),    intent(in)    :: gamma                              !< Specific heats ratio.
@@ -45,6 +47,9 @@
    real(R8P),    intent(in)    :: flz(1:,1:,1:,0:,1:)                !< Z-face high-order fluxes.
    real(R8P),    intent(inout) :: lam(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Cell factors (component 1).
    integer(I4P), intent(out)   :: bad                                !< Cells with an inadmissible backbone.
+   integer(I4P), intent(out)   :: nonfinite                          !< Cells with a non-finite high-order face flux.
+   integer(I8P), parameter     :: EXPONENT_MASK=2047_I8P             !< The 11 exponent bits of a binary64.
+   logical                     :: isnf                               !< A face difference of the cell is non-finite.
    real(R8P)                   :: qc(NV_K), qn(NV_K)                 !< Cell and neighbour states.
    real(R8P)                   :: flo(NV_K)                          !< Backbone face flux.
    real(R8P)                   :: dlt(NV_K,6)                        !< Antidiffusive difference of each active face.
@@ -61,7 +66,9 @@
 
    ids = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    bad = 0_I4P
-   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q, q_aux, flx, fly, flz, lam) reduction(+:bad)
+   nonfinite = 0_I4P
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q, q_aux, flx, fly, flz, lam) &
+   !$omp& reduction(+:bad, nonfinite)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -111,6 +118,17 @@
                   lam(1,i,j,k,b) = 0._R8P
                   cycle
                endif
+               isnf = .false.
+               do f=1, nf
+                  do c=1, NV_K
+                     if (iand(ishft(transfer(dlt(c,f), 0_I8P), -52), EXPONENT_MASK) == EXPONENT_MASK) isnf = .true.
+                  enddo
+               enddo
+               if (isnf) then
+                  nonfinite = nonfinite + 1_I4P
+                  lam(1,i,j,k,b) = 0._R8P
+                  cycle
+               endif
                ! the larger of the absolute and the relative floor: a stage may not take the cell below KAPPA times its backbone
                ! value, else a drained cell (rho ~ EPS, its energy kept) makes the next stage's backbone inadmissible
                er = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * rb), POSITIVITY_LIMITER_KAPPA * rb)
@@ -139,7 +157,8 @@
    subroutine blend_positivity_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, q, lam, fl, limited)
    !< Blend the face fluxes of direction `d` with the backbone: `F <- F^LLF + theta (F - F^LLF)`, `theta` the smaller
    !< factor of the two cells (ghost factors from the exchange; a ghost never written keeps 1, so a physical-boundary
-   !< face takes the interior cell's factor). Faces with `theta = 1` are left untouched (bitwise), and counted otherwise.
+   !< face takes the interior cell's factor). Faces with `theta = 1` are left untouched (bitwise), and counted otherwise;
+   !< a face with `theta = 0` takes the backbone flux itself (`0 * NaN` would keep a non-finite high-order flux).
    integer(I4P), intent(in)    :: d                                !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)    :: di, dj, dk                       !< Unit step along `d`.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                  !< Grid dimensions.
@@ -164,7 +183,11 @@
                if (theta < 1._R8P) then
                   call backbone_face_flux(gamma=gamma, ch=ch, d=d, qL=q(1:NV_K,i,j,k,b), qR=q(1:NV_K,i+di,j+dj,k+dk,b), &
                                           f=flo)
-                  fl(1:NV_K,i,j,k,b) = flo + max(0._R8P, theta) * (fl(1:NV_K,i,j,k,b) - flo)
+                  if (theta > 0._R8P) then
+                     fl(1:NV_K,i,j,k,b) = flo + theta * (fl(1:NV_K,i,j,k,b) - flo)
+                  else
+                     fl(1:NV_K,i,j,k,b) = flo
+                  endif
                   limited = limited + 1_I4P
                endif
             enddo

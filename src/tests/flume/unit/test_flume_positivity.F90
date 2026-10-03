@@ -23,7 +23,10 @@ program test_flume_positivity
 !< 3. inadmissible backbones (count, reported: the backbone's own CFL-type condition is not part of the guarantee);
 !< 4. the relative floor (issue #47, M3-P5c): the same cells keep density and internal energy above
 !<    `POSITIVITY_LIMITER_KAPPA` times those of their backbone update (count of failures, must be 0; the internal energy
-!<    within the round-off of the total energy).
+!<    within the round-off of the total energy);
+!< 5. non-finite high-order fluxes (issue #47, M3-P6): each trial sets one face flux component to NaN and one to
+!<    +infinity; the kernel flags their cells (count, must be > 0) and after the blend no face flux holds a non-finite
+!<    value (count, must be 0): those faces take the backbone flux.
 !<
 !< **Not pinned: the source term of the corners** (`dt (s_hi - s_lo)`, EGLM). Measured (M3-P5a): removing it is not
 !< detected, and a case with the high-order fluxes equal to the backbone ones never needs limiting, not even on cold,
@@ -45,7 +48,8 @@ use :: adam_flume_mhd_riemann_library,  only : mhd_backbone_flux, mhd_eglm_backb
 use :: adam_flume_parameters,           only : IA_A, IA_BX, IA_BZ, IA_R, IA_U, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R,      &
                                                IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX, NV_AUX_MHD, NV_EULER, NV_MHD,       &
                                                NV_MHD_EGLM, POSITIVITY_LIMITER_KAPPA
-use :: penf,                            only : I4P, R8P, str
+use :: penf,                            only : I4P, I8P, R8P, str
+use, intrinsic :: ieee_arithmetic,      only : ieee_positive_inf, ieee_quiet_nan, ieee_value
 
 implicit none
 
@@ -62,6 +66,8 @@ integer(I4P)            :: limited(3)          !< Cells with Lambda < 1 per mode
 integer(I4P)            :: bad(3)              !< Inadmissible backbones per model.
 integer(I4P)            :: unlim(3)            !< Inadmissible updates without the limiter per model.
 integer(I4P)            :: below(3)            !< Updates below the relative floor per model.
+integer(I4P)            :: nonf(3)             !< Cells flagged for a non-finite high-order flux per model.
+integer(I4P)            :: leak(3)             !< Non-finite face flux values after the blend per model.
 integer(I4P)            :: seed(64)            !< Random generator seed.
 integer(I4P)            :: ns, n_, m           !< Seed size, counters.
 logical                 :: test_passed         !< Aggregate pass flag.
@@ -72,10 +78,11 @@ call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
 seed = [(20261002_I4P + n_, n_=1, size(seed))]
 call random_seed(put=seed(1:ns))
-fails = 0 ; limited = 0 ; bad = 0 ; unlim = 0 ; below = 0
+fails = 0 ; limited = 0 ; bad = 0 ; unlim = 0 ; below = 0 ; nonf = 0 ; leak = 0
 do n_=1, N
    do m=1, 3
-      call trial(model=m, fails=fails(m), limited=limited(m), bad=bad(m), unlim=unlim(m), below=below(m))
+      call trial(model=m, fails=fails(m), limited=limited(m), bad=bad(m), unlim=unlim(m), below=below(m), &
+                 nonf=nonf(m), leak=leak(m))
    enddo
 enddo
 test_passed = .true.
@@ -83,9 +90,10 @@ do m=1, 3
    print '(A)', names(m)//': inadmissible updates '//trim(str(fails(m)))//', limited cells '//trim(str(limited(m)))// &
                 ', inadmissible backbones '//trim(str(bad(m)))//', unlimited inadmissible '//        &
                 trim(str(unlim(m)))//', below the relative floor '//trim(str(below(m)))//      &
-                ' ('//trim(str(N))//' trials of '//trim(str(NC**3))//' cells)'
+                ', non-finite flux cells '//trim(str(nonf(m)))//', non-finite fluxes after the blend '//  &
+                trim(str(leak(m)))//' ('//trim(str(N))//' trials of '//trim(str(NC**3))//' cells)'
    test_passed = test_passed .and. fails(m) == 0_I4P .and. limited(m) > 0_I4P .and. unlim(m) > 0_I4P .and. &
-                 below(m) == 0_I4P
+                 below(m) == 0_I4P .and. nonf(m) > 0_I4P .and. leak(m) == 0_I4P
 enddo
 if (test_passed) then
    print '(A)', 'TEST PASSED: flume positivity limiter'
@@ -102,6 +110,14 @@ contains
    call random_number(x)
    endfunction uniform
 
+   pure function count_nonfinite(f) result(n)
+   !< Return the number of non-finite values of a flux array (bit pattern: all the exponent bits set).
+   real(R8P), intent(in) :: f(:,:,:,:,:) !< Face fluxes.
+   integer(I4P)          :: n            !< Non-finite values.
+
+   n = count(iand(ishft(transfer(f, 0_I8P, size(f)), -52), 2047_I8P) == 2047_I8P)
+   endfunction count_nonfinite
+
    pure function energy(q) result(e)
    !< Return the internal energy per unit volume of a state (the model from its size: 5, 8 or 9 variables).
    real(R8P), intent(in) :: q(:) !< Conservative variables.
@@ -112,12 +128,15 @@ contains
    if (size(q) == NV_MHD_EGLM) e = e - 0.5_R8P * q(IQ_PSI)**2
    endfunction energy
 
-   subroutine trial(model, fails, limited, bad, unlim, below)
+   subroutine trial(model, fails, limited, bad, unlim, below, nonf, leak)
    !< One random trial of a model (1 Euler, 2 MHD, 3 EGLM).
    integer(I4P), intent(in)    :: model                     !< Model.
    integer(I4P), intent(inout) :: fails, limited, bad       !< Counters.
    integer(I4P), intent(inout) :: unlim                     !< Inadmissible updates without the limiter.
    integer(I4P), intent(inout) :: below                     !< Updates below the relative floor.
+   integer(I4P), intent(inout) :: nonf                      !< Cells flagged for a non-finite high-order flux.
+   integer(I4P), intent(inout) :: leak                      !< Non-finite face flux values after the blend.
+   integer(I4P)                :: nn                        !< Flagged cells of the trial.
    real(R8P), allocatable      :: fbx(:,:,:,:,:), fby(:,:,:,:,:), fbz(:,:,:,:,:) !< Backbone face fluxes.
    real(R8P), allocatable      :: q(:,:,:,:,:)              !< State.
    real(R8P), allocatable      :: qa(:,:,:,:,:)             !< Auxiliary variables.
@@ -221,10 +240,13 @@ contains
    enddo ; enddo ; enddo
    lam = 1._R8P
    call update(model, q, qa, lam, flx, fly, flz, dt, dxyz, is_null, unlim)
+   flx(IQ_R,2,2,2,1) = ieee_value(1._R8P, ieee_quiet_nan)
+   fly(IQ_RE,3,1,3,1) = ieee_value(1._R8P, ieee_positive_inf)
    select case(model)
    case(1)
       call factors_euler(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, &
-                         dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb)
+                         dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                         nonfinite=nn)
       call blend_euler(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
                        lam=lam, fl=flx, limited=nl)
       call blend_euler(d=2, di=0, dj=1, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
@@ -233,7 +255,8 @@ contains
                        lam=lam, fl=flz, limited=nl)
    case(2)
       call factors_mhd(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, &
-                       dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb)
+                       dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                         nonfinite=nn)
       call blend_mhd(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
                      lam=lam, fl=flx, limited=nl)
       call blend_mhd(d=2, di=0, dj=1, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
@@ -242,7 +265,8 @@ contains
                      lam=lam, fl=flz, limited=nl)
    case(3)
       call factors_eglm(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=DAMPING, hs=HS, &
-                        dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb)
+                        dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                         nonfinite=nn)
       call blend_eglm(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
                       lam=lam, fl=flx, limited=nl)
       call blend_eglm(d=2, di=0, dj=1, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
@@ -251,6 +275,8 @@ contains
                       lam=lam, fl=flz, limited=nl)
    endselect
    bad = bad + nb
+   nonf = nonf + nn
+   leak = leak + count_nonfinite(flx) + count_nonfinite(fly) + count_nonfinite(flz)
    call update(model, q, qa, lam, flx, fly, flz, dt, dxyz, is_null, fails)
    call floor_check(model, q, qa, lam, flx, fly, flz, fbx, fby, fbz, dt, dxyz, is_null, below)
    do k=1, NC

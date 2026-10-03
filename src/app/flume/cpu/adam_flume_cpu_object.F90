@@ -480,7 +480,8 @@ contains
                                                  1-self%ngc:,&
                                                  1-self%ngc:,&
                                                  1:)         !< Conservative variables of the stage.
-   integer(I4P)                           :: counts(4) !< Inadmissible backbones, limited faces per direction.
+   integer(I4P)                           :: counts(5) !< Inadmissible backbones, limited faces per direction,
+                                                       !< cells with a non-finite high-order flux.
    integer(I4P)                           :: d         !< Counter.
 
    counts = 0_I4P
@@ -492,17 +493,18 @@ contains
       call compute_positivity_factors_euler(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,         &
                                             damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, is_null=is_null, q=q,             &
                                             q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,          &
-                                            lam=self%lam, bad=counts(1))
+                                            lam=self%lam, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD)
       call compute_positivity_factors_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,           &
                                           damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, is_null=is_null, q=q,               &
                                           q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,            &
-                                          lam=self%lam, bad=counts(1))
+                                          lam=self%lam, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD_EGLM)
       call compute_positivity_factors_mhd_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
                                                damping=self%physics%mhd%glm_damping, hs=hs, dt=dt, dxyz=dxyz,          &
                                                is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f,                 &
-                                               fly=self%fly_f, flz=self%flz_f, lam=self%lam, bad=counts(1))
+                                               fly=self%fly_f, flz=self%flz_f, lam=self%lam, bad=counts(1),            &
+                                               nonfinite=counts(5))
    case default
       call mpih%error_stop(msg=': no CPU positivity limiter for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -559,10 +561,13 @@ contains
       endselect
    enddo
    endassociate
-   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 4, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 5, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    if (sum(counts) > 0_I4P .and. mpih%myrank == 0) &
       print '(A)', mpih%myrankstr//'positivity limiter: '//trim(str(sum(counts(2:4))))//' faces limited, '// &
                    trim(str(counts(1)))//' inadmissible backbones at step '//trim(str(self%time%it))
+   if (counts(5) > 0_I4P .and. mpih%myrank == 0) &
+      print '(A)', mpih%myrankstr//'positivity limiter (non-finite): '//trim(str(counts(5)))// &
+                   ' cells with a non-finite high-order flux took the backbone at step '//trim(str(self%time%it))
    endsubroutine limit_positivity
 
    subroutine save_residuals(self)

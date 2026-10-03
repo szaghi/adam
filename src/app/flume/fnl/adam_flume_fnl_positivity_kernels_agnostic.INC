@@ -9,9 +9,11 @@
    !   the three directions (`qs*(:,m)`, `m = -hs ... hs`, gathered by the kernel) and the cell's auxiliary variables.
 
    subroutine compute_positivity_factors_dev(ni, nj, nk, ngc, blocks_number, gamma, ch, damping, hs, dt, dxyz_gpu, &
-                                             is_null, q_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu, lam_gpu, bad)
+                                             is_null, q_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu, lam_gpu, bad, &
+                                             nonfinite)
    !< Compute the cell factor `Lambda` of every interior cell into `lam_gpu(:,:,:,:,1)` and count the cells whose backbone
-   !< is not admissible (device twin of the CPU `compute_positivity_factors`).
+   !< is not admissible and those with a non-finite high-order face flux (device twin of the CPU
+   !< `compute_positivity_factors`).
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                        !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                          !< Actual blocks number.
    real(R8P),    intent(in)    :: gamma                                  !< Specific heats ratio.
@@ -28,6 +30,9 @@
    real(R8P),    intent(in)    :: flz_gpu(1:,1:,1:,0:,1:)                !< Z-face high-order fluxes.
    real(R8P),    intent(inout) :: lam_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Cell factors (component 1).
    integer(I4P), intent(out)   :: bad                                    !< Cells with an inadmissible backbone.
+   integer(I4P), intent(out)   :: nonfinite                              !< Cells with a non-finite high-order face flux.
+   integer(I8P), parameter     :: EXPONENT_MASK=2047_I8P                 !< The 11 exponent bits of a binary64.
+   logical                     :: isnf                                   !< Private non-finite face difference flag.
    real(R8P)                   :: qsx(NV_K,-S_MAX:S_MAX)                 !< Private stencil along x.
    real(R8P)                   :: qsy(NV_K,-S_MAX:S_MAX)                 !< Private stencil along y.
    real(R8P)                   :: qsz(NV_K,-S_MAX:S_MAX)                 !< Private stencil along z.
@@ -47,14 +52,15 @@
    integer(I4P)                :: b, i, j, k, d, f, c, m, v              !< Counters.
 
    bad = 0_I4P
-   !$acc parallel loop independent gang vector collapse(4) reduction(+:bad)                                          &
+   nonfinite = 0_I4P
+   !$acc parallel loop independent gang vector collapse(4) reduction(+:bad,nonfinite)                                &
    !$acc& DEVICEVAR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,lam_gpu)                                         &
    !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,is_null)                                         &
-   !$acc& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf)
-   !$omp OMPLOOP collapse(4) reduction(+:bad) &
+   !$acc& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf)
+   !$omp OMPLOOP collapse(4) reduction(+:bad,nonfinite) &
    !$omp& DEVICEPTR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,lam_gpu) &
    !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,is_null) &
-   !$omp& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf)
+   !$omp& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf)
    do k=1, nk
    do j=1, nj
    do i=1, ni
@@ -137,11 +143,22 @@
          qb(v)   = qb(v) + dt * s_lo(v)
          dsrc(v) = dt * (s_hi(v) - s_lo(v))
       enddo
+      isnf = .false.
+      !$acc loop seq
+      do f=1, nf
+         !$acc loop seq
+         do v=1, NV_K
+            if (iand(ishft(transfer(dlt(v,f), 0_I8P), -52), EXPONENT_MASK) == EXPONENT_MASK) isnf = .true.
+         enddo
+      enddo
       rb = qb(IQ_R)
       eb = -1._R8P
       if (rb > 0._R8P) eb = internal_energy(q=qb)
       if (.not.(rb > 0._R8P .and. eb > 0._R8P)) then
          bad = bad + 1_I4P
+         lam_gpu(b,i,j,k,1) = 0._R8P
+      elseif (isnf) then
+         nonfinite = nonfinite + 1_I4P
          lam_gpu(b,i,j,k,1) = 0._R8P
       else
          ! the larger of the absolute and the relative floor: a stage may not take the cell below KAPPA times its backbone
@@ -181,7 +198,8 @@
    subroutine blend_positivity_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, q_gpu, lam_gpu, &
                                           fl_gpu, limited)
    !< Blend the face fluxes of direction `d` with the backbone, `theta` the smaller factor of the two cells; faces with
-   !< `theta = 1` untouched (device twin of the CPU `blend_positivity_fluxes`).
+   !< `theta = 1` untouched, faces with `theta = 0` set to the backbone flux (device twin of the CPU
+   !< `blend_positivity_fluxes`).
    integer(I4P), intent(in)    :: d                                    !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)    :: di, dj, dk                           !< Unit step along `d`.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                      !< Grid dimensions.
@@ -216,7 +234,11 @@
          call backbone_face_flux(gamma=gamma, ch=ch, d=d, qL=qL, qR=qR, f=flo)
          !$acc loop seq
          do v=1, NV_K
-            fl_gpu(b,i,j,k,v) = flo(v) + max(0._R8P, theta) * (fl_gpu(b,i,j,k,v) - flo(v))
+            if (theta > 0._R8P) then
+               fl_gpu(b,i,j,k,v) = flo(v) + theta * (fl_gpu(b,i,j,k,v) - flo(v))
+            else
+               fl_gpu(b,i,j,k,v) = flo(v)
+            endif
          enddo
          limited = limited + 1_I4P
       endif

@@ -96,16 +96,20 @@ sys.exit(0 if ok else 1)
 EOF
 }
 
-verdict() { # verdict <work> <basename> <t_final> <label>: final time reached, no inadmissible backbone
-   local last limited badrows
+verdict() { # verdict <work> <basename> <t_final> <label>: final time reached, no inadmissible backbone, no cell with a
+            # non-finite high-order flux (the limiter replaces it by the backbone and logs it: a defect upstream)
+   local last limited badrows nonfinite
    last=$(tail -1 "$1/$2-conservation_history.dat" | awk '{print $2}')
    limited=$(grep -a 'positivity limiter:' "$1/log.txt" | sed -E 's/.*: \+([0-9]+) faces.*/\1/' | sort -n | tail -1 \
              || true) # no line when the limiter never acts
    badrows=$(grep -a 'positivity limiter:' "$1/log.txt" | grep -vc '+0 inadmissible' || true)
-   if "$VENV_PY" -c "import sys; sys.exit(0 if abs($last - $3) < 1e-12 else 1)" && [[ $badrows -eq 0 ]]; then
+   nonfinite=$(grep -ac 'positivity limiter (non-finite):' "$1/log.txt" || true)
+   if "$VENV_PY" -c "import sys; sys.exit(0 if abs($last - $3) < 1e-12 else 1)" && [[ $badrows -eq 0 ]] \
+      && [[ $nonfinite -eq 0 ]]; then
       echo "   $4: t = $last, max ${limited:-0} faces limited per stage, 0 inadmissible backbones  PASS"
    else
-      echo "   $4: t = $last, $badrows stages with inadmissible backbones  FAIL" ; FAILED=1
+      echo "   $4: t = $last, $badrows stages with inadmissible backbones, $nonfinite with non-finite fluxes  FAIL"
+      FAILED=1
    fi
 }
 blast() { # blast <tag> <t_final> <make_blast.py arguments>: the limited blast on the two schemes

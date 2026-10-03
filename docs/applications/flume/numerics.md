@@ -143,7 +143,10 @@ conservative and each forward-Euler step of size $\Delta t$ is admissible; an SS
 combination of such steps, which is why the limiter requires an SSP scheme. A face whose two cells keep $\Lambda = 1$ is
 not touched, so smooth runs are bitwise unchanged. The cell factors are exchanged like a field (intra-realm copies and
 MPI); a physical-boundary face takes the interior cell's factor. The log reports, per stage, the limited faces and the
-cells whose backbone is inadmissible (zero in every verified case; they would fall back to the floors).
+cells whose backbone is inadmissible (zero in every verified case; they would fall back to the floors). A cell with a
+non-finite high-order face flux takes $\Lambda = 0$ and its faces the backbone flux itself (a NaN would otherwise pass
+every comparison of the corner factors and survive the blend); such cells are logged on a line of their own, and none
+occurs in the verified cases.
 
 On the Balsara–Spicer blast (β = 2.5·10⁻⁴, EGLM) the splitting scheme fails at step 3 without the limiter and reaches
 $t = 0.01$ with it (at most 4% of the faces limited per stage); `weno-riemann` HLLD passes with or without it.
