@@ -27,7 +27,12 @@ public :: compute_flux_difference_dev
 public :: compute_flux_difference_ib_dev
 public :: compute_rk_ssp_residual_dev
 public :: fill_seam_copy_dev
+public :: gather_seam_cells_dev
+public :: gather_seam_faces_dev
+public :: gather_seam_stencils_dev
 public :: pack_seam_skin_dev
+public :: scatter_seam_cells_dev
+public :: scatter_seam_faces_dev
 public :: set_boundary_conditions_dev
 
 contains
@@ -263,6 +268,132 @@ contains
    enddo
    enddo
    endsubroutine pack_seam_skin_dev
+
+   subroutine gather_seam_cells_dev(n, nv, ngc, cells_gpu, a_gpu, out_gpu)
+   !< Gather `out_gpu(v, m) = a_gpu(b, i, j, k, v)` at the cells `cells_gpu(:, m) = (i, j, k, b)` of a ghosted field
+   !< (issue #50: the seam synchronisation of the positivity limiter works on the host, over the seam cells only).
+   integer(I4P), intent(in)    :: n                                 !< Cells number.
+   integer(I4P), intent(in)    :: nv                                !< Components gathered (the first `nv`).
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)    :: cells_gpu(1:,1:)                  !< Cells (i, j, k, b) [4, n].
+   real(R8P),    intent(in)    :: a_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field.
+   real(R8P),    intent(inout) :: out_gpu(1:,1:)                    !< Gathered values [nv, n].
+   integer(I4P)                :: m, v                              !< Counters.
+
+   !$acc parallel loop independent gang vector DEVICEVAR(cells_gpu,a_gpu,out_gpu) firstprivate(n,nv)
+   !$omp OMPLOOP DEVICEPTR(cells_gpu,a_gpu,out_gpu) firstprivate(n,nv)
+   do m=1, n
+      !$acc loop seq
+      do v=1, nv
+         out_gpu(v,m) = a_gpu(cells_gpu(4,m),cells_gpu(1,m),cells_gpu(2,m),cells_gpu(3,m),v)
+      enddo
+   enddo
+   endsubroutine gather_seam_cells_dev
+
+   subroutine gather_seam_stencils_dev(n, nv, ngc, s, cells_gpu, q_gpu, out_gpu)
+   !< Gather the three axis stencils of half width `s` around the cells `cells_gpu(:, m) = (i, j, k, b)`:
+   !< `out_gpu(v, l + s + 1, d, m)` is the state `l` cells from the cell along `d` (issue #50).
+   integer(I4P), intent(in)    :: n                                 !< Cells number.
+   integer(I4P), intent(in)    :: nv                                !< Variables number.
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)    :: s                                 !< Stencil half width (s <= ngc).
+   integer(I4P), intent(in)    :: cells_gpu(1:,1:)                  !< Cells (i, j, k, b) [4, n].
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(inout) :: out_gpu(1:,1:,1:,1:)              !< Stencils [nv, 2 s + 1, 3, n].
+   integer(I4P)                :: m, l, v, b, i, j, k               !< Counters.
+
+   !$acc parallel loop independent gang vector DEVICEVAR(cells_gpu,q_gpu,out_gpu) firstprivate(n,nv,s) private(b,i,j,k)
+   !$omp OMPLOOP DEVICEPTR(cells_gpu,q_gpu,out_gpu) firstprivate(n,nv,s) private(b,i,j,k)
+   do m=1, n
+      i = cells_gpu(1,m) ; j = cells_gpu(2,m) ; k = cells_gpu(3,m) ; b = cells_gpu(4,m)
+      !$acc loop seq
+      do l=-s, s
+         !$acc loop seq
+         do v=1, nv
+            out_gpu(v,l+s+1,1,m) = q_gpu(b,i+l,j,k,v)
+            out_gpu(v,l+s+1,2,m) = q_gpu(b,i,j+l,k,v)
+            out_gpu(v,l+s+1,3,m) = q_gpu(b,i,j,k+l,v)
+         enddo
+      enddo
+   enddo
+   endsubroutine gather_seam_stencils_dev
+
+   subroutine gather_seam_faces_dev(n, nv, faces_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, out_gpu)
+   !< Gather the face fluxes at the faces `faces_gpu(:, m) = (axis, i, j, k, b)`, `(i, j, k)` the face index of the
+   !< flux array of `axis` (issue #50).
+   integer(I4P), intent(in)    :: n                         !< Faces number.
+   integer(I4P), intent(in)    :: nv                        !< Variables number.
+   integer(I4P), intent(in)    :: faces_gpu(1:,1:)          !< Faces (axis, i, j, k, b) [5, n].
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:) !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:) !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:) !< Z-face fluxes.
+   real(R8P),    intent(inout) :: out_gpu(1:,1:)            !< Gathered fluxes [nv, n].
+   integer(I4P)                :: m, v                      !< Counters.
+
+   !$acc parallel loop independent gang vector DEVICEVAR(faces_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,out_gpu) firstprivate(n,nv)
+   !$omp OMPLOOP DEVICEPTR(faces_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,out_gpu) firstprivate(n,nv)
+   do m=1, n
+      !$acc loop seq
+      do v=1, nv
+         select case(faces_gpu(1,m))
+         case(1)
+            out_gpu(v,m) = flx_f_gpu(faces_gpu(5,m),faces_gpu(2,m),faces_gpu(3,m),faces_gpu(4,m),v)
+         case(2)
+            out_gpu(v,m) = fly_f_gpu(faces_gpu(5,m),faces_gpu(2,m),faces_gpu(3,m),faces_gpu(4,m),v)
+         case default
+            out_gpu(v,m) = flz_f_gpu(faces_gpu(5,m),faces_gpu(2,m),faces_gpu(3,m),faces_gpu(4,m),v)
+         endselect
+      enddo
+   enddo
+   endsubroutine gather_seam_faces_dev
+
+   subroutine scatter_seam_faces_dev(n, nv, faces_gpu, in_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu)
+   !< Set the face fluxes at the faces `faces_gpu(:, m) = (axis, i, j, k, b)` to `in_gpu(:, m)` (issue #50).
+   integer(I4P), intent(in)    :: n                         !< Faces number.
+   integer(I4P), intent(in)    :: nv                        !< Variables number.
+   integer(I4P), intent(in)    :: faces_gpu(1:,1:)          !< Faces (axis, i, j, k, b) [5, n].
+   real(R8P),    intent(in)    :: in_gpu(1:,1:)             !< Fluxes [nv, n].
+   real(R8P),    intent(inout) :: flx_f_gpu(1:,0:,1:,1:,1:) !< X-face fluxes.
+   real(R8P),    intent(inout) :: fly_f_gpu(1:,1:,0:,1:,1:) !< Y-face fluxes.
+   real(R8P),    intent(inout) :: flz_f_gpu(1:,1:,1:,0:,1:) !< Z-face fluxes.
+   integer(I4P)                :: m, v                      !< Counters.
+
+   !$acc parallel loop independent gang vector DEVICEVAR(faces_gpu,in_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu) firstprivate(n,nv)
+   !$omp OMPLOOP DEVICEPTR(faces_gpu,in_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu) firstprivate(n,nv)
+   do m=1, n
+      !$acc loop seq
+      do v=1, nv
+         select case(faces_gpu(1,m))
+         case(1)
+            flx_f_gpu(faces_gpu(5,m),faces_gpu(2,m),faces_gpu(3,m),faces_gpu(4,m),v) = in_gpu(v,m)
+         case(2)
+            fly_f_gpu(faces_gpu(5,m),faces_gpu(2,m),faces_gpu(3,m),faces_gpu(4,m),v) = in_gpu(v,m)
+         case default
+            flz_f_gpu(faces_gpu(5,m),faces_gpu(2,m),faces_gpu(3,m),faces_gpu(4,m),v) = in_gpu(v,m)
+         endselect
+      enddo
+   enddo
+   endsubroutine scatter_seam_faces_dev
+
+   subroutine scatter_seam_cells_dev(n, nv, ngc, cells_gpu, in_gpu, a_gpu)
+   !< Set `a_gpu(b, i, j, k, v) = in_gpu(v, m)` at the cells `cells_gpu(:, m) = (i, j, k, b)` (issue #50).
+   integer(I4P), intent(in)    :: n                                 !< Cells number.
+   integer(I4P), intent(in)    :: nv                                !< Components set (the first `nv`).
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)    :: cells_gpu(1:,1:)                  !< Cells (i, j, k, b) [4, n].
+   real(R8P),    intent(in)    :: in_gpu(1:,1:)                     !< Values [nv, n].
+   real(R8P),    intent(inout) :: a_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field.
+   integer(I4P)                :: m, v                              !< Counters.
+
+   !$acc parallel loop independent gang vector DEVICEVAR(cells_gpu,in_gpu,a_gpu) firstprivate(n,nv)
+   !$omp OMPLOOP DEVICEPTR(cells_gpu,in_gpu,a_gpu) firstprivate(n,nv)
+   do m=1, n
+      !$acc loop seq
+      do v=1, nv
+         a_gpu(cells_gpu(4,m),cells_gpu(1,m),cells_gpu(2,m),cells_gpu(3,m),v) = in_gpu(v,m)
+      enddo
+   enddo
+   endsubroutine scatter_seam_cells_dev
 
    subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, local_map_bc_crown_gpu, q_inflow_gpu, wall_sign_gpu, &
                                           q_gpu)

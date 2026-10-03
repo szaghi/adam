@@ -38,7 +38,9 @@ public :: compute_conservation_dev
 public :: compute_divb_norms_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
+public :: compute_backbone_fluxes_host
 public :: compute_positivity_factors_dev
+public :: compute_seam_positivity_factors_host
 public :: compute_q_aux_dev
 public :: count_nonfinite_dev
 public :: compute_speed_max_dev

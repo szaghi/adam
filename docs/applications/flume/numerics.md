@@ -151,6 +151,21 @@ occurs in the verified cases.
 On the Balsara–Spicer blast (β = 2.5·10⁻⁴, EGLM) the splitting scheme fails at step 3 without the limiter and reaches
 $t = 0.01$ with it (at most 4% of the faces limited per stage); `weno-riemann` HLLD passes with or without it.
 
+**At a 2:1 AMR seam** the end-of-step reflux (below) would replace the coarse face flux with the restricted fine one,
+a correction that no cell factor bounds: on the blast across a refined box it drives coarse cells beside the seam to
+$\rho e < 0$ (issue #50). A limited run therefore synchronises the seam flux at every stage, before the update:
+
+- the fine seam faces take the backbone $F^{LF}(q_C, q_f)$, with the coarse cell $q_C$ as outer state;
+- the coarse cell's factor $\Lambda_C$ uses, on the seam face, the means of the four fine backbone and high-order
+  fluxes; the coarse backbone update with the mean of $F^{LF}(q_C, q_f)$ is a convex combination of Lax–Friedrichs
+  updates of $q_C$, so it is admissible;
+- both sides blend with $\theta_s = \min(\Lambda_C, \min \Lambda_f)$, so each cell stays in its corner box and the
+  coarse flux is exactly the mean of the fine ones. The stage is conservative, and the reflux only corrects round-off.
+
+The coarse states, the fine means and the factors travel over the ranks in seam skins (four reductions of seam size
+per stage); on the GPU the seam cells are gathered to the host, which recomputes their factors and returns them with
+the seam face fluxes.
+
 ## Time integration
 
 The library Runge–Kutta schemes (`[runge_kutta] scheme`, listed in the [input reference](./input)) integrate the

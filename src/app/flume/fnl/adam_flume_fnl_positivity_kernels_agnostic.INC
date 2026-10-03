@@ -247,3 +247,174 @@
    enddo
    enddo
    endsubroutine blend_positivity_fluxes_dev
+
+   subroutine compute_seam_positivity_factors_host(ncells, hs, gamma, ch, damping, dt, ds, is_null, qs, qa, fh, omask, &
+                                                   olo, ohi, lam, dbad, dnonfinite)
+   !< Recompute on the host the factor of the cells beside a 2:1 seam with the seam faces' backbone and high-order
+   !< fluxes overridden (issue #50, D1; the host twin of the CPU `compute_seam_positivity_factors`, fed by the device
+   !< gathers of the seam cells: their axis stencils `qs(:, l + hs + 1, d, n)`, auxiliary variables `qa(:, n)` and face
+   !< fluxes `fh(:, fec, n)`, `fec` 1..6 = -x, +x, -y, +y, -z, +z). `dbad`, `dnonfinite`: the change of the counts
+   !< against the factors without the overrides, which the device kernel has already counted.
+   integer(I4P), intent(in)  :: ncells                     !< Seam cells.
+   integer(I4P), intent(in)  :: hs                         !< Stencil half width, 1 <= hs <= S_MAX.
+   real(R8P),    intent(in)  :: gamma                      !< Specific heats ratio.
+   real(R8P),    intent(in)  :: ch                         !< GLM cleaning speed (EGLM only).
+   real(R8P),    intent(in)  :: damping                    !< GLM damping rate (EGLM only).
+   real(R8P),    intent(in)  :: dt                         !< Forward-Euler step of the stage.
+   real(R8P),    intent(in)  :: ds(1:,1:)                  !< Space steps of the cells' blocks [3, ncells].
+   logical,      intent(in)  :: is_null(3)                 !< Null directions.
+   real(R8P),    intent(in)  :: qs(1:,1:,1:,1:)            !< Axis stencils [nv, 2 hs + 1, 3, ncells].
+   real(R8P),    intent(in)  :: qa(1:,1:)                  !< Auxiliary variables [nv_aux, ncells].
+   real(R8P),    intent(in)  :: fh(1:,1:,1:)               !< High-order face fluxes [nv, 6, ncells].
+   logical,      intent(in)  :: omask(1:,1:)               !< Overridden faces [6, ncells].
+   real(R8P),    intent(in)  :: olo(1:,1:,1:)              !< Override backbone fluxes [nv, 6, ncells].
+   real(R8P),    intent(in)  :: ohi(1:,1:,1:)              !< Override high-order fluxes [nv, 6, ncells].
+   real(R8P),    intent(out) :: lam(1:)                    !< Cell factors [ncells].
+   integer(I4P), intent(out) :: dbad                       !< Change of the inadmissible backbones count.
+   integer(I4P), intent(out) :: dnonfinite                 !< Change of the non-finite cells count.
+   real(R8P)                 :: qsx(NV_K,-S_MAX:S_MAX)     !< Stencil along x.
+   real(R8P)                 :: qsy(NV_K,-S_MAX:S_MAX)     !< Stencil along y.
+   real(R8P)                 :: qsz(NV_K,-S_MAX:S_MAX)     !< Stencil along z.
+   real(R8P)                 :: qac(NV_AUX_K)              !< Cell auxiliary variables.
+   real(R8P)                 :: qc(NV_K), qn(NV_K)         !< Cell and neighbour states.
+   real(R8P)                 :: flo(NV_K), fhi(NV_K)       !< Backbone and high-order face fluxes.
+   real(R8P)                 :: dlt(NV_K,6), dlt0(NV_K,6)  !< Antidiffusive differences, with/without overrides.
+   real(R8P)                 :: qb(NV_K), qb0(NV_K)        !< Backbone updates, with/without overrides.
+   real(R8P)                 :: dsrc(NV_K)                 !< Source difference.
+   real(R8P)                 :: s_lo(NV_K), s_hi(NV_K)     !< Backbone and high-order sources.
+   real(R8P)                 :: w(3)                       !< Direction weights.
+   real(R8P)                 :: dtdx, sg, lc, lc0          !< dt / dx_d, face sign; factors with/without overrides.
+   integer(I4P)              :: nf, st, st0                !< Active faces; statuses with/without overrides.
+   integer(I4P)              :: n, d, s, fec, l            !< Counters.
+
+   dbad = 0_I4P
+   dnonfinite = 0_I4P
+   do d=1, 3
+      w(d) = merge(0._R8P, 1._R8P, is_null(d))
+   enddo
+   do n=1, ncells
+      qsx = 0._R8P ; qsy = 0._R8P ; qsz = 0._R8P
+      do l=-hs, hs
+         qsx(:,l) = qs(1:NV_K,l+hs+1,1,n)
+         qsy(:,l) = qs(1:NV_K,l+hs+1,2,n)
+         qsz(:,l) = qs(1:NV_K,l+hs+1,3,n)
+      enddo
+      qac = qa(1:NV_AUX_K,n)
+      qc = qsx(:,0)
+      qb = qc
+      qb0 = qc
+      nf = 0
+      do d=1, 3
+         if (is_null(d)) cycle
+         dtdx = dt / ds(d,n)
+         do s=1, 0, -1 ! the right face (s = 1, fec = 2d) first, then the left one, as the device kernel
+            fec = 2 * d - 1 + s
+            select case(d)
+            case(1)
+               qn = merge(qsx(:,1), qsx(:,-1), s == 1)
+            case(2)
+               qn = merge(qsy(:,1), qsy(:,-1), s == 1)
+            case default
+               qn = merge(qsz(:,1), qsz(:,-1), s == 1)
+            endselect
+            if (s == 1) then
+               call backbone_face_flux(gamma=gamma, ch=ch, d=d, qL=qc, qR=qn, f=flo)
+               sg = -dtdx
+            else
+               call backbone_face_flux(gamma=gamma, ch=ch, d=d, qL=qn, qR=qc, f=flo)
+               sg = dtdx
+            endif
+            fhi = fh(1:NV_K,fec,n)
+            nf = nf + 1
+            dlt0(:,nf) = sg * (fhi - flo)
+            qb0 = qb0 + sg * flo
+            if (omask(fec,n)) then
+               flo = olo(1:NV_K,fec,n)
+               fhi = ohi(1:NV_K,fec,n)
+            endif
+            dlt(:,nf) = sg * (fhi - flo)
+            qb = qb + sg * flo
+         enddo
+      enddo
+      call cell_sources(hs=hs, damping=damping, ds=ds(:,n), w=w, qsx=qsx, qsy=qsy, qsz=qsz, qac=qac, s_lo=s_lo, &
+                        s_hi=s_hi)
+      qb = qb + dt * s_lo
+      qb0 = qb0 + dt * s_lo
+      dsrc = dt * (s_hi - s_lo)
+      call positivity_cell_factor(nf=nf, qb=qb0, dlt=dlt0, dsrc=dsrc, lc=lc0, status=st0)
+      call positivity_cell_factor(nf=nf, qb=qb, dlt=dlt, dsrc=dsrc, lc=lc, status=st)
+      dbad = dbad + merge(1_I4P, 0_I4P, st == 1_I4P) - merge(1_I4P, 0_I4P, st0 == 1_I4P)
+      dnonfinite = dnonfinite + merge(1_I4P, 0_I4P, st == 2_I4P) - merge(1_I4P, 0_I4P, st0 == 2_I4P)
+      lam(n) = lc
+   enddo
+   endsubroutine compute_seam_positivity_factors_host
+
+   subroutine compute_backbone_fluxes_host(n, d, gamma, ch, qL, qR, flo)
+   !< Compute on the host the backbone flux of `n` face state pairs of direction `d` (issue #50: the fine faces of a 2:1
+   !< seam take the coarse donor cell as their outer state).
+   integer(I4P), intent(in)  :: n            !< Faces number.
+   integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: gamma        !< Specific heats ratio.
+   real(R8P),    intent(in)  :: ch           !< GLM cleaning speed (EGLM only).
+   real(R8P),    intent(in)  :: qL(1:,1:)    !< Left states [nv, n].
+   real(R8P),    intent(in)  :: qR(1:,1:)    !< Right states [nv, n].
+   real(R8P),    intent(out) :: flo(1:,1:)   !< Backbone fluxes [nv, n].
+   real(R8P)                 :: f(NV_K)      !< Face flux.
+   integer(I4P)              :: m            !< Counter.
+
+   do m=1, n
+      call backbone_face_flux(gamma=gamma, ch=ch, d=d, qL=qL(1:NV_K,m), qR=qR(1:NV_K,m), f=f)
+      flo(1:NV_K,m) = f
+   enddo
+   endsubroutine compute_backbone_fluxes_host
+
+   pure subroutine positivity_cell_factor(nf, qb, dlt, dsrc, lc, status)
+   !< The factor of one cell from its backbone update, antidiffusive differences and source difference (the decision
+   !< of `compute_positivity_factors_dev`, for the host seam pass): `status` 1 inadmissible backbone, 2 non-finite
+   !< difference (`lc = 0` both), else 0 with `lc` the largest factor of the corner box.
+   integer(I4P), intent(in)  :: nf                      !< Active faces.
+   real(R8P),    intent(in)  :: qb(NV_K)                !< Backbone update.
+   real(R8P),    intent(in)  :: dlt(NV_K,6)             !< Antidiffusive differences.
+   real(R8P),    intent(in)  :: dsrc(NV_K)              !< Source difference.
+   real(R8P),    intent(out) :: lc                      !< Cell factor.
+   integer(I4P), intent(out) :: status                  !< 0 admissible, 1 inadmissible backbone, 2 non-finite.
+   integer(I8P), parameter   :: EXPONENT_MASK=2047_I8P  !< The 11 exponent bits of a binary64.
+   real(R8P)                 :: dc(NV_K)                !< Corner direction.
+   real(R8P)                 :: rb, eb, er, ee          !< Backbone density, energy, their floors.
+   real(R8P)                 :: r1, e1, t               !< Corner density, energy, factor.
+   integer(I4P)              :: f, c                    !< Counters.
+
+   lc = 0._R8P
+   rb = qb(IQ_R)
+   eb = -1._R8P
+   if (rb > 0._R8P) eb = internal_energy(q=qb)
+   if (.not.(rb > 0._R8P .and. eb > 0._R8P)) then
+      status = 1_I4P
+      return
+   endif
+   do f=1, nf
+      do c=1, NV_K
+         if (iand(ishft(transfer(dlt(c,f), 0_I8P), -52), EXPONENT_MASK) == EXPONENT_MASK) then
+            status = 2_I4P
+            return
+         endif
+      enddo
+   enddo
+   status = 0_I4P
+   er = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * rb), POSITIVITY_LIMITER_KAPPA * rb)
+   ee = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * eb), POSITIVITY_LIMITER_KAPPA * eb)
+   lc = 1._R8P
+   do c=0, 2**nf - 1
+      dc = dsrc
+      do f=1, nf
+         if (btest(c, f - 1)) dc = dc + dlt(:,f)
+      enddo
+      t = 1._R8P
+      r1 = rb + dc(IQ_R)
+      if (r1 < er) t = (rb - er) / (rb - r1)
+      e1 = internal_energy(q=qb + t * dc)
+      if (e1 < ee) t = t * (eb - ee) / (eb - e1)
+      lc = min(lc, t)
+   enddo
+   lc = max(0._R8P, lc)
+   endsubroutine positivity_cell_factor

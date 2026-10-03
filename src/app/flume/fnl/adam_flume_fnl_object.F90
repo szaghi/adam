@@ -26,7 +26,9 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
-use :: adam_flume_common_library,      only : flume_common_object, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM,               &
+use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, seam_face_cells,             &
+                                              seam_fine_to_coarse, seam_skin_cell, seam_skin_index,                    &
+                                              MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM,                                  &
                                               MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,                                &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,            &
                                               RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,              &
@@ -46,6 +48,9 @@ use :: adam_flume_fnl_mhd_eglm_hlld_kernels,    only : &
 use :: adam_flume_fnl_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_euler_kernels,   only : blend_inadmissible_ghosts_euler_dev=>blend_inadmissible_ghosts_dev,      &
                                               blend_positivity_fluxes_euler_dev=>blend_positivity_fluxes_dev,          &
+                                              compute_backbone_fluxes_euler_host=>compute_backbone_fluxes_host,        &
+                                              compute_seam_positivity_factors_euler_host=>                             &
+                                                 compute_seam_positivity_factors_host,                                &
                                               compute_conservation_euler_dev=>compute_conservation_dev,                &
                                               compute_positivity_factors_euler_dev=>compute_positivity_factors_dev,    &
                                               compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
@@ -55,6 +60,9 @@ use :: adam_flume_fnl_euler_kernels,   only : blend_inadmissible_ghosts_euler_de
 use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors_dev,                           &
                                               blend_inadmissible_ghosts_mhd_dev=>blend_inadmissible_ghosts_dev,       &
                                               blend_positivity_fluxes_mhd_dev=>blend_positivity_fluxes_dev,           &
+                                              compute_backbone_fluxes_mhd_host=>compute_backbone_fluxes_host,         &
+                                              compute_seam_positivity_factors_mhd_host=>                              &
+                                                 compute_seam_positivity_factors_host,                               &
                                               compute_positivity_factors_mhd_dev=>compute_positivity_factors_dev,     &
                                               compute_divb_norms_mhd_dev=>compute_divb_norms_dev,                     &
                                               compute_conservation_mhd_dev=>compute_conservation_dev,                 &
@@ -66,6 +74,9 @@ use :: adam_flume_fnl_mhd_eglm_kernels, only : add_eglm_sources_dev, add_eglm_so
                                                add_glm_damping_eglm_dev=>add_glm_damping_dev,                         &
                                                blend_inadmissible_ghosts_mhd_eglm_dev=>blend_inadmissible_ghosts_dev, &
                                                blend_positivity_fluxes_mhd_eglm_dev=>blend_positivity_fluxes_dev,     &
+                                               compute_backbone_fluxes_mhd_eglm_host=>compute_backbone_fluxes_host,   &
+                                               compute_seam_positivity_factors_mhd_eglm_host=>                        &
+                                                  compute_seam_positivity_factors_host,                              &
                                                compute_positivity_factors_mhd_eglm_dev=>                              &
                                                compute_positivity_factors_dev,                                        &
                                                apply_floors_mhd_eglm_dev=>apply_floors_dev,                           &
@@ -87,7 +98,9 @@ use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_
                                               count_nonfinite_mhd_glm_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev,                                                   &
                                               compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
-                                              compute_rk_ssp_residual_dev, fill_seam_copy_dev, pack_seam_skin_dev,     &
+                                              compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
+                                              gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skin_dev,     &
+                                              scatter_seam_cells_dev, scatter_seam_faces_dev,                          &
                                               set_boundary_conditions_dev
 ! third party modules
 use :: fundal,                    only : dev_alloc, dev_assign_to_device, dev_free, dev_memcpy_from_device,     &
@@ -113,6 +126,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: flx_f_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, nv].
    real(R8P), pointer     :: fly_f_gpu(:,:,:,:,:)=>null() !< Y-face fluxes [nb, 1:ni, 0:nj, 1:nk, nv].
    real(R8P), pointer     :: flz_f_gpu(:,:,:,:,:)=>null() !< Z-face fluxes [nb, 1:ni, 1:nj, 0:nk, nv].
+   type(flume_seam_sync_object) :: seam                   !< Per-stage seam flux synchronisation of the limiter (issue #50).
    real(R8P), pointer     :: lam_gpu(:,:,:,:,:)=>null()   !< Positivity limiter cell factors (component 1, q-shaped for
                                                           !< the ghost exchange) [nb, i, j, k, nv]; with the limiter.
    real(R8P), pointer     :: q_inflow_gpu(:,:)=>null()    !< Conservative inflow state of each face [nv, 6].
@@ -141,6 +155,11 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: destroy                 !< Free device and host data.
       procedure, pass(self) :: initialize_flume        !< Initialize the FNL backend.
       procedure, pass(self) :: limit_positivity_dev    !< Apply the positivity limiter to the stage face fluxes.
+      procedure, pass(self) :: seam_lists              !< Host lists of the seam skin cells and faces (issue #50).
+      procedure, pass(self) :: seam_sync_blend_dev     !< Set the seam face fluxes with the seam factors (issue #50).
+      procedure, pass(self) :: seam_sync_factors_dev   !< Recompute the seam cells' factors (issue #50).
+      procedure, pass(self) :: seam_sync_fluxes_dev    !< Publish the donor states and the fine means (issue #50).
+      procedure, pass(self) :: seam_sync_theta_dev     !< Compute the seam factors (issue #50).
       procedure, pass(self) :: save_residuals          !< Save residuals history.
       procedure, pass(self) :: save_simulation_data    !< Save fields, restart and diagnostics on their cadence.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions on the device crown maps.
@@ -608,23 +627,46 @@ contains
    endselect
    endsubroutine initialize_flume
 
-   subroutine limit_positivity_dev(self, q_gpu)
+   subroutine limit_positivity_dev(self, q_gpu, flux_register)
    !< Apply the positivity limiter to the device face fluxes of the stage (issue #47, D-9; device twin of the CPU
    !< `limit_positivity`): the model's factors kernel, the ghost exchange of the factors on the device (intra-realm copies
    !< and GPU-direct MPI only: a physical-boundary ghost keeps the factor 1 it was allocated with), the blending of the
-   !< active directions; the counters are reduced over the ranks and logged.
-   class(flume_fnl_object), intent(inout) :: self      !< The equation.
-   real(R8P),               intent(in)    :: q_gpu(1:,         &
-                                                     1-self%ngc:,&
-                                                     1-self%ngc:,&
-                                                     1-self%ngc:,&
-                                                     1:)         !< Conservative variables of the stage.
-   integer(I4P)                           :: counts(5) !< Inadmissible backbones, limited faces per direction,
-                                                       !< cells with a non-finite high-order flux.
-   integer(I4P)                           :: d         !< Counter.
-   integer(I4P)                           :: di(3,3)   !< Unit steps of the directions.
+   !< active directions; the counters are reduced over the ranks and logged. With 2:1 AMR seams the seam flux is
+   !< synchronised as on the CPU (issue #50, `adam_flume_seam_sync_object`): the seam passes run on the host over the
+   !< seam cells, fed by device gathers, and scatter their factors and face fluxes back.
+   class(flume_fnl_object),     intent(inout)           :: self          !< The equation.
+   real(R8P),                   intent(in)              :: q_gpu(1:,         &
+                                                                 1-self%ngc:,&
+                                                                 1-self%ngc:,&
+                                                                 1-self%ngc:,&
+                                                                 1:)         !< Conservative variables of the stage.
+   class(flux_register_object), intent(in),    optional :: flux_register !< Forest's flux register.
+   integer(I4P)                                         :: counts(5)     !< Inadmissible backbones, limited faces per
+                                                                         !< direction, cells with a non-finite flux.
+   integer(I4P), allocatable                            :: ridx(:,:)     !< Register index when the map is unallocated.
+   logical                                              :: seam          !< The stage synchronises seam faces.
+   integer(I4P)                                         :: d             !< Counter.
+   integer(I4P)                                         :: di(3,3)       !< Unit steps of the directions.
 
    counts = 0_I4P
+   seam = .false.
+   if (present(flux_register)) then
+      select type(flux_register)
+      type is(flux_register_object)
+         if (allocated(self%adam%maps%inter_realm_face_register_index)) then
+            seam = self%seam%build(flux_register=flux_register,                                         &
+                                   register_index=self%adam%maps%inter_realm_face_register_index,       &
+                                   blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, &
+                                   nv=self%physics%nv)
+         else
+            allocate(ridx(self%blocks_number, 6)) ; ridx = 0_I4P
+            seam = self%seam%build(flux_register=flux_register, register_index=ridx,                    &
+                                   blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, &
+                                   nv=self%physics%nv)
+         endif
+      endselect
+   endif
+   if (seam) call self%seam_sync_fluxes_dev(q_gpu=q_gpu)
    di = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
              ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
@@ -652,10 +694,12 @@ contains
    case default
       call mpih_fnl%error_stop(msg=': no FNL positivity limiter for physical model "'//self%physics%physical_model//'"')
    endselect
+   if (seam) call self%seam_sync_factors_dev(q_gpu=q_gpu, dbad=counts(1), dnonfinite=counts(5))
    call self%field_fnl%update_ghost_local_gpu(q_gpu=self%lam_gpu)
    call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
                                             comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
                                             q_gpu=self%lam_gpu)
+   if (seam) call self%seam_sync_theta_dev
    do d=1, 3
       if (is_null(d)) cycle
       select case(self%physics%model)
@@ -707,6 +751,7 @@ contains
       endselect
    enddo
    endassociate
+   if (seam) call self%seam_sync_blend_dev
    call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 5, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    if (sum(counts) > 0_I4P .and. mpih_fnl%myrank == 0) &
       print '(A)', mpih_fnl%myrankstr//'positivity limiter: '//trim(str(sum(counts(2:4))))//' faces limited, '// &
@@ -715,6 +760,294 @@ contains
       print '(A)', mpih_fnl%myrankstr//'positivity limiter (non-finite): '//trim(str(counts(5)))// &
                    ' cells with a non-finite high-order flux took the backbone at step '//trim(str(self%time%it))
    endsubroutine limit_positivity_dev
+
+   subroutine seam_lists(self, coarse, ccell, cface, cdst, fine, fcell, fface, fdst, fcc)
+   !< Host lists of this rank's seam skin cells (issue #50): `coarse` (or `fine`) selects the coarse (fine) seam faces;
+   !< each entry has its interior cell `(i, j, k, b)`, its face `(axis, i, j, k, b)` in the flux arrays' indexing and its
+   !< skin destination (`cdst`: skin cell of the coarse skins; `fdst`: compact fine store, `fcc`: the coarse skin cell
+   !< covering it). The order is block, face, skin cell, as on the CPU.
+   class(flume_fnl_object),   intent(in)  :: self                       !< The equation.
+   logical,                   intent(in)  :: coarse, fine               !< Lists to build.
+   integer(I4P), allocatable, intent(out) :: ccell(:,:), cface(:,:)     !< Coarse cells [4, n], faces [5, n].
+   integer(I4P), allocatable, intent(out) :: cdst(:)                    !< Coarse skin destinations.
+   integer(I4P), allocatable, intent(out) :: fcell(:,:), fface(:,:)     !< Fine cells [4, n], faces [5, n].
+   integer(I4P), allocatable, intent(out) :: fdst(:), fcc(:)            !< Fine store slots, covering coarse skin cells.
+   integer(I4P)                           :: b, fec, s, c, m, nc, mc, mf !< Counters.
+   integer(I4P)                           :: axis, sg, ioff, joff        !< Face axis, side, fine quadrant offsets.
+   integer(I4P)                           :: i, j, k                     !< Cell indexes.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, idx=>self%adam%maps%inter_realm_face_register_index)
+   do m=1, 2 ! count, then fill
+      mc = 0 ; mf = 0
+      do b=1, self%blocks_number
+         do fec=1, 6
+            s = idx(b, fec)
+            if (s == 0_I4P) cycle
+            if (self%seam%off(abs(s)) < 0_I4P) cycle
+            if ((s > 0_I4P .and. .not.coarse) .or. (s < 0_I4P .and. .not.fine)) cycle
+            axis = (fec + 1_I4P) / 2_I4P ; sg = merge(-1_I4P, 1_I4P, mod(fec, 2_I4P) == 1_I4P)
+            ioff = 0_I4P ; joff = 0_I4P
+            if (s < 0_I4P .and. allocated(self%adam%maps%amr_seam_quadrant)) then
+               ioff = self%adam%maps%amr_seam_quadrant(1, b, fec) ; joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
+            endif
+            nc = seam_face_cells(fec=fec, ni=ni, nj=nj, nk=nk)
+            do c=1, nc
+               call seam_skin_cell(axis=axis, sgn=sg, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
+               if (s > 0_I4P) then
+                  mc = mc + 1
+                  if (m == 1) cycle
+                  ccell(:,mc) = [i, j, k, b]
+                  cface(:,mc) = [axis, merge(merge(0_I4P, ni, sg < 0_I4P), i, axis == 1),   &
+                                       merge(merge(0_I4P, nj, sg < 0_I4P), j, axis == 2),   &
+                                       merge(merge(0_I4P, nk, sg < 0_I4P), k, axis == 3), b]
+                  cdst(mc) = self%seam%off(s) + c
+               else
+                  mf = mf + 1
+                  if (m == 1) cycle
+                  fcell(:,mf) = [i, j, k, b]
+                  fface(:,mf) = [axis, merge(merge(0_I4P, ni, sg < 0_I4P), i, axis == 1),   &
+                                       merge(merge(0_I4P, nj, sg < 0_I4P), j, axis == 2),   &
+                                       merge(merge(0_I4P, nk, sg < 0_I4P), k, axis == 3), b]
+                  fdst(mf) = self%seam%fine_off(b, fec) + c
+                  fcc(mf) = self%seam%off(-s) + seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+               endif
+            enddo
+         enddo
+      enddo
+      if (m == 1) allocate(ccell(4,mc), cface(5,mc), cdst(mc), fcell(4,mf), fface(5,mf), fdst(mf), fcc(mf))
+   enddo
+   endassociate
+   endsubroutine seam_lists
+
+   subroutine seam_sync_fluxes_dev(self, q_gpu)
+   !< Seam synchronisation, first phase (issue #50; host twin of the CPU `seam_sync_fluxes`, fed by device gathers).
+   class(flume_fnl_object), intent(inout) :: self                         !< The equation.
+   real(R8P),               intent(in)    :: q_gpu(1:,         &
+                                                     1-self%ngc:,&
+                                                     1-self%ngc:,&
+                                                     1-self%ngc:,&
+                                                     1:)                    !< Conservative variables of the stage.
+   integer(I4P), allocatable              :: ccell(:,:), cface(:,:), cdst(:) !< Coarse lists.
+   integer(I4P), allocatable              :: fcell(:,:), fface(:,:), fdst(:), fcc(:) !< Fine lists.
+   real(R8P),    allocatable              :: buf(:,:), fhi(:,:)              !< Gathered states, fine face fluxes.
+   real(R8P)                              :: qL(self%physics%nv,1), qR(self%physics%nv,1), fl(self%physics%nv,1) !< Face.
+   integer(I4P)                           :: m                               !< Counter.
+
+   associate(nv=>self%physics%nv)
+   if (allocated(self%adam%maps%inter_realm_face_register_index)) then
+      call self%seam_lists(coarse=.true., ccell=ccell, cface=cface, cdst=cdst, fine=.true., fcell=fcell, fface=fface, &
+                           fdst=fdst, fcc=fcc)
+      allocate(buf(nv,size(cdst)))
+      call seam_gather_cells(cells=ccell, nv=nv, ngc=self%ngc, a_gpu=q_gpu, out=buf)
+      do m=1, size(cdst)
+         self%seam%qc(1:nv,cdst(m)) = buf(:,m)
+      enddo
+      deallocate(buf)
+   endif
+   call self%seam%reduce_states
+   if (allocated(self%adam%maps%inter_realm_face_register_index)) then
+      allocate(buf(nv,size(fdst)), fhi(nv,size(fdst)))
+      call seam_gather_cells(cells=fcell, nv=nv, ngc=self%ngc, a_gpu=q_gpu, out=buf)
+      call seam_gather_faces(faces=fface, nv=nv, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
+                             flz_f_gpu=self%flz_f_gpu, out=fhi)
+      do m=1, size(fdst)
+         if (fface(2+fface(1,m)-1,m) == 0_I4P) then ! the fine block's minimum face: the donor is the left state
+            qL(:,1) = self%seam%qc(1:nv,fcc(m)) ; qR(:,1) = buf(:,m)
+         else
+            qL(:,1) = buf(:,m) ; qR(:,1) = self%seam%qc(1:nv,fcc(m))
+         endif
+         select case(self%physics%model)
+         case(MODEL_EULER)
+            call compute_backbone_fluxes_euler_host(n=1, d=fface(1,m), gamma=self%physics%gamma,              &
+                                                    ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
+         case(MODEL_MHD)
+            call compute_backbone_fluxes_mhd_host(n=1, d=fface(1,m), gamma=self%physics%gamma,                &
+                                                  ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
+         case(MODEL_MHD_EGLM)
+            call compute_backbone_fluxes_mhd_eglm_host(n=1, d=fface(1,m), gamma=self%physics%gamma,           &
+                                                       ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
+         endselect
+         self%seam%fine_lo(1:nv,fdst(m)) = fl(:,1)
+         self%seam%fine_hi(1:nv,fdst(m)) = fhi(:,m)
+         self%seam%flo(1:nv,fcc(m)) = self%seam%flo(1:nv,fcc(m)) + 0.25_R8P * fl(:,1)
+         self%seam%fhi(1:nv,fcc(m)) = self%seam%fhi(1:nv,fcc(m)) + 0.25_R8P * fhi(:,m)
+      enddo
+   endif
+   endassociate
+   call self%seam%reduce_fluxes
+   endsubroutine seam_sync_fluxes_dev
+
+   subroutine seam_sync_factors_dev(self, q_gpu, dbad, dnonfinite)
+   !< Seam synchronisation, second phase (issue #50; host twin of the CPU `seam_sync_factors`): gather the seam cells'
+   !< stencils, auxiliary variables and face fluxes, recompute their factors with the seam faces overridden on the
+   !< host, scatter them to the device factors.
+   class(flume_fnl_object), intent(inout) :: self                      !< The equation.
+   real(R8P),               intent(in)    :: q_gpu(1:,         &
+                                                     1-self%ngc:,&
+                                                     1-self%ngc:,&
+                                                     1-self%ngc:,&
+                                                     1:)                 !< Conservative variables of the stage.
+   integer(I4P),            intent(inout) :: dbad                      !< Inadmissible backbones count.
+   integer(I4P),            intent(inout) :: dnonfinite                !< Non-finite cells count.
+   integer(I4P), allocatable              :: cell(:,:), face(:,:)      !< Seam cells (i, j, k, b), their faces.
+   logical,      allocatable              :: omask(:,:)                !< Overridden faces.
+   real(R8P),    allocatable              :: olo(:,:,:), ohi(:,:,:)    !< Override fluxes.
+   real(R8P),    allocatable              :: qs(:,:,:,:), qa(:,:)      !< Gathered stencils, auxiliary variables.
+   real(R8P),    allocatable              :: fh(:,:), ds(:,:), lam(:,:) !< Gathered face fluxes, steps; factors.
+   logical                                :: mask(6)                   !< Seam faces of a cell.
+   integer(I4P)                           :: n, m, b, i, j, k, fec, s  !< Counters.
+   integer(I4P)                           :: c, db, dn                 !< Skin index, count changes.
+
+   if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) return
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv=>self%physics%nv, idx=>self%adam%maps%inter_realm_face_register_index)
+   do m=1, 2 ! count, then fill
+      n = 0
+      do b=1, self%blocks_number
+         if (all(idx(b,:) == 0_I4P)) cycle
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do fec=1, 6
+                     s = idx(b, fec)
+                     mask(fec) = .false.
+                     if (s == 0_I4P .or. self%adam%grid%null_xyz((fec + 1) / 2)) cycle
+                     if (self%seam%off(abs(s)) < 0_I4P) cycle
+                     select case(fec)
+                     case(1) ; mask(fec) = i == 1
+                     case(2) ; mask(fec) = i == ni
+                     case(3) ; mask(fec) = j == 1
+                     case(4) ; mask(fec) = j == nj
+                     case(5) ; mask(fec) = k == 1
+                     case(6) ; mask(fec) = k == nk
+                     endselect
+                  enddo
+                  if (.not.any(mask)) cycle
+                  n = n + 1
+                  if (m == 1) cycle
+                  cell(:,n) = [i, j, k, b]
+                  omask(:,n) = mask
+                  face(:,6*(n-1)+1) = [1, i-1, j, k, b] ; face(:,6*(n-1)+2) = [1, i, j, k, b]
+                  face(:,6*(n-1)+3) = [2, i, j-1, k, b] ; face(:,6*(n-1)+4) = [2, i, j, k, b]
+                  face(:,6*(n-1)+5) = [3, i, j, k-1, b] ; face(:,6*(n-1)+6) = [3, i, j, k, b]
+                  ds(:,n) = self%adam%field%dxyz(:,b)
+                  do fec=1, 6
+                     if (.not.mask(fec)) cycle
+                     s = idx(b, fec)
+                     c = seam_skin_index(fec=fec, ni=ni, nj=nj, i=i, j=j, k=k)
+                     if (s > 0_I4P) then
+                        olo(:,fec,n) = self%seam%flo(1:nv,self%seam%off(s)+c)
+                        ohi(:,fec,n) = self%seam%fhi(1:nv,self%seam%off(s)+c)
+                     else
+                        olo(:,fec,n) = self%seam%fine_lo(1:nv,self%seam%fine_off(b,fec)+c)
+                        ohi(:,fec,n) = self%seam%fine_hi(1:nv,self%seam%fine_off(b,fec)+c)
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      if (m == 1) then
+         if (n == 0) exit
+         allocate(cell(4,n), face(5,6*n), omask(6,n), olo(nv,6,n), ohi(nv,6,n), ds(3,n))
+         olo = 0._R8P ; ohi = 0._R8P
+      endif
+   enddo
+   if (n > 0) then
+      allocate(qs(nv,2*self%weno%S+1,3,n), qa(self%physics%nv_aux,n), fh(nv,6*n), lam(1,n))
+      call seam_gather_stencils(cells=cell, nv=nv, ngc=self%ngc, s=self%weno%S, q_gpu=q_gpu, out=qs)
+      call seam_gather_cells(cells=cell, nv=self%physics%nv_aux, ngc=self%ngc, a_gpu=self%q_aux_gpu, out=qa)
+      call seam_gather_faces(faces=face, nv=nv, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
+                             flz_f_gpu=self%flz_f_gpu, out=fh)
+      associate(gamma=>self%physics%gamma, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
+                dt=>self%time%dt, hs=>self%weno%S)
+      select case(self%physics%model)
+      case(MODEL_EULER)
+         call compute_seam_positivity_factors_euler_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, &
+                                                         ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
+                                                         fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
+                                                         ohi=ohi, lam=lam(1,:), dbad=db, dnonfinite=dn)
+      case(MODEL_MHD)
+         call compute_seam_positivity_factors_mhd_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, &
+                                                       ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
+                                                       fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
+                                                       ohi=ohi, lam=lam(1,:), dbad=db, dnonfinite=dn)
+      case(MODEL_MHD_EGLM)
+         call compute_seam_positivity_factors_mhd_eglm_host(ncells=n, hs=hs, gamma=gamma, ch=ch,                    &
+                                                            damping=self%physics%mhd%glm_damping, dt=dt, ds=ds,    &
+                                                            is_null=is_null, qs=qs, qa=qa,                         &
+                                                            fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,      &
+                                                            ohi=ohi, lam=lam(1,:), dbad=db, dnonfinite=dn)
+      endselect
+      endassociate
+      call seam_scatter_cells(cells=cell, nv=1_I4P, ngc=self%ngc, in=lam, a_gpu=self%lam_gpu)
+      dbad = dbad + db
+      dnonfinite = dnonfinite + dn
+   endif
+   endassociate
+   endsubroutine seam_sync_factors_dev
+
+   subroutine seam_sync_theta_dev(self)
+   !< Seam synchronisation, third phase (issue #50; host twin of the CPU `seam_sync_theta`).
+   class(flume_fnl_object), intent(inout) :: self                         !< The equation.
+   integer(I4P), allocatable              :: ccell(:,:), cface(:,:), cdst(:) !< Coarse lists.
+   integer(I4P), allocatable              :: fcell(:,:), fface(:,:), fdst(:), fcc(:) !< Fine lists.
+   real(R8P),    allocatable              :: lam(:,:)                        !< Gathered factors.
+   integer(I4P)                           :: m                               !< Counter.
+
+   if (allocated(self%adam%maps%inter_realm_face_register_index)) then
+      call self%seam_lists(coarse=.true., ccell=ccell, cface=cface, cdst=cdst, fine=.true., fcell=fcell, fface=fface, &
+                           fdst=fdst, fcc=fcc)
+      allocate(lam(1,size(fdst)))
+      call seam_gather_cells(cells=fcell, nv=1_I4P, ngc=self%ngc, a_gpu=self%lam_gpu, out=lam)
+      do m=1, size(fdst)
+         self%seam%lmin(fcc(m)) = min(self%seam%lmin(fcc(m)), lam(1,m))
+      enddo
+      deallocate(lam)
+   endif
+   call self%seam%reduce_factors
+   if (allocated(self%adam%maps%inter_realm_face_register_index)) then
+      allocate(lam(1,size(cdst)))
+      call seam_gather_cells(cells=ccell, nv=1_I4P, ngc=self%ngc, a_gpu=self%lam_gpu, out=lam)
+      do m=1, size(cdst)
+         self%seam%th(cdst(m)) = max(0._R8P, min(1._R8P, lam(1,m), self%seam%lmin(cdst(m))))
+      enddo
+   endif
+   call self%seam%reduce_theta
+   endsubroutine seam_sync_theta_dev
+
+   subroutine seam_sync_blend_dev(self)
+   !< Seam synchronisation, last phase (issue #50; host twin of the CPU `seam_sync_blend`): the seam face fluxes with
+   !< the seam factor, scattered to the device face fluxes.
+   class(flume_fnl_object), intent(inout) :: self                         !< The equation.
+   integer(I4P), allocatable              :: ccell(:,:), cface(:,:), cdst(:) !< Coarse lists.
+   integer(I4P), allocatable              :: fcell(:,:), fface(:,:), fdst(:), fcc(:) !< Fine lists.
+   real(R8P),    allocatable              :: fl(:,:)                         !< Seam face fluxes.
+   real(R8P)                              :: th                              !< Seam factor.
+   integer(I4P)                           :: m                               !< Counter.
+
+   if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) return
+   associate(nv=>self%physics%nv)
+   call self%seam_lists(coarse=.true., ccell=ccell, cface=cface, cdst=cdst, fine=.true., fcell=fcell, fface=fface, &
+                        fdst=fdst, fcc=fcc)
+   allocate(fl(nv,size(cdst)))
+   do m=1, size(cdst)
+      th = self%seam%th(cdst(m))
+      fl(:,m) = self%seam%flo(1:nv,cdst(m))
+      if (th > 0._R8P) fl(:,m) = fl(:,m) + th * (self%seam%fhi(1:nv,cdst(m)) - fl(:,m))
+   enddo
+   call seam_scatter_faces(faces=cface, nv=nv, in=fl, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
+                           flz_f_gpu=self%flz_f_gpu)
+   deallocate(fl)
+   allocate(fl(nv,size(fdst)))
+   do m=1, size(fdst)
+      th = self%seam%th(fcc(m))
+      fl(:,m) = self%seam%fine_lo(1:nv,fdst(m))
+      if (th > 0._R8P) fl(:,m) = fl(:,m) + th * (self%seam%fine_hi(1:nv,fdst(m)) - fl(:,m))
+   enddo
+   call seam_scatter_faces(faces=fface, nv=nv, in=fl, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
+                           flz_f_gpu=self%flz_f_gpu)
+   endassociate
+   endsubroutine seam_sync_blend_dev
 
    subroutine save_residuals(self)
    !< Save residuals history (L2 norm of dq on the device, MPI-reduced, rank 0 writes).
@@ -1232,7 +1565,8 @@ contains
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
-   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu)
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
+                                                                                             flux_register=flux_register)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
@@ -1375,7 +1709,8 @@ contains
          print '(A)', mpih_fnl%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
-   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu)
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
+                                                                                             flux_register=flux_register)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
@@ -1492,4 +1827,119 @@ contains
       call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
    endif
    endsubroutine rk_update_q
+
+   subroutine seam_gather_cells(cells, nv, ngc, a_gpu, out)
+   !< Gather on the host `out(v, m)` = the first `nv` components of the device field `a_gpu` at `cells(:, m)` (issue #50).
+   integer(I4P), intent(in)    :: cells(1:,1:)                      !< Cells (i, j, k, b) [4, n].
+   integer(I4P), intent(in)    :: nv                                !< Components.
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   real(R8P),    intent(in)    :: a_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Device field.
+   real(R8P),    intent(inout) :: out(1:,1:)                        !< Gathered values [nv, n].
+   integer(I4P), pointer       :: cells_gpu(:,:)                    !< Device cells.
+   real(R8P),    pointer       :: out_gpu(:,:)                      !< Device values.
+   integer(I4P)                :: n, ierr                           !< Cells number, error status.
+
+   n = size(cells, dim=2)
+   if (n == 0_I4P) return
+   call dev_alloc(fptr_dev=cells_gpu, lbounds=[1,1], ubounds=[4,n], ierr=ierr)
+   call dev_alloc(fptr_dev=out_gpu, lbounds=[1,1], ubounds=[nv,n], ierr=ierr)
+   call dev_memcpy_to_device(dst=cells_gpu, src=cells)
+   call gather_seam_cells_dev(n=n, nv=nv, ngc=ngc, cells_gpu=cells_gpu, a_gpu=a_gpu, out_gpu=out_gpu)
+   call dev_memcpy_from_device(dst=out, src=out_gpu)
+   call dev_free(cells_gpu, mydev)
+   call dev_free(out_gpu, mydev)
+   endsubroutine seam_gather_cells
+
+   subroutine seam_gather_stencils(cells, nv, ngc, s, q_gpu, out)
+   !< Gather on the host the axis stencils of half width `s` around `cells(:, m)` (issue #50).
+   integer(I4P), intent(in)    :: cells(1:,1:)                      !< Cells (i, j, k, b) [4, n].
+   integer(I4P), intent(in)    :: nv                                !< Variables number.
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)    :: s                                 !< Stencil half width.
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Device conservative variables.
+   real(R8P),    intent(inout) :: out(1:,1:,1:,1:)                  !< Stencils [nv, 2 s + 1, 3, n].
+   integer(I4P), pointer       :: cells_gpu(:,:)                    !< Device cells.
+   real(R8P),    pointer       :: out_gpu(:,:,:,:)                  !< Device stencils.
+   integer(I4P)                :: n, ierr                           !< Cells number, error status.
+
+   n = size(cells, dim=2)
+   if (n == 0_I4P) return
+   call dev_alloc(fptr_dev=cells_gpu, lbounds=[1,1], ubounds=[4,n], ierr=ierr)
+   call dev_alloc(fptr_dev=out_gpu, lbounds=[1,1,1,1], ubounds=[nv,2*s+1,3,n], ierr=ierr)
+   call dev_memcpy_to_device(dst=cells_gpu, src=cells)
+   call gather_seam_stencils_dev(n=n, nv=nv, ngc=ngc, s=s, cells_gpu=cells_gpu, q_gpu=q_gpu, out_gpu=out_gpu)
+   call dev_memcpy_from_device(dst=out, src=out_gpu)
+   call dev_free(cells_gpu, mydev)
+   call dev_free(out_gpu, mydev)
+   endsubroutine seam_gather_stencils
+
+   subroutine seam_gather_faces(faces, nv, flx_f_gpu, fly_f_gpu, flz_f_gpu, out)
+   !< Gather on the host the device face fluxes at `faces(:, m) = (axis, i, j, k, b)` (issue #50).
+   integer(I4P), intent(in)    :: faces(1:,1:)              !< Faces [5, n].
+   integer(I4P), intent(in)    :: nv                        !< Variables number.
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:) !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:) !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:) !< Z-face fluxes.
+   real(R8P),    intent(inout) :: out(1:,1:)                !< Gathered fluxes [nv, n].
+   integer(I4P), pointer       :: faces_gpu(:,:)            !< Device faces.
+   real(R8P),    pointer       :: out_gpu(:,:)              !< Device fluxes.
+   integer(I4P)                :: n, ierr                   !< Faces number, error status.
+
+   n = size(faces, dim=2)
+   if (n == 0_I4P) return
+   call dev_alloc(fptr_dev=faces_gpu, lbounds=[1,1], ubounds=[5,n], ierr=ierr)
+   call dev_alloc(fptr_dev=out_gpu, lbounds=[1,1], ubounds=[nv,n], ierr=ierr)
+   call dev_memcpy_to_device(dst=faces_gpu, src=faces)
+   call gather_seam_faces_dev(n=n, nv=nv, faces_gpu=faces_gpu, flx_f_gpu=flx_f_gpu, fly_f_gpu=fly_f_gpu, &
+                              flz_f_gpu=flz_f_gpu, out_gpu=out_gpu)
+   call dev_memcpy_from_device(dst=out, src=out_gpu)
+   call dev_free(faces_gpu, mydev)
+   call dev_free(out_gpu, mydev)
+   endsubroutine seam_gather_faces
+
+   subroutine seam_scatter_faces(faces, nv, in, flx_f_gpu, fly_f_gpu, flz_f_gpu)
+   !< Set the device face fluxes at `faces(:, m) = (axis, i, j, k, b)` to the host `in(:, m)` (issue #50).
+   integer(I4P), intent(in)    :: faces(1:,1:)              !< Faces [5, n].
+   integer(I4P), intent(in)    :: nv                        !< Variables number.
+   real(R8P),    intent(in)    :: in(1:,1:)                 !< Fluxes [nv, n].
+   real(R8P),    intent(inout) :: flx_f_gpu(1:,0:,1:,1:,1:) !< X-face fluxes.
+   real(R8P),    intent(inout) :: fly_f_gpu(1:,1:,0:,1:,1:) !< Y-face fluxes.
+   real(R8P),    intent(inout) :: flz_f_gpu(1:,1:,1:,0:,1:) !< Z-face fluxes.
+   integer(I4P), pointer       :: faces_gpu(:,:)            !< Device faces.
+   real(R8P),    pointer       :: in_gpu(:,:)               !< Device fluxes.
+   integer(I4P)                :: n, ierr                   !< Faces number, error status.
+
+   n = size(faces, dim=2)
+   if (n == 0_I4P) return
+   call dev_alloc(fptr_dev=faces_gpu, lbounds=[1,1], ubounds=[5,n], ierr=ierr)
+   call dev_alloc(fptr_dev=in_gpu, lbounds=[1,1], ubounds=[nv,n], ierr=ierr)
+   call dev_memcpy_to_device(dst=faces_gpu, src=faces)
+   call dev_memcpy_to_device(dst=in_gpu, src=in)
+   call scatter_seam_faces_dev(n=n, nv=nv, faces_gpu=faces_gpu, in_gpu=in_gpu, flx_f_gpu=flx_f_gpu, &
+                               fly_f_gpu=fly_f_gpu, flz_f_gpu=flz_f_gpu)
+   call dev_free(faces_gpu, mydev)
+   call dev_free(in_gpu, mydev)
+   endsubroutine seam_scatter_faces
+
+   subroutine seam_scatter_cells(cells, nv, ngc, in, a_gpu)
+   !< Set the first `nv` components of the device field `a_gpu` at `cells(:, m)` to the host `in(:, m)` (issue #50).
+   integer(I4P), intent(in)    :: cells(1:,1:)                      !< Cells (i, j, k, b) [4, n].
+   integer(I4P), intent(in)    :: nv                                !< Components.
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   real(R8P),    intent(in)    :: in(1:,1:)                         !< Values [nv, n].
+   real(R8P),    intent(inout) :: a_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Device field.
+   integer(I4P), pointer       :: cells_gpu(:,:)                    !< Device cells.
+   real(R8P),    pointer       :: in_gpu(:,:)                       !< Device values.
+   integer(I4P)                :: n, ierr                           !< Cells number, error status.
+
+   n = size(cells, dim=2)
+   if (n == 0_I4P) return
+   call dev_alloc(fptr_dev=cells_gpu, lbounds=[1,1], ubounds=[4,n], ierr=ierr)
+   call dev_alloc(fptr_dev=in_gpu, lbounds=[1,1], ubounds=[nv,n], ierr=ierr)
+   call dev_memcpy_to_device(dst=cells_gpu, src=cells)
+   call dev_memcpy_to_device(dst=in_gpu, src=in)
+   call scatter_seam_cells_dev(n=n, nv=nv, ngc=ngc, cells_gpu=cells_gpu, in_gpu=in_gpu, a_gpu=a_gpu)
+   call dev_free(cells_gpu, mydev)
+   call dev_free(in_gpu, mydev)
+   endsubroutine seam_scatter_cells
 endmodule adam_flume_fnl_object
