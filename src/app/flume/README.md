@@ -28,7 +28,7 @@ Dissipative effects (viscosity, thermal conduction, resistivity) are outside the
 |------|-------------------|-----|
 | Space | WENO flux splitting, per-face Roe eigenvectors, per-wave local Lax-Friedrichs; reconstruction in characteristic or conservative variables; orders `weno-u-3` to `weno-u-9` (the centred `weno-c-*` schemes are refused). MHD: block-diagonal characteristic decomposition, 7×7 Roe–Balsara-normalised eigenvectors (Stone et al. 2008) at the arithmetic mean of the primitive states with $B_n$ as a parameter, plus the $(B_n, \psi)$ block with speeds $\mp c_h$ | `[numerics] scheme_space = weno`, `reconstruction_variables`; `[weno] scheme` |
 | Space, `weno-riemann` | WENO interpolation of the face states (characteristic, or primitive) into a Riemann solver: Euler `llf`, `hll`, `hllc`; MHD `llf`, `hll`, `hlld` (HLLD falls back to HLL where its intermediate states are inadmissible, counted in the log); optional 4th/6th-order face-flux correction, switched off by a WENO smoothness sensor | `[numerics] scheme_space = weno-riemann`, `reconstruction_variables`, `riemann_solver`, `flux_correction`, `flux_correction_sensor` |
-| Positivity limiter | Cell-based parametrised flux limiter over a first-order Lax–Friedrichs backbone: each stage keeps the density and the pressure positive, and above a tenth of the first-order update; smooth runs bitwise unchanged. Euler, MHD without cleaning and EGLM, SSP schemes only; refused with GLM, immersed solids and multi-realm runs | `[numerics] positivity_limiter = none\|cell` |
+| Positivity limiter | Cell-based parametrised flux limiter over a first-order Lax–Friedrichs backbone: each stage keeps the density and the pressure positive, and above a tenth of the first-order update; smooth runs bitwise unchanged; at 2:1 AMR seams the seam flux is synchronised at every stage. Euler, MHD without cleaning and EGLM, SSP schemes only; refused with GLM, immersed solids and multi-realm runs | `[numerics] positivity_limiter = none\|cell` |
 | Time | Library Runge-Kutta schemes (SSP and low-storage), CFL time step | `[runge_kutta] scheme`; `[time] CFL, it_max, time_max` |
 | Boundary conditions | `extrapolation`, `inflow` (primitive state `r, u, v, w, p`; MHD adds `bx, by, bz`, with $\psi = 0$), `wall-inviscid` (MHD: perfectly conducting wall, $u_n$ and $B_n$ odd, the rest and $\psi$ even), `periodic` (both faces of an axis or neither) | `[bc_{x,y,z}_{min,max}] type` |
 | Initial conditions | `uniform` (optionally with a seeded perturbation), `isentropic-vortex`, `riemann-problem` (piecewise-constant regions; MHD regions add `bx, by, bz`), `shu-osher` (Euler, along x, y or z); MHD only: `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `orszag-tang`, `mhd-rotor`, `field-loop`, `rotated-riemann` | `[initial_conditions] type` |
@@ -188,8 +188,11 @@ Known limitations:
   the positivity limiter is refused with GLM. Use EGLM: with the limiter the splitting scheme reaches the end of the
   Balsara–Spicer ($\beta = 2.5 \cdot 10^{-4}$) and Wu–Shu ($\beta = 2.51 \cdot 10^{-6}$) blasts, and `weno-riemann`
   with HLLD runs the first even without it. The limiter guarantees positivity, not accuracy: the limited splitting
-  scheme is noisy on those blasts, where HLLD stays clean. It is not yet verified across 2:1 AMR seams (the reflux
-  replaces the coarse fluxes after the limiter).
+  scheme is noisy on those blasts, where HLLD stays clean. Across 2:1 AMR seams the limiter synchronises the seam
+  flux at every stage (the coarse flux is the mean of the fine ones, both sides blended with one factor), so the
+  reflux corrects round-off only, and inadmissible seam ghosts are blended toward the interior: the blast across
+  seams reaches its end on both schemes with the mass constant to round-off
+  ([#50](https://github.com/szaghi/adam/issues/50), PV-5).
 - **GLM damping and reflux.** With damping, $\int \psi$ is not conserved across 2:1 faces (O(k dt) of the uncorrected
   leak, MV-11); the 8 physical integrals are.
 - **Quadtree AMR** with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)); use an octree.

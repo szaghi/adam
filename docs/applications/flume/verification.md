@@ -299,6 +299,7 @@ no floors to stop a run, also assert a positive density and pressure in the last
 cd src/tests/flume/verification/mhd/positivity
 ./check.sh                       # PV-1, PV-2, PV-3, PV-4 (about 70 min on the CPU, PV-3 takes 55)
 ./check.sh --legs pv1-3d         # the blast as a sphere on 64^3 (about 1 h per scheme on the CPU)
+./check.sh --legs pv5            # the blast across 2:1 AMR seams (about 14 min per scheme on the CPU)
 ```
 
 | Problem | Without the limiter | Splitting + limiter | Riemann + limiter |
@@ -310,6 +311,7 @@ cd src/tests/flume/verification/mhd/positivity
 | PV-3, double rarefaction, 400 cells | splitting runs; HLLC fails at step 79 | passes, never limited | passes, up to 1024 |
 | PV-3, planar Sedov blast, 800 cells | splitting runs; HLLC fails at step 69 | passes, never limited | passes, up to 768 |
 | PV-4, isentropic vortex ($64^2$, $128^2$) and fast wave (16, 32 cells, EGLM) | — | bitwise equal to the run without the limiter | — |
+| PV-5, PV-1 at $64^2$ with $[0.25, 0.75]^2$ refined 2:1 (issue #50) | not run (uniform: splitting fails at step 3) | passes; mass to round-off, seam flux mismatch $3.6\cdot10^{-12}$ | passes; the same |
 
 ![Balsara-Spicer blast with the limiter](/flume/blast.png)
 
@@ -347,6 +349,15 @@ next stage, whose time step is that of the step's first state, had no admissible
 splitting scheme takes 614 steps on PV-2 against 284 for HLLD (779 with the absolute floor alone): its limited states
 keep low-density cells with large Alfvén speeds, which cost time steps but not admissibility.
 
+PV-5 runs the limited blast across 2:1 AMR seams that the outer shock crosses. Before issue #50 neither scheme
+reached the end there: the splitting scheme stopped at step 184, when the end-of-step reflux drove coarse cells beside
+the seam to $\rho e < 0$ (the reflux replaced the limited coarse flux with the restricted fine one, a correction no cell
+factor bounds), and HLLD stopped at step 261, after the tricubic seam ghost fill had produced inadmissible fine ghosts.
+With the ghost positivity blend and the per-stage seam flux synchronisation ([numerics](./numerics#positivity-limiter))
+both schemes reach $t = 0.01$ on the CPU and on FNL, the mass stays constant to round-off, and the forest's
+$\max|F_\text{coarse} - F_\text{fine}|$ at the end-of-step reflux is $3.6\cdot10^{-12}$: the coarse seam flux is the mean of
+the fine ones at every stage. The leg asserts both (mass drift below $10^{-12}$, mismatch below $10^{-9}$).
+
 ## Unit tests
 
 | Test | What it pins |
@@ -354,16 +365,17 @@ keep low-density cells with large Alfvén speeds, which cost time steps but not 
 | `test_flume_euler_library` (+ `_fnl`) | Euler eigensystem, flux, Roe average, split consistency; RS(q, q) = f(q) for LLF/HLL/HLLC, HLLC exact on a contact, positive first-order updates; device = host |
 | `test_flume_mhd_library` (+ `_fnl`) | MHD, GLM and EGLM eigensystems (including degenerate states), fluxes, auxiliary variables, cyclic invariance; device = host |
 | `test_flume_mhd_riemann` (+ `_fnl`) | MHD LLF/HLL/HLLD without cleaning, with GLM and with EGLM: consistency, HLLD exact on contact, tangential and rotational discontinuities, cyclic invariance bitwise, positive updates, EGLM = GLM bitwise at $\psi = 0$; device = host |
-| `test_flume_positivity` | PV-0, the limiter on random admissible states with perturbed fluxes (Euler, MHD, EGLM): every limited update positive and above the relative floor, the limiter needed and acting; a NaN or infinite high-order flux replaced by the backbone flux |
+| `test_flume_positivity` | PV-0, the limiter on random admissible states with perturbed fluxes (Euler, MHD, EGLM): every limited update positive and above the relative floor, the limiter needed and acting; a NaN or infinite high-order flux replaced by the backbone flux; inadmissible face ghosts blended above the floors, every other value untouched; a cell with a 2:1 seam face (mean donor-state backbone) admissible for any seam factor up to its own, and not without the limiter |
 | `test_flume_weno_interpolation` (+ `_fnl`) | WENO interpolation tables: exactness, convergence, device = host; the reconstruction tables unchanged |
 
 Build and run with `fobis build --mode test-flume-<name>-gnu` (`-fnl-nvf --varset local_nvf` for the device twin).
 
 ## Regression suite
 
-`src/tests/flume/regression/` holds 25 goldened cases (Sod along x/y/z, AMR, multi-realm, immersed boundary, the MHD
+`src/tests/flume/regression/` holds 26 goldened cases (Sod along x/y/z, AMR, multi-realm, immersed boundary, the MHD
 cases RJ2a, Brio–Wu, GLM pulse, Orszag–Tang, rotor, field loop, rotated shock tube, uniform AMR, and the M3 cases: Sod
 with HLLC and RJ2a with HLLD on `weno-riemann`, Orszag–Tang with EGLM, the blast with the positivity limiter in 2-D and
-in 3-D, the only 3-D flow case of the suite): `run.sh cpu` runs in
+in 3-D, the only 3-D flow case of the suite, and, issue #50, the blast with the limiter across two 2:1 seams through
+its centre): `run.sh cpu` runs in
 CI, `run-fnl-local.sh` on a GPU workstation, and `run-omp-bitwise.sh` checks that the OpenMP build reproduces the serial
 one bit for bit.

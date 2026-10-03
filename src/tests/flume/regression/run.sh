@@ -46,6 +46,9 @@
 #                            the limited runs are not bitwise across backends, each backend has its own golden (M3-P6)
 #   blast3d-limiter          the same blast as a sphere on 32^3 (octree, 64 blocks), 40 steps: the 3-D paths of EGLM and of
 #                            the limiter; same host memory as the 2-D cases (18 GB CPU, 10 GB host + 10 GB GPU on FNL, M3-P6)
+#   blast-amr-limiter        blast-limiter with the block [0.5, 0.75]^2 refined 2:1 (two seams across the blast centre),
+#                            100 steps: the limiter's per-stage seam flux synchronisation and the ghost positivity blend
+#                            (issue #50); per-backend goldens
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 

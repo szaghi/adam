@@ -17,6 +17,14 @@
 #   pv3     Euler near vacuum (make_vacuum.py): the LeBlanc shock tube, the double rarefaction and the planar Sedov
 #           blast. The splitting scheme needs no limiting on any of them; HLLC needs none on LeBlanc and fails without
 #           the limiter on the double rarefaction (step 79) and on Sedov (step 69);
+#   pv5     the Balsara-Spicer blast across 2:1 AMR seams (issue #50): 64^2 base with [0.25, 0.75]^2 refined one level
+#           (make_blast.py --refine-box, octree, the outer shock crosses the seams), both schemes. Besides the verdict,
+#           the run must conserve the mass to round-off (relative drift below 1e-12) and the forest's
+#           max|F_coarse - F_fine_sum| must stay below 1e-9: the limiter synchronises the seam flux at every stage, so
+#           the end-of-step reflux corrects round-off only. Before the synchronisation the splitting scheme stopped at
+#           step 184 (the reflux drove coarse seam cells to rho e < 0) and HLLD at step 261 (inadmissible tricubic seam
+#           ghosts, fixed by the ghost positivity blend). About 14 min per scheme on the CPU, 19 on FNL; not a
+#           default leg;
 #   pv4     inactive on smooth problems: with the limiter on, the isentropic vortex (Euler, N = 64, 128) and the 1-D
 #           fast wave (EGLM, N = 16, 32) are BITWISE equal to the runs without it (interior cells; a face whose two
 #           cells keep Lambda = 1 is not touched, and the EGLM sources with Lambda = 1 take the unlimited arithmetic).
@@ -25,7 +33,7 @@
 # meets inadmissible backbones (NaN at step 10, at any CFL).
 # One run at a time; checkpoints deleted after use. On the CPU: pv1 4 min, pv2 4 min, pv3 55 min, pv4 9 min.
 #
-# Usage: ./check.sh [--np N] [--legs pv1,pv1-3d,pv2,pv3,pv4]     (default legs: pv1,pv2,pv3,pv4)
+# Usage: ./check.sh [--np N] [--legs pv1,pv1-3d,pv2,pv3,pv4,pv5]     (default legs: pv1,pv2,pv3,pv4)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh (M3-P5b)
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -47,8 +55,8 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 for leg in ${LEGS//,/ }; do
-   if [[ ! $leg =~ ^(pv1|pv1-3d|pv2|pv3|pv4)$ ]]; then
-      echo "check.sh: unknown leg '$leg' (accepted: pv1, pv1-3d, pv2, pv3, pv4)" >&2 ; exit 2
+   if [[ ! $leg =~ ^(pv1|pv1-3d|pv2|pv3|pv4|pv5)$ ]]; then
+      echo "check.sh: unknown leg '$leg' (accepted: pv1, pv1-3d, pv2, pv3, pv4, pv5)" >&2 ; exit 2
    fi
 done
 has_leg() { [[ ",$LEGS," == *",$1,"* ]]; }
@@ -165,6 +173,23 @@ fi
 if has_leg pv2; then
    echo ">> PV-2 Wu-Shu blast, beta 2.51e-6, 128^2, EGLM, limiter on"
    blast wushu 0.001 --cells 128 --b-axis x --p-in 1.0e4 --b0 282.0947917738782 --time-max 0.001 --glm-ch 400.0
+fi
+if has_leg pv5; then
+   echo ">> PV-5 Balsara-Spicer blast across 2:1 AMR seams, 64^2 + [0.25, 0.75]^2 refined, EGLM, limiter on"
+   blast blast-amr 0.01 --cells 64 --refine-box 0.25 0.25 0.75 0.75
+   for spec in split hlld-characteristic; do
+      w="$CASE_DIR/work-$TAG-blast-amr-$spec"
+      [[ -s "$w/blast-conservation_history.dat" ]] || continue
+      mass=$(awk 'NR == 2 {a = $3} END {printf "%.3e", ($3 / a - 1 < 0 ? 1 - $3 / a : $3 / a - 1)}' \
+             "$w/blast-conservation_history.dat")
+      seam=$(grep -a 'reflux max' "$w/log.txt" | awk '{v = $NF + 0; if (v > m) m = v} END {printf "%.3e", m}')
+      if "$VENV_PY" -c "import sys; sys.exit(0 if $mass < 1e-12 and $seam < 1e-9 else 1)"; then
+         echo "   $spec: mass drift $mass, max|F_coarse - F_fine_sum| $seam  PASS"
+      else
+         echo "   $spec: mass drift $mass, max|F_coarse - F_fine_sum| $seam  FAIL"
+         FAILED=1
+      fi
+   done
 fi
 if has_leg pv3; then
    echo ">> PV-3 Euler near vacuum, limiter on"
