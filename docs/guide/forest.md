@@ -51,6 +51,18 @@ Schema summary:
 
 Each realm's INI is a complete per-app input file. Sections like `[grid]`, `[numerics]`, `[physics]`, `[runge_kutta]` are populated as usual; the manifest contributes only the inter-realm topology.
 
+### What a seam requires (rank-local seams, issue #40)
+
+The seam fill and the inter-realm reflux register are built **rank-locally**: each rank pairs the seam blocks it owns with peer blocks it also owns, and no seam data crosses ranks (the cross-rank path is not implemented). The realms are partitioned over the ranks independently, each in its own Morton order, so a seam is valid only when:
+
+1. both sides have the **same cell size**, with cell centres that coincide across the seam (mirror coupling);
+2. the seam blocks of the two realms **meet face to face** (same tangential extents);
+3. each seam block and its peer are **on the same rank**.
+
+Two realms with the same block layout along the seam, split by the partition in the same way, satisfy all three: a domain split in two halves normal to $x$ does (both halves put their seam blocks on the same rank). The same split normal to $z$ does not on two ranks: each realm is cut by $z$, so the top seam blocks of the lower realm and the bottom seam blocks of the upper realm land on different ranks.
+
+The forest checks the three conditions at initialization and stops with an `error_stop` naming the block or ghost cell and `issue #40`. The check is on the face ghosts of the seam slab; its edge and corner ghosts (tangentially outside the block) can reach a diagonal peer block on another rank even when the face peers are rank-local. Those are left unfilled, as before, and counted in a `forest: N edge/corner seam ghosts ... are not filled (issue #40)` line: the dimension-by-dimension stencils do not read them (sod-2realm on two ranks leaves 306 per realm and rank unfilled and is bitwise equal to sod-x). Before the check such a run ended normally with a wrong solution (the z-split Sod on two ranks: realm 1 mass frozen, reflux mismatch 69, exit code 0). `src/tests/flume/verification/multirealm/check.sh` (leg 3) keeps the z-split as a must-fail case on two ranks and as a bitwise match of the single-realm run on one.
+
 ## Coupling cadence: α vs β
 
 Each inter-realm seam carries a `coupling_cadence` selected independently in the manifest. The forest's `evolve_one_step` orchestrator iterates seams (not realms) when filling ghost cells and gates per-seam.

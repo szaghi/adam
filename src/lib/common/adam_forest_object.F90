@@ -620,8 +620,9 @@ contains
    ! per-peer pack/unpack buffers from the just-built
    ! inter_realm_ghost_cell map. The new arrays are what the forest's
    ! seam-fill TBPs (in evolve_one_step) consume.
-   ! Every entry is required to be same-rank (replicated forest); cross-
-   ! rank entries error_stop here to flag the unimplemented MPI path.
+   ! Every entry is same-rank: the topology pass above error_stops on a seam face ghost whose peer cell is on another
+   ! rank and leaves such edge/corner ghosts unfilled (issue #40); the cross-rank `update_ghost_seam_mpi` path is not
+   ! implemented.
    call build_seam_local_map(realm=realm, manifest=manifest)
    ! Override the BC crown's bc_type column to BC_SEAM for entries that
    ! lie on an inter-realm seam face.
@@ -850,7 +851,16 @@ contains
                                          peer_realm_idx=pair%realm_b,                  &
                                          peer_axis=b_peer_axis, peer_sign=b_peer_sign, &
                                          b_peer=b_peer)
-               if (b_peer > 0_I4P .and. bc_fec_b > 0_I4P .and. bc_fec_b <= 6_I4P) then
+               ! Issue #40: without a rank-local peer the fine side of this face never accumulates and the seam is
+               ! silently wrong; refuse it.
+               if (b_peer == 0_I4P) &
+                  call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: block '//               &
+                     trim(str(b, .true.))//' of realm '//trim(str(a_realm, .true.))//' lies on the seam of '//    &
+                     'face_pair '//trim(str(f, .true.))//' but this rank owns no block of realm '//               &
+                     trim(str(pair%realm_b, .true.))//' meeting it face to face (issue #40): the seam needs each '// &
+                     'seam block and its peer on the same rank (cross-rank seams are not implemented) and the two '//&
+                     'realms to have the same blocks and cell size along the seam')
+               if (bc_fec_b > 0_I4P .and. bc_fec_b <= 6_I4P) then
                   if (allocated(realm(pair%realm_b)%adam%maps%inter_realm_face_register_index)) &
                      realm(pair%realm_b)%adam%maps%inter_realm_face_register_index(b_peer, bc_fec_b) = -cursor
                endif
@@ -914,8 +924,9 @@ contains
                                       peer_realm_idx, peer_axis, peer_sign, b_peer)
       !< Find the peer-realm block whose face geometrically matches the
       !< given (my_realm, my_block, my_face) tuple — same-resolution mirror
-      !< version. Returns `b_peer = 0` if no match (e.g. peer lives on
-      !< another rank).
+      !< version. Returns `b_peer = 0` if no match: the peer lives on
+      !< another rank, or the realms' blocks do not meet face to face (the
+      !< caller error_stops, issue #40).
       !<
       !< Matching criteria (same-resolution mirror, COUPLING_MIRROR):
       !<   * peer block's face-coordinate along `peer_axis` equals my
@@ -1087,13 +1098,10 @@ contains
       !< by `peer_realm` so the forest can extract per-peer row ranges in
       !< O(1) via the index arrays.
       !<
-      !< Invariant: every entry must be same-rank — under the replicated-
-      !< forest layout both ranks own both realms, so the rank that owns
-      !< `b_send` in the peer realm equals `mpih%myrank`. Cross-rank
-      !< entries are detected via the peer's `comm_map_recv` (which lists
-      !< who owns each block of the peer realm); a single cross-rank
-      !< entry triggers an `error_stop` flagging the unimplemented
-      !< `update_ghost_seam_mpi` path.
+      !< Invariant: every entry is same-rank. The realms are partitioned over the ranks independently, so a seam block
+      !< and its peer can sit on different ranks; `count_seam_ghost_cells` error_stops on such a face ghost and leaves
+      !< such edge/corner ghosts out of the map (issue #40); the cross-rank `update_ghost_seam_mpi` path is not
+      !< implemented.
       !<
       !< Also populates `seam_local_cadence(p)` per distinct peer by
       !< matching `(is, peer)` against `manifest%face_pairs`. If two
@@ -1211,11 +1219,7 @@ contains
          enddo
          deallocate(peer_cursor)
 
-         ! Invariant: every entry is same-rank. Under the replicated-forest
-         ! layout all ranks own all realms' blocks, so the invariant holds
-         ! by construction. Cross-rank entries are not yet supported; the
-         ! forest's seam-fill loops error_stop if `seam_comm_map_send_ghost_cell`
-         ! becomes allocated.
+         ! Invariant: every entry is same-rank, enforced by `count_seam_ghost_cells` (issue #40).
          !
          ! Sizing for per-peer buffers: nv × max(row_count_per_peer), one column per peer.
          ! Realm exposes nv as a pointer component (initialize binds self%nv => adam%field%nv).
@@ -1343,8 +1347,11 @@ contains
       integer(I4P),        intent(in)    :: my_realm_idx, peer_realm_idx, my_face
       integer(I4P) :: b, axis, sgn, i_g, j_g, k_g
       integer(I4P) :: imin_g, imax_g, jmin_g, jmax_g, kmin_g, kmax_g
-      real(R8P)    :: xg(3)
-      integer(I4P) :: bp, ip_dummy, jp_dummy, kp_dummy
+      real(R8P)    :: xg(3), xp(3), dx(3)
+      integer(I4P) :: bp, ip, jp, kp
+      integer(I4P) :: n_unfilled
+
+      n_unfilled = 0_I4P
 
       call face_axis_sign(my_face, axis, sgn)
       do b = 1_I4P, int(realm(my_realm_idx)%adam%field%blocks_number, I4P)
@@ -1354,13 +1361,72 @@ contains
             do j_g = jmin_g, jmax_g
                do i_g = imin_g, imax_g
                   call ghost_cell_center(realm(my_realm_idx), b, i_g, j_g, k_g, xg)
-                  call find_peer_cell(realm(peer_realm_idx), xg, bp, ip_dummy, jp_dummy, kp_dummy)
-                  if (bp > 0_I4P) per_realm_count(my_realm_idx) = per_realm_count(my_realm_idx) + 1_I4P
+                  call find_peer_cell(realm(peer_realm_idx), xg, bp, ip, jp, kp)
+                  ! Issue #40: a ghost inside the peer realm must map onto a rank-local peer cell with the same centre;
+                  ! only a ghost outside the peer domain (a corner at a physical boundary) may stay unmapped. An edge or
+                  ! corner ghost of the slab (tangentially outside the block) whose peer cell is on another rank is left
+                  ! unfilled and counted: the dimension-by-dimension stencils never read it (sod-2realm on two ranks is
+                  ! bitwise equal to sod-x with such ghosts unfilled).
+                  dx = realm(my_realm_idx)%adam%field%dxyz(:, b)
+                  if (bp > 0_I4P) then
+                     call ghost_cell_center(realm(peer_realm_idx), bp, ip, jp, kp, xp)
+                     if (any(abs(xp - xg) > 1.0e-6_R8P * dx))                                                          &
+                        call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam '//           &
+                           ghost_label(my_realm_idx, b, i_g, j_g, k_g)//' does not coincide with a cell of realm '//  &
+                           trim(str(peer_realm_idx, .true.))//' (issue #40): mirror seams need the same cell size '// &
+                           'on both sides')
+                     per_realm_count(my_realm_idx) = per_realm_count(my_realm_idx) + 1_I4P
+                  elseif (inside_domain(realm(peer_realm_idx), xg, 0.25_R8P * dx)) then
+                     if (is_face_ghost(realm(my_realm_idx), i_g, j_g, k_g)) then
+                        call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam '//           &
+                           ghost_label(my_realm_idx, b, i_g, j_g, k_g)//' lies in realm '//                           &
+                           trim(str(peer_realm_idx, .true.))//' on a block this rank does not own (issue #40): '//    &
+                           'cross-rank seams are not implemented, the seam blocks of both realms must be on the '//   &
+                           'same rank')
+                     endif
+                     n_unfilled = n_unfilled + 1_I4P
+                  endif
                enddo
             enddo
          enddo
       enddo
+      if (n_unfilled > 0_I4P)                                                                                        &
+         call mpih%print_message('forest: '//trim(str(n_unfilled, .true.))//' edge/corner seam ghosts of realm '//   &
+                                 trim(str(my_realm_idx, .true.))//' have their peer cell in realm '//                &
+                                 trim(str(peer_realm_idx, .true.))//' on another rank and are not filled (issue #40)')
       endsubroutine count_seam_ghost_cells
+
+      function ghost_label(my_realm_idx, b, i, j, k) result(label)
+      !< Name a seam ghost cell in an error message.
+      integer(I4P), intent(in)  :: my_realm_idx !< Realm index.
+      integer(I4P), intent(in)  :: b, i, j, k   !< Block and ghost cell indices.
+      character(:), allocatable :: label        !< Label.
+
+      label = 'ghost ('//trim(str(i))//','//trim(str(j))//','//trim(str(k))//') of block '//trim(str(b, .true.))// &
+              ' of realm '//trim(str(my_realm_idx, .true.))
+      endfunction ghost_label
+
+      pure function is_face_ghost(this_realm, i, j, k) result(yes)
+      !< Return .true. iff the ghost (i, j, k) is outside the block interior along exactly one axis (a face ghost, not an
+      !< edge or corner one).
+      class(realm_object), intent(in) :: this_realm !< Realm to query.
+      integer(I4P),        intent(in) :: i, j, k    !< Ghost cell indices.
+      logical                         :: yes        !< Test result.
+
+      associate(g => this_realm%adam%grid)
+         yes = count([i < 1_I4P .or. i > g%ni, j < 1_I4P .or. j > g%nj, k < 1_I4P .or. k > g%nk]) == 1
+      endassociate
+      endfunction is_face_ghost
+
+      pure function inside_domain(this_realm, xc, tol) result(yes)
+      !< Return .true. iff `xc` lies inside the domain of `this_realm`, at least `tol` away from its boundary.
+      class(realm_object), intent(in) :: this_realm !< Realm to query.
+      real(R8P),           intent(in) :: xc(3)      !< Point.
+      real(R8P),           intent(in) :: tol(3)     !< Per-axis margin.
+      logical                         :: yes        !< Test result.
+
+      yes = all(xc > this_realm%adam%grid%domain_emin + tol) .and. all(xc < this_realm%adam%grid%domain_emax - tol)
+      endfunction inside_domain
 
       subroutine populate_seam_ghost_cells(realm, per_realm_count, my_realm_idx, peer_realm_idx, my_face)
       !< Second-pass row populator for the inter-realm ghost-cell map.
@@ -1449,11 +1515,11 @@ contains
       !< Find the peer-realm block + interior cell whose cell-center
       !< coincides (within tolerance) with the global point `xc`.
       !<
-      !< Returns `bp = 0` if no peer block contains the point — that
-      !< means the ghost cell maps outside the peer's physical extent
-      !< (typical at corners where the seam meets a physical boundary)
-      !< and the consumer should skip this entry (the physical BC on
-      !< self will fill the ghost).
+      !< Returns `bp = 0` if no rank-local peer block contains the point.
+      !< Outside the peer's physical extent (corners where the seam meets a
+      !< physical boundary) the consumer skips the entry and the physical BC
+      !< on self fills the ghost; inside it the peer block is on another rank
+      !< (`count_seam_ghost_cells` error_stops on a face ghost, issue #40).
       class(realm_object), intent(in)  :: peer_realm
       real(R8P),           intent(in)  :: xc(3)
       integer(I4P),        intent(out) :: bp, ip, jp, kp

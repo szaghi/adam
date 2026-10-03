@@ -197,8 +197,11 @@ Known limitations:
   leak, MV-11); the 8 physical integrals are.
 - **Quadtree AMR** with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)); use an octree.
 - The FNL backend copies the coarse-fine seam faces to the host at every stage, which dominates its run time on AMR
-  cases; inter-realm seams must join blocks of the same resolution (mirror coupling), and the realms are verified with
-  the same block partition on both sides of the seam (the seam fluxes are matched rank-locally).
+  cases.
+- **Inter-realm seams are rank-local** ([#40](https://github.com/szaghi/adam/issues/40)): the two sides must have the
+  same cell size, blocks that meet face to face, and each seam block on the same rank as its peer. The forest stops at
+  initialization otherwise (a Sod split along z on two ranks puts the two sides on different ranks); the cross-rank
+  seam exchange is not implemented.
 
 ## License
 

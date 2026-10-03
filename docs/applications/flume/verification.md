@@ -124,7 +124,9 @@ components of $\mathbf{B}$ and $\psi$ (drift $\le 4.7\cdot10^{-14}$).
 
 `multirealm/check.sh` splits Sod along $x$ into two realms at the diaphragm, glued by a mirror seam with stage-coincident
 cadence, and compares the union with the single-realm run: **bitwise** equal on all cells at $t = 0.2$, CPU and FNL. The
-same holds with one realm refined, the shock crossing a 2:1 face.
+same holds with one realm refined, the shock crossing a 2:1 face. Leg 3 splits Sod along $z$ instead: bitwise equal to
+the single-realm run on one rank, and refused at initialization on two, where the two sides of the seam are on
+different ranks (the seams are rank-local, [#40](https://github.com/szaghi/adam/issues/40)).
 
 ## Ideal MHD
 

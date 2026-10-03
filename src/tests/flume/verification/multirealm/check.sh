@@ -20,6 +20,12 @@
 # into three quarters of the realm-1 seam skin at every step; the FNL backend never copied the forest-built seam and
 # BC maps to the device (illegal address in the seam fill kernel).
 #
+# Leg 3 (issue #40, needs N >= 2): the inter-realm seam is rank-local, its fill and reflux never cross ranks.
+# sod-2realm-z.ini is the leg-1 split along z: valid on one rank (the union reproduces sod-z bit for bit), but on two
+# ranks each realm's blocks are split by z, so the two sides of the seam land on different ranks. Before the guard it
+# ran to the end with exit code 0 and a wrong solution (205 steps instead of 174, realm 1 mass frozen at 0.5, reflux
+# mismatch 69); the leg requires the one-rank run to match sod-z and the N-rank run to stop with the issue #40 message.
+#
 # Usage: ./check.sh [--build] [--np N]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -60,12 +66,18 @@ fi
 
 TAG="$(basename "$EXE")-np$NP"
 
-run() { # run <work-dir> <input> <files...>
-   local work="$1" input="$2"
+run() { # run <work-dir> <input> <files...>; RUN_NP overrides the rank count, RUN_MUST_FAIL=1 expects a failure
+   local work="$1" input="$2" np="${RUN_NP:-$NP}" rc=0
    shift 2
    rm -rf "$work" ; mkdir -p "$work" ; cp "$@" "$work/"
-   echo ">> $(basename "$work"): mpirun -np $NP $(basename "$EXE") $input"
-   if ! (cd "$work" && mpirun -np "$NP" "$EXE" "$input" > log.txt 2>&1); then
+   echo ">> $(basename "$work"): mpirun -np $np $(basename "$EXE") $input"
+   (cd "$work" && mpirun -np "$np" "$EXE" "$input" > log.txt 2>&1) || rc=$?
+   if [[ "${RUN_MUST_FAIL:-0}" == 1 ]]; then
+      if [[ $rc -eq 0 ]]; then
+         echo "check.sh: run succeeded but must fail, see $work/log.txt" >&2
+         exit 1
+      fi
+   elif [[ $rc -ne 0 ]]; then
       echo "check.sh: run failed, see $work/log.txt" >&2
       exit 1
    fi
@@ -85,4 +97,22 @@ run "$single" sod-amr.ini "$CASE_DIR/sod-amr.ini"
 run "$multi" sod-amr-2realm.ini "$CASE_DIR/sod-amr-2realm.ini" "$CASE_DIR/sod-amr-2realm-r1.ini" \
     "$CASE_DIR/sod-amr-2realm-r2.ini"
 "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+if [[ $NP -ge 2 ]]; then
+   echo "== leg 3: cross-rank seam, z-split 2-realm Sod: matches sod-z on one rank, refused on $NP (issue #40)"
+   zfiles=("$CASE_DIR/sod-2realm-z.ini" "$CASE_DIR/sod-2realm-z-r1.ini" "$CASE_DIR/sod-2realm-z-r2.ini")
+   single="$CASE_DIR/work-$TAG-z-single"
+   multi="$CASE_DIR/work-$TAG-z-2realm-np1"
+   RUN_NP=1 run "$single" sod-z.ini "$VERIF_DIR/sod/sod-z.ini"
+   RUN_NP=1 run "$multi" sod-2realm-z.ini "${zfiles[@]}"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+   refused="$CASE_DIR/work-$TAG-z-2realm"
+   RUN_MUST_FAIL=1 run "$refused" sod-2realm-z.ini "${zfiles[@]}"
+   if ! grep -aq 'error stop forest_object%populate_inter_realm_topology: .*(issue #40)' "$refused/log.txt"; then
+      echo "check.sh: the cross-rank seam run failed without the issue #40 message, see $refused/log.txt" >&2
+      exit 1
+   fi
+   echo "   refused: $(grep -a 'issue #40' "$refused/log.txt" | head -1 | cut -c1-120)..."
+else
+   echo "== leg 3 skipped: the cross-rank seam needs --np 2 or more"
+fi
 echo "multi-realm verification PASSED ($TAG)"
