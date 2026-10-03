@@ -4,7 +4,9 @@
 
 > **Status: development.** Milestone M1 of [issue #35](https://github.com/szaghi/adam/issues/35) delivered the
 > **compressible Euler** equations on both backends; milestone M2 of [issue #41](https://github.com/szaghi/adam/issues/41)
-> adds **ideal MHD** with mixed GLM divergence cleaning, verified on both backends including AMR and multi-realm runs.
+> adds **ideal MHD** with mixed GLM divergence cleaning, verified on both backends including AMR and multi-realm runs;
+> milestone M3 of [issue #47](https://github.com/szaghi/adam/issues/47) adds the **`weno-riemann`** scheme (Euler LLF,
+> HLL, HLLC; MHD LLF, HLL, HLLD), the energy-consistent **EGLM** cleaning and a **positivity limiter**.
 > FLUME supersedes CHASE, which is deprecated.
 
 ## Physical Models
@@ -13,6 +15,7 @@
 |-------|----------------------------|----------------------------|-------|
 | Compressible Euler | `euler` | — | $\mathbf{q} = (\rho, \rho u, \rho v, \rho w, E)^\top$, `nv = 5` |
 | Ideal MHD, GLM cleaning | `mhd-ideal` | `glm` | $\mathbf{q} = (\rho, \rho u, \rho v, \rho w, E, B_x, B_y, B_z, \psi)^\top$, `nv = 9` |
+| Ideal MHD, EGLM cleaning | `mhd-ideal` | `eglm` | as GLM, `nv = 9`, with $\psi^2/2$ in $E$ and the Derigs et al. (2018) nonconservative sources |
 | Ideal MHD, no control | `mhd-ideal` | `none` | the first 8 of the above, `nv = 8`: diagnostic use only (in multi-D the divergence error grows unchecked: the magnetised vortex reaches a negative pressure) |
 
 All models are inviscid with an ideal gas (`[physics] cp, cv`, J/(kg K)); ideal MHD is a perfectly conducting single
@@ -24,6 +27,8 @@ Dissipative effects (viscosity, thermal conduction, resistivity) are outside the
 | Area | What is available | INI |
 |------|-------------------|-----|
 | Space | WENO flux splitting, per-face Roe eigenvectors, per-wave local Lax-Friedrichs; reconstruction in characteristic or conservative variables; orders `weno-u-3` to `weno-u-9` (the centred `weno-c-*` schemes are refused). MHD: block-diagonal characteristic decomposition, 7×7 Roe–Balsara-normalised eigenvectors (Stone et al. 2008) at the arithmetic mean of the primitive states with $B_n$ as a parameter, plus the $(B_n, \psi)$ block with speeds $\mp c_h$ | `[numerics] scheme_space = weno`, `reconstruction_variables`; `[weno] scheme` |
+| Space, `weno-riemann` | WENO interpolation of the face states (characteristic, or primitive) into a Riemann solver: Euler `llf`, `hll`, `hllc`; MHD `llf`, `hll`, `hlld` (HLLD falls back to HLL where its intermediate states are inadmissible, counted in the log); optional 4th/6th-order face-flux correction, switched off by a WENO smoothness sensor | `[numerics] scheme_space = weno-riemann`, `reconstruction_variables`, `riemann_solver`, `flux_correction`, `flux_correction_sensor` |
+| Positivity limiter | Cell-based parametrised flux limiter over a first-order Lax–Friedrichs backbone: each stage keeps the density and the pressure positive, and above a tenth of the first-order update; smooth runs bitwise unchanged. Euler, MHD without cleaning and EGLM, SSP schemes only; refused with GLM, immersed solids and multi-realm runs | `[numerics] positivity_limiter = none\|cell` |
 | Time | Library Runge-Kutta schemes (SSP and low-storage), CFL time step | `[runge_kutta] scheme`; `[time] CFL, it_max, time_max` |
 | Boundary conditions | `extrapolation`, `inflow` (primitive state `r, u, v, w, p`; MHD adds `bx, by, bz`, with $\psi = 0$), `wall-inviscid` (MHD: perfectly conducting wall, $u_n$ and $B_n$ odd, the rest and $\psi$ even), `periodic` (both faces of an axis or neither) | `[bc_{x,y,z}_{min,max}] type` |
 | Initial conditions | `uniform` (optionally with a seeded perturbation), `isentropic-vortex`, `riemann-problem` (piecewise-constant regions; MHD regions add `bx, by, bz`), `shu-osher` (Euler, along x, y or z); MHD only: `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `orszag-tang`, `mhd-rotor`, `field-loop`, `rotated-riemann` | `[initial_conditions] type` |
@@ -73,11 +78,14 @@ $$\frac{\partial \mathbf{B}}{\partial t} + \nabla \cdot (\mathbf{u} \otimes \mat
 
 which transports the error away at the constant speed $c_h$ and damps it; $\psi$ is not part of $E$. It is the
 formulation compatible with cell-centred storage, conservative reflux and high-order finite differences; constrained
-transport is deferred. The `[mhd]` section (read only with `physical_model = mhd-ideal`):
+transport is deferred. **EGLM** (`eglm`, Derigs et al. 2018) adds $\psi^2/2$ to the energy and the nonconservative
+sources $-(\nabla\cdot\mathbf{B})(0, \mathbf{B}, \mathbf{u}\cdot\mathbf{B}, \mathbf{u}, 0) - (\mathbf{u}\cdot\nabla\psi)(0, 0, \psi, 0, 1)$, so
+that the cleaning is thermodynamically consistent: with it the strongly magnetised blasts stay admissible (with the
+positivity limiter on the splitting scheme). The `[mhd]` section (read only with `physical_model = mhd-ideal`):
 
 | Key | Values | Meaning |
 |-----|--------|---------|
-| `divergence_control` | `glm`, `none` | model variant (state width 9 or 8) |
+| `divergence_control` | `glm`, `eglm`, `none` | model variant (state width 9, 9 or 8) |
 | `glm_ch` | > 0 | cleaning speed $c_h$, constant and uniform, part of the time-step bound |
 | `glm_alpha` | >= 0 | damping $c_h^2/c_p^2 = \alpha\, c_h / L$ |
 | `glm_damping_length` | > 0 or `min-cell` | $L$; `min-cell` is the minimum cell spacing of the realm (Mignone & Tzeferacos 2010) |
@@ -85,7 +93,7 @@ transport is deferred. The `[mhd]` section (read only with `physical_model = mhd
 | `divb_tol`, `divb_error` | >= 0, logical | div(B) monitor: warn (or stop) when `max_divb` exceeds the tolerance; 0 disables it |
 | `rho_floor`, `p_floor` | >= 0 | positivity floors with global counters in the log; 0 disables them (a non-positive state then stops the run) |
 
-The GLM keys are required with `glm` only; every value is range-checked and an unknown spelling stops the run.
+The GLM keys are required with `glm` and `eglm`; every value is range-checked and an unknown spelling stops the run.
 
 ## Source Layout
 
@@ -152,6 +160,18 @@ The MHD tests (issue #41) live in `verification/mhd/`:
 | MV-13 | `rotor/`: MHD rotor | symmetry under rotation with $\mathbf{B} \to -\mathbf{B}$ |
 | MV-14 | `multirealm/`: RJ2a in two realms; restart round trips | union bitwise; restart bitwise with a non-zero $\psi$ |
 
+The M3 tests (issue #47) run the same scripts on the new numerics (`--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]` for
+the MHD ones, `--divergence-control eglm` for EGLM) plus their own:
+
+| Test | Case | Pass criterion |
+|------|------|----------------|
+| RV-0 | `unit/`: Euler and MHD Riemann solvers on random states | consistency, exact contact (HLLC, HLLD), positive first-order updates, EGLM = GLM at $\psi = 0$; device = host |
+| RV-2..RV-4 | `riemann-flux/`: vortex order, Sod/Lax/Shu–Osher, AMR conservation on `weno-riemann` | order at least 4.8; $L_1(\rho)$ within 1.05 × the splitting scheme's; integrals constant with reflux |
+| RV-5..RV-7 | the MHD scripts with `--numerics hlld` | order, symmetry, conservation and recorded bounds as for the splitting scheme |
+| EV-2..EV-4 | `glm-pulse/`, `rj2a/`, `orszag-tang/` with EGLM | telegraph solution; EGLM = GLM on RJ2a; $\int\rho$ exact and every other drift within its source bound |
+| PV-0 | `unit/test_flume_positivity`: the limiter on random states with perturbed fluxes | every limited update positive and above the relative floor; non-finite fluxes replaced |
+| PV-1..PV-4 | `mhd/positivity/`: Balsara–Spicer (2-D, 3-D) and Wu–Shu blasts; LeBlanc, double rarefaction, planar Sedov; smooth cases | final time reached with no inadmissible backbone (no floors); smooth runs bitwise unchanged |
+
 `src/tests/flume/regression/` is the goldened regression suite (a copy of the PRISM harness): `run.sh cpu` runs in CI,
 `run-fnl-local.sh` on a GPU workstation. `run-omp-bitwise.sh` (also in CI) requires the OpenMP CPU build to reproduce
 the serial one bit for bit on the immersed-boundary case: one unexplained single-ulp divergence is on record (issue #35),
@@ -163,13 +183,13 @@ Known limitations:
   2002): the seams inject a truncation-level div(B) source. GLM keeps it bounded (MV-9: it decays after the initial
   transient), unlike PRISM without damping (issue #29); `seam_max_divb` in the div(B) history monitors it.
   Constrained transport, which would remove it, is deferred.
-- **Positivity.** The density and pressure floors are a heuristic under GLM, not a positivity-preserving scheme. Very
-  low plasma beta is out of reach: the Balsara–Spicer strong blast ($\beta = 2.5 \cdot 10^{-4}$) fails within a few
-  steps. The cause is the mixed-GLM energy coupling ($\psi$ changes $B_n$ but is not in the energy, so the change of
-  magnetic energy is taken from the thermal pressure): with it, the first-order Lax–Friedrichs update of the stage
-  states is inadmissible and no flux limiter can help. A prototype with EGLM (Derigs et al. 2018) and the cell-based
-  limiter reaches the end of the blast (`src/tests/flume/verification/mhd/positivity-probe/`); both are planned in
-  [#47](https://github.com/szaghi/adam/issues/47).
+- **Positivity.** Under GLM the density and pressure floors are a heuristic: the mixed-GLM energy coupling ($\psi$
+  changes $B_n$ but is not in the energy) makes the first-order update of strongly magnetised states inadmissible, so
+  the positivity limiter is refused with GLM. Use EGLM: with the limiter the splitting scheme reaches the end of the
+  Balsara–Spicer ($\beta = 2.5 \cdot 10^{-4}$) and Wu–Shu ($\beta = 2.51 \cdot 10^{-6}$) blasts, and `weno-riemann`
+  with HLLD runs the first even without it. The limiter guarantees positivity, not accuracy: the limited splitting
+  scheme is noisy on those blasts, where HLLD stays clean. It is not yet verified across 2:1 AMR seams (the reflux
+  replaces the coarse fluxes after the limiter).
 - **GLM damping and reflux.** With damping, $\int \psi$ is not conserved across 2:1 faces (O(k dt) of the uncorrected
   leak, MV-11); the 8 physical integrals are.
 - **Quadtree AMR** with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)); use an octree.
