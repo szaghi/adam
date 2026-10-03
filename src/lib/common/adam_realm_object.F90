@@ -166,6 +166,8 @@ type :: realm_object
       procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize; forest calls it ONCE after all.
       ! inter-realm seam ghost-fill contract (agnostic-dummy redesign).
       procedure, pass(self) :: fill_seam_from_peer_forest        !< Receive-side roundtrip: copy peer's interior into self's ghosts.
+      procedure, pass(self) :: pack_seam_cells_forest            !< Pack own cells of the cross-rank seam send rows.
+      procedure, pass(self) :: unpack_seam_cells_forest          !< Unpack the cross-rank seam receive rows into own ghosts.
       procedure, pass(self) :: after_topology_build_forest       !< Backend hook invoked once after the forest builds the seam maps.
       procedure, pass(self) :: apply_reflux_to_stage_forest      !< Apply Berger-Colella reflux to self's stage buffer.
       ! IO methods
@@ -713,8 +715,14 @@ contains
    !     and reads/writes device pointers. Same signature, same forest
    !     call site, same semantics.
    !
-   !   * Cross-rank peers: not yet implemented. The MPI exchange path
-   !     using `seam_comm_map_*` plumbing is reserved but unpopulated.
+   !   * Cross-rank peers (issue #40): the rows whose peer cell is on
+   !     another rank are not in `seam_local_map_ghost_cell` but in
+   !     `seam_mpi_{send,recv}_cell`. `adam_seam_exchange` moves them:
+   !     the owner of the cells packs its send rows of the receiver's slot
+   !     (`pack_seam_cells_forest`, its own active buffer), MPI carries the
+   !     buffers, the receiver unpacks its receive rows of the peer's slot
+   !     (`unpack_seam_cells_forest`, its own active buffer). Each realm
+   !     touches only its own maps and arrays.
 
    subroutine fill_seam_from_peer_forest(self, peer, p_idx)
    !< Fill THIS realm's seam ghost cells for peer slot `p_idx` from `peer`'s
@@ -726,6 +734,30 @@ contains
 
    call mpih%error_stop(msg='realm_object%fill_seam_from_peer_forest: not overridden by app extension')
    endsubroutine fill_seam_from_peer_forest
+
+   subroutine pack_seam_cells_forest(self, p_idx, buf)
+   !< Pack this realm's cells of the cross-rank seam send rows of peer slot `p_idx` (`maps%seam_mpi_send_cell`), from
+   !< the active buffer (`stage_active` rule of `fill_seam_from_peer_forest`), `nv` values per row in row order.
+   !< Default: error_stops; every multi-realm participant MUST override.
+   class(realm_object), intent(in)  :: self   !< The realm.
+   integer(I4P),        intent(in)  :: p_idx  !< Peer slot (the realm that owns the ghosts).
+   real(R8P),           intent(out) :: buf(:) !< Packed values, `nv * rows`.
+
+   buf = 0._R8P
+   call mpih%error_stop(msg='realm_object%pack_seam_cells_forest: not overridden by app extension, slot '//trim(str(p_idx)))
+   endsubroutine pack_seam_cells_forest
+
+   subroutine unpack_seam_cells_forest(self, p_idx, buf)
+   !< Unpack `buf` into this realm's seam ghosts of the cross-rank receive rows of peer slot `p_idx`
+   !< (`maps%seam_mpi_recv_cell`), on the active buffer, `nv` values per row in row order.
+   !< Default: error_stops; every multi-realm participant MUST override.
+   class(realm_object), intent(inout) :: self   !< The realm.
+   integer(I4P),        intent(in)    :: p_idx  !< Peer slot (the realm that owns the cells).
+   real(R8P),           intent(in)    :: buf(:) !< Packed values, `nv * rows`.
+
+   call mpih%error_stop(msg='realm_object%unpack_seam_cells_forest: not overridden by app extension, slot '// &
+                        trim(str(p_idx))//', '//trim(str(size(buf)))//' values')
+   endsubroutine unpack_seam_cells_forest
 
    subroutine after_topology_build_forest(self)
    !< Backend hook invoked by `forest%populate_inter_realm_topology` AFTER

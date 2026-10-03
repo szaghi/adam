@@ -16,9 +16,10 @@ module adam_flume_fnl_object
 use :: adam_flux_register_object, only : flux_register_object
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_realm_object,         only : realm_object
+use :: adam_seam_exchange,        only : seam_fill_all
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM FNL classes, libraries
-use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev
+use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev, pack_seam_rows_dev, unpack_seam_rows_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
 use :: adam_fnl_ib_object,        only : ib_fnl_object
 use :: adam_fnl_rk_object,        only : rk_fnl_object
@@ -173,6 +174,8 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: compute_local_dt_forest      !< Compute the local stability-limited time step.
       procedure, pass(self) :: end_stage_forest             !< End an integrator stage (staged path).
       procedure, pass(self) :: fill_seam_from_peer_forest   !< Fill inter-realm seam ghosts from a peer.
+      procedure, pass(self) :: pack_seam_cells_forest       !< Pack own cells of the cross-rank seam send rows.
+      procedure, pass(self) :: unpack_seam_cells_forest     !< Unpack the cross-rank seam receive rows into own ghosts.
       procedure, pass(self) :: finalize_forest              !< Finalize the realm.
       procedure, pass(self) :: finalize_mpi_forest          !< Finalize the FNL MPI handler.
       procedure, pass(self) :: initialize_forest            !< Initialize the realm.
@@ -428,17 +431,11 @@ contains
    class(flume_fnl_object), intent(inout)                   :: self     !< The equation.
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms.
    real(R8P)                                                :: norms(3) !< Norms of this rank.
-   integer(I4P)                                             :: p_s      !< Seam peer counter.
 
    if (self%physics%model == MODEL_EULER) return
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
    call self%update_ghost(q_gpu=self%q_gpu)
-   if (present(realm) .and. allocated(self%adam%maps%seam_local_map_ghost_cell) .and. &
-       allocated(self%adam%maps%seam_local_peer_realm)) then
-      do p_s=1, int(size(self%adam%maps%seam_local_peer_realm), I4P)
-         call self%fill_seam_from_peer_forest(peer=realm(self%adam%maps%seam_local_peer_realm(p_s)), p_idx=p_s)
-      enddo
-   endif
+   if (present(realm)) call seam_fill_all(self=self, realm=realm) ! local and cross-rank seam rows (issue #40)
    call self%set_divb_seam
    if (associated(self%divb_seam_gpu)) then
       call dev_free(self%divb_seam_gpu, mydev)
@@ -1330,6 +1327,63 @@ contains
       call mpih_fnl%error_stop(msg=': flume_fnl_object%fill_seam_from_peer_forest: peer realm is not a flume_fnl_object')
    endselect
    endsubroutine fill_seam_from_peer_forest
+
+   subroutine pack_seam_cells_forest(self, p_idx, buf)
+   !< Pack this realm's cells of the cross-rank seam send rows of peer slot `p_idx` from the active device buffer
+   !< (`q_gpu` when `stage_active == 0`, else the active stage of `q_rk_gpu`) into the host `buf`, `nv` values per row
+   !< (issue #40).
+   class(flume_fnl_object), intent(in)  :: self       !< The equation.
+   integer(I4P),            intent(in)  :: p_idx      !< Peer slot (the realm owning the ghosts).
+   real(R8P),               intent(out) :: buf(:)     !< Packed values.
+   real(R8P), pointer                   :: buf_gpu(:) !< Device packed values.
+   integer(I4P)                         :: row_start  !< First send row.
+   integer(I4P)                         :: row_count  !< Send rows.
+   integer(I4P)                         :: ierr       !< Error status.
+
+   row_start = self%adam%maps%seam_mpi_send_row_start(p_idx)
+   row_count = self%adam%maps%seam_mpi_send_row_count(p_idx)
+   if (row_count == 0_I4P) return
+   call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in pack_seam_cells_forest')
+   if (self%stage_active > 0_I4P) then
+      call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
+                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu,                            &
+                              q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active), buf_gpu=buf_gpu)
+   else
+      call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
+                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=self%q_gpu, buf_gpu=buf_gpu)
+   endif
+   call dev_memcpy_from_device(dst=buf, src=buf_gpu)
+   call dev_free(buf_gpu, mydev)
+   endsubroutine pack_seam_cells_forest
+
+   subroutine unpack_seam_cells_forest(self, p_idx, buf)
+   !< Unpack the host `buf` into this realm's seam ghosts of the cross-rank receive rows of peer slot `p_idx`, on the
+   !< active device buffer, `nv` values per row (issue #40).
+   class(flume_fnl_object), intent(inout) :: self       !< The equation.
+   integer(I4P),            intent(in)    :: p_idx      !< Peer slot (the realm owning the cells).
+   real(R8P),               intent(in)    :: buf(:)     !< Packed values.
+   real(R8P), pointer                     :: buf_gpu(:) !< Device packed values.
+   integer(I4P)                           :: row_start  !< First receive row.
+   integer(I4P)                           :: row_count  !< Receive rows.
+   integer(I4P)                           :: ierr       !< Error status.
+
+   row_start = self%adam%maps%seam_mpi_recv_row_start(p_idx)
+   row_count = self%adam%maps%seam_mpi_recv_row_count(p_idx)
+   if (row_count == 0_I4P) return
+   call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in unpack_seam_cells_forest')
+   call dev_memcpy_to_device(dst=buf_gpu, src=buf)
+   if (self%stage_active > 0_I4P) then
+      call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
+                                rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu,          &
+                                q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active))
+   else
+      call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
+                                rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu, q_gpu=self%q_gpu)
+   endif
+   call dev_free(buf_gpu, mydev)
+   endsubroutine unpack_seam_cells_forest
 
    subroutine finalize_forest(self)
    !< Finalize the realm: close the output files and free device and host data (MPI is finalized once by the forest).

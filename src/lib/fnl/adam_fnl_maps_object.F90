@@ -35,17 +35,14 @@ type :: maps_fnl_object
    ! seam maps/buffers on `maps_object` (see adam_maps_object.F90). The host
    ! arrays drive layout; these are sized/populated 1:1 by `copy_cpu_gpu`.
    ! Per-peer buffers shaped `(buf_len, n_peers)` so concurrent peers do not
-   ! alias. Cross-rank seam path (`seam_*_mpi_*`) uses GPU-direct MPI: device
-   ! pointers handed straight to MPI_Isend/MPI_Irecv (same model as
-   ! update_ghost_mpi_gpu).
+   ! alias.
    integer(I4P), pointer :: seam_local_map_ghost_cell_gpu(:,:)  => null() !< Per-cell seam ghost map (sorted by peer_realm).
    real(R8P),    pointer :: seam_local_send_buf_gpu(:,:)        => null() !< Per-peer pack buffer, device-resident.
    real(R8P),    pointer :: seam_local_recv_buf_gpu(:,:)        => null() !< Per-peer unpack buffer, device-resident.
-   ! Cross-rank seam — declared but not yet populated (same-rank fast path only).
-   integer(I4P), pointer :: seam_comm_map_send_ghost_cell_gpu(:,:) => null()
-   integer(I4P), pointer :: seam_comm_map_recv_ghost_cell_gpu(:,:) => null()
-   real(R8P),    pointer :: seam_mpi_send_buf_gpu(:)               => null()
-   real(R8P),    pointer :: seam_mpi_recv_buf_gpu(:)               => null()
+   ! Cross-rank seam rows (issue #40), device twins of `maps_object%seam_mpi_{send,recv}_cell`: the pack and unpack
+   ! kernels gather and scatter the cross-rank seam cells through them.
+   integer(I4P), pointer :: seam_mpi_send_cell_gpu(:,:) => null() !< Cross-rank send rows [rank, b, i, j, k].
+   integer(I4P), pointer :: seam_mpi_recv_cell_gpu(:,:) => null() !< Cross-rank receive rows [rank, b, i, j, k].
    ! Intra-realm coarse->fine seam ghost fill (issue #21 N2 / #22 F3): host-side
    ! mirror of `maps_object%seam_ghost_fill`, the active fill regime consumed by
    ! the flag-4 branches of the ghost kernels (passed as a scalar kernel
@@ -137,20 +134,14 @@ contains
    else if (verbose_) then
       call mpih_fnl%print_message('skip seam_local_recv_buf_gpu (CPU map not allocated)')
    endif
-   ! Cross-rank seam — host counterparts not yet populated; skip silently when absent.
-   if (allocated(maps%seam_comm_map_send_ghost_cell)) then
-      call dev_assign_to_device(dst=self%seam_comm_map_send_ghost_cell_gpu, src=maps%seam_comm_map_send_ghost_cell)
-      if (verbose_) call mpih_fnl%print_message('copy seam_comm_map_send_ghost_cell done')
+   ! Cross-rank seam rows (issue #40): allocated only on ranks that have cross-rank seam rows.
+   if (allocated(maps%seam_mpi_send_cell)) then
+      call dev_assign_to_device(dst=self%seam_mpi_send_cell_gpu, src=maps%seam_mpi_send_cell)
+      if (verbose_) call mpih_fnl%print_message('copy seam_mpi_send_cell done')
    endif
-   if (allocated(maps%seam_comm_map_recv_ghost_cell)) then
-      call dev_assign_to_device(dst=self%seam_comm_map_recv_ghost_cell_gpu, src=maps%seam_comm_map_recv_ghost_cell)
-      if (verbose_) call mpih_fnl%print_message('copy seam_comm_map_recv_ghost_cell done')
-   endif
-   if (allocated(maps%seam_mpi_send_buf)) then
-      call dev_assign_to_device(dst=self%seam_mpi_send_buf_gpu, src=maps%seam_mpi_send_buf)
-   endif
-   if (allocated(maps%seam_mpi_recv_buf)) then
-      call dev_assign_to_device(dst=self%seam_mpi_recv_buf_gpu, src=maps%seam_mpi_recv_buf)
+   if (allocated(maps%seam_mpi_recv_cell)) then
+      call dev_assign_to_device(dst=self%seam_mpi_recv_cell_gpu, src=maps%seam_mpi_recv_cell)
+      if (verbose_) call mpih_fnl%print_message('copy seam_mpi_recv_cell done')
    endif
    if (verbose_) call mpih_fnl%print_message('maps_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
@@ -195,21 +186,13 @@ contains
       call dev_free(self%seam_local_recv_buf_gpu, mydev)
       nullify(self%seam_local_recv_buf_gpu)
    endif
-   if (associated(self%seam_comm_map_send_ghost_cell_gpu)) then
-      call dev_free(self%seam_comm_map_send_ghost_cell_gpu, mydev)
-      nullify(self%seam_comm_map_send_ghost_cell_gpu)
+   if (associated(self%seam_mpi_send_cell_gpu)) then
+      call dev_free(self%seam_mpi_send_cell_gpu, mydev)
+      nullify(self%seam_mpi_send_cell_gpu)
    endif
-   if (associated(self%seam_comm_map_recv_ghost_cell_gpu)) then
-      call dev_free(self%seam_comm_map_recv_ghost_cell_gpu, mydev)
-      nullify(self%seam_comm_map_recv_ghost_cell_gpu)
-   endif
-   if (associated(self%seam_mpi_send_buf_gpu)) then
-      call dev_free(self%seam_mpi_send_buf_gpu, mydev)
-      nullify(self%seam_mpi_send_buf_gpu)
-   endif
-   if (associated(self%seam_mpi_recv_buf_gpu)) then
-      call dev_free(self%seam_mpi_recv_buf_gpu, mydev)
-      nullify(self%seam_mpi_recv_buf_gpu)
+   if (associated(self%seam_mpi_recv_cell_gpu)) then
+      call dev_free(self%seam_mpi_recv_cell_gpu, mydev)
+      nullify(self%seam_mpi_recv_cell_gpu)
    endif
    endsubroutine destroy
 

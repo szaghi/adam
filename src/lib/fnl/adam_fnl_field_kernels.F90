@@ -16,11 +16,59 @@ implicit none
 private
 public :: compute_q_gradient_dev
 public :: compute_normL2_residuals_dev
+public :: pack_seam_rows_dev
+public :: unpack_seam_rows_dev
 public :: populate_send_buffer_ghost_gpu_dev
 public :: receive_recv_buffer_ghost_gpu_dev
 public :: update_ghost_local_gpu_dev
 
 contains
+   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, rows_gpu, q_gpu, buf_gpu)
+   !< Gather the cells of the cross-rank seam rows `[rank, b, i, j, k]` `row_start..row_start+row_count-1` of `q_gpu`
+   !< into `buf_gpu`, `nv` values per row in row order (issue #40).
+   integer(I4P), intent(in)    :: row_start                         !< First row.
+   integer(I4P), intent(in)    :: row_count                         !< Number of rows.
+   integer(I4P), intent(in)    :: nv                                !< Variables number.
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)    :: rows_gpu(1:,1:)                   !< Rows [rank, b, i, j, k].
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field (b, i, j, k, v).
+   real(R8P),    intent(inout) :: buf_gpu(1:)                       !< Packed values.
+   integer(I4P)                :: c, v, row                         !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(rows_gpu,q_gpu,buf_gpu) &
+   !$acc& firstprivate(row_start,row_count,nv) private(row)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu,q_gpu,buf_gpu) firstprivate(row_start,row_count,nv) private(row)
+   do c=1, row_count
+   do v=1, nv
+      row = row_start + c - 1
+      buf_gpu(nv*(c-1)+v) = q_gpu(rows_gpu(row,2),rows_gpu(row,3),rows_gpu(row,4),rows_gpu(row,5),v)
+   enddo
+   enddo
+   endsubroutine pack_seam_rows_dev
+
+   subroutine unpack_seam_rows_dev(row_start, row_count, nv, ngc, rows_gpu, buf_gpu, q_gpu)
+   !< Scatter `buf_gpu` (`nv` values per row in row order) into the cells of the cross-rank seam rows
+   !< `[rank, b, i, j, k]` `row_start..row_start+row_count-1` of `q_gpu` (issue #40).
+   integer(I4P), intent(in)    :: row_start                         !< First row.
+   integer(I4P), intent(in)    :: row_count                         !< Number of rows.
+   integer(I4P), intent(in)    :: nv                                !< Variables number.
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)    :: rows_gpu(1:,1:)                   !< Rows [rank, b, i, j, k].
+   real(R8P),    intent(in)    :: buf_gpu(1:)                       !< Packed values.
+   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field (b, i, j, k, v).
+   integer(I4P)                :: c, v, row                         !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(rows_gpu,q_gpu,buf_gpu) &
+   !$acc& firstprivate(row_start,row_count,nv) private(row)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu,q_gpu,buf_gpu) firstprivate(row_start,row_count,nv) private(row)
+   do c=1, row_count
+   do v=1, nv
+      row = row_start + c - 1
+      q_gpu(rows_gpu(row,2),rows_gpu(row,3),rows_gpu(row,4),rows_gpu(row,5),v) = buf_gpu(nv*(c-1)+v)
+   enddo
+   enddo
+   endsubroutine unpack_seam_rows_dev
+
    subroutine compute_q_gradient_dev(b, ni, nj, nk, ngc, dx, dy, dz, q_gpu, ivar, gradient)
    !< Compute gradient of q(ivar).
    integer(I4P), intent(in)  :: b                                 !< Block index.

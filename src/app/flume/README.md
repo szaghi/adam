@@ -198,10 +198,9 @@ Known limitations:
 - **Quadtree AMR** with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)); use an octree.
 - The FNL backend copies the coarse-fine seam faces to the host at every stage, which dominates its run time on AMR
   cases.
-- **Inter-realm seams are rank-local** ([#40](https://github.com/szaghi/adam/issues/40)): the two sides must have the
-  same cell size, blocks that meet face to face, and each seam block on the same rank as its peer. The forest stops at
-  initialization otherwise (a Sod split along z on two ranks puts the two sides on different ranks); the cross-rank
-  seam exchange is not implemented.
+- **Inter-realm seams** ([#40](https://github.com/szaghi/adam/issues/40)) work across ranks, whatever the partition of
+  each realm, but join cells of the same size whose blocks meet face to face; the forest stops at initialization
+  otherwise (seams between blocks that do not line up are planned).
 
 ## License
 

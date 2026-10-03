@@ -69,6 +69,8 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: is_done_forest               !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest              !< Invoked by forest%finalize per realm at shutdown.
       procedure, pass(self) :: fill_seam_from_peer_forest   !< Copy peer's interior into self's ghosts for peer slot p_idx.
+      procedure, pass(self) :: pack_seam_cells_forest       !< Pack own cells of the cross-rank seam send rows.
+      procedure, pass(self) :: unpack_seam_cells_forest     !< Unpack the cross-rank seam receive rows into own ghosts.
       procedure, pass(self) :: apply_reflux_to_stage_forest !< Apply end-of-step Berger-Colella reflux to self's committed q.
       ! numerical methods
       procedure, pass(self) :: compute_dt                   !< Compute time step.
@@ -1712,6 +1714,50 @@ contains
    end select
    endsubroutine fill_seam_from_peer_forest
 
+   subroutine pack_seam_cells_forest(self, p_idx, buf)
+   !< Pack this realm's cells of the cross-rank seam send rows of peer slot `p_idx` from the active buffer (`q` when
+   !< `stage_active == 0`, else the active stage of `q_rk`), `nv` values per row (issue #40).
+   class(prism_cpu_object), intent(in)  :: self       !< The realm.
+   integer(I4P),            intent(in)  :: p_idx      !< Peer slot (the realm owning the ghosts).
+   real(R8P),               intent(out) :: buf(:)     !< Packed values.
+   integer(I4P)                         :: c, row     !< Counter and send row.
+   integer(I4P)                         :: b, i, j, k !< Cell.
+
+   associate(rows => self%adam%maps%seam_mpi_send_cell, nv => self%nv)
+   do c = 1_I4P, self%adam%maps%seam_mpi_send_row_count(p_idx)
+      row = self%adam%maps%seam_mpi_send_row_start(p_idx) + c - 1_I4P
+      b = rows(row, 2) ; i = rows(row, 3) ; j = rows(row, 4) ; k = rows(row, 5)
+      if (self%stage_active > 0_I4P) then
+         buf(nv*(c-1)+1:nv*c) = self%rk%q_rk(:, i, j, k, b, self%stage_active)
+      else
+         buf(nv*(c-1)+1:nv*c) = self%q(:, i, j, k, b)
+      endif
+   enddo
+   endassociate
+   endsubroutine pack_seam_cells_forest
+
+   subroutine unpack_seam_cells_forest(self, p_idx, buf)
+   !< Unpack `buf` into this realm's seam ghosts of the cross-rank receive rows of peer slot `p_idx`, on the active
+   !< buffer, `nv` values per row (issue #40).
+   class(prism_cpu_object), intent(inout) :: self       !< The realm.
+   integer(I4P),            intent(in)    :: p_idx      !< Peer slot (the realm owning the cells).
+   real(R8P),               intent(in)    :: buf(:)     !< Packed values.
+   integer(I4P)                           :: c, row     !< Counter and receive row.
+   integer(I4P)                           :: b, i, j, k !< Ghost cell.
+
+   associate(rows => self%adam%maps%seam_mpi_recv_cell, nv => self%nv)
+   do c = 1_I4P, self%adam%maps%seam_mpi_recv_row_count(p_idx)
+      row = self%adam%maps%seam_mpi_recv_row_start(p_idx) + c - 1_I4P
+      b = rows(row, 2) ; i = rows(row, 3) ; j = rows(row, 4) ; k = rows(row, 5)
+      if (self%stage_active > 0_I4P) then
+         self%rk%q_rk(:, i, j, k, b, self%stage_active) = buf(nv*(c-1)+1:nv*c)
+      else
+         self%q(:, i, j, k, b) = buf(nv*(c-1)+1:nv*c)
+      endif
+   enddo
+   endassociate
+   endsubroutine unpack_seam_cells_forest
+
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
    !< PRISM-CPU override of the Berger-Colella reflux correction TBP.
    !<
@@ -1872,15 +1918,8 @@ contains
    ! update_ghost leaves stale/BC-filled, producing a spurious div(B) at the seam skin
    ! (the evolved field is div-free; verified). Re-establish the inter-realm seam from
    ! peers on the committed q (stage_active==0 → fill writes self%q) before the diagnostic.
-   if (present(realm) .and. allocated(self%adam%maps%seam_local_map_ghost_cell) .and. &
-       allocated(self%adam%maps%seam_local_peer_realm)) then
-      block
-         integer(I4P) :: p_s
-         do p_s = 1_I4P, int(size(self%adam%maps%seam_local_peer_realm), I4P)
-            call self%fill_seam_from_peer_forest(peer=realm(self%adam%maps%seam_local_peer_realm(p_s)), p_idx=p_s)
-         enddo
-      endblock
-   endif
+   ! Local and cross-rank seam rows (issue #40); every rank calls it for every realm, in the same order.
+   if (present(realm)) call seam_fill_all(self=self, realm=realm)
    call self%compute_energy
    if (self%grms%do_save_history) call self%compute_grms
    if (self%magnetic_field_at_center_domain%do_save_history) call self%compute_magnetic_field_at_center_domain

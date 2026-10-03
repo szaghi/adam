@@ -154,6 +154,8 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! inter-realm seam ghost-fill contract (agnostic-dummy redesign)
       procedure, pass(self) :: fill_seam_from_peer_forest !< OpenACC device-direct copy of peer's GPU interior into self's GPU
          !< ghosts.
+      procedure, pass(self) :: pack_seam_cells_forest     !< Pack own cells of the cross-rank seam send rows.
+      procedure, pass(self) :: unpack_seam_cells_forest   !< Unpack the cross-rank seam receive rows into own ghosts.
       procedure, pass(self) :: after_topology_build_forest   !< Refresh device-resident seam maps from freshly-built host maps.
       procedure, pass(self) :: apply_reflux_to_stage_forest  !< Apply Berger-Colella reflux to self's RK stage buffer (FNL no-op).
       ! numerical methods, miscellanea
@@ -5758,6 +5760,63 @@ contains
    end select
    endsubroutine fill_seam_from_peer_forest
 
+   subroutine pack_seam_cells_forest(self, p_idx, buf)
+   !< Pack this realm's cells of the cross-rank seam send rows of peer slot `p_idx` from the active device buffer
+   !< (`q_gpu` when `stage_active == 0`, else the active stage of `q_rk_gpu`) into the host `buf`, `nv` values per row
+   !< (issue #40).
+   class(prism_fnl_object), intent(in)  :: self       !< The realm.
+   integer(I4P),            intent(in)  :: p_idx      !< Peer slot (the realm owning the ghosts).
+   real(R8P),               intent(out) :: buf(:)     !< Packed values.
+   real(R8P), pointer                   :: buf_gpu(:) !< Device packed values.
+   integer(I4P)                         :: row_start  !< First send row.
+   integer(I4P)                         :: row_count  !< Send rows.
+   integer(I4P)                         :: ierr       !< Error status.
+
+   row_start = self%adam%maps%seam_mpi_send_row_start(p_idx)
+   row_count = self%adam%maps%seam_mpi_send_row_count(p_idx)
+   if (row_count == 0_I4P) return
+   call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in pack_seam_cells_forest')
+   if (self%stage_active > 0_I4P) then
+      call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
+                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu,                            &
+                              q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active), buf_gpu=buf_gpu)
+   else
+      call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
+                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=self%q_gpu, buf_gpu=buf_gpu)
+   endif
+   call dev_memcpy_from_device(dst=buf, src=buf_gpu)
+   call dev_free(buf_gpu, mydev)
+   endsubroutine pack_seam_cells_forest
+
+   subroutine unpack_seam_cells_forest(self, p_idx, buf)
+   !< Unpack the host `buf` into this realm's seam ghosts of the cross-rank receive rows of peer slot `p_idx`, on the
+   !< active device buffer, `nv` values per row (issue #40).
+   class(prism_fnl_object), intent(inout) :: self       !< The realm.
+   integer(I4P),            intent(in)    :: p_idx      !< Peer slot (the realm owning the cells).
+   real(R8P),               intent(in)    :: buf(:)     !< Packed values.
+   real(R8P), pointer                     :: buf_gpu(:) !< Device packed values.
+   integer(I4P)                           :: row_start  !< First receive row.
+   integer(I4P)                           :: row_count  !< Receive rows.
+   integer(I4P)                           :: ierr       !< Error status.
+
+   row_start = self%adam%maps%seam_mpi_recv_row_start(p_idx)
+   row_count = self%adam%maps%seam_mpi_recv_row_count(p_idx)
+   if (row_count == 0_I4P) return
+   call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in unpack_seam_cells_forest')
+   call dev_memcpy_to_device(dst=buf_gpu, src=buf)
+   if (self%stage_active > 0_I4P) then
+      call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
+                                rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu,          &
+                                q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active))
+   else
+      call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
+                                rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu, q_gpu=self%q_gpu)
+   endif
+   call dev_free(buf_gpu, mydev)
+   endsubroutine unpack_seam_cells_forest
+
    subroutine after_topology_build_forest(self)
    !< Propagate the freshly-built host seam maps and per-peer buffers to
    !< device-resident counterparts on `field_fnl%maps`. Invoked by the
@@ -5906,15 +5965,8 @@ contains
    ! (the evolved field is div-free). Re-establish the inter-realm seam from peers on the
    ! committed q_gpu (stage_active==0 → fill writes self%q_gpu) before the diagnostic.
    ! Mirrors the CPU fix in prism_cpu_object%post_step_forest.
-   if (present(realm) .and. allocated(self%adam%maps%seam_local_map_ghost_cell) .and. &
-       allocated(self%adam%maps%seam_local_peer_realm)) then
-      block
-         integer(I4P) :: p_s
-         do p_s = 1_I4P, int(size(self%adam%maps%seam_local_peer_realm), I4P)
-            call self%fill_seam_from_peer_forest(peer=realm(self%adam%maps%seam_local_peer_realm(p_s)), p_idx=p_s)
-         enddo
-      endblock
-   endif
+   ! Local and cross-rank seam rows (issue #40); every rank calls it for every realm, in the same order.
+   if (present(realm)) call seam_fill_all(self=self, realm=realm)
    call self%compute_energy
    if (self%grms%do_save_history) call self%compute_grms
    if (self%magnetic_field_at_center_domain%do_save_history) call self%compute_magnetic_field_at_center_domain

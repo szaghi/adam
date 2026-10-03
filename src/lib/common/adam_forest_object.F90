@@ -39,6 +39,7 @@ use :: adam_tree_node_object,     only : tree_node_object
 use :: adam_forest_manifest,      only : forest_manifest_t, forest_face_pair_t
 use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
+use :: adam_seam_exchange,        only : seam_fill
 use :: adam_globals,              only : mpih
 use :: mpi
 use :: penf
@@ -72,6 +73,12 @@ type :: forest_object
          !< register.
       procedure, pass(self), private :: apply_reflux_corrections        !< Apply Berger-Colella reflux to coarse-side.
 endtype forest_object
+
+type :: seam_rows_t
+   !< Growable list of integer rows, used while the seam rows are enumerated.
+   integer(I4P), allocatable :: row(:,:) !< Rows (n, columns).
+   integer(I4P)              :: n = 0    !< Rows in use.
+endtype seam_rows_t
 
 contains
    ! public methods
@@ -263,7 +270,6 @@ contains
    integer(I4P)                                :: is, p, k    !< Realm, peer, stage indices.
    integer(I4P), allocatable                   :: K_realm(:)  !< Per-realm stage counts (1..size(realm)).
    integer(I4P)                                :: K_max       !< Forest-wide max stage count (multi-realm path).
-   integer(I4P)                                :: peer_idx    !< Peer realm index for a seam exchange.
 
    call self%flux_register%reset
    call self%compute_global_dt(realm=realm, dt=dt)
@@ -319,17 +325,15 @@ contains
          ! array element dispatch bug (same fix shape as Phase 3 below;
          ! commit 0062a237). Pre-emptive: this is a new dispatch site that
          ! the workaround should cover from the start.
+         ! The slots come from the manifest (the same on every rank, whatever rows a rank holds): `seam_fill` moves the
+         ! local and the cross-rank rows (issue #40), and every rank must reach the same (realm, slot) pairs in order.
          do is = 1_I4P, int(size(realm), I4P)
-            if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
-            if (.not. allocated(realm(is)%adam%maps%seam_local_cadence)) cycle
-            if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
-               call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented')
+            if (.not. allocated(realm(is)%adam%maps%seam_local_peer_realm)) cycle
             do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
                if (realm(is)%adam%maps%seam_local_cadence(p) /= CADENCE_STAGE_COINCIDENT) cycle
-               peer_idx = realm(is)%adam%maps%seam_local_peer_realm(p)
-               associate(r => realm(is))
-                  call r%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)
-               end associate
+               associate(r=>realm(is)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
+                  call seam_fill(self=r, realm=realm, p=p)
+               endassociate
             enddo
          enddo
 
@@ -389,17 +393,12 @@ contains
       ! `associate` wrapper: same nvfortran 26.1 workaround as Phase 2 and
       ! Phase 3 (commit 0062a237). Pre-emptive coverage.
       do is = 1_I4P, int(size(realm), I4P)
-         if (.not. allocated(realm(is)%adam%maps%seam_local_map_ghost_cell)) cycle
-         if (.not. allocated(realm(is)%adam%maps%seam_local_cadence)) cycle
-         ! Guard: cross-rank seam path is not yet implemented.
-         if (allocated(realm(is)%adam%maps%seam_comm_map_send_ghost_cell)) &
-            call mpih%error_stop(msg='evolve_one_step: cross-rank seam not implemented')
+         if (.not. allocated(realm(is)%adam%maps%seam_local_peer_realm)) cycle
          do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
             if (realm(is)%adam%maps%seam_local_cadence(p) /= CADENCE_END_OF_STEP) cycle
-            peer_idx = realm(is)%adam%maps%seam_local_peer_realm(p)
-            associate(r => realm(is))
-               call r%fill_seam_from_peer_forest(peer=realm(peer_idx), p_idx=p)
-            end associate
+            associate(r=>realm(is)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
+               call seam_fill(self=r, realm=realm, p=p)
+            endassociate
          enddo
       enddo
 
@@ -605,25 +604,17 @@ contains
    ! expectation. The structural cost (allocated registers, populated
    ! topology) is the same as for the true coarse-fine AMR case that will
    ! exercise these accumulators non-trivially in follow-up commits.
-   ! Flux register: the intra-realm AMR faces first (replicated list, cursors 1..n_intra on every rank), then the
-   ! rank-local inter-realm seam faces appended after them (issue #37; see register_intra_realm_amr_seams).
+   ! Flux register: the intra-realm AMR faces first (cursors 1..n_intra), then the inter-realm seam faces after them
+   ! (issue #37); both lists are walked on the replicated trees, the same on every rank (issue #40).
    call self%register_intra_realm_amr_seams(realm=realm, extra_faces=count_inter_realm_seam_faces(realm, manifest), &
                                             nfaces_intra=n_intra)
    call register_inter_realm_seams(realm=realm, manifest=manifest, flux_register=self%flux_register, first_cursor=n_intra)
-   ! Build the per-cell inter-realm ghost map. Per-realm: enumerate every ghost cell in self's seam-block
-   ! ghost region and resolve the (peer_realm, peer_block, peer_interior_cell)
-   ! tuple. The runtime exchange then becomes a flat indexed loop, replacing
-   ! the per-stage geometric find_peer_block + face-slab copy that misses
-   ! corner / edge ghosts.
-   call build_inter_realm_ghost_cell_map(realm=realm, manifest=manifest)
-   ! Derive the sorted-by-peer seam_local map + per-peer index arrays +
-   ! per-peer pack/unpack buffers from the just-built
-   ! inter_realm_ghost_cell map. The new arrays are what the forest's
-   ! seam-fill TBPs (in evolve_one_step) consume.
-   ! Every entry is same-rank: the topology pass above error_stops on a seam face ghost whose peer cell is on another
-   ! rank and leaves such edge/corner ghosts unfilled (issue #40); the cross-rank `update_ghost_seam_mpi` path is not
-   ! implemented.
-   call build_seam_local_map(realm=realm, manifest=manifest)
+   ! Build the seam ghost rows of every realm (issue #40): from the replicated trees, every rank enumerates every seam
+   ! ghost of every realm in one canonical order and keeps the rows it takes part in: local rows (ghost and peer cell on
+   ! this rank, `seam_local_map_ghost_cell`), receive rows (ghost here, cell on another rank, `seam_mpi_recv_cell`) and
+   ! send rows (cell here, ghost on another rank, `seam_mpi_send_cell`). The peer slots and their cadence come from the
+   ! manifest, so they are the same on every rank. `adam_seam_exchange` consumes them.
+   call build_seam_rows(realm=realm, manifest=manifest)
    ! Override the BC crown's bc_type column to BC_SEAM for entries that
    ! lie on an inter-realm seam face.
    !
@@ -680,72 +671,68 @@ contains
       endsubroutine set_neighbor
 
       function count_inter_realm_seam_faces(realm, manifest) result(nfaces)
-      !< Count the rank-local inter-realm seam register faces: one per (face-pair, block of realm_a on face_a), the
-      !< pass 1 of `register_inter_realm_seams`.
+      !< Count the inter-realm seam register faces: one per (face-pair, leaf of realm_a on face_a), every leaf of the
+      !< replicated tree whatever rank owns it (the same count on every rank), the pass 1 of `register_inter_realm_seams`.
       class(realm_object),     intent(in) :: realm(:)       !< Initialized realms.
       type(forest_manifest_t), intent(in) :: manifest       !< Parsed manifest.
-      integer(I4P)                        :: nfaces         !< Rank-local inter-realm seam faces.
-      integer(I4P)                        :: f, b           !< Face-pair, block counters.
+      integer(I4P)                        :: nfaces         !< Inter-realm seam faces.
+      integer(I4P)                        :: f              !< Face-pair counter.
       integer(I4P)                        :: a_axis, a_sign !< Face axis and sign on the realm_a side.
+      type(tree_iterator_object)          :: iter           !< Tree traversal cursor.
+      type(tree_node_object), pointer     :: node_ptr       !< Current leaf.
 
       nfaces = 0_I4P
       if (.not. allocated(manifest%face_pairs)) return
       do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+         associate(r_a => realm(manifest%face_pairs(f)%realm_a))
          call face_axis_sign(manifest%face_pairs(f)%face_a, a_axis, a_sign)
-         do b = 1_I4P, int(realm(manifest%face_pairs(f)%realm_a)%adam%field%blocks_number, I4P)
-            if (block_face_on_realm_boundary(realm(manifest%face_pairs(f)%realm_a), b, a_axis, a_sign)) &
-               nfaces = nfaces + 1_I4P
+         iter%b = 1_I4P ; iter%p => null()
+         do while (r_a%adam%tree%loop(iter, node_ptr=node_ptr))
+            if (leaf_on_realm_face(r_a, node_ptr%code, a_axis, a_sign)) nfaces = nfaces + 1_I4P
          enddo
+         endassociate
       enddo
       endfunction count_inter_realm_seam_faces
 
       subroutine register_inter_realm_seams(realm, manifest, flux_register, first_cursor)
       !< Populate `flux_register` from the manifest face-pairs.
       !<
-      !< Two-pass algorithm:
+      !< One register face per (face-pair, leaf of realm_a on face_a), enumerated on the replicated tree in its own order:
+      !< every rank registers the same faces under the same cursors, whichever rank owns the leaves (issue #40), like the
+      !< intra-realm AMR faces registered before them, so `reduce_fine_sums` completes them with the same collective
+      !< sequence on every rank. `coarse_rank`/`coarse_block` are the owner and owner-local block of the realm_a leaf;
+      !< `nface_cells` comes from realm_a's grid, `nv` and the per-stage depth (`stages_per_step_forest()`, not a direct
+      !< `rk%nrk` reach) too.
       !<
-      !<   * Pass 1 — count the total number of register entries:
-      !<     one entry per (face-pair, block-on-realm_a-side-of-the-seam).
-      !<     The seam-block enumeration uses a geometric test against the
-      !<     realm's domain extent (`grid%domain_emin/emax`) and the block's
-      !<     face position (`field%emin/emax(axis, block)`); a block lies on
-      !<     the realm's `face_a` iff its face coordinate matches the realm
-      !<     boundary to within a small absolute tolerance.
-      !<
-      !<   * Pass 2 — call `register_face` once per (face-pair, seam-block),
-      !<     supplying `coarse_realm = pair%realm_a`, `fine_realm =
-      !<     pair%realm_b`, `nface_cells` from the realm-a side's grid (the
-      !<     two tangential axes' cell counts), `nv` from the realm-a side's
-      !<     `field%nv`, and the per-stage register depth from realm-a's
-      !<     `stages_per_step_forest()` — the integrator-agnostic contract
-      !<     TBP, NOT a direct `rk%nrk` reach.
-      !<
-      !< For the current same-resolution (COUPLING_MIRROR) case, realm_a and
-      !< realm_b carry identical `nv` / stage-count / `nface_cells` by
-      !< construction (validated upstream by the manifest's structural
-      !< checks and by the `K_realm` equality guard in
-      !< `forest_object%evolve_one_step`). A coarse-fine AMR case would
-      !< resolve `fine_block(:)` by enumerating the realm_b-side blocks
-      !< that geometrically cover the realm_a-side block face; for
-      !< same-resolution that resolves to a single fine block, populated
-      !< by `find_peer_block` at exchange time.
-      !<
-      !< The keyword arg on `flux_register%register_face` is `n_stages`
-      !< (renamed from the original `nrk` together with `accumulate_*_flux`'s
-      !< `stage`); both sides of the wiring now speak integrator-neutral
-      !< vocabulary end-to-end.
+      !< The signed lookup `inter_realm_face_register_index(block, bc_fec)` (+cursor on the realm_a block, -cursor on the
+      !< realm_b block meeting it face to face) is written only for the blocks this rank owns: `block_index` is an
+      !< owner-local slot (issue #28 D1). The realm_b leaf is the one containing the first cell centre across the face;
+      !< mirror seams need it to meet the realm_a leaf face to face (same face plane and tangential extent). Seam blocks
+      !< that do not line up are refused (planned, issue #40 P4).
       class(realm_object),        intent(inout) :: realm(:)       !< Initialized realms.
       type(forest_manifest_t),    intent(in)    :: manifest       !< Parsed manifest.
       type(flux_register_object), intent(inout) :: flux_register  !< Berger-Colella reflux accumulator owned by the forest.
       integer(I4P), optional,     intent(in)    :: first_cursor   !< Append after this cursor to a register (and index)
                                                                   !< already initialized by the intra-realm AMR pass.
-      integer(I4P)                              :: f, b           !< Face-pair, block counters.
-      integer(I4P)                              :: a_realm        !< Coarse-side realm index alias.
-      integer(I4P)                              :: a_axis, a_sign !< Coarse-face axis and sign.
+      integer(I4P)                              :: f              !< Face-pair counter.
+      integer(I4P)                              :: a_axis, a_sign !< Face axis and sign on the realm_a side.
       integer(I4P)                              :: nfaces_total   !< Total register entries.
       integer(I4P)                              :: cursor         !< Write cursor into the register.
       integer(I4P)                              :: nface_cells    !< Cell count on the coarse-face skin.
+      integer(I4P)                              :: bc_fec_a       !< BC fec of face_a.
+      integer(I4P)                              :: bc_fec_b       !< BC fec of face_b.
+      integer(I8P)                              :: code_b         !< Morton code of the realm_b leaf.
+      real(R8P)                                 :: emin_a(3)      !< Realm_a leaf origin.
+      real(R8P)                                 :: emax_a(3)      !< Realm_a leaf upper corner.
+      real(R8P)                                 :: d_a(3)         !< Realm_a cell size.
+      real(R8P)                                 :: emin_b(3)      !< Realm_b leaf origin.
+      real(R8P)                                 :: emax_b(3)      !< Realm_b leaf upper corner.
+      real(R8P)                                 :: d_b(3)         !< Realm_b cell size.
+      real(R8P)                                 :: xq(3)          !< First cell centre across the face.
       type(forest_face_pair_t)                  :: pair           !< Manifest face-pair alias.
+      type(tree_iterator_object)                :: iter           !< Tree traversal cursor.
+      type(tree_node_object), pointer           :: node_a         !< Realm_a leaf.
+      type(tree_node_object), pointer           :: node_b         !< Realm_b leaf.
 
       if (.not. allocated(manifest%face_pairs)) then
          ! No inter-realm topology — initialize with zero faces so the
@@ -756,24 +743,14 @@ contains
       endif
 
       ! Pass 1: count register entries.
-      nfaces_total = 0_I4P
-      do f = 1_I4P, int(size(manifest%face_pairs), I4P)
-         pair    = manifest%face_pairs(f)
-         a_realm = pair%realm_a
-         call face_axis_sign(pair%face_a, a_axis, a_sign)
-         do b = 1_I4P, int(realm(a_realm)%adam%field%blocks_number, I4P)
-            if (block_face_on_realm_boundary(realm(a_realm), b, a_axis, a_sign)) &
-               nfaces_total = nfaces_total + 1_I4P
-         enddo
-      enddo
-
+      nfaces_total = count_inter_realm_seam_faces(realm, manifest)
       if (.not. present(first_cursor)) call flux_register%initialize(nfaces=nfaces_total)
       if (nfaces_total == 0_I4P) return
 
       ! Allocate the per-realm (block, face_1_6) → register_index lookup.
       ! Sized (nb, 6); zero means "not a seam face", positive = 1-based
-      ! index into flux_register%face(:). Consumed by PRISM's
-      ! compute_residuals_fv_centered to know where to accumulate fluxes.
+      ! index into flux_register%face(:). Consumed by the FV residual
+      ! routines to know where to accumulate fluxes.
       ! When appending (`first_cursor` present) the lookup already holds the intra-realm AMR faces: keep it.
       do is = 1_I4P, int(size(realm), I4P)
          if (present(first_cursor)) exit
@@ -789,82 +766,61 @@ contains
          endblock
       enddo
 
-      ! Pass 2: register one entry per (face-pair, seam-block-on-coarse-side),
-      ! AND populate both the coarse-side and fine-side
-      ! inter_realm_face_register_index lookups so each realm's residual
-      ! routine can find the right entry in O(1).
+      ! Pass 2: register one entry per (face-pair, realm_a leaf on face_a) and fill the signed lookups.
+      ! Sign convention (consumed by the FV reflux hooks):
+      !   +cursor stored on the coarse-side realm (pair%realm_a)
+      !   -cursor stored on the fine-side   realm (pair%realm_b)
+      !       0   stored anywhere = "not a seam face".
       cursor = 0_I4P
       if (present(first_cursor)) cursor = first_cursor
       do f = 1_I4P, int(size(manifest%face_pairs), I4P)
-         pair    = manifest%face_pairs(f)
-         a_realm = pair%realm_a
+         pair = manifest%face_pairs(f)
          call face_axis_sign(pair%face_a, a_axis, a_sign)
-         ! Coarse-face skin cell count: product of the two tangential cell counts.
-         ! For axis=x (a_axis=1) the tangential axes are y and z; etc.
-         nface_cells = tangential_cell_count(realm(a_realm), a_axis)
-         do b = 1_I4P, int(realm(a_realm)%adam%field%blocks_number, I4P)
-            if (.not. block_face_on_realm_boundary(realm(a_realm), b, a_axis, a_sign)) cycle
+         nface_cells = tangential_cell_count(realm(pair%realm_a), a_axis)
+         bc_fec_a = face_code_to_bc_fec(pair%face_a)
+         bc_fec_b = face_code_to_bc_fec(pair%face_b)
+         iter%b = 1_I4P ; iter%p => null()
+         do while (realm(pair%realm_a)%adam%tree%loop(iter, node_ptr=node_a))
+            if (.not. leaf_on_realm_face(realm(pair%realm_a), node_a%code, a_axis, a_sign)) cycle
             cursor = cursor + 1_I4P
-            ! fine_block(:) is left empty (size 0) here — same-resolution
-            ! mirror seams resolve the fine-side block via the per-cell
-            ! ghost map (inter_realm_ghost_cell). True AMR coarse-fine
-            ! adjacency would populate fine_block(:) with the 4 (in 3D)
-            ! finer blocks covering this coarse face.
-            ! `fine_block` deliberately omitted: same-resolution mirror
-            ! seam has no fine-side blocks to record. Passing an empty
-            ! array literal `[integer(I4P) ::]` here poisons the descriptor
-            ! copy on nvfortran 26.x; absent ↔ unallocated `slot%fine_block`,
-            ! which every consumer must guard with allocated().
-            call flux_register%register_face(face_index=cursor,                                 &
-                                             seam_kind=SEAM_KIND_INTER_REALM,                   &
-                                             coarse_realm=pair%realm_a,                         &
-                                             coarse_rank=mpih%myrank,                           &
-                                             coarse_block=b,                                    &
-                                             coarse_face=pair%face_a,                           &
-                                             fine_realm=pair%realm_b,                           &
-                                             nface_cells=nface_cells,                           &
-                                             nv=int(realm(a_realm)%adam%field%nv, I4P),         &
-                                             n_stages=realm(a_realm)%stages_per_step_forest())
-
-            ! Index lookups: coarse side knows its own (b, face_a → fec)
-            ! immediately. Fine side requires a geometric peer lookup to
-            ! find the matching realm_b block; same-resolution mirror →
-            ! identical (tangential extents, opposite-axis face) match.
-            !
-            ! Sign convention (consumed by PRISM's FV reflux hook):
-            !   +cursor stored on the coarse-side realm (pair%realm_a)
-            !   -cursor stored on the fine-side   realm (pair%realm_b)
-            !       0   stored anywhere = "not a seam face".
-            ! The consumer recovers the register index via `abs()` and
-            ! the coarse/fine role via the sign — no realm-identity field
-            ! is needed on the realm object.
-            block
-               integer(I4P) :: bc_fec_a, bc_fec_b
-               integer(I4P) :: b_peer, b_peer_axis, b_peer_sign
-               bc_fec_a = face_code_to_bc_fec(pair%face_a)
-               bc_fec_b = face_code_to_bc_fec(pair%face_b)
-               if (bc_fec_a > 0_I4P .and. bc_fec_a <= 6_I4P) &
-                  realm(a_realm)%adam%maps%inter_realm_face_register_index(b, bc_fec_a) = +cursor
-               call face_axis_sign(pair%face_b, b_peer_axis, b_peer_sign)
-               call find_seam_peer_block(realm, my_realm_idx=pair%realm_a, my_block=b, &
-                                         my_axis=a_axis, my_sign=a_sign,               &
-                                         peer_realm_idx=pair%realm_b,                  &
-                                         peer_axis=b_peer_axis, peer_sign=b_peer_sign, &
-                                         b_peer=b_peer)
-               ! Issue #40: without a rank-local peer the fine side of this face never accumulates and the seam is
-               ! silently wrong; refuse it.
-               if (b_peer == 0_I4P) &
-                  call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: block '//               &
-                     trim(str(b, .true.))//' of realm '//trim(str(a_realm, .true.))//' lies on the seam of '//    &
-                     'face_pair '//trim(str(f, .true.))//' but this rank owns no block of realm '//               &
-                     trim(str(pair%realm_b, .true.))//' meeting it face to face (issue #40): the seam needs each '// &
-                     'seam block and its peer on the same rank (cross-rank seams are not implemented) and the two '//&
-                     'realms to have the same blocks and cell size along the seam')
-               if (bc_fec_b > 0_I4P .and. bc_fec_b <= 6_I4P) then
-                  if (allocated(realm(pair%realm_b)%adam%maps%inter_realm_face_register_index)) &
-                     realm(pair%realm_b)%adam%maps%inter_realm_face_register_index(b_peer, bc_fec_b) = -cursor
-               endif
-            endblock
+            ! `fine_block` deliberately omitted: a mirror seam has no 2:1 fine blocks to record. Passing an empty array
+            ! literal `[integer(I4P) ::]` here poisons the descriptor copy on nvfortran 26.x; absent ↔ unallocated
+            ! `slot%fine_block`, which every consumer must guard with allocated().
+            call flux_register%register_face(face_index=cursor,                                       &
+                                             seam_kind=SEAM_KIND_INTER_REALM,                         &
+                                             coarse_realm=pair%realm_a,                               &
+                                             coarse_rank=node_a%myrank,                               &
+                                             coarse_block=int(node_a%block_index, I4P),               &
+                                             coarse_face=pair%face_a,                                 &
+                                             fine_realm=pair%realm_b,                                 &
+                                             nface_cells=nface_cells,                                 &
+                                             nv=int(realm(pair%realm_a)%adam%field%nv, I4P),          &
+                                             n_stages=realm(pair%realm_a)%stages_per_step_forest())
+            if (node_a%myrank == mpih%myrank .and. bc_fec_a > 0_I4P .and. bc_fec_a <= 6_I4P) &
+               realm(pair%realm_a)%adam%maps%inter_realm_face_register_index(int(node_a%block_index, I4P), bc_fec_a) = &
+                  +cursor
+            ! the realm_b leaf containing the first cell centre across the face, from the replicated tree
+            call leaf_metrics(realm(pair%realm_a), node_a%code, emin_a, d_a, emax_a)
+            xq = 0.5_R8P * (emin_a + emax_a)
+            if (a_sign > 0_I4P) then
+               xq(a_axis) = emax_a(a_axis) + 0.5_R8P * d_a(a_axis)
+            else
+               xq(a_axis) = emin_a(a_axis) - 0.5_R8P * d_a(a_axis)
+            endif
+            code_b = realm(pair%realm_b)%adam%tree%get_closest_block(grid=realm(pair%realm_b)%adam%grid, point=xq)
+            node_b => realm(pair%realm_b)%adam%tree%node(code=code_b)
+            call leaf_metrics(realm(pair%realm_b), code_b, emin_b, d_b, emax_b)
+            if (.not. meet_face_to_face(emin_a, emax_a, emin_b, emax_b, a_axis, a_sign))                               &
+               call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam block '//               &
+                  trim(str(int(node_a%block_index, I4P), .true.))//' of realm '//trim(str(pair%realm_a, .true.))//      &
+                  ' (rank '//trim(str(node_a%myrank, .true.))//') does not meet a block of realm '//                    &
+                  trim(str(pair%realm_b, .true.))//' face to face (face_pair '//trim(str(f, .true.))//'): seams '//    &
+                  'between blocks that do not line up are not implemented yet (issue #40, P4)')
+            if (node_b%myrank == mpih%myrank .and. bc_fec_b > 0_I4P .and. bc_fec_b <= 6_I4P) then
+               if (allocated(realm(pair%realm_b)%adam%maps%inter_realm_face_register_index))                         &
+                  realm(pair%realm_b)%adam%maps%inter_realm_face_register_index(int(node_b%block_index, I4P), bc_fec_b) = &
+                     -cursor
+            endif
          enddo
       enddo
       endsubroutine register_inter_realm_seams
@@ -920,321 +876,7 @@ contains
       endassociate
       endfunction tangential_cell_count
 
-      subroutine find_seam_peer_block(realm, my_realm_idx, my_block, my_axis, my_sign, &
-                                      peer_realm_idx, peer_axis, peer_sign, b_peer)
-      !< Find the peer-realm block whose face geometrically matches the
-      !< given (my_realm, my_block, my_face) tuple — same-resolution mirror
-      !< version. Returns `b_peer = 0` if no match: the peer lives on
-      !< another rank, or the realms' blocks do not meet face to face (the
-      !< caller error_stops, issue #40).
-      !<
-      !< Matching criteria (same-resolution mirror, COUPLING_MIRROR):
-      !<   * peer block's face-coordinate along `peer_axis` equals my
-      !<     face-coordinate along `my_axis` (the two coupled faces lie
-      !<     in the same plane);
-      !<   * peer block's extents in the two tangential axes equal mine.
-      !<
-      !< This mirrors the now-obsolete `find_peer_block` helper that lived
-      !< inside `prism_cpu_object%exchange_inter_realm_halos_forest` before
-      !< the seam comm-map commit; the canonical version lives here in
-      !< `forest_object`'s contains scope and is used by the register
-      !< topology pass to populate `inter_realm_face_register_index`.
-      class(realm_object), intent(in)  :: realm(:)
-      integer(I4P),        intent(in)  :: my_realm_idx, my_block
-      integer(I4P),        intent(in)  :: my_axis, my_sign
-      integer(I4P),        intent(in)  :: peer_realm_idx
-      integer(I4P),        intent(in)  :: peer_axis, peer_sign
-      integer(I4P),        intent(out) :: b_peer
-      integer(I4P)                     :: bp
-      integer(I4P)                     :: tax1, tax2
-      real(R8P)                        :: my_face_coord, my_tmin(2), my_tmax(2)
-      real(R8P)                        :: peer_face_coord
-      real(R8P)                        :: tol
 
-      b_peer = 0_I4P
-      if (peer_axis /= my_axis) return
-      if (peer_sign == my_sign) return  ! must be opposite (MIN ↔ MAX)
-      tax1 = mod(my_axis,        3_I4P) + 1_I4P
-      tax2 = mod(my_axis + 1_I4P, 3_I4P) + 1_I4P
-      if (my_sign > 0_I4P) then
-         my_face_coord = realm(my_realm_idx)%adam%field%emax(my_axis, my_block)
-      else
-         my_face_coord = realm(my_realm_idx)%adam%field%emin(my_axis, my_block)
-      endif
-      my_tmin(1) = realm(my_realm_idx)%adam%field%emin(tax1, my_block)
-      my_tmax(1) = realm(my_realm_idx)%adam%field%emax(tax1, my_block)
-      my_tmin(2) = realm(my_realm_idx)%adam%field%emin(tax2, my_block)
-      my_tmax(2) = realm(my_realm_idx)%adam%field%emax(tax2, my_block)
-      tol = max(abs(my_face_coord), 1._R8P) * 1.0e-10_R8P
-
-      do bp = 1_I4P, int(realm(peer_realm_idx)%adam%field%blocks_number, I4P)
-         if (peer_sign > 0_I4P) then
-            peer_face_coord = realm(peer_realm_idx)%adam%field%emax(peer_axis, bp)
-         else
-            peer_face_coord = realm(peer_realm_idx)%adam%field%emin(peer_axis, bp)
-         endif
-         if (abs(peer_face_coord - my_face_coord) > tol) cycle
-         if (abs(realm(peer_realm_idx)%adam%field%emin(tax1, bp) - my_tmin(1)) > tol) cycle
-         if (abs(realm(peer_realm_idx)%adam%field%emax(tax1, bp) - my_tmax(1)) > tol) cycle
-         if (abs(realm(peer_realm_idx)%adam%field%emin(tax2, bp) - my_tmin(2)) > tol) cycle
-         if (abs(realm(peer_realm_idx)%adam%field%emax(tax2, bp) - my_tmax(2)) > tol) cycle
-         b_peer = bp
-         return
-      enddo
-      endsubroutine find_seam_peer_block
-
-      subroutine build_inter_realm_ghost_cell_map(realm, manifest)
-      !< Populate each realm's `adam%maps%inter_realm_ghost_cell` map.
-      !<
-      !< This is the per-cell seam ghost map driving the realm-side
-      !< `fill_seam_from_peer_forest` overrides.
-      !< Algorithm, per realm:
-      !<
-      !<   * Two-pass over (face_pair, seam_block, ghost_cell).
-      !<   * Pass 1 counts entries: for every face pair whose `realm_a`
-      !<     matches this realm (and symmetrically `realm_b`), every block
-      !<     of this realm lying on `face_a`/`face_b`, every ghost cell in
-      !<     the full ghost slab on that face (INCLUDING tangential corner
-      !<     and edge ghosts — this is the defect-B fix).
-      !<   * Pass 2 populates: for each ghost cell, find the peer-realm
-      !<     block whose INTERIOR contains the global coordinates that
-      !<     correspond to this ghost cell. Geometric match in 3D against
-      !<     `field%emin/emax(:, bp)`. If no peer block matches, the
-      !<     ghost is in the physical exterior of the peer realm (a
-      !<     corner where the seam meets a physical boundary) and is
-      !<     skipped — `set_boundary_conditions` on self fills it.
-      !<
-      !< Coordinate convention: a ghost cell at local indices
-      !< (i_g, j_g, k_g) of block b in this realm has cell-center
-      !< coordinates
-      !<     x = field%emin(d, b) + (idx - 0.5) * field%dxyz(d, b)
-      !< where (idx, d) ranges over (i_g, 1), (j_g, 2), (k_g, 3). The
-      !< match in the peer realm finds a peer block bp such that for
-      !< each axis d:
-      !<     emin_peer(d, bp) < x_d < emax_peer(d, bp)
-      !< (open interval — we want INTERIOR cells, not on-the-boundary
-      !< ones, since cell centers are strictly inside their cells). The
-      !< peer local cell index is:
-      !<     i_peer = nint((x - emin_peer(d, bp)) / dxyz_peer(d, bp) + 0.5)
-      !<
-      !< For the rmf-2realm same-resolution case `field%dxyz` is uniform
-      !< across both realms, so the match is integer-clean. For the
-      !< coarse-fine AMR case (not yet exercised) the per-cell resolution
-      !< differs and the same geometric match degrades to a nearest-cell
-      !< mapping — the `one_or_eight` column reserves the value 8 for
-      !< that future case; same-resolution always writes 1.
-      class(realm_object),     intent(inout) :: realm(:)  !< Forest realms (their maps get populated).
-      type(forest_manifest_t), intent(in)    :: manifest  !< Parsed manifest.
-      integer(I4P)                           :: f, is, ip !< Counters: face-pair, self-realm, peer-realm.
-      integer(I4P)                           :: my_face
-      integer(I4P)                           :: my_realm_idx
-      integer(I4P)                           :: my_axis
-      integer(I4P)                           :: my_sign
-      integer(I4P)                           :: peer_face
-      integer(I4P)                           :: peer_realm_idx
-      integer(I4P)                           :: count_total
-      integer(I4P), allocatable              :: per_realm_count(:)
-      type(forest_face_pair_t)               :: pair
-
-      if (.not. allocated(manifest%face_pairs)) then
-         do is = 1_I4P, int(size(realm), I4P)
-            if (allocated(realm(is)%adam%maps%inter_realm_ghost_cell)) &
-               deallocate(realm(is)%adam%maps%inter_realm_ghost_cell)
-         enddo
-         return
-      endif
-
-      allocate(per_realm_count(size(realm)))
-      per_realm_count = 0_I4P
-
-      ! Pass 1: per-realm row counts
-      do f = 1_I4P, int(size(manifest%face_pairs), I4P)
-         pair = manifest%face_pairs(f)
-         ! Side A: self = realm_a, peer = realm_b, looking through face_a.
-         call count_seam_ghost_cells(realm=realm, per_realm_count=per_realm_count, &
-                                     my_realm_idx=pair%realm_a, peer_realm_idx=pair%realm_b, &
-                                     my_face=pair%face_a)
-         ! Side B: symmetric pair entry: self = realm_b, peer = realm_a.
-         call count_seam_ghost_cells(realm=realm, per_realm_count=per_realm_count, &
-                                     my_realm_idx=pair%realm_b, peer_realm_idx=pair%realm_a, &
-                                     my_face=pair%face_b)
-      enddo
-
-      count_total = 0_I4P
-      do is = 1_I4P, int(size(realm), I4P)
-         count_total = count_total + per_realm_count(is)
-      enddo
-
-      ! Allocate per-realm maps
-      do is = 1_I4P, int(size(realm), I4P)
-         if (allocated(realm(is)%adam%maps%inter_realm_ghost_cell)) &
-            deallocate(realm(is)%adam%maps%inter_realm_ghost_cell)
-         if (per_realm_count(is) > 0_I4P) &
-            allocate(realm(is)%adam%maps%inter_realm_ghost_cell(1:per_realm_count(is), 1:10))
-      enddo
-
-      ! Pass 2: populate
-      ! Per-realm cursor — re-use per_realm_count as the running write index,
-      ! but reset to zero before reuse.
-      per_realm_count = 0_I4P
-      do f = 1_I4P, int(size(manifest%face_pairs), I4P)
-         pair = manifest%face_pairs(f)
-         call populate_seam_ghost_cells(realm=realm, per_realm_count=per_realm_count, &
-                                        my_realm_idx=pair%realm_a, peer_realm_idx=pair%realm_b, &
-                                        my_face=pair%face_a)
-         call populate_seam_ghost_cells(realm=realm, per_realm_count=per_realm_count, &
-                                        my_realm_idx=pair%realm_b, peer_realm_idx=pair%realm_a, &
-                                        my_face=pair%face_b)
-      enddo
-      endsubroutine build_inter_realm_ghost_cell_map
-
-      subroutine build_seam_local_map(realm, manifest)
-      !< Derive `seam_local_map_ghost_cell` (sorted by `peer_realm`) +
-      !< per-peer index arrays + per-peer pack/unpack buffers from the
-      !< already-populated `inter_realm_ghost_cell` map.
-      !<
-      !< The output is what the forest's Phase 2 seam fill consumes via the
-      !< realm `pack_seam_cells` / `unpack_seam_cells` TBPs. Rows are sorted
-      !< by `peer_realm` so the forest can extract per-peer row ranges in
-      !< O(1) via the index arrays.
-      !<
-      !< Invariant: every entry is same-rank. The realms are partitioned over the ranks independently, so a seam block
-      !< and its peer can sit on different ranks; `count_seam_ghost_cells` error_stops on such a face ghost and leaves
-      !< such edge/corner ghosts out of the map (issue #40); the cross-rank `update_ghost_seam_mpi` path is not
-      !< implemented.
-      !<
-      !< Also populates `seam_local_cadence(p)` per distinct peer by
-      !< matching `(is, peer)` against `manifest%face_pairs`. If two
-      !< face_pairs connect the same realm pair with conflicting cadences
-      !< the manifest is rejected here (cadence is a property of the
-      !< realm pair, not of an individual face).
-      class(realm_object),     intent(inout) :: realm(:)
-      type(forest_manifest_t), intent(in)    :: manifest
-      integer(I4P)                       :: is, c, nrows, n_peers, p, peer
-      integer(I4P)                       :: nv_is, max_rows_per_peer
-      integer(I4P), allocatable          :: peer_list(:), peer_count(:), peer_cursor(:)
-      integer(I4P)                       :: write_idx
-      integer(I4P)                       :: src_col_peer  ! col 1 of inter_realm_ghost_cell
-      integer(I4P)                       :: f, cadence    ! manifest face-pair loop + resolved cadence
-
-      src_col_peer = 1_I4P
-
-      do is = 1_I4P, int(size(realm), I4P)
-         associate(maps => realm(is)%adam%maps)
-         ! Deallocate prior state.
-         if (allocated(maps%seam_local_map_ghost_cell)) deallocate(maps%seam_local_map_ghost_cell)
-         if (allocated(maps%seam_local_peer_realm))     deallocate(maps%seam_local_peer_realm)
-         if (allocated(maps%seam_local_peer_row_start)) deallocate(maps%seam_local_peer_row_start)
-         if (allocated(maps%seam_local_peer_row_count)) deallocate(maps%seam_local_peer_row_count)
-         if (allocated(maps%seam_local_cadence))        deallocate(maps%seam_local_cadence)
-         if (allocated(maps%seam_local_send_buf))       deallocate(maps%seam_local_send_buf)
-         if (allocated(maps%seam_local_recv_buf))       deallocate(maps%seam_local_recv_buf)
-
-         if (.not. allocated(maps%inter_realm_ghost_cell)) cycle
-
-         nrows = int(size(maps%inter_realm_ghost_cell, dim=1), I4P)
-         if (nrows == 0_I4P) cycle
-
-         ! Pass 1: enumerate distinct peer realms appearing in col 1.
-         ! Realm count is small (handful); a linear-scan dedup is cheap.
-         allocate(peer_list(nrows))   ; peer_list = 0_I4P
-         allocate(peer_count(nrows))  ; peer_count = 0_I4P
-         n_peers = 0_I4P
-         do c = 1_I4P, nrows
-            peer = int(maps%inter_realm_ghost_cell(c, src_col_peer), I4P)
-            p = 0_I4P
-            do p = 1_I4P, n_peers
-               if (peer_list(p) == peer) exit
-            enddo
-            if (p > n_peers) then
-               n_peers = n_peers + 1_I4P
-               peer_list(n_peers) = peer
-               peer_count(n_peers) = 1_I4P
-            else
-               peer_count(p) = peer_count(p) + 1_I4P
-            endif
-         enddo
-
-         ! Allocate index arrays sized to actual peer count.
-         allocate(maps%seam_local_peer_realm(n_peers))
-         allocate(maps%seam_local_peer_row_start(n_peers))
-         allocate(maps%seam_local_peer_row_count(n_peers))
-         maps%seam_local_peer_realm     = peer_list(1:n_peers)
-         maps%seam_local_peer_row_count = peer_count(1:n_peers)
-
-         maps%seam_local_peer_row_start(1) = 1_I4P
-         do p = 2_I4P, n_peers
-            maps%seam_local_peer_row_start(p) =                  &
-               maps%seam_local_peer_row_start(p - 1_I4P)       + &
-               maps%seam_local_peer_row_count(p - 1_I4P)
-         enddo
-
-         ! Resolve per-peer seam-fill cadence from the manifest face-pairs.
-         ! For each (is, peer) ordered pair, walk manifest%face_pairs and
-         ! record the cadence of the first match; subsequent matches on
-         ! the same pair MUST agree (otherwise the manifest is ambiguous
-         ! and we error_stop).
-         allocate(maps%seam_local_cadence(n_peers))
-         maps%seam_local_cadence = CADENCE_END_OF_STEP  ! safe default if no face-pair matches
-         if (allocated(manifest%face_pairs)) then
-            do p = 1_I4P, n_peers
-               cadence = -1_I4P  ! sentinel: "no match yet"
-               do f = 1_I4P, int(size(manifest%face_pairs), I4P)
-                  if ((manifest%face_pairs(f)%realm_a == is             .and.    &
-                       manifest%face_pairs(f)%realm_b == peer_list(p))  .or.     &
-                      (manifest%face_pairs(f)%realm_b == is             .and.    &
-                       manifest%face_pairs(f)%realm_a == peer_list(p))) then
-                     if (cadence == -1_I4P) then
-                        cadence = manifest%face_pairs(f)%coupling_cadence
-                     elseif (cadence /= manifest%face_pairs(f)%coupling_cadence) then
-                        call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: '// &
-                           'conflicting coupling_cadence between realm '//trim(str(is, .true.))// &
-                           ' and realm '//trim(str(peer_list(p), .true.))//                       &
-                           ' across multiple face_pairs')
-                     endif
-                  endif
-               enddo
-               if (cadence /= -1_I4P) maps%seam_local_cadence(p) = cadence
-            enddo
-         endif
-
-         ! Allocate the sorted map (same row count, 9 cols — drop the
-         ! one_or_eight column reserved for AMR coarse-fine).
-         allocate(maps%seam_local_map_ghost_cell(nrows, 9))
-
-         ! Pass 2: fill sorted map using per-peer write cursors.
-         allocate(peer_cursor(n_peers))
-         peer_cursor = maps%seam_local_peer_row_start
-         do c = 1_I4P, nrows
-            peer = int(maps%inter_realm_ghost_cell(c, src_col_peer), I4P)
-            do p = 1_I4P, n_peers
-               if (peer_list(p) == peer) exit
-            enddo
-            write_idx = peer_cursor(p)
-            peer_cursor(p) = peer_cursor(p) + 1_I4P
-            ! Columns 1..9 = [peer_realm, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv].
-            ! Source columns are the same 1..9; col 10 (one_or_eight) is intentionally dropped.
-            maps%seam_local_map_ghost_cell(write_idx, 1:9) = &
-               int(maps%inter_realm_ghost_cell(c, 1:9), I4P)
-         enddo
-         deallocate(peer_cursor)
-
-         ! Invariant: every entry is same-rank, enforced by `count_seam_ghost_cells` (issue #40).
-         !
-         ! Sizing for per-peer buffers: nv × max(row_count_per_peer), one column per peer.
-         ! Realm exposes nv as a pointer component (initialize binds self%nv => adam%field%nv).
-         nv_is = realm(is)%nv
-         max_rows_per_peer = maxval(maps%seam_local_peer_row_count)
-         allocate(maps%seam_local_send_buf(nv_is * max_rows_per_peer, n_peers))
-         allocate(maps%seam_local_recv_buf(nv_is * max_rows_per_peer, n_peers))
-         maps%seam_local_send_buf = 0.0_R8P
-         maps%seam_local_recv_buf = 0.0_R8P
-
-         deallocate(peer_list)
-         deallocate(peer_count)
-         endassociate
-      enddo
-      endsubroutine build_seam_local_map
 
       subroutine override_seam_bc_in_crown(realm, manifest)
       !< Overwrite the bc_type column of `local_map_bc_crown` to BC_SEAM
@@ -1340,219 +982,378 @@ contains
       end select
       endfunction face_code_to_bc_fec
 
-      subroutine count_seam_ghost_cells(realm, per_realm_count, my_realm_idx, peer_realm_idx, my_face)
-      !< First-pass row counter for the inter-realm ghost-cell map.
-      class(realm_object), intent(in)    :: realm(:)
-      integer(I4P),        intent(inout) :: per_realm_count(:)
-      integer(I4P),        intent(in)    :: my_realm_idx, peer_realm_idx, my_face
-      integer(I4P) :: b, axis, sgn, i_g, j_g, k_g
-      integer(I4P) :: imin_g, imax_g, jmin_g, jmax_g, kmin_g, kmax_g
-      real(R8P)    :: xg(3), xp(3), dx(3)
-      integer(I4P) :: bp, ip, jp, kp
-      integer(I4P) :: n_unfilled
-
-      n_unfilled = 0_I4P
-
-      call face_axis_sign(my_face, axis, sgn)
-      do b = 1_I4P, int(realm(my_realm_idx)%adam%field%blocks_number, I4P)
-         if (.not. block_face_on_realm_boundary(realm(my_realm_idx), b, axis, sgn)) cycle
-         call ghost_slab_extents(realm(my_realm_idx), axis, sgn, imin_g, imax_g, jmin_g, jmax_g, kmin_g, kmax_g)
-         do k_g = kmin_g, kmax_g
-            do j_g = jmin_g, jmax_g
-               do i_g = imin_g, imax_g
-                  call ghost_cell_center(realm(my_realm_idx), b, i_g, j_g, k_g, xg)
-                  call find_peer_cell(realm(peer_realm_idx), xg, bp, ip, jp, kp)
-                  ! Issue #40: a ghost inside the peer realm must map onto a rank-local peer cell with the same centre;
-                  ! only a ghost outside the peer domain (a corner at a physical boundary) may stay unmapped. An edge or
-                  ! corner ghost of the slab (tangentially outside the block) whose peer cell is on another rank is left
-                  ! unfilled and counted: the dimension-by-dimension stencils never read it (sod-2realm on two ranks is
-                  ! bitwise equal to sod-x with such ghosts unfilled).
-                  dx = realm(my_realm_idx)%adam%field%dxyz(:, b)
-                  if (bp > 0_I4P) then
-                     call ghost_cell_center(realm(peer_realm_idx), bp, ip, jp, kp, xp)
-                     if (any(abs(xp - xg) > 1.0e-6_R8P * dx))                                                          &
-                        call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam '//           &
-                           ghost_label(my_realm_idx, b, i_g, j_g, k_g)//' does not coincide with a cell of realm '//  &
-                           trim(str(peer_realm_idx, .true.))//' (issue #40): mirror seams need the same cell size '// &
-                           'on both sides')
-                     per_realm_count(my_realm_idx) = per_realm_count(my_realm_idx) + 1_I4P
-                  elseif (inside_domain(realm(peer_realm_idx), xg, 0.25_R8P * dx)) then
-                     if (is_face_ghost(realm(my_realm_idx), i_g, j_g, k_g)) then
-                        call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam '//           &
-                           ghost_label(my_realm_idx, b, i_g, j_g, k_g)//' lies in realm '//                           &
-                           trim(str(peer_realm_idx, .true.))//' on a block this rank does not own (issue #40): '//    &
-                           'cross-rank seams are not implemented, the seam blocks of both realms must be on the '//   &
-                           'same rank')
-                     endif
-                     n_unfilled = n_unfilled + 1_I4P
-                  endif
-               enddo
-            enddo
-         enddo
-      enddo
-      if (n_unfilled > 0_I4P)                                                                                        &
-         call mpih%print_message('forest: '//trim(str(n_unfilled, .true.))//' edge/corner seam ghosts of realm '//   &
-                                 trim(str(my_realm_idx, .true.))//' have their peer cell in realm '//                &
-                                 trim(str(peer_realm_idx, .true.))//' on another rank and are not filled (issue #40)')
-      endsubroutine count_seam_ghost_cells
-
-      function ghost_label(my_realm_idx, b, i, j, k) result(label)
-      !< Name a seam ghost cell in an error message.
-      integer(I4P), intent(in)  :: my_realm_idx !< Realm index.
-      integer(I4P), intent(in)  :: b, i, j, k   !< Block and ghost cell indices.
-      character(:), allocatable :: label        !< Label.
-
-      label = 'ghost ('//trim(str(i))//','//trim(str(j))//','//trim(str(k))//') of block '//trim(str(b, .true.))// &
-              ' of realm '//trim(str(my_realm_idx, .true.))
-      endfunction ghost_label
-
-      pure function is_face_ghost(this_realm, i, j, k) result(yes)
-      !< Return .true. iff the ghost (i, j, k) is outside the block interior along exactly one axis (a face ghost, not an
-      !< edge or corner one).
-      class(realm_object), intent(in) :: this_realm !< Realm to query.
-      integer(I4P),        intent(in) :: i, j, k    !< Ghost cell indices.
-      logical                         :: yes        !< Test result.
-
-      associate(g => this_realm%adam%grid)
-         yes = count([i < 1_I4P .or. i > g%ni, j < 1_I4P .or. j > g%nj, k < 1_I4P .or. k > g%nk]) == 1
-      endassociate
-      endfunction is_face_ghost
-
-      pure function inside_domain(this_realm, xc, tol) result(yes)
-      !< Return .true. iff `xc` lies inside the domain of `this_realm`, at least `tol` away from its boundary.
-      class(realm_object), intent(in) :: this_realm !< Realm to query.
-      real(R8P),           intent(in) :: xc(3)      !< Point.
-      real(R8P),           intent(in) :: tol(3)     !< Per-axis margin.
-      logical                         :: yes        !< Test result.
-
-      yes = all(xc > this_realm%adam%grid%domain_emin + tol) .and. all(xc < this_realm%adam%grid%domain_emax - tol)
-      endfunction inside_domain
-
-      subroutine populate_seam_ghost_cells(realm, per_realm_count, my_realm_idx, peer_realm_idx, my_face)
-      !< Second-pass row populator for the inter-realm ghost-cell map.
-      class(realm_object), intent(inout) :: realm(:)
-      integer(I4P),        intent(inout) :: per_realm_count(:)
-      integer(I4P),        intent(in)    :: my_realm_idx, peer_realm_idx, my_face
-      integer(I4P) :: b, axis, sgn, i_g, j_g, k_g
-      integer(I4P) :: imin_g, imax_g, jmin_g, jmax_g, kmin_g, kmax_g
-      real(R8P)    :: xg(3)
-      integer(I4P) :: bp, ip, jp, kp, c
-
-      call face_axis_sign(my_face, axis, sgn)
-      do b = 1_I4P, int(realm(my_realm_idx)%adam%field%blocks_number, I4P)
-         if (.not. block_face_on_realm_boundary(realm(my_realm_idx), b, axis, sgn)) cycle
-         call ghost_slab_extents(realm(my_realm_idx), axis, sgn, imin_g, imax_g, jmin_g, jmax_g, kmin_g, kmax_g)
-         do k_g = kmin_g, kmax_g
-            do j_g = jmin_g, jmax_g
-               do i_g = imin_g, imax_g
-                  call ghost_cell_center(realm(my_realm_idx), b, i_g, j_g, k_g, xg)
-                  call find_peer_cell(realm(peer_realm_idx), xg, bp, ip, jp, kp)
-                  if (bp <= 0_I4P) cycle
-                  per_realm_count(my_realm_idx) = per_realm_count(my_realm_idx) + 1_I4P
-                  c = per_realm_count(my_realm_idx)
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 1)  = peer_realm_idx
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 2)  = bp
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 3)  = b
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 4)  = ip
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 5)  = jp
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 6)  = kp
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 7)  = i_g
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 8)  = j_g
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 9)  = k_g
-                  realm(my_realm_idx)%adam%maps%inter_realm_ghost_cell(c, 10) = 1_I4P  ! same-resolution mirror
-               enddo
-            enddo
-         enddo
-      enddo
-      endsubroutine populate_seam_ghost_cells
-
-      pure subroutine ghost_slab_extents(this_realm, axis, sgn, imin_g, imax_g, jmin_g, jmax_g, kmin_g, kmax_g)
-         !< Compute the (i,j,k) loop bounds for a block's ghost slab on one face.
-         !<
-         !< The slab is `ngc` cells deep on the (axis, sgn) face. The two
-         !< tangential axes run the FULL ghost-extended range
-         !< `[1-ngc..n+ngc]` — this is the defect-B fix.
-         class(realm_object), intent(in)  :: this_realm
-         integer(I4P),        intent(in)  :: axis, sgn
-         integer(I4P),        intent(out) :: imin_g, imax_g, jmin_g, jmax_g, kmin_g, kmax_g
-
-         associate(g => this_realm%adam%grid)
-         imin_g = 1_I4P - g%ngc ; imax_g = g%ni + g%ngc
-         jmin_g = 1_I4P - g%ngc ; jmax_g = g%nj + g%ngc
-         kmin_g = 1_I4P - g%ngc ; kmax_g = g%nk + g%ngc
-         select case (axis)
-         case (1_I4P)
-            if (sgn > 0_I4P) then ; imin_g = g%ni + 1_I4P ; imax_g = g%ni + g%ngc
-            else                  ; imin_g = 1_I4P - g%ngc ; imax_g = 0_I4P
-            endif
-         case (2_I4P)
-            if (sgn > 0_I4P) then ; jmin_g = g%nj + 1_I4P ; jmax_g = g%nj + g%ngc
-            else                  ; jmin_g = 1_I4P - g%ngc ; jmax_g = 0_I4P
-            endif
-         case (3_I4P)
-            if (sgn > 0_I4P) then ; kmin_g = g%nk + 1_I4P ; kmax_g = g%nk + g%ngc
-            else                  ; kmin_g = 1_I4P - g%ngc ; kmax_g = 0_I4P
-            endif
-         end select
-         end associate
-         endsubroutine ghost_slab_extents
-
-      pure subroutine ghost_cell_center(this_realm, b, i, j, k, xc)
-      !< Cell-center coordinates of (i, j, k) in block b, regardless of
-      !< whether (i, j, k) is an interior or ghost cell — same formula.
-      class(realm_object), intent(in)  :: this_realm
-      integer(I4P),        intent(in)  :: b, i, j, k
-      real(R8P),           intent(out) :: xc(3)
-
-      associate(field => this_realm%adam%field)
-      xc(1) = field%emin(1, b) + (real(i, R8P) - 0.5_R8P) * field%dxyz(1, b)
-      xc(2) = field%emin(2, b) + (real(j, R8P) - 0.5_R8P) * field%dxyz(2, b)
-      xc(3) = field%emin(3, b) + (real(k, R8P) - 0.5_R8P) * field%dxyz(3, b)
-      end associate
-      endsubroutine ghost_cell_center
-
-      subroutine find_peer_cell(peer_realm, xc, bp, ip, jp, kp)
-      !< Find the peer-realm block + interior cell whose cell-center
-      !< coincides (within tolerance) with the global point `xc`.
-      !<
-      !< Returns `bp = 0` if no rank-local peer block contains the point.
-      !< Outside the peer's physical extent (corners where the seam meets a
-      !< physical boundary) the consumer skips the entry and the physical BC
-      !< on self fills the ghost; inside it the peer block is on another rank
-      !< (`count_seam_ghost_cells` error_stops on a face ghost, issue #40).
-      class(realm_object), intent(in)  :: peer_realm
-      real(R8P),           intent(in)  :: xc(3)
-      integer(I4P),        intent(out) :: bp, ip, jp, kp
-      integer(I4P) :: b
-      real(R8P)    :: tol(3)
-      real(R8P)    :: emin_b(3), emax_b(3), dxyz_b(3)
-      integer(I4P) :: ii, jj, kk
-      logical      :: inside_block
-
-      bp = 0_I4P ; ip = 0_I4P ; jp = 0_I4P ; kp = 0_I4P
-      do b = 1_I4P, int(peer_realm%adam%field%blocks_number, I4P)
-         emin_b = peer_realm%adam%field%emin(:, b)
-         emax_b = peer_realm%adam%field%emax(:, b)
-         dxyz_b = peer_realm%adam%field%dxyz(:, b)
-         tol = max(abs(emin_b), abs(emax_b), 1._R8P) * 1.0e-10_R8P
-         inside_block = .true.
-         if (xc(1) < emin_b(1) - tol(1) .or. xc(1) > emax_b(1) + tol(1)) inside_block = .false.
-         if (xc(2) < emin_b(2) - tol(2) .or. xc(2) > emax_b(2) + tol(2)) inside_block = .false.
-         if (xc(3) < emin_b(3) - tol(3) .or. xc(3) > emax_b(3) + tol(3)) inside_block = .false.
-         if (.not. inside_block) cycle
-         ! Block found — translate coordinates to local cell index.
-         ii = nint((xc(1) - emin_b(1)) / dxyz_b(1) + 0.5_R8P, I4P)
-         jj = nint((xc(2) - emin_b(2)) / dxyz_b(2) + 0.5_R8P, I4P)
-         kk = nint((xc(3) - emin_b(3)) / dxyz_b(3) + 0.5_R8P, I4P)
-         ! Reject if rounding hit an out-of-interior index.
-         if (ii < 1_I4P .or. ii > peer_realm%adam%grid%ni) cycle
-         if (jj < 1_I4P .or. jj > peer_realm%adam%grid%nj) cycle
-         if (kk < 1_I4P .or. kk > peer_realm%adam%grid%nk) cycle
-         bp = b ; ip = ii ; jp = jj ; kp = kk
-         return
-      enddo
-      endsubroutine find_peer_cell
    endsubroutine populate_inter_realm_topology
+
+   subroutine build_seam_rows(realm, manifest)
+   !< Build the seam ghost rows of every realm from the replicated trees (issue #40).
+   !<
+   !< Every rank walks, for every face pair (side A then side B), every leaf of the realm owning the ghosts that lies on
+   !< the seam face, owned or not, and every ghost of its slab (tangential edge and corner ghosts included), in the
+   !< tree's own order: the same sequence on every rank. The peer cell is the interior cell of the leaf of the peer realm
+   !< containing the ghost centre (`get_closest_block` on the peer's replicated tree); ghosts outside the peer domain are
+   !< corners where the seam meets a physical boundary and are left to the physical BC. Each rank keeps the rows it
+   !< takes part in:
+   !<
+   !<   * local (ghost and cell here): `[peer, b_cell, b_ghost, i_cell, j_cell, k_cell, i_ghost, j_ghost, k_ghost]`;
+   !<   * receive (ghost here, cell on rank r): `[r, b_ghost, i_ghost, j_ghost, k_ghost]` on the ghost realm;
+   !<   * send (cell here, ghost on rank r): `[r, b_cell, i_cell, j_cell, k_cell]` on the cell realm.
+   !<
+   !< Since the order is shared, the rows rank A sends to rank B for a seam are, in order, the rows B receives from A.
+   !< The peer cell centre must coincide with the ghost centre: mirror seams join cells of the same size.
+   class(realm_object),     intent(inout) :: realm(:) !< Forest realms.
+   type(forest_manifest_t), intent(in)    :: manifest !< Parsed manifest.
+   type(seam_rows_t), allocatable         :: local(:) !< Local rows, per ghost realm.
+   type(seam_rows_t), allocatable         :: recv(:)  !< Receive rows, per ghost realm.
+   type(seam_rows_t), allocatable         :: send(:)  !< Send rows, per cell realm.
+   integer(I4P)                           :: f, is    !< Face-pair and realm counters.
+
+   allocate(local(size(realm)), recv(size(realm)), send(size(realm)))
+   if (allocated(manifest%face_pairs)) then
+      do f=1_I4P, int(size(manifest%face_pairs), I4P)
+         associate(pair=>manifest%face_pairs(f))
+            call enumerate_seam_side(realm=realm, is=pair%realm_a, ip=pair%realm_b, face=pair%face_a, &
+                                     local=local(pair%realm_a), recv=recv(pair%realm_a), send=send(pair%realm_b))
+            call enumerate_seam_side(realm=realm, is=pair%realm_b, ip=pair%realm_a, face=pair%face_b, &
+                                     local=local(pair%realm_b), recv=recv(pair%realm_b), send=send(pair%realm_a))
+         endassociate
+      enddo
+   endif
+   do is=1_I4P, int(size(realm), I4P)
+      call store_seam_rows(realm=realm(is), is=is, manifest=manifest, local=local(is), recv=recv(is), send=send(is))
+   enddo
+   endsubroutine build_seam_rows
+
+   subroutine enumerate_seam_side(realm, is, ip, face, local, recv, send)
+   !< Enumerate the seam ghosts of realm `is` on `face`, whose peer is realm `ip`; append this rank's rows.
+   class(realm_object), intent(inout) :: realm(:)                   !< Forest realms.
+   integer(I4P),        intent(in)    :: is                         !< Realm owning the ghosts.
+   integer(I4P),        intent(in)    :: ip                         !< Realm owning the cells.
+   integer(I4P),        intent(in)    :: face                       !< Seam face of realm `is` (FACE_* code).
+   type(seam_rows_t),   intent(inout) :: local                      !< Local rows of realm `is`.
+   type(seam_rows_t),   intent(inout) :: recv                       !< Receive rows of realm `is`.
+   type(seam_rows_t),   intent(inout) :: send                       !< Send rows of realm `ip`.
+   type(tree_iterator_object)         :: iter                       !< Tree traversal cursor.
+   type(tree_node_object), pointer    :: node_g                     !< Leaf owning the ghosts.
+   type(tree_node_object), pointer    :: node_c                     !< Leaf owning the cell.
+   integer(I8P)                       :: code_c                     !< Morton code of the cell leaf.
+   integer(I4P)                       :: axis, sgn                  !< Face axis and side.
+   integer(I4P)                       :: imin, imax, jmin, jmax     !< Ghost slab bounds.
+   integer(I4P)                       :: kmin, kmax                 !< Ghost slab bounds.
+   integer(I4P)                       :: i, j, k                    !< Ghost cell indices.
+   integer(I4P)                       :: ijk_c(3)                   !< Peer cell indices.
+   integer(I4P)                       :: b_g, b_c                   !< Owner-local block indices.
+   integer(I4P)                       :: rank_g, rank_c             !< Owner ranks of ghost and cell.
+   real(R8P)                          :: emin_g(3), emax_g(3), d_g(3) !< Ghost leaf extent and cell size.
+   real(R8P)                          :: emin_c(3), d_c(3)          !< Cell leaf origin and cell size.
+   real(R8P)                          :: xg(3), xc(3)               !< Ghost and cell centres.
+   real(R8P)                          :: tol                        !< Face tolerance.
+
+   call face_axis_sign(face, axis, sgn)
+   call ghost_slab_extents(realm(is), axis, sgn, imin, imax, jmin, jmax, kmin, kmax)
+   iter%b = 1_I4P ; iter%p => null()
+   do while (realm(is)%adam%tree%loop(iter, node_ptr=node_g))
+      call leaf_metrics(realm(is), node_g%code, emin_g, d_g, emax_g)
+      if (sgn > 0_I4P) then
+         tol = max(abs(realm(is)%adam%grid%domain_emax(axis)), 1._R8P) * 1.0e-10_R8P
+         if (abs(emax_g(axis) - realm(is)%adam%grid%domain_emax(axis)) > tol) cycle
+      else
+         tol = max(abs(realm(is)%adam%grid%domain_emin(axis)), 1._R8P) * 1.0e-10_R8P
+         if (abs(emin_g(axis) - realm(is)%adam%grid%domain_emin(axis)) > tol) cycle
+      endif
+      rank_g = node_g%myrank
+      b_g    = int(node_g%block_index, I4P)
+      do k=kmin, kmax
+         do j=jmin, jmax
+            do i=imin, imax
+               xg = emin_g + ([real(i, R8P), real(j, R8P), real(k, R8P)] - 0.5_R8P) * d_g
+               if (.not.inside_domain(realm(ip), xg, 0.25_R8P * d_g)) cycle ! a corner at a physical boundary
+               code_c = realm(ip)%adam%tree%get_closest_block(grid=realm(ip)%adam%grid, point=xg)
+               node_c => realm(ip)%adam%tree%node(code=code_c)
+               call leaf_metrics(realm(ip), code_c, emin_c, d_c)
+               ijk_c = nint((xg - emin_c) / d_c + 0.5_R8P, I4P)
+               xc = emin_c + (real(ijk_c, R8P) - 0.5_R8P) * d_c
+               if (any(abs(xc - xg) > 1.0e-6_R8P * d_g) .or. any(ijk_c < 1_I4P) .or.                       &
+                   ijk_c(1) > realm(ip)%adam%grid%ni .or. ijk_c(2) > realm(ip)%adam%grid%nj .or.            &
+                   ijk_c(3) > realm(ip)%adam%grid%nk)                                                         &
+                  call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam '//           &
+                     ghost_label(is, b_g, i, j, k)//' does not coincide with a cell of realm '//                &
+                     trim(str(ip, .true.))//' (issue #40): mirror seams need the same cell size on both sides')
+               rank_c = node_c%myrank
+               b_c    = int(node_c%block_index, I4P)
+               if (rank_g == mpih%myrank .and. rank_c == mpih%myrank) then
+                  call push_row(local, [ip, b_c, b_g, ijk_c, i, j, k])
+               elseif (rank_g == mpih%myrank) then
+                  call push_row(recv, [ip, rank_c, b_g, i, j, k])
+               elseif (rank_c == mpih%myrank) then
+                  call push_row(send, [is, rank_g, b_c, ijk_c])
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine enumerate_seam_side
+
+   subroutine store_seam_rows(realm, is, manifest, local, recv, send)
+   !< Store the enumerated seam rows of realm `is` into its maps, grouped by peer slot (and by rank inside a slot).
+   class(realm_object),     intent(inout) :: realm    !< Realm `is`.
+   integer(I4P),            intent(in)    :: is       !< Realm index.
+   type(forest_manifest_t), intent(in)    :: manifest !< Parsed manifest.
+   type(seam_rows_t),       intent(in)    :: local    !< Local rows (col 1 = peer realm).
+   type(seam_rows_t),       intent(in)    :: recv     !< Receive rows (col 1 = peer realm).
+   type(seam_rows_t),       intent(in)    :: send     !< Send rows (col 1 = ghost realm).
+   integer(I4P)                           :: peers(2*max(1, size_pairs(manifest))) !< Peer realms, manifest order.
+   integer(I4P)                           :: n_peers  !< Number of peer slots.
+   integer(I4P)                           :: f, p, c  !< Counters.
+   integer(I4P)                           :: other    !< Realm on the other side of a face pair.
+   integer(I4P)                           :: cadence  !< Cadence of a slot.
+
+   associate(maps=>realm%adam%maps)
+   if (allocated(maps%seam_local_map_ghost_cell)) deallocate(maps%seam_local_map_ghost_cell)
+   if (allocated(maps%seam_local_peer_realm))     deallocate(maps%seam_local_peer_realm)
+   if (allocated(maps%seam_local_peer_row_start)) deallocate(maps%seam_local_peer_row_start)
+   if (allocated(maps%seam_local_peer_row_count)) deallocate(maps%seam_local_peer_row_count)
+   if (allocated(maps%seam_local_cadence))        deallocate(maps%seam_local_cadence)
+   if (allocated(maps%seam_local_send_buf))       deallocate(maps%seam_local_send_buf)
+   if (allocated(maps%seam_local_recv_buf))       deallocate(maps%seam_local_recv_buf)
+   if (allocated(maps%seam_mpi_recv_cell))        deallocate(maps%seam_mpi_recv_cell)
+   if (allocated(maps%seam_mpi_recv_row_start))   deallocate(maps%seam_mpi_recv_row_start)
+   if (allocated(maps%seam_mpi_recv_row_count))   deallocate(maps%seam_mpi_recv_row_count)
+   if (allocated(maps%seam_mpi_send_cell))        deallocate(maps%seam_mpi_send_cell)
+   if (allocated(maps%seam_mpi_send_row_start))   deallocate(maps%seam_mpi_send_row_start)
+   if (allocated(maps%seam_mpi_send_row_count))   deallocate(maps%seam_mpi_send_row_count)
+   ! peer slots: the realms glued to `is`, in manifest order (the same on every rank)
+   n_peers = 0_I4P
+   if (allocated(manifest%face_pairs)) then
+      do f=1_I4P, int(size(manifest%face_pairs), I4P)
+         other = 0_I4P
+         if (manifest%face_pairs(f)%realm_a == is) other = manifest%face_pairs(f)%realm_b
+         if (manifest%face_pairs(f)%realm_b == is) other = manifest%face_pairs(f)%realm_a
+         if (other == 0_I4P) cycle
+         if (any(peers(1:n_peers) == other)) cycle
+         n_peers = n_peers + 1_I4P
+         peers(n_peers) = other
+      enddo
+   endif
+   if (n_peers == 0_I4P) return
+   allocate(maps%seam_local_peer_realm(n_peers), source=peers(1:n_peers))
+   ! cadence of each slot: a property of the realm pair, every face pair joining them must agree
+   allocate(maps%seam_local_cadence(n_peers))
+   do p=1_I4P, n_peers
+      cadence = -1_I4P
+      do f=1_I4P, int(size(manifest%face_pairs), I4P)
+         associate(pair=>manifest%face_pairs(f))
+         if (.not.((pair%realm_a == is .and. pair%realm_b == peers(p)) .or. &
+                   (pair%realm_b == is .and. pair%realm_a == peers(p)))) cycle
+         if (cadence == -1_I4P) then
+            cadence = pair%coupling_cadence
+         elseif (cadence /= pair%coupling_cadence) then
+            call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: conflicting coupling_cadence '// &
+                                 'between realm '//trim(str(is, .true.))//' and realm '//trim(str(peers(p), .true.))//&
+                                 ' across multiple face_pairs')
+         endif
+         endassociate
+      enddo
+      maps%seam_local_cadence(p) = cadence
+   enddo
+   ! local rows, grouped by slot
+   allocate(maps%seam_local_peer_row_start(n_peers), maps%seam_local_peer_row_count(n_peers))
+   maps%seam_local_peer_row_count = 0_I4P
+   if (local%n > 0_I4P) then
+      do p=1_I4P, n_peers
+         maps%seam_local_peer_row_count(p) = count(local%row(1:local%n, 1) == peers(p))
+      enddo
+   endif
+   maps%seam_local_peer_row_start(1) = 1_I4P
+   do p=2_I4P, n_peers
+      maps%seam_local_peer_row_start(p) = maps%seam_local_peer_row_start(p-1) + maps%seam_local_peer_row_count(p-1)
+   enddo
+   if (local%n > 0_I4P) then
+      allocate(maps%seam_local_map_ghost_cell(local%n, 9))
+      c = 0_I4P
+      do p=1_I4P, n_peers
+         do f=1_I4P, local%n
+            if (local%row(f, 1) /= peers(p)) cycle
+            c = c + 1_I4P
+            maps%seam_local_map_ghost_cell(c, :) = local%row(f, 1:9)
+         enddo
+      enddo
+      allocate(maps%seam_local_send_buf(realm%nv * maxval(maps%seam_local_peer_row_count), n_peers), source=0._R8P)
+      allocate(maps%seam_local_recv_buf(realm%nv * maxval(maps%seam_local_peer_row_count), n_peers), source=0._R8P)
+   endif
+   ! cross-rank rows, grouped by slot and by rank
+   call group_rows(rows=recv, peers=peers(1:n_peers), cell=maps%seam_mpi_recv_cell,      &
+                   row_start=maps%seam_mpi_recv_row_start, row_count=maps%seam_mpi_recv_row_count)
+   call group_rows(rows=send, peers=peers(1:n_peers), cell=maps%seam_mpi_send_cell,      &
+                   row_start=maps%seam_mpi_send_row_start, row_count=maps%seam_mpi_send_row_count)
+   call mpih%print_message('forest: realm '//trim(str(is, .true.))//' seam rows: '//trim(str(local%n, .true.))// &
+                           ' local, '//trim(str(recv%n, .true.))//' received, '//trim(str(send%n, .true.))//' sent')
+   endassociate
+   endsubroutine store_seam_rows
+
+   subroutine group_rows(rows, peers, cell, row_start, row_count)
+   !< Group cross-rank rows `[peer, rank, b, i, j, k]` by peer slot and, inside a slot, by ascending rank, keeping the
+   !< enumeration order within a rank; store `[rank, b, i, j, k]`.
+   type(seam_rows_t),         intent(in)  :: rows         !< Enumerated rows.
+   integer(I4P),              intent(in)  :: peers(:)     !< Peer realm of each slot.
+   integer(I4P), allocatable, intent(out) :: cell(:,:)    !< Grouped rows.
+   integer(I4P), allocatable, intent(out) :: row_start(:) !< First row of each slot.
+   integer(I4P), allocatable, intent(out) :: row_count(:) !< Rows of each slot.
+   integer(I4P)                           :: p, r, c      !< Counters.
+   integer(I4P)                           :: rank, next   !< Current and next rank of a slot.
+
+   allocate(row_start(size(peers)), row_count(size(peers)))
+   row_count = 0_I4P ; row_start = 1_I4P
+   if (rows%n > 0_I4P) allocate(cell(rows%n, 5))
+   c = 0_I4P
+   do p=1_I4P, int(size(peers), I4P)
+      row_start(p) = c + 1_I4P
+      rank = -1_I4P
+      do
+         next = huge(1_I4P)
+         do r=1_I4P, rows%n
+            if (rows%row(r, 1) == peers(p) .and. rows%row(r, 2) > rank) next = min(next, rows%row(r, 2))
+         enddo
+         if (next == huge(1_I4P)) exit
+         rank = next
+         do r=1_I4P, rows%n
+            if (rows%row(r, 1) /= peers(p) .or. rows%row(r, 2) /= rank) cycle
+            c = c + 1_I4P
+            cell(c, :) = rows%row(r, 2:6)
+         enddo
+      enddo
+      row_count(p) = c - row_start(p) + 1_I4P
+   enddo
+   endsubroutine group_rows
+
+   subroutine push_row(list, row)
+   !< Append a row to a growable row list (the capacity doubles when full).
+   type(seam_rows_t), intent(inout) :: list    !< Row list.
+   integer(I4P),      intent(in)    :: row(:)  !< Row to append.
+   integer(I4P), allocatable        :: tmp(:,:) !< Grown storage.
+
+   if (.not.allocated(list%row)) allocate(list%row(64, size(row)))
+   if (list%n == size(list%row, dim=1)) then
+      allocate(tmp(2 * list%n, size(row)))
+      tmp(1:list%n, :) = list%row(1:list%n, :)
+      call move_alloc(from=tmp, to=list%row)
+   endif
+   list%n = list%n + 1_I4P
+   list%row(list%n, :) = row
+   endsubroutine push_row
+
+   pure function size_pairs(manifest) result(n)
+   !< Number of face pairs of a manifest.
+   type(forest_manifest_t), intent(in) :: manifest !< Parsed manifest.
+   integer(I4P)                        :: n        !< Face pairs.
+
+   n = 0_I4P
+   if (allocated(manifest%face_pairs)) n = int(size(manifest%face_pairs), I4P)
+   endfunction size_pairs
+
+   subroutine leaf_metrics(this_realm, code, emin, dxyz, emax)
+   !< Origin, cell size and (optionally) upper corner of the leaf `code` of a realm, from its tree and grid (valid on
+   !< every rank, whichever rank owns the leaf).
+   class(realm_object), intent(in)            :: this_realm !< Realm.
+   integer(I8P),        intent(in)            :: code       !< Leaf Morton code.
+   real(R8P),           intent(out)           :: emin(3)    !< Leaf origin.
+   real(R8P),           intent(out)           :: dxyz(3)    !< Cell size.
+   real(R8P),           intent(out), optional :: emax(3)    !< Leaf upper corner.
+   integer(I4P)                               :: ijkl(4)    !< Leaf coordinates and level.
+
+   call this_realm%adam%tree%morton_to_coordinates(code=code, i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4))
+   call this_realm%adam%grid%compute_metrics(coordinates=ijkl, emin=emin, emax=emax, dx=dxyz(1), dy=dxyz(2), dz=dxyz(3))
+   endsubroutine leaf_metrics
+
+   function leaf_on_realm_face(this_realm, code, axis, sgn) result(yes)
+   !< Return .true. iff the leaf `code` of a realm has its (axis, sgn) face on the realm boundary (any owner rank).
+   class(realm_object), intent(in) :: this_realm !< Realm.
+   integer(I8P),        intent(in) :: code       !< Leaf Morton code.
+   integer(I4P),        intent(in) :: axis, sgn  !< Face axis (1..3) and side (+1 max, -1 min).
+   logical                         :: yes        !< Test result.
+   real(R8P)                       :: emin(3)    !< Leaf origin.
+   real(R8P)                       :: emax(3)    !< Leaf upper corner.
+   real(R8P)                       :: dxyz(3)    !< Cell size.
+   real(R8P)                       :: bound      !< Realm boundary coordinate.
+
+   call leaf_metrics(this_realm, code, emin, dxyz, emax)
+   if (sgn > 0_I4P) then
+      bound = this_realm%adam%grid%domain_emax(axis)
+      yes = abs(emax(axis) - bound) <= max(abs(bound), 1._R8P) * 1.0e-10_R8P
+   else
+      bound = this_realm%adam%grid%domain_emin(axis)
+      yes = abs(emin(axis) - bound) <= max(abs(bound), 1._R8P) * 1.0e-10_R8P
+   endif
+   endfunction leaf_on_realm_face
+
+   pure function meet_face_to_face(emin_a, emax_a, emin_b, emax_b, axis, sgn) result(yes)
+   !< Return .true. iff box b lies across the (axis, sgn) face of box a and covers exactly that face: same face plane,
+   !< same extent on the two tangential axes.
+   real(R8P),    intent(in) :: emin_a(3), emax_a(3) !< Box a.
+   real(R8P),    intent(in) :: emin_b(3), emax_b(3) !< Box b.
+   integer(I4P), intent(in) :: axis, sgn            !< Face of box a: axis (1..3) and side (+1 max, -1 min).
+   logical                  :: yes                  !< Test result.
+   real(R8P)                :: tol                  !< Geometric tolerance.
+   integer(I4P)             :: d                    !< Axis counter.
+
+   tol = max(maxval(abs(emin_a)), maxval(abs(emax_a)), 1._R8P) * 1.0e-10_R8P
+   if (sgn > 0_I4P) then
+      yes = abs(emin_b(axis) - emax_a(axis)) <= tol
+   else
+      yes = abs(emax_b(axis) - emin_a(axis)) <= tol
+   endif
+   do d=1_I4P, 3_I4P
+      if (d == axis) cycle
+      yes = yes .and. abs(emin_b(d) - emin_a(d)) <= tol .and. abs(emax_b(d) - emax_a(d)) <= tol
+   enddo
+   endfunction meet_face_to_face
+
+   pure subroutine ghost_slab_extents(this_realm, axis, sgn, imin_g, imax_g, jmin_g, jmax_g, kmin_g, kmax_g)
+   !< The (i, j, k) bounds of a block's ghost slab on one face: `ngc` cells deep on the (axis, sgn) face, the two
+   !< tangential axes over the full ghost-extended range `[1-ngc, n+ngc]` (edge and corner ghosts included).
+   class(realm_object), intent(in)  :: this_realm                                     !< Realm.
+   integer(I4P),        intent(in)  :: axis, sgn                                      !< Face axis and side.
+   integer(I4P),        intent(out) :: imin_g, imax_g, jmin_g, jmax_g, kmin_g, kmax_g !< Slab bounds.
+
+   associate(g => this_realm%adam%grid)
+   imin_g = 1_I4P - g%ngc ; imax_g = g%ni + g%ngc
+   jmin_g = 1_I4P - g%ngc ; jmax_g = g%nj + g%ngc
+   kmin_g = 1_I4P - g%ngc ; kmax_g = g%nk + g%ngc
+   select case (axis)
+   case (1_I4P)
+      if (sgn > 0_I4P) then ; imin_g = g%ni + 1_I4P ; imax_g = g%ni + g%ngc
+      else                  ; imin_g = 1_I4P - g%ngc ; imax_g = 0_I4P
+      endif
+   case (2_I4P)
+      if (sgn > 0_I4P) then ; jmin_g = g%nj + 1_I4P ; jmax_g = g%nj + g%ngc
+      else                  ; jmin_g = 1_I4P - g%ngc ; jmax_g = 0_I4P
+      endif
+   case (3_I4P)
+      if (sgn > 0_I4P) then ; kmin_g = g%nk + 1_I4P ; kmax_g = g%nk + g%ngc
+      else                  ; kmin_g = 1_I4P - g%ngc ; kmax_g = 0_I4P
+      endif
+   endselect
+   endassociate
+   endsubroutine ghost_slab_extents
+
+   pure function inside_domain(this_realm, xc, tol) result(yes)
+   !< Return .true. iff `xc` lies inside the domain of `this_realm`, at least `tol` away from its boundary.
+   class(realm_object), intent(in) :: this_realm !< Realm to query.
+   real(R8P),           intent(in) :: xc(3)      !< Point.
+   real(R8P),           intent(in) :: tol(3)     !< Per-axis margin.
+   logical                         :: yes        !< Test result.
+
+   yes = all(xc > this_realm%adam%grid%domain_emin + tol) .and. all(xc < this_realm%adam%grid%domain_emax - tol)
+   endfunction inside_domain
+
+   function ghost_label(is, b, i, j, k) result(label)
+   !< Name a seam ghost cell in an error message.
+   integer(I4P), intent(in)  :: is         !< Realm index.
+   integer(I4P), intent(in)  :: b, i, j, k !< Owner-local block and ghost cell indices.
+   character(:), allocatable :: label      !< Label.
+
+   label = 'ghost ('//trim(str(i))//','//trim(str(j))//','//trim(str(k))//') of block '//trim(str(b, .true.))// &
+           ' of realm '//trim(str(is, .true.))
+   endfunction ghost_label
 
    subroutine register_intra_realm_amr_seams(self, realm, extra_faces, nfaces_intra)
    !< Register every intra-realm AMR coarse-fine face in the forest flux register.
@@ -1581,13 +1382,12 @@ contains
    !< the per-step `reset`/reflux hooks are safe no-ops) plus `extra_faces`.
    !<
    !< **Composition with inter-realm seams (issue #37).** The manifest path
-   !< calls it first with `extra_faces` = the rank-local inter-realm seam face
-   !< count, then `register_inter_realm_seams` appends those faces after the
-   !< `nfaces_intra` intra-realm ones. The order matters: the intra-realm face
-   !< list is replicated (every rank walks the whole tree, same cursors), the
-   !< inter-realm one is rank-local, so keeping the intra-realm faces first
-   !< gives every rank the same indices 1..nfaces_intra, which is what the
-   !< register's cross-rank reduction of the fine sums relies on.
+   !< calls it first with `extra_faces` = the inter-realm seam face count,
+   !< then `register_inter_realm_seams` appends those faces after the
+   !< `nfaces_intra` intra-realm ones. Both lists are walked on the
+   !< replicated trees (issue #40), so every rank holds the same faces under
+   !< the same cursors, which is what the register's cross-rank reduction of
+   !< the fine sums relies on.
    class(forest_object), intent(inout)         :: self           !< The forest.
    class(realm_object),  intent(inout)         :: realm(:)       !< Initialized realms whose trees are walked.
    integer(I4P),         intent(in),  optional :: extra_faces    !< Register slots reserved for inter-realm faces.

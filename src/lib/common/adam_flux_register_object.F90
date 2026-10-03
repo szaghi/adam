@@ -326,18 +326,12 @@ contains
    !< diagnostics rank-invariant and lets the ownership-gated apply
    !< (#28 D4) read complete data.
    !<
-   !< Intra-realm AMR registers are REPLICATED (identical face list on every
-   !< rank — the registration pass walks the replicated tree), so the
-   !< per-face collectives match across ranks by construction. Inter-realm
-   !< registers are NOT replicated: `register_inter_realm_seams` registers
-   !< each rank's OWN realm-a-local seam blocks, so face lists differ per
-   !< rank and a per-face collective would not match. Those registers hold
-   !< only the contributions of the seam blocks this rank owns, so the reduce
-   !< SKIPS them. The two kinds can coexist in one forest (issue #37): the
-   !< intra-realm faces are registered FIRST (cursors 1..n_intra, identical on
-   !< every rank) and the rank-local inter-realm ones after them, so reducing
-   !< exactly the intra-realm faces issues the same collective sequence on
-   !< every rank.
+   !< Both kinds of register face are REPLICATED: the intra-realm AMR pass and
+   !< the inter-realm seam pass both walk the replicated trees, so every rank
+   !< holds the same face list under the same cursors (issue #40: the
+   !< inter-realm faces used to be registered rank-locally and were skipped
+   !< here, so a seam whose two sides sat on different ranks lost its fine
+   !< sum), and the per-face collectives match across ranks by construction.
    !<
    !< The reduce happens here (not in `apply_reflux_corrections` on
    !< `forest_object`) because it is purely register-internal: it
@@ -353,7 +347,6 @@ contains
    if (.not. allocated(self%face))  return
    if (mpih%procs_number <= 1_I4P)  return
    do f = 1_I4P, self%nfaces
-      if (self%face(f)%seam_kind /= SEAM_KIND_INTRA_REALM_AMR) cycle
       if (.not. allocated(self%face(f)%F_coarse))   cycle
       if (.not. allocated(self%face(f)%F_fine_sum)) cycle
       n = int(size(self%face(f)%F_coarse), I4P)

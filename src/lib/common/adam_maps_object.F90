@@ -256,17 +256,19 @@ type :: maps_object
    real(R8P), allocatable :: seam_local_send_buf(:,:) !< Per-peer pack buffer for same-rank seams.
    real(R8P), allocatable :: seam_local_recv_buf(:,:) !< Per-peer unpack buffer for same-rank seams.
    !
-   ! Seam MPI maps and buffers — DECLARED but NOT POPULATED.
-   ! Reserved for cross-rank seam exchange (not yet implemented). If any
-   ! of these become allocated the forest seam-fill loop must dispatch to
-   ! `update_ghost_seam_mpi`; until that path lands the forest error_stops
-   ! on any allocated `seam_comm_map_send_ghost_cell`.
-   integer(I4P), allocatable :: seam_comm_map_send_ghost_cell(:,:)
-   integer(I4P), allocatable :: seam_comm_map_recv_ghost_cell(:,:)
-   integer(I4P), allocatable :: seam_comm_map_send_ptr_ghost(:)
-   integer(I4P), allocatable :: seam_comm_map_recv_ptr_ghost(:)
-   real(R8P),    allocatable :: seam_mpi_send_buf(:)
-   real(R8P),    allocatable :: seam_mpi_recv_buf(:)
+   ! Cross-rank seam rows (issue #40): seam ghosts of this realm whose peer cell is owned by another rank. Built by the
+   ! forest from the replicated trees in one canonical order on every rank, so the rows a rank sends to another and the
+   ! rows that rank receives match one to one without exchanging indices. Columns `[rank, b, i, j, k]`:
+   !   * recv: `rank` owns the peer cell, `(b, i, j, k)` is this realm's seam ghost cell on this rank;
+   !   * send: `rank` owns the peer realm's seam ghost, `(b, i, j, k)` is this realm's interior cell on this rank.
+   ! Rows are grouped per peer slot (same slots as `seam_local_peer_realm`: for receive rows the realm that owns the cells,
+   ! for send rows the realm that owns the ghosts) and, inside a slot, by rank (canonical order kept within a rank).
+   integer(I4P), allocatable :: seam_mpi_recv_cell(:,:)      !< Cross-rank receive rows [rank, b, i, j, k].
+   integer(I4P), allocatable :: seam_mpi_recv_row_start(:)   !< First receive row of each peer slot.
+   integer(I4P), allocatable :: seam_mpi_recv_row_count(:)   !< Receive rows of each peer slot.
+   integer(I4P), allocatable :: seam_mpi_send_cell(:,:)      !< Cross-rank send rows [rank, b, i, j, k] (own cells).
+   integer(I4P), allocatable :: seam_mpi_send_row_start(:)   !< First send row of each peer slot.
+   integer(I4P), allocatable :: seam_mpi_send_row_count(:)   !< Send rows of each peer slot.
    contains
       ! public methods
       procedure, pass(self) :: blocks_reorder             !< Reorder blocks indexes in field.

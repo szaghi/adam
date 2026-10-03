@@ -51,17 +51,21 @@ Schema summary:
 
 Each realm's INI is a complete per-app input file. Sections like `[grid]`, `[numerics]`, `[physics]`, `[runge_kutta]` are populated as usual; the manifest contributes only the inter-realm topology.
 
-### What a seam requires (rank-local seams, issue #40)
+### Seams across ranks (issue #40)
 
-The seam fill and the inter-realm reflux register are built **rank-locally**: each rank pairs the seam blocks it owns with peer blocks it also owns, and no seam data crosses ranks (the cross-rank path is not implemented). The realms are partitioned over the ranks independently, each in its own Morton order, so a seam is valid only when:
+The realms are partitioned over the ranks independently, each in its own Morton order, so the two sides of a seam can sit on different ranks: a domain split in two halves normal to $z$ puts, on two ranks, the top seam blocks of the lower realm and the bottom seam blocks of the upper realm on different ranks. The forest therefore never assumes a seam to be rank-local:
 
-1. both sides have the **same cell size**, with cell centres that coincide across the seam (mirror coupling);
-2. the seam blocks of the two realms **meet face to face** (same tangential extents);
-3. each seam block and its peer are **on the same rank**.
+- **Seam ghosts.** At topology time every rank enumerates every seam ghost of every realm, from the replicated trees and in one canonical order (face pair, side, leaf, ghost cell), and looks up the peer cell in the peer realm's tree (its owner rank and owner-local block are known on every rank). Each rank keeps the rows it takes part in: *local* rows (ghost and peer cell on this rank, copied directly), *receive* rows (ghost here, cell elsewhere) and *send* rows (cell here, ghost elsewhere). Because the order is shared, the rows a rank sends to another and the rows that rank receives match one to one, with no index exchange. `adam_seam_exchange` fills a seam: the local copy, then the owner of the cells packs them from its active buffer, the buffers travel point to point, and the owner of the ghosts unpacks them. The edge and corner ghosts of the seam slab are filled too.
+- **Reflux register.** The inter-realm register faces are registered from the replicated tree, like the intra-realm 2:1 faces: every rank holds the same faces under the same cursors, and `reduce_fine_sums` completes the fine sums of both kinds across ranks.
 
-Two realms with the same block layout along the seam, split by the partition in the same way, satisfy all three: a domain split in two halves normal to $x$ does (both halves put their seam blocks on the same rank). The same split normal to $z$ does not on two ranks: each realm is cut by $z$, so the top seam blocks of the lower realm and the bottom seam blocks of the upper realm land on different ranks.
+The peer slots and their cadence come from the manifest, so every rank calls the seam fill for the same (realm, peer) pairs in the same order; the exchange is point to point, and a rank with no rows of a pair skips it.
 
-The forest checks the three conditions at initialization and stops with an `error_stop` naming the block or ghost cell and `issue #40`. The check is on the face ghosts of the seam slab; its edge and corner ghosts (tangentially outside the block) can reach a diagonal peer block on another rank even when the face peers are rank-local. Those are left unfilled, as before, and counted in a `forest: N edge/corner seam ghosts ... are not filled (issue #40)` line: the dimension-by-dimension stencils do not read them (sod-2realm on two ranks leaves 306 per realm and rank unfilled and is bitwise equal to sod-x). Before the check such a run ended normally with a wrong solution (the z-split Sod on two ranks: realm 1 mass frozen, reflux mismatch 69, exit code 0). `src/tests/flume/verification/multirealm/check.sh` (leg 3) keeps the z-split as a must-fail case on two ranks and as a bitwise match of the single-realm run on one.
+What a mirror seam still requires, checked at initialization (`error_stop` naming the block or ghost and `issue #40`):
+
+1. both sides have the **same cell size**, with cell centres that coincide across the seam;
+2. the seam blocks of the two realms **meet face to face** (same tangential extents); seams between blocks that do not line up are planned (issue #40, P4).
+
+`src/tests/flume/verification/multirealm/check.sh` (leg 3) splits Sod along $z$: on one rank and on $N$ ranks the union reproduces the single-realm `sod-z` bit for bit (measured on 2, 3 and 4 ranks; on 2 every seam ghost crosses ranks, 3468 rows each way). Before issue #40 the two-rank run ended normally with a wrong solution (205 steps instead of 174, realm 1 mass frozen at 0.5, reflux mismatch 69).
 
 ## Coupling cadence: α vs β
 

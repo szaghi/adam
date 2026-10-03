@@ -20,11 +20,12 @@
 # into three quarters of the realm-1 seam skin at every step; the FNL backend never copied the forest-built seam and
 # BC maps to the device (illegal address in the seam fill kernel).
 #
-# Leg 3 (issue #40, needs N >= 2): the inter-realm seam is rank-local, its fill and reflux never cross ranks.
-# sod-2realm-z.ini is the leg-1 split along z: valid on one rank (the union reproduces sod-z bit for bit), but on two
-# ranks each realm's blocks are split by z, so the two sides of the seam land on different ranks. Before the guard it
-# ran to the end with exit code 0 and a wrong solution (205 steps instead of 174, realm 1 mass frozen at 0.5, reflux
-# mismatch 69); the leg requires the one-rank run to match sod-z and the N-rank run to stop with the issue #40 message.
+# Leg 3 (issue #40): sod-2realm-z.ini is the leg-1 split along z. On N >= 2 ranks each realm's blocks are split by z,
+# so the two sides of the seam land on different ranks and every seam ghost crosses ranks (np 2: 3468 rows each way,
+# no local row): the seam ghosts travel through the cross-rank seam exchange and the inter-realm reflux register is
+# completed across ranks. The leg requires the union to reproduce sod-z bit for bit on one rank and on N ranks. Before
+# issue #40 the N-rank run ended normally with a wrong solution (205 steps instead of 174, realm 1 mass frozen at 0.5,
+# reflux mismatch 69).
 #
 # Usage: ./check.sh [--build] [--np N]
 #
@@ -97,22 +98,18 @@ run "$single" sod-amr.ini "$CASE_DIR/sod-amr.ini"
 run "$multi" sod-amr-2realm.ini "$CASE_DIR/sod-amr-2realm.ini" "$CASE_DIR/sod-amr-2realm-r1.ini" \
     "$CASE_DIR/sod-amr-2realm-r2.ini"
 "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+echo "== leg 3: z-split 2-realm Sod vs sod-z, on one rank and on $NP (the seam crosses ranks, issue #40)"
+zfiles=("$CASE_DIR/sod-2realm-z.ini" "$CASE_DIR/sod-2realm-z-r1.ini" "$CASE_DIR/sod-2realm-z-r2.ini")
+single="$CASE_DIR/work-$TAG-z-single"
+run "$single" sod-z.ini "$VERIF_DIR/sod/sod-z.ini"
+multi="$CASE_DIR/work-$TAG-z-2realm"
+run "$multi" sod-2realm-z.ini "${zfiles[@]}"
+"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
 if [[ $NP -ge 2 ]]; then
-   echo "== leg 3: cross-rank seam, z-split 2-realm Sod: matches sod-z on one rank, refused on $NP (issue #40)"
-   zfiles=("$CASE_DIR/sod-2realm-z.ini" "$CASE_DIR/sod-2realm-z-r1.ini" "$CASE_DIR/sod-2realm-z-r2.ini")
-   single="$CASE_DIR/work-$TAG-z-single"
-   multi="$CASE_DIR/work-$TAG-z-2realm-np1"
+   single="$CASE_DIR/work-$TAG-z-single-np1"
    RUN_NP=1 run "$single" sod-z.ini "$VERIF_DIR/sod/sod-z.ini"
+   multi="$CASE_DIR/work-$TAG-z-2realm-np1"
    RUN_NP=1 run "$multi" sod-2realm-z.ini "${zfiles[@]}"
    "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
-   refused="$CASE_DIR/work-$TAG-z-2realm"
-   RUN_MUST_FAIL=1 run "$refused" sod-2realm-z.ini "${zfiles[@]}"
-   if ! grep -aq 'error stop forest_object%populate_inter_realm_topology: .*(issue #40)' "$refused/log.txt"; then
-      echo "check.sh: the cross-rank seam run failed without the issue #40 message, see $refused/log.txt" >&2
-      exit 1
-   fi
-   echo "   refused: $(grep -a 'issue #40' "$refused/log.txt" | head -1 | cut -c1-120)..."
-else
-   echo "== leg 3 skipped: the cross-rank seam needs --np 2 or more"
 fi
 echo "multi-realm verification PASSED ($TAG)"

@@ -13,6 +13,7 @@ use :: adam_flux_register_object, only : flux_register_object
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_realm_object,         only : realm_object
+use :: adam_seam_exchange,        only : seam_fill_all
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
@@ -131,6 +132,8 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_local_dt_forest      !< Compute the local stability-limited time step.
       procedure, pass(self) :: end_stage_forest             !< End an integrator stage (staged path).
       procedure, pass(self) :: fill_seam_from_peer_forest   !< Fill inter-realm seam ghosts from a peer.
+      procedure, pass(self) :: pack_seam_cells_forest       !< Pack own cells of the cross-rank seam send rows.
+      procedure, pass(self) :: unpack_seam_cells_forest     !< Unpack the cross-rank seam receive rows into own ghosts.
       procedure, pass(self) :: finalize_forest              !< Finalize the realm.
       procedure, pass(self) :: initialize_forest            !< Initialize the realm.
       procedure, pass(self) :: is_done_forest               !< Return true if the realm is done.
@@ -388,17 +391,11 @@ contains
    class(flume_cpu_object), intent(inout)                   :: self     !< The equation.
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms.
    real(R8P)                                                :: norms(3) !< Norms of this rank.
-   integer(I4P)                                             :: p_s      !< Seam peer counter.
 
    if (self%physics%model == MODEL_EULER) return
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
    call self%update_ghost(q=self%q)
-   if (present(realm) .and. allocated(self%adam%maps%seam_local_map_ghost_cell) .and. &
-       allocated(self%adam%maps%seam_local_peer_realm)) then
-      do p_s=1, int(size(self%adam%maps%seam_local_peer_realm), I4P)
-         call self%fill_seam_from_peer_forest(peer=realm(self%adam%maps%seam_local_peer_realm(p_s)), p_idx=p_s)
-      enddo
-   endif
+   if (present(realm)) call seam_fill_all(self=self, realm=realm) ! local and cross-rank seam rows (issue #40)
    call self%set_divb_seam
    associate(hs=>self%fdv_half_stencils(1))
    if (hs > self%ngc) call mpih%error_stop(msg=': the div(B) stencil ([fdv].(fdv_order)) exceeds the ghost cells')
@@ -1213,6 +1210,50 @@ contains
       call mpih%error_stop(msg=': flume_cpu_object%fill_seam_from_peer_forest: peer realm is not a flume_cpu_object')
    endselect
    endsubroutine fill_seam_from_peer_forest
+
+   subroutine pack_seam_cells_forest(self, p_idx, buf)
+   !< Pack this realm's cells of the cross-rank seam send rows of peer slot `p_idx` from the active buffer (`q` when
+   !< `stage_active == 0`, else the active stage of `q_rk`), `nv` values per row (issue #40).
+   class(flume_cpu_object), intent(in)  :: self    !< The equation.
+   integer(I4P),            intent(in)  :: p_idx   !< Peer slot (the realm owning the ghosts).
+   real(R8P),               intent(out) :: buf(:)  !< Packed values.
+   integer(I4P)                         :: c, row  !< Counter and send row.
+   integer(I4P)                         :: b, i, j, k !< Cell.
+
+   associate(rows=>self%adam%maps%seam_mpi_send_cell, nv=>self%nv)
+   do c=1_I4P, self%adam%maps%seam_mpi_send_row_count(p_idx)
+      row = self%adam%maps%seam_mpi_send_row_start(p_idx) + c - 1_I4P
+      b = rows(row,2) ; i = rows(row,3) ; j = rows(row,4) ; k = rows(row,5)
+      if (self%stage_active > 0_I4P) then
+         buf(nv*(c-1)+1:nv*c) = self%rk%q_rk(:,i,j,k,b,self%stage_active)
+      else
+         buf(nv*(c-1)+1:nv*c) = self%q(:,i,j,k,b)
+      endif
+   enddo
+   endassociate
+   endsubroutine pack_seam_cells_forest
+
+   subroutine unpack_seam_cells_forest(self, p_idx, buf)
+   !< Unpack `buf` into this realm's seam ghosts of the cross-rank receive rows of peer slot `p_idx`, on the active
+   !< buffer, `nv` values per row (issue #40).
+   class(flume_cpu_object), intent(inout) :: self    !< The equation.
+   integer(I4P),            intent(in)    :: p_idx   !< Peer slot (the realm owning the cells).
+   real(R8P),               intent(in)    :: buf(:)  !< Packed values.
+   integer(I4P)                           :: c, row  !< Counter and receive row.
+   integer(I4P)                           :: b, i, j, k !< Ghost cell.
+
+   associate(rows=>self%adam%maps%seam_mpi_recv_cell, nv=>self%nv)
+   do c=1_I4P, self%adam%maps%seam_mpi_recv_row_count(p_idx)
+      row = self%adam%maps%seam_mpi_recv_row_start(p_idx) + c - 1_I4P
+      b = rows(row,2) ; i = rows(row,3) ; j = rows(row,4) ; k = rows(row,5)
+      if (self%stage_active > 0_I4P) then
+         self%rk%q_rk(:,i,j,k,b,self%stage_active) = buf(nv*(c-1)+1:nv*c)
+      else
+         self%q(:,i,j,k,b) = buf(nv*(c-1)+1:nv*c)
+      endif
+   enddo
+   endassociate
+   endsubroutine unpack_seam_cells_forest
 
    subroutine finalize_forest(self)
    !< Finalize the realm: close the output files and free the data (MPI is finalized once by the forest).
