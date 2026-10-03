@@ -136,8 +136,10 @@ $y$ and $z$ with 256 cells and along $x$ with 512.
 
 ![Ryu-Jones 2a](/flume/rj2a.png)
 
-$L_1$ below the recorded bound and decreasing from 256 to 512 cells (first order, as the discontinuities dominate); the
-$y$ and $z$ runs equal the $x$ run **bitwise** in the rotated frame. `mhd/rj2a/check.sh` (MV-4).
+The figure overlays the splitting scheme and `weno-riemann` with HLLD (characteristic interpolation), which are
+indistinguishable at this scale. $L_1$ below the recorded bound and decreasing from 256 to 512 cells (first order, as
+the discontinuities dominate); the $y$ and $z$ runs equal the $x$ run **bitwise** in the rotated frame.
+`mhd/rj2a/check.sh` (MV-4).
 
 ### Brio–Wu and Ryu–Jones 4d
 
@@ -170,6 +172,13 @@ decay of $\|\nabla\cdot\mathbf{B}\|_1$ from an initial peak of $\nabla\cdot\math
 | MV-5 `mhd/linear-wave/` | the fast, Alfvén, slow and entropy eigenmodes, amplitude $10^{-7}$ | about 5th order for every family |
 | MV-6 `mhd/cpaw/` | circularly polarised Alfvén wave (exact nonlinear solution), oblique in 2-D | orders 4.89 and 4.99 on 32/64/128; left and right polarisations **bitwise** equal |
 | MV-7 `mhd/vortex/` | magnetised vortex of Balsara (2004), GLM | $L_1$ order 5.01, $L_\infty$ 4.41 (pre-asymptotic); div B at truncation level |
+
+![MHD linear waves, order of accuracy](/flume/linear-wave-order.png)
+
+The 1-D linear waves on 16, 32 and 64 cells per wavelength, on the two schemes; the legend gives the orders of the two
+pairs. From 16 to 32 cells every family is at 4.96–4.97; at 64 cells the error is $10^{-13}$, six decades below the
+amplitude, and the round-off floor lowers the slow and entropy orders to 4.85 (which is why MV-5 asserts on the 16/32
+pair).
 
 ### Orszag–Tang vortex
 
@@ -262,6 +271,12 @@ rj2a/check.sh [--numerics hlld]                                               # 
 | linear waves, observed order | 4.96–4.98 | 4.96–4.97 |
 | Balsara–Spicer blast ($\beta = 2.5\cdot10^{-4}$, $128^2$, no limiter, no floors) | non-positive pressure at step 3 | reaches $t = 0.01$ (396 steps) |
 
+![Orszag-Tang, drift of the total energy under GLM and EGLM](/flume/eglm-energy.png)
+
+The total energy of the periodic Orszag–Tang box: GLM keeps it to round-off, EGLM changes it through its
+nonconservative sources, by $3.0\cdot10^{-4}$ (splitting) and $4.4\cdot10^{-4}$ (HLLD) at $t = 0.5$, within the EV-4
+bound.
+
 EV-2 runs at amplitude $10^{-3}$: EGLM couples the $(B_x, \psi)$ pair to the fluid (the damped cleaning energy becomes
 heat, the heat drives a flow, the source $-(\nabla\cdot\mathbf{B})\mathbf{u}$ moves $B_x$), which at the GLM amplitude
 0.1 floors the damped legs at a relative $L_1$ of $8\cdot10^{-5}$; at $10^{-3}$ EGLM equals GLM to 3 digits. EV-4
@@ -295,6 +310,25 @@ cd src/tests/flume/verification/mhd/positivity
 | PV-3, double rarefaction, 400 cells | splitting runs; HLLC fails at step 79 | passes, never limited | passes, up to 1024 |
 | PV-3, planar Sedov blast, 800 cells | splitting runs; HLLC fails at step 69 | passes, never limited | passes, up to 768 |
 | PV-4, isentropic vortex ($64^2$, $128^2$) and fast wave (16, 32 cells, EGLM) | — | bitwise equal to the run without the limiter | — |
+
+![Balsara-Spicer blast with the limiter](/flume/blast.png)
+
+![Wu-Shu blast with the limiter](/flume/blast-wushu.png)
+
+Both schemes reach the final time, but not with the same quality: the density of the splitting scheme carries
+grid-scale noise around the blast, mild at $\beta = 2.5\cdot10^{-4}$ and plain at $\beta = 2.51\cdot10^{-6}$, where HLLD
+stays clean. The limiter guarantees positivity, not accuracy: on strongly magnetised blasts `weno-riemann` with HLLD is
+the scheme to use.
+
+![Euler near vacuum with the limiter](/flume/near-vacuum.png)
+
+The near-vacuum problems on the two schemes, with the exact solution of LeBlanc and of the double rarefaction. On
+LeBlanc both schemes put the shock ahead of its exact position $x = 7.96$: by 0.33 at 400 cells and by 0.19 at 800
+(measured on the splitting scheme), an error that converges slowly under refinement, as reported for this problem in the
+literature, and that the limiter does not cause (the splitting scheme never limits here). On the double rarefaction the
+velocity is ill-defined where the density nearly vanishes, hence the kink at $x = 0$; on Sedov HLLC reaches a lower
+centre density than the splitting scheme ($4\cdot10^{-3}$ against $7\cdot10^{-3}$) and the ambient pressure stays at
+its initial $4\cdot10^{-13}$.
 
 PV-2 is the second blast of Wu & Shu (2018, Example 4.4): $p = 10^4$ in the disc, $\mathbf{B} = (1000/\sqrt{4\pi}, 0, 0)$,
 $t = 0.001$. PV-3 takes the near-vacuum problems of Zhang & Shu (2010): LeBlanc ($\gamma = 5/3$, $(\rho, e) = (1, 0.1)$

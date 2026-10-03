@@ -10,8 +10,9 @@ Usage:
     make_doc_figures.py --out DIR [--runs DIR] [--only NAME ...]
 
 `--runs` holds the re-runs of inputs whose work directories keep no checkpoint (the MHD cases), one sub-directory per
-case: orszag-tang, orszag-tang-amr, rotor, field-loop, brio-wu, rj4d, glm-pulse. A figure whose data is missing is
-skipped with a message. Needs numpy, h5py and matplotlib.
+case: orszag-tang, orszag-tang-amr, rotor, field-loop, brio-wu, rj4d, glm-pulse, and the cases of `make_doc_runs.sh`
+(rj2a, rj2a-hlld, the limited blasts, the Euler near-vacuum problems, the linear-wave ladders). A figure whose data is
+missing is skipped with a message. Needs numpy, h5py and matplotlib.
 """
 
 from __future__ import annotations
@@ -375,19 +376,22 @@ def fig_field_loop(out: Path, runs: Path) -> None:
                      "Field loop advected across the periodic box, 128²")
 
 
-def mhd_profile_figure(out: Path, name: str, work: Path, title: str, exact=None) -> None:  # noqa: ANN001
-    """Draw density, normal velocity, pressure and the tangential field of a 1-D MHD run."""
-    ini = read_ini(next(work.glob("*.ini")))
-    gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
-    axis, xs, q = profile(work, ngc, MHD)
-    pr = primitives(q, gamma, axis)
+def mhd_profile_figure(out: Path, name: str, work: Path, title: str, exact=None,  # noqa: ANN001
+                       label: str = "FLUME", extra: tuple[tuple[str, Path, str], ...] = ()) -> None:
+    """Draw density, normal velocity, pressure and the tangential field of a 1-D MHD run (and of the `extra` runs)."""
     keys = (("r", r"$\rho$"), ("u", r"$u_n$"), ("p", "$p$"), ("bt1", r"$B_{t1}$"), ("bt2", r"$B_{t2}$"))
     fig, axs = plt.subplots(1, 5, figsize=(16, 3.4), constrained_layout=True)
-    ex = exact(xs) if exact else None
-    for ax, (k, lab) in zip(axs, keys, strict=True):
-        if ex is not None:
-            ax.plot(xs, ex[k], "k-", lw=1.0, label="exact")
-        ax.plot(xs, pr[k], "o", ms=2.5, mfc="none", label="FLUME")
+    for n, (lab_run, w, marker) in enumerate(((label, work, "o"), *extra)):
+        ini = read_ini(next(w.glob("*.ini")))
+        gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
+        axis, xs, q = profile(w, ngc, MHD)
+        pr = primitives(q, gamma, axis)
+        ex = exact(xs) if exact and n == 0 else None
+        for ax, (k, _) in zip(axs, keys, strict=True):
+            if ex is not None:
+                ax.plot(xs, ex[k], "k-", lw=1.0, label="exact")
+            ax.plot(xs, pr[k], marker, ms=2.5, mfc="none", label=lab_run)
+    for ax, (_, lab) in zip(axs, keys, strict=True):
         ax.set_title(lab)
         ax.set_xlabel("x")
         ax.grid(alpha=0.3)
@@ -409,8 +413,8 @@ def fig_mhd_riemann(out: Path, runs: Path) -> None:
         return {"r": q[0], "u": q[1] / q[0], "p": (rj2a_oracle.GAMMA - 1.0) * (q[4] - kin - mag), "bt1": q[6],
                 "bt2": q[7]}
 
-    mhd_profile_figure(out, "rj2a", HERE / "mhd" / "rj2a" / f"{TAG}-none-256-x",
-                       "Ryu-Jones 2a (all seven waves), 256 cells", rj2a_exact)
+    mhd_profile_figure(out, "rj2a", runs / "rj2a", "Ryu-Jones 2a (all seven waves), 256 cells", rj2a_exact,
+                       label="weno (split)", extra=(("weno-riemann HLLD", runs / "rj2a-hlld", "s"),))
     mhd_profile_figure(out, "brio-wu", runs / "brio-wu", "Brio-Wu shock tube, GLM")
     mhd_profile_figure(out, "rj4d", runs / "rj4d", "Ryu-Jones 4d")
 
@@ -443,9 +447,132 @@ def fig_glm_pulse(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_blast(out: Path, runs: Path) -> None:
+    """PV-1 and PV-2: the limited blasts, density and magnetic pressure on the two schemes."""
+    cases = (("blast", r"Balsara-Spicer blast, $\beta = 2.5\cdot10^{-4}$, 128², t = 0.01, EGLM, positivity limiter"),
+             ("blast-wushu", r"Wu-Shu blast, $\beta = 2.51\cdot10^{-6}$, 128², t = 0.001, EGLM, positivity limiter"))
+    for name, title in cases:
+        fig, axs = plt.subplots(2, 2, figsize=(11.2, 9.4), constrained_layout=True)
+        for row, (scheme, lab) in zip(axs, (("split", "weno (split)"), ("hlld", "weno-riemann HLLD")), strict=True):
+            work = runs / f"{name}-{scheme}"
+            ini = read_ini(next(work.glob("*.ini")))
+            gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
+            bl = first_plane(blocks(work, ngc, (*MHD, "psi")))
+            for ax, (key, sym, cmap) in zip(row, (("r", r"$\rho$", "magma"), ("pb", r"$|B|^2/2$", "viridis")),
+                                            strict=True):
+                im = field_map(ax, bl, lambda b, k=key, g=gamma: plane(b, g, k), cmap=cmap)
+                fig.colorbar(im, ax=ax, shrink=0.85)
+                ax.set_title(f"{sym}, {lab}")
+                ax.set_xlabel("x")
+                ax.set_ylabel("y")
+        fig.suptitle(title)
+        fig.savefig(out / f"{name}.png", dpi=DPI)
+        plt.close(fig)
+
+
+def double_rarefaction_exact(xs: np.ndarray, t: float, gamma: float, state: tuple) -> tuple:
+    """Return density, velocity and pressure of two symmetric rarefactions leaving the origin (state: rho, |u|, p)."""
+    r0, u0, p0 = state
+    a0 = math.sqrt(gamma * p0 / r0)
+    xi = np.abs(xs) / t  # the right half; the left one is its mirror image
+    a = np.clip(2.0 / (gamma + 1.0) * (a0 - 0.5 * (gamma - 1.0) * (u0 - xi)), 0.0, a0)
+    fan = xi < u0 + a0
+    r = np.where(fan, r0 * (a / a0) ** (2.0 / (gamma - 1.0)), r0)
+    p = np.where(fan, p0 * (a / a0) ** (2.0 * gamma / (gamma - 1.0)), p0)
+    u = np.where(fan, xi - a, u0)
+    return r, np.sign(xs) * u, p
+
+
+def fig_vacuum(out: Path, runs: Path) -> None:
+    """PV-3: LeBlanc, the double rarefaction and the planar Sedov blast, the two schemes with the limiter."""
+    cases = (("leblanc", "LeBlanc shock tube, 400 cells, t = 6", True),
+             ("double-rarefaction", "double rarefaction, 400 cells, t = 0.6", False),
+             ("sedov", "planar Sedov blast, 800 cells, t = 0.001", True))
+    fig, axs = plt.subplots(3, 3, figsize=(13.5, 10.2), constrained_layout=True)
+    for row, (name, title, logy) in zip(axs, cases, strict=True):
+        for scheme, lab, marker in (("split", "weno (split)", "s"), ("hllc", "weno-riemann HLLC", "o")):
+            work = runs / f"{name}-{scheme}"
+            ini = read_ini(next(work.glob("*.ini")))
+            gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
+            axis, xs, q = profile(work, ngc, EULER)
+            pr = primitives(q, gamma, axis)
+            if scheme == "split" and name != "sedov":
+                t = float(ini["time"]["time_max"])
+                reg = [ini[f"initial_conditions_region_{i}"] for i in (1, 2)]
+                st = [(float(s["r"]), float(s["u"]), float(s["p"])) for s in reg]
+                if name == "leblanc":
+                    ex = exact_riemann(xs, t, float(reg[0]["emax_x"]), gamma, st[0], st[1])
+                else:
+                    ex = double_rarefaction_exact(xs, t, gamma, st[1])
+                for ax, e in zip(row, ex, strict=True):
+                    ax.plot(xs, e, "k-", lw=1.0, label="exact")
+            for ax, k in zip(row, ("r", "u", "p"), strict=True):
+                ax.plot(xs, pr[k], marker, ms=2.5, mfc="none", label=lab)
+        for ax, sym in zip(row, (r"$\rho$", "$u$", "$p$"), strict=True):
+            ax.set_title(f"{sym}, {title}", fontsize=9)
+            ax.set_xlabel("x")
+            ax.grid(alpha=0.3)
+        if logy:
+            row[0].set_yscale("log")
+            row[2].set_yscale("log")
+        row[0].legend(fontsize=8)
+    fig.suptitle("Euler near vacuum with the positivity limiter (no floors)")
+    fig.savefig(out / "near-vacuum.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_eglm_energy(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """EV-4: drift of the total energy on the Orszag-Tang vortex, GLM and EGLM on the two schemes (history files)."""
+    ot = HERE / "mhd" / "orszag-tang"
+    curves = (("GLM, weno (split)", TAG, "C0", "-"), ("EGLM, weno (split)", f"{TAG}-eglm", "C1", "-"),
+              ("GLM, weno-riemann HLLD", f"{TAG}-hlld-characteristic-6th-weno", "C0", "--"),
+              ("EGLM, weno-riemann HLLD", f"{TAG}-hlld-characteristic-6th-weno-eglm", "C1", "--"))
+    fig, ax = plt.subplots(figsize=(7.2, 4.2), constrained_layout=True)
+    for lab, d, colour, style in curves:
+        h = np.loadtxt(ot / d / "orszag-tang-conservation_history.dat", skiprows=1)
+        ax.plot(h[:, 1], (h[:, 6] - h[0, 6]) / h[0, 6], color=colour, ls=style, label=lab)
+    ax.set_xlabel("t")
+    ax.set_ylabel(r"$(\int E - \int E_0) / \int E_0$")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8)
+    ax.set_title("Orszag-Tang vortex, 128²: drift of the total energy")
+    fig.savefig(out / "eglm-energy.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_order(out: Path, runs: Path) -> None:
+    """MV-5: convergence of the four linear-wave families (1-D), the two schemes."""
+    sys.path.insert(0, str(HERE / "mhd" / "linear-wave"))
+    import linear_wave_oracle  # noqa: PLC0415
+
+    ladder = (16, 32, 64)
+    fig, axs = plt.subplots(1, 2, figsize=(11, 4.4), constrained_layout=True, sharey=True)
+    for ax, (scheme, lab) in zip(axs, (("split", "weno (split)"), ("hlld", "weno-riemann HLLD")), strict=True):
+        for wave, marker in (("fast", "o"), ("alfven", "s"), ("slow", "^"), ("entropy", "d")):
+            eps = []
+            for n in ladder:
+                work = runs / f"linear-wave-{scheme}-{wave}-{n}"
+                eps.append(linear_wave_oracle.error(work, int(read_ini(next(work.glob("*.ini")))["grid"]["ngc"])))
+            orders = " / ".join(f"{math.log2(a / b):.2f}" for a, b in zip(eps[:-1], eps[1:], strict=True))
+            ax.loglog(ladder, eps, marker + "-", ms=5, mfc="none", label=f"{wave}, orders {orders}")
+        ref = [eps[0] * (ladder[0] / n) ** 5 for n in ladder]
+        ax.loglog(ladder, ref, "k:", lw=1.0, label=r"$N^{-5}$")
+        ax.set_xticks(ladder, [str(n) for n in ladder])
+        ax.xaxis.set_minor_formatter(mpl.ticker.NullFormatter())
+        ax.set_xlabel("cells per wavelength")
+        ax.set_title(lab)
+        ax.grid(alpha=0.3, which="both")
+        ax.legend(fontsize=8)
+    axs[0].set_ylabel(r"$\epsilon$ after one period")
+    fig.suptitle("MHD linear waves (Stone et al. 2008), amplitude $10^{-7}$: order of accuracy")
+    fig.savefig(out / "linear-wave-order.png", dpi=DPI)
+    plt.close(fig)
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "conservation": fig_conservation, "orszag-tang": fig_orszag_tang,
-           "rotor": fig_rotor, "field-loop": fig_field_loop, "mhd-riemann": fig_mhd_riemann, "glm-pulse": fig_glm_pulse}
+           "rotor": fig_rotor, "field-loop": fig_field_loop, "mhd-riemann": fig_mhd_riemann, "glm-pulse": fig_glm_pulse,
+           "blast": fig_blast, "near-vacuum": fig_vacuum, "eglm-energy": fig_eglm_energy, "order": fig_order}
 
 
 def main() -> int:
