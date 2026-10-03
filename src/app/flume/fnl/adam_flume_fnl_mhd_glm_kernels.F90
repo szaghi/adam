@@ -19,7 +19,8 @@ use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_glm
                                       conservative_to_auxiliary=>mhd_conservative_to_auxiliary,             &
                                       mhd_fast_speed, mhd_glm_face_split_fluxes, mhd_sum3
 use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
-                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD_GLM, S_MAX
+                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD_GLM, POSITIVITY_LIMITER_EPS, &
+                                      POSITIVITY_LIMITER_KAPPA, S_MAX
 ! third party modules
 use :: penf,                   only : I4P, I8P, R8P
 
@@ -27,6 +28,7 @@ implicit none
 private
 public :: add_glm_damping_dev
 public :: apply_floors_dev
+public :: blend_inadmissible_ghosts_dev
 public :: compute_conservation_dev
 public :: compute_divb_norms_dev
 public :: compute_face_fluxes_dev
@@ -42,6 +44,8 @@ contains
 #include "adam_flume_fnl_aux_kernels_agnostic.INC"
 
 #include "adam_flume_fnl_mhd_kernels_agnostic.INC"
+
+#include "adam_flume_fnl_ghost_kernels_agnostic.INC"
 
    subroutine add_glm_damping_dev(ni, nj, nk, ngc, blocks_number, damping, q_gpu, dq_gpu)
    !< Add the GLM damping source to the residuals of the interior cells, `dq(psi) = dq(psi) - (c_h^2 / c_p^2) psi`
@@ -97,4 +101,16 @@ contains
 
    e = 0._R8P
    endfunction cleaning_energy
+
+   pure function internal_energy(q) result(e)
+   !< Internal-energy adapter of the ghost positivity blend: `E` minus the kinetic and magnetic energies, per unit volume
+   !< (the mixed GLM keeps `psi` out of the energy).
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: e       !< Internal energy per unit volume.
+   !$acc routine seq
+   !$omp declare target
+
+   e = q(IQ_RE) - 0.5_R8P * mhd_sum3(q(IQ_RU)**2, q(IQ_RV)**2, q(IQ_RW)**2) / q(IQ_R) - &
+       0.5_R8P * mhd_sum3(q(IQ_BX)**2, q(IQ_BY)**2, q(IQ_BZ)**2)
+   endfunction internal_energy
 endmodule adam_flume_fnl_mhd_glm_kernels

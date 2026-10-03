@@ -27,6 +27,11 @@ program test_flume_positivity
 !< 5. non-finite high-order fluxes (issue #47, M3-P6): each trial sets one face flux component to NaN and one to
 !<    +infinity; the kernel flags their cells (count, must be > 0) and after the blend no face flux holds a non-finite
 !<    value (count, must be 0): those faces take the backbone flux.
+!< 6. the ghost positivity blend (issue #50, D2, `blend_inadmissible_ghosts`): on each trial's block three face ghosts
+!<    are made inadmissible (negative internal energy, a NaN momentum, negative density) and one edge ghost too; the
+!<    blend must count exactly the three face ghosts, take each above `POSITIVITY_LIMITER_KAPPA` times the density and
+!<    internal energy of its interior anchor (within the round-off of the total energy), and leave every other value,
+!<    the edge ghost included, bitwise unchanged (count of failures, must be 0).
 !<
 !< **Not pinned: the source term of the corners** (`dt (s_hi - s_lo)`, EGLM). Measured (M3-P5a): removing it is not
 !< detected, and a case with the high-order fluxes equal to the backbone ones never needs limiting, not even on cold,
@@ -35,11 +40,14 @@ program test_flume_positivity
 !< two source orders differ at O(h^2). The source path is exercised by the blast (EGLM, splitting scheme).
 
 use :: adam_flume_cpu_euler_kernels,    only : blend_euler=>blend_positivity_fluxes,                &
-                                               factors_euler=>compute_positivity_factors
+                                               factors_euler=>compute_positivity_factors,           &
+                                               ghosts_euler=>blend_inadmissible_ghosts
 use :: adam_flume_cpu_mhd_kernels,      only : blend_mhd=>blend_positivity_fluxes,                  &
-                                               factors_mhd=>compute_positivity_factors
+                                               factors_mhd=>compute_positivity_factors,             &
+                                               ghosts_mhd=>blend_inadmissible_ghosts
 use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources_limited, add_glm_damping,           &
                                                blend_eglm=>blend_positivity_fluxes,                 &
+                                               ghosts_eglm=>blend_inadmissible_ghosts,              &
                                                factors_eglm=>compute_positivity_factors
 use :: adam_flume_euler_library,        only : compute_riemann_llf, conservative_to_auxiliary
 use :: adam_flume_mhd_library,          only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary, &
@@ -68,6 +76,7 @@ integer(I4P)            :: unlim(3)            !< Inadmissible updates without t
 integer(I4P)            :: below(3)            !< Updates below the relative floor per model.
 integer(I4P)            :: nonf(3)             !< Cells flagged for a non-finite high-order flux per model.
 integer(I4P)            :: leak(3)             !< Non-finite face flux values after the blend per model.
+integer(I4P)            :: gfail(3)            !< Ghost blend failures per model.
 integer(I4P)            :: seed(64)            !< Random generator seed.
 integer(I4P)            :: ns, n_, m           !< Seed size, counters.
 logical                 :: test_passed         !< Aggregate pass flag.
@@ -78,11 +87,11 @@ call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
 seed = [(20261002_I4P + n_, n_=1, size(seed))]
 call random_seed(put=seed(1:ns))
-fails = 0 ; limited = 0 ; bad = 0 ; unlim = 0 ; below = 0 ; nonf = 0 ; leak = 0
+fails = 0 ; limited = 0 ; bad = 0 ; unlim = 0 ; below = 0 ; nonf = 0 ; leak = 0 ; gfail = 0
 do n_=1, N
    do m=1, 3
       call trial(model=m, fails=fails(m), limited=limited(m), bad=bad(m), unlim=unlim(m), below=below(m), &
-                 nonf=nonf(m), leak=leak(m))
+                 nonf=nonf(m), leak=leak(m), gfail=gfail(m))
    enddo
 enddo
 test_passed = .true.
@@ -91,9 +100,10 @@ do m=1, 3
                 ', inadmissible backbones '//trim(str(bad(m)))//', unlimited inadmissible '//        &
                 trim(str(unlim(m)))//', below the relative floor '//trim(str(below(m)))//      &
                 ', non-finite flux cells '//trim(str(nonf(m)))//', non-finite fluxes after the blend '//  &
-                trim(str(leak(m)))//' ('//trim(str(N))//' trials of '//trim(str(NC**3))//' cells)'
+                trim(str(leak(m)))//', ghost blend failures '//trim(str(gfail(m)))//' ('//trim(str(N))//      &
+                ' trials of '//trim(str(NC**3))//' cells)'
    test_passed = test_passed .and. fails(m) == 0_I4P .and. limited(m) > 0_I4P .and. unlim(m) > 0_I4P .and. &
-                 below(m) == 0_I4P .and. nonf(m) > 0_I4P .and. leak(m) == 0_I4P
+                 below(m) == 0_I4P .and. nonf(m) > 0_I4P .and. leak(m) == 0_I4P .and. gfail(m) == 0_I4P
 enddo
 if (test_passed) then
    print '(A)', 'TEST PASSED: flume positivity limiter'
@@ -128,7 +138,7 @@ contains
    if (size(q) == NV_MHD_EGLM) e = e - 0.5_R8P * q(IQ_PSI)**2
    endfunction energy
 
-   subroutine trial(model, fails, limited, bad, unlim, below, nonf, leak)
+   subroutine trial(model, fails, limited, bad, unlim, below, nonf, leak, gfail)
    !< One random trial of a model (1 Euler, 2 MHD, 3 EGLM).
    integer(I4P), intent(in)    :: model                     !< Model.
    integer(I4P), intent(inout) :: fails, limited, bad       !< Counters.
@@ -136,6 +146,7 @@ contains
    integer(I4P), intent(inout) :: below                     !< Updates below the relative floor.
    integer(I4P), intent(inout) :: nonf                      !< Cells flagged for a non-finite high-order flux.
    integer(I4P), intent(inout) :: leak                      !< Non-finite face flux values after the blend.
+   integer(I4P), intent(inout) :: gfail                     !< Ghost blend failures.
    integer(I4P)                :: nn                        !< Flagged cells of the trial.
    real(R8P), allocatable      :: fbx(:,:,:,:,:), fby(:,:,:,:,:), fbz(:,:,:,:,:) !< Backbone face fluxes.
    real(R8P), allocatable      :: q(:,:,:,:,:)              !< State.
@@ -238,6 +249,7 @@ contains
       fbz(:,i,j,k,1) = flz(:,i,j,k,1)
       call perturb(f=flz(:,i,j,k,1), q=q(:,i,j,k,1), sigma=smax)
    enddo ; enddo ; enddo
+   call ghost_check(model, q, is_null, gfail)
    lam = 1._R8P
    call update(model, q, qa, lam, flx, fly, flz, dt, dxyz, is_null, unlim)
    flx(IQ_R,2,2,2,1) = ieee_value(1._R8P, ieee_quiet_nan)
@@ -287,6 +299,45 @@ contains
       enddo
    enddo
    endsubroutine trial
+
+   subroutine ghost_check(model, q, is_null, gfail)
+   !< Check 6: corrupt three face ghosts and one edge ghost of a copy of `q`, blend, and count the failures.
+   integer(I4P), intent(in)    :: model                     !< Model.
+   real(R8P),    intent(in)    :: q(:,1-NGC:,1-NGC:,1-NGC:,:) !< Random admissible state (ghosts included).
+   logical,      intent(in)    :: is_null(3)                !< Null directions.
+   integer(I4P), intent(inout) :: gfail                     !< Failures.
+   real(R8P), allocatable      :: qg(:,:,:,:,:), q0(:,:,:,:,:) !< Blended copy, corrupted reference.
+   integer(I4P)                :: g(3,3), a(3,3)            !< Corrupted face ghosts and their interior anchors.
+   integer(I4P)                :: blended, n                !< Ghosts blended, counter.
+   real(R8P)                   :: e                         !< Internal energy.
+
+   g = reshape([0, 2, 3, NC+2, 1, 1, 2, 0, 4], [3, 3])
+   a = reshape([1, 2, 3, NC, 1, 1, 2, 1, 4], [3, 3])
+   q0 = q
+   e = energy(q0(:,g(1,1),g(2,1),g(3,1),1))
+   q0(IQ_RE,g(1,1),g(2,1),g(3,1),1) = q0(IQ_RE,g(1,1),g(2,1),g(3,1),1) - 2._R8P * e
+   q0(IQ_RU,g(1,2),g(2,2),g(3,2),1) = ieee_value(1._R8P, ieee_quiet_nan)
+   q0(IQ_R,g(1,3),g(2,3),g(3,3),1) = -q0(IQ_R,g(1,3),g(2,3),g(3,3),1)
+   q0(IQ_R,0,0,2,1) = -q0(IQ_R,0,0,2,1)
+   qg = q0
+   select case(model)
+   case(1)
+      call ghosts_euler(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, is_null=is_null, q=qg, blended=blended)
+   case(2)
+      call ghosts_mhd(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, is_null=is_null, q=qg, blended=blended)
+   case default
+      call ghosts_eglm(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, is_null=is_null, q=qg, blended=blended)
+   endselect
+   if (blended /= 3_I4P) gfail = gfail + 1_I4P
+   do n=1, 3
+      associate(u=>qg(:,g(1,n),g(2,n),g(3,n),1), v=>q0(:,a(1,n),a(2,n),a(3,n),1))
+      if (.not.(u(IQ_R) >= POSITIVITY_LIMITER_KAPPA * v(IQ_R) * (1._R8P - 1.e-12_R8P))) gfail = gfail + 1_I4P
+      if (.not.(energy(u) >= POSITIVITY_LIMITER_KAPPA * energy(v) - 1.e-12_R8P * abs(v(IQ_RE)))) gfail = gfail + 1_I4P
+      endassociate
+      qg(:,g(1,n),g(2,n),g(3,n),1) = q0(:,g(1,n),g(2,n),g(3,n),1)
+   enddo
+   if (any(transfer(qg, 0_I8P, size(qg)) /= transfer(q0, 0_I8P, size(q0)))) gfail = gfail + 1_I4P
+   endsubroutine ghost_check
 
    subroutine backbone(model, d, qL, qR, f)
    !< The backbone flux of a model (1 Euler, 2 MHD, 3 EGLM).

@@ -44,7 +44,8 @@ use :: adam_flume_fnl_mhd_eglm_hll_kernels,     only : compute_riemann_face_flux
 use :: adam_flume_fnl_mhd_eglm_hlld_kernels,    only : &
                                                    compute_riemann_face_fluxes_mhd_eglm_hlld_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf_dev=>compute_riemann_face_fluxes_dev
-use :: adam_flume_fnl_euler_kernels,   only : blend_positivity_fluxes_euler_dev=>blend_positivity_fluxes_dev,          &
+use :: adam_flume_fnl_euler_kernels,   only : blend_inadmissible_ghosts_euler_dev=>blend_inadmissible_ghosts_dev,      &
+                                              blend_positivity_fluxes_euler_dev=>blend_positivity_fluxes_dev,          &
                                               compute_conservation_euler_dev=>compute_conservation_dev,                &
                                               compute_positivity_factors_euler_dev=>compute_positivity_factors_dev,    &
                                               compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
@@ -52,6 +53,7 @@ use :: adam_flume_fnl_euler_kernels,   only : blend_positivity_fluxes_euler_dev=
                                               compute_q_aux_euler_dev=>compute_q_aux_dev,                              &
                                               count_nonfinite_euler_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors_dev,                           &
+                                              blend_inadmissible_ghosts_mhd_dev=>blend_inadmissible_ghosts_dev,       &
                                               blend_positivity_fluxes_mhd_dev=>blend_positivity_fluxes_dev,           &
                                               compute_positivity_factors_mhd_dev=>compute_positivity_factors_dev,     &
                                               compute_divb_norms_mhd_dev=>compute_divb_norms_dev,                     &
@@ -62,6 +64,7 @@ use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors
                                               count_nonfinite_mhd_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_mhd_eglm_kernels, only : add_eglm_sources_dev, add_eglm_sources_limited_dev,                  &
                                                add_glm_damping_eglm_dev=>add_glm_damping_dev,                         &
+                                               blend_inadmissible_ghosts_mhd_eglm_dev=>blend_inadmissible_ghosts_dev, &
                                                blend_positivity_fluxes_mhd_eglm_dev=>blend_positivity_fluxes_dev,     &
                                                compute_positivity_factors_mhd_eglm_dev=>                              &
                                                compute_positivity_factors_dev,                                        &
@@ -74,6 +77,7 @@ use :: adam_flume_fnl_mhd_eglm_kernels, only : add_eglm_sources_dev, add_eglm_so
                                                compute_speed_max_mhd_eglm_dev=>compute_speed_max_dev,                 &
                                                count_nonfinite_mhd_eglm_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_mhd_glm_dev=>apply_floors_dev,  &
+                                              blend_inadmissible_ghosts_mhd_glm_dev=>blend_inadmissible_ghosts_dev,   &
                                               compute_divb_norms_mhd_glm_dev=>compute_divb_norms_dev,                 &
                                               compute_conservation_mhd_glm_dev=>compute_conservation_dev,             &
                                               compute_face_fluxes_mhd_glm_dev=>compute_face_fluxes_dev,               &
@@ -767,19 +771,40 @@ contains
    endsubroutine set_boundary_conditions
 
    subroutine update_ghost(self, q_gpu)
-   !< Update ghost cells on the device: intra-realm local copies, GPU-direct MPI exchange, boundary conditions.
+   !< Update ghost cells on the device: intra-realm local copies, GPU-direct MPI exchange, boundary conditions, then the
+   !< positivity blend of the inadmissible face ghosts (issue #50, D2; see the CPU `update_ghost`).
    class(flume_fnl_object), intent(inout) :: self              !< The equation.
    real(R8P),               intent(inout) :: q_gpu(1:,         &
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1:)         !< Conservative variables.
+   integer(I4P)                           :: blended           !< Face ghosts blended toward the interior.
 
    call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
    call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
                                             comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
                                             q_gpu=q_gpu)
    call self%set_boundary_conditions(q_gpu=q_gpu)
+   blended = 0_I4P
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, is_null=>self%adam%grid%null_xyz)
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call blend_inadmissible_ghosts_euler_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
+                                               q_gpu=q_gpu, blended=blended)
+   case(MODEL_MHD)
+      call blend_inadmissible_ghosts_mhd_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
+                                             q_gpu=q_gpu, blended=blended)
+   case(MODEL_MHD_GLM)
+      call blend_inadmissible_ghosts_mhd_glm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
+                                                 q_gpu=q_gpu, blended=blended)
+   case(MODEL_MHD_EGLM)
+      call blend_inadmissible_ghosts_mhd_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
+                                                  q_gpu=q_gpu, blended=blended)
+   endselect
+   endassociate
+   if (blended > 0_I4P) print '(A)', mpih_fnl%myrankstr//'ghost positivity: '//trim(str(blended))// &
+                                     ' inadmissible face ghosts blended toward the interior at step '//trim(str(self%time%it))
    endsubroutine update_ghost
 
    ! forest methods

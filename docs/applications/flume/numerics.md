@@ -165,7 +165,14 @@ section: a geometric box, a variable gradient, or the surface of an immersed sol
 one level (2:1 balance). At a coarse–fine face:
 
 - the **ghost cells** of the fine block are interpolated from the coarse one (the library seam ghost fill), and the
-  coarse ghosts are restricted from the fine cells;
+  coarse ghosts are restricted from the fine cells. The interpolant (tricubic by default) works variable by variable, so
+  next to a strong shock it can return an inadmissible state: at low β the internal energy is a small residual of
+  $E - |\mathbf{B}|^2/2$, and on the Balsara–Spicer blast across a 2:1 seam the fine ghosts reach $\rho e < 0$, which
+  makes the high-order flux non-finite (issue #50). After every ghost fill, an inadmissible face ghost is therefore
+  blended toward the adjacent interior cell, $g \leftarrow q_\text{in} + t\,(g - q_\text{in})$, with the largest $t$ that
+  keeps $\rho$ and $\rho e$ above the limiter's floors of $q_\text{in}$ (a non-finite ghost takes $q_\text{in}$). An
+  admissible ghost is never touched, so the blend changes nothing else and costs one scan of the face ghosts; the log
+  reports the ghosts blended, per rank;
 - **conservation** is restored by the Berger–Colella **reflux**: the fluxes of every Runge–Kutta stage through the seam
   are accumulated in a flux register, weighted by the stage's coefficient in the step, and at the end of the step the
   coarse cells next to the seam are corrected by the difference between the fine fluxes and their own

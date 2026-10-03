@@ -19,6 +19,7 @@ use :: penf,                     only : I4P, I8P, R8P
 
 implicit none
 private
+public :: blend_inadmissible_ghosts
 public :: blend_positivity_fluxes
 public :: compute_face_fluxes
 public :: compute_lambda_max
@@ -33,6 +34,8 @@ contains
 #include "adam_flume_cpu_aux_kernels_agnostic.INC"
 
 #include "adam_flume_cpu_positivity_kernels_agnostic.INC"
+
+#include "adam_flume_cpu_ghost_kernels_agnostic.INC"
 
    subroutine compute_lambda_max(ni, nj, nk, ngc, blocks_number, gamma, R, dxyz, is_null, q, lambda_max)
    !< Compute `max(sum_d (|u_d| + a) / dx_d)` over the interior cells (null directions excluded).

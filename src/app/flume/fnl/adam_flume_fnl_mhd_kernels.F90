@@ -28,6 +28,7 @@ use :: penf,                   only : I4P, I8P, R8P
 implicit none
 private
 public :: apply_floors_dev
+public :: blend_inadmissible_ghosts_dev
 public :: blend_positivity_fluxes_dev
 public :: compute_conservation_dev
 public :: compute_divb_norms_dev
@@ -47,6 +48,8 @@ contains
 #include "adam_flume_fnl_mhd_kernels_agnostic.INC"
 
 #include "adam_flume_fnl_positivity_kernels_agnostic.INC"
+
+#include "adam_flume_fnl_ghost_kernels_agnostic.INC"
 
    ! private procedures
    pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er)

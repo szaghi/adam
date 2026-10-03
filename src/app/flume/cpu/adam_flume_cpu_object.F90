@@ -36,13 +36,15 @@ use :: adam_flume_cpu_mhd_glm_llf_kernels,      only : compute_riemann_face_flux
 use :: adam_flume_cpu_mhd_eglm_hll_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_hll=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_eglm_hlld_kernels,    only : compute_riemann_face_fluxes_mhd_eglm_hlld=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_euler_kernels,   only : blend_positivity_fluxes_euler=>blend_positivity_fluxes,                &
+use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>blend_inadmissible_ghosts,            &
+                                              blend_positivity_fluxes_euler=>blend_positivity_fluxes,                &
                                               compute_face_fluxes_euler=>compute_face_fluxes,                        &
                                               compute_positivity_factors_euler=>compute_positivity_factors,          &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
                                               compute_q_aux_euler=>compute_q_aux,                                    &
                                               count_nonfinite_euler=>count_nonfinite
 use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,                                   &
+                                              blend_inadmissible_ghosts_mhd=>blend_inadmissible_ghosts,            &
                                               blend_positivity_fluxes_mhd=>blend_positivity_fluxes,                &
                                               compute_positivity_factors_mhd=>compute_positivity_factors,          &
                                               compute_divb_norms_mhd=>compute_divb_norms,                          &
@@ -52,6 +54,7 @@ use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,   
                                               count_nonfinite_mhd=>count_nonfinite
 use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources, add_eglm_sources_limited,                      &
                                                add_glm_damping_eglm=>add_glm_damping,                           &
+                                               blend_inadmissible_ghosts_mhd_eglm=>blend_inadmissible_ghosts,   &
                                                blend_positivity_fluxes_mhd_eglm=>blend_positivity_fluxes,       &
                                                compute_positivity_factors_mhd_eglm=>compute_positivity_factors, &
                                                apply_floors_mhd_eglm=>apply_floors,                             &
@@ -62,6 +65,7 @@ use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources, add_eglm_source
                                                compute_speed_max_mhd_eglm=>compute_speed_max,                   &
                                                count_nonfinite_mhd_eglm=>count_nonfinite
 use :: adam_flume_cpu_mhd_glm_kernels, only : add_glm_damping, apply_floors_mhd_glm=>apply_floors,              &
+                                              blend_inadmissible_ghosts_mhd_glm=>blend_inadmissible_ghosts,        &
                                               compute_divb_norms_mhd_glm=>compute_divb_norms,                      &
                                               compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
                                               compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
@@ -668,7 +672,9 @@ contains
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q)
-   !< Update ghost cells: intra-realm local copies, MPI exchange, boundary conditions.
+   !< Update ghost cells: intra-realm local copies, MPI exchange, boundary conditions, then the positivity blend of the
+   !< inadmissible face ghosts (issue #50, D2: a coarse-to-fine seam interpolant of admissible states may be inadmissible;
+   !< every other ghost is a copy or a boundary state, admissible, and untouched).
    !<
    !< Inter-realm seam ghosts are filled by the forest (`fill_seam_from_peer_forest`), not here.
    class(flume_cpu_object), intent(inout) :: self          !< The equation.
@@ -677,10 +683,30 @@ contains
                                                1-self%ngc:,&
                                                1-self%ngc:,&
                                                1:)         !< Conservative variables.
+   integer(I4P)                           :: blended       !< Face ghosts blended toward the interior.
 
    call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
    call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q)
    call self%set_boundary_conditions(q=q)
+   blended = 0_I4P
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, is_null=>self%adam%grid%null_xyz)
+   select case(self%physics%model)
+   case(MODEL_EULER)
+      call blend_inadmissible_ghosts_euler(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                           blended=blended)
+   case(MODEL_MHD)
+      call blend_inadmissible_ghosts_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                         blended=blended)
+   case(MODEL_MHD_GLM)
+      call blend_inadmissible_ghosts_mhd_glm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                             blended=blended)
+   case(MODEL_MHD_EGLM)
+      call blend_inadmissible_ghosts_mhd_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                              blended=blended)
+   endselect
+   endassociate
+   if (blended > 0_I4P) print '(A)', mpih%myrankstr//'ghost positivity: '//trim(str(blended))// &
+                                     ' inadmissible face ghosts blended toward the interior at step '//trim(str(self%time%it))
    endsubroutine update_ghost
 
    ! forest methods

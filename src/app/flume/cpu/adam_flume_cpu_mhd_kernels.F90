@@ -24,6 +24,7 @@ use :: penf,                   only : I4P, I8P, R8P
 implicit none
 private
 public :: apply_floors
+public :: blend_inadmissible_ghosts
 public :: blend_positivity_fluxes
 public :: compute_divb_norms
 public :: compute_face_fluxes
@@ -42,6 +43,8 @@ contains
 #include "adam_flume_cpu_mhd_kernels_agnostic.INC"
 
 #include "adam_flume_cpu_positivity_kernels_agnostic.INC"
+
+#include "adam_flume_cpu_ghost_kernels_agnostic.INC"
 
    ! private procedures
    pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er)

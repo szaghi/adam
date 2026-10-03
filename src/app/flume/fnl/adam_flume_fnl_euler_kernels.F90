@@ -23,6 +23,7 @@ use :: penf,                     only : I4P, I8P, R8P
 
 implicit none
 private
+public :: blend_inadmissible_ghosts_dev
 public :: blend_positivity_fluxes_dev
 public :: compute_conservation_dev
 public :: compute_face_fluxes_dev
@@ -38,6 +39,8 @@ contains
 #include "adam_flume_fnl_aux_kernels_agnostic.INC"
 
 #include "adam_flume_fnl_positivity_kernels_agnostic.INC"
+
+#include "adam_flume_fnl_ghost_kernels_agnostic.INC"
 
    subroutine compute_conservation_dev(ni, nj, nk, ngc, blocks_number, dxyz_gpu, q_gpu, integrals)
    !< Compute the volume integrals of the conservative variables (interior cells). The cell volume includes the null

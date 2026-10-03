@@ -29,6 +29,7 @@ public :: add_eglm_sources
 public :: add_eglm_sources_limited
 public :: add_glm_damping
 public :: apply_floors
+public :: blend_inadmissible_ghosts
 public :: blend_positivity_fluxes
 public :: compute_divb_norms
 public :: compute_face_fluxes
@@ -47,6 +48,8 @@ contains
 #include "adam_flume_cpu_mhd_kernels_agnostic.INC"
 
 #include "adam_flume_cpu_positivity_kernels_agnostic.INC"
+
+#include "adam_flume_cpu_ghost_kernels_agnostic.INC"
 
    subroutine add_eglm_sources(ni, nj, nk, ngc, blocks_number, hs, dxyz, is_null, q, q_aux, dq)
    !< Add the nonconservative EGLM sources to the residuals of the interior cells (Derigs et al. 2018, eqs. 3.16-3.18;
