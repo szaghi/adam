@@ -52,6 +52,7 @@ export default withMermaid({
           { text: 'Installation',           link: '/guide/installation' },
           { text: 'Architecture',           link: '/guide/architecture' },
           { text: 'Forest (multi-realm)',   link: '/guide/forest' },
+          { text: 'Forest cookbook',        link: '/guide/forest-cookbook' },
           { text: 'Contributing',           link: '/guide/contributing' },
           { text: 'Changelog',              link: '/guide/changelog' },
         ],
@@ -77,6 +78,7 @@ export default withMermaid({
             { text: 'Installation',       link: '/guide/installation' },
             { text: 'Architecture',       link: '/guide/architecture' },
             { text: 'Forest (multi-realm)', link: '/guide/forest' },
+            { text: 'Forest cookbook',      link: '/guide/forest-cookbook' },
           ],
         },
         {

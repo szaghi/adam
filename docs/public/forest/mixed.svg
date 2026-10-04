@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 420" width="860" height="420" font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" role="img" aria-label="Mirror seam plus intra-realm AMR">
+<title>Mirror seam plus intra-realm AMR</title>
+<defs>
+<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#F5F7FA" fill-opacity="0.7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#7B8794" stroke-width="1.1" stroke-opacity="0.55"/></pattern>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1F2933"/></marker>
+<marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2F6DB5"/></marker>
+<marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#D9731F"/></marker>
+<marker id="arrS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C0392B"/></marker>
+<marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6B3FA0"/></marker>
+<marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2E8540"/></marker>
+</defs>
+<rect x="1" y="1" width="858" height="418" rx="12" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1.5"/>
+<text x="430.0" y="34.0" font-size="17" fill="#1F2933" text-anchor="middle" font-weight="bold" xml:space="preserve">Both seam families at once: a mirror seam and a 2:1 face inside realm 2</text>
+<rect x="190.0" y="80.0" width="240.0" height="240.0" rx="0.0" fill="#DCE8F7" stroke="none" stroke-width="1.0"/>
+<line x1="250.0" y1="80.0" x2="250.0" y2="320.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="310.0" y1="80.0" x2="310.0" y2="320.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="370.0" y1="80.0" x2="370.0" y2="320.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="190.0" y1="140.0" x2="430.0" y2="140.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="190.0" y1="200.0" x2="430.0" y2="200.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="190.0" y1="260.0" x2="430.0" y2="260.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="190.0" y="80.0" width="240.0" height="240.0" rx="0.0" fill="none" stroke="#2F6DB5" stroke-width="2.4"/>
+<rect x="430.0" y="80.0" width="240.0" height="240.0" rx="0.0" fill="#FCE6D3" stroke="none" stroke-width="1.0"/>
+<line x1="490.0" y1="80.0" x2="490.0" y2="320.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="550.0" y1="80.0" x2="550.0" y2="320.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="610.0" y1="80.0" x2="610.0" y2="320.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="430.0" y1="140.0" x2="670.0" y2="140.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="430.0" y1="200.0" x2="670.0" y2="200.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="430.0" y1="260.0" x2="670.0" y2="260.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="430.0" y="80.0" width="240.0" height="240.0" rx="0.0" fill="none" stroke="#D9731F" stroke-width="2.4"/>
+<rect x="610.0" y="80.0" width="60.0" height="240.0" rx="0.0" fill="#F2B88A" fill-opacity="0.6" stroke="none" stroke-width="1.0"/>
+<line x1="640.0" y1="80.0" x2="640.0" y2="320.0" stroke="#D9731F" stroke-width="1.2"/>
+<line x1="610.0" y1="110.0" x2="670.0" y2="110.0" stroke="#D9731F" stroke-width="1.2"/>
+<line x1="610.0" y1="140.0" x2="670.0" y2="140.0" stroke="#D9731F" stroke-width="1.2"/>
+<line x1="610.0" y1="170.0" x2="670.0" y2="170.0" stroke="#D9731F" stroke-width="1.2"/>
+<line x1="610.0" y1="200.0" x2="670.0" y2="200.0" stroke="#D9731F" stroke-width="1.2"/>
+<line x1="610.0" y1="230.0" x2="670.0" y2="230.0" stroke="#D9731F" stroke-width="1.2"/>
+<line x1="610.0" y1="260.0" x2="670.0" y2="260.0" stroke="#D9731F" stroke-width="1.2"/>
+<line x1="610.0" y1="290.0" x2="670.0" y2="290.0" stroke="#D9731F" stroke-width="1.2"/>
+<line x1="430.0" y1="70.0" x2="430.0" y2="330.0" stroke="#C0392B" stroke-width="3.6"/>
+<line x1="610.0" y1="80.0" x2="610.0" y2="320.0" stroke="#6B3FA0" stroke-width="4.0"/>
+<text x="430.0" y="64.0" font-size="12" fill="#C0392B" text-anchor="middle" font-weight="bold" xml:space="preserve">inter-realm mirror seam</text>
+<text x="610.0" y="64.0" font-size="12" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">intra-realm 2:1 face</text>
+<text x="310.0" y="346.0" font-size="14" fill="#2F6DB5" text-anchor="middle" font-weight="bold" xml:space="preserve">realm 1</text>
+<text x="550.0" y="346.0" font-size="14" fill="#D9731F" text-anchor="middle" font-weight="bold" xml:space="preserve">realm 2 (refined on x > 0.75)</text>
+<text x="430.0" y="376.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">one flux register: the intra-realm 2:1 faces first (cursors 1..n_intra), then the inter-realm faces</text>
+<text x="430.0" y="394.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">the seam face itself must keep one cell size per side: refinement may not reach the seam face</text>
+</svg>

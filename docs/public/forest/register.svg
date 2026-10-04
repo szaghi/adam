@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 340" width="880" height="340" font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" role="img" aria-label="Flux register cases">
+<title>Flux register cases</title>
+<defs>
+<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#F5F7FA" fill-opacity="0.7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#7B8794" stroke-width="1.1" stroke-opacity="0.55"/></pattern>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1F2933"/></marker>
+<marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2F6DB5"/></marker>
+<marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#D9731F"/></marker>
+<marker id="arrS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C0392B"/></marker>
+<marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6B3FA0"/></marker>
+<marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2E8540"/></marker>
+</defs>
+<rect x="1" y="1" width="878" height="338" rx="12" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1.5"/>
+<text x="440.0" y="34.0" font-size="17" fill="#1F2933" text-anchor="middle" font-weight="bold" xml:space="preserve">Where the fine-side face fluxes land in the register</text>
+<text x="150.0" y="76.0" font-size="14" fill="#1F2933" text-anchor="middle" font-weight="bold" xml:space="preserve">mirror, lined up</text>
+<text x="440.0" y="76.0" font-size="14" fill="#1F2933" text-anchor="middle" font-weight="bold" xml:space="preserve">mirror, blocks not lined up</text>
+<text x="730.0" y="76.0" font-size="14" fill="#1F2933" text-anchor="middle" font-weight="bold" xml:space="preserve">refined 2:1</text>
+<text x="40.0" y="129.0" font-size="11" fill="#6B3FA0" text-anchor="start" font-weight="normal" xml:space="preserve">register</text>
+<text x="40.0" y="199.0" font-size="11" fill="#D9731F" text-anchor="start" font-weight="normal" xml:space="preserve">fine side</text>
+<rect x="98.0" y="110.0" width="104.0" height="26.0" rx="0.0" fill="#E7DDF4" stroke="none" stroke-width="1.0"/>
+<line x1="124.0" y1="110.0" x2="124.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="150.0" y1="110.0" x2="150.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="176.0" y1="110.0" x2="176.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="98.0" y="110.0" width="104.0" height="26.0" rx="0.0" fill="none" stroke="#6B3FA0" stroke-width="2"/>
+<rect x="98.0" y="180.0" width="104.0" height="26.0" rx="0.0" fill="#FCE6D3" stroke="none" stroke-width="1.0"/>
+<line x1="124.0" y1="180.0" x2="124.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="150.0" y1="180.0" x2="150.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="176.0" y1="180.0" x2="176.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="98.0" y="180.0" width="104.0" height="26.0" rx="0.0" fill="none" stroke="#D9731F" stroke-width="2"/>
+<line x1="150.0" y1="176.0" x2="150.0" y2="142.0" stroke="#6B3FA0" stroke-width="1.6" marker-end="url(#arrR)"/>
+<text x="150.0" y="240.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">one overlap row, whole skin,</text>
+<text x="150.0" y="256.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">copied 1:1</text>
+<rect x="334.0" y="110.0" width="104.0" height="26.0" rx="0.0" fill="#E7DDF4" stroke="none" stroke-width="1.0"/>
+<line x1="360.0" y1="110.0" x2="360.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="386.0" y1="110.0" x2="386.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="412.0" y1="110.0" x2="412.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="334.0" y="110.0" width="104.0" height="26.0" rx="0.0" fill="none" stroke="#6B3FA0" stroke-width="2"/>
+<rect x="442.0" y="110.0" width="104.0" height="26.0" rx="0.0" fill="#E7DDF4" stroke="none" stroke-width="1.0"/>
+<line x1="468.0" y1="110.0" x2="468.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="494.0" y1="110.0" x2="494.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="110.0" x2="520.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="442.0" y="110.0" width="104.0" height="26.0" rx="0.0" fill="none" stroke="#6B3FA0" stroke-width="2"/>
+<rect x="336.0" y="180.0" width="208.0" height="26.0" rx="0.0" fill="#FCE6D3" stroke="none" stroke-width="1.0"/>
+<line x1="362.0" y1="180.0" x2="362.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="388.0" y1="180.0" x2="388.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="414.0" y1="180.0" x2="414.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="440.0" y1="180.0" x2="440.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="466.0" y1="180.0" x2="466.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="492.0" y1="180.0" x2="492.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="518.0" y1="180.0" x2="518.0" y2="206.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="336.0" y="180.0" width="208.0" height="26.0" rx="0.0" fill="none" stroke="#D9731F" stroke-width="2"/>
+<line x1="386.0" y1="176.0" x2="386.0" y2="142.0" stroke="#6B3FA0" stroke-width="1.6" marker-end="url(#arrR)"/>
+<line x1="494.0" y1="176.0" x2="494.0" y2="142.0" stroke="#6B3FA0" stroke-width="1.6" marker-end="url(#arrR)"/>
+<text x="440.0" y="240.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">one row per register face it overlaps,</text>
+<text x="440.0" y="256.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">rectangles scattered at their offsets</text>
+<rect x="678.0" y="110.0" width="104.0" height="26.0" rx="0.0" fill="#E7DDF4" stroke="none" stroke-width="1.0"/>
+<line x1="704.0" y1="110.0" x2="704.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="730.0" y1="110.0" x2="730.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="756.0" y1="110.0" x2="756.0" y2="136.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="678.0" y="110.0" width="104.0" height="26.0" rx="0.0" fill="none" stroke="#6B3FA0" stroke-width="2"/>
+<rect x="678.0" y="180.0" width="104.0" height="13.0" rx="0.0" fill="#FCE6D3" stroke="none" stroke-width="1.0"/>
+<line x1="691.0" y1="180.0" x2="691.0" y2="193.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="704.0" y1="180.0" x2="704.0" y2="193.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="717.0" y1="180.0" x2="717.0" y2="193.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="730.0" y1="180.0" x2="730.0" y2="193.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="743.0" y1="180.0" x2="743.0" y2="193.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="756.0" y1="180.0" x2="756.0" y2="193.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="769.0" y1="180.0" x2="769.0" y2="193.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="678.0" y="180.0" width="104.0" height="13.0" rx="0.0" fill="none" stroke="#D9731F" stroke-width="2"/>
+<line x1="691.0" y1="176.0" x2="691.0" y2="142.0" stroke="#6B3FA0" stroke-width="1.2" marker-end="url(#arrR)"/>
+<line x1="717.0" y1="176.0" x2="717.0" y2="142.0" stroke="#6B3FA0" stroke-width="1.2" marker-end="url(#arrR)"/>
+<line x1="743.0" y1="176.0" x2="743.0" y2="142.0" stroke="#6B3FA0" stroke-width="1.2" marker-end="url(#arrR)"/>
+<line x1="769.0" y1="176.0" x2="769.0" y2="142.0" stroke="#6B3FA0" stroke-width="1.2" marker-end="url(#arrR)"/>
+<text x="730.0" y="240.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">2x2 fine faces averaged into one</text>
+<text x="730.0" y="256.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">coarse face of the block's quadrant</text>
+<text x="440.0" y="298.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">register side (realm_a for mirror, the coarse realm for refined): its skin is F_coarse; after the step the coarse cells</text>
+<text x="440.0" y="316.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">get the Berger-Colella correction (dt/dx)(F_coarse - sum F_fine); on a mirror seam it is exactly 0</text>
+</svg>

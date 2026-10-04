@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 400" width="860" height="400" font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" role="img" aria-label="Mirror seam, lined-up blocks">
+<title>Mirror seam, lined-up blocks</title>
+<defs>
+<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#F5F7FA" fill-opacity="0.7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#7B8794" stroke-width="1.1" stroke-opacity="0.55"/></pattern>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1F2933"/></marker>
+<marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2F6DB5"/></marker>
+<marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#D9731F"/></marker>
+<marker id="arrS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C0392B"/></marker>
+<marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6B3FA0"/></marker>
+<marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2E8540"/></marker>
+</defs>
+<rect x="1" y="1" width="858" height="398" rx="12" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1.5"/>
+<text x="430.0" y="34.0" font-size="17" fill="#1F2933" text-anchor="middle" font-weight="bold" xml:space="preserve">coupling = mirror: same cell size, a seam ghost is a copy of the peer cell</text>
+<rect x="70.0" y="80.0" width="204.0" height="204.0" rx="0.0" fill="#DCE8F7" stroke="none" stroke-width="1.0"/>
+<line x1="104.0" y1="80.0" x2="104.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="138.0" y1="80.0" x2="138.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="172.0" y1="80.0" x2="172.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="206.0" y1="80.0" x2="206.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="240.0" y1="80.0" x2="240.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="70.0" y1="114.0" x2="274.0" y2="114.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="70.0" y1="148.0" x2="274.0" y2="148.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="70.0" y1="182.0" x2="274.0" y2="182.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="70.0" y1="216.0" x2="274.0" y2="216.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="70.0" y1="250.0" x2="274.0" y2="250.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="70.0" y="80.0" width="204.0" height="204.0" rx="0.0" fill="none" stroke="#2F6DB5" stroke-width="2.2"/>
+<rect x="274.0" y="80.0" width="102.0" height="204.0" rx="0.0" fill="url(#hatch)" stroke="#7B8794" stroke-width="1.0" stroke-dasharray="4 3"/>
+<line x1="274.0" y1="70.0" x2="274.0" y2="294.0" stroke="#C0392B" stroke-width="3.2"/>
+<text x="223.0" y="310.0" font-size="13" fill="#2F6DB5" text-anchor="middle" font-weight="bold" xml:space="preserve">realm 1 block + its 3 ghost columns</text>
+<rect x="520.0" y="80.0" width="204.0" height="204.0" rx="0.0" fill="#FCE6D3" stroke="none" stroke-width="1.0"/>
+<line x1="554.0" y1="80.0" x2="554.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="588.0" y1="80.0" x2="588.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="622.0" y1="80.0" x2="622.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="656.0" y1="80.0" x2="656.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="690.0" y1="80.0" x2="690.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="114.0" x2="724.0" y2="114.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="148.0" x2="724.0" y2="148.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="182.0" x2="724.0" y2="182.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="216.0" x2="724.0" y2="216.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="250.0" x2="724.0" y2="250.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="520.0" y="80.0" width="204.0" height="204.0" rx="0.0" fill="none" stroke="#D9731F" stroke-width="2.2"/>
+<rect x="520.0" y="80.0" width="102.0" height="204.0" rx="0.0" fill="#F2B88A" fill-opacity="0.45" stroke="none" stroke-width="1.0"/>
+<line x1="554.0" y1="80.0" x2="554.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="588.0" y1="80.0" x2="588.0" y2="284.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="114.0" x2="622.0" y2="114.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="148.0" x2="622.0" y2="148.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="182.0" x2="622.0" y2="182.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="216.0" x2="622.0" y2="216.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="250.0" x2="622.0" y2="250.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="520.0" y1="70.0" x2="520.0" y2="294.0" stroke="#C0392B" stroke-width="3.2"/>
+<text x="622.0" y="310.0" font-size="13" fill="#D9731F" text-anchor="middle" font-weight="bold" xml:space="preserve">realm 2 block: its first 3 interior columns</text>
+<path d="M571.0,131.0 C470.0,95.0 426.0,95.0 325.0,131.0" stroke="#D9731F" stroke-width="1.5" fill="none" marker-end="url(#arrB)"/>
+<path d="M571.0,199.0 C470.0,163.0 426.0,163.0 325.0,199.0" stroke="#D9731F" stroke-width="1.5" fill="none" marker-end="url(#arrB)"/>
+<path d="M571.0,267.0 C470.0,231.0 426.0,231.0 325.0,267.0" stroke="#D9731F" stroke-width="1.5" fill="none" marker-end="url(#arrB)"/>
+<text x="430.0" y="342.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">the cell centres coincide across the seam: every seam ghost is a COPY row (copied directly, or packed and sent</text>
+<text x="430.0" y="360.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">when the cell lives on another rank); realm 2 ghosts are filled the same way from realm 1 interior cells</text>
+</svg>

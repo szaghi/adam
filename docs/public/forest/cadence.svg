@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 410" width="880" height="410" font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" role="img" aria-label="Seam cadence">
+<title>Seam cadence</title>
+<defs>
+<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#F5F7FA" fill-opacity="0.7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#7B8794" stroke-width="1.1" stroke-opacity="0.55"/></pattern>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1F2933"/></marker>
+<marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2F6DB5"/></marker>
+<marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#D9731F"/></marker>
+<marker id="arrS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C0392B"/></marker>
+<marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6B3FA0"/></marker>
+<marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2E8540"/></marker>
+</defs>
+<rect x="1" y="1" width="878" height="408" rx="12" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1.5"/>
+<text x="440.0" y="34.0" font-size="17" fill="#1F2933" text-anchor="middle" font-weight="bold" xml:space="preserve">When the seam ghosts are filled: coupling_cadence</text>
+<text x="30.0" y="112.0" font-size="13" fill="#1F2933" text-anchor="start" font-weight="bold" xml:space="preserve">beta (stage_coincident)</text>
+<text x="30.0" y="130.0" font-size="11.5" fill="#52606D" text-anchor="start" font-weight="normal" xml:space="preserve">every stage, both realms</text>
+<line x1="230.0" y1="94.0" x2="820.0" y2="94.0" stroke="#2F6DB5" stroke-width="2.2"/>
+<rect x="282.0" y="87.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="400.0" y="87.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="518.0" y="87.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="636.0" y="87.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="754.0" y="87.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<text x="220.0" y="98.0" font-size="11" fill="#2F6DB5" text-anchor="end" font-weight="bold" xml:space="preserve">R1</text>
+<line x1="230.0" y1="126.0" x2="820.0" y2="126.0" stroke="#D9731F" stroke-width="2.2"/>
+<rect x="282.0" y="119.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="400.0" y="119.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="518.0" y="119.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="636.0" y="119.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="754.0" y="119.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<text x="220.0" y="130.0" font-size="11" fill="#D9731F" text-anchor="end" font-weight="bold" xml:space="preserve">R2</text>
+<path d="M271.0,105.0 L276.0,110.0 L271.0,115.0 L266.0,110.0 z" stroke="#C0392B" stroke-width="1.0" fill="#C0392B"/>
+<path d="M389.0,105.0 L394.0,110.0 L389.0,115.0 L384.0,110.0 z" stroke="#C0392B" stroke-width="1.0" fill="#C0392B"/>
+<path d="M507.0,105.0 L512.0,110.0 L507.0,115.0 L502.0,110.0 z" stroke="#C0392B" stroke-width="1.0" fill="#C0392B"/>
+<path d="M625.0,105.0 L630.0,110.0 L625.0,115.0 L620.0,110.0 z" stroke="#C0392B" stroke-width="1.0" fill="#C0392B"/>
+<path d="M743.0,105.0 L748.0,110.0 L743.0,115.0 L738.0,110.0 z" stroke="#C0392B" stroke-width="1.0" fill="#C0392B"/>
+<line x1="820.0" y1="84.0" x2="820.0" y2="136.0" stroke="#52606D" stroke-width="1.0" stroke-dasharray="3 3"/>
+<line x1="230.0" y1="84.0" x2="230.0" y2="136.0" stroke="#52606D" stroke-width="1.0" stroke-dasharray="3 3"/>
+<text x="30.0" y="222.0" font-size="13" fill="#1F2933" text-anchor="start" font-weight="bold" xml:space="preserve">alpha (end_of_step)</text>
+<text x="30.0" y="240.0" font-size="11.5" fill="#52606D" text-anchor="start" font-weight="normal" xml:space="preserve">once, after the step</text>
+<line x1="230.0" y1="204.0" x2="820.0" y2="204.0" stroke="#2F6DB5" stroke-width="2.2"/>
+<rect x="282.0" y="197.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="400.0" y="197.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="518.0" y="197.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="636.0" y="197.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="754.0" y="197.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<text x="220.0" y="208.0" font-size="11" fill="#2F6DB5" text-anchor="end" font-weight="bold" xml:space="preserve">R1</text>
+<line x1="230.0" y1="236.0" x2="820.0" y2="236.0" stroke="#D9731F" stroke-width="2.2"/>
+<rect x="282.0" y="229.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="400.0" y="229.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="518.0" y="229.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="636.0" y="229.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="754.0" y="229.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<text x="220.0" y="240.0" font-size="11" fill="#D9731F" text-anchor="end" font-weight="bold" xml:space="preserve">R2</text>
+<path d="M820.0,214.0 L826.0,220.0 L820.0,226.0 L814.0,220.0 z" stroke="#C0392B" stroke-width="1.0" fill="#C0392B"/>
+<line x1="820.0" y1="194.0" x2="820.0" y2="246.0" stroke="#52606D" stroke-width="1.0" stroke-dasharray="3 3"/>
+<line x1="230.0" y1="194.0" x2="230.0" y2="246.0" stroke="#52606D" stroke-width="1.0" stroke-dasharray="3 3"/>
+<text x="30.0" y="332.0" font-size="13" fill="#1F2933" text-anchor="start" font-weight="bold" xml:space="preserve">alpha, asymmetric K</text>
+<text x="30.0" y="350.0" font-size="11.5" fill="#52606D" text-anchor="start" font-weight="normal" xml:space="preserve">R2 idles its trailing stages</text>
+<line x1="230.0" y1="314.0" x2="820.0" y2="314.0" stroke="#2F6DB5" stroke-width="2.2"/>
+<rect x="282.0" y="307.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="400.0" y="307.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="518.0" y="307.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="636.0" y="307.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<rect x="754.0" y="307.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#2F6DB5" stroke-width="1.6"/>
+<text x="220.0" y="318.0" font-size="11" fill="#2F6DB5" text-anchor="end" font-weight="bold" xml:space="preserve">R1</text>
+<line x1="230.0" y1="346.0" x2="820.0" y2="346.0" stroke="#D9731F" stroke-width="2.2"/>
+<rect x="282.0" y="339.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="400.0" y="339.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<rect x="518.0" y="339.0" width="14.0" height="14.0" rx="3" fill="#FFFFFF" stroke="#D9731F" stroke-width="1.6"/>
+<text x="220.0" y="350.0" font-size="11" fill="#D9731F" text-anchor="end" font-weight="bold" xml:space="preserve">R2</text>
+<path d="M820.0,324.0 L826.0,330.0 L820.0,336.0 L814.0,330.0 z" stroke="#C0392B" stroke-width="1.0" fill="#C0392B"/>
+<line x1="820.0" y1="304.0" x2="820.0" y2="356.0" stroke="#52606D" stroke-width="1.0" stroke-dasharray="3 3"/>
+<line x1="230.0" y1="304.0" x2="230.0" y2="356.0" stroke="#52606D" stroke-width="1.0" stroke-dasharray="3 3"/>
+<text x="230.0" y="70.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">step n</text>
+<text x="820.0" y="70.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">step n+1</text>
+<text x="440.0" y="392.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">squares: RK stages;  red diamonds: seam fills (beta: before each stage's residual; alpha: after close_step)</text>
+</svg>

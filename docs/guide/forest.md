@@ -9,6 +9,10 @@ Two flagship use cases motivate the multi-realm machinery:
 
 The first scenario requires the **α (end-of-step)** seam-coupling cadence, the AMReX-aligned default. The second is best served by **β (stage-coincident)**, the opt-in alternative that recovers single-realm temporal accuracy at the seam.
 
+::: tip Looking for a recipe?
+The [forest cookbook](/guide/forest-cookbook) walks through every configuration available today (mirror and 2:1 seams, misaligned blocks, AMR inside a realm, cadences, many ranks, restart), with figures, input snippets, refusals and the tests that cover each one. This page is the reference.
+:::
+
 ## The manifest
 
 A forest is declared by a small INI file. PRISM and other apps auto-detect a manifest by looking for a `[forest]` section; a plain single-realm INI is dispatched through the legacy N=1 fast path with zero overhead.
@@ -148,21 +152,22 @@ sequenceDiagram
         F->>Ra: begin_stage_forest(k, ...)
         F->>Rb: begin_stage_forest(k, ...)
         Note over F,Rb: Phase 2 — β seam fill (per-seam, stage_coincident only)
-        F->>Ra: fill_seam_from_peer_forest(peer=Rb, ...)
-        Note over Ra: writes self's stage-k ghosts<br/>from peer's stage-k interior
-        F->>Rb: fill_seam_from_peer_forest(peer=Ra, ...)
+        F->>Ra: seam_fill(Ra, slot of Rb)
+        Note over Ra: local rows + cross-rank rows:<br/>self's stage-k ghosts from peer's stage-k interior
+        F->>Rb: seam_fill(Rb, slot of Ra)
         Note over F,Rb: Phase 3 — close stage k (residuals + assign)
         F->>Ra: end_stage_forest(k, ..., flux_register)
         F->>Rb: end_stage_forest(k, ..., flux_register)
-        F->>F: reduce_fine_sums + apply_reflux_corrections
     end
+    F->>F: flux_register%reduce_fine_sums (across ranks)
     Note over F,Rb: Phase 4 — per-realm epilogue
     F->>Ra: close_step_forest(dt)
     F->>Rb: close_step_forest(dt)
+    F->>F: apply_reflux_corrections (on the committed q)
     Note over F,Rb: Phase 5 — α seam fill (per-seam, end_of_step only)
-    F->>Ra: fill_seam_from_peer_forest(peer=Rb, ...)
-    Note over Ra: writes self's q ghosts<br/>from peer's committed q
-    F->>Rb: fill_seam_from_peer_forest(peer=Ra, ...)
+    F->>Ra: seam_fill(Ra, slot of Rb)
+    Note over Ra: self's q ghosts<br/>from peer's committed q
+    F->>Rb: seam_fill(Rb, slot of Ra)
 ```
 
 Per-seam gating: Phase 2 fires only on seams declared `stage_coincident` (β); Phase 5 fires only on seams declared `end_of_step` (α). A seam is filled exactly once per step under either cadence — Phase 2 may execute K times per step but at successive substages, never duplicating the same substage.
@@ -179,7 +184,7 @@ K-gating in Phases 1 and 3: realm `is` participates only when `k ≤ K_realm(is)
 if (stage /= self%rk%nrk) return    ! α.r1 end-of-step gate
 ```
 
-The mid-step `apply_reflux_corrections` call in the orchestrator fires for every `k`, but real reflux work happens exactly once per realm per step at its own end-of-step. This is independent of α/β: **β does not restore Wang 2018 per-stage RK-weighted reflux** — that refinement is deferred to a future milestone.
+The forest reduces the register once after the stage loop and applies the correction once per step, after `close_step_forest` has committed `q`. This is independent of α/β: **β does not restore Wang 2018 per-stage RK-weighted reflux** — that refinement is deferred to a future milestone.
 
 ## Admissibility flow (β)
 
@@ -207,11 +212,11 @@ The two families are structurally disjoint and use different machinery:
 | | Inter-realm seam | Intra-realm AMR seam |
 |---|---|---|
 | Declared by | `[forest]` manifest face-pairs | AMR refinement markers |
-| Resolution | same (1:1 mirror) | 2:1 coarse↔fine jump |
-| Ghost fill | `fill_seam_from_peer_forest` (peer interior → self ghost) | `update_ghost_local` flag-4 path → `interp_seam_ghost` |
-| Fill regime | pure copy (`COUPLING_MIRROR`) | selectable: injection / restriction-compatible / **tricubic** |
+| Resolution | same (`mirror`, blocks lined up or not) or 2:1 (`refined`) | 2:1 coarse↔fine jump |
+| Ghost fill | `adam_seam_exchange%seam_fill`: local rows and cross-rank rows (copy, interpolate, restrict) | `update_ghost_local` flag-4 path → `interp_seam_ghost` |
+| Fill regime | copy (`mirror`); the `seam_ghost_fill` regime and the 2x2x2 mean (`refined`) | selectable: injection / restriction-compatible / **tricubic** |
 | Cadence | α / β per seam | intrinsic to `update_ghost` (every stage) |
-| Registered as | `SEAM_KIND_INTER_REALM` | `SEAM_KIND_INTRA_REALM_AMR` |
+| Registered as | `SEAM_KIND_INTER_REALM` (with `maps%seam_overlap` for misaligned blocks), `SEAM_KIND_INTER_REALM_REFINED` | `SEAM_KIND_INTRA_REALM_AMR` |
 | Reflux | inter-realm flux register | Berger-Colella reflux at the 2:1 face |
 
 A single-realm run with no manifest never touches the inter-realm path; a forest of same-resolution realms never touches the AMR-seam path. Both can coexist (a forest of realms, each internally AMR-refined).
@@ -249,7 +254,7 @@ seam_divB_tol   = 1.0E-06   ; monitor threshold; <= 0 disables (default -1.0, of
 seam_divB_error = .false.   ; .true. = error_stop on exceedance; else warn-only
 ```
 
-The monitor arms **only** when `seam_divB_tol > 0` **and** an intra-realm AMR seam is present (`allocated(maps%amr_seam_quadrant)`, populated by `register_intra_realm_amr_seams`). On `max|div(B)| > seam_divB_tol` it either `error_stop`s (`seam_divB_error = .true.`) or prints a warning and continues. It is off by default and never fires on non-AMR runs (`adam_prism_common_object.F90:448-461`). To *delay* (not cure) the runaway on long AMR runs, enable `divergence_correction = hyperbolic` (requires `constrained_transport = D/B/DB`, the [issue #11] hazard) and tune `[physics].c_r` (default `0.18`).
+The monitor arms whenever `seam_divB_tol > 0`: its second condition, `allocated(maps%amr_seam_quadrant)`, holds on every run, because `register_intra_realm_amr_seams` allocates the quadrant table for every realm with blocks. It therefore covers intra-realm 2:1 faces and inter-realm `refined` seams alike; on a run without 2:1 seams div(B) stays at round-off and it stays silent. On `max|div(B)| > seam_divB_tol` it either `error_stop`s (`seam_divB_error = .true.`) or prints a warning and continues. It is off by default (`save_divergence_history` in `adam_prism_common_object.F90`). To *delay* (not cure) the runaway on long AMR runs, enable `divergence_correction = hyperbolic` (requires `constrained_transport = D/B/DB`, the [issue #11] hazard) and tune `[physics].c_r` (default `0.18`).
 
 [issue #11]: https://github.com/szaghi/adam/issues/11
 [issue #29]: https://github.com/szaghi/adam/issues/29

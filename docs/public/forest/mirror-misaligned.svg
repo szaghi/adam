@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 510" width="880" height="510" font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" role="img" aria-label="Mirror seam, blocks not lined up">
+<title>Mirror seam, blocks not lined up</title>
+<defs>
+<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#F5F7FA" fill-opacity="0.7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#7B8794" stroke-width="1.1" stroke-opacity="0.55"/></pattern>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1F2933"/></marker>
+<marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2F6DB5"/></marker>
+<marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#D9731F"/></marker>
+<marker id="arrS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C0392B"/></marker>
+<marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6B3FA0"/></marker>
+<marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2E8540"/></marker>
+</defs>
+<rect x="1" y="1" width="878" height="508" rx="12" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1.5"/>
+<text x="440.0" y="34.0" font-size="17" fill="#1F2933" text-anchor="middle" font-weight="bold" xml:space="preserve">Blocks that do not line up (issue #51): the seam face seen along its normal</text>
+<rect x="50.0" y="90.0" width="288.0" height="288.0" rx="0.0" fill="#E7DDF4" stroke="none" stroke-width="1.0"/>
+<line x1="68.0" y1="90.0" x2="68.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="86.0" y1="90.0" x2="86.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="104.0" y1="90.0" x2="104.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="122.0" y1="90.0" x2="122.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="140.0" y1="90.0" x2="140.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="158.0" y1="90.0" x2="158.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="176.0" y1="90.0" x2="176.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="194.0" y1="90.0" x2="194.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="212.0" y1="90.0" x2="212.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="230.0" y1="90.0" x2="230.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="248.0" y1="90.0" x2="248.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="266.0" y1="90.0" x2="266.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="284.0" y1="90.0" x2="284.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="302.0" y1="90.0" x2="302.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="320.0" y1="90.0" x2="320.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="108.0" x2="338.0" y2="108.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="126.0" x2="338.0" y2="126.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="144.0" x2="338.0" y2="144.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="162.0" x2="338.0" y2="162.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="180.0" x2="338.0" y2="180.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="198.0" x2="338.0" y2="198.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="216.0" x2="338.0" y2="216.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="234.0" x2="338.0" y2="234.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="252.0" x2="338.0" y2="252.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="270.0" x2="338.0" y2="270.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="288.0" x2="338.0" y2="288.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="306.0" x2="338.0" y2="306.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="324.0" x2="338.0" y2="324.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="342.0" x2="338.0" y2="342.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="50.0" y1="360.0" x2="338.0" y2="360.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="50.0" y="90.0" width="288.0" height="288.0" rx="0.0" fill="none" stroke="#6B3FA0" stroke-width="2.0"/>
+<line x1="122.0" y1="90.0" x2="122.0" y2="378.0" stroke="#6B3FA0" stroke-width="1.8"/>
+<line x1="50.0" y1="162.0" x2="338.0" y2="162.0" stroke="#6B3FA0" stroke-width="1.8"/>
+<line x1="194.0" y1="90.0" x2="194.0" y2="378.0" stroke="#6B3FA0" stroke-width="1.8"/>
+<line x1="50.0" y1="234.0" x2="338.0" y2="234.0" stroke="#6B3FA0" stroke-width="1.8"/>
+<line x1="266.0" y1="90.0" x2="266.0" y2="378.0" stroke="#6B3FA0" stroke-width="1.8"/>
+<line x1="50.0" y1="306.0" x2="338.0" y2="306.0" stroke="#6B3FA0" stroke-width="1.8"/>
+<text x="86.0" y="131.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">1</text>
+<text x="158.0" y="131.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">2</text>
+<text x="230.0" y="131.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">3</text>
+<text x="302.0" y="131.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">4</text>
+<text x="86.0" y="203.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">5</text>
+<text x="158.0" y="203.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">6</text>
+<text x="230.0" y="203.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">7</text>
+<text x="302.0" y="203.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">8</text>
+<text x="86.0" y="275.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">9</text>
+<text x="158.0" y="275.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">10</text>
+<text x="230.0" y="275.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">11</text>
+<text x="302.0" y="275.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">12</text>
+<text x="86.0" y="347.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">13</text>
+<text x="158.0" y="347.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">14</text>
+<text x="230.0" y="347.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">15</text>
+<text x="302.0" y="347.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">16</text>
+<text x="194.0" y="76.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">realm 1 (realm_a): 16 register faces</text>
+<text x="194.0" y="400.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">one register face per realm_a seam block</text>
+<rect x="540.0" y="90.0" width="288.0" height="288.0" rx="0.0" fill="#FCE6D3" stroke="none" stroke-width="1.0"/>
+<line x1="558.0" y1="90.0" x2="558.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="576.0" y1="90.0" x2="576.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="594.0" y1="90.0" x2="594.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="612.0" y1="90.0" x2="612.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="630.0" y1="90.0" x2="630.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="648.0" y1="90.0" x2="648.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="666.0" y1="90.0" x2="666.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="684.0" y1="90.0" x2="684.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="702.0" y1="90.0" x2="702.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="720.0" y1="90.0" x2="720.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="738.0" y1="90.0" x2="738.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="756.0" y1="90.0" x2="756.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="774.0" y1="90.0" x2="774.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="792.0" y1="90.0" x2="792.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="810.0" y1="90.0" x2="810.0" y2="378.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="108.0" x2="828.0" y2="108.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="126.0" x2="828.0" y2="126.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="144.0" x2="828.0" y2="144.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="162.0" x2="828.0" y2="162.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="180.0" x2="828.0" y2="180.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="198.0" x2="828.0" y2="198.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="216.0" x2="828.0" y2="216.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="234.0" x2="828.0" y2="234.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="252.0" x2="828.0" y2="252.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="270.0" x2="828.0" y2="270.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="288.0" x2="828.0" y2="288.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="306.0" x2="828.0" y2="306.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="324.0" x2="828.0" y2="324.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="342.0" x2="828.0" y2="342.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<line x1="540.0" y1="360.0" x2="828.0" y2="360.0" stroke="#9AA5B1" stroke-width="0.6"/>
+<rect x="540.0" y="90.0" width="288.0" height="288.0" rx="0.0" fill="none" stroke="#D9731F" stroke-width="2.0"/>
+<line x1="684.0" y1="90.0" x2="684.0" y2="378.0" stroke="#D9731F" stroke-width="1.8"/>
+<line x1="540.0" y1="234.0" x2="828.0" y2="234.0" stroke="#D9731F" stroke-width="1.8"/>
+<rect x="540.0" y="90.0" width="144.0" height="144.0" rx="0.0" fill="#F2B88A" fill-opacity="0.45" stroke="none" stroke-width="1.0"/>
+<text x="684.0" y="76.0" font-size="13" fill="#D9731F" text-anchor="middle" font-weight="bold" xml:space="preserve">realm 2 (realm_b): 4 block faces</text>
+<text x="684.0" y="400.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">same cells, blocks twice as large</text>
+<rect x="543.0" y="93.0" width="66.0" height="66.0" rx="0.0" fill="none" stroke="#6B3FA0" stroke-width="1.6" stroke-dasharray="5 3"/>
+<text x="576.0" y="131.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">1</text>
+<rect x="615.0" y="93.0" width="66.0" height="66.0" rx="0.0" fill="none" stroke="#6B3FA0" stroke-width="1.6" stroke-dasharray="5 3"/>
+<text x="648.0" y="131.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">2</text>
+<rect x="543.0" y="165.0" width="66.0" height="66.0" rx="0.0" fill="none" stroke="#6B3FA0" stroke-width="1.6" stroke-dasharray="5 3"/>
+<text x="576.0" y="203.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">5</text>
+<rect x="615.0" y="165.0" width="66.0" height="66.0" rx="0.0" fill="none" stroke="#6B3FA0" stroke-width="1.6" stroke-dasharray="5 3"/>
+<text x="648.0" y="203.0" font-size="13" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">6</text>
+<path d="M530.0,162.0 C460.0,126.0 398.0,126.0 346.0,126.0" stroke="#6B3FA0" stroke-width="1.6" fill="none" marker-end="url(#arrR)"/>
+<text x="440.0" y="100.0" font-size="12" fill="#6B3FA0" text-anchor="middle" font-weight="bold" xml:space="preserve">scattered over 4 register faces</text>
+<text x="440.0" y="434.0" font-size="12" fill="#1F2933" text-anchor="middle" font-weight="normal" xml:space="preserve">overlap rows of the shaded realm-2 block face (maps%seam_overlap), columns</text>
+<text x="440.0" y="452.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">[cursor, register offset (inner, outer), block offset (inner, outer), extent (inner, outer), register inner count]</text>
+<text x="440.0" y="470.0" font-size="12" fill="#52606D" text-anchor="middle" font-weight="normal" xml:space="preserve">[1, 0 0, 0 0, 4 4, 4]    [2, 0 0, 4 0, 4 4, 4]    [5, 0 0, 0 4, 4 4, 4]    [6, 0 0, 4 4, 4 4, 4]</text>
+</svg>
