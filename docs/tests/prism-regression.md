@@ -75,6 +75,17 @@ It now carries a **`check.sh` oracle** (three legs, `-np 1`, CPU by default, `PR
 Like the AMR-seam oracles, this `check.sh` is invoked **by hand**, not by the sweep — and the case still has no digest golden, so `run.sh` continues to report it as a SKIP. Run it directly after touching `fill_seam_from_peer_forest`, `post_step_forest`, or any forest seam path.
 :::
 
+### Inter-realm 2:1 seam anchor
+
+`rmf-2realm-fd-pulse-refined` ([#52](https://github.com/szaghi/adam/issues/52)) — `rmf-amr-fd-pulse` split at its 2:1 face x=0 into a fine realm (x<0, one level finer, no marker) and a coarse realm (x>0) glued by `coupling = refined`, β cadence. The union is the single-realm cell set, so the split must reproduce `rmf-amr-fd-pulse` **bit for bit**, including its [#29](https://github.com/szaghi/adam/issues/29) seam div(B) source: the inter-realm 2:1 seam reuses the intra-realm formulas, so the source must be neither smaller nor larger. Its `check.sh` (`-np 2` by default, `--np N`, `PRISM_EXE=` to override) runs both and asserts:
+
+1. **Health** — both runs reach 100% with no error/abort/NaN.
+2. **Fields** — every checkpoint field (B, D, J, `div_*`, `res_*`) bitwise on every cell (`multirealm_oracle.py --fields-only --tol 0`). Measured: 147456 cells, 27 fields, CPU and FNL.
+3. **Divergence histories** — at every step the single-realm `max|div(D)|` and `max|div(B)|` equal the larger of the two realms' values. Measured: `max|div(B)|` 6.86 → 12.65 in both, the coarse realm holding the maximum at steps 1–2 and the fine one at steps 3–5.
+4. **Seam div(B) monitor** — `[IO].seam_divB_tol = 1` (warn-only) fires on the split.
+
+The FNL run found a pre-existing deadlock: the FNL residuals skipped the (collective) ghost update on a rank that owns no block of a realm, which the refined split produces at `-np 2`; the ghost update now runs on every rank, as on the CPU. Like the 1:1 anchor, the case has no digest golden and is run by hand.
+
 ### AMR-seam cases (digest-goldened **and** `check.sh`-driven)
 
 Three single-realm cases carry a static intra-realm **2:1 AMR jump** (`markers_number = 1`, an AMR_GEO box marker covering the x<0 half). They are doubly covered: digest + residuals goldens on **both** backends (captured in [#24](https://github.com/szaghi/adam/issues/24), `d15fed4c`), which `run.sh` checks like any other case, **plus** a bespoke `check.sh` asserting a physics oracle with a marker-off control leg for contrast. The oracles are *not* invoked by `run.sh` — run them directly (they are the only thing that checks the seam `div(B)` behaviour).

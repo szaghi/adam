@@ -2317,13 +2317,15 @@ contains
                                                                           !< FD path does not accumulate seam fluxes).
 
    if (present(flux_register)) continue ! FV-only machinery; accepted for interface conformance
+   ! The ghost update is collective (MPI_Barrier in update_ghost_mpi_gpu): a rank that owns no block of this realm
+   ! takes part too, as on the CPU, or the ranks that own blocks wait for it forever (issue #52).
+   if (present(s)) then
+      call self%update_ghost(q_gpu=q_gpu, s=s)
+   else
+      call self%update_ghost(q_gpu=q_gpu)
+   endif
    if (self%blocks_number > 0) then
       !call self%apply_fwl_correction(q_gpu=q_gpu)
-      if (present(s)) then
-         call self%update_ghost(q_gpu=q_gpu, s=s)
-      else
-         call self%update_ghost(q_gpu=q_gpu)
-      endif
       select case(self%fd_residual_variant)
       case(FD_RESIDUAL_VARIANT_PLAIN)
          call fd_centered_plain_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                       &
@@ -4082,12 +4084,13 @@ contains
    real(R8P)                                        :: chi_damp   !< Host-side damping-speed factor.
 
    stage_idx = 0_I4P ; if (present(s)) stage_idx = s
+   ! Collective ghost update on every rank, blocks or not (see compute_residuals_fd_centered_dev, issue #52).
+   if (present(s)) then
+      call self%update_ghost(q_gpu=q_gpu, s=s)
+   else
+      call self%update_ghost(q_gpu=q_gpu)
+   endif
    if (self%blocks_number > 0) then
-      if (present(s)) then
-         call self%update_ghost(q_gpu=q_gpu, s=s)
-      else
-         call self%update_ghost(q_gpu=q_gpu)
-      endif
       select case(self%fv_flux_variant)
       case(FV_FLUX_VARIANT_MAXWELL)
          call fv_cell_fluxes_maxwell_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &

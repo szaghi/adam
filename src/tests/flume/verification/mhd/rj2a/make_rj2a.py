@@ -5,10 +5,11 @@ Why: RJ2a (Ryu & Jones 1995 Fig. 2a; exact 7-state solution in Dai & Woodward 19
 y and z on the Sod grid of the M1 verification (verification/sod/sod-{x,y,z}.ini: four blocks along the axis, the
 discontinuity at 0.5), refined to N cells. The states are given in the frame (normal, tangent 1, tangent 2) with the
 tangents cyclic as in FLUME (and Athena++): axis y -> (y, z, x), axis z -> (z, x, y); B in code units, B_SI/sqrt(mu0),
-i.e. the Gaussian values divided by sqrt(4 pi).
+i.e. the Gaussian values divided by sqrt(4 pi). Without --cells the grid of the input is kept (issue #52: the realms
+of a split Sod input become the realms of the same split RJ2a).
 
 Usage:
-    make_rj2a.py <sod-axis.ini> <out.ini> --axis x|y|z --cells N --divergence-control none|glm|eglm
+    make_rj2a.py <sod-axis.ini> <out.ini> --axis x|y|z [--cells N] --divergence-control none|glm|eglm
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ def main() -> None:
     parser.add_argument("sod", type=Path)
     parser.add_argument("out", type=Path)
     parser.add_argument("--axis", choices=("x", "y", "z"), required=True)
-    parser.add_argument("--cells", type=int, required=True, help="cells along the axis (a multiple of 8)")
+    parser.add_argument("--cells", type=int, default=None, help="cells along the axis (a multiple of 8)")
     parser.add_argument("--divergence-control", choices=("none", "glm", "eglm"), required=True)
     args = parser.parse_args()
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
@@ -47,7 +48,8 @@ def main() -> None:
         ini["mhd"].update({"glm_ch": "2.0", "glm_alpha": "0.18", "glm_damping_length": "1.0",
                            "glm_ch_check": "warning"})
     ini["field"]["nv"] = "8" if args.divergence_control == "none" else "9"
-    ini["grid"]["n" + "ijk"["xyz".index(args.axis)]] = str(args.cells // 4)  # four blocks along the axis
+    if args.cells is not None:
+        ini["grid"]["n" + "ijk"["xyz".index(args.axis)]] = str(args.cells // 4)  # four blocks along the axis
     frame = FRAME[args.axis]
     for region, state in (("initial_conditions_region_1", LEFT), ("initial_conditions_region_2", RIGHT)):
         vel, mag = [0.0] * 3, [0.0] * 3

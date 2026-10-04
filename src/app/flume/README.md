@@ -34,7 +34,7 @@ Dissipative effects (viscosity, thermal conduction, resistivity) are outside the
 | Initial conditions | `uniform` (optionally with a seeded perturbation), `isentropic-vortex`, `riemann-problem` (piecewise-constant regions; MHD regions add `bx, by, bz`), `shu-osher` (Euler, along x, y or z); MHD only: `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `orszag-tang`, `mhd-rotor`, `field-loop`, `rotated-riemann` | `[initial_conditions] type` |
 | AMR | Init-time refinement (`amr_iterations` passes) by geometric box, variable gradient or immersed-solid surface; 2:1 coarse-fine faces with stage-weighted conservative reflux (B and $\psi$ included). With markers the tree must be an octree (`ratio = 8`; with a null axis, `nk >= 4`): a quadtree with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)) | `[amr]`, `[initial_conditions] amr_iterations`, `[numerics] reflux` |
 | Immersed boundary | Euler only. Static solids, inviscid wall: distance function, eikonal extrapolation into the solid, cut-cell spacing, solid masks in the Runge-Kutta stages |
-| Multi-realm | A forest manifest glues realms through inter-realm seams (mirror coupling, per-seam cadence); every model | `[forest]` manifest | `[solids]` |
+| Multi-realm | A forest manifest glues realms through inter-realm seams, across ranks: `mirror` between cells of the same size, `refined` across a 2:1 resolution jump (the AMR seam formulas); per-seam cadence; every model | `[forest]` manifest | `[solids]` |
 | Output | XH5F checkpoints (optionally with the auxiliary fields `u, v, w, p, H, a`; MHD adds the derived `pt, beta, bmag, divb`), slices, residuals and conservation histories, restart; MHD adds the div(B) history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`) | `[IO]`, `[slices]` |
 
 Every option value is matched against a fixed list; an unknown value stops the run with a message naming the accepted
@@ -137,7 +137,7 @@ A run takes the INI file as its argument: `mpirun -np 2 exe/adam_flume_cpu input
 | V3 | `conservation/`: periodic AMR box with reflux | volume integrals constant to round-off; drift without reflux (negative control) |
 | V6 | `shock-cylinder/`: Mach 2 shock over a cylinder, IB + solid AMR | refined surface blocks, mirror symmetry, positivity |
 | V7 | `io/`: restart round trip, slices, auxiliary fields | bitwise restart; slice and auxiliary values exact |
-| — | `multirealm/`: sod-x split in two realms at the diaphragm, mirror seam, beta cadence; the same with one realm refined (2:1 face crossed by the shock) | union bitwise equal to the single-realm run (issue #37) |
+| — | `multirealm/`: sod-x split in two realms at the diaphragm, mirror seam, beta cadence; the same with one realm refined (2:1 face crossed by the shock); the split along z (every seam row across ranks); sod-amr split at its 2:1 face into a coarse and a fine realm (`coupling = refined`) | union bitwise equal to the single-realm run (issues #37, #40, #52) |
 
 The MHD tests (issue #41) live in `verification/mhd/`:
 
@@ -158,7 +158,7 @@ The MHD tests (issue #41) live in `verification/mhd/`:
 | MV-11 | `conservation/`: V3 box with B and a perturbation | 9 integrals constant to 1e-13 with reflux; negative control without |
 | MV-12 | `orszag-tang/`: Orszag-Tang; `--amr` with a symmetric 2:1 box | 180-degree symmetry, conservation, positivity; seam div(B) below the uniform peak |
 | MV-13 | `rotor/`: MHD rotor | symmetry under rotation with $\mathbf{B} \to -\mathbf{B}$ |
-| MV-14 | `multirealm/`: RJ2a in two realms; restart round trips | union bitwise; restart bitwise with a non-zero $\psi$ |
+| MV-14 | `multirealm/`: RJ2a in two realms; restart round trips; RJ2a on the sod-amr cells split at the 2:1 face | union bitwise; restart bitwise with a non-zero $\psi$ |
 
 The M3 tests (issue #47) run the same scripts on the new numerics (`--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]` for
 the MHD ones, `--divergence-control eglm` for EGLM) plus their own:
@@ -198,9 +198,13 @@ Known limitations:
 - **Quadtree AMR** with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)); use an octree.
 - The FNL backend copies the coarse-fine seam faces to the host at every stage, which dominates its run time on AMR
   cases.
-- **Inter-realm seams** ([#40](https://github.com/szaghi/adam/issues/40)) work across ranks, whatever the partition of
-  each realm, but join cells of the same size whose blocks meet face to face; the forest stops at initialization
-  otherwise (seams between blocks that do not line up are planned).
+- **Inter-realm seams** ([#40](https://github.com/szaghi/adam/issues/40),
+  [#52](https://github.com/szaghi/adam/issues/52)) work across ranks, whatever the partition of each realm. A `mirror`
+  seam joins cells of the same size, a `refined` one a 2:1 jump: the fine realm is one level finer on every axis, both
+  realms have the same block cells across the seam and the same `[amr] seam_ghost_fill`, and each coarse seam block
+  faces 2x2 fine ones. The blocks must meet face to face (seams between blocks that do not line up are planned,
+  [#51](https://github.com/szaghi/adam/issues/51)); the forest stops at initialization otherwise. All realms advance
+  with one time step (no subcycling), and the positivity limiter is refused on multi-realm runs.
 
 ## License
 

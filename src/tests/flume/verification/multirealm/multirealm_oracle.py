@@ -17,8 +17,11 @@ cadence) the seam is a block interface like any other, so the union must reprodu
 Geometry (XH5F): origin and dxdydz stored (z, y, x), the origin at the corner of the first ghost cell; field datasets
 (z, y, x) with ghosts.
 
+The fields check also serves PRISM (issue #52: its checkpoints share the XH5F layout), which writes no conservation
+history: --fields-only skips the second check.
+
 Usage:
-    multirealm_oracle.py <multi-work-dir> <single-work-dir> --ngc N [--tol T] [--step S]
+    multirealm_oracle.py <multi-work-dir> <single-work-dir> --ngc N [--tol T] [--step S] [--fields-only]
 """
 
 from __future__ import annotations
@@ -51,7 +54,7 @@ def last_step(work: Path, names: list[str]) -> int:
     """Return the last saved step common to every basename."""
     steps = None
     for name in names:
-        found = {int(p.name.split("-")[-2]) for p in work.glob(f"{name}-*-proc*.h5")}
+        found = {int(p.name.split("-")[-2]) for p in work.glob(f"{name}-[0-9]*-proc*.h5")}  # not <name>-restart-*
         steps = found if steps is None else steps & found
     if not steps:
         sys.exit(f"multirealm_oracle: no common checkpoint step in {work}")
@@ -73,6 +76,8 @@ def load_cells(work: Path, names: list[str], step: int,
     for name in names:
         for path in sorted(work.glob(f"{name}-{step:09d}-proc*.h5")):
             with h5py.File(path, "r") as h5:
+                if not len(h5):  # a rank that owns no block of this realm
+                    continue
                 if not variables:
                     variables = fields(h5)
                 elif fields(h5) != variables:
@@ -114,6 +119,8 @@ def main() -> int:
     parser.add_argument("--ngc", type=int, required=True, help="ghost cells number")
     parser.add_argument("--tol", type=float, default=0.0, help="relative tolerance (0 = bitwise)")
     parser.add_argument("--step", type=int, default=None, help="step to compare (default: the last common one)")
+    parser.add_argument("--fields-only", action="store_true",
+                        help="skip the conservation histories (applications that write none, e.g. PRISM)")
     args = parser.parse_args()
 
     multi_names, single_names = basenames(args.multi), basenames(args.single)
@@ -147,7 +154,9 @@ def main() -> int:
         print(f"step {step} {name:>2}: {len(keys)} cells, max relative difference {rel[worst, v]:.3e}{where}"
               f"  {'PASS' if ok else 'FAIL'}")
 
-    cm, cs = conservation_sum(args.multi, multi_names), conservation_sum(args.single, single_names)
+    if args.fields_only:
+        return status
+    cm, cs =conservation_sum(args.multi, multi_names), conservation_sum(args.single, single_names)
     n = min(len(cm), len(cs))
     cscale = np.max(np.abs(cs[:n, 2:]), axis=0)
     cscale = np.where(cscale > 0.0, cscale, 1.0)

@@ -31,7 +31,9 @@
 # (x > 0.75) glued by `coupling = refined`: the 2:1 seam ghosts (coarse->fine interpolation, fine->coarse 2x2x2 mean,
 # the intra-realm formulas) and the 2:1 inter-realm reflux register. The union must reproduce the single-realm sod-amr
 # of leg 2 bit for bit, and the same split turned to z (sod-amr-refined-z.ini, whose seam the partition splits across
-# ranks) sod-amr-z; the same pair declared `mirror` must be refused at initialization for its different cell sizes.
+# ranks) sod-amr-z; the same pair declared `mirror` must be refused at initialization for its different cell sizes,
+# and so must the pair with the positivity limiter (refused on every multi-realm run: the inter-realm seam faces carry
+# no limiting factor; the limiter's 2:1 seam flux synchronisation of issue #50 is intra-realm).
 #
 # Usage: ./check.sh [--build] [--np N]
 #
@@ -136,6 +138,17 @@ RUN_MUST_FAIL=1 run "$work" sod-amr-refined.ini "$mirror_dir/sod-amr-refined.ini
 if ! grep -aq 'error stop forest_object%populate_inter_realm_topology: .*coupling = mirror joins cells of the same size' \
      "$work/log.txt"; then
    echo "check.sh: the refined pair declared mirror was not refused, see $work/log.txt" >&2
+   exit 1
+fi
+echo "   $(basename "$work"): refused as expected"
+work="$CASE_DIR/work-$TAG-refined-limiter"
+limiter_dir="$CASE_DIR/work-$TAG-refined-limiter-src" ; rm -rf "$limiter_dir" ; mkdir -p "$limiter_dir"
+for f in "${rfiles[@]:1}"; do
+   sed 's/^\[numerics\]/&\npositivity_limiter = cell/' "$f" > "$limiter_dir/$(basename "$f")"
+done
+RUN_MUST_FAIL=1 run "$work" sod-amr-refined.ini "${rfiles[0]}" "$limiter_dir"/sod-amr-refined-r?.ini
+if ! grep -aq 'positivity_limiter)=cell is not supported on multi-realm runs' "$work/log.txt"; then
+   echo "check.sh: the positivity limiter on the refined pair was not refused, see $work/log.txt" >&2
    exit 1
 fi
 echo "   $(basename "$work"): refused as expected"

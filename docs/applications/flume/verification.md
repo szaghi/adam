@@ -126,7 +126,15 @@ components of $\mathbf{B}$ and $\psi$ (drift $\le 4.7\cdot10^{-14}$).
 cadence, and compares the union with the single-realm run: **bitwise** equal on all cells at $t = 0.2$, CPU and FNL. The
 same holds with one realm refined, the shock crossing a 2:1 face. Leg 3 splits Sod along $z$ instead, where the two
 sides of the seam sit on different ranks: bitwise equal to the single-realm run on 1, 2, 3 and 4 ranks (the seam ghosts
-and the reflux register cross ranks, [#40](https://github.com/szaghi/adam/issues/40)).
+and the reflux register cross ranks, [#40](https://github.com/szaghi/adam/issues/40)). Leg 4 splits the refined Sod at
+its 2:1 face into a coarse and a fine realm glued by `coupling = refined`
+([#52](https://github.com/szaghi/adam/issues/52)): the seam ghosts are interpolated (coarse to fine) and restricted (fine
+to coarse) with the formulas of the intra-realm AMR seams, and the 2:1 reflux register spans the two realms. The union
+is bitwise equal to the single-realm refined run (135168 cells, 216 steps) on 2, 3 and 4 ranks, CPU and FNL, and so is
+the same split along $z$, where every 2:1 seam row crosses ranks. The pair declared `mirror` is refused at
+initialization, and so is the positivity limiter on any multi-realm run. The MHD twin (`mhd/multirealm/check.sh` leg 4,
+RJ2a with GLM on the same cells) is bitwise on all nine fields over 349 steps; in 1-D $\psi$ stays at round-off, so it
+tests $\mathbf{B}$, not the cleaning, across the 2:1 seam.
 
 ## Ideal MHD
 
@@ -374,7 +382,7 @@ Build and run with `fobis build --mode test-flume-<name>-gnu` (`-fnl-nvf --varse
 
 ## Regression suite
 
-`src/tests/flume/regression/` holds 26 goldened cases (Sod along x/y/z, AMR, multi-realm, immersed boundary, the MHD
+`src/tests/flume/regression/` holds 27 goldened cases (Sod along x/y/z, AMR, multi-realm (mirror and 2:1 refined seams), immersed boundary, the MHD
 cases RJ2a, Brio–Wu, GLM pulse, Orszag–Tang, rotor, field loop, rotated shock tube, uniform AMR, and the M3 cases: Sod
 with HLLC and RJ2a with HLLD on `weno-riemann`, Orszag–Tang with EGLM, the blast with the positivity limiter in 2-D and
 in 3-D, the only 3-D flow case of the suite, and, issue #50, the blast with the limiter across two 2:1 seams through

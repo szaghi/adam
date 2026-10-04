@@ -12,7 +12,11 @@
 #      this leg cannot see psi;
 #   3. restart round trip of the MV-11 box (3-D, 2:1 AMR, reflux, GLM with damping, a seeded perturbation): psi is
 #      non-zero there, and the round trip must be BITWISE on all 9 fields with max |psi| > 0 (--nonzero psi), histories
-#      byte-identical.
+#      byte-identical;
+#   4. (issue #52) RJ2a (GLM) on the cells of the Euler seam + AMR leg (verification/multirealm/sod-amr.ini: x > 0.75
+#      refined 2:1), against the same cells split at the 2:1 face into a coarse and a fine realm glued by
+#      `coupling = refined` (sod-amr-refined*.ini, the realm grids kept by make_rj2a.py): the 2:1 seam ghosts and the
+#      2:1 inter-realm reflux carry all 9 fields, so the union must be BITWISE.
 # Measured (CPU, M2-P7c): leg 1 bitwise over 297 steps, summed conservation within 1.7e-16; leg 2 (148 + restart)
 # bitwise, 6 histories identical; leg 3 bitwise with max |psi| 1.7e-3. About 4.5 min on the CPU.
 #
@@ -101,7 +105,21 @@ run "$b" input.ini log-2.txt
 "$VENV_PY" "$ORACLE" --compare "$a" "$b" --tol 0 --ngc 3 --nonzero psi || STATUS=1
 same_histories "$a" "$b"
 
-for w in "$single" "$multi" "$rst" "$a" "$b"; do find "$w" -name '*.h5' -delete; done
+echo ">> MV-14 leg 4: RJ2a on the sod-amr cells, refined (2:1) 2-realm split vs 1 realm (issue #52)"
+mr="$VERIF_DIR/multirealm"
+rs="$CASE_DIR/work-$TAG-amr-single" ; rm_="$CASE_DIR/work-$TAG-refined"
+rm -rf "$rs" "$rm_" ; mkdir -p "$rs" "$rm_"
+rj2a=("$VENV_PY" "$VERIF_DIR/mhd/rj2a/make_rj2a.py")
+"${rj2a[@]}" "$mr/sod-amr.ini" "$rs/sod-amr.ini" --axis x --divergence-control glm
+cp "$mr/sod-amr-refined.ini" "$rm_/"
+for r in 1 2; do
+   "${rj2a[@]}" "$mr/sod-amr-refined-r$r.ini" "$rm_/sod-amr-refined-r$r.ini" --axis x --divergence-control glm
+done
+run "$rs" sod-amr.ini log.txt
+run "$rm_" sod-amr-refined.ini log.txt
+"$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rm_" "$rs" --ngc 3 || STATUS=1
+
+for w in "$single" "$multi" "$rst" "$a" "$b" "$rs" "$rm_"; do find "$w" -name '*.h5' -delete; done
 if [[ $STATUS -eq 0 ]]; then
    echo "MV-14 PASSED ($TAG)"
 else
