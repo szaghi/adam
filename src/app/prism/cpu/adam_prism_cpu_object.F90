@@ -3891,12 +3891,22 @@ contains
             call pack_coarse_face(self, fec, ni, nj, nk, nv_c, b, inner_n, outer_n, flux_slab)
             call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
          elseif (flux_register%face(face_idx)%seam_kind == SEAM_KIND_INTER_REALM) then
-            ! Fine side of an inter-realm mirror seam (same resolution): the skin covers the coarse face 1:1 and is
-            ! accumulated unrestricted (issue #52 P0; the FLUME twin of #37). The quadrant table is allocated whenever the
-            ! forest has a register, so the 2:1 branch below would restrict this skin too: 2x2 averages written into a
-            ! quarter of the coarse skin, measured F_coarse - F_fine_sum = 0.24 at step 1 on an FV mirror split.
+            ! Fine side of an inter-realm mirror seam (same resolution): the skin is accumulated unrestricted (issue #52
+            ! P0; the FLUME twin of #37) into every register face it overlaps (issue #51: the blocks of the two realms
+            ! need not line up, so the skin is this block's, not the register face's). The quadrant table is allocated
+            ! whenever the forest has a register, so the 2:1 branch below would restrict this skin too: 2x2 averages
+            ! written into a quarter of the coarse skin, measured F_coarse - F_fine_sum = 0.24 at step 1 on an FV mirror
+            ! split.
+            if (allocated(flux_slab)) deallocate(flux_slab)
+            allocate(flux_slab(1:nv_reg, 1:inner_n*outer_n))
+            flux_slab = 0._R8P
             call pack_coarse_face(self, fec, ni, nj, nk, nv_c, b, inner_n, outer_n, flux_slab)
-            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
+            associate(mp => self%adam%maps)
+               call flux_register%accumulate_fine_overlaps(                                                          &
+                  overlaps=mp%seam_overlap(:, mp%seam_overlap_start(b, fec):mp%seam_overlap_start(b, fec) +           &
+                                              mp%seam_overlap_count(b, fec) - 1_I4P),                               &
+                  inner_n=inner_n, skin=flux_slab, weight=weight)
+            endassociate
          else
             ! Fine side: 2:1-restrict this fine block's face into its quadrant of
             ! the coarse skin. Quadrant offsets are PRECOMPUTED at registration

@@ -31,6 +31,8 @@
 #                            in one flux register (issue #37); equivalent_to sod-amr
 #   sod-amr-refined          sod-amr split at its 2:1 face into a coarse and a fine realm, `coupling = refined`: the 2:1
 #                            inter-realm seam ghosts and reflux (issue #52); equivalent_to sod-amr
+#   sod-2realm-blocks        sod-2realm with realm 2 on blocks twice as large (same cells): seam blocks that do not line
+#                            up, each realm-2 skin scattered into 4 register faces (issue #51); equivalent_to sod-x
 #   orszag-tang              MV-12 Orszag-Tang, MHD + GLM, periodic 64^2, SSP-54, 100 steps (issue #41, M2-P6a)
 #   rotor                    MV-13 rotor, MHD + GLM, outflow 64^2, SSP-54, 100 steps (issue #41, M2-P6b)
 #   field-loop               MV-9 field loop, MHD + GLM, periodic 64x32, w = 1, SSP-54, 100 steps (issue #41, M2-P6c)

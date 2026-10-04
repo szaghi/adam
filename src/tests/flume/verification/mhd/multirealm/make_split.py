@@ -9,10 +9,12 @@ the MHD cases reuse their generators: realm 1 is [emin_x, centre], realm 2 [cent
 their boundary conditions and the forest turns the inner ones into the seam.
 
 Writes <out-dir>/<name>.ini (the forest manifest), <name>-r1.ini and <name>-r2.ini; --set overrides an option of
-both realms (e.g. time.it_max=100, IO.restart=.true.).
+both realms (e.g. time.it_max=100, IO.restart=.true.). --coarse-blocks R (issue #51) builds realm R with one block
+level fewer and twice the cells per block along the refined axes (x and y; z too on an octree, ratio 8): the same
+cells, but its seam blocks do not line up with the other realm's (each faces 2x2 of them).
 
 Usage:
-    make_split.py <single.ini> <out-dir> <name> [--set SECTION.KEY=VALUE ...]
+    make_split.py <single.ini> <out-dir> <name> [--set SECTION.KEY=VALUE ...] [--coarse-blocks 1|2]
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ def main() -> None:
     parser.add_argument("out", type=Path)
     parser.add_argument("name")
     parser.add_argument("--set", action="append", default=[], metavar="SECTION.KEY=VALUE")
+    parser.add_argument("--coarse-blocks", type=int, choices=(1, 2), default=None, metavar="R")
     args = parser.parse_args()
     for r in (1, 2):
         ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
@@ -61,6 +64,14 @@ def main() -> None:
         xmin, xmax = float(ini["grid"]["emin_x"]), float(ini["grid"]["emax_x"])
         centre = repr(0.5 * (xmin + xmax))
         ini["grid"].update({"ni": str(ni // 2), "emax_x" if r == 1 else "emin_x": centre})
+        if args.coarse_blocks == r:
+            levels = int(ini["amr"]["iu_ref_levels"])
+            if levels < 1:
+                raise SystemExit("make_split: --coarse-blocks needs iu_ref_levels >= 1")
+            ini["amr"]["iu_ref_levels"] = str(levels - 1)
+            axes = ("ni", "nj", "nk") if int(ini["amr"]["ratio"]) == 8 else ("ni", "nj")
+            for n in axes:
+                ini["grid"][n] = str(2 * int(ini["grid"][n]))
         ini["IO"].update({"output_basename": f"{args.name}-r{r}", "restart_basename": f"{args.name}-r{r}-restart"})
         for item in args.set:
             key, val = item.split("=", 1)

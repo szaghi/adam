@@ -16,7 +16,14 @@
 #   4. (issue #52) RJ2a (GLM) on the cells of the Euler seam + AMR leg (verification/multirealm/sod-amr.ini: x > 0.75
 #      refined 2:1), against the same cells split at the 2:1 face into a coarse and a fine realm glued by
 #      `coupling = refined` (sod-amr-refined*.ini, the realm grids kept by make_rj2a.py): the 2:1 seam ghosts and the
-#      2:1 inter-realm reflux carry all 9 fields, so the union must be BITWISE.
+#      2:1 inter-realm reflux carry all 9 fields, so the union must be BITWISE;
+#   5. (issue #51) the MHD rotor on an octree (ratio 8, nk 4: inter-realm seams on a quadtree stop at initialization,
+#      a tree-lookup defect of their own) split at x = 0.5 with the seam blocks not lined up (make_split.py
+#      --coarse-blocks: one realm on 2x2 blocks of twice the cells), each way, 50 steps: the fine-side skins are
+#      scattered over several register faces, and the 2-D flow across the seam makes a misplaced overlap visible (a
+#      deliberately misplaced one gives a negative density at step 2). Fields BITWISE; the conservation sums are not
+#      compared (--fields-only): the momentum integrals of the rotor are near zero, so their relative differences
+#      measure summation order only (the same 0.7-2.3 for the lined-up split).
 # Measured (CPU, M2-P7c): leg 1 bitwise over 297 steps, summed conservation within 1.7e-16; leg 2 (148 + restart)
 # bitwise, 6 histories identical; leg 3 bitwise with max |psi| 1.7e-3. About 4.5 min on the CPU.
 #
@@ -119,7 +126,20 @@ run "$rs" sod-amr.ini log.txt
 run "$rm_" sod-amr-refined.ini log.txt
 "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rm_" "$rs" --ngc 3 || STATUS=1
 
-for w in "$single" "$multi" "$rst" "$a" "$b" "$rs" "$rm_"; do find "$w" -name '*.h5' -delete; done
+echo ">> MV-14 leg 5: rotor (octree) split with seam blocks that do not line up, both ways, vs 1 realm (issue #51)"
+ro="$CASE_DIR/work-$TAG-rotor-single" ; rb1="$CASE_DIR/work-$TAG-rotor-blocks1" ; rb2="$CASE_DIR/work-$TAG-rotor-blocks2"
+rm -rf "$ro" "$rb1" "$rb2" ; mkdir -p "$ro" "$rb1" "$rb2"
+sed 's/^ratio = 4/ratio = 8/; s/^nk = 1/nk = 4/; s/^it_max = 100/it_max = 50/' \
+   "$REPO_ROOT/src/tests/flume/regression/rotor/input.ini" > "$ro/rotor.ini"
+"$VENV_PY" "$CASE_DIR/make_split.py" "$ro/rotor.ini" "$rb1" rotor-2realm --coarse-blocks 1
+"$VENV_PY" "$CASE_DIR/make_split.py" "$ro/rotor.ini" "$rb2" rotor-2realm --coarse-blocks 2
+run "$ro" rotor.ini log.txt
+run "$rb1" rotor-2realm.ini log.txt
+run "$rb2" rotor-2realm.ini log.txt
+"$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rb1" "$ro" --ngc 3 --fields-only || STATUS=1
+"$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rb2" "$ro" --ngc 3 --fields-only || STATUS=1
+
+for w in "$single" "$multi" "$rst" "$a" "$b" "$rs" "$rm_" "$ro" "$rb1" "$rb2"; do find "$w" -name '*.h5' -delete; done
 if [[ $STATUS -eq 0 ]]; then
    echo "MV-14 PASSED ($TAG)"
 else

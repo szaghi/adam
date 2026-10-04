@@ -304,7 +304,8 @@ contains
    !< Coarse side (positive register index): the skin is the coarse face. Fine side (negative index): on an intra-realm
    !< AMR seam the skin is 2:1-restricted (2x2 average) into this block's quadrant of the coarse face, the quadrant offset
    !< precomputed by the forest from the Morton codes (`maps%amr_seam_quadrant`); on an inter-realm mirror seam (same
-   !< resolution) it covers the coarse face 1:1 and is accumulated unrestricted.
+   !< resolution) it is accumulated unrestricted into the register faces it overlaps (`maps%seam_overlap`, issue #51:
+   !< the blocks of the two realms need not line up; one full-skin overlap when they do).
    !<
    !< FLUME weighs every stage by its SSP coefficient, `weight = beta_s`: the register then holds the flux of the
    !< whole step, `sum_s beta_s F_s`, exactly the flux the committed update `q + dt sum_s beta_s dq_s` used, and the
@@ -336,6 +337,17 @@ contains
       inner_n = self%ni ; outer_n = self%nj
    endselect
    nv = size(skin, dim=1)
+   if (sgn_idx < 0_I4P .and. flux_register%face(face_idx)%seam_kind == SEAM_KIND_INTER_REALM) then
+      ! same-resolution (mirror) inter-realm seam: the skin goes unrestricted into every register face it overlaps
+      ! (issues #37, #51)
+      associate(mp => self%adam%maps)
+         call flux_register%accumulate_fine_overlaps(                                                                &
+            overlaps=mp%seam_overlap(:, mp%seam_overlap_start(b, fec):mp%seam_overlap_start(b, fec) +                 &
+                                        mp%seam_overlap_count(b, fec) - 1_I4P),                                     &
+            inner_n=inner_n, skin=skin, weight=weight)
+      endassociate
+      return
+   endif
    if (size(skin, dim=2) /= inner_n * outer_n .or. flux_register%face(face_idx)%nface_cells /= inner_n * outer_n) &
       call mpih%error_stop(msg=': accumulate_seam_skin: skin size differs from the register face (block '// &
                                trim(str(b))//', face '//trim(str(fec))//')')
@@ -344,10 +356,6 @@ contains
    if (sgn_idx > 0_I4P) then
       slab(1:nv,:) = weight * skin
       call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=slab)
-   elseif (flux_register%face(face_idx)%seam_kind == SEAM_KIND_INTER_REALM) then
-      ! same-resolution (mirror) inter-realm seam: the fine skin covers the coarse face 1:1, no restriction (issue #37)
-      slab(1:nv,:) = weight * skin
-      call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=slab)
    else
       ioff = 0_I4P ; joff = 0_I4P
       if (allocated(self%adam%maps%amr_seam_quadrant)) then

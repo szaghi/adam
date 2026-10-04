@@ -75,6 +75,10 @@ It now carries a **`check.sh` oracle** (three legs, `-np 1`, CPU by default, `PR
 Like the AMR-seam oracles, this `check.sh` is invoked **by hand**, not by the sweep — and the case still has no digest golden, so `run.sh` continues to report it as a SKIP. Run it directly after touching `fill_seam_from_peer_forest`, `post_step_forest`, or any forest seam path.
 :::
 
+### Inter-realm misaligned-block anchor
+
+`rmf-2realm-fv-pulse-blocks` ([#51](https://github.com/szaghi/adam/issues/51)) — the 1:1 mirror pulse on the FV path (`fv_centered`, 20 steps) with the seam blocks of the two realms not lined up: one realm on 4 blocks per axis (the same cells), first realm 1 (the register side: each register face holds 2x2 realm-2 faces), then realm 2 (each realm-2 face scattered into 4 register faces). Its `check.sh` asserts that the register closes exactly, `max|F_coarse-F_fine_sum|` = 0 on every face and step (320 and 80 lines), and that the fields match the single-realm FV pulse within `1e-13`. They are not compared bitwise: PRISM FV is not invariant under a change of block layout at round-off (the single realm alone on 4 blocks per axis instead of 2 differs by 6.6e-16). Measured on CPU and FNL: mismatch 0, fields within 3.7e-15.
+
 ### Inter-realm 2:1 seam anchor
 
 `rmf-2realm-fd-pulse-refined` ([#52](https://github.com/szaghi/adam/issues/52)) — `rmf-amr-fd-pulse` split at its 2:1 face x=0 into a fine realm (x<0, one level finer, no marker) and a coarse realm (x>0) glued by `coupling = refined`, β cadence. The union is the single-realm cell set, so the split must reproduce `rmf-amr-fd-pulse` **bit for bit**, including its [#29](https://github.com/szaghi/adam/issues/29) seam div(B) source: the inter-realm 2:1 seam reuses the intra-realm formulas, so the source must be neither smaller nor larger. Its `check.sh` (`-np 2` by default, `--np N`, `PRISM_EXE=` to override) runs both and asserts:

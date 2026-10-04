@@ -273,6 +273,14 @@ type :: maps_object
    integer(I4P), allocatable :: seam_mpi_send_cell(:,:)      !< Send rows [rank, b, i, j, k, kind, meta] (own cells).
    integer(I4P), allocatable :: seam_mpi_send_row_start(:)   !< First send row of each peer slot.
    integer(I4P), allocatable :: seam_mpi_send_row_count(:)   !< Send rows of each peer slot.
+   ! Overlaps of this realm's fine-side (realm_b) faces of inter-realm mirror seams with the register faces (the realm_a
+   ! leaf faces), issue #51: the seam blocks of the two realms need not line up. The rows of a (block, bc_fec) are
+   ! contiguous, from `seam_overlap_start(b, fec)`, `seam_overlap_count(b, fec)` of them (zero: no overlap); columns
+   ! `[cursor, register offset inner, outer, block offset inner, outer, extent inner, outer, register inner count]`, in
+   ! cells of the face skins (inner axis fastest: x faces y, z; y faces x, z; z faces x, y). Owned blocks only.
+   integer(I4P), allocatable :: seam_overlap(:,:)        !< Overlap rows (8, rows).
+   integer(I4P), allocatable :: seam_overlap_start(:,:)  !< First row of each (block, bc_fec).
+   integer(I4P), allocatable :: seam_overlap_count(:,:)  !< Rows of each (block, bc_fec).
    ! Seam exchange timing (issue #53, off unless ADAM_SEAM_TIMING=1): wall time of the phases of `seam_fill` filling
    ! this realm's ghosts, summed over the calls on this rank.
    logical      :: seam_timing     = .false.  !< Accumulate the timers below.

@@ -35,6 +35,13 @@
 # and so must the pair with the positivity limiter (refused on every multi-realm run: the inter-realm seam faces carry
 # no limiting factor; the limiter's 2:1 seam flux synchronisation of issue #50 is intra-realm).
 #
+# Leg 5 (issue #51): the seam blocks of the two realms do not line up (same cells, different block sizes along the
+# seam). sod-2realm-blocks.ini is the leg-1 split with realm 2 on 2 blocks per axis (each of its seam blocks faces 2x2
+# blocks of realm 1, so its skin is scattered into four register faces); sod-2realm-blocks-z.ini the leg-3 split with
+# realm 1, the register side, on the larger blocks (each register face holds 2x2 realm-2 faces; on N ranks the seam
+# crosses ranks). Both must reproduce sod-x / sod-z bit for bit. Sod is 1-D, so these legs see the coverage of the
+# register faces, not where the overlaps land along the face: the MHD rotor of mhd/multirealm/check.sh (leg 5) does.
+#
 # Usage: ./check.sh [--build] [--np N]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -152,4 +159,13 @@ if ! grep -aq 'positivity_limiter)=cell is not supported on multi-realm runs' "$
    exit 1
 fi
 echo "   $(basename "$work"): refused as expected"
+echo "== leg 5: seam blocks that do not line up (issue #51)"
+bfiles=("$CASE_DIR/sod-2realm-blocks.ini" "$CASE_DIR/sod-2realm-blocks-r1.ini" "$CASE_DIR/sod-2realm-blocks-r2.ini")
+multi="$CASE_DIR/work-$TAG-blocks"
+run "$multi" sod-2realm-blocks.ini "${bfiles[@]}"
+"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-single" --ngc 3 --tol 0
+bfiles=("$CASE_DIR/sod-2realm-blocks-z.ini" "$CASE_DIR/sod-2realm-blocks-z-r1.ini" "$CASE_DIR/sod-2realm-blocks-z-r2.ini")
+multi="$CASE_DIR/work-$TAG-blocks-z"
+run "$multi" sod-2realm-blocks-z.ini "${bfiles[@]}"
+"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-z-single" --ngc 3 --tol 0
 echo "multi-realm verification PASSED ($TAG)"

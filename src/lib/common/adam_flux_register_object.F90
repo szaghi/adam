@@ -138,6 +138,9 @@ type :: flux_register_object
       procedure, pass(self) :: accumulate_fine_flux
                                                       !< Add a fine-side per-stage flux to F_fine_sum on the matching face
                                                       !< (called by compute_residuals_* on fine-side seam faces).
+      procedure, pass(self) :: accumulate_fine_overlaps
+                                                      !< Scatter a fine-side block-face skin into every register face it
+                                                      !< overlaps (inter-realm mirror seams, issue #51).
       procedure, pass(self) :: reduce_fine_sums
                                                       !< MPI-reduce F_fine_sum across ranks so coarse owner has complete sum (Phase
                                                       !< A v1: no-op for replicated forest).
@@ -314,6 +317,42 @@ contains
       call mpih%error_stop(msg='flux_register_object%accumulate_fine_flux: stage out of range')
    self%face(face_index)%F_fine_sum(:,:,stage) = self%face(face_index)%F_fine_sum(:,:,stage) + flux_face(:,:)
    endsubroutine accumulate_fine_flux
+
+   subroutine accumulate_fine_overlaps(self, overlaps, inner_n, skin, weight)
+   !< Scatter the fine-side skin of one block face of an inter-realm mirror seam into the register faces it overlaps
+   !< (issue #51): the seam blocks of the two realms need not line up, so a block face may cover several register faces
+   !< (each partly) or share one with other blocks. Each overlap row `[cursor, register offset inner, outer, block offset
+   !< inner, outer, extent inner, outer, register inner count]` (`maps%seam_overlap`) copies its rectangle of `weight *
+   !< skin` into a register-shaped slab, zero elsewhere, accumulated into `F_fine_sum`. A block that lines up with its
+   !< register face has one row covering the whole skin: the 1:1 accumulation, bit for bit.
+   class(flux_register_object), intent(inout) :: self           !< The register.
+   integer(I4P),                intent(in)    :: overlaps(1:,1:) !< Overlap rows (8, rows) of this block face.
+   integer(I4P),                intent(in)    :: inner_n        !< Inner cell count of the block-face skin.
+   real(R8P),                   intent(in)    :: skin(1:,1:)    !< Block-face skin (nv, inner_n*outer_n), inner fastest.
+   real(R8P),                   intent(in)    :: weight         !< Stage weight.
+   real(R8P), allocatable                     :: slab(:,:)      !< Register-shaped contribution (nv_reg, nface_cells).
+   integer(I4P)                               :: r, ii, jj      !< Row and overlap cell counters.
+   integer(I4P)                               :: f              !< Register face.
+   integer(I4P)                               :: nv             !< Skin variables.
+
+   nv = int(size(skin, dim=1), I4P)
+   do r = 1_I4P, int(size(overlaps, dim=2), I4P)
+      f = overlaps(1, r)
+      if (f < 1_I4P .or. f > self%nfaces) &
+         call mpih%error_stop(msg='flux_register_object%accumulate_fine_overlaps: register face out of range')
+      if (.not. allocated(self%face(f)%F_fine_sum)) cycle
+      allocate(slab(size(self%face(f)%F_fine_sum, dim=1), self%face(f)%nface_cells))
+      slab = 0._R8P
+      do jj = 0_I4P, overlaps(7, r) - 1_I4P
+         do ii = 0_I4P, overlaps(6, r) - 1_I4P
+            slab(1:nv, (overlaps(3, r) + jj) * overlaps(8, r) + overlaps(2, r) + ii + 1_I4P) = &
+               weight * skin(:, (overlaps(5, r) + jj) * inner_n + overlaps(4, r) + ii + 1_I4P)
+         enddo
+      enddo
+      call self%accumulate_fine_flux(face_index=f, stage=1_I4P, flux_face=slab)
+      deallocate(slab)
+   enddo
+   endsubroutine accumulate_fine_overlaps
 
    subroutine reduce_fine_sums(self)
    !< Complete the per-face accumulators across MPI ranks (issue #28 D3).

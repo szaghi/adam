@@ -134,7 +134,11 @@ is bitwise equal to the single-realm refined run (135168 cells, 216 steps) on 2,
 the same split along $z$, where every 2:1 seam row crosses ranks. The pair declared `mirror` is refused at
 initialization, and so is the positivity limiter on any multi-realm run. The MHD twin (`mhd/multirealm/check.sh` leg 4,
 RJ2a with GLM on the same cells) is bitwise on all nine fields over 349 steps; in 1-D $\psi$ stays at round-off, so it
-tests $\mathbf{B}$, not the cleaning, across the 2:1 seam.
+tests $\mathbf{B}$, not the cleaning, across the 2:1 seam. Leg 5 ([#51](https://github.com/szaghi/adam/issues/51))
+splits Sod, along $x$ and along $z$, into realms whose seam blocks do not line up (one realm on blocks twice as large,
+the same cells): bitwise equal to the single-realm run on 2 and 4 ranks. Sod is 1-D, so the MHD rotor (MV-14 leg 5, on an
+octree, split both ways) checks where the scattered fluxes land: bitwise on all nine fields, and a deliberately
+misplaced overlap drives the density negative at step 2.
 
 ## Ideal MHD
 
@@ -382,7 +386,7 @@ Build and run with `fobis build --mode test-flume-<name>-gnu` (`-fnl-nvf --varse
 
 ## Regression suite
 
-`src/tests/flume/regression/` holds 27 goldened cases (Sod along x/y/z, AMR, multi-realm (mirror and 2:1 refined seams), immersed boundary, the MHD
+`src/tests/flume/regression/` holds 28 goldened cases (Sod along x/y/z, AMR, multi-realm (mirror seams, lined up or not, and 2:1 refined seams), immersed boundary, the MHD
 cases RJ2a, Brio–Wu, GLM pulse, Orszag–Tang, rotor, field loop, rotated shock tube, uniform AMR, and the M3 cases: Sod
 with HLLC and RJ2a with HLLD on `weno-riemann`, Orszag–Tang with EGLM, the blast with the positivity limiter in 2-D and
 in 3-D, the only 3-D flow case of the suite, and, issue #50, the blast with the limiter across two 2:1 seams through
