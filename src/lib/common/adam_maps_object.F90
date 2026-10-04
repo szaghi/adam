@@ -273,6 +273,12 @@ type :: maps_object
    integer(I4P), allocatable :: seam_mpi_send_cell(:,:)      !< Send rows [rank, b, i, j, k, kind, meta] (own cells).
    integer(I4P), allocatable :: seam_mpi_send_row_start(:)   !< First send row of each peer slot.
    integer(I4P), allocatable :: seam_mpi_send_row_count(:)   !< Send rows of each peer slot.
+   ! Seam exchange timing (issue #53, off unless ADAM_SEAM_TIMING=1): wall time of the phases of `seam_fill` filling
+   ! this realm's ghosts, summed over the calls on this rank.
+   logical      :: seam_timing     = .false.  !< Accumulate the timers below.
+   real(R8P)    :: seam_wtime(5)   = 0._R8P   !< Local copy, buffers, pack (peer owner), MPI (post to wait), unpack.
+   integer(I8P) :: seam_fills      = 0_I8P    !< Calls that moved cross-rank (or to-self) rows on this rank.
+   integer(I8P) :: seam_rows(2)    = 0_I8P    !< Cross-rank rows moved: received (unpacked), packed (sent).
    contains
       ! public methods
       procedure, pass(self) :: blocks_reorder             !< Reorder blocks indexes in field.

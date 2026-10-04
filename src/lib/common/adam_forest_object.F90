@@ -55,6 +55,11 @@ type :: forest_object
    !< Behavior-only orchestrator of an array of realms.
    integer(I4P)               :: n = 0_I4P     !< Number of realms in the forest (set by initialize from size(realm)).
    type(flux_register_object) :: flux_register !< Coarse-fine interface reflux machinery.
+   ! Timing report (issue #53), on when the environment sets ADAM_SEAM_TIMING=1; wall time on this rank of: the time
+   ! loop, evolve_one_step, the end-of-step reflux fine-sum reduction, the wait at a barrier put before it when timing
+   ! (load imbalance, which the collective reduction would otherwise absorb), and the reflux correction.
+   logical                    :: timing   = .false.
+   real(R8P)                  :: wtime(5) = 0._R8P
    contains
       ! public methods
       ! initialize/finalize
@@ -75,6 +80,8 @@ type :: forest_object
       procedure, pass(self), private :: register_intra_realm_amr_seams !< Register intra-realm AMR coarse-fine faces in the flux
          !< register.
       procedure, pass(self), private :: apply_reflux_corrections        !< Apply Berger-Colella reflux to coarse-side.
+      procedure, pass(self), private :: start_timing                    !< Arm the timing report (issue #53).
+      procedure, pass(self), private :: report_timing                   !< Print the timing report (issue #53).
 endtype forest_object
 
 type :: seam_rows_t
@@ -364,7 +371,14 @@ contains
       enddo
       ! Cross-rank reduce of the fine-side accumulators (after the final stage's
       ! accumulation, which happened inside compute_residuals at k = nrk).
+      if (self%timing) then
+         self%wtime(4) = self%wtime(4) - MPI_Wtime()
+         call MPI_BARRIER(MPI_COMM_WORLD, mpih%error)
+         self%wtime(4) = self%wtime(4) + MPI_Wtime()
+         self%wtime(3) = self%wtime(3) - MPI_Wtime()
+      endif
       call self%flux_register%reduce_fine_sums
+      if (self%timing) self%wtime(3) = self%wtime(3) + MPI_Wtime()
       do is = 1_I4P, int(size(realm), I4P)
          call realm(is)%close_step_forest(dt=dt)
       enddo
@@ -375,7 +389,9 @@ contains
       ! is required: the correction is to the committed solution, not to a stage
       ! residual buffer (the pre-update_q q_rk path silently no-op'd for SSP and
       ! entangled the stage beta weight — see apply_reflux_to_stage_forest).
+      if (self%timing) self%wtime(5) = self%wtime(5) - MPI_Wtime()
       call self%apply_reflux_corrections(realm=realm, dt=dt)
+      if (self%timing) self%wtime(5) = self%wtime(5) + MPI_Wtime()
 
       ! Phase 5 — end-of-step inter-realm seam fill (α coherence barrier).
       !
@@ -454,13 +470,21 @@ contains
    logical                             :: done     !< Forest-global termination predicate.
 
    call self%initialize(realm, filename=filename)
+   call self%start_timing(realm=realm)
    done = .false.
+   if (self%timing) self%wtime(1) = MPI_Wtime()
    do
+      if (self%timing) self%wtime(2) = self%wtime(2) - MPI_Wtime()
       call self%evolve_one_step(realm=realm)
+      if (self%timing) self%wtime(2) = self%wtime(2) + MPI_Wtime()
       call self%post_step(realm=realm)
       call self%is_done(realm=realm, done=done)
       if (done) exit
    enddo
+   if (self%timing) then
+      self%wtime(1) = MPI_Wtime() - self%wtime(1)
+      call self%report_timing(realm=realm)
+   endif
    call self%finalize(realm=realm)
    endsubroutine simulate
 
@@ -475,17 +499,75 @@ contains
    logical                                 :: done     !< Forest-global termination predicate.
 
    call self%initialize_from_manifest(realm=realm, manifest=manifest)
+   call self%start_timing(realm=realm)
    done = .false.
+   if (self%timing) self%wtime(1) = MPI_Wtime()
    do
+      if (self%timing) self%wtime(2) = self%wtime(2) - MPI_Wtime()
       call self%evolve_one_step(realm=realm)
+      if (self%timing) self%wtime(2) = self%wtime(2) + MPI_Wtime()
       call self%post_step(realm=realm)
       call self%is_done(realm=realm, done=done)
       if (done) exit
    enddo
+   if (self%timing) then
+      self%wtime(1) = MPI_Wtime() - self%wtime(1)
+      call self%report_timing(realm=realm)
+   endif
    call self%finalize(realm=realm)
    endsubroutine simulate_from_manifest
 
    ! private methods
+   subroutine start_timing(self, realm)
+   !< Arm the timing report when the environment sets ADAM_SEAM_TIMING=1 (issue #53): the forest times its loop, steps
+   !< and reflux, every realm the phases of the seam fills of its ghosts. Off by default, the output unchanged.
+   class(forest_object), intent(inout) :: self     !< The forest.
+   class(realm_object),  intent(inout) :: realm(:) !< The realms.
+   character(len=8)                    :: val      !< Environment value.
+   integer                             :: stat     !< Environment query status.
+   integer(I4P)                        :: is       !< Realm index.
+
+   call get_environment_variable('ADAM_SEAM_TIMING', value=val, status=stat)
+   self%timing = (stat == 0 .and. trim(val) == '1')
+   do is = 1_I4P, int(size(realm), I4P)
+      realm(is)%adam%maps%seam_timing = self%timing
+   enddo
+   endsubroutine start_timing
+
+   subroutine report_timing(self, realm)
+   !< Print the timing report (issue #53): the maximum over the ranks of the forest timers and, per realm, of the seam
+   !< fill phases (local copy, buffers, pack, MPI, unpack) and of their sum; fills and rows summed over the ranks.
+   class(forest_object), intent(in) :: self     !< The forest.
+   class(realm_object),  intent(in) :: realm(:) !< The realms.
+   real(R8P)                        :: w(6)     !< Timers reduced over the ranks.
+   integer(I8P)                     :: c(3)     !< Counters reduced over the ranks.
+   integer(I4P)                     :: is       !< Realm index.
+   integer                          :: ierr     !< MPI error.
+   character(len=256)               :: line     !< Report line.
+
+   w(1:5) = self%wtime
+   call MPI_ALLREDUCE(MPI_IN_PLACE, w, 5, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   write(line, '(A,5(F11.4,A),I0,A)') 'forest timing (max over ranks, s): loop', w(1), ', steps', w(2),               &
+                                      ', imbalance before reflux', w(4), ', reflux reduce', w(3), ', reflux apply', w(5), &
+                                      '; ', self%flux_register%nfaces, ' register faces'
+   if (mpih%myrank == 0) call mpih%print_message(trim(line))
+   do is = 1_I4P, int(size(realm), I4P)
+      ! nvfortran 26.1: an array constructor of components of a class(realm_object) array element reads garbage; bind
+      ! the element first (0062a237).
+      associate(r => realm(is))
+         w(1:5) = r%adam%maps%seam_wtime
+         c = [r%adam%maps%seam_fills, r%adam%maps%seam_rows]
+      endassociate
+      w(6) = sum(w(1:5))
+      call MPI_ALLREDUCE(MPI_IN_PLACE, w, 6, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, c, 3, MPI_INTEGER8, MPI_SUM, MPI_COMM_WORLD, ierr)
+      write(line, '(A,I0,A,6(F11.4,A),3(I0,A))') 'forest seam timing realm ', is, ' (max over ranks, s): local', &
+         w(1), ', buffers', w(2), ', pack', w(3), ', MPI', w(4), ', unpack', w(5), ', total', w(6),            &
+         '; fills ', c(1), ', rows received ', c(2), ', packed ', c(3), ' (summed over ranks)'
+      if (mpih%myrank == 0) call mpih%print_message(trim(line))
+   enddo
+   endsubroutine report_timing
+
    subroutine check_beta_admissibility(realm, manifest)
    !< Enforce β admissibility contract on every `stage_coincident` seam.
    !<

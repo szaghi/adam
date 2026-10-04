@@ -63,26 +63,38 @@ contains
    integer(I4P)                               :: n_req                      !< Posted requests.
    integer(I4P)                               :: r, r_end, rank             !< Row segment bounds and partner rank.
    integer(I4P)                               :: self_recv(2), self_send(2) !< Same-rank row segments (0 if none).
+   logical                                    :: timing                     !< Accumulate the phase timers (issue #53).
+   real(R8P)                                  :: tw(0:5)                    !< Phase boundaries (MPI_Wtime).
 
    is = self%realm_index
    ip = self%adam%maps%seam_local_peer_realm(p)
+   ! The phase boundaries need no device synchronisation: the FNL seam kernels are synchronous and the packed buffers
+   ! cross the host through blocking copies (issue #53).
+   timing = self%adam%maps%seam_timing
+   if (timing) tw(0) = MPI_Wtime()
    ! local rows: the receiver's own copy kernel
    if (self%adam%maps%seam_local_peer_row_count(p) > 0_I4P) call self%fill_seam_from_peer_forest(peer=realm(ip), p_idx=p)
+   if (timing) tw(1) = MPI_Wtime()
    ! cross-rank rows
    q = seam_peer_slot(realm(ip), is)
    n_recv = 0_I4P ; n_send = 0_I4P
    if (allocated(self%adam%maps%seam_mpi_recv_row_count)) n_recv = self%adam%maps%seam_mpi_recv_row_count(p)
    if (allocated(realm(ip)%adam%maps%seam_mpi_send_row_count)) n_send = realm(ip)%adam%maps%seam_mpi_send_row_count(q)
-   if (n_recv + n_send == 0_I4P) return
+   if (n_recv + n_send == 0_I4P) then
+      if (timing) self%adam%maps%seam_wtime(1) = self%adam%maps%seam_wtime(1) + (tw(1) - tw(0))
+      return
+   endif
    self_recv = 0_I4P ; self_send = 0_I4P
    nv = self%nv
    allocate(req(n_recv + n_send)) ; n_req = 0_I4P
    allocate(recv_buf(nv * n_recv), send_buf(nv * n_send))
+   if (timing) tw(2) = MPI_Wtime()
    if (n_send > 0_I4P) then
       associate(r_ip=>realm(ip)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
          call r_ip%pack_seam_cells_forest(p_idx=q, buf=send_buf)
       endassociate
    endif
+   if (timing) tw(3) = MPI_Wtime()
    ! one message per partner rank: the rows of a slot are grouped by rank
    if (n_recv > 0_I4P) then
       associate(rows=>self%adam%maps%seam_mpi_recv_cell)
@@ -134,7 +146,14 @@ contains
       recv_buf(nv*(self_recv(1)-1_I4P)+1_I4P:nv*self_recv(2)) = send_buf(nv*(self_send(1)-1_I4P)+1_I4P:nv*self_send(2))
    endif
    call MPI_WAITALL(n_req, req, MPI_STATUSES_IGNORE, mpih%error)
+   if (timing) tw(4) = MPI_Wtime()
    if (n_recv > 0_I4P) call self%unpack_seam_cells_forest(p_idx=p, buf=recv_buf)
+   if (timing) then
+      tw(5) = MPI_Wtime()
+      self%adam%maps%seam_wtime = self%adam%maps%seam_wtime + (tw(1:5) - tw(0:4))
+      self%adam%maps%seam_fills = self%adam%maps%seam_fills + 1_I8P
+      self%adam%maps%seam_rows = self%adam%maps%seam_rows + int([n_recv, n_send], I8P)
+   endif
    endsubroutine seam_fill
 
    subroutine seam_fill_all(self, realm)

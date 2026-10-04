@@ -72,6 +72,12 @@ Before issue #52, `periodic` and `interpolate` were accepted and silently run as
 
 `src/tests/flume/verification/multirealm/check.sh` (leg 3) splits Sod along $z$: on one rank and on $N$ ranks the union reproduces the single-realm `sod-z` bit for bit (measured on 2, 3 and 4 ranks; on 2 every seam ghost crosses ranks, 3468 rows each way). Before issue #40 the two-rank run ended normally with a wrong solution (205 steps instead of 174, realm 1 mass frozen at 0.5, reflux mismatch 69).
 
+**Timing the exchange** ([issue #53](https://github.com/szaghi/adam/issues/53)). With `ADAM_SEAM_TIMING=1` in the environment (pass it to the ranks, e.g. `mpirun -x ADAM_SEAM_TIMING`), any forest run (single realm included) prints at the end:
+- one line with the time loop, the steps, the reflux fine-sum reduction, a barrier wait before it (the load imbalance the collective would otherwise absorb; the barrier exists only when timing) and the reflux correction;
+- one line per realm with the phases of the seam fills of its ghosts: the local copy, buffers, pack (on the owner of the cells), MPI (post to completion, partner waits included), and unpack, plus the fills and rows moved.
+
+Times are the maximum over the ranks; counts are summed. Without the variable nothing is timed and nothing is printed. Measured on the WSL box (not a benchmark, see the issue), the exchange takes 0.2-5.5% of the step time on the FLUME and PRISM splits.
+
 ## Coupling cadence: α vs β
 
 Each inter-realm seam carries a `coupling_cadence` selected independently in the manifest. The forest's `evolve_one_step` orchestrator iterates seams (not realms) when filling ghost cells and gates per-seam.
