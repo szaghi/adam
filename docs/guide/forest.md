@@ -46,7 +46,7 @@ Schema summary:
 | `[forest.topology]`              | `inter_realm_faces_number`  | no  | Count of inter-realm seams; absent means no inter-realm coupling. |
 | `[forest.topology.face_N]`       | `realm_a`, `realm_b`        | yes | 1-based realm indices on each side of the seam. |
 |                                  | `face_a`, `face_b`          | yes | Face codes: `+x`/`-x`/`+y`/`-y`/`+z`/`-z`. |
-|                                  | `coupling`                  | no  | `mirror` (default; same cell size, pass-through copy) or `refined` (a 2:1 resolution jump, issue #52: validated, not implemented yet). `periodic` and `interpolate` are reserved and refused at initialization. |
+|                                  | `coupling`                  | no  | `mirror` (default; same cell size, pass-through copy) or `refined` (a 2:1 resolution jump, issue #52). `periodic` and `interpolate` are reserved and refused at initialization. |
 |                                  | `coupling_cadence`          | no  | `end_of_step` (default, α) or `stage_coincident` (β). |
 
 Each realm's INI is a complete per-app input file. Sections like `[grid]`, `[numerics]`, `[physics]`, `[runge_kutta]` are populated as usual; the manifest contributes only the inter-realm topology.
@@ -64,7 +64,9 @@ What a seam still requires, checked at initialization (`error_stop` naming the f
 
 1. `coupling = mirror`: both sides have the **same cell size**, with cell centres that coincide across the seam;
 2. the seam blocks of the two realms **meet face to face** (same tangential extents); seams between blocks that do not line up are planned in [issue #51](https://github.com/szaghi/adam/issues/51);
-3. `coupling = refined` (a 2:1 resolution jump, [issue #52](https://github.com/szaghi/adam/issues/52)): one cell size per side with ratio exactly 2 along every axis, the same block cell counts along the seam, the same `[amr] seam_ghost_fill`, and nested blocks (each fine seam block covers one 2:1 quadrant of a coarse seam block face). The pair is validated, then refused until the 2:1 seam fill and register land.
+3. `coupling = refined` (a 2:1 resolution jump, [issue #52](https://github.com/szaghi/adam/issues/52)): one cell size per side with ratio exactly 2 along every axis, the same block cell counts along the seam, the same `[amr] seam_ghost_fill`, even block cell counts in the fine realm, and nested blocks (each fine seam block covers one 2:1 quadrant of a coarse seam block face).
+
+A refined seam reuses the intra-realm 2:1 machinery. A fine seam ghost takes the coarse->fine interpolant of the selected `seam_ghost_fill` regime around the coarse cell containing it (`interp_seam_ghost`, footprint inside the coarse block interior); a coarse seam ghost takes the mean of the 2x2x2 fine cells under it. The owner of the cells computes these values and sends them (interpolate and restrict rows; same-rank ones are messages to self). The register holds one face per coarse seam block, its four fine blocks restricted 2:1 into their quadrants as for an intra-realm 2:1 face (`SEAM_KIND_INTER_REALM_REFINED`). Time stepping is not subcycled: one global time step. `src/tests/flume/verification/multirealm/check.sh` (leg 4) splits `sod-amr` at its 2:1 face into a coarse and a fine realm, along $x$ and along $z$: the union reproduces the single-realm run bit for bit. The same holds on the FNL backend, where the owner of the cells evaluates them on the device.
 
 Before issue #52, `periodic` and `interpolate` were accepted and silently run as `mirror`; they are now refused.
 

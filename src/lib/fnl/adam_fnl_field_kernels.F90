@@ -6,7 +6,7 @@ module adam_fnl_field_kernels
 !< ADAM, field class FNL kernels (FNL backend of [[field_object]]).
 
 ! ADAM objects
-use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, seam_meta_unpack, &
+use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_INJECTION, seam_meta_unpack, &
                                                seam_interpolate_compatible, seam_interpolate_tricubic
 ! third party modules
 use :: fundal
@@ -23,25 +23,47 @@ public :: receive_recv_buffer_ghost_gpu_dev
 public :: update_ghost_local_gpu_dev
 
 contains
-   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, rows_gpu, q_gpu, buf_gpu)
-   !< Gather the cells of the cross-rank seam rows `[rank, b, i, j, k]` `row_start..row_start+row_count-1` of `q_gpu`
-   !< into `buf_gpu`, `nv` values per row in row order (issue #40).
+   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu)
+   !< Pack the ghost values of the seam send rows `[rank, b, i, j, k, kind, meta]` `row_start..row_start+row_count-1`
+   !< from `q_gpu` into `buf_gpu`, `nv` values per row in row order (issues #40, #52), the device twin of
+   !< `adam_seam_exchange%pack_seam_rows`: kind 1 copies the cell, kind 4 interpolates the fine ghost around the coarse
+   !< anchor cell (`interp_seam_ghost_gpu_dev`, the intra-realm flag-4 fill; injection copies the anchor), kind 8 is the
+   !< mean of the 2x2x2 fine cells from the base cell (the intra-realm flag-8 order). The kinds are the values of
+   !< `adam_seam_exchange` SEAM_ROW_*.
    integer(I4P), intent(in)    :: row_start                         !< First row.
    integer(I4P), intent(in)    :: row_count                         !< Number of rows.
    integer(I4P), intent(in)    :: nv                                !< Variables number.
    integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
-   integer(I4P), intent(in)    :: rows_gpu(1:,1:)                   !< Rows [rank, b, i, j, k].
+   integer(I4P), intent(in)    :: regime                            !< Coarse->fine fill regime (`maps%seam_ghost_fill`).
+   integer(I4P), intent(in)    :: rows_gpu(1:,1:)                   !< Rows [rank, b, i, j, k, kind, meta].
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field (b, i, j, k, v).
    real(R8P),    intent(inout) :: buf_gpu(1:)                       !< Packed values.
    integer(I4P)                :: c, v, row                         !< Counters.
+   integer(I4P)                :: b, i, j, k                        !< Cell.
+   integer(I4P)                :: ic, jc, kc                        !< 2x2x2 counters.
+   real(R8P)                   :: total                             !< Restriction sum.
 
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(rows_gpu,q_gpu,buf_gpu) &
-   !$acc& firstprivate(row_start,row_count,nv) private(row)
-   !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu,q_gpu,buf_gpu) firstprivate(row_start,row_count,nv) private(row)
+   !$acc& firstprivate(row_start,row_count,nv,ngc,regime) private(row,b,i,j,k,total)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu,q_gpu,buf_gpu) firstprivate(row_start,row_count,nv,ngc,regime) &
+   !$omp& private(row,b,i,j,k,total)
    do c=1, row_count
    do v=1, nv
       row = row_start + c - 1
-      buf_gpu(nv*(c-1)+v) = q_gpu(rows_gpu(row,2),rows_gpu(row,3),rows_gpu(row,4),rows_gpu(row,5),v)
+      b = rows_gpu(row,2) ; i = rows_gpu(row,3) ; j = rows_gpu(row,4) ; k = rows_gpu(row,5)
+      if (rows_gpu(row,6) == 4 .and. regime /= SEAM_FILL_INJECTION) then
+         buf_gpu(nv*(c-1)+v) = interp_seam_ghost_gpu_dev(regime=regime, meta=rows_gpu(row,7), ngc=ngc, q_gpu=q_gpu, &
+                                                         v=v, b_send=b, i_send=i, j_send=j, k_send=k)
+      elseif (rows_gpu(row,6) == 8) then
+         total = 0._R8P
+         !$acc loop seq
+         do kc=0,1 ; do jc=0,1 ; do ic=0,1
+            total = total + q_gpu(b,i+ic,j+jc,k+kc,v)
+         enddo ; enddo ; enddo
+         buf_gpu(nv*(c-1)+v) = total * 0.125_R8P
+      else
+         buf_gpu(nv*(c-1)+v) = q_gpu(b,i,j,k,v)
+      endif
    enddo
    enddo
    endsubroutine pack_seam_rows_dev

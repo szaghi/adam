@@ -27,10 +27,11 @@
 # issue #40 the N-rank run ended normally with a wrong solution (205 steps instead of 174, realm 1 mass frozen at 0.5,
 # reflux mismatch 69).
 #
-# Leg 4 (issue #52, coupling validation): sod-amr-refined.ini splits sod-amr at its 2:1 face into a coarse and a fine
-# realm glued by `coupling = refined`. Until the 2:1 inter-realm seam lands the forest validates the pair (ratio 2,
-# nested blocks, same tangential block cells and seam_ghost_fill) and stops with "not implemented yet (issue #52)"; the
-# same pair declared `mirror` must be refused for its different cell sizes. Both stop at initialization.
+# Leg 4 (issue #52): sod-amr-refined.ini splits sod-amr at its 2:1 face into a coarse realm (x < 0.75) and a fine realm
+# (x > 0.75) glued by `coupling = refined`: the 2:1 seam ghosts (coarse->fine interpolation, fine->coarse 2x2x2 mean,
+# the intra-realm formulas) and the 2:1 inter-realm reflux register. The union must reproduce the single-realm sod-amr
+# of leg 2 bit for bit, and the same split turned to z (sod-amr-refined-z.ini, whose seam the partition splits across
+# ranks) sod-amr-z; the same pair declared `mirror` must be refused at initialization for its different cell sizes.
 #
 # Usage: ./check.sh [--build] [--np N]
 #
@@ -117,21 +118,25 @@ if [[ $NP -ge 2 ]]; then
    RUN_NP=1 run "$multi" sod-2realm-z.ini "${zfiles[@]}"
    "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
 fi
-echo "== leg 4: coupling validation, refined 2:1 split of sod-amr (issue #52)"
+echo "== leg 4: refined (2:1) 2-realm Sod vs sod-amr (issue #52)"
 rfiles=("$CASE_DIR/sod-amr-refined.ini" "$CASE_DIR/sod-amr-refined-r1.ini" "$CASE_DIR/sod-amr-refined-r2.ini")
-expect_stop() { # expect_stop <work-dir> <message-regex>
-   if ! grep -aq "error stop forest_object%populate_inter_realm_topology: .*$2" "$1/log.txt"; then
-      echo "check.sh: $(basename "$1") did not stop with '$2', see $1/log.txt" >&2
-      exit 1
-   fi
-   echo "   $(basename "$1"): stopped as expected ($2)"
-}
-work="$CASE_DIR/work-$TAG-refined"
-RUN_MUST_FAIL=1 run "$work" sod-amr-refined.ini "${rfiles[@]}"
-expect_stop "$work" "coupling = refined is valid .*not implemented yet (issue #52)"
+multi="$CASE_DIR/work-$TAG-refined"
+run "$multi" sod-amr-refined.ini "${rfiles[@]}"
+"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-amr-single" --ngc 3 --tol 0
+single="$CASE_DIR/work-$TAG-amr-z-single"
+run "$single" sod-amr-z.ini "$CASE_DIR/sod-amr-z.ini"
+multi="$CASE_DIR/work-$TAG-refined-z"
+run "$multi" sod-amr-refined-z.ini "$CASE_DIR/sod-amr-refined-z.ini" "$CASE_DIR/sod-amr-refined-z-r1.ini" \
+    "$CASE_DIR/sod-amr-refined-z-r2.ini"
+"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
 work="$CASE_DIR/work-$TAG-refined-as-mirror"
 mirror_dir="$CASE_DIR/work-$TAG-refined-as-mirror-src" ; rm -rf "$mirror_dir" ; mkdir -p "$mirror_dir"
 sed 's/^coupling *= *refined/coupling         = mirror/' "${rfiles[0]}" > "$mirror_dir/sod-amr-refined.ini"
 RUN_MUST_FAIL=1 run "$work" sod-amr-refined.ini "$mirror_dir/sod-amr-refined.ini" "${rfiles[1]}" "${rfiles[2]}"
-expect_stop "$work" "coupling = mirror joins cells of the same size"
+if ! grep -aq 'error stop forest_object%populate_inter_realm_topology: .*coupling = mirror joins cells of the same size' \
+     "$work/log.txt"; then
+   echo "check.sh: the refined pair declared mirror was not refused, see $work/log.txt" >&2
+   exit 1
+fi
+echo "   $(basename "$work"): refused as expected"
 echo "multi-realm verification PASSED ($TAG)"

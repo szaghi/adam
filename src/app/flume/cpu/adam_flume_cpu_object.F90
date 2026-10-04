@@ -13,7 +13,7 @@ use :: adam_flux_register_object, only : flux_register_object
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_realm_object,         only : realm_object
-use :: adam_seam_exchange,        only : seam_fill_all
+use :: adam_seam_exchange,        only : seam_fill_all, pack_seam_rows, unpack_seam_rows
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
@@ -1212,46 +1212,42 @@ contains
    endsubroutine fill_seam_from_peer_forest
 
    subroutine pack_seam_cells_forest(self, p_idx, buf)
-   !< Pack this realm's cells of the cross-rank seam send rows of peer slot `p_idx` from the active buffer (`q` when
-   !< `stage_active == 0`, else the active stage of `q_rk`), `nv` values per row (issue #40).
-   class(flume_cpu_object), intent(in)  :: self    !< The equation.
-   integer(I4P),            intent(in)  :: p_idx   !< Peer slot (the realm owning the ghosts).
-   real(R8P),               intent(out) :: buf(:)  !< Packed values.
-   integer(I4P)                         :: c, row  !< Counter and send row.
-   integer(I4P)                         :: b, i, j, k !< Cell.
+   !< Pack the ghost values of the cross-rank seam send rows of peer slot `p_idx` from the active buffer (`q` when
+   !< `stage_active == 0`, else the active stage of `q_rk`): cell copies, or the 2:1 interpolations and restrictions of a
+   !< refined seam (issues #40, #52; `adam_seam_exchange%pack_seam_rows`).
+   class(flume_cpu_object), intent(in)  :: self   !< The realm.
+   integer(I4P),            intent(in)  :: p_idx  !< Peer slot (the realm owning the ghosts).
+   real(R8P),               intent(out) :: buf(:) !< Packed values.
 
-   associate(rows=>self%adam%maps%seam_mpi_send_cell, nv=>self%nv)
-   do c=1_I4P, self%adam%maps%seam_mpi_send_row_count(p_idx)
-      row = self%adam%maps%seam_mpi_send_row_start(p_idx) + c - 1_I4P
-      b = rows(row,2) ; i = rows(row,3) ; j = rows(row,4) ; k = rows(row,5)
-      if (self%stage_active > 0_I4P) then
-         buf(nv*(c-1)+1:nv*c) = self%rk%q_rk(:,i,j,k,b,self%stage_active)
-      else
-         buf(nv*(c-1)+1:nv*c) = self%q(:,i,j,k,b)
-      endif
-   enddo
+   associate(maps=>self%adam%maps)
+   if (self%stage_active > 0_I4P) then
+      call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
+                          row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
+                          q=self%rk%q_rk(:,:,:,:,:,self%stage_active), buf=buf)
+   else
+      call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
+                          row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
+                          q=self%q, buf=buf)
+   endif
    endassociate
    endsubroutine pack_seam_cells_forest
 
    subroutine unpack_seam_cells_forest(self, p_idx, buf)
    !< Unpack `buf` into this realm's seam ghosts of the cross-rank receive rows of peer slot `p_idx`, on the active
-   !< buffer, `nv` values per row (issue #40).
-   class(flume_cpu_object), intent(inout) :: self    !< The equation.
-   integer(I4P),            intent(in)    :: p_idx   !< Peer slot (the realm owning the cells).
-   real(R8P),               intent(in)    :: buf(:)  !< Packed values.
-   integer(I4P)                           :: c, row  !< Counter and receive row.
-   integer(I4P)                           :: b, i, j, k !< Ghost cell.
+   !< buffer (issue #40; `adam_seam_exchange%unpack_seam_rows`).
+   class(flume_cpu_object), intent(inout) :: self   !< The realm.
+   integer(I4P),            intent(in)    :: p_idx  !< Peer slot (the realm owning the cells).
+   real(R8P),               intent(in)    :: buf(:) !< Packed values.
 
-   associate(rows=>self%adam%maps%seam_mpi_recv_cell, nv=>self%nv)
-   do c=1_I4P, self%adam%maps%seam_mpi_recv_row_count(p_idx)
-      row = self%adam%maps%seam_mpi_recv_row_start(p_idx) + c - 1_I4P
-      b = rows(row,2) ; i = rows(row,3) ; j = rows(row,4) ; k = rows(row,5)
-      if (self%stage_active > 0_I4P) then
-         self%rk%q_rk(:,i,j,k,b,self%stage_active) = buf(nv*(c-1)+1:nv*c)
-      else
-         self%q(:,i,j,k,b) = buf(nv*(c-1)+1:nv*c)
-      endif
-   enddo
+   associate(maps=>self%adam%maps)
+   if (self%stage_active > 0_I4P) then
+      call unpack_seam_rows(rows=maps%seam_mpi_recv_cell, row_start=maps%seam_mpi_recv_row_start(p_idx),          &
+                            row_count=maps%seam_mpi_recv_row_count(p_idx), ngc=self%ngc, buf=buf,                   &
+                            q=self%rk%q_rk(:,:,:,:,:,self%stage_active))
+   else
+      call unpack_seam_rows(rows=maps%seam_mpi_recv_cell, row_start=maps%seam_mpi_recv_row_start(p_idx),          &
+                            row_count=maps%seam_mpi_recv_row_count(p_idx), ngc=self%ngc, buf=buf, q=self%q)
+   endif
    endassociate
    endsubroutine unpack_seam_cells_forest
 

@@ -84,6 +84,7 @@ use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 implicit none
 private
 public :: field_object
+public :: interp_seam_ghost
 
 character(len=5), parameter :: INI_SECTION_NAME="field" !< INI (config) file section name containing configs.
 

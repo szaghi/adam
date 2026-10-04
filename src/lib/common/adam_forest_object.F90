@@ -37,9 +37,12 @@ use :: adam_maps_object,          only : inter_realm_neighbor_t,                
 use :: adam_tree_object,          only : tree_iterator_object, NODE_MORE_REFINED, NODE_LESS_REFINED
 use :: adam_tree_node_object,     only : tree_node_object
 use :: adam_forest_manifest,      only : forest_manifest_t, forest_face_pair_t
-use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM, SEAM_KIND_INTRA_REALM_AMR
+use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM, SEAM_KIND_INTER_REALM_REFINED, &
+                                         SEAM_KIND_INTRA_REALM_AMR
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
-use :: adam_seam_exchange,        only : seam_fill
+use :: adam_seam_exchange,        only : seam_fill, SEAM_ROW_COPY, SEAM_ROW_INTERPOLATE, SEAM_ROW_RESTRICT
+use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, seam_tricubic_centered_pos, &
+                                               seam_compatible_centered_pos
 use :: adam_globals,              only : mpih
 use :: mpi
 use :: penf
@@ -673,68 +676,81 @@ contains
       endsubroutine set_neighbor
 
       function count_inter_realm_seam_faces(realm, manifest) result(nfaces)
-      !< Count the inter-realm seam register faces: one per (face-pair, leaf of realm_a on face_a), every leaf of the
-      !< replicated tree whatever rank owns it (the same count on every rank), the pass 1 of `register_inter_realm_seams`.
-      class(realm_object),     intent(in) :: realm(:)       !< Initialized realms.
-      type(forest_manifest_t), intent(in) :: manifest       !< Parsed manifest.
-      integer(I4P)                        :: nfaces         !< Inter-realm seam faces.
-      integer(I4P)                        :: f              !< Face-pair counter.
-      integer(I4P)                        :: a_axis, a_sign !< Face axis and sign on the realm_a side.
-      type(tree_iterator_object)          :: iter           !< Tree traversal cursor.
-      type(tree_node_object), pointer     :: node_ptr       !< Current leaf.
+      !< Count the inter-realm seam register faces: one per (face-pair, leaf of the coarse side on its seam face; realm_a
+      !< for a mirror seam), every leaf of the replicated tree whatever rank owns it (the same count on every rank), the
+      !< pass 1 of `register_inter_realm_seams`.
+      class(realm_object),     intent(inout) :: realm(:)     !< Initialized realms.
+      type(forest_manifest_t), intent(in)    :: manifest     !< Parsed manifest.
+      integer(I4P)                           :: nfaces       !< Inter-realm seam faces.
+      integer(I4P)                           :: f            !< Face-pair counter.
+      integer(I4P)                           :: rc, fc       !< Coarse-side realm and face.
+      integer(I4P)                           :: rf, ff       !< Fine-side realm and face.
+      integer(I4P)                           :: axis, sgn    !< Coarse face axis and side.
+      logical                                :: refined      !< 2:1 seam.
+      type(tree_iterator_object)             :: iter         !< Tree traversal cursor.
+      type(tree_node_object), pointer        :: node_ptr     !< Current leaf.
 
       nfaces = 0_I4P
       if (.not. allocated(manifest%face_pairs)) return
       do f = 1_I4P, int(size(manifest%face_pairs), I4P)
-         associate(r_a => realm(manifest%face_pairs(f)%realm_a))
-         call face_axis_sign(manifest%face_pairs(f)%face_a, a_axis, a_sign)
+         call seam_sides(realm, manifest%face_pairs(f), rc, fc, rf, ff, refined)
+         call face_axis_sign(fc, axis, sgn)
          iter%b = 1_I4P ; iter%p => null()
-         do while (r_a%adam%tree%loop(iter, node_ptr=node_ptr))
-            if (leaf_on_realm_face(r_a, node_ptr%code, a_axis, a_sign)) nfaces = nfaces + 1_I4P
+         do while (realm(rc)%adam%tree%loop(iter, node_ptr=node_ptr))
+            if (leaf_on_realm_face(realm(rc), node_ptr%code, axis, sgn)) nfaces = nfaces + 1_I4P
          enddo
-         endassociate
       enddo
       endfunction count_inter_realm_seam_faces
 
       subroutine register_inter_realm_seams(realm, manifest, flux_register, first_cursor)
       !< Populate `flux_register` from the manifest face-pairs.
       !<
-      !< One register face per (face-pair, leaf of realm_a on face_a), enumerated on the replicated tree in its own order:
-      !< every rank registers the same faces under the same cursors, whichever rank owns the leaves (issue #40), like the
-      !< intra-realm AMR faces registered before them, so `reduce_fine_sums` completes them with the same collective
-      !< sequence on every rank. `coarse_rank`/`coarse_block` are the owner and owner-local block of the realm_a leaf;
-      !< `nface_cells` comes from realm_a's grid, `nv` and the per-stage depth (`stages_per_step_forest()`, not a direct
-      !< `rk%nrk` reach) too.
+      !< One register face per (face-pair, leaf of the coarse side on its seam face), enumerated on the replicated tree in
+      !< its own order: every rank registers the same faces under the same cursors, whichever rank owns the leaves (issue
+      !< #40), like the intra-realm AMR faces registered before them, so `reduce_fine_sums` completes them with the same
+      !< collective sequence on every rank. `coarse_rank`/`coarse_block` are the owner and owner-local block of the coarse
+      !< leaf; `nface_cells` comes from the coarse realm's grid, `nv` and the per-stage depth (`stages_per_step_forest()`)
+      !< too.
       !<
-      !< The signed lookup `inter_realm_face_register_index(block, bc_fec)` (+cursor on the realm_a block, -cursor on the
-      !< realm_b block meeting it face to face) is written only for the blocks this rank owns: `block_index` is an
-      !< owner-local slot (issue #28 D1). The realm_b leaf is the one containing the first cell centre across the face;
-      !< mirror seams need it to meet the realm_a leaf face to face (same face plane and tangential extent). Seam blocks
-      !< that do not line up are refused (planned, issue #40 P4).
+      !< * `mirror` (`SEAM_KIND_INTER_REALM`, realm_a coarse by convention): the realm_b leaf containing the first cell
+      !<   centre across the face must meet the realm_a leaf face to face (seams between blocks that do not line up: #51);
+      !<   its skin covers the coarse face 1:1.
+      !< * `refined` (`SEAM_KIND_INTER_REALM_REFINED`, issue #52): the coarse side is the realm with the larger cells; the
+      !<   four fine leaves covering a coarse face are found at its quadrant centres, and each fine block records its 2:1
+      !<   quadrant offsets in `maps%amr_seam_quadrant`, so the apps restrict its skin into that quadrant exactly as for an
+      !<   intra-realm 2:1 face.
+      !<
+      !< The signed lookup `inter_realm_face_register_index(block, bc_fec)` (+cursor on the coarse block, -cursor on the
+      !< fine blocks) and the quadrant table are written only for the blocks this rank owns: `block_index` is an owner-local
+      !< slot (issue #28 D1).
       class(realm_object),        intent(inout) :: realm(:)       !< Initialized realms.
       type(forest_manifest_t),    intent(in)    :: manifest       !< Parsed manifest.
       type(flux_register_object), intent(inout) :: flux_register  !< Berger-Colella reflux accumulator owned by the forest.
       integer(I4P), optional,     intent(in)    :: first_cursor   !< Append after this cursor to a register (and index)
                                                                   !< already initialized by the intra-realm AMR pass.
       integer(I4P)                              :: f              !< Face-pair counter.
-      integer(I4P)                              :: a_axis, a_sign !< Face axis and sign on the realm_a side.
+      integer(I4P)                              :: rc, fc         !< Coarse-side realm and face.
+      integer(I4P)                              :: rf, ff         !< Fine-side realm and face.
+      logical                                   :: refined        !< 2:1 seam.
+      integer(I4P)                              :: c_axis, c_sign !< Coarse face axis and side.
+      integer(I4P)                              :: t1, t2         !< Tangential axes (inner, outer: the skin order).
+      integer(I4P)                              :: qi, qj         !< Quadrant offsets.
       integer(I4P)                              :: nfaces_total   !< Total register entries.
       integer(I4P)                              :: cursor         !< Write cursor into the register.
       integer(I4P)                              :: nface_cells    !< Cell count on the coarse-face skin.
-      integer(I4P)                              :: bc_fec_a       !< BC fec of face_a.
-      integer(I4P)                              :: bc_fec_b       !< BC fec of face_b.
-      integer(I8P)                              :: code_b         !< Morton code of the realm_b leaf.
-      real(R8P)                                 :: emin_a(3)      !< Realm_a leaf origin.
-      real(R8P)                                 :: emax_a(3)      !< Realm_a leaf upper corner.
-      real(R8P)                                 :: d_a(3)         !< Realm_a cell size.
-      real(R8P)                                 :: emin_b(3)      !< Realm_b leaf origin.
-      real(R8P)                                 :: emax_b(3)      !< Realm_b leaf upper corner.
-      real(R8P)                                 :: d_b(3)         !< Realm_b cell size.
-      real(R8P)                                 :: xq(3)          !< First cell centre across the face.
-      type(forest_face_pair_t)                  :: pair           !< Manifest face-pair alias.
+      integer(I4P)                              :: bc_fec_c       !< BC fec of the coarse face.
+      integer(I4P)                              :: bc_fec_f       !< BC fec of the fine face.
+      integer(I8P)                              :: code_f         !< Morton code of a fine-side leaf.
+      real(R8P)                                 :: emin_c(3)      !< Coarse leaf origin.
+      real(R8P)                                 :: emax_c(3)      !< Coarse leaf upper corner.
+      real(R8P)                                 :: d_c(3)         !< Coarse cell size.
+      real(R8P)                                 :: emin_f(3)      !< Fine-side leaf origin.
+      real(R8P)                                 :: emax_f(3)      !< Fine-side leaf upper corner.
+      real(R8P)                                 :: d_f(3)         !< Fine-side cell size.
+      real(R8P)                                 :: xq(3)          !< Lookup point across the face.
       type(tree_iterator_object)                :: iter           !< Tree traversal cursor.
-      type(tree_node_object), pointer           :: node_a         !< Realm_a leaf.
-      type(tree_node_object), pointer           :: node_b         !< Realm_b leaf.
+      type(tree_node_object), pointer           :: node_c         !< Coarse-side leaf.
+      type(tree_node_object), pointer           :: node_f         !< Fine-side leaf.
 
       if (.not. allocated(manifest%face_pairs)) then
          ! No inter-realm topology — initialize with zero faces so the
@@ -768,61 +784,73 @@ contains
          endblock
       enddo
 
-      ! Pass 2: register one entry per (face-pair, realm_a leaf on face_a) and fill the signed lookups.
+      ! Pass 2: register one entry per (face-pair, coarse leaf on its seam face) and fill the signed lookups.
       ! Sign convention (consumed by the FV reflux hooks):
-      !   +cursor stored on the coarse-side realm (pair%realm_a)
-      !   -cursor stored on the fine-side   realm (pair%realm_b)
+      !   +cursor stored on the coarse-side realm
+      !   -cursor stored on the fine-side   realm
       !       0   stored anywhere = "not a seam face".
       cursor = 0_I4P
       if (present(first_cursor)) cursor = first_cursor
       do f = 1_I4P, int(size(manifest%face_pairs), I4P)
-         pair = manifest%face_pairs(f)
-         call face_axis_sign(pair%face_a, a_axis, a_sign)
-         nface_cells = tangential_cell_count(realm(pair%realm_a), a_axis)
-         bc_fec_a = face_code_to_bc_fec(pair%face_a)
-         bc_fec_b = face_code_to_bc_fec(pair%face_b)
+         call seam_sides(realm, manifest%face_pairs(f), rc, fc, rf, ff, refined)
+         call face_axis_sign(fc, c_axis, c_sign)
+         t1 = merge(2_I4P, 1_I4P, c_axis == 1_I4P)
+         t2 = merge(2_I4P, 3_I4P, c_axis == 3_I4P)
+         nface_cells = tangential_cell_count(realm(rc), c_axis)
+         bc_fec_c = face_code_to_bc_fec(fc)
+         bc_fec_f = face_code_to_bc_fec(ff)
          iter%b = 1_I4P ; iter%p => null()
-         do while (realm(pair%realm_a)%adam%tree%loop(iter, node_ptr=node_a))
-            if (.not. leaf_on_realm_face(realm(pair%realm_a), node_a%code, a_axis, a_sign)) cycle
+         do while (realm(rc)%adam%tree%loop(iter, node_ptr=node_c))
+            if (.not. leaf_on_realm_face(realm(rc), node_c%code, c_axis, c_sign)) cycle
             cursor = cursor + 1_I4P
-            ! `fine_block` deliberately omitted: a mirror seam has no 2:1 fine blocks to record. Passing an empty array
-            ! literal `[integer(I4P) ::]` here poisons the descriptor copy on nvfortran 26.x; absent ↔ unallocated
-            ! `slot%fine_block`, which every consumer must guard with allocated().
-            call flux_register%register_face(face_index=cursor,                                       &
-                                             seam_kind=SEAM_KIND_INTER_REALM,                         &
-                                             coarse_realm=pair%realm_a,                               &
-                                             coarse_rank=node_a%myrank,                               &
-                                             coarse_block=int(node_a%block_index, I4P),               &
-                                             coarse_face=pair%face_a,                                 &
-                                             fine_realm=pair%realm_b,                                 &
-                                             nface_cells=nface_cells,                                 &
-                                             nv=int(realm(pair%realm_a)%adam%field%nv, I4P),          &
-                                             n_stages=realm(pair%realm_a)%stages_per_step_forest())
-            if (node_a%myrank == mpih%myrank .and. bc_fec_a > 0_I4P .and. bc_fec_a <= 6_I4P) &
-               realm(pair%realm_a)%adam%maps%inter_realm_face_register_index(int(node_a%block_index, I4P), bc_fec_a) = &
-                  +cursor
-            ! the realm_b leaf containing the first cell centre across the face, from the replicated tree
-            call leaf_metrics(realm(pair%realm_a), node_a%code, emin_a, d_a, emax_a)
-            xq = 0.5_R8P * (emin_a + emax_a)
-            if (a_sign > 0_I4P) then
-               xq(a_axis) = emax_a(a_axis) + 0.5_R8P * d_a(a_axis)
-            else
-               xq(a_axis) = emin_a(a_axis) - 0.5_R8P * d_a(a_axis)
-            endif
-            code_b = realm(pair%realm_b)%adam%tree%get_closest_block(grid=realm(pair%realm_b)%adam%grid, point=xq)
-            node_b => realm(pair%realm_b)%adam%tree%node(code=code_b)
-            call leaf_metrics(realm(pair%realm_b), code_b, emin_b, d_b, emax_b)
-            if (.not. meet_face_to_face(emin_a, emax_a, emin_b, emax_b, a_axis, a_sign))                               &
-               call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam block '//               &
-                  trim(str(int(node_a%block_index, I4P), .true.))//' of realm '//trim(str(pair%realm_a, .true.))//      &
-                  ' (rank '//trim(str(node_a%myrank, .true.))//') does not meet a block of realm '//                    &
-                  trim(str(pair%realm_b, .true.))//' face to face (face_pair '//trim(str(f, .true.))//'): seams '//    &
-                  'between blocks that do not line up are not implemented yet (issue #40, P4)')
-            if (node_b%myrank == mpih%myrank .and. bc_fec_b > 0_I4P .and. bc_fec_b <= 6_I4P) then
-               if (allocated(realm(pair%realm_b)%adam%maps%inter_realm_face_register_index))                         &
-                  realm(pair%realm_b)%adam%maps%inter_realm_face_register_index(int(node_b%block_index, I4P), bc_fec_b) = &
-                     -cursor
-            endif
+            ! `fine_block` deliberately omitted: nothing reads it, and passing an empty array literal
+            ! `[integer(I4P) ::]` poisons the descriptor copy on nvfortran 26.x.
+            call flux_register%register_face(face_index=cursor,                                                      &
+                                             seam_kind=merge(SEAM_KIND_INTER_REALM_REFINED, SEAM_KIND_INTER_REALM,   &
+                                                             refined),                                               &
+                                             coarse_realm=rc,                                                        &
+                                             coarse_rank=node_c%myrank,                                              &
+                                             coarse_block=int(node_c%block_index, I4P),                              &
+                                             coarse_face=fc,                                                         &
+                                             fine_realm=rf,                                                          &
+                                             nface_cells=nface_cells,                                                &
+                                             nv=int(realm(rc)%adam%field%nv, I4P),                                   &
+                                             n_stages=realm(rc)%stages_per_step_forest())
+            if (node_c%myrank == mpih%myrank .and. bc_fec_c > 0_I4P .and. bc_fec_c <= 6_I4P) &
+               realm(rc)%adam%maps%inter_realm_face_register_index(int(node_c%block_index, I4P), bc_fec_c) = +cursor
+            call leaf_metrics(realm(rc), node_c%code, emin_c, d_c, emax_c)
+            do qj = 0_I4P, merge(1_I4P, 0_I4P, refined)
+               do qi = 0_I4P, merge(1_I4P, 0_I4P, refined)
+                  ! lookup point: the fine-side cell centre across the face (in the quadrant (qi, qj) when refined)
+                  xq = 0.5_R8P * (emin_c + emax_c)
+                  if (refined) then
+                     xq(t1) = emin_c(t1) + (real(qi, R8P) + 0.5_R8P) * 0.5_R8P * (emax_c(t1) - emin_c(t1))
+                     xq(t2) = emin_c(t2) + (real(qj, R8P) + 0.5_R8P) * 0.5_R8P * (emax_c(t2) - emin_c(t2))
+                     xq(c_axis) = merge(emax_c(c_axis) + 0.25_R8P * d_c(c_axis), emin_c(c_axis) - 0.25_R8P * d_c(c_axis), &
+                                        c_sign > 0_I4P)
+                  else
+                     xq(c_axis) = merge(emax_c(c_axis) + 0.5_R8P * d_c(c_axis), emin_c(c_axis) - 0.5_R8P * d_c(c_axis), &
+                                        c_sign > 0_I4P)
+                  endif
+                  code_f = realm(rf)%adam%tree%get_closest_block(grid=realm(rf)%adam%grid, point=xq)
+                  node_f => realm(rf)%adam%tree%node(code=code_f)
+                  call leaf_metrics(realm(rf), code_f, emin_f, d_f, emax_f)
+                  if (.not. refined) then
+                     if (.not. meet_face_to_face(emin_c, emax_c, emin_f, emax_f, c_axis, c_sign))                       &
+                        call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam block '//        &
+                           trim(str(int(node_c%block_index, I4P), .true.))//' of realm '//trim(str(rc, .true.))//        &
+                           ' (rank '//trim(str(node_c%myrank, .true.))//') does not meet a block of realm '//             &
+                           trim(str(rf, .true.))//' face to face (face_pair '//trim(str(f, .true.))//'): seams '//      &
+                           'between blocks that do not line up are not implemented yet (issue #51)')
+                  endif
+                  if (node_f%myrank /= mpih%myrank .or. bc_fec_f < 1_I4P .or. bc_fec_f > 6_I4P) cycle
+                  if (allocated(realm(rf)%adam%maps%inter_realm_face_register_index))                                    &
+                     realm(rf)%adam%maps%inter_realm_face_register_index(int(node_f%block_index, I4P), bc_fec_f) = -cursor
+                  ! the fine block's 2:1 quadrant within the coarse skin (inner, outer offsets), as for intra-realm faces
+                  if (refined .and. allocated(realm(rf)%adam%maps%amr_seam_quadrant))                                    &
+                     realm(rf)%adam%maps%amr_seam_quadrant(1:2, int(node_f%block_index, I4P), bc_fec_f) = [qi, qj]
+               enddo
+            enddo
          enddo
       enddo
       endsubroutine register_inter_realm_seams
@@ -994,8 +1022,7 @@ contains
    !<   * `mirror`: one cell size on each side's seam face, equal across the seam;
    !<   * `refined`: one cell size per side with ratio exactly 2 (either side may be the coarse one), equal block cell
    !<     counts along the seam, the same `[amr] seam_ghost_fill`, and nested blocks: every fine seam leaf covers one 2:1
-   !<     quadrant of the face of one coarse seam leaf. The 2:1 seam fill and register are not
-   !<     implemented yet (issue #52 P1-P2): a valid `refined` pair still stops, after the validation;
+   !<     quadrant of the face of one coarse seam leaf, and even block cell counts in the fine realm;
    !<   * `periodic`, `interpolate`: schema-reserved, refused (before issue #52 they were accepted and run as `mirror`).
    class(realm_object),     intent(inout) :: realm(:)       !< Forest realms.
    type(forest_manifest_t), intent(in)    :: manifest       !< Parsed manifest.
@@ -1051,14 +1078,36 @@ contains
                               'ni, nj, nk) in both realms')
       if (r_c%adam%maps%seam_ghost_fill /= r_f%adam%maps%seam_ghost_fill)                                             &
          call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_ghost_fill in both realms')
+      ! a coarse ghost is the mean of 2x2x2 fine cells: even fine block cell counts keep them in one fine block
+      if (any(mod([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk], 2_I4P) /= 0_I4P))                        &
+         call mpih%error_stop(msg=pfx//'coupling = refined needs even block cell counts (ni, nj, nk) in the fine realm')
       endassociate
       call check_nested(coarse=realm(ic), fine=realm(jf), face_f=face_f, pfx=pfx)
-      call mpih%error_stop(msg=pfx//'coupling = refined is valid (realm '//trim(str(ic, .true.))//' coarse, realm '// &
-                           trim(str(jf, .true.))//' fine) but the 2:1 seam fill and register are not implemented yet '//  &
-                           '(issue #52)')
+      call mpih%print_message('forest: face_pair '//trim(str(f, .true.))//' is a 2:1 seam, realm '//               &
+                              trim(str(ic, .true.))//' coarse, realm '//trim(str(jf, .true.))//' fine (issue #52)')
       endassociate
    enddo
    endsubroutine check_couplings
+
+   subroutine seam_sides(realm, pair, rc, fc, rf, ff, refined)
+   !< The coarse and fine sides of a face pair: for a `refined` seam the realm with the larger seam cells is the coarse
+   !< side (issue #52), for a `mirror` seam realm_a by convention.
+   class(realm_object),      intent(in)  :: realm(:)       !< Forest realms.
+   type(forest_face_pair_t), intent(in)  :: pair           !< Face pair.
+   integer(I4P),             intent(out) :: rc, fc         !< Coarse-side realm and face.
+   integer(I4P),             intent(out) :: rf, ff         !< Fine-side realm and face.
+   logical,                  intent(out) :: refined        !< 2:1 seam.
+   real(R8P)                             :: d_a(3), d_b(3) !< Seam cell sizes of realm_a and realm_b.
+
+   refined = pair%coupling == COUPLING_REFINED
+   rc = pair%realm_a ; fc = pair%face_a ; rf = pair%realm_b ; ff = pair%face_b
+   if (.not. refined) return
+   d_a = seam_cell_size(realm(pair%realm_a), pair%face_a, 'forest_object%seam_sides: realm_a')
+   d_b = seam_cell_size(realm(pair%realm_b), pair%face_b, 'forest_object%seam_sides: realm_b')
+   if (d_b(1) > d_a(1)) then
+      rc = pair%realm_b ; fc = pair%face_b ; rf = pair%realm_a ; ff = pair%face_a
+   endif
+   endsubroutine seam_sides
 
    function seam_cell_size(this_realm, face, pfx) result(dxyz)
    !< The cell size of the leaves of a realm on its seam face: one size for all of them, error_stop otherwise.
@@ -1200,6 +1249,12 @@ contains
    real(R8P)                          :: emin_c(3), d_c(3)          !< Cell leaf origin and cell size.
    real(R8P)                          :: xg(3), xc(3)               !< Ghost and cell centres.
    real(R8P)                          :: tol                        !< Face tolerance.
+   integer(I4P)                       :: n_c(3)                     !< Block cell counts of the cell realm.
+   integer(I4P)                       :: kind                       !< Row kind (SEAM_ROW_*).
+   integer(I4P)                       :: meta                       !< Packed interpolation metadata.
+   integer(I4P)                       :: sub(3), p4(3), p3(3)       !< Octant and anchor positions.
+   integer(I4P)                       :: d                          !< Axis counter.
+   logical                            :: ok                         !< Cell match.
 
    call face_axis_sign(face, axis, sgn)
    call ghost_slab_extents(realm(is), axis, sgn, imin, imax, jmin, jmax, kmin, kmax)
@@ -1221,24 +1276,60 @@ contains
                xg = emin_g + ([real(i, R8P), real(j, R8P), real(k, R8P)] - 0.5_R8P) * d_g
                if (.not.inside_domain(realm(ip), xg, 0.25_R8P * d_g)) cycle ! a corner at a physical boundary
                code_c = realm(ip)%adam%tree%get_closest_block(grid=realm(ip)%adam%grid, point=xg)
-               node_c => realm(ip)%adam%tree%node(code=code_c)
                call leaf_metrics(realm(ip), code_c, emin_c, d_c)
-               ijk_c = nint((xg - emin_c) / d_c + 0.5_R8P, I4P)
-               xc = emin_c + (real(ijk_c, R8P) - 0.5_R8P) * d_c
-               if (any(abs(xc - xg) > 1.0e-6_R8P * d_g) .or. any(ijk_c < 1_I4P) .or.                       &
-                   ijk_c(1) > realm(ip)%adam%grid%ni .or. ijk_c(2) > realm(ip)%adam%grid%nj .or.            &
-                   ijk_c(3) > realm(ip)%adam%grid%nk)                                                         &
-                  call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam '//           &
-                     ghost_label(is, b_g, i, j, k)//' does not coincide with a cell of realm '//                &
-                     trim(str(ip, .true.))//' (issue #40): mirror seams need the same cell size on both sides')
+               ! `associate` on the polymorphic array element: nvfortran 26.1 builds this array constructor from a wrong
+               ! element stride (garbage counts, every mirror ghost rejected on FNL; the 0062a237 defect)
+               associate(r_p => realm(ip))
+                  n_c = [r_p%adam%grid%ni, r_p%adam%grid%nj, r_p%adam%grid%nk]
+               endassociate
+               meta = 0_I4P
+               if (all(abs(d_c - d_g) <= 1.0e-6_R8P * d_g)) then
+                  ! same cell size: copy the cell whose centre coincides with the ghost centre
+                  kind = SEAM_ROW_COPY
+                  ijk_c = nint((xg - emin_c) / d_c + 0.5_R8P, I4P)
+                  xc = emin_c + (real(ijk_c, R8P) - 0.5_R8P) * d_c
+                  ok = all(abs(xc - xg) <= 1.0e-6_R8P * d_g) .and. all(ijk_c >= 1_I4P) .and. all(ijk_c <= n_c)
+               elseif (all(abs(d_c - 2._R8P * d_g) <= 1.0e-6_R8P * d_c)) then
+                  ! fine ghost, coarse cells (issue #52): the intra-realm coarse->fine interpolant around the coarse
+                  ! cell containing the ghost centre, the octant from the half of it the centre falls in
+                  kind = SEAM_ROW_INTERPOLATE
+                  ijk_c = floor((xg - emin_c) / d_c, I4P) + 1_I4P
+                  ok = all(ijk_c >= 1_I4P) .and. all(ijk_c <= n_c)
+                  if (ok) then
+                     do d = 1_I4P, 3_I4P
+                        sub(d) = merge(1_I4P, 2_I4P, xg(d) < emin_c(d) + (real(ijk_c(d), R8P) - 0.5_R8P) * d_c(d))
+                        p4(d) = seam_shift_anchor_pos(anchor=ijk_c(d), n_cells=n_c(d),                       &
+                                                      p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
+                        p3(d) = seam_shift_anchor_pos(anchor=ijk_c(d), n_cells=n_c(d),                       &
+                                                      p_centered=seam_compatible_centered_pos(sub(d)), footprint_n=3_I4P)
+                     enddo
+                     meta = seam_meta_pack(sub=sub, p4=p4, p3=p3)
+                  endif
+               elseif (all(abs(2._R8P * d_c - d_g) <= 1.0e-6_R8P * d_g)) then
+                  ! coarse ghost, fine cells (issue #52): the mean of the 2x2x2 fine cells under the ghost, from the
+                  ! base (lowest) one; nested blocks with even cell counts keep the eight in one fine block
+                  kind = SEAM_ROW_RESTRICT
+                  xc = xg - 0.5_R8P * d_c
+                  code_c = realm(ip)%adam%tree%get_closest_block(grid=realm(ip)%adam%grid, point=xc)
+                  call leaf_metrics(realm(ip), code_c, emin_c, d_c)
+                  ijk_c = nint((xc - emin_c) / d_c + 0.5_R8P, I4P)
+                  ok = all(ijk_c >= 1_I4P) .and. all(ijk_c + 1_I4P <= n_c) .and. &
+                       all(abs(emin_c + (real(ijk_c, R8P) - 0.5_R8P) * d_c - xc) <= 1.0e-6_R8P * d_c)
+               else
+                  ok = .false.
+               endif
+               if (.not. ok) call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam '//  &
+                  ghost_label(is, b_g, i, j, k)//' does not match the cells of realm '//trim(str(ip, .true.))//    &
+                  ' (issues #40, #52): a seam joins cells of the same size (mirror) or of ratio 2 (refined)')
+               node_c => realm(ip)%adam%tree%node(code=code_c)
                rank_c = node_c%myrank
                b_c    = int(node_c%block_index, I4P)
-               if (rank_g == mpih%myrank .and. rank_c == mpih%myrank) then
+               if (kind == SEAM_ROW_COPY .and. rank_g == mpih%myrank .and. rank_c == mpih%myrank) then
                   call push_row(local, [ip, b_c, b_g, ijk_c, i, j, k])
-               elseif (rank_g == mpih%myrank) then
-                  call push_row(recv, [ip, rank_c, b_g, i, j, k])
-               elseif (rank_c == mpih%myrank) then
-                  call push_row(send, [is, rank_g, b_c, ijk_c])
+               else
+                  ! cross-rank rows, and same-rank interpolate/restrict rows as messages to self
+                  if (rank_g == mpih%myrank) call push_row(recv, [ip, rank_c, b_g, i, j, k])
+                  if (rank_c == mpih%myrank) call push_row(send, [is, rank_g, b_c, ijk_c, kind, meta])
                endif
             enddo
          enddo
@@ -1344,8 +1435,9 @@ contains
    endsubroutine store_seam_rows
 
    subroutine group_rows(rows, peers, cell, row_start, row_count)
-   !< Group cross-rank rows `[peer, rank, b, i, j, k]` by peer slot and, inside a slot, by ascending rank, keeping the
-   !< enumeration order within a rank; store `[rank, b, i, j, k]`.
+   !< Group cross-rank rows `[peer, rank, b, i, j, k, ...]` by peer slot and, inside a slot, by ascending rank, keeping
+   !< the enumeration order within a rank; store them without the peer column (`[rank, b, i, j, k]`, plus `kind, meta`
+   !< for send rows).
    type(seam_rows_t),         intent(in)  :: rows         !< Enumerated rows.
    integer(I4P),              intent(in)  :: peers(:)     !< Peer realm of each slot.
    integer(I4P), allocatable, intent(out) :: cell(:,:)    !< Grouped rows.
@@ -1356,7 +1448,7 @@ contains
 
    allocate(row_start(size(peers)), row_count(size(peers)))
    row_count = 0_I4P ; row_start = 1_I4P
-   if (rows%n > 0_I4P) allocate(cell(rows%n, 5))
+   if (rows%n > 0_I4P) allocate(cell(rows%n, size(rows%row, dim=2) - 1))
    c = 0_I4P
    do p=1_I4P, int(size(peers), I4P)
       row_start(p) = c + 1_I4P
@@ -1371,7 +1463,7 @@ contains
          do r=1_I4P, rows%n
             if (rows%row(r, 1) /= peers(p) .or. rows%row(r, 2) /= rank) cycle
             c = c + 1_I4P
-            cell(c, :) = rows%row(r, 2:6)
+            cell(c, :) = rows%row(r, 2:)
          enddo
       enddo
       row_count(p) = c - row_start(p) + 1_I4P

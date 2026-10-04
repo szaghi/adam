@@ -74,7 +74,7 @@ private
 public :: flux_register_object
 public :: restrict_fine_face_to_quadrant
 public :: flux_register_face_t
-public :: SEAM_KIND_INTRA_REALM_AMR, SEAM_KIND_INTER_REALM
+public :: SEAM_KIND_INTRA_REALM_AMR, SEAM_KIND_INTER_REALM, SEAM_KIND_INTER_REALM_REFINED
 
 !< Seam-kind codes (see [[flux_register_face_t]]%seam_kind).
 !<
@@ -83,6 +83,8 @@ public :: SEAM_KIND_INTRA_REALM_AMR, SEAM_KIND_INTER_REALM
 !< dumps and INI-level diagnostics, so stable integer values are wanted.
 integer(I4P), parameter :: SEAM_KIND_INTRA_REALM_AMR = 1_I4P !< Coarse-fine AMR jump inside one realm.
 integer(I4P), parameter :: SEAM_KIND_INTER_REALM    = 2_I4P !< Inter-realm seam between two realms in a forest.
+integer(I4P), parameter :: SEAM_KIND_INTER_REALM_REFINED = 3_I4P !< Inter-realm seam with a 2:1 jump (issue #52): the
+                                                               !< fine skins are restricted into quadrants.
 
 type :: flux_register_face_t
    !< Per-seam-face flux accumulator.

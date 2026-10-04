@@ -5769,9 +5769,9 @@ contains
    endsubroutine fill_seam_from_peer_forest
 
    subroutine pack_seam_cells_forest(self, p_idx, buf)
-   !< Pack this realm's cells of the cross-rank seam send rows of peer slot `p_idx` from the active device buffer
-   !< (`q_gpu` when `stage_active == 0`, else the active stage of `q_rk_gpu`) into the host `buf`, `nv` values per row
-   !< (issue #40).
+   !< Pack the ghost values of the seam send rows of peer slot `p_idx` from the active device buffer (`q_gpu` when
+   !< `stage_active == 0`, else the active stage of `q_rk_gpu`) into the host `buf`, `nv` values per row: cell copies, or
+   !< the 2:1 interpolations and restrictions of a refined seam (issues #40, #52).
    class(prism_fnl_object), intent(in)  :: self       !< The realm.
    integer(I4P),            intent(in)  :: p_idx      !< Peer slot (the realm owning the ghosts).
    real(R8P),               intent(out) :: buf(:)     !< Packed values.
@@ -5787,10 +5787,12 @@ contains
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in pack_seam_cells_forest')
    if (self%stage_active > 0_I4P) then
       call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
+                              regime=self%adam%maps%seam_ghost_fill,                                          &
                               rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu,                            &
                               q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active), buf_gpu=buf_gpu)
    else
       call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
+                              regime=self%adam%maps%seam_ghost_fill,                                          &
                               rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=self%q_gpu, buf_gpu=buf_gpu)
    endif
    call dev_memcpy_from_device(dst=buf, src=buf_gpu)

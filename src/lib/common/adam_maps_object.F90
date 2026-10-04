@@ -261,13 +261,16 @@ type :: maps_object
    ! forest from the replicated trees in one canonical order on every rank, so the rows a rank sends to another and the
    ! rows that rank receives match one to one without exchanging indices. Columns `[rank, b, i, j, k]`:
    !   * recv: `rank` owns the peer cell, `(b, i, j, k)` is this realm's seam ghost cell on this rank;
-   !   * send: `rank` owns the peer realm's seam ghost, `(b, i, j, k)` is this realm's interior cell on this rank.
+   !   * send: `rank` owns the peer realm's seam ghost, `(b, i, j, k)` is this realm's interior cell on this rank,
+   !     followed by `kind, meta` (issue #52): copy the cell, interpolate the fine ghost around this coarse anchor cell
+   !     (`meta` = packed octant and anchor shifts), or restrict the 2x2x2 fine cells from this base cell. Same-rank
+   !     interpolate/restrict rows are stored here too, with `rank` = this rank (a message to self).
    ! Rows are grouped per peer slot (same slots as `seam_local_peer_realm`: for receive rows the realm that owns the cells,
    ! for send rows the realm that owns the ghosts) and, inside a slot, by rank (canonical order kept within a rank).
    integer(I4P), allocatable :: seam_mpi_recv_cell(:,:)      !< Cross-rank receive rows [rank, b, i, j, k].
    integer(I4P), allocatable :: seam_mpi_recv_row_start(:)   !< First receive row of each peer slot.
    integer(I4P), allocatable :: seam_mpi_recv_row_count(:)   !< Receive rows of each peer slot.
-   integer(I4P), allocatable :: seam_mpi_send_cell(:,:)      !< Cross-rank send rows [rank, b, i, j, k] (own cells).
+   integer(I4P), allocatable :: seam_mpi_send_cell(:,:)      !< Send rows [rank, b, i, j, k, kind, meta] (own cells).
    integer(I4P), allocatable :: seam_mpi_send_row_start(:)   !< First send row of each peer slot.
    integer(I4P), allocatable :: seam_mpi_send_row_count(:)   !< Send rows of each peer slot.
    contains
