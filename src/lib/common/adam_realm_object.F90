@@ -326,6 +326,7 @@ contains
       if (self%adam%tree%ratio==4.and.self%amr%markers_number>0) &
          call mpih%error_stop(msg=': [amr] ratio = 4 (quadtree) with AMR markers gives wrong results at the 2:1 seams '//&
                                   '(issue #46); use ratio = 8 (octree; with a null axis, nk >= 4)')
+      call check_amr_block_cells
       call self%ib%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
@@ -343,6 +344,31 @@ contains
       call self%flail%initialize(file_parameters=file_parameters)
       call self%load_fdv_from_file(file_parameters=file_parameters)
    endassociate
+
+   contains
+      subroutine check_amr_block_cells
+      !< Refuse odd block cell counts along a refined axis when 2:1 refinement is possible (issue #39).
+      !<
+      !< A 2:1 child covers half of its parent: with an odd cell count its boundary falls in the middle of a parent cell,
+      !< the coarse-fine ghost fill reads undefined values and the residual is NaN from the first stage, silently (issue
+      !< #37, measured with ni = 25). Refinement is possible when there are AMR markers and `max_level` exceeds the
+      !< uniform level; the refined axes are x and y, and z on an octree; a null axis is not checked. Uniform refinement
+      !< alone (`iu_ref_levels`) has no coarse-fine faces and is not affected.
+      character(len=1), parameter :: AXIS(3)=['i', 'j', 'k'] !< Axes names.
+      integer(I4P)                :: n(3)                     !< Block cells numbers.
+      integer(I4P)                :: d                        !< Axis counter.
+
+      if (self%amr%markers_number <= 0_I4P) return
+      if (self%adam%tree%max_level <= self%adam%tree%iu_ref_levels) return
+      n(1) = self%adam%grid%ni ; n(2) = self%adam%grid%nj ; n(3) = self%adam%grid%nk
+      do d = 1_I4P, merge(3_I4P, 2_I4P, self%adam%tree%ratio == 8_I4P)
+         if (self%adam%grid%null_xyz(d)) cycle
+         if (mod(n(d), 2_I4P) /= 0_I4P) &
+            call mpih%error_stop(msg=': [grid].(n'//AXIS(d)//')='//trim(str(n(d)))//' is odd: 2:1 refinement ([amr] '// &
+                                     'markers with max_level > iu_ref_levels) needs an even number of block cells '//  &
+                                     'along every refined, non-null axis (issue #39)')
+      enddo
+      endsubroutine check_amr_block_cells
    endsubroutine initialize
 
    subroutine load_fdv_from_file(self, file_parameters, go_on_fail)

@@ -100,7 +100,6 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
       ! private methods
       procedure, pass(self), private :: block_spacing    !< Return the spacing of a block by a delta criterion.
-      procedure, pass(self), private :: check_amr_block_cells !< Check the block cells numbers against the 2:1 refinement.
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_positivity_limiter !< Refuse the limiter where it cannot work.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
@@ -495,7 +494,6 @@ contains
    call self%initialize_riemann_scheme
    call self%check_positivity_limiter
    call self%check_ngc_number
-   call self%check_amr_block_cells
    call self%allocate_common
    call self%io_initialize
    if (self%adam%tree%iu_ref_levels > 0) &
@@ -957,28 +955,6 @@ contains
                                AMR_DELTA_T_X//', '//AMR_DELTA_T_Y//', '//AMR_DELTA_T_Z//', '//AMR_DELTA_T_MAX)
    endselect
    endfunction block_spacing
-
-   subroutine check_amr_block_cells(self)
-   !< Check that a run with init-time refinement has an even number of block cells along every non-null axis.
-   !<
-   !< A 2:1 child covers half of its parent: with an odd cell count its boundary falls in the middle of a parent cell,
-   !< the coarse-fine ghost fill reads undefined values and the residual is NaN from the first stage (issue #37,
-   !< measured with ni = 25). Uniform refinement (`iu_ref_levels`) has no coarse-fine faces and is not affected.
-   class(flume_common_object), intent(in) :: self                     !< The equation.
-   character(len=1), parameter            :: AXIS(3)=['i', 'j', 'k'] !< Axes names.
-   integer(I4P)                           :: n(3)                     !< Block cells numbers.
-   integer(I4P)                           :: d                        !< Axis counter.
-
-   if (self%ic%amr_iterations <= 0_I4P) return
-   n = [self%ni, self%nj, self%nk]
-   do d=1, 3
-      if (self%adam%grid%null_xyz(d)) cycle
-      if (mod(n(d), 2_I4P) /= 0_I4P) &
-         call mpih%error_stop(msg=': [grid].(n'//AXIS(d)//')='//trim(str(n(d)))//' is odd: the init-time 2:1 '// &
-                                  'refinement ([initial_conditions].(amr_iterations) > 0) needs an even number of '// &
-                                  'block cells along every non-null axis')
-   enddo
-   endsubroutine check_amr_block_cells
 
    subroutine check_ngc_number(self)
    !< Check the ghost cells number against the WENO stencil half-width (`weno-riemann`: at least 2, the correction reads

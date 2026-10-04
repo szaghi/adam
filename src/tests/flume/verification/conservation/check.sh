@@ -6,7 +6,9 @@
 # boundary) with one refined octant: 6 coarse-fine faces, periodic ones included, carrying a uniform flow with a 1%
 # seeded perturbation. Two legs:
 #   1. reflux on : the five volume integrals must be constant within MAX_DRIFT (round-off);
-#   2. reflux off: the negative control must drift by at least MIN_DRIFT, which proves the seams are exercised.
+#   2. reflux off: the negative control must drift by at least MIN_DRIFT, which proves the seams are exercised;
+#   3. (issue #39) the case with ni = 7, an odd block cell count along a refined axis, must be refused at
+#      initialization by the library check (it used to give NaN silently).
 #
 # FLUME accumulates the seam fluxes of every Runge-Kutta stage weighted by its SSP coefficient, so the register holds
 # the flux the committed step actually used; measured (P5): drift <= 6e-15 CPU, 2.2e-16 FNL, with reflux; 2.2e-5
@@ -71,4 +73,20 @@ done
 
 "$VENV_PY" "$CASE_DIR/conservation_oracle.py" --conserved "$CASE_DIR/work-$TAG-reflux-true" --max-drift "$MAX_DRIFT" \
                                               --leaky "$CASE_DIR/work-$TAG-reflux-false" --min-drift "$MIN_DRIFT"
+
+# Refused input (issue #39): the same case with an odd block cell count along a refined axis (ni = 7) must stop at
+# initialization; before the library check, a 2:1 child boundary in the middle of a parent cell gave NaN silently.
+work="$CASE_DIR/work-$TAG-odd-cells"
+rm -rf "$work" ; mkdir -p "$work"
+sed 's/^ni     = 8/ni     = 7/' "$CASE_DIR/amr-periodic.ini" > "$work/amr-periodic.ini"
+echo ">> amr-periodic with ni = 7: must be refused"
+if (cd "$work" && mpirun -np "$NP" "$EXE" amr-periodic.ini > log.txt 2>&1); then
+   echo "check.sh: the odd block cell count was not refused, see $work/log.txt" >&2
+   exit 1
+fi
+if ! grep -aq '\[grid\].(ni)=+7 is odd: 2:1 refinement' "$work/log.txt"; then
+   echo "check.sh: the odd-cell run failed without the expected message, see $work/log.txt" >&2
+   exit 1
+fi
+echo "   refused as expected"
 echo "V3 PASSED ($TAG)"
