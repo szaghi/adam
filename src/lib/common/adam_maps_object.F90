@@ -23,7 +23,7 @@ private
 public :: maps_object
 public :: inter_realm_neighbor_t
 public :: FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
-public :: COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE
+public :: COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE, COUPLING_REFINED
 public :: CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT
 public :: face_axis_sign
 
@@ -41,14 +41,15 @@ integer(I4P), parameter :: FACE_Z_MIN = 6_I4P  !< -z face.
 
 !< Inter-realm coupling kinds.
 !<
-!< COUPLING_MIRROR is the only kind currently exercised (same-resolution
-!< mirror seam, e.g. the two-realm x-split rmf regression). PERIODIC and
-!< INTERPOLATE are schema-reserved for follow-up use cases.
+!< COUPLING_MIRROR joins cells of the same size (e.g. the two-realm x-split rmf regression). COUPLING_REFINED (issue #52)
+!< joins a coarse realm to a realm refined 2:1 along the seam. PERIODIC and INTERPOLATE are schema-reserved: the forest
+!< refuses them at initialization.
 integer(I4P), parameter :: COUPLING_MIRROR      = 1_I4P  !< Peer cells copied as-is (the trivial pass-through coupling).
 integer(I4P), parameter :: COUPLING_PERIODIC    = 2_I4P
                                                          !< Periodic identification across the inter-realm face (reserved, not
                                                          !< implemented).
 integer(I4P), parameter :: COUPLING_INTERPOLATE = 3_I4P  !< Interpolate across mismatched grids (reserved, not implemented).
+integer(I4P), parameter :: COUPLING_REFINED     = 4_I4P  !< 2:1 resolution jump across the seam, nested blocks (issue #52).
 
 !< Inter-realm seam-coupling cadence.
 !<
@@ -85,7 +86,7 @@ type :: inter_realm_neighbor_t
    integer(I4P) :: peer_realm = 0_I4P !< Realm index of the peer.
    integer(I4P) :: peer_block = 0_I4P !< Block index in the peer realm whose face touches mine.
    integer(I4P) :: peer_face  = 0_I4P !< Face code on the peer block (typically opposite to my_face).
-   integer(I4P) :: coupling   = COUPLING_MIRROR !< Coupling kind (COUPLING_MIRROR | COUPLING_PERIODIC | COUPLING_INTERPOLATE).
+   integer(I4P) :: coupling   = COUPLING_MIRROR !< Coupling kind (COUPLING_MIRROR | COUPLING_REFINED | reserved kinds).
 endtype inter_realm_neighbor_t
 
 type :: maps_object

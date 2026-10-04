@@ -33,7 +33,7 @@ use :: adam_realm_object,         only : realm_object
 use :: adam_maps_object,          only : inter_realm_neighbor_t,                                                  &
                                          FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
                                          CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT,                          &
-                                         face_axis_sign
+                                         COUPLING_MIRROR, COUPLING_REFINED, face_axis_sign
 use :: adam_tree_object,          only : tree_iterator_object, NODE_MORE_REFINED, NODE_LESS_REFINED
 use :: adam_tree_node_object,     only : tree_node_object
 use :: adam_forest_manifest,      only : forest_manifest_t, forest_face_pair_t
@@ -575,6 +575,8 @@ contains
       per_realm_count(pair%realm_a) = per_realm_count(pair%realm_a) + 1_I4P
       per_realm_count(pair%realm_b) = per_realm_count(pair%realm_b) + 1_I4P
    enddo
+   ! Validate every coupling against the realm geometry before any seam data is built (issue #52).
+   call check_couplings(realm=realm, manifest=manifest)
    do is = 1_I4P, self%n
       if (allocated(realm(is)%adam%maps%inter_realm_neighbors)) deallocate(realm(is)%adam%maps%inter_realm_neighbors)
       if (per_realm_count(is) > 0_I4P) allocate(realm(is)%adam%maps%inter_realm_neighbors(per_realm_count(is)))
@@ -983,6 +985,157 @@ contains
       endfunction face_code_to_bc_fec
 
    endsubroutine populate_inter_realm_topology
+
+   subroutine check_couplings(realm, manifest)
+   !< Validate the coupling of every manifest face pair against the realm geometry (issue #52); error_stop otherwise.
+   !<
+   !< Walks the seam leaves of both sides on the replicated trees (the same result on every rank):
+   !<
+   !<   * `mirror`: one cell size on each side's seam face, equal across the seam;
+   !<   * `refined`: one cell size per side with ratio exactly 2 (either side may be the coarse one), equal block cell
+   !<     counts along the seam, the same `[amr] seam_ghost_fill`, and nested blocks: every fine seam leaf covers one 2:1
+   !<     quadrant of the face of one coarse seam leaf. The 2:1 seam fill and register are not
+   !<     implemented yet (issue #52 P1-P2): a valid `refined` pair still stops, after the validation;
+   !<   * `periodic`, `interpolate`: schema-reserved, refused (before issue #52 they were accepted and run as `mirror`).
+   class(realm_object),     intent(inout) :: realm(:)       !< Forest realms.
+   type(forest_manifest_t), intent(in)    :: manifest       !< Parsed manifest.
+   integer(I4P)                           :: f              !< Face-pair counter.
+   real(R8P)                              :: d_a(3), d_b(3) !< Seam cell sizes of the two sides.
+   character(:), allocatable              :: pfx            !< Face-pair label (error message prefix).
+   integer(I4P)                           :: ic, jf         !< Coarse and fine realm of a refined pair.
+   integer(I4P)                           :: face_f         !< Seam face of the fine realm.
+   integer(I4P)                           :: axis, sgn      !< Seam face axis and side of the fine realm.
+   integer(I4P)                           :: ntan_c(3)      !< Coarse block cell counts, normal one zeroed.
+   integer(I4P)                           :: ntan_f(3)      !< Fine block cell counts, normal one zeroed.
+
+   if (.not. allocated(manifest%face_pairs)) return
+   do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+      associate(pair => manifest%face_pairs(f))
+      pfx = 'forest_object%populate_inter_realm_topology: face_pair '//trim(str(f, .true.))//' (realms '// &
+              trim(str(pair%realm_a, .true.))//' and '//trim(str(pair%realm_b, .true.))//'): '
+      select case(pair%coupling)
+      case(COUPLING_MIRROR, COUPLING_REFINED)
+      case default
+         call mpih%error_stop(msg=pfx//'only coupling = mirror or refined is implemented (periodic and interpolate '// &
+                              'are reserved)')
+      endselect
+      d_a = seam_cell_size(realm(pair%realm_a), pair%face_a, pfx//'realm '//trim(str(pair%realm_a, .true.)))
+      d_b = seam_cell_size(realm(pair%realm_b), pair%face_b, pfx//'realm '//trim(str(pair%realm_b, .true.)))
+      if (pair%coupling == COUPLING_MIRROR) then
+         if (any(abs(d_a - d_b) > 1.0e-6_R8P * d_a)) &
+            call mpih%error_stop(msg=pfx//'coupling = mirror joins cells of the same size, the seam cells differ ('// &
+                                 trim(str(d_a))//' and '//trim(str(d_b))//'): use coupling = refined for a 2:1 jump '// &
+                                 '(issue #52)')
+         cycle
+      endif
+      ! refined: identify the coarse side
+      if (all(abs(d_a - 2._R8P * d_b) <= 1.0e-6_R8P * d_a)) then
+         ic = pair%realm_a ; jf = pair%realm_b ; face_f = pair%face_b
+      elseif (all(abs(d_b - 2._R8P * d_a) <= 1.0e-6_R8P * d_b)) then
+         ic = pair%realm_b ; jf = pair%realm_a ; face_f = pair%face_a
+      else
+         call mpih%error_stop(msg=pfx//'coupling = refined needs a cell-size ratio of exactly 2 along every axis ('// &
+                              trim(str(d_a))//' and '//trim(str(d_b))//')')
+      endif
+      ! the coarse face skin and the four fine skins under it must index the same cells: equal block cell counts along
+      ! the two tangential axes (the normal count is free, the realms may have different extents across the seam)
+      call face_axis_sign(face_f, axis, sgn)
+      ! `associate` on the polymorphic array elements: nvfortran 26.1 reads their components with a wrong element stride
+      ! (measured: realm(2)%adam%grid%nj = 0, nk = 3394; the same defect as the TBP dispatch workaround 0062a237)
+      associate(r_c => realm(ic), r_f => realm(jf))
+      ntan_c = [r_c%adam%grid%ni, r_c%adam%grid%nj, r_c%adam%grid%nk]
+      ntan_f = [r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk]
+      ntan_c(axis) = 0_I4P ; ntan_f(axis) = 0_I4P
+      if (any(ntan_c /= ntan_f)) &
+         call mpih%error_stop(msg=pfx//'coupling = refined needs the same block cell counts along the seam (tangential '// &
+                              'ni, nj, nk) in both realms')
+      if (r_c%adam%maps%seam_ghost_fill /= r_f%adam%maps%seam_ghost_fill)                                             &
+         call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_ghost_fill in both realms')
+      endassociate
+      call check_nested(coarse=realm(ic), fine=realm(jf), face_f=face_f, pfx=pfx)
+      call mpih%error_stop(msg=pfx//'coupling = refined is valid (realm '//trim(str(ic, .true.))//' coarse, realm '// &
+                           trim(str(jf, .true.))//' fine) but the 2:1 seam fill and register are not implemented yet '//  &
+                           '(issue #52)')
+      endassociate
+   enddo
+   endsubroutine check_couplings
+
+   function seam_cell_size(this_realm, face, pfx) result(dxyz)
+   !< The cell size of the leaves of a realm on its seam face: one size for all of them, error_stop otherwise.
+   class(realm_object), intent(in) :: this_realm !< Realm.
+   integer(I4P),        intent(in) :: face       !< Seam face (FACE_* code).
+   character(*),        intent(in) :: pfx      !< Error message prefix.
+   real(R8P)                       :: dxyz(3)    !< Seam cell size.
+   type(tree_iterator_object)      :: iter       !< Tree traversal cursor.
+   type(tree_node_object), pointer :: node_ptr   !< Current leaf.
+   integer(I4P)                    :: axis, sgn  !< Face axis and side.
+   real(R8P)                       :: emin(3)    !< Leaf origin.
+   real(R8P)                       :: d(3)       !< Leaf cell size.
+   logical                         :: found      !< A seam leaf has been seen.
+
+   call face_axis_sign(face, axis, sgn)
+   found = .false.
+   dxyz = 0._R8P
+   iter%b = 1_I4P ; iter%p => null()
+   do while (this_realm%adam%tree%loop(iter, node_ptr=node_ptr))
+      if (.not. leaf_on_realm_face(this_realm, node_ptr%code, axis, sgn)) cycle
+      call leaf_metrics(this_realm, node_ptr%code, emin, d)
+      if (.not. found) then
+         dxyz = d ; found = .true.
+      elseif (any(abs(d - dxyz) > 1.0e-6_R8P * dxyz)) then
+         call mpih%error_stop(msg=pfx//' has seam cells of different sizes (refined blocks along the seam); a seam '// &
+                              'joins one cell size per side')
+      endif
+   enddo
+   if (.not. found) call mpih%error_stop(msg=pfx//' has no block on its seam face')
+   endfunction seam_cell_size
+
+   subroutine check_nested(coarse, fine, face_f, pfx)
+   !< Every fine seam leaf must cover one 2:1 quadrant of the seam face of one coarse leaf: half its tangential extent,
+   !< starting at its origin or at its midpoint along each tangential axis.
+   class(realm_object), intent(inout) :: coarse     !< Coarse realm.
+   class(realm_object), intent(inout) :: fine       !< Fine realm.
+   integer(I4P),        intent(in)    :: face_f     !< Fine seam face.
+   character(*),        intent(in)    :: pfx      !< Error message prefix.
+   type(tree_iterator_object)         :: iter       !< Tree traversal cursor.
+   type(tree_node_object), pointer    :: node_f     !< Fine leaf.
+   integer(I8P)                       :: code_c     !< Coarse leaf across the face.
+   integer(I4P)                       :: axis, sgn  !< Fine face axis and side.
+   integer(I4P)                       :: d          !< Axis counter.
+   real(R8P)                          :: emin_f(3), emax_f(3), dx_f(3) !< Fine leaf.
+   real(R8P)                          :: emin_c(3), emax_c(3), dx_c(3) !< Coarse leaf.
+   real(R8P)                          :: xq(3)      !< First coarse cell centre across the fine face.
+   real(R8P)                          :: tol        !< Geometric tolerance.
+   logical                            :: ok         !< Nesting test.
+
+   call face_axis_sign(face_f, axis, sgn)
+   iter%b = 1_I4P ; iter%p => null()
+   do while (fine%adam%tree%loop(iter, node_ptr=node_f))
+      if (.not. leaf_on_realm_face(fine, node_f%code, axis, sgn)) cycle
+      call leaf_metrics(fine, node_f%code, emin_f, dx_f, emax_f)
+      xq = 0.5_R8P * (emin_f + emax_f)
+      if (sgn > 0_I4P) then
+         xq(axis) = emax_f(axis) + dx_f(axis)
+      else
+         xq(axis) = emin_f(axis) - dx_f(axis)
+      endif
+      ok = inside_domain(coarse, xq, 0.25_R8P * dx_f)
+      if (ok) then
+         code_c = coarse%adam%tree%get_closest_block(grid=coarse%adam%grid, point=xq)
+         call leaf_metrics(coarse, code_c, emin_c, dx_c, emax_c)
+         tol = max(maxval(abs(emax_c)), 1._R8P) * 1.0e-10_R8P
+         ok = merge(abs(emin_c(axis) - emax_f(axis)), abs(emax_c(axis) - emin_f(axis)), sgn > 0_I4P) <= tol
+         do d = 1_I4P, 3_I4P
+            if (d == axis) cycle
+            ! half the coarse extent, starting at the coarse origin or at its midpoint (one 2:1 quadrant)
+            ok = ok .and. abs(2._R8P * (emax_f(d) - emin_f(d)) - (emax_c(d) - emin_c(d))) <= tol .and.        &
+                 (abs(emin_f(d) - emin_c(d)) <= tol .or. abs(emin_f(d) - 0.5_R8P * (emin_c(d) + emax_c(d))) <= tol)
+         enddo
+      endif
+      if (.not. ok) call mpih%error_stop(msg=pfx//'coupling = refined needs nested blocks: every fine seam block '// &
+                                         'must cover a quarter of one coarse seam block face')
+   enddo
+   endsubroutine check_nested
 
    subroutine build_seam_rows(realm, manifest)
    !< Build the seam ghost rows of every realm from the replicated trees (issue #40).

@@ -4853,6 +4853,15 @@ contains
                enddo
             enddo
             call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
+         elseif (flux_register%face(face_idx)%seam_kind == SEAM_KIND_INTER_REALM) then
+            ! Fine side of an inter-realm mirror seam (same resolution): the skin covers the coarse face 1:1 and is
+            ! accumulated unrestricted (issue #52 P0, CPU parity; the FLUME twin of #37).
+            do c=1_I4P, nface_cells
+               do v=1_I4P, nv_c
+                  flux_slab(v, c) = skin(c, v)
+               enddo
+            enddo
+            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
          else
             ! Fine side: reshape to (nv_c, inner, outer), 2:1-restrict into this
             ! block's quadrant of the coarse skin. Quadrant offsets are read from
@@ -4860,8 +4869,7 @@ contains
             ! codes (issue #28 D2, CPU parity): the register's `coarse_block` is
             ! an owner-rank-LOCAL index, so deriving the quadrant from its
             ! emin/emax here reads an unrelated local block's geometry whenever
-            ! the coarse partner lives on another rank. Table allocated only by
-            ! the intra-realm AMR pass; inter-realm mirror seams have no quadrant.
+            ! the coarse partner lives on another rank.
             if (allocated(self%adam%maps%amr_seam_quadrant)) then
                ioff = self%adam%maps%amr_seam_quadrant(1, b, fec)
                joff = self%adam%maps%amr_seam_quadrant(2, b, fec)

@@ -32,7 +32,7 @@ module adam_forest_manifest
 !<   face_a           = +x
 !<   realm_b          = 2
 !<   face_b           = -x
-!<   coupling         = mirror             ; mirror | periodic | interpolate
+!<   coupling         = mirror             ; mirror | refined (2:1, issue #52) | periodic, interpolate (reserved)
 !<   coupling_cadence = end_of_step        ; end_of_step (α default) | stage_coincident (β opt-in)
 !<```
 !<
@@ -57,7 +57,7 @@ module adam_forest_manifest
 
 ! ADAM classes, libraries, parameters
 use :: adam_maps_object, only : FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
-                                 COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE,             &
+                                 COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE, COUPLING_REFINED,             &
                                  CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT
 ! third party modules
 use :: finer, only : file_ini
@@ -217,7 +217,7 @@ contains
    endfunction parse_face
 
    function parse_coupling(text, section_name, context) result(code)
-   !< Translate "mirror" / "periodic" / "interpolate" to the coupling code constant.
+   !< Translate "mirror" / "refined" / "periodic" / "interpolate" to the coupling code constant.
    character(*), intent(in) :: text         !< Coupling spec from the INI.
    character(*), intent(in) :: section_name !< Section name (for error message).
    character(*), intent(in) :: context      !< Manifest filename (for error message).
@@ -227,6 +227,7 @@ contains
    case ('mirror',      'Mirror',      'MIRROR'     ); code = COUPLING_MIRROR
    case ('periodic',    'Periodic',    'PERIODIC'   ); code = COUPLING_PERIODIC
    case ('interpolate', 'Interpolate', 'INTERPOLATE'); code = COUPLING_INTERPOLATE
+   case ('refined',     'Refined',     'REFINED'    ); code = COUPLING_REFINED
    case default
       error stop 'adam_forest_manifest: ['//trim(section_name)//'] unknown coupling "'//trim(text)//'" in '//trim(context)
    endselect

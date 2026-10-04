@@ -3894,6 +3894,13 @@ contains
             ! Coarse side: pack the full face skin directly.
             call pack_coarse_face(self, fec, ni, nj, nk, nv_c, b, inner_n, outer_n, flux_slab)
             call flux_register%accumulate_coarse_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
+         elseif (flux_register%face(face_idx)%seam_kind == SEAM_KIND_INTER_REALM) then
+            ! Fine side of an inter-realm mirror seam (same resolution): the skin covers the coarse face 1:1 and is
+            ! accumulated unrestricted (issue #52 P0; the FLUME twin of #37). The quadrant table is allocated whenever the
+            ! forest has a register, so the 2:1 branch below would restrict this skin too: 2x2 averages written into a
+            ! quarter of the coarse skin, measured F_coarse - F_fine_sum = 0.24 at step 1 on an FV mirror split.
+            call pack_coarse_face(self, fec, ni, nj, nk, nv_c, b, inner_n, outer_n, flux_slab)
+            call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
          else
             ! Fine side: 2:1-restrict this fine block's face into its quadrant of
             ! the coarse skin. Quadrant offsets are PRECOMPUTED at registration
@@ -3901,9 +3908,7 @@ contains
             ! `coarse_block` is an owner-rank-LOCAL index, so deriving the
             ! quadrant from that block's emin/emax here would read an unrelated
             ! local block's geometry whenever the coarse partner lives on
-            ! another rank. The quadrant table is allocated only by the
-            ! intra-realm AMR registration pass; an inter-realm mirror seam
-            ! (table unallocated) has no 2:1 quadrant — offsets are zero.
+            ! another rank.
             if (allocated(self%adam%maps%amr_seam_quadrant)) then
                ioff = self%adam%maps%amr_seam_quadrant(1, b, fec)
                joff = self%adam%maps%amr_seam_quadrant(2, b, fec)

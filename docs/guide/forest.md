@@ -33,7 +33,7 @@ realm_a          = 1
 face_a           = +x                  ; realm 1's +x face is glued to realm 2's -x face
 realm_b          = 2
 face_b           = -x
-coupling         = mirror              ; mirror | periodic | interpolate
+coupling         = mirror              ; mirror | refined (2:1, issue #52)
 coupling_cadence = end_of_step         ; end_of_step (default, α) | stage_coincident (β)
 ```
 
@@ -46,7 +46,7 @@ Schema summary:
 | `[forest.topology]`              | `inter_realm_faces_number`  | no  | Count of inter-realm seams; absent means no inter-realm coupling. |
 | `[forest.topology.face_N]`       | `realm_a`, `realm_b`        | yes | 1-based realm indices on each side of the seam. |
 |                                  | `face_a`, `face_b`          | yes | Face codes: `+x`/`-x`/`+y`/`-y`/`+z`/`-z`. |
-|                                  | `coupling`                  | no  | `mirror` (default; pass-through copy), `periodic`, `interpolate` (reserved). |
+|                                  | `coupling`                  | no  | `mirror` (default; same cell size, pass-through copy) or `refined` (a 2:1 resolution jump, issue #52: validated, not implemented yet). `periodic` and `interpolate` are reserved and refused at initialization. |
 |                                  | `coupling_cadence`          | no  | `end_of_step` (default, α) or `stage_coincident` (β). |
 
 Each realm's INI is a complete per-app input file. Sections like `[grid]`, `[numerics]`, `[physics]`, `[runge_kutta]` are populated as usual; the manifest contributes only the inter-realm topology.
@@ -60,10 +60,13 @@ The realms are partitioned over the ranks independently, each in its own Morton 
 
 The peer slots and their cadence come from the manifest, so every rank calls the seam fill for the same (realm, peer) pairs in the same order; the exchange is point to point, and a rank with no rows of a pair skips it.
 
-What a mirror seam still requires, checked at initialization (`error_stop` naming the block or ghost and `issue #40`):
+What a seam still requires, checked at initialization (`error_stop` naming the face pair, block or ghost):
 
-1. both sides have the **same cell size**, with cell centres that coincide across the seam;
-2. the seam blocks of the two realms **meet face to face** (same tangential extents); seams between blocks that do not line up are planned (issue #40, P4).
+1. `coupling = mirror`: both sides have the **same cell size**, with cell centres that coincide across the seam;
+2. the seam blocks of the two realms **meet face to face** (same tangential extents); seams between blocks that do not line up are planned in [issue #51](https://github.com/szaghi/adam/issues/51);
+3. `coupling = refined` (a 2:1 resolution jump, [issue #52](https://github.com/szaghi/adam/issues/52)): one cell size per side with ratio exactly 2 along every axis, the same block cell counts along the seam, the same `[amr] seam_ghost_fill`, and nested blocks (each fine seam block covers one 2:1 quadrant of a coarse seam block face). The pair is validated, then refused until the 2:1 seam fill and register land.
+
+Before issue #52, `periodic` and `interpolate` were accepted and silently run as `mirror`; they are now refused.
 
 `src/tests/flume/verification/multirealm/check.sh` (leg 3) splits Sod along $z$: on one rank and on $N$ ranks the union reproduces the single-realm `sod-z` bit for bit (measured on 2, 3 and 4 ranks; on 2 every seam ghost crosses ranks, 3468 rows each way). Before issue #40 the two-rank run ended normally with a wrong solution (205 steps instead of 174, realm 1 mass frozen at 0.5, reflux mismatch 69).
 
