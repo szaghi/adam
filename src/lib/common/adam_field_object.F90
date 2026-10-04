@@ -819,6 +819,10 @@ contains
 
    subroutine save_blocks(self, grid, basename, q)
    !< Save blocks data, used for restarting.
+   !<
+   !< Every rank writes its file, with zero blocks if it owns none (issue #42): `load_blocks` reads one file per rank,
+   !< so a rank that skipped the save aborted the restart, and a file left by an earlier save of that rank (when it
+   !< still owned blocks) would have been read as current. `status='replace'` truncates a longer old file.
    class(field_object), intent(in) :: self      !< The field.
    type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
    character(*),        intent(in) :: basename  !< Output base name.
@@ -830,23 +834,22 @@ contains
    integer(I4P)                    :: file_unit !< Output file unit.
    integer(I4P)                    :: b         !< Counter.
 
-   if (self%blocks_number > 0) then
-      open(newunit=file_unit,                                                             &
-           file=trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank,6))//'.fbd', &
-           form='UNFORMATTED',                                                            &
-           access='STREAM')
-      write(unit=file_unit) self%nv, grid%ni, grid%nj, grid%nk, grid%ngc, self%nv_pic, self%np
-      write(unit=file_unit) self%blocks_number
-      do b=1, self%blocks_number
-         write(unit=file_unit) self%code(b)
-         write(unit=file_unit) self%coordinates(1:4,b)
-         write(unit=file_unit) q(1:self%nv,                                  &
-                                 1-grid%ngc:grid%ni+grid%ngc, &
-                                 1-grid%ngc:grid%nj+grid%ngc, &
-                                 1-grid%ngc:grid%nk+grid%ngc,b)
-      enddo
-      close(file_unit)
-   endif
+   open(newunit=file_unit,                                                             &
+        file=trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank,6))//'.fbd', &
+        form='UNFORMATTED',                                                            &
+        access='STREAM',                                                               &
+        status='REPLACE')
+   write(unit=file_unit) self%nv, grid%ni, grid%nj, grid%nk, grid%ngc, self%nv_pic, self%np
+   write(unit=file_unit) self%blocks_number
+   do b=1, self%blocks_number
+      write(unit=file_unit) self%code(b)
+      write(unit=file_unit) self%coordinates(1:4,b)
+      write(unit=file_unit) q(1:self%nv,                                  &
+                              1-grid%ngc:grid%ni+grid%ngc, &
+                              1-grid%ngc:grid%nj+grid%ngc, &
+                              1-grid%ngc:grid%nk+grid%ngc,b)
+   enddo
+   close(file_unit)
    endsubroutine save_blocks
 
    subroutine update_ghost_local(self, grid, maps, q)

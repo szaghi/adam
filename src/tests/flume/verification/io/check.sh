@@ -4,7 +4,8 @@
 # Why: restart files, slices and auxiliary fields are outputs no run reads back in normal operation, so a defect in
 # them is silent. Two legs:
 #   1. V7, restart round trip, on three cases covering the three integration paths: sod-x (fast path),
-#      amr-periodic (staged path, AMR, reflux) and shock-cylinder (immersed boundary, AMR). Run A goes N steps;
+#      amr-periodic (staged path, AMR, reflux) and shock-cylinder (immersed boundary, AMR), plus the uniform skeleton
+#      case, where a rank owns no block when the restart is saved (issue #42). Run A goes N steps;
 #      run B goes N/2 steps saving a restart, then restarts and completes N. The final fields must be bitwise
 #      identical on the interior cells (edge/corner ghost cells that no map fills keep stale values the directional
 #      stencils never read), and the residuals and conservation histories byte-identical (the restarted run appends
@@ -60,8 +61,10 @@ run() { # run <work-dir> <ini> <log>
 }
 
 restart_round_trip() { # restart_round_trip <case-ini> <N>
-   local ini="$1" n="$2" h=$(( $2 / 2 )) name base
+   local ini="$1" n="$2" h=$(( $2 / 2 )) name base out
    name="$(basename "$ini")" ; base="${name%.ini}"
+   [[ "$base" == input ]] && base="$(basename "$(dirname "$ini")")"
+   out="$(sed -n 's/^output_basename *= *\([^ ;]*\).*/\1/p' "$ini")"
    local a="$CASE_DIR/work-$TAG-$base-A" b="$CASE_DIR/work-$TAG-$base-B"
    local common=(-e "s/^it_max   = .*/it_max   = $n/" -e "s/^it_save                = .*/it_save                = 100000/")
    rm -rf "$a" "$b" ; mkdir -p "$a" "$b"
@@ -76,7 +79,7 @@ restart_round_trip() { # restart_round_trip <case-ini> <N>
    run "$b" "$name" log-2.txt
    "$VENV_PY" "$VERIF_DIR/conservation/conservation_oracle.py" --compare "$a" "$b" --tol 0 --ngc 3
    for hist in residuals conservation_history; do
-      if cmp -s "$a/$base-$hist.dat" "$b/$base-$hist.dat"; then
+      if cmp -s "$a/$out-$hist.dat" "$b/$out-$hist.dat"; then
          echo "   $hist history: identical  PASS"
       else
          echo "   $hist history: differs  FAIL" >&2
@@ -88,6 +91,10 @@ restart_round_trip() { # restart_round_trip <case-ini> <N>
 restart_round_trip "$VERIF_DIR/sod/sod-x.ini" 40
 restart_round_trip "$VERIF_DIR/conservation/amr-periodic.ini" 20
 restart_round_trip "$VERIF_DIR/shock-cylinder/shock-cylinder.ini" 40
+# issue #42: 8 blocks, all on rank 0 after the uniform refinement at np 2, so rank 1 owns none when the restart is
+# saved; it used to write no .fbd and the restart aborted (error -104). The state is uniform, so this leg checks that
+# an empty rank saves and restarts, not the field values.
+restart_round_trip "$VERIF_DIR/uniform/input.ini" 10
 
 work="$CASE_DIR/work-$TAG-sod-x-io"
 rm -rf "$work" ; mkdir -p "$work"

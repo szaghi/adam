@@ -63,6 +63,8 @@ def last_fields(work: Path) -> tuple[tuple[str, ...], dict[tuple[float, ...], np
     names: tuple[str, ...] = ()
     for path in (p for p in files if int(p.name.split("-")[-2]) == last):
         with h5py.File(path, "r") as h5:
+            if not len(h5):  # a rank that owns no block (issue #42)
+                continue
             found = tuple(sorted({k.rsplit("-", 1)[1] for k in h5} - set(GEOMETRY)))
             if names and found != names:
                 sys.exit(f"conservation_oracle: {path} holds fields {found}, not {names}")
