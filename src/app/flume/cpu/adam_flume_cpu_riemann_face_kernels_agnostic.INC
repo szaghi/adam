@@ -69,7 +69,7 @@
                      v(:,m+S) = fint(:,m,f)
                   enddo
                   call weno_reconstruct_upwind_wratio(S=S, weno_a=weno%a_interp, weno_p=weno%p_interp, weno_d=weno%d, &
-                                                      weno_zeps=weno%zeps, v=v, vr=vr(:,f), wr=wr)
+                                                      weno_zeps=weno%zeps, weno_sigma=weno%sigma, v=v, vr=vr(:,f), wr=wr)
                   wmin = min(wmin, wr(1), wr(2))
                enddo
                call face_states(gamma=gamma, ch=ch, is_characteristic=is_characteristic, er=er, vr=vr, q0=qs(:,0), &

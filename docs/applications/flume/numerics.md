@@ -39,6 +39,25 @@ exponent $m = S$ ($S - 1$ for $S > 4$), the same on the host and on the device. 
 combination reaches order $2S-1$; the stencils crossing a discontinuity get $\omega_k \to 0$. The centred schemes
 `weno-c-*` are refused by FLUME.
 
+The absolute $\varepsilon$ ties the weights to the units of the data: $\beta_k$ scales as the square of the field, so
+on a field of magnitude $10^{-4}$ the ratio $\beta_k/\varepsilon$ is $10^{8}$ times smaller than on the same field at
+magnitude 1, the weights collapse to the linear ones and the scheme stops limiting. `[weno] weights = si` uses the
+scale-invariant weights of Don, Li, Wang and Wang (2022):
+
+$$\alpha_k = \frac{d_k}{(\varepsilon + \beta_k/\mu^2)^{m}}, \qquad \mu = \frac{1}{2S-1}\sum_{j} |v_j|,$$
+
+$\mu$ the mean magnitude over the $2S-1$ values of the stencil (floored at the smallest normal number, so that data
+identically zero get the linear weights). $\beta_k/\mu^2$ does not depend on the units, and since a power of two is
+exact in floating point, multiplying the data by $2^n$ multiplies the reconstruction by $2^n$ bit for bit (unit tests
+`test_flume_weno_weights` on the host, `test_flume_weno_interpolation_fnl` on the device). The default `js` is the formula above, bitwise unchanged; the choice costs
+no branch in the kernels (`js` sets $\mu = 1$ exactly).
+
+On smooth data the two weights agree to the truncation error (the 1-D prototype of issue #49 gives the same orders on
+$\sin(\pi x - \sin(\pi x)/\pi)$, with or without an offset). In the same prototype, on the Sod, Lax and Shu–Osher
+problems at density $\times 4^{\pm 10}$ and velocity $\times 2^{-10}$, `si` gives the same solution at every scale bit
+for bit, while `js` changes the step count and fails on Shu–Osher at density $\times 4^{-10}$ (a NaN at the second
+step).
+
 The WENO kernel takes its coefficient tables as arguments, so one kernel serves two purposes:
 
 - **reconstruction** (`weno`): from point values of a flux, the face value whose difference approximates the derivative;
@@ -237,6 +256,8 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`)
   constrained transport for ideal magnetohydrodynamic equations, *SIAM J. Sci. Comput.* 37, A1825–A1845,
   doi:10.1137/140971208.
 - Einfeldt B. et al. (1991), On Godunov-type methods near low densities, *J. Comput. Phys.* 92, 273–295.
+- Don W. S., Li R., Wang B.-S., Wang Y. H. (2022), A novel and robust scale-invariant WENO scheme for hyperbolic
+  conservation laws, *J. Comput. Phys.* 448, 110724.
 - Jiang G.-S., Shu C.-W. (1996), Efficient implementation of weighted ENO schemes, *J. Comput. Phys.* 126, 202–228.
 - Miyoshi T., Kusano K. (2005), A multi-state HLL approximate Riemann solver for ideal MHD, *J. Comput. Phys.* 208, 315–344.
 - Shu C.-W., Osher S. (1989), Efficient implementation of essentially non-oscillatory shock-capturing schemes II,

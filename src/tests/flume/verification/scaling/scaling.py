@@ -8,9 +8,10 @@ momentum by 4^m 2^k, pressure and energy by 4^(k+m), B by 2^(k+m), the mixed-GLM
 a code without absolute constants reproduces the base run BIT FOR BIT after the rescaling; any absolute tolerance (the
 WENO zeps, the positivity floor, ...) shows up as a mismatch. This is the measurement N1 of #49 must turn into a pass.
 
-  scaling.py rescale <in.ini> <out.ini> --j J --k K --m M
+  scaling.py rescale <in.ini> <out.ini> --j J --k K --m M [--weights js|si]
       write the rescaled input; refuses an initial-condition, boundary or [mhd] key it cannot classify, so nothing
       dimensional passes unscaled (an initial condition without parameters, e.g. orszag-tang, cannot be rescaled);
+      --weights sets [weno] weights (N1: si, the scale-invariant WENO weights);
   scaling.py compare <base-work> <scaled-work> --j J --k K --m M --ngc N [--psi glm|eglm]
       compare the last common checkpoint: each field of the scaled run against the base field times its exact power
       of two, blocks keyed by their scaled origins; prints the max relative difference per field (0 = bitwise) and
@@ -104,6 +105,8 @@ def rescale(args: argparse.Namespace) -> int:
             ini[section][key] = repr(value * factor(table[key], j, k, m))
     t = ini["time"]
     t["time_max"] = repr(float(t["time_max"].split(";")[0]) * factor(TIME, j, k, m))
+    if args.weights is not None:
+        ini["weno"]["weights"] = args.weights
     with open(args.out, "w") as f:
         ini.write(f)
     return 0
@@ -176,6 +179,7 @@ def main() -> int:
     r = sub.add_parser("rescale")
     r.add_argument("ini", type=Path)
     r.add_argument("out", type=Path)
+    r.add_argument("--weights", choices=("js", "si"), help="set [weno] weights")
     c = sub.add_parser("compare")
     c.add_argument("base", type=Path)
     c.add_argument("scaled", type=Path)

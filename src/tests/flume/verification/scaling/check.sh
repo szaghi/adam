@@ -15,7 +15,10 @@
 # regulariser (zeps = 1e-6) and the absolute positivity floor to break covariance until N1. --expect-bitwise turns
 # it into the gate NV-4: any non-bitwise comparison fails.
 #
-# Usage: ./check.sh [--np N] [--j J --k K --m M] [--expect-bitwise] [--cases "sod-x vortex rj2a blast orszag-tang"]
+# --weights si runs every case with the scale-invariant WENO weights (issue #49, N1); the default keeps the inputs' own.
+#
+# Usage: ./check.sh [--np N] [--j J --k K --m M] [--weights js|si] [--expect-bitwise]
+#                   [--cases "sod-x vortex rj2a blast orszag-tang"]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -26,7 +29,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TOOL="$CASE_DIR/scaling.py"
-NP=2 ; J=2 ; K=-1 ; M=-2 ; GATE=0
+NP=2 ; J=2 ; K=-1 ; M=-2 ; GATE=0 ; WEIGHTS=()
 CASES="sod-x vortex rj2a blast orszag-tang"
 
 while [[ $# -gt 0 ]]; do
@@ -36,6 +39,7 @@ while [[ $# -gt 0 ]]; do
       --k)              K="$2" ; shift 2 ;;
       --m)              M="$2" ; shift 2 ;;
       --cases)          CASES="$2" ; shift 2 ;;
+      --weights)        WEIGHTS=(--weights "$2") ; shift 2 ;;
       --expect-bitwise) GATE=1 ; shift ;;
       *) echo "check.sh: unknown argument '$1'" >&2 ; exit 2 ;;
    esac
@@ -48,7 +52,7 @@ declare -A INPUT=([sod-x]="$REPO_ROOT/src/tests/flume/verification/sod/sod-x.ini
                   [blast]="$REPO_ROOT/src/tests/flume/regression/blast-limiter/input.ini"
                   [orszag-tang]="$REPO_ROOT/src/tests/flume/regression/orszag-tang/input.ini")
 declare -A PSI=([blast]=eglm)
-TAG="$(basename "$EXE")-np$NP"
+TAG="$(basename "$EXE")-np$NP${WEIGHTS[1]:+-${WEIGHTS[1]}}"
 fails=0
 
 run() { # run <work-dir> <ini-name>
@@ -67,14 +71,18 @@ for c in $CASES; do
       echo "== $c: not rescalable: $(tail -1 "$base/rescale.txt")"
       continue
    fi
-   cp "$ini" "$base/$name"
+   if [[ ${#WEIGHTS[@]} -gt 0 ]]; then
+      "$VENV_PY" "$TOOL" rescale "$ini" "$base/$name" "${WEIGHTS[@]}" # scale 1: exact, only the weights change
+   else
+      cp "$ini" "$base/$name"
+   fi
    echo "== $c"
    run "$base" "$name"
    for v in "length $J 0 0" "velocity 0 $K 0" "density 0 0 $M" "all $J $K $M"; do
       read -r label j k m <<< "$v"
       w="$CASE_DIR/work-$TAG-$c-$label"
       rm -rf "$w" ; mkdir -p "$w"
-      "$VENV_PY" "$TOOL" rescale "$ini" "$w/$name" --j "$j" --k "$k" --m "$m"
+      "$VENV_PY" "$TOOL" rescale "$ini" "$w/$name" --j "$j" --k "$k" --m "$m" "${WEIGHTS[@]}"
       run "$w" "$name"
       printf '   %-8s (j %2s, k %2s, m %2s)' "$label" "$j" "$k" "$m"
       if ! "$VENV_PY" "$TOOL" compare "$base" "$w" --ngc 3 --j "$j" --k "$k" --m "$m" --psi "${PSI[$c]:-glm}" \

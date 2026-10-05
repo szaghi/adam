@@ -212,6 +212,7 @@ In a forest manifest, seams with `coupling_cadence = stage_coincident` require b
 | Key | Type | Req. | Default | Accepted / invalid | Used | Meaning |
 |-----|------|------|---------|--------------------|------|---------|
 | `scheme` | string | yes | — | See the table below. Unknown → fatal. `weno-c-*` is accepted by the library but **fatal in FLUME**. | yes | WENO order (stencil half-width `S`). |
+| `weights` | string | no | `js` | `js` (Jiang–Shu, absolute $\varepsilon$), `si` (scale-invariant). Unknown → fatal. | yes | Nonlinear weights ([numerics](./numerics#weno-reconstruction)). `si` makes the scheme independent of the units of the data; the default `js` keeps every existing result bitwise. |
 | `ror_number` | int | yes | 0 | `>= 0` | **no** | Number of order-reduction (ROR) stages. FLUME does not implement ROR, and the scheme overwrites `S`. |
 | `ror_scheme_1` … `ror_scheme_<ror_number>` | int | cond. (`ror_number > 0`) | — | — | **no** | ROR stencil sizes. |
 | `ror_threshold` | real | yes | 0.9 | — | **no** | ROR trigger. |

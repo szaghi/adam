@@ -51,7 +51,7 @@
                      v(:,m+S) = fsplit(:,m,f)
                   enddo
                   call weno_reconstruct_upwind(S=S, weno_a=weno%a, weno_p=weno%p, weno_d=weno%d, weno_zeps=weno%zeps, &
-                                               v=v, vr=vr(:,f))
+                                               weno_sigma=weno%sigma, v=v, vr=vr(:,f))
                enddo
                call compute_face_flux_back_projection(is_characteristic=is_characteristic, er=er, vr=vr, &
                                                       flux=fl(1:NV_K,i,j,k,b))

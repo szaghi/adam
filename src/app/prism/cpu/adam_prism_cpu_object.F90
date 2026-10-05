@@ -4016,7 +4016,7 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&
              dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:),                         &
              flx=>self%flxyz_c(:,1,1,:,:,:,:), fly=>self%flxyz_c(:,1,2,:,:,:,:), flz=>self%flxyz_c(:,1,3,:,:,:,:),                &
-             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                                      &
+             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps, weno_sigma=>self%weno%sigma,                                         &
              weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                  &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,        &
              evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
@@ -4024,15 +4024,15 @@ contains
    if (blocks_number > 0) then
       call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,chi=chi,                                                      &
+                                     weno_sigma=weno_sigma,evmax=evmax,erw=erw,elw=elw,chi=chi,                                &
                                      q=q,fluxes=flx)
       call compute_fluxes_convective_weno(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,chi=chi,                                                      &
+                                     weno_sigma=weno_sigma,evmax=evmax,erw=erw,elw=elw,chi=chi,                                &
                                      q=q,fluxes=fly)
       call compute_fluxes_convective_weno(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,chi=chi,                                                      &
+                                     weno_sigma=weno_sigma,evmax=evmax,erw=erw,elw=elw,chi=chi,                                &
                                      q=q,fluxes=flz)
       call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
                                      var_Jx=var_Jx, var_Jy=var_Jy, var_Jz=var_Jz,                          &
@@ -4422,7 +4422,7 @@ contains
    endsubroutine compute_dxyz_min
 
    subroutine compute_fluxes_convective_weno(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_a,weno_p,weno_d,weno_c,weno_zeps,&
-                                             evmax,erw,elw,chi,q,fluxes)
+                                             weno_sigma,evmax,erw,elw,chi,q,fluxes)
    !< Compute convective fluxes along direction `dir`, WENO scheme for space operator.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
@@ -4437,6 +4437,7 @@ contains
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
    real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients.
    real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
+   real(R8P),    intent(in)    :: weno_sigma                         !< WENO descaler switch (0 Jiang-Shu, 1 scale-invariant).
    real(R8P),    intent(in)    :: evmax                              !< Maximum waves speed estimation.
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                      !< Right eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: elw(1:,1:,1:)                      !< Left  eigenvectors for WENO reconstruction.
@@ -4465,7 +4466,7 @@ contains
    do j=si_j, nj
    do i=si_i, ni
       call compute_fluxes_convective_ri_weno(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv_c=nv_c,                 &
-                                             weno_s=weno_s, weno_zeps=weno_zeps,                        &
+                                             weno_s=weno_s, weno_zeps=weno_zeps, weno_sigma=weno_sigma, &
                                              weno_a=weno_a, weno_p=weno_p, weno_d=weno_d, weno_c=weno_c,&
                                              evmax=evmax,erw=erw,elw=elw,chi=chi,                       &
                                              si=si,sir=sir,q=q,fluxes=fluxes)
@@ -4476,7 +4477,7 @@ contains
    endsubroutine compute_fluxes_convective_weno
 
    subroutine compute_fluxes_convective_ri_weno(dir,b,i,j,k,ngc,nv_c,                         &
-                                                weno_s,weno_zeps,weno_a,weno_p,weno_d,weno_c, &
+                                                weno_s,weno_zeps,weno_sigma,weno_a,weno_p,weno_d,weno_c, &
                                                 evmax,erw,elw,chi,si,sir,q,fluxes)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)    :: dir                                 !< Direction, 1=X, 2=Y, 3=Z.
@@ -4485,6 +4486,7 @@ contains
    integer(I4P), intent(in)    :: nv_c                                !< Number of conservative varibales in q vector.
    integer(I4P), intent(in)    :: weno_s                              !< Weno stencils number/dimension.
    real(R8P),    intent(in)    :: weno_zeps                           !< Parameter to avoid division by zero.
+   real(R8P),    intent(in)    :: weno_sigma                          !< WENO descaler switch (0 Jiang-Shu, 1 SI).
    real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                    !< Optimal weights.
    real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                 !< Polinomials coefficients.
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                 !< Smoothness indicators coefficients.
@@ -4507,7 +4509,8 @@ contains
                                     q=q, fmpc=fmpc(1:2,1-weno_s:-1+weno_s,1:NV_MAX))
    do v=1, nv_c
       call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
-                                   weno_zeps=weno_zeps, V=fmpc(1:2,1-weno_s:-1+weno_s,v), VR=fpmr(1:2,v))
+                                   weno_zeps=weno_zeps, weno_sigma=weno_sigma, V=fmpc(1:2,1-weno_s:-1+weno_s,v), &
+                                   VR=fpmr(1:2,v))
    enddo
    ! back projection in conservative variables space
    do v=1, nv_c

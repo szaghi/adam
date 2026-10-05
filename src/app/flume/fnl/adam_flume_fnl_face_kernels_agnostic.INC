@@ -8,7 +8,7 @@
    ! The host selects the model's module by `select case`, outside the kernels.
 
    subroutine compute_face_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch, is_characteristic, &
-                                      weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, q_gpu, q_aux_gpu, fl_gpu)
+                                      weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, weno_sigma, q_gpu, q_aux_gpu, fl_gpu)
    !< Compute the WENO face fluxes of direction `d`: face `(i,j,k)` lies between cells `(i,j,k)` and
    !< `(i+di,j+dj,k+dk)`, so the face array starts at index 0 along `d`.
    !<
@@ -27,6 +27,7 @@
    real(R8P),    intent(in)    :: weno_p_gpu(1:,0:,0:,1:)                 !< WENO polynomials coefficients.
    real(R8P),    intent(in)    :: weno_d_gpu(0:,0:,0:,1:)                 !< WENO smoothness indicators coefficients.
    real(R8P),    intent(in)    :: weno_zeps                               !< WENO parameter avoiding division by zero.
+   real(R8P),    intent(in)    :: weno_sigma                              !< WENO descaler switch (0 Jiang-Shu, 1 SI).
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Conservative variables.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)         !< Face fluxes of direction `d`.
@@ -42,10 +43,10 @@
 
    !$acc parallel loop independent gang vector collapse(4)                                                        &
    !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu)                                       &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps)                  &
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma)       &
    !$acc& private(qs,qas,fsplit,er,v,vr_,vr,flux)
    !$omp OMPLOOP collapse(4) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma) &
    !$omp& private(qs,qas,fsplit,er,v,vr_,vr,flux)
    do k=1-dk, nk
    do j=1-dj, nj
@@ -72,7 +73,7 @@
             v(2,m+S) = fsplit(2,m,f)
          enddo
          call weno_reconstruct_upwind_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
-                                          weno_zeps=weno_zeps, V=v, VR=vr_)
+                                          weno_zeps=weno_zeps, weno_sigma=weno_sigma, V=v, VR=vr_)
          vr(1,f) = vr_(1)
          vr(2,f) = vr_(2)
       enddo

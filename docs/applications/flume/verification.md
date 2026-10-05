@@ -380,7 +380,8 @@ the fine ones at every stage. The leg asserts both (mass drift below $10^{-12}$,
 | `test_flume_mhd_library` (+ `_fnl`) | MHD, GLM and EGLM eigensystems (including degenerate states), fluxes, auxiliary variables, cyclic invariance; device = host |
 | `test_flume_mhd_riemann` (+ `_fnl`) | MHD LLF/HLL/HLLD without cleaning, with GLM and with EGLM: consistency, HLLD exact on contact, tangential and rotational discontinuities, cyclic invariance bitwise, positive updates, EGLM = GLM bitwise at $\psi = 0$; device = host |
 | `test_flume_positivity` | PV-0, the limiter on random admissible states with perturbed fluxes (Euler, MHD, EGLM): every limited update positive and above the relative floor, the limiter needed and acting; a NaN or infinite high-order flux replaced by the backbone flux; inadmissible face ghosts blended above the floors, every other value untouched; a cell with a 2:1 seam face (mean donor-state backbone) admissible for any seam factor up to its own, and not without the limiter |
-| `test_flume_weno_interpolation` (+ `_fnl`) | WENO interpolation tables: exactness, convergence, device = host; the reconstruction tables unchanged |
+| `test_flume_weno_interpolation` (+ `_fnl`) | WENO interpolation tables: exactness, convergence, device = host for both weights (`js`, `si`); the reconstruction tables unchanged; the `si` weights scale-covariant bitwise on the device |
+| `test_flume_weno_weights` | NV-1 of issue #49: with `[weno] weights = si`, WENO($2^n v$) = $2^n$ WENO($v$) bitwise for every scheme, both tables, random stencils from $10^{-12}$ to $10^{12}$; the `js` weights fail it (negative control); quadratic data reproduced by both; zero data stay zero |
 
 Build and run with `fobis build --mode test-flume-<name>-gnu` (`-fnl-nvf --varset local_nvf` for the device twin).
 

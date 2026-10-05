@@ -8,7 +8,7 @@
 
    subroutine compute_riemann_face_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch,        &
                                               is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
-                                              cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+                                              weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
    !< Compute the `weno-riemann` face fluxes of direction `d`: face `(i,j,k)` lies between cells `(i,j,k)` and
    !< `(i+di,j+dj,k+dk)`, so the face array starts at index 0 along `d`.
    !<
@@ -29,6 +29,7 @@
    real(R8P),    intent(in)    :: weno_p_gpu(1:,0:,0:,1:)                 !< WENO interpolation polynomials coefficients.
    real(R8P),    intent(in)    :: weno_d_gpu(0:,0:,0:,1:)                 !< WENO smoothness indicators coefficients.
    real(R8P),    intent(in)    :: weno_zeps                               !< WENO parameter avoiding division by zero.
+   real(R8P),    intent(in)    :: weno_sigma                              !< WENO descaler switch (0 Jiang-Shu, 1 SI).
    real(R8P),    intent(in)    :: cc(3)                                   !< Correction coefficients.
    real(R8P),    intent(in)    :: tau                                     !< Sensor threshold.
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Conservative variables.
@@ -54,11 +55,11 @@
    fallbacks = 0_I4P
    !$acc parallel loop independent gang vector collapse(4) reduction(+:fallbacks)                                 &
    !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu)                                       &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,cc,tau)          &
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau) &
    !$acc& private(qs,qas,fint,er,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
    !$omp OMPLOOP collapse(4) reduction(+:fallbacks) &
    !$omp& DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,cc,tau) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau) &
    !$omp& private(qs,qas,fint,er,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
    do k=1-dk, nk
    do j=1-dj, nj
@@ -86,7 +87,7 @@
             v(2,m+S) = fint(2,m,f)
          enddo
          call weno_reconstruct_upwind_wratio_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
-                                                 weno_zeps=weno_zeps, V=v, VR=vr_, WRATIO=wr)
+                                                 weno_zeps=weno_zeps, weno_sigma=weno_sigma, V=v, VR=vr_, WRATIO=wr)
          vr(1,f) = vr_(1)
          vr(2,f) = vr_(2)
          wmin = min(wmin, wr(1), wr(2))
