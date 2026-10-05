@@ -49,7 +49,7 @@ contains
 #include "adam_flume_cpu_ghost_kernels_agnostic.INC"
 
    ! private procedures
-   pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er)
+   pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er, mu)
    !< Split adapter of the shared face kernel (issue #41, M2-P3): the MHD split without cleaning, `ch` unused.
    real(R8P),    intent(in)  :: gamma                          !< Specific heats ratio.
    real(R8P),    intent(in)  :: ch                             !< GLM cleaning speed.
@@ -60,11 +60,12 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX_K,1-S_MAX:S_MAX)    !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fsplit(2,1-S_MAX:S_MAX-1,NV_K) !< Split fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_K,NV_K)                  !< Right eigenvectors.
+   real(R8P),    intent(out) :: mu(NV_K)                       !< Magnitude of each field (WENO descaler).
    !$acc routine seq
    !$omp declare target
 
    call mhd_face_split_fluxes(gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
-                              fsplit=fsplit, er=er)
+                              fsplit=fsplit, er=er, mu=mu)
    endsubroutine face_split_fluxes
 
    pure function cleaning_energy(q) result(e)

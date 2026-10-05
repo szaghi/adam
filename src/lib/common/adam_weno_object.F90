@@ -403,7 +403,7 @@ contains
    real(R8P),          intent(out) :: vr(1:2         ) !< Left and right (1,2) interface value of reconstructed v.
 
    call weno_reconstruct_upwind(S=S, weno_a=self%a, weno_p=self%p, weno_d=self%d, weno_zeps=self%zeps, &
-                                weno_sigma=self%sigma, v=v, vr=vr)
+                                weno_rmu=weno_descaling(S=S, weno_sigma=self%sigma, v=v), v=v, vr=vr)
    endsubroutine reconstruct_upwind
 
    ! private methods
@@ -864,8 +864,8 @@ contains
    real(R8P),          intent(in)  :: v    (1:2,1-S:-1+S) !< Variable to be reconstructed.
    real(R8P),          intent(out) :: w    (1:2,0:S-1)    !< Weights of the stencils.
 
-   call weno_compute_weights_upwind(S=S, weno_a=self%a, weno_d=self%d, weno_zeps=self%zeps, weno_sigma=self%sigma, &
-                                    v=v, w=w)
+   call weno_compute_weights_upwind(S=S, weno_a=self%a, weno_d=self%d, weno_zeps=self%zeps,                &
+                                    weno_rmu=weno_descaling(S=S, weno_sigma=self%sigma, v=v), v=v, w=w)
    endsubroutine compute_weights_upwind
 
    ! non TBP
@@ -909,17 +909,17 @@ contains
    enddo
    endsubroutine weno_compute_polynomials_upwind
 
-   pure subroutine weno_compute_weights_upwind(S, weno_a, weno_d, weno_zeps, weno_sigma, v, w)
-   !< Compute WENO weights, non TBP: `a = d / (zeps + (IS/mu)/mu)**wexp`, `mu` from [[weno_descaling]].
+   pure subroutine weno_compute_weights_upwind(S, weno_a, weno_d, weno_zeps, weno_rmu, v, w)
+   !< Compute WENO weights, non TBP: `a = d / (zeps + (IS rmu) rmu)**wexp`, `rmu` the inverse of the descaler of the
+   !< smoothness indicators (1 for the Jiang-Shu weights; see [[weno_descaling]]).
    integer(I4P), intent(in)  :: S                   !< Number of stencils used.
    real(R8P),    intent(in)  :: weno_a(1:,0:,1:)    !< Optimal weights.
    real(R8P),    intent(in)  :: weno_d(0:,0:,0:,1:) !< Smoothness indicators coefficients.
    real(R8P),    intent(in)  :: weno_zeps           !< Parameter for avoiding division by zero in computing IS.
-   real(R8P),    intent(in)  :: weno_sigma          !< Descaler switch: 0 Jiang-Shu, 1 scale-invariant.
+   real(R8P),    intent(in)  :: weno_rmu            !< Inverse of the descaler (1: Jiang-Shu weights).
    real(R8P),    intent(in)  :: v    (1:2,1-S:-1+S) !< Variable to be reconstructed.
    real(R8P),    intent(out) :: w    (1:2,0:S-1)    !< Weights of the stencils.
    real(R8P)                 :: IS   (1:2,0:S-1)    !< Smoothness indicators of the stencils.
-   real(R8P)                 :: rmu  (1:2)          !< Inverse of the descaler.
    real(R8P)                 :: a    (1:2,0:S-1)    !< Alpha coifficients for the weights.
    real(R8P)                 :: a_tot(1:2)          !< Summ of the alpha coefficients.
    integer(I4P)              :: wexp                !< Exponent of the smoothness indicators.
@@ -929,7 +929,6 @@ contains
    !$omp declare target(weno_compute_weights_upwind)
 #endif
    wexp = weno_weights_exponent(S=S)
-   call weno_descaling(S=S, weno_sigma=weno_sigma, v=v, rmu=rmu)
    ! computing smoothness indicators
    do s1=0,S-1 ! stencil counter
       do f=1,2 ! 1 => left interface, 2 => right interface
@@ -945,7 +944,7 @@ contains
    a_tot = 0._R8P
    do s1=0,S-1
       do f=1,2 ! 1 => left interface, 2 => right interface
-         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1)*rmu(f)*rmu(f))**wexp) ; a_tot(f) = a_tot(f) + a(f,s1)
+         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1)*weno_rmu*weno_rmu)**wexp) ; a_tot(f) = a_tot(f) + a(f,s1)
       enddo
    enddo
    ! computing weights
@@ -956,7 +955,7 @@ contains
    enddo
    endsubroutine weno_compute_weights_upwind
 
-   pure subroutine weno_reconstruct_centered(S, weno_a, weno_p, weno_d, weno_c, weno_zeps, weno_sigma, v, vr)
+   pure subroutine weno_reconstruct_centered(S, weno_a, weno_p, weno_d, weno_c, weno_zeps, weno_rmu, v, vr)
    !< Reconstruct by WENO centered method of 2S order, non TBP.
    integer(I4P), intent(in)  :: S                   !< Number of stencils used.
    real(R8P),    intent(in)  :: weno_a(1:,0:,1:)    !< Optimal weights.
@@ -964,7 +963,7 @@ contains
    real(R8P),    intent(in)  :: weno_d(0:,0:,0:,1:) !< Smoothness indicators coefficients.
    real(R8P),    intent(in)  :: weno_c(1-S:,1:)     !< Centered polinomials coefficients.
    real(R8P),    intent(in)  :: weno_zeps           !< Parameter for avoiding division by zero in computing IS.
-   real(R8P),    intent(in)  :: weno_sigma          !< Descaler switch: 0 Jiang-Shu, 1 scale-invariant.
+   real(R8P),    intent(in)  :: weno_rmu            !< Inverse of the descaler (1: Jiang-Shu weights).
    real(R8P),    intent(in)  :: v (1:2,1-S:S)       !< Variables to be reconstructed.
    real(R8P),    intent(out) :: vr(1:2)             !< Left and right (1,2) interface value of reconstructed v.
    real(R8P)                 :: vu(1:2,1-S:-1+S)    !< Variables to be reconstructed, upwind stencils.
@@ -984,7 +983,7 @@ contains
       if (s1<S  ) vu(2,s1  ) = v(2,s1)
    enddo
    call weno_compute_polynomials_upwind(S=S, weno_p=weno_p, v=vu(1:2,1-S:-1+S), vp=vp(1:2,0:S-1))
-   call weno_compute_weights_upwind(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, weno_sigma=weno_sigma, &
+   call weno_compute_weights_upwind(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, weno_rmu=weno_rmu,     &
                                     v=v(1:2,1-S:-1+S), w=w(1:2,0:S-1))
    call weno_compute_convolution(S=S, vp=vp(1:2,0:S-1), w=w(1:2,0:S-1), vr=vr(1:2))
    if (S>1) then
@@ -1006,14 +1005,14 @@ contains
    endif
    endsubroutine weno_reconstruct_centered
 
-   pure subroutine weno_reconstruct_upwind(S, weno_a, weno_p, weno_d, weno_zeps, weno_sigma, v, vr)
+   pure subroutine weno_reconstruct_upwind(S, weno_a, weno_p, weno_d, weno_zeps, weno_rmu, v, vr)
    !< Reconstruct by WENO upwind method of 2S-1 order, non TBP.
    integer(I4P), intent(in)  :: S                   !< Number of stencils used.
    real(R8P),    intent(in)  :: weno_a(1:,0:,1:)    !< Optimal weights.
    real(R8P),    intent(in)  :: weno_p(1:,0:,0:,1:) !< Polinomials coefficients.
    real(R8P),    intent(in)  :: weno_d(0:,0:,0:,1:) !< Smoothness indicators coefficients.
    real(R8P),    intent(in)  :: weno_zeps           !< Parameter for avoiding division by zero in computing IS.
-   real(R8P),    intent(in)  :: weno_sigma          !< Descaler switch: 0 Jiang-Shu, 1 scale-invariant.
+   real(R8P),    intent(in)  :: weno_rmu            !< Inverse of the descaler (1: Jiang-Shu weights).
    real(R8P),    intent(in)  :: v (1:2,1-S:-1+S)    !< Variables to be reconstructed.
    real(R8P),    intent(out) :: vr(1:2         )    !< Left and right (1,2) interface value of reconstructed v.
    real(R8P)                 :: vp(1:2,0:S-1   )    !< Polynomial reconstructions.
@@ -1023,12 +1022,12 @@ contains
    !$omp declare target(weno_reconstruct_upwind)
 #endif
    call weno_compute_polynomials_upwind(S=S, weno_p=weno_p, v=v(1:2,1-S:-1+S), vp=vp(1:2,0:S-1))
-   call weno_compute_weights_upwind(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, weno_sigma=weno_sigma, &
+   call weno_compute_weights_upwind(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, weno_rmu=weno_rmu,     &
                                     v=v(1:2,1-S:-1+S), w=w(1:2,0:S-1))
    call weno_compute_convolution(S=S, vp=vp(1:2,0:S-1), w=w(1:2,0:S-1), vr=vr(1:2))
    endsubroutine weno_reconstruct_upwind
 
-   pure subroutine weno_reconstruct_upwind_wratio(S, weno_a, weno_p, weno_d, weno_zeps, weno_sigma, v, vr, wr)
+   pure subroutine weno_reconstruct_upwind_wratio(S, weno_a, weno_p, weno_d, weno_zeps, weno_rmu, v, vr, wr)
    !< Reconstruct (or interpolate) by WENO upwind method of 2S-1 order, returning also the smoothness ratio of each
    !< interface, `wr(f) = min_k w(f,k) / weno_a(f,k,S)`: 1 where the nonlinear weights equal the linear ones (smooth
    !< data), toward 0 where a stencil is discarded. The same values `vr` as `weno_reconstruct_upwind`; non TBP.
@@ -1037,7 +1036,7 @@ contains
    real(R8P),    intent(in)  :: weno_p(1:,0:,0:,1:) !< Polinomials coefficients.
    real(R8P),    intent(in)  :: weno_d(0:,0:,0:,1:) !< Smoothness indicators coefficients.
    real(R8P),    intent(in)  :: weno_zeps           !< Parameter for avoiding division by zero in computing IS.
-   real(R8P),    intent(in)  :: weno_sigma          !< Descaler switch: 0 Jiang-Shu, 1 scale-invariant.
+   real(R8P),    intent(in)  :: weno_rmu            !< Inverse of the descaler (1: Jiang-Shu weights).
    real(R8P),    intent(in)  :: v (1:2,1-S:-1+S)    !< Variables to be reconstructed.
    real(R8P),    intent(out) :: vr(1:2         )    !< Left and right (1,2) interface value of reconstructed v.
    real(R8P),    intent(out) :: wr(1:2         )    !< Left and right (1,2) interface smoothness ratio.
@@ -1049,7 +1048,7 @@ contains
    !$omp declare target(weno_reconstruct_upwind_wratio)
 #endif
    call weno_compute_polynomials_upwind(S=S, weno_p=weno_p, v=v(1:2,1-S:-1+S), vp=vp(1:2,0:S-1))
-   call weno_compute_weights_upwind(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, weno_sigma=weno_sigma, &
+   call weno_compute_weights_upwind(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, weno_rmu=weno_rmu,     &
                                     v=v(1:2,1-S:-1+S), w=w(1:2,0:S-1))
    call weno_compute_convolution(S=S, vp=vp(1:2,0:S-1), w=w(1:2,0:S-1), vr=vr(1:2))
    do f=1, 2
@@ -1060,34 +1059,35 @@ contains
    enddo
    endsubroutine weno_reconstruct_upwind_wratio
 
-   pure subroutine weno_descaling(S, weno_sigma, v, rmu)
-   !< Return `1/mu` per interface, `mu` the descaler of the smoothness indicators in the nonlinear weights.
+   pure function weno_descaling(S, weno_sigma, v) result(rmu)
+   !< Return the inverse `1/mu` of the descaler of the smoothness indicators of one stencil pair, from its own values.
    !<
-   !< Scale-invariant weights (Don, Li, Wang & Wang 2022, JCP 448, 110724; issue #49): `mu = mean_m |v(f,m)|` over the
-   !< 2S-1 values of the global stencil, and the weights read `(IS/mu)/mu`, so that `zeps` acts relative to the
-   !< magnitude of the data and the weights do not depend on the units. Under `v -> 2**n v`, `IS/mu**2` is bitwise
-   !< unchanged, so WENO(2**n v) = 2**n WENO(v) bit for bit while neither `mu` nor `IS` (of order `mu**2`) leaves the
-   !< normal range (`mu` between about 1e-154 and 1e154). `mu` is floored at `tiny`: data identically zero give `IS = 0`
-   !< and the linear weights. `weno_sigma = 1` selects it; `weno_sigma = 0` gives `rmu = 1` exactly, and the Jiang-Shu
-   !< weights bitwise unchanged. Arithmetic, not a branch: one kernel serves both weights.
-   integer(I4P), intent(in)  :: S                !< Number of stencils used.
-   real(R8P),    intent(in)  :: weno_sigma       !< Descaler switch: 0 Jiang-Shu, 1 scale-invariant.
-   real(R8P),    intent(in)  :: v(1:2,1-S:-1+S)  !< Variable to be reconstructed.
-   real(R8P),    intent(out) :: rmu(1:2)         !< Inverse of the descaler, left and right interface.
-   real(R8P)                 :: mu               !< Descaler.
-   integer(I4P)              :: f, m             !< Counters.
+   !< Scale-invariant weights (Don, Li, Wang & Wang 2022, JCP 448, 110724; issue #49) read `(IS rmu) rmu` in place of
+   !< `IS`, so that `zeps` acts relative to the magnitude of the data. Here `mu = mean |v|` over the 2(2S-1) values of
+   !< both interfaces, floored at `tiny`: the generic descaler, for callers without a better magnitude. It is exact
+   !< under `v -> 2**n v` (WENO(2**n v) = 2**n WENO(v) bit for bit while `mu` and `IS` stay normal), but it measures the
+   !< values, so a field near zero by construction (a characteristic field projected with the local state) gets an
+   !< effectively vanishing `zeps` and loses accuracy on smooth data: such callers pass the inverse of a magnitude of
+   !< their own (FLUME: the absolute projection of the state, issue #49). `weno_sigma = 0` gives `rmu = 1` exactly, the
+   !< Jiang-Shu weights bitwise; arithmetic, not a branch.
+   integer(I4P), intent(in) :: S                !< Number of stencils used.
+   real(R8P),    intent(in) :: weno_sigma       !< Descaler switch: 0 Jiang-Shu, 1 scale-invariant.
+   real(R8P),    intent(in) :: v(1:2,1-S:-1+S)  !< Variable to be reconstructed.
+   real(R8P)                :: rmu              !< Inverse of the descaler.
+   real(R8P)                :: mu               !< Descaler.
+   integer(I4P)             :: f, m             !< Counters.
    !$acc routine seq
    !$omp declare target
 
-   do f=1, 2
-      mu = 0._R8P
-      do m=1-S, S-1
+   mu = 0._R8P
+   do m=1-S, S-1
+      do f=1, 2
          mu = mu + abs(v(f,m))
       enddo
-      mu = max(mu/real(2*S-1, R8P), tiny(1._R8P))
-      rmu(f) = weno_sigma*(1._R8P/mu) + (1._R8P - weno_sigma)
    enddo
-   endsubroutine weno_descaling
+   mu = max(mu/real(2*(2*S-1), R8P), tiny(1._R8P))
+   rmu = weno_sigma*(1._R8P/mu) + (1._R8P - weno_sigma)
+   endfunction weno_descaling
 
    pure function weno_weights_exponent(S) result(wexp)
    !< Return the exponent of the smoothness indicators in the WENO nonlinear weights, `a = d / (zeps + IS)**wexp`.

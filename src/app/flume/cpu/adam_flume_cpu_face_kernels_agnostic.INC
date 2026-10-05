@@ -29,6 +29,7 @@
    real(R8P)                        :: qas(NV_AUX_K,1-S_MAX:S_MAX)           !< Stencil auxiliary variables.
    real(R8P)                        :: fsplit(2,1-S_MAX:S_MAX-1,NV_K)        !< Split fields.
    real(R8P)                        :: er(NV_K,NV_K)                         !< Right eigenvectors.
+   real(R8P)                        :: mu(NV_K)                              !< Magnitude of each split field (WENO descaler).
    real(R8P)                        :: v(2,2*S_MAX-1)                        !< Packed stencil of one field.
    real(R8P)                        :: vr(2,NV_K)                            !< Reconstructed split fields.
    integer(I4P)                     :: S                                     !< WENO stencil half-width.
@@ -45,13 +46,13 @@
                   qas(:,m) = q_aux(1:NV_AUX_K,i+m*di,j+m*dj,k+m*dk,b)
                enddo
                call face_split_fluxes(gamma=gamma, ch=ch, d=d, S=S, is_characteristic=is_characteristic, qs=qs, &
-                                      qas=qas, fsplit=fsplit, er=er)
+                                      qas=qas, fsplit=fsplit, er=er, mu=mu)
                do f=1, NV_K
                   do m=1-S, S-1
                      v(:,m+S) = fsplit(:,m,f)
                   enddo
                   call weno_reconstruct_upwind(S=S, weno_a=weno%a, weno_p=weno%p, weno_d=weno%d, weno_zeps=weno%zeps, &
-                                               weno_sigma=weno%sigma, v=v, vr=vr(:,f))
+                                               weno_rmu=weno%sigma / mu(f) + (1._R8P - weno%sigma), v=v, vr=vr(:,f))
                enddo
                call compute_face_flux_back_projection(is_characteristic=is_characteristic, er=er, vr=vr, &
                                                       flux=fl(1:NV_K,i,j,k,b))

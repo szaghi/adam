@@ -26,11 +26,16 @@ program test_flume_euler_library
 !<    round-off scale of the star flux);
 !< 10-12. the first-order 1-D update `q_i - dt/dx (F(q_i, q_i+1) - F(q_i-1, q_i))` of LLF, HLL, HLLC keeps
 !<    density and pressure positive at `dt/dx = 1/(2 s)`, `s` the largest `|u_n| + a` of the three states and of the
-!<    two Roe averages (bounds the Einfeldt speeds), on log-uniform density and pressure over six decades.
+!<    two Roe averages (bounds the Einfeldt speeds), on log-uniform density and pressure over six decades;
+!< 13. the WENO descaler `mu` of the split and of the interpolation fields (issue #49, `check_descaler`): on a planar
+!<    state (`w = 0`) and a state at rest, every field has a descaler within `MU_RATIO_MAX` of the largest, in every
+!<    direction. The out-of-plane shear row touches only `rho` (through `w`) and `rho w`, which vanish: a descaler
+!<    built on `|q_v|` is round-off there, and the scale-invariant weights then amplify round-off (MV-7).
 
 use :: adam_flume_euler_library, only : compute_eigenvalues, compute_eigenvectors, compute_face_flux_back_projection, &
-                                        compute_face_split_fluxes, compute_flux, compute_riemann_hll,                 &
-                                        compute_riemann_hllc, compute_riemann_llf, compute_roe_average,               &
+                                        compute_face_interpolation_fields, compute_face_split_fluxes, compute_flux,   &
+                                        compute_riemann_hll, compute_riemann_hllc, compute_riemann_llf,               &
+                                        compute_roe_average,                                                          &
                                         conservative_to_auxiliary, primitive_to_conservative
 use :: adam_flume_parameters,    only : IA_A, IA_H, IA_P, IA_R, IA_U, IA_V, IA_W, NV_AUX, NV_EULER, S_MAX
 use :: penf,                     only : I4P, R8P, str
@@ -42,7 +47,8 @@ real(R8P),    parameter :: GAMMA=1.4_R8P          !< Specific heats ratio.
 real(R8P),    parameter :: R=287.05_R8P           !< Gas constant.
 real(R8P),    parameter :: TOL_EXACT=1.e-12_R8P   !< Tolerance of the exact identities (relative).
 real(R8P),    parameter :: TOL_FD=1.e-6_R8P       !< Tolerance of the finite-difference Jacobian check (relative).
-integer(I4P), parameter :: NC=12_I4P             !< Checks number.
+real(R8P),    parameter :: MU_RATIO_MAX=1.e8_R8P  !< Largest ratio of two WENO descalers of one face.
+integer(I4P), parameter :: NC=13_I4P             !< Checks number.
 real(R8P)               :: err(NC)                !< Maximum error of each check (10-12: inadmissible updates count).
 real(R8P)               :: prim(5)                !< Primitive state (r, u, v, w, p).
 real(R8P)               :: q(NV_EULER)            !< Conservative variables.
@@ -66,7 +72,8 @@ check_name = ['L R = I                                 ', &
               'HLLC exact on an isolated contact       ', &
               '1-D update positive, LLF (count)        ', &
               '1-D update positive, HLL (count)        ', &
-              '1-D update positive, HLLC (count)       ']
+              '1-D update positive, HLLC (count)       ', &
+              'WENO descaler, planar and static states ']
 err = 0._R8P
 call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
@@ -101,10 +108,12 @@ do n_=1, N
       call check_positivity(d=d, e=err(10:12))
    enddo
 enddo
+call check_descaler(e=err(13))
 
 test_passed = .true.
 do n_=1, NC
-   if ((n_ == 3 .and. err(n_) > TOL_FD) .or. (n_ /= 3 .and. err(n_) > TOL_EXACT)) then
+   if ((n_ == 3 .and. err(n_) > TOL_FD) .or. (n_ == 13 .and. err(n_) > MU_RATIO_MAX) .or. &
+       (n_ /= 3 .and. n_ /= 13 .and. err(n_) > TOL_EXACT)) then
       print '(A)', 'FAIL: '//check_name(n_)//' max error '//trim(str(err(n_)))
       test_passed = .false.
    else
@@ -248,6 +257,7 @@ contains
    real(R8P)                   :: qas(NV_AUX,1-S_MAX:S_MAX)          !< Stencil auxiliary variables.
    real(R8P)                   :: fsplit(2,1-S_MAX:S_MAX-1,NV_EULER) !< Split fields.
    real(R8P)                   :: er(NV_EULER,NV_EULER)              !< Right eigenvectors.
+   real(R8P)                   :: mu(NV_EULER)                       !< Field magnitudes (WENO descaler).
    real(R8P)                   :: vr(2,NV_EULER)                     !< Reconstructed split fields.
    real(R8P)                   :: flux(NV_EULER)                     !< Face flux.
    real(R8P)                   :: f(NV_EULER)                        !< Physical flux.
@@ -261,13 +271,50 @@ contains
    do variant=1, 2
       do S=1, S_MAX
          call compute_face_split_fluxes(gamma=GAMMA, d=d, S=S, is_characteristic=(variant == 1), qs=qs, qas=qas, &
-                                        fsplit=fsplit, er=er)
+                                        fsplit=fsplit, er=er, mu=mu)
          vr = fsplit(:,0,:)
          call compute_face_flux_back_projection(is_characteristic=(variant == 1), er=er, vr=vr, flux=flux)
          e = max(e, maxval(abs(flux - f)) / maxval(abs(f)))
       enddo
    enddo
    endsubroutine check_split
+
+   subroutine check_descaler(e)
+   !< Check 13: the largest ratio of two WENO descalers of one face, over a planar state and a state at rest, every
+   !< direction, split (characteristic, conservative) and interpolation (characteristic) fields.
+   real(R8P), intent(inout) :: e                                  !< Largest ratio.
+   real(R8P)                :: p(5,2)                             !< Primitive states.
+   real(R8P)                :: q(NV_EULER)                        !< Conservative variables.
+   real(R8P)                :: qa(NV_AUX)                         !< Auxiliary variables.
+   real(R8P)                :: qs(NV_EULER,1-S_MAX:S_MAX)         !< Stencil conservative variables.
+   real(R8P)                :: qas(NV_AUX,1-S_MAX:S_MAX)          !< Stencil auxiliary variables.
+   real(R8P)                :: fsplit(2,1-S_MAX:S_MAX-1,NV_EULER) !< Split or interpolation fields.
+   real(R8P)                :: er(NV_EULER,NV_EULER)              !< Right eigenvectors.
+   real(R8P)                :: mu(NV_EULER)                       !< Descalers.
+   integer(I4P)             :: d, m, n, variant                   !< Counters.
+
+   p(:,1) = [1._R8P, 1._R8P, 1._R8P, 0._R8P, 1._R8P] ! planar
+   p(:,2) = [1._R8P, 0._R8P, 0._R8P, 0._R8P, 1._R8P] ! at rest
+   do n=1, 2
+      call primitive_to_conservative(gamma=GAMMA, r=p(1,n), u=p(2,n), v=p(3,n), w=p(4,n), p=p(5,n), q=q)
+      call conservative_to_auxiliary(gamma=GAMMA, R=R, q=q, qa=qa)
+      do m=1-S_MAX, S_MAX
+         qs(:,m)  = q
+         qas(:,m) = qa
+      enddo
+      do d=1, 3
+         do variant=1, 2
+            call compute_face_split_fluxes(gamma=GAMMA, d=d, S=3, is_characteristic=(variant == 1), qs=qs, qas=qas, &
+                                           fsplit=fsplit, er=er, mu=mu)
+            e = max(e, maxval(mu) / minval(mu))
+         enddo
+         call compute_face_interpolation_fields(gamma=GAMMA, d=d, S=3, is_characteristic=.true., qs=qs, qas=qas, &
+                                                fint=fsplit, er=er, mu=mu)
+         e = max(e, maxval(mu) / minval(mu))
+      enddo
+   enddo
+   print '(A)', 'descaler of planar and static states: largest ratio '//trim(str(e))
+   endsubroutine check_descaler
 
    subroutine random_prim(prim)
    !< Return a random admissible primitive state: density and pressure log-uniform in [1e-4, 1e2], velocity components

@@ -150,14 +150,18 @@ contains
    endif
    endsubroutine compute_face_flux_back_projection
 
-   pure subroutine compute_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er)
+   pure subroutine compute_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er, mu)
    !< Return the fields of the stencil of face `i+1/2` to be WENO-interpolated to the face (scheme `weno-riemann`).
    !<
    !< The stencil holds cells `m = 1-S ... S` relative to cell `i` (cell `i+1` is `m = 1`). Characteristic variant: the
    !< conservative states projected on the left eigenvectors of the Roe average of cells 0 and 1, `w = L q`; primitive
    !< variant: `(rho, u, v, w, p)`. Stored in the layout of the WENO upwind primitive: `fint(2,m,k)` = field `k` of cell
    !< `m` for `m = 1-S ... S-1` (interpolated toward the left state), `fint(1,m,k)` = field `k` of cell `m+1` (toward the
-   !< right state). `er` returns the right eigenvectors for `compute_face_states`.
+   !< right state). `er` returns the right eigenvectors for `compute_face_states`. `mu` returns the magnitude of each field,
+   !< the stencil mean of the absolute projection `sum_v |l_kv| qm_v` (`qm` the reference magnitudes of
+   !< `compute_state_magnitudes`; `|w_k|` for the primitive fields), floored at `tiny`: the descaler of the
+   !< scale-invariant WENO weights (issue #49). It scales exactly like the field and, unlike the field, does not vanish
+   !< where the projection on the local state does.
    real(R8P),    intent(in)  :: gamma                              !< Specific heats ratio.
    integer(I4P), intent(in)  :: d                                  !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)  :: S                                  !< WENO stencil half-width, S <= S_MAX.
@@ -166,9 +170,11 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX,1-S_MAX:S_MAX)          !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fint(2,1-S_MAX:S_MAX-1,NV_EULER)   !< Fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_EULER,NV_EULER)              !< Right eigenvectors (unused if primitive).
+   real(R8P),    intent(out) :: mu(NV_EULER)                       !< Magnitude of each field (WENO descaler).
    real(R8P)                 :: el(NV_EULER,NV_EULER)              !< Left eigenvectors.
    real(R8P)                 :: roe(NV_AUX)                        !< Roe average of cells 0 and 1.
    real(R8P)                 :: w(NV_EULER)                        !< Fields of one cell.
+   real(R8P)                 :: qm(NV_EULER)                       !< Reference magnitudes of one cell (descaler).
    integer(I4P)              :: k, m, v                            !< Counters.
    !$acc routine seq
    !$omp declare target
@@ -179,12 +185,15 @@ contains
    else
       er = 0._R8P
    endif
+   mu = 0._R8P
    do m=1-S, S
       if (is_characteristic) then
+         call compute_state_magnitudes(q=qs(:,m), qa=qas(:,m), qm=qm)
          do k=1, NV_EULER
             w(k) = 0._R8P
             do v=1, NV_EULER
                w(k) = w(k) + el(k,v) * qs(v,m)
+               mu(k) = mu(k) + abs(el(k,v)) * qm(v)
             enddo
          enddo
       else
@@ -197,11 +206,13 @@ contains
       do k=1, NV_EULER
          if (m < S)     fint(2,m,k)   = w(k)
          if (m > 1 - S) fint(1,m-1,k) = w(k)
+         if (.not.is_characteristic) mu(k) = mu(k) + abs(w(k))
       enddo
    enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
    endsubroutine compute_face_interpolation_fields
 
-   pure subroutine compute_face_split_fluxes(gamma, d, S, is_characteristic, qs, qas, fsplit, er)
+   pure subroutine compute_face_split_fluxes(gamma, d, S, is_characteristic, qs, qas, fsplit, er, mu)
    !< Project and Lax-Friedrichs-split the stencil of face `i+1/2`, ready for the WENO upwind reconstruction.
    !<
    !< The stencil holds cells `m = 1-S ... S` relative to cell `i` (cell `i+1` is `m = 1`). Characteristic variant:
@@ -209,6 +220,11 @@ contains
    !< conservative variant: no projection, one speed `alpha = max_m (|u_n| + a)`. Split `f+ = (g + alpha w) / 2`,
    !< `f- = g - f+`, stored in the layout of the WENO upwind primitive: `fsplit(2,m,k)` = f+ of cell `m` for
    !< `m = 1-S ... S-1`, `fsplit(1,m,k)` = f- of cell `m+1`. `er` returns the right eigenvectors for the back-projection.
+   !< `mu` returns the magnitude of each split field, the stencil mean of `sum_v |l_kv| (|f_v| + alpha_max qm_v) / 2`,
+   !< `alpha_max` the largest of the speeds `alpha_k` and `qm_v >= |q_v|` the reference magnitudes of
+   !< `compute_state_magnitudes`: an upper bound of `|f+-|` cell by cell, floored at `tiny`, the descaler of the
+   !< scale-invariant WENO weights (issue #49). It is exact under power-of-two scaling and never zero on a physical state,
+   !< even for a field that vanishes identically or travels at zero speed, so round-off is never weighted as data.
    real(R8P),    intent(in)  :: gamma                                !< Specific heats ratio.
    integer(I4P), intent(in)  :: d                                    !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)  :: S                                    !< WENO stencil half-width, S <= S_MAX.
@@ -217,12 +233,16 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX,1-S_MAX:S_MAX)            !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fsplit(2,1-S_MAX:S_MAX-1,NV_EULER)   !< Split fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_EULER,NV_EULER)                !< Right eigenvectors (identity if conservative).
+   real(R8P),    intent(out) :: mu(NV_EULER)                         !< Magnitude of each field (WENO descaler).
    real(R8P)                 :: el(NV_EULER,NV_EULER)                !< Left eigenvectors (identity if conservative).
    real(R8P)                 :: roe(NV_AUX)                          !< Roe average of cells 0 and 1.
    real(R8P)                 :: lambda(NV_EULER)                     !< Eigenvalues of one cell.
    real(R8P)                 :: alpha(NV_EULER)                      !< Lax-Friedrichs speeds.
    real(R8P)                 :: f(NV_EULER)                          !< Physical flux of one cell.
    real(R8P)                 :: w, g, fp                             !< Projected state, projected flux, split flux.
+   real(R8P)                 :: a                                    !< Absolute projection of one cell (descaler).
+   real(R8P)                 :: qm(NV_EULER)                         !< Reference magnitudes of one cell (descaler).
+   real(R8P)                 :: amax                                 !< Largest speed of the stencil (descaler).
    integer(I4P)              :: k, m, v                              !< Counters.
    !$acc routine seq
    !$omp declare target
@@ -250,20 +270,27 @@ contains
       enddo
       alpha = alpha(1)
    endif
+   amax = maxval(alpha)
+   mu = 0._R8P
    do m=1-S, S
       call compute_flux(d=d, q=qs(:,m), qa=qas(:,m), f=f)
+      call compute_state_magnitudes(q=qs(:,m), qa=qas(:,m), qm=qm)
       do k=1, NV_EULER
          w = 0._R8P
          g = 0._R8P
+         a = 0._R8P
          do v=1, NV_EULER
             w = w + el(k,v) * qs(v,m)
             g = g + el(k,v) * f(v)
+            a = a + abs(el(k,v)) * (abs(f(v)) + amax * qm(v))
          enddo
          fp = 0.5_R8P * (g + alpha(k) * w)
          if (m < S)     fsplit(2,m,k)   = fp
          if (m > 1 - S) fsplit(1,m-1,k) = g - fp
+         mu(k) = mu(k) + 0.5_R8P * a
       enddo
    enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
    endsubroutine compute_face_split_fluxes
 
    pure subroutine compute_face_states(gamma, is_characteristic, er, vr, q0, q1, qL, qR)
@@ -542,4 +569,33 @@ contains
       f(v) = fK(v) + s * (qs(v) - q(v))
    enddo
    endsubroutine compute_hllc_star_flux
+
+   pure subroutine compute_state_magnitudes(q, qa, qm)
+   !< Return the reference magnitude of each conservative variable of a cell, the scale entering the WENO descaler `mu`
+   !< in place of `|q_v|`: `|rho|`, `|E|` and, for every momentum component, `|rho u|_1 + sqrt(rho p)`.
+   !<
+   !< Why: a characteristic row that touches only components vanishing identically (the shear field of the out-of-plane
+   !< momentum of a 2-D flow) would otherwise get a descaler of round-off size, and the scale-invariant weights would
+   !< treat round-off as data: full nonlinear weights on noise, which nothing damps (issue #49, MV-7). The magnitude of
+   !< the whole vector plus `sqrt(rho p)` never vanishes and scales exactly like a momentum component under power-of-two
+   !< scaling (`rho p` scales by a power of four); the three terms are summed in increasing order, so rotations of the
+   !< problem are bitwise invariant.
+   real(R8P), intent(in)  :: q(NV_EULER)  !< Conservative variables.
+   real(R8P), intent(in)  :: qa(NV_AUX)   !< Auxiliary variables.
+   real(R8P), intent(out) :: qm(NV_EULER) !< Reference magnitudes.
+   real(R8P)              :: a, b, c      !< Absolute momentum components.
+   real(R8P)              :: pm           !< Momentum magnitude.
+   !$acc routine seq
+   !$omp declare target
+
+   a = abs(q(IQ_RU))
+   b = abs(q(IQ_RV))
+   c = abs(q(IQ_RW))
+   pm = ((min(a, b, c) + max(min(a, b), min(max(a, b), c))) + max(a, b, c)) + sqrt(abs(qa(IA_R) * qa(IA_P)))
+   qm(IQ_R)  = abs(q(IQ_R))
+   qm(IQ_RU) = pm
+   qm(IQ_RV) = pm
+   qm(IQ_RW) = pm
+   qm(IQ_RE) = abs(q(IQ_RE))
+   endsubroutine compute_state_magnitudes
 endmodule adam_flume_euler_library

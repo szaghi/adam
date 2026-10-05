@@ -38,6 +38,7 @@
    real(R8P)                        :: qas(NV_AUX_K,1-S_MAX:S_MAX)       !< Stencil auxiliary variables.
    real(R8P)                        :: fint(2,1-S_MAX:S_MAX-1,NV_K)      !< Fields to interpolate.
    real(R8P)                        :: er(NV_K,NV_K)                     !< Right eigenvectors.
+   real(R8P)                        :: mu(NV_K)                          !< Magnitude of each field (WENO descaler).
    real(R8P)                        :: v(2,2*S_MAX-1)                    !< Packed stencil of one field.
    real(R8P)                        :: vr(2,NV_K)                        !< Interpolated fields.
    real(R8P)                        :: wr(2)                             !< WENO weights ratio of one field.
@@ -62,14 +63,15 @@
                   qas(:,m) = q_aux(1:NV_AUX_K,i+m*di,j+m*dj,k+m*dk,b)
                enddo
                call face_interpolation_fields(gamma=gamma, ch=ch, d=d, S=S, is_characteristic=is_characteristic, &
-                                              qs=qs, qas=qas, fint=fint, er=er)
+                                              qs=qs, qas=qas, fint=fint, er=er, mu=mu)
                wmin = 1._R8P
                do f=1, NV_K
                   do m=1-S, S-1
                      v(:,m+S) = fint(:,m,f)
                   enddo
                   call weno_reconstruct_upwind_wratio(S=S, weno_a=weno%a_interp, weno_p=weno%p_interp, weno_d=weno%d, &
-                                                      weno_zeps=weno%zeps, weno_sigma=weno%sigma, v=v, vr=vr(:,f), wr=wr)
+                                                      weno_zeps=weno%zeps, weno_rmu=weno%sigma / mu(f) + (1._R8P - weno%sigma), &
+                                                      v=v, vr=vr(:,f), wr=wr)
                   wmin = min(wmin, wr(1), wr(2))
                enddo
                call face_states(gamma=gamma, ch=ch, is_characteristic=is_characteristic, er=er, vr=vr, q0=qs(:,0), &

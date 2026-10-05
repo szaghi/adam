@@ -5,9 +5,9 @@ program test_flume_weno_weights
 !< **Why this test exists.** The Jiang-Shu weights `d / (zeps + IS)**wexp` compare the smoothness indicators with an
 !< absolute `zeps`, so the weights depend on the units of the data: at small magnitudes they collapse to the linear
 !< weights and the scheme stops limiting. `[weno] weights = si` divides the indicators by the square of the descaler
-!< `mu = mean |v|` of the global stencil (`weno_descaling`), so the reconstruction is homogeneous of degree one in the
-!< data. Scaling by a power of two is exact in floating point, so the property is checked bit for bit. For
-!< every upwind scheme (`weno-u-1` to `weno-u-9`), both the reconstruction and the interpolation tables, N random
+!< `mu = mean |v|` of the global stencil (`weno_descaling`, the generic descaler; FLUME passes the magnitude of the
+!< projected state instead, which scales the same way), so the reconstruction is homogeneous of degree one in the data.
+!< Scaling by a power of two is exact in floating point, so the property is checked bit for bit. For every upwind scheme (`weno-u-1` to `weno-u-9`), both the reconstruction and the interpolation tables, N random
 !< stencils (smooth and rough, magnitudes from 1e-12 to 1e12) and scalings 2**n, n in NS:
 !<
 !< 1. scale-invariant weights: WENO(2**n v) = 2**n WENO(v) bitwise, every stencil, both interfaces;
@@ -17,7 +17,7 @@ program test_flume_weno_weights
 !< 4. data identically zero (descaler floored at `tiny`) reconstruct to zero, not to a NaN.
 
 use :: adam_globals,     only : mpih
-use :: adam_weno_object, only : weno_object, weno_reconstruct_upwind, WENO_WEIGHTS_JS
+use :: adam_weno_object, only : weno_descaling, weno_object, weno_reconstruct_upwind, WENO_WEIGHTS_JS
 use :: penf,             only : I4P, R8P, str
 
 implicit none
@@ -136,10 +136,11 @@ contains
 
    if (t == 1) then
       call weno_reconstruct_upwind(S=S, weno_a=weno(c)%a, weno_p=weno(c)%p, weno_d=weno(c)%d, weno_zeps=weno(c)%zeps, &
-                                   weno_sigma=sigma, v=v, vr=vr)
+                                   weno_rmu=weno_descaling(S=S, weno_sigma=sigma, v=v), v=v, vr=vr)
    else
       call weno_reconstruct_upwind(S=S, weno_a=weno(c)%a_interp, weno_p=weno(c)%p_interp, weno_d=weno(c)%d,           &
-                                   weno_zeps=weno(c)%zeps, weno_sigma=sigma, v=v, vr=vr)
+                                   weno_zeps=weno(c)%zeps, weno_rmu=weno_descaling(S=S, weno_sigma=sigma, v=v), &
+                                   v=v, vr=vr)
    endif
    endsubroutine reconstruct
 

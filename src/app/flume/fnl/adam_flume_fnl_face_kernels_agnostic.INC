@@ -35,6 +35,7 @@
    real(R8P)                   :: qas(NV_AUX_K,1-S_MAX:S_MAX)             !< Private stencil auxiliary variables.
    real(R8P)                   :: fsplit(2,1-S_MAX:S_MAX-1,NV_K)          !< Private split fields.
    real(R8P)                   :: er(NV_K,NV_K)                           !< Private right eigenvectors.
+   real(R8P)                   :: mu(NV_K)                                !< Private magnitude of each split field.
    real(R8P)                   :: v(2,2*S_MAX-1)                          !< Private packed stencil of one field.
    real(R8P)                   :: vr_(2)                                  !< Private reconstruction of one field.
    real(R8P)                   :: vr(2,NV_K)                              !< Private reconstructed split fields.
@@ -44,10 +45,10 @@
    !$acc parallel loop independent gang vector collapse(4)                                                        &
    !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu)                                       &
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma)       &
-   !$acc& private(qs,qas,fsplit,er,v,vr_,vr,flux)
+   !$acc& private(qs,qas,fsplit,er,mu,v,vr_,vr,flux)
    !$omp OMPLOOP collapse(4) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu) &
    !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma) &
-   !$omp& private(qs,qas,fsplit,er,v,vr_,vr,flux)
+   !$omp& private(qs,qas,fsplit,er,mu,v,vr_,vr,flux)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
@@ -64,7 +65,7 @@
          enddo
       enddo
       call face_split_fluxes(gamma=gamma, ch=ch, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
-                             fsplit=fsplit, er=er)
+                             fsplit=fsplit, er=er, mu=mu)
       !$acc loop seq
       do f=1, NV_K
          !$acc loop seq
@@ -73,7 +74,8 @@
             v(2,m+S) = fsplit(2,m,f)
          enddo
          call weno_reconstruct_upwind_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
-                                          weno_zeps=weno_zeps, weno_sigma=weno_sigma, V=v, VR=vr_)
+                                          weno_zeps=weno_zeps, weno_rmu=weno_sigma / mu(f) + (1._R8P - weno_sigma), &
+                                          V=v, VR=vr_)
          vr(1,f) = vr_(1)
          vr(2,f) = vr_(2)
       enddo

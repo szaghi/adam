@@ -26,7 +26,7 @@ contains
 #include "adam_flume_cpu_riemann_face_kernels_agnostic.INC"
 
    ! private procedures
-   pure subroutine face_interpolation_fields(gamma, ch, d, S, is_characteristic, qs, qas, fint, er)
+   pure subroutine face_interpolation_fields(gamma, ch, d, S, is_characteristic, qs, qas, fint, er, mu)
    !< Interpolation-fields adapter of the shared face kernel: the MHD fields, `ch` the GLM cleaning speed.
    real(R8P),    intent(in)  :: gamma                        !< Specific heats ratio.
    real(R8P),    intent(in)  :: ch                           !< GLM cleaning speed.
@@ -37,11 +37,12 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX_K,1-S_MAX:S_MAX)  !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fint(2,1-S_MAX:S_MAX-1,NV_K) !< Fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_K,NV_K)                !< Right eigenvectors.
+   real(R8P),    intent(out) :: mu(NV_K)                     !< Magnitude of each field (WENO descaler).
    !$acc routine seq
    !$omp declare target
 
    call mhd_glm_face_interpolation_fields(ch=ch, gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, &
-                                          qs=qs, qas=qas, fint=fint, er=er)
+                                          qs=qs, qas=qas, fint=fint, er=er, mu=mu)
    endsubroutine face_interpolation_fields
 
    pure subroutine face_states(gamma, ch, is_characteristic, er, vr, q0, q1, qL, qR)

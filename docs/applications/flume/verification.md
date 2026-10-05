@@ -372,12 +372,33 @@ both schemes reach $t = 0.01$ on the CPU and on FNL, the mass stays constant to 
 $\max|F_\text{coarse} - F_\text{fine}|$ at the end-of-step reflux is $3.6\cdot10^{-12}$: the coarse seam flux is the mean of
 the fine ones at every stage. The leg asserts both (mass drift below $10^{-12}$, mismatch below $10^{-9}$).
 
+## Scaling covariance
+
+Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths
+$\times 2^j$, velocities $\times 2^k$, density $\times 4^m$) is the same problem in other units, and a scheme without
+absolute constants reproduces it bit for bit once the outputs are scaled back (issue #49).
+`scaling/check.sh` runs Sod, the isentropic vortex, RJ2a and the limited Balsara–Spicer blast at their base scale and
+at four rescalings (length only, velocity only, density only, all together; default $j = 2$, $k = -1$, $m = -2$) and
+compares the last checkpoint of each with the base one scaled exactly (`scaling.py`).
+
+| Weights | Result (CPU and FNL) |
+|---|---|
+| `js` (default) | length-only bitwise; every velocity or density rescaling differs by $10^{-4}$ to $10^{-1}$ (the absolute $\varepsilon$) |
+| `si` (`--weights si --expect-bitwise`) | 16/16 bitwise; and the blast at density $\times 4^{-24}$, where the limiter floor acts, bitwise |
+
+The second row needs the relative-only positivity floor and the unguarded immersed-boundary cut spacing (issue #49,
+N1b). `scaling/weights-exe.sh` runs any verification script with `[weno] weights = si` (`FLUME_EXE` pointed at it,
+`WEIGHTS_EXE` at the executable), so the orders and the shock errors of the new weights are judged by the same oracles
+and bounds as the default ones. One tolerance differs: RJ2a's GLM-against-no-cleaning and EGLM-against-GLM legs are
+bitwise with `js` but within $10^{-11}$ with `si` (measured $\le 2.5\cdot10^{-13}$), the round-off of a uniform field
+reconstructed with face-varying weights ([numerics](./numerics#weno-reconstruction)).
+
 ## Unit tests
 
 | Test | What it pins |
 |---|---|
-| `test_flume_euler_library` (+ `_fnl`) | Euler eigensystem, flux, Roe average, split consistency; RS(q, q) = f(q) for LLF/HLL/HLLC, HLLC exact on a contact, positive first-order updates; device = host |
-| `test_flume_mhd_library` (+ `_fnl`) | MHD, GLM and EGLM eigensystems (including degenerate states), fluxes, auxiliary variables, cyclic invariance; device = host |
+| `test_flume_euler_library` (+ `_fnl`) | Euler eigensystem, flux, Roe average, split consistency; RS(q, q) = f(q) for LLF/HLL/HLLC, HLLC exact on a contact, positive first-order updates; the `si` descaler of planar and static states within $10^8$ of the largest (host); device = host |
+| `test_flume_mhd_library` (+ `_fnl`) | MHD, GLM and EGLM eigensystems (including degenerate states), fluxes, auxiliary variables, cyclic invariance; the `si` descaler of planar, field-free and static states within $10^8$ of the largest (host); device = host |
 | `test_flume_mhd_riemann` (+ `_fnl`) | MHD LLF/HLL/HLLD without cleaning, with GLM and with EGLM: consistency, HLLD exact on contact, tangential and rotational discontinuities, cyclic invariance bitwise, positive updates, EGLM = GLM bitwise at $\psi = 0$; device = host |
 | `test_flume_positivity` | PV-0, the limiter on random admissible states with perturbed fluxes (Euler, MHD, EGLM): every limited update positive and above the relative floor, the limiter needed and acting; a NaN or infinite high-order flux replaced by the backbone flux; inadmissible face ghosts blended above the floors, every other value untouched; a cell with a 2:1 seam face (mean donor-state backbone) admissible for any seam factor up to its own, and not without the limiter |
 | `test_flume_weno_interpolation` (+ `_fnl`) | WENO interpolation tables: exactness, convergence, device = host for both weights (`js`, `si`); the reconstruction tables unchanged; the `si` weights scale-covariant bitwise on the device |

@@ -50,7 +50,7 @@ module adam_flume_mhd_riemann_library
 use :: adam_flume_mhd_library, only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary,         &
                                       mhd_eglm_eigenvectors, mhd_eglm_flux, mhd_eigenvectors, mhd_face_average,     &
                                       mhd_fast_speed, mhd_flux, mhd_frame_indexes, mhd_glm_eigenvectors,            &
-                                      mhd_primitive_to_conservative, mhd_sum3
+                                      mhd_primitive_to_conservative, mhd_state_magnitudes, mhd_sum3
 use :: adam_flume_parameters,  only : IA_BX, IA_BY, IA_BZ, IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, &
                                       IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_MHD, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM,  &
                                       S_MAX
@@ -138,7 +138,7 @@ contains
    enddo
    endsubroutine mhd_eglm_backbone_flux
 
-   pure subroutine mhd_eglm_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er)
+   pure subroutine mhd_eglm_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er, mu)
    !< Compute the fields of the stencil of face `i+1/2` to interpolate (MHD with EGLM): as
    !< `mhd_glm_face_interpolation_fields`, with the EGLM eigenvectors (`psi` the average of cells 0 and 1) or the
    !< primitive fields with the thermal pressure.
@@ -150,9 +150,11 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)       !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fint(2,1-S_MAX:S_MAX-1,NV_MHD_EGLM) !< Fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_MHD_EGLM,NV_MHD_EGLM)          !< Right eigenvectors (unused if primitive).
+   real(R8P),    intent(out) :: mu(NV_MHD_EGLM)                      !< Magnitude of each field (WENO descaler).
    real(R8P)                 :: el(NV_MHD_EGLM,NV_MHD_EGLM)          !< Left eigenvectors.
    real(R8P)                 :: avg(NV_AUX_MHD)                     !< Face average of cells 0 and 1.
    real(R8P)                 :: w(NV_MHD_EGLM)                      !< Fields of one cell.
+   real(R8P)                 :: qm(NV_MHD_EGLM)                     !< Reference magnitudes of one cell (descaler).
    integer(I4P)              :: pv(NV_MHD_EGLM)                     !< State in the frame order of direction `d`.
    integer(I4P)              :: k, m, v                             !< Counters.
    !$acc routine seq
@@ -166,12 +168,16 @@ contains
    else
       er = 0._R8P
    endif
+   mu = 0._R8P
    do m=1-S, S
       if (is_characteristic) then
+         call mhd_state_magnitudes(q=qs(1:NV_MHD,m), qa=qas(:,m), qm=qm(1:NV_MHD))
+         qm(IQ_PSI) = abs(qs(IQ_PSI,m)) + qm(IQ_BX)
          do k=1, NV_MHD_EGLM
             w(k) = 0._R8P
             do v=1, NV_MHD_EGLM
                w(k) = w(k) + el(k,pv(v)) * qs(pv(v),m)
+               mu(k) = mu(k) + abs(el(k,pv(v))) * qm(pv(v))
             enddo
          enddo
       else
@@ -188,8 +194,10 @@ contains
       do k=1, NV_MHD_EGLM
          if (m < S)     fint(2,m,k)   = w(k)
          if (m > 1 - S) fint(1,m-1,k) = w(k)
+         if (.not.is_characteristic) mu(k) = mu(k) + abs(w(k))
       enddo
    enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
    endsubroutine mhd_eglm_face_interpolation_fields
 
    pure subroutine mhd_eglm_face_states(gamma, is_characteristic, er, vr, q0, q1, qL, qR)
@@ -310,7 +318,7 @@ contains
    call scatter_eglm_flux(ch=ch, pv=pv, fr=fr, bn=bn, psi=psi, rhoL=qL(IQ_R), rhoR=qR(IQ_R), f=f)
    endsubroutine mhd_eglm_riemann_llf
 
-   pure subroutine mhd_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er)
+   pure subroutine mhd_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er, mu)
    !< Compute the fields of the stencil of face `i+1/2` to interpolate (MHD without divergence control), in the WENO
    !< upwind layout of the Euler `compute_face_interpolation_fields`: `fint(2,m,k)` and `fint(1,m-1,k)` hold field `k`
    !< of cell `m`.
@@ -322,9 +330,11 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)  !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fint(2,1-S_MAX:S_MAX-1,NV_MHD) !< Fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_MHD,NV_MHD)              !< Right eigenvectors (unused if primitive).
+   real(R8P),    intent(out) :: mu(NV_MHD)                     !< Magnitude of each field (WENO descaler).
    real(R8P)                 :: el(NV_MHD,NV_MHD)              !< Left eigenvectors.
    real(R8P)                 :: avg(NV_AUX_MHD)                !< Face average of cells 0 and 1.
    real(R8P)                 :: w(NV_MHD)                      !< Fields of one cell.
+   real(R8P)                 :: qm(NV_MHD)                     !< Reference magnitudes of one cell (descaler).
    integer(I4P)              :: pv(NV_MHD)                     !< State in the frame order of direction `d`.
    integer(I4P)              :: k, m, v                        !< Counters.
    !$acc routine seq
@@ -337,12 +347,15 @@ contains
    else
       er = 0._R8P
    endif
+   mu = 0._R8P
    do m=1-S, S
       if (is_characteristic) then
+         call mhd_state_magnitudes(q=qs(:,m), qa=qas(:,m), qm=qm)
          do k=1, NV_MHD
             w(k) = 0._R8P
             do v=1, NV_MHD
                w(k) = w(k) + el(k,pv(v)) * qs(pv(v),m)
+               mu(k) = mu(k) + abs(el(k,pv(v))) * qm(pv(v))
             enddo
          enddo
       else
@@ -358,8 +371,10 @@ contains
       do k=1, NV_MHD
          if (m < S)     fint(2,m,k)   = w(k)
          if (m > 1 - S) fint(1,m-1,k) = w(k)
+         if (.not.is_characteristic) mu(k) = mu(k) + abs(w(k))
       enddo
    enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
    endsubroutine mhd_face_interpolation_fields
 
    pure subroutine mhd_face_states(gamma, is_characteristic, er, vr, q0, q1, qL, qR)
@@ -396,7 +411,7 @@ contains
    if (.not.is_admissible(q=qR)) qR = q1
    endsubroutine mhd_face_states
 
-   pure subroutine mhd_glm_face_interpolation_fields(ch, gamma, d, S, is_characteristic, qs, qas, fint, er)
+   pure subroutine mhd_glm_face_interpolation_fields(ch, gamma, d, S, is_characteristic, qs, qas, fint, er, mu)
    !< Compute the fields of the stencil of face `i+1/2` to interpolate (MHD with GLM): as
    !< `mhd_face_interpolation_fields`, `psi` the ninth field (primitive) or the GLM eigenvectors (characteristic).
    real(R8P),    intent(in)  :: ch                                 !< GLM cleaning speed.
@@ -408,9 +423,11 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)      !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fint(2,1-S_MAX:S_MAX-1,NV_MHD_GLM) !< Fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_MHD_GLM,NV_MHD_GLM)          !< Right eigenvectors (unused if primitive).
+   real(R8P),    intent(out) :: mu(NV_MHD_GLM)                     !< Magnitude of each field (WENO descaler).
    real(R8P)                 :: el(NV_MHD_GLM,NV_MHD_GLM)          !< Left eigenvectors.
    real(R8P)                 :: avg(NV_AUX_MHD)                    !< Face average of cells 0 and 1.
    real(R8P)                 :: w(NV_MHD_GLM)                      !< Fields of one cell.
+   real(R8P)                 :: qm(NV_MHD_GLM)                     !< Reference magnitudes of one cell (descaler).
    integer(I4P)              :: pv(NV_MHD_GLM)                     !< State in the frame order of direction `d`.
    integer(I4P)              :: k, m, v                            !< Counters.
    !$acc routine seq
@@ -424,12 +441,16 @@ contains
    else
       er = 0._R8P
    endif
+   mu = 0._R8P
    do m=1-S, S
       if (is_characteristic) then
+         call mhd_state_magnitudes(q=qs(1:NV_MHD,m), qa=qas(:,m), qm=qm(1:NV_MHD))
+         qm(IQ_PSI) = abs(qs(IQ_PSI,m)) + ch * qm(IQ_BX)
          do k=1, NV_MHD_GLM
             w(k) = 0._R8P
             do v=1, NV_MHD_GLM
                w(k) = w(k) + el(k,pv(v)) * qs(pv(v),m)
+               mu(k) = mu(k) + abs(el(k,pv(v))) * qm(pv(v))
             enddo
          enddo
       else
@@ -446,8 +467,10 @@ contains
       do k=1, NV_MHD_GLM
          if (m < S)     fint(2,m,k)   = w(k)
          if (m > 1 - S) fint(1,m-1,k) = w(k)
+         if (.not.is_characteristic) mu(k) = mu(k) + abs(w(k))
       enddo
    enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
    endsubroutine mhd_glm_face_interpolation_fields
 
    pure subroutine mhd_glm_face_states(gamma, is_characteristic, er, vr, q0, q1, qL, qR)

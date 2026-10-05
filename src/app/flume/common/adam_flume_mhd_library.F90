@@ -50,6 +50,7 @@ public :: mhd_glm_face_flux_back_projection
 public :: mhd_glm_face_split_fluxes
 public :: mhd_glm_flux
 public :: mhd_primitive_to_conservative
+public :: mhd_state_magnitudes
 public :: mhd_sum3
 
 real(R8P), parameter :: EPS_BT=1.e-12_R8P !< Degenerate transverse field: |B_t| <= EPS_BT max(|B|, sqrt(rho) a).
@@ -143,7 +144,7 @@ contains
    el(9,IQ_PSI)    =  0.5_R8P
    endsubroutine mhd_eglm_eigenvectors
 
-   pure subroutine mhd_eglm_face_split_fluxes(ch, gamma, d, S, is_characteristic, qs, qas, fsplit, er)
+   pure subroutine mhd_eglm_face_split_fluxes(ch, gamma, d, S, is_characteristic, qs, qas, fsplit, er, mu)
    !< Project and Lax-Friedrichs-split the stencil of face `i+1/2` (MHD with EGLM cleaning): as
    !< `mhd_glm_face_split_fluxes`, with the EGLM flux and eigenvectors (`psi` the average of cells 0 and 1).
    real(R8P),    intent(in)  :: ch                                    !< GLM cleaning speed.
@@ -155,12 +156,16 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)         !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fsplit(2,1-S_MAX:S_MAX-1,NV_MHD_EGLM) !< Split fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_MHD_EGLM,NV_MHD_EGLM)            !< Right eigenvectors (identity if conservative).
+   real(R8P),    intent(out) :: mu(NV_MHD_EGLM)                        !< Magnitude of each field (WENO descaler).
    real(R8P)                 :: el(NV_MHD_EGLM,NV_MHD_EGLM)            !< Left eigenvectors (identity if conservative).
    real(R8P)                 :: avg(NV_AUX_MHD)                       !< Face average of cells 0 and 1.
    real(R8P)                 :: lambda(NV_MHD_EGLM)                   !< Eigenvalues of one cell.
    real(R8P)                 :: alpha(NV_MHD_EGLM)                    !< Lax-Friedrichs speeds.
    real(R8P)                 :: f(NV_MHD_EGLM)                        !< Physical flux of one cell.
    real(R8P)                 :: w, g, fp                              !< Projected state, projected flux, split flux.
+   real(R8P)                 :: a                                     !< Absolute projection of one cell (descaler).
+   real(R8P)                 :: qm(NV_MHD_EGLM)                       !< Reference magnitudes of one cell (descaler).
+   real(R8P)                 :: amax                                  !< Fast speed bound of the stencil (descaler).
    integer(I4P)              :: pv(NV_MHD_EGLM)                       !< State in the frame order of direction `d`.
    integer(I4P)              :: k, m, v                               !< Counters.
    !$acc routine seq
@@ -191,20 +196,31 @@ contains
       enddo
       alpha = alpha(1)
    endif
+   amax = 0._R8P
+   do m=1-S, S
+      amax = max(amax, abs(qas(IA_U+d-1,m)) + mhd_fast_speed(d=d, qa=qas(:,m)))
+   enddo
+   mu = 0._R8P
    do m=1-S, S
       call mhd_eglm_flux(ch=ch, d=d, q=qs(:,m), qa=qas(:,m), f=f)
+      call mhd_state_magnitudes(q=qs(1:NV_MHD,m), qa=qas(:,m), qm=qm(1:NV_MHD))
+      qm(IQ_PSI) = abs(qs(IQ_PSI,m)) + qm(IQ_BX)
       do k=1, NV_MHD_EGLM
          w = 0._R8P
          g = 0._R8P
+         a = 0._R8P
          do v=1, NV_MHD_EGLM
             w = w + el(k,pv(v)) * qs(pv(v),m)
             g = g + el(k,pv(v)) * f(pv(v))
+            a = a + abs(el(k,pv(v))) * (abs(f(pv(v))) + amax * qm(pv(v)))
          enddo
          fp = 0.5_R8P * (g + alpha(k) * w)
          if (m < S)     fsplit(2,m,k)   = fp
          if (m > 1 - S) fsplit(1,m-1,k) = g - fp
+         mu(k) = mu(k) + 0.5_R8P * a
       enddo
    enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
    endsubroutine mhd_eglm_face_split_fluxes
 
    pure subroutine mhd_eglm_flux(ch, d, q, qa, f)
@@ -318,10 +334,13 @@ contains
    endif
    endsubroutine mhd_face_flux_back_projection
 
-   pure subroutine mhd_face_split_fluxes(gamma, d, S, is_characteristic, qs, qas, fsplit, er)
+   pure subroutine mhd_face_split_fluxes(gamma, d, S, is_characteristic, qs, qas, fsplit, er, mu)
    !< Project and Lax-Friedrichs-split the stencil of face `i+1/2` (MHD without divergence control), ready for the WENO
    !< upwind reconstruction: the algorithm and layout of the Euler `compute_face_split_fluxes`, with the eigenvectors of
    !< the arithmetic face average. The `B_n` row has speed 0 in both variants, so its face flux is exactly zero.
+   !< The WENO descaler `mu` takes the fast speed bound `max_m (|u_n| + c_f)` where the Euler library takes the largest
+   !< `alpha_k`, in every MHD variant: the cleaning speed `c_h` never enters it, so the weights of the physical fields do
+   !< not depend on `c_h` (GLM and EGLM equal the run without cleaning where `psi = 0`, RJ2a).
    real(R8P),    intent(in)  :: gamma                            !< Specific heats ratio.
    integer(I4P), intent(in)  :: d                                !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)  :: S                                !< WENO stencil half-width, S <= S_MAX.
@@ -330,12 +349,16 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)    !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fsplit(2,1-S_MAX:S_MAX-1,NV_MHD) !< Split fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_MHD,NV_MHD)                !< Right eigenvectors (identity if conservative).
+   real(R8P),    intent(out) :: mu(NV_MHD)                       !< Magnitude of each field (WENO descaler).
    real(R8P)                 :: el(NV_MHD,NV_MHD)                !< Left eigenvectors (identity if conservative).
    real(R8P)                 :: avg(NV_AUX_MHD)                  !< Face average of cells 0 and 1.
    real(R8P)                 :: lambda(NV_MHD)                   !< Eigenvalues of one cell.
    real(R8P)                 :: alpha(NV_MHD)                    !< Lax-Friedrichs speeds.
    real(R8P)                 :: f(NV_MHD)                        !< Physical flux of one cell.
    real(R8P)                 :: w, g, fp                         !< Projected state, projected flux, split flux.
+   real(R8P)                 :: a                                !< Absolute projection of one cell (descaler).
+   real(R8P)                 :: qm(NV_MHD)                       !< Reference magnitudes of one cell (descaler).
+   real(R8P)                 :: amax                             !< Fast speed bound of the stencil (descaler).
    integer(I4P)              :: pv(NV_MHD)                       !< State in the frame order of direction `d`.
    integer(I4P)              :: k, m, v                          !< Counters.
    !$acc routine seq
@@ -366,20 +389,30 @@ contains
       alpha = alpha(1)
       alpha(IQ_BX+d-1) = 0._R8P
    endif
+   amax = 0._R8P
+   do m=1-S, S
+      amax = max(amax, abs(qas(IA_U+d-1,m)) + mhd_fast_speed(d=d, qa=qas(:,m)))
+   enddo
+   mu = 0._R8P
    do m=1-S, S
       call mhd_flux(d=d, q=qs(:,m), qa=qas(:,m), f=f)
+      call mhd_state_magnitudes(q=qs(:,m), qa=qas(:,m), qm=qm)
       do k=1, NV_MHD
          w = 0._R8P
          g = 0._R8P
+         a = 0._R8P
          do v=1, NV_MHD
             w = w + el(k,pv(v)) * qs(pv(v),m)
             g = g + el(k,pv(v)) * f(pv(v))
+            a = a + abs(el(k,pv(v))) * (abs(f(pv(v))) + amax * qm(pv(v)))
          enddo
          fp = 0.5_R8P * (g + alpha(k) * w)
          if (m < S)     fsplit(2,m,k)   = fp
          if (m > 1 - S) fsplit(1,m-1,k) = g - fp
+         mu(k) = mu(k) + 0.5_R8P * a
       enddo
    enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
    endsubroutine mhd_face_split_fluxes
 
    pure function mhd_fast_speed(d, qa) result(cf)
@@ -507,7 +540,7 @@ contains
    endif
    endsubroutine mhd_glm_face_flux_back_projection
 
-   pure subroutine mhd_glm_face_split_fluxes(ch, gamma, d, S, is_characteristic, qs, qas, fsplit, er)
+   pure subroutine mhd_glm_face_split_fluxes(ch, gamma, d, S, is_characteristic, qs, qas, fsplit, er, mu)
    !< Project and Lax-Friedrichs-split the stencil of face `i+1/2` (MHD with GLM cleaning): as `mhd_face_split_fluxes`,
    !< with the `(B_n, psi)` pair at speeds `-+c_h` (conservative variant: one speed, `max(|u_n| + c_f, c_h)`).
    real(R8P),    intent(in)  :: ch                                   !< GLM cleaning speed.
@@ -519,12 +552,16 @@ contains
    real(R8P),    intent(in)  :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)        !< Stencil auxiliary variables.
    real(R8P),    intent(out) :: fsplit(2,1-S_MAX:S_MAX-1,NV_MHD_GLM) !< Split fields in the WENO upwind layout.
    real(R8P),    intent(out) :: er(NV_MHD_GLM,NV_MHD_GLM)            !< Right eigenvectors (identity if conservative).
+   real(R8P),    intent(out) :: mu(NV_MHD_GLM)                       !< Magnitude of each field (WENO descaler).
    real(R8P)                 :: el(NV_MHD_GLM,NV_MHD_GLM)            !< Left eigenvectors (identity if conservative).
    real(R8P)                 :: avg(NV_AUX_MHD)                      !< Face average of cells 0 and 1.
    real(R8P)                 :: lambda(NV_MHD_GLM)                   !< Eigenvalues of one cell.
    real(R8P)                 :: alpha(NV_MHD_GLM)                    !< Lax-Friedrichs speeds.
    real(R8P)                 :: f(NV_MHD_GLM)                        !< Physical flux of one cell.
    real(R8P)                 :: w, g, fp                             !< Projected state, projected flux, split flux.
+   real(R8P)                 :: a                                    !< Absolute projection of one cell (descaler).
+   real(R8P)                 :: qm(NV_MHD_GLM)                       !< Reference magnitudes of one cell (descaler).
+   real(R8P)                 :: amax                                 !< Fast speed bound of the stencil (descaler).
    integer(I4P)              :: pv(NV_MHD_GLM)                       !< State in the frame order of direction `d`.
    integer(I4P)              :: k, m, v                              !< Counters.
    !$acc routine seq
@@ -555,20 +592,31 @@ contains
       enddo
       alpha = alpha(1)
    endif
+   amax = 0._R8P
+   do m=1-S, S
+      amax = max(amax, abs(qas(IA_U+d-1,m)) + mhd_fast_speed(d=d, qa=qas(:,m)))
+   enddo
+   mu = 0._R8P
    do m=1-S, S
       call mhd_glm_flux(ch=ch, d=d, q=qs(:,m), qa=qas(:,m), f=f)
+      call mhd_state_magnitudes(q=qs(1:NV_MHD,m), qa=qas(:,m), qm=qm(1:NV_MHD))
+      qm(IQ_PSI) = abs(qs(IQ_PSI,m)) + ch * qm(IQ_BX)
       do k=1, NV_MHD_GLM
          w = 0._R8P
          g = 0._R8P
+         a = 0._R8P
          do v=1, NV_MHD_GLM
             w = w + el(k,pv(v)) * qs(pv(v),m)
             g = g + el(k,pv(v)) * f(pv(v))
+            a = a + abs(el(k,pv(v))) * (abs(f(pv(v))) + amax * qm(pv(v)))
          enddo
          fp = 0.5_R8P * (g + alpha(k) * w)
          if (m < S)     fsplit(2,m,k)   = fp
          if (m > 1 - S) fsplit(1,m-1,k) = g - fp
+         mu(k) = mu(k) + 0.5_R8P * a
       enddo
    enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
    endsubroutine mhd_glm_face_split_fluxes
 
    pure subroutine mhd_glm_flux(ch, d, q, qa, f)
@@ -621,6 +669,35 @@ contains
 
    s = (min(a, b, c) + max(min(a, b), min(max(a, b), c))) + max(a, b, c)
    endfunction mhd_sum3
+
+   pure subroutine mhd_state_magnitudes(q, qa, qm)
+   !< Return the reference magnitude of each conservative variable of a cell (MHD core variables, without `psi`), the
+   !< scale entering the WENO descaler `mu` in place of `|q_v|`: `|rho|`, `|E|`, every momentum component
+   !< `|rho u|_1 + sqrt(rho p)`, every field component `|B|_1 + sqrt(p)`. The GLM/EGLM callers add `psi` themselves.
+   !<
+   !< Why: in a 2-D problem the Alfven rows touch only the out-of-plane momentum and field, which vanish identically; with
+   !< `|q_v|` their descaler is round-off and the scale-invariant weights treat round-off as data: full nonlinear weights
+   !< on noise, which nothing damps, and the noise grows into the solution (issue #49, MV-7). The vector magnitudes plus
+   !< `sqrt(rho p)` and `sqrt(p)` never vanish on a physical state and scale exactly like their components under
+   !< power-of-two scaling (`rho p`, `p` by powers of four); `mhd_sum3` keeps rotations bitwise invariant.
+   real(R8P), intent(in)  :: q(NV_MHD)      !< Conservative variables.
+   real(R8P), intent(in)  :: qa(NV_AUX_MHD) !< Auxiliary variables.
+   real(R8P), intent(out) :: qm(NV_MHD)     !< Reference magnitudes.
+   real(R8P)              :: pm, bm         !< Momentum and field magnitudes.
+   !$acc routine seq
+   !$omp declare target
+
+   pm = mhd_sum3(abs(q(IQ_RU)), abs(q(IQ_RV)), abs(q(IQ_RW))) + sqrt(abs(qa(IA_R) * qa(IA_P)))
+   bm = mhd_sum3(abs(q(IQ_BX)), abs(q(IQ_BY)), abs(q(IQ_BZ))) + sqrt(abs(qa(IA_P)))
+   qm(IQ_R)  = abs(q(IQ_R))
+   qm(IQ_RU) = pm
+   qm(IQ_RV) = pm
+   qm(IQ_RW) = pm
+   qm(IQ_RE) = abs(q(IQ_RE))
+   qm(IQ_BX) = bm
+   qm(IQ_BY) = bm
+   qm(IQ_BZ) = bm
+   endsubroutine mhd_state_magnitudes
 
    ! private procedures
    pure subroutine mhd_eigenvectors_core(gamma, d, qa, l7, r7, mp)

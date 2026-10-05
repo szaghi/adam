@@ -37,6 +37,7 @@ contains
    real(R8P)                 :: qas(NV_AUX,1-S_MAX:S_MAX)          !< Stencil auxiliary variables.
    real(R8P)                 :: el(NV_EULER,NV_EULER)              !< Left eigenvectors.
    real(R8P)                 :: er(NV_EULER,NV_EULER)              !< Right eigenvectors.
+   real(R8P)                 :: mu(NV_EULER)                       !< Field magnitudes (WENO descaler).
    real(R8P)                 :: lambda(NV_EULER)                   !< Eigenvalues.
    real(R8P)                 :: f(NV_EULER)                        !< Physical flux.
    real(R8P)                 :: fr(NV_EULER,3)                     !< LLF, HLL and HLLC fluxes.
@@ -73,7 +74,8 @@ contains
          c = c + 1 ; res(c) = er(i,j)
       enddo
    enddo
-   call compute_face_split_fluxes(gamma=GAMMA, d=d, S=S, is_characteristic=.true., qs=qs, qas=qas, fsplit=fsplit, er=er)
+   call compute_face_split_fluxes(gamma=GAMMA, d=d, S=S, is_characteristic=.true., qs=qs, qas=qas, fsplit=fsplit, er=er, &
+                                  mu=mu)
    split = 0._R8P
    c = 0
    do k=1, NV_EULER

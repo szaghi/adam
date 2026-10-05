@@ -24,7 +24,11 @@ program test_flume_mhd_library
 !< 8. the degenerate states: B = 0 (hydrodynamic limit), B along one axis (B_t = 0 in that direction, B_n = 0 in the
 !<    others), the triple umbilic, and the transverse-field threshold `EPS_BT` straddled by one ulp, through checks 1-3;
 !< 9. the EGLM variant (issue #47 EV-1, `check_eglm`): conversion, eigenvectors (`L R = I`, GLM core, energy
-!<    coupling, `(B_n, psi)` block), flux identities, uniform-stencil split consistency.
+!<    coupling, `(B_n, psi)` block), flux identities, uniform-stencil split consistency;
+!< 10. the WENO descaler `mu` of the split (issue #49, `check_descaler`): on a planar state (`w = B_z = 0`), a planar
+!<    state without field and a state at rest, every field of every variant has a descaler within `MU_RATIO_MAX` of
+!<    the largest, in every direction. The Alfven rows of a planar state touch only `rho w` and `B_z`, which vanish:
+!<    a descaler built on `|q_v|` is round-off there, and the scale-invariant weights then amplify round-off (MV-7).
 
 use :: adam_flume_mhd_library, only : EPS_BT, mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary,   &
                                       mhd_eglm_eigenvectors, mhd_eglm_face_split_fluxes, mhd_eglm_flux,            &
@@ -40,11 +44,12 @@ use :: penf,                   only : I4P, R8P, str
 implicit none
 
 integer(I4P), parameter :: N=5000_I4P           !< Random states number.
-integer(I4P), parameter :: NC=9_I4P             !< Checks number.
+integer(I4P), parameter :: NC=10_I4P            !< Checks number.
 real(R8P),    parameter :: GAMMA=5._R8P/3._R8P  !< Specific heats ratio.
 real(R8P),    parameter :: R=1._R8P             !< Gas constant.
 real(R8P),    parameter :: TOL_EXACT=1.e-11_R8P !< Tolerance of the exact identities (relative).
 real(R8P),    parameter :: TOL_FD=1.e-6_R8P     !< Tolerance of the finite-difference Jacobian checks (relative).
+real(R8P),    parameter :: MU_RATIO_MAX=1.e8_R8P !< Largest ratio of two WENO descalers of one face.
 real(R8P)               :: err(NC)              !< Maximum error of each check.
 real(R8P)               :: prim(8)              !< Primitive state (r, u, v, w, p, bx, by, bz).
 real(R8P)               :: psi, ch              !< GLM scalar and cleaning speed.
@@ -62,7 +67,8 @@ check_name = ['L R = I (8x8, 9x9)                              ', &
               'cyclic invariance of fluxes, eigenvectors       ', &
               'uniform stencil split -> physical flux          ', &
               'degenerate states (checks 1-3 at degeneracies)  ', &
-              'EGLM: eigenvectors, flux, conversion, split     ']
+              'EGLM: eigenvectors, flux, conversion, split     ', &
+              'WENO descaler of planar and static states       ']
 err = 0._R8P
 call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
@@ -88,10 +94,12 @@ do n_=1, N
    call check_eglm(prim=prim, psi=psi, ch=ch, e=err(9))
 enddo
 call check_degenerate(e=err(8))
+call check_descaler(e=err(10))
 
 test_passed = .true.
 do c=1, NC
-   if (((c == 2 .or. c == 8) .and. err(c) > TOL_FD) .or. (c /= 2 .and. c /= 8 .and. err(c) > TOL_EXACT)) then
+   if (((c == 2 .or. c == 8) .and. err(c) > TOL_FD) .or. (c == 10 .and. err(c) > MU_RATIO_MAX) .or. &
+       (c /= 2 .and. c /= 8 .and. c /= 10 .and. err(c) > TOL_EXACT)) then
       print '(A)', 'FAIL: '//check_name(c)//' max error '//trim(str(err(c)))
       test_passed = .false.
    else
@@ -300,6 +308,7 @@ contains
    real(R8P)                :: fs8(2,1-S_MAX:S_MAX-1,NV_MHD)                  !< Split fields, no cleaning.
    real(R8P)                :: fs9(2,1-S_MAX:S_MAX-1,NV_MHD_GLM)              !< Split fields, GLM.
    real(R8P)                :: er8(NV_MHD,NV_MHD), er9(NV_MHD_GLM,NV_MHD_GLM) !< Right eigenvectors.
+   real(R8P)                :: mu8(NV_MHD), mu9(NV_MHD_GLM)                 !< Field magnitudes (WENO descaler).
    real(R8P)                :: fl8(NV_MHD), fl9(NV_MHD_GLM)                   !< Face fluxes.
    real(R8P)                :: f8(NV_MHD), f9(NV_MHD_GLM)                     !< Physical fluxes.
    integer(I4P)             :: d, S, m, variant                               !< Counters.
@@ -316,16 +325,66 @@ contains
       do variant=1, 2
          do S=1, S_MAX
             call mhd_face_split_fluxes(gamma=GAMMA, d=d, S=S, is_characteristic=(variant == 1), qs=qs8, qas=qas, &
-                                       fsplit=fs8, er=er8)
+                                       fsplit=fs8, er=er8, mu=mu8)
             call mhd_face_flux_back_projection(is_characteristic=(variant == 1), er=er8, vr=fs8(:,0,:), flux=fl8)
             call mhd_glm_face_split_fluxes(ch=ch, gamma=GAMMA, d=d, S=S, is_characteristic=(variant == 1), qs=qs9, &
-                                           qas=qas, fsplit=fs9, er=er9)
+                                           qas=qas, fsplit=fs9, er=er9, mu=mu9)
             call mhd_glm_face_flux_back_projection(is_characteristic=(variant == 1), er=er9, vr=fs9(:,0,:), flux=fl9)
             e = max(e, maxval(abs(fl8 - f8)) / maxval(abs(f8)), maxval(abs(fl9 - f9)) / maxval(abs(f9)))
          enddo
       enddo
    enddo
    endsubroutine check_split
+
+   subroutine check_descaler(e)
+   !< Check 10: the largest ratio of two WENO descalers of one face, over planar, field-free and static states, every
+   !< direction, both variants (characteristic, conservative), with no cleaning, GLM and EGLM.
+   real(R8P), intent(inout) :: e                                       !< Largest ratio.
+   real(R8P)                :: p(8,3)                                  !< Primitive states.
+   real(R8P)                :: q8(NV_MHD), q9(NV_MHD_GLM)              !< Conservative variables.
+   real(R8P)                :: qe(NV_MHD_EGLM)                         !< Conservative variables, EGLM.
+   real(R8P)                :: qa(NV_AUX_MHD)                          !< Auxiliary variables.
+   real(R8P)                :: qs8(NV_MHD,1-S_MAX:S_MAX)               !< Stencil, no cleaning.
+   real(R8P)                :: qs9(NV_MHD_GLM,1-S_MAX:S_MAX)           !< Stencil, GLM.
+   real(R8P)                :: qse(NV_MHD_EGLM,1-S_MAX:S_MAX)          !< Stencil, EGLM.
+   real(R8P)                :: qas(NV_AUX_MHD,1-S_MAX:S_MAX)           !< Stencil auxiliary variables.
+   real(R8P)                :: fs8(2,1-S_MAX:S_MAX-1,NV_MHD)           !< Split fields, no cleaning.
+   real(R8P)                :: fs9(2,1-S_MAX:S_MAX-1,NV_MHD_GLM)       !< Split fields, GLM.
+   real(R8P)                :: fse(2,1-S_MAX:S_MAX-1,NV_MHD_EGLM)      !< Split fields, EGLM.
+   real(R8P)                :: er8(NV_MHD,NV_MHD)                      !< Right eigenvectors, no cleaning.
+   real(R8P)                :: er9(NV_MHD_GLM,NV_MHD_GLM)              !< Right eigenvectors, GLM.
+   real(R8P)                :: ere(NV_MHD_EGLM,NV_MHD_EGLM)            !< Right eigenvectors, EGLM.
+   real(R8P)                :: mu8(NV_MHD), mu9(NV_MHD_GLM)            !< Descalers.
+   real(R8P)                :: mue(NV_MHD_EGLM)                        !< Descalers, EGLM.
+   integer(I4P)             :: d, m, n, variant                        !< Counters.
+
+   p(:,1) = [1._R8P, 1._R8P, 1._R8P, 0._R8P, 1._R8P, 0.3_R8P, 0.2_R8P, 0._R8P] ! planar
+   p(:,2) = [1._R8P, 1._R8P, 1._R8P, 0._R8P, 1._R8P, 0._R8P, 0._R8P, 0._R8P]   ! planar, no field (MV-7 far field)
+   p(:,3) = [1._R8P, 0._R8P, 0._R8P, 0._R8P, 1._R8P, 0._R8P, 0._R8P, 0._R8P]   ! at rest, no field
+   do n=1, 3
+      call state(prim=p(:,n), psi=0._R8P, q8=q8, q9=q9, qa=qa)
+      qe = q9
+      call mhd_eglm_conservative_to_auxiliary(gamma=GAMMA, R=R, q=qe, qa=qa)
+      do m=1-S_MAX, S_MAX
+         qs8(:,m) = q8
+         qs9(:,m) = q9
+         qse(:,m) = qe
+         qas(:,m) = qa
+      enddo
+      do d=1, 3
+         do variant=1, 2
+            call mhd_face_split_fluxes(gamma=GAMMA, d=d, S=3, is_characteristic=(variant == 1), qs=qs8, qas=qas, &
+                                       fsplit=fs8, er=er8, mu=mu8)
+            call mhd_glm_face_split_fluxes(ch=2._R8P, gamma=GAMMA, d=d, S=3, is_characteristic=(variant == 1), qs=qs9, &
+                                           qas=qas, fsplit=fs9, er=er9, mu=mu9)
+            call mhd_eglm_face_split_fluxes(ch=2._R8P, gamma=GAMMA, d=d, S=3, is_characteristic=(variant == 1), &
+                                            qs=qse, qas=qas, fsplit=fse, er=ere, mu=mue)
+            e = max(e, maxval(mu8) / minval(mu8), maxval(mu9) / minval(mu9), maxval(mue) / minval(mue))
+         enddo
+      enddo
+   enddo
+   print '(A)', 'descaler of planar and static states: largest ratio '//trim(str(e))
+   endsubroutine check_descaler
 
    subroutine check_degenerate(e)
    !< Checks 1-3 at the degenerate states, and across the transverse-field threshold (one ulp either side).
@@ -377,6 +436,7 @@ contains
    real(R8P)                :: qa(NV_AUX_MHD), qae(NV_AUX_MHD)                  !< Auxiliary variables.
    real(R8P)                :: elg(NV_MHD_GLM,NV_MHD_GLM), erg(NV_MHD_GLM,NV_MHD_GLM)       !< GLM eigenvectors.
    real(R8P)                :: ele(NV_MHD_EGLM,NV_MHD_EGLM), ere(NV_MHD_EGLM,NV_MHD_EGLM)   !< EGLM eigenvectors.
+   real(R8P)                :: mue(NV_MHD_EGLM)                                            !< Field magnitudes.
    real(R8P)                :: A2(2,2), D2(2,2)                                 !< Block Jacobian, residual.
    real(R8P)                :: f8(NV_MHD), fe(NV_MHD_EGLM), fl(NV_MHD_EGLM)     !< Fluxes.
    real(R8P)                :: qs(NV_MHD_EGLM,1-S_MAX:S_MAX)                    !< Uniform stencil.
@@ -427,7 +487,7 @@ contains
       do variant=1, 2
          do S=1, S_MAX
             call mhd_eglm_face_split_fluxes(ch=ch, gamma=GAMMA, d=d, S=S, is_characteristic=(variant == 1), qs=qs, &
-                                            qas=qas, fsplit=fs, er=ere)
+                                            qas=qas, fsplit=fs, er=ere, mu=mue)
             call mhd_glm_face_flux_back_projection(is_characteristic=(variant == 1), er=ere, vr=fs(:,0,:), flux=fl)
             e = max(e, maxval(abs(fl - fe)) / max(1._R8P, maxval(abs(fe))))
          enddo

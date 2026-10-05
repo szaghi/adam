@@ -5,6 +5,7 @@ module test_flume_weno_interpolation_fnl_kernels
 !< Module-level (not a `contains`-internal procedure): device routines must be module procedures.
 
 use :: adam_fnl_weno_kernels, only : weno_reconstruct_upwind_dev
+use :: adam_weno_object,      only : weno_descaling
 use :: penf,                  only : I4P, R8P
 
 implicit none
@@ -25,7 +26,8 @@ contains
    !$acc routine seq
    !$omp declare target
 
-   call weno_reconstruct_upwind_dev(S=S, weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_sigma=sigma, V=v, VR=vr)
+   call weno_reconstruct_upwind_dev(S=S, weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps,                      &
+                                    weno_rmu=weno_descaling(S=S, weno_sigma=sigma, v=v), V=v, VR=vr)
    endsubroutine interpolate
 endmodule test_flume_weno_interpolation_fnl_kernels
 
@@ -41,7 +43,7 @@ program test_flume_weno_interpolation_fnl
 !< for the latter the device must also satisfy WENO(2**n v) = 2**n WENO(v) bit for bit (NV-1, device half).
 
 use :: adam_globals,                              only : mpih
-use :: adam_weno_object,                          only : weno_object, weno_reconstruct_upwind
+use :: adam_weno_object,                          only : weno_descaling, weno_object, weno_reconstruct_upwind
 use :: penf,                                      only : I4P, R8P, str
 use :: test_flume_weno_interpolation_fnl_kernels, only : interpolate
 
@@ -106,7 +108,8 @@ do c=1, size(SCHEMES)
       call interpolate(S=S, a=a, p=p, d=d, zeps=zeps, sigma=sigma, v=v_scal(:,:,n_), vr=vr_scal(:,n_))
    enddo
    do n_=1, N
-      call weno_reconstruct_upwind(S=S, weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_sigma=sigma, v=v(:,:,n_), &
+      call weno_reconstruct_upwind(S=S, weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps,                            &
+                                   weno_rmu=weno_descaling(S=S, weno_sigma=sigma, v=v(:,:,n_)), v=v(:,:,n_), &
                                    vr=vr_host(:,n_))
    enddo
    err = maxval(abs(vr_dev - vr_host) / max(1._R8P, abs(vr_host)))

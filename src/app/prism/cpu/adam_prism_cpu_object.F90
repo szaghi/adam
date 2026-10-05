@@ -4509,8 +4509,10 @@ contains
                                     q=q, fmpc=fmpc(1:2,1-weno_s:-1+weno_s,1:NV_MAX))
    do v=1, nv_c
       call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
-                                   weno_zeps=weno_zeps, weno_sigma=weno_sigma, V=fmpc(1:2,1-weno_s:-1+weno_s,v), &
-                                   VR=fpmr(1:2,v))
+                                   weno_zeps=weno_zeps,                                                         &
+                                   weno_rmu=weno_descaling(S=weno_s, weno_sigma=weno_sigma,                     &
+                                                           v=fmpc(1:2,1-weno_s:-1+weno_s,v)),                   &
+                                   V=fmpc(1:2,1-weno_s:-1+weno_s,v), VR=fpmr(1:2,v))
    enddo
    ! back projection in conservative variables space
    do v=1, nv_c

@@ -19,7 +19,7 @@ program test_flume_weno_interpolation
 !<    (weno-u-1 .. weno-u-9, 2026-09-30). This check pins the kernel-table wiring; checks 1-3 pin the tables.
 
 use :: adam_globals,     only : mpih
-use :: adam_weno_object, only : weno_object, weno_reconstruct_upwind
+use :: adam_weno_object, only : weno_descaling, weno_object, weno_reconstruct_upwind
 use :: penf,             only : I4P, R8P, str
 
 implicit none
@@ -102,7 +102,8 @@ do c=1, size(SCHEMES)
             v(:,m) = sin(x0 + m * h) + 0.3_R8P * cos(2._R8P * (x0 + m * h))
          enddo
          call weno_reconstruct_upwind(S=S, weno_a=w%a_interp, weno_p=w%p_interp, weno_d=w%d, weno_zeps=w%zeps, &
-                                      weno_sigma=w%sigma, v=v(:,1-S:S-1), vr=vr)
+                                      weno_rmu=weno_descaling(S=S, weno_sigma=w%sigma, v=v(:,1-S:S-1)),      &
+                                      v=v(:,1-S:S-1), vr=vr)
          do f=1, 2
             err(l,f) = max(err(l,f), abs(vr(f) - (sin(x0 + x(f) * h) + 0.3_R8P * cos(2._R8P * (x0 + x(f) * h)))))
          enddo

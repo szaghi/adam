@@ -41,22 +41,42 @@ combination reaches order $2S-1$; the stencils crossing a discontinuity get $\om
 
 The absolute $\varepsilon$ ties the weights to the units of the data: $\beta_k$ scales as the square of the field, so
 on a field of magnitude $10^{-4}$ the ratio $\beta_k/\varepsilon$ is $10^{8}$ times smaller than on the same field at
-magnitude 1, the weights collapse to the linear ones and the scheme stops limiting. `[weno] weights = si` uses the
-scale-invariant weights of Don, Li, Wang and Wang (2022):
+magnitude 1, the weights collapse to the linear ones and the scheme stops limiting. `[weno] weights = si` uses
+scale-invariant weights after Don, Li, Wang and Wang (2022):
 
-$$\alpha_k = \frac{d_k}{(\varepsilon + \beta_k/\mu^2)^{m}}, \qquad \mu = \frac{1}{2S-1}\sum_{j} |v_j|,$$
+$$\alpha_k = \frac{d_k}{(\varepsilon + \beta_k/\mu^2)^{m}},$$
 
-$\mu$ the mean magnitude over the $2S-1$ values of the stencil (floored at the smallest normal number, so that data
-identically zero get the linear weights). $\beta_k/\mu^2$ does not depend on the units, and since a power of two is
-exact in floating point, multiplying the data by $2^n$ multiplies the reconstruction by $2^n$ bit for bit (unit tests
-`test_flume_weno_weights` on the host, `test_flume_weno_interpolation_fnl` on the device). The default `js` is the formula above, bitwise unchanged; the choice costs
-no branch in the kernels (`js` sets $\mu = 1$ exactly).
+$\mu$ a magnitude of the reconstructed field with its units, so that $\beta_k/\mu^2$ does not depend on them. Which
+magnitude matters. The mean of $|v|$ over the stencil (the descaler of Don et al.) fails on the characteristic fields of
+FLUME: projected on the eigenvectors of the face state, a field such as the shear wave $\rho(v - v_\text{Roe})$, or one
+carrying only a small wave, is near zero by construction, its $\mu$ is its own variation, $\varepsilon\mu^2 \to 0$ and
+the weights turn fully nonlinear on smooth data (issue #49: the isentropic vortex fell from order 5.79 to 4.10). FLUME
+takes instead the magnitude of the state that the field projects,
 
-On smooth data the two weights agree to the truncation error (the 1-D prototype of issue #49 gives the same orders on
-$\sin(\pi x - \sin(\pi x)/\pi)$, with or without an offset). In the same prototype, on the Sod, Lax and Shu–Osher
-problems at density $\times 4^{\pm 10}$ and velocity $\times 2^{-10}$, `si` gives the same solution at every scale bit
-for bit, while `js` changes the step count and fails on Shu–Osher at density $\times 4^{-10}$ (a NaN at the second
-step).
+$$\mu_k = \Big\langle \sum_v |l_{kv}|\,\tfrac12\big(|f_v| + \alpha_\text{max}\,\hat q_v\big) \Big\rangle_\text{stencil}$$
+
+for the split fluxes ($\langle \sum_v |l_{kv}|\,\hat q_v \rangle$ for the interpolated fields of `weno-riemann`), $l_k$
+the left eigenvector (the identity for conservative variables), $\alpha_\text{max}$ the largest speed of the stencil
+(MHD: $\max(|u_n| + c_f)$, never the cleaning speed $c_h$) and $\hat q_v \ge |q_v|$ a reference magnitude of each
+component: $|\rho|$, $|E|$, $\|\rho\mathbf{u}\|_1 + \sqrt{\rho p}$ for every momentum component, $\|\mathbf{B}\|_1 +
+\sqrt{p}$ for every field component, $|\psi| + c_h \hat q_B$ (GLM) or $|\psi| + \hat q_B$ (EGLM). The reference
+magnitudes matter: with $|q_v|$, a field built on components that vanish (the Alfvén rows of a 2-D problem touch only
+$\rho w$ and $B_z$) or are exponentially small (the field in the far field of the magnetised vortex, $\sim 10^{-21}$)
+gets a descaler of its own size, the weights treat round-off as data, and the vortex went unstable at 256² (issue
+#49, MV-7). $\mu_k$ bounds $|f^\pm_k|$ cell by cell, never vanishes on a physical state, and at unit scale acts like
+the absolute $\varepsilon$ (on the isentropic vortex, $L_1 = 7.22\cdot10^{-8}$ at 256², order 4.97, against
+$8.38\cdot10^{-8}$ with `js`). Every term scales exactly like the field ($\sqrt{\rho p}$ and $\sqrt{p}$ by exact powers
+of two), and a power of two is exact in floating point, so multiplying the data by $2^n$ multiplies the reconstruction
+by $2^n$ bit for bit (unit tests `test_flume_weno_weights` on the host, `test_flume_weno_interpolation_fnl` on the
+device; the whole solver: the [scaling oracle](./verification#scaling-covariance)). $\mu$ is floored at the smallest
+normal number. Primitive variables have no projection: a velocity or a field component crossing zero has no magnitude
+of its own, so `si` with `weno-riemann` on `primitive` variables is refused. One property of `js` is lost at round-off:
+the smoothness indicator of a uniform field is a quadratic form, round-off rather than zero, and the `si` descaler
+varies from face to face, so a uniform field in a non-uniform state (the $B_n$ of a 1-D MHD problem) is reconstructed
+with face values that differ in the last bits (RJ2a: GLM equals the run without cleaning to $10^{-13}$, not bitwise).
+
+The default `js` is the first formula, bitwise unchanged: the kernel receives $1/\mu$, which is exactly 1 for `js`, so
+the choice costs no branch in the kernels.
 
 The WENO kernel takes its coefficient tables as arguments, so one kernel serves two purposes:
 

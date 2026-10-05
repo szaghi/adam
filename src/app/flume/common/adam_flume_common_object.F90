@@ -27,9 +27,10 @@ use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
 use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_RU, &
                                              MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,                   &
-                                             POSITIVITY_LIMITER_CELL, RIEMANN_SOLVER_HLL,                             &
+                                             POSITIVITY_LIMITER_CELL, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,            &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
                                              SCHEME_SPACE_WENO_RIEMANN
+use :: adam_weno_object,              only : WENO_WEIGHTS_SI
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
@@ -990,12 +991,19 @@ contains
 
    subroutine check_weno_scheme(self)
    !< Refuse the centred WENO schemes: the flux splitting calls the upwind primitive only, so a `weno-c-*` scheme would
-   !< silently run it at order 2S-1 (issue #47).
+   !< silently run it at order 2S-1 (issue #47). Refuse the scale-invariant weights on primitive variables: their
+   !< descaler is the magnitude of each field, and a velocity or a magnetic field component crossing zero has none of
+   !< its own, so the weights would lose accuracy on smooth data (issue #49; the characteristic and conservative variables
+   !< take the magnitude of the projected state).
    class(flume_common_object), intent(in) :: self !< The equation.
 
    if (self%weno%is_centered) &
       call mpih%error_stop(msg=': [weno].(scheme)='//self%weno%scheme//' is a centred scheme: FLUME accepts only the '// &
                                'upwind schemes weno-u-1, weno-u-3, weno-u-5, weno-u-7, weno-u-9')
+   if (self%weno%weights == WENO_WEIGHTS_SI .and. self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN .and. &
+       self%numerics%reconstruction_variables == RECON_PRIMITIVE)                                                &
+      call mpih%error_stop(msg=': [weno].(weights)=si is not available with [numerics].(reconstruction_variables)='// &
+                               'primitive: use characteristic variables, or the default weights js')
    endsubroutine check_weno_scheme
 
    subroutine initialize_riemann_scheme(self)

@@ -58,6 +58,11 @@ ORACLE="$CASE_DIR/rj2a_oracle.py"
 numerics_check
 TAG="$(basename "$EXE")-np$NP$(numerics_tag)"
 [[ -n $NUMERICS ]] && PAIR_TOL="1.0e-11"
+# [weno] weights = si (FLUME_EXE = scaling/weights-exe.sh, WEIGHTS_EXE set; issue #49): the smoothness indicator of a
+# uniform field is round-off, not zero (a quadratic form), and the si descaler varies face to face across the shocks,
+# so the uniform B_n is reconstructed with face values that differ by round-off, as under --numerics: PAIR_TOL 1e-11
+# (measured: GLM vs no cleaning 1.1e-13, psi 1.3e-15; EGLM vs GLM 2.5e-13). The default js weights stay bitwise.
+[[ -n ${WEIGHTS_EXE:-} && ${WEIGHTS:-si} == si ]] && PAIR_TOL="1.0e-11"
 # CPU weno-riemann HLLD (M3-P3c), N = 256, 512: primitive 5.132654e-02, 2.926153e-02; characteristic 3.764077e-02,
 # 2.122612e-02; plus 2 %
 case "$NUMERICS" in

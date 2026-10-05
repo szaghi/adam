@@ -49,6 +49,8 @@ contains
    real(R8P)                 :: qase(NV_AUX_MHD,1-S_MAX:S_MAX)         !< Stencil auxiliary variables, EGLM.
    real(R8P)                 :: ele(NV_MHD_EGLM,NV_MHD_EGLM)           !< Left eigenvectors, EGLM.
    real(R8P)                 :: ere(NV_MHD_EGLM,NV_MHD_EGLM)           !< Right eigenvectors, EGLM.
+   real(R8P)                 :: mu8(NV_MHD), mu9(NV_MHD_GLM)           !< Field magnitudes (WENO descaler).
+   real(R8P)                 :: mue(NV_MHD_EGLM)                       !< Field magnitudes, EGLM.
    real(R8P)                 :: fe(NV_MHD_EGLM)                        !< Flux, EGLM.
    real(R8P)                 :: fse(2,1-S_MAX:S_MAX-1,NV_MHD_EGLM)     !< Split fields, EGLM.
    integer(I4P)              :: m, i, j, k, c                          !< Counters.
@@ -113,11 +115,12 @@ contains
          c = c + 1 ; res(c) = ere(i,j)
       enddo
    enddo
-   call mhd_face_split_fluxes(gamma=GAMMA, d=d, S=S, is_characteristic=.true., qs=qs8, qas=qas, fsplit=fs8, er=er8)
+   call mhd_face_split_fluxes(gamma=GAMMA, d=d, S=S, is_characteristic=.true., qs=qs8, qas=qas, fsplit=fs8, er=er8, &
+                              mu=mu8)
    call mhd_glm_face_split_fluxes(ch=ch, gamma=GAMMA, d=d, S=S, is_characteristic=.true., qs=qs9, qas=qas, &
-                                  fsplit=fs9, er=er9)
+                                  fsplit=fs9, er=er9, mu=mu9)
    call mhd_eglm_face_split_fluxes(ch=ch, gamma=GAMMA, d=d, S=S, is_characteristic=.true., qs=qse, qas=qase, &
-                                   fsplit=fse, er=ere)
+                                   fsplit=fse, er=ere, mu=mue)
    split = 0._R8P
    c = 0
    do k=1, NV_MHD
