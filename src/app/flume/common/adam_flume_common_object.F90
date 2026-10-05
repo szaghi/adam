@@ -763,18 +763,18 @@ contains
    endsubroutine coupling_descriptor_forest
 
    ! public procedures
-   pure function ib_cut_spacing(phi_c, phi_m, phi_p, ds, eps) result(ds_cut)
+   pure function ib_cut_spacing(phi_c, phi_m, phi_p, ds) result(ds_cut)
    !< Return the spacing of a fluid cell along one direction, shortened where the solid surface crosses its stencil
    !< (CHASE semantics, issue #35 D-9).
    !<
    !< When the fluid cell (`phi_c < 0`) has one neighbour inside the solid (`phi_m phi_p < 0`), the surface lies at the
-   !< distance `delta = -phi_c / (phi_s - phi_c + eps) ds` from the cell centre towards the solid neighbour `s`, and
-   !< the spacing becomes `ds / 2 + delta`; otherwise it is `ds`.
+   !< distance `delta = -phi_c / (phi_s - phi_c) ds` from the cell centre towards the solid neighbour `s`, and the
+   !< spacing becomes `ds / 2 + delta`; otherwise it is `ds`. `phi_s > 0 > phi_c` there, so `phi_s - phi_c > 0` needs no
+   !< guard: CHASE added an absolute `1e-12`, a length that broke the scaling covariance of the scheme (issue #49).
    real(R8P), intent(in) :: phi_c  !< Distance function of the cell (negative in the fluid).
    real(R8P), intent(in) :: phi_m  !< Distance function of the minus neighbour.
    real(R8P), intent(in) :: phi_p  !< Distance function of the plus neighbour.
    real(R8P), intent(in) :: ds     !< Spacing.
-   real(R8P), intent(in) :: eps    !< Guard against a vanishing denominator.
    real(R8P)             :: ds_cut !< Spacing, cut by the surface.
    !$acc routine seq
    !$omp declare target
@@ -782,9 +782,9 @@ contains
    ds_cut = ds
    if (phi_c < 0._R8P .and. phi_m * phi_p < 0._R8P) then
       if (phi_p > 0._R8P) then
-         ds_cut = 0.5_R8P * ds - phi_c / (phi_p - phi_c + eps) * ds
+         ds_cut = 0.5_R8P * ds - phi_c / (phi_p - phi_c) * ds
       else
-         ds_cut = 0.5_R8P * ds - phi_c / (phi_m - phi_c + eps) * ds
+         ds_cut = 0.5_R8P * ds - phi_c / (phi_m - phi_c) * ds
       endif
    endif
    endfunction ib_cut_spacing

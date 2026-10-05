@@ -123,7 +123,6 @@ contains
    real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)           !< Z-face fluxes.
    real(R8P),    intent(in)    :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function [nb, i, j, k, solids+1].
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Residuals.
-   real(R8P), parameter        :: IB_EPS=1.e-12_R8P                   !< Guard of the cut spacing (CHASE value).
    real(R8P)                   :: wx, wy, wz                          !< Direction weights: 1 active, 0 null.
    real(R8P)                   :: dx, dy, dz                          !< Cell spacings.
    integer(I4P)                :: fx, fy, fz                          !< Frozen variables, scalar copies.
@@ -144,11 +143,11 @@ contains
    do i=1, ni
    do b=1, blocks_number
       dx = ib_cut_spacing(phi_c=phi_gpu(b,i,j,k,ns), phi_m=phi_gpu(b,i-1,j,k,ns), phi_p=phi_gpu(b,i+1,j,k,ns), &
-                          ds=dxyz_gpu(b,1), eps=IB_EPS)
+                          ds=dxyz_gpu(b,1))
       dy = ib_cut_spacing(phi_c=phi_gpu(b,i,j,k,ns), phi_m=phi_gpu(b,i,j-1,k,ns), phi_p=phi_gpu(b,i,j+1,k,ns), &
-                          ds=dxyz_gpu(b,2), eps=IB_EPS)
+                          ds=dxyz_gpu(b,2))
       dz = ib_cut_spacing(phi_c=phi_gpu(b,i,j,k,ns), phi_m=phi_gpu(b,i,j,k-1,ns), phi_p=phi_gpu(b,i,j,k+1,ns), &
-                          ds=dxyz_gpu(b,3), eps=IB_EPS)
+                          ds=dxyz_gpu(b,3))
       !$acc loop seq
       do v=1, nv
          dq_gpu(b,i,j,k,v) = -(wx * (flx_f_gpu(b,i,j,k,v) - flx_f_gpu(b,i-1,j,k,v)) / dx + &

@@ -2,7 +2,7 @@
    !
    ! Included in the `contains` part of the kernel modules of the models that accept the limiter (Euler, MHD without
    ! divergence control, MHD with EGLM; D-10 refuses it with the mixed GLM), which provide by use association `NV_K`,
-   ! `NV_AUX_K`, `IQ_R`, `POSITIVITY_LIMITER_EPS`, `POSITIVITY_LIMITER_KAPPA`, and three private adapters:
+   ! `NV_AUX_K`, `IQ_R`, `POSITIVITY_LIMITER_KAPPA`, and three private adapters:
    ! * `backbone_face_flux(gamma, ch, d, qL, qR, f)`: the first-order Lax-Friedrichs flux of two cell states, whose
    !   forward-Euler update is admissible under the CFL condition (Euler: Rusanov; MHD: the Wu speed);
    ! * `internal_energy(q)`: the internal energy per unit volume, `E` minus the kinetic, magnetic and cleaning energies,
@@ -17,11 +17,12 @@
    ! Lambda]^faces` (all subsets of the faces at `Lambda`, the source difference `dt (s_hi - s_lo)` always at `Lambda`)
    ! keeps `rho >= eps` and `rho e >= eps`; as both are concave in `q` (the density linear), each corner's factor is a
    ! closed form (Zhang & Shu 2012, doi:10.1016/j.jcp.2011.11.020): first the density along the segment, then the
-   ! internal energy through its chord. `eps = max(min(POSITIVITY_LIMITER_EPS, backbone value / 2),
-   ! POSITIVITY_LIMITER_KAPPA backbone value)`: the absolute floor alone keeps the state admissible but not usable (the
-   ! planar Sedov blast on HLLC drains its centre cell to `rho = EPS` in one stage, the sound speed grows by 1e6 and the
-   ! next stage's backbone, whose time step is that of the step's first state, is inadmissible), so a stage may not take
-   ! a cell below `KAPPA` times its backbone value; smooth updates differ from the backbone by O(dx), far from it. A face
+   ! internal energy through its chord. `eps = POSITIVITY_LIMITER_KAPPA backbone value`: positivity alone keeps the
+   ! state admissible but not usable (the planar Sedov blast on HLLC drained its centre cell to `rho = 1e-13` in one stage
+   ! under the former absolute floor, the sound speed grew by 1e6 and the next stage's backbone, whose time step is that
+   ! of the step's first state, was inadmissible), so a stage may not take a cell below `KAPPA` times its backbone value;
+   ! smooth updates differ from the backbone by O(dx), far from it. The floor is relative only (issue #49: FLUME's
+   ! equations carry no unit, an absolute floor would make the result depend on the units of the input). A face
    ! takes `theta = min(Lambda)` of its two cells and `F <- F^LLF + theta (F - F^LLF)`, so each forward-Euler step of
    ! size `dt` is admissible; an SSP Runge-Kutta stage is a convex combination of such steps (all of size at most `dt`).
 
@@ -273,10 +274,10 @@
       enddo
    enddo
    status = 0_I4P
-   ! the larger of the absolute and the relative floor: a stage may not take the cell below KAPPA times its backbone
-   ! value, else a drained cell (rho ~ EPS, its energy kept) makes the next stage's backbone inadmissible
-   er = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * rb), POSITIVITY_LIMITER_KAPPA * rb)
-   ee = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * eb), POSITIVITY_LIMITER_KAPPA * eb)
+   ! the relative floor: a stage may not take the cell below KAPPA times its backbone value (no absolute floor: issue
+   ! #49, the scheme has no unit), else a drained cell (its energy kept) makes the next stage's backbone inadmissible
+   er = POSITIVITY_LIMITER_KAPPA * rb
+   ee = POSITIVITY_LIMITER_KAPPA * eb
    lc = 1._R8P
    do c=0, 2**nf - 1
       dc = dsrc

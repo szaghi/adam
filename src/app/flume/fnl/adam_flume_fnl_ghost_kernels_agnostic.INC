@@ -2,7 +2,7 @@
    ! `adam_flume_cpu_ghost_kernels_agnostic.INC` (see it for the method), on the device layout `[nb, i, j, k, nv]`.
    !
    ! Included in the `contains` part of every model's device kernel module, which provides by use association `NV_K`,
-   ! `IQ_R`, `POSITIVITY_LIMITER_EPS`, `POSITIVITY_LIMITER_KAPPA` and the device adapter `internal_energy(q)`.
+   ! `IQ_R`, `POSITIVITY_LIMITER_KAPPA` and the device adapter `internal_energy(q)`.
 
    subroutine blend_inadmissible_ghosts_dev(ni, nj, nk, ngc, blocks_number, is_null, q_gpu, blended)
    !< Blend every inadmissible face ghost of `q_gpu` toward the adjacent interior cell and count the ghosts blended
@@ -64,8 +64,8 @@
                   n = n + 1_I4P
                   t = 0._R8P
                   if (.not.isnf) then
-                     er = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * rb), POSITIVITY_LIMITER_KAPPA * rb)
-                     ee = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * eb), POSITIVITY_LIMITER_KAPPA * eb)
+                     er = POSITIVITY_LIMITER_KAPPA * rb
+                     ee = POSITIVITY_LIMITER_KAPPA * eb
                      !$acc loop seq
                      do v=1, NV_K
                         dc(v) = qg(v) - qi(v)

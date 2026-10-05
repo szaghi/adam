@@ -16,7 +16,7 @@ use :: adam_fnl_weno_kernels,    only : weno_reconstruct_upwind_dev
 use :: adam_flume_euler_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &
                                         compute_riemann_llf, conservative_to_auxiliary
 use :: adam_flume_parameters,    only : IA_A, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_K=>NV_AUX,     &
-                                        NV_K=>NV_EULER, POSITIVITY_LIMITER_EPS, &
+                                        NV_K=>NV_EULER,                         &
                                         POSITIVITY_LIMITER_KAPPA, S_MAX
 ! third party modules
 use :: penf,                     only : I4P, I8P, R8P

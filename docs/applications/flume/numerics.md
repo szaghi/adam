@@ -151,11 +151,12 @@ of the high-order flux $F$ (and EGLM the difference of the high- and second-orde
 is the largest value in $[0, 1]$ for which every corner of the box $[0, \Lambda]^{\text{faces}}$ keeps $\rho$ and the
 internal energy above their floors; both are concave in the conservative state, so each corner has a closed-form
 factor (Zhang & Shu 2012), and $2^{2D}$ corners (16 in 2-D, 64 in 3-D) bound every combination. The floor of a quantity
-is the larger of the absolute one, $\min(10^{-13}, \tfrac12\,\text{backbone value})$, and the relative one, $\kappa$
-times the backbone value with $\kappa = 0.1$: positivity alone leaves a state admissible but not usable (on the planar
-Sedov blast with HLLC one stage drains the centre cell to $\rho = 10^{-13}$ with its energy kept, the sound speed grows
-by $10^6$ and the next stage, whose $\Delta t$ is that of the step's first state, has no admissible backbone), so a
-stage may not take a cell below a tenth of its first-order update. A smooth update differs from the backbone by
+is $\kappa$ times its backbone value, $\kappa = 0.1$: positivity alone leaves a state admissible but not usable (on the
+planar Sedov blast with HLLC the former absolute floor $10^{-13}$ let one stage drain the centre cell to
+$\rho = 10^{-13}$ with its energy kept, the sound speed grew by $10^6$ and the next stage, whose $\Delta t$ is that of
+the step's first state, had no admissible backbone), so a stage may not take a cell below a tenth of its first-order
+update. The floor is relative only: an absolute one would make the solution depend on the units of the input
+(issue #49), and below a backbone value of $10^{-12}$ it was the absolute one that acted. A smooth update differs from the backbone by
 $O(\Delta x)$, so the relative floor does not act there. A face takes the smaller
 factor of its two cells, $F \leftarrow F^{LF} + \theta(F - F^{LF})$ (Xu 2014; Christlieb et al. 2015), so the update is
 conservative and each forward-Euler step of size $\Delta t$ is admissible; an SSP Runge–Kutta stage is a convex
@@ -228,7 +229,9 @@ Static rigid solids (`[solids]`, `[solid_N]`, e.g. `definition = analytical_circ
    loop order or the thread count, and the CPU and FNL backends agree);
 3. the extended state is inverted into the mirror state of a slip wall (the normal velocity reversed);
 4. the fluid cells cut by the surface use the cut spacing in the flux difference, and the solid cells are masked in the
-   Runge–Kutta stages.
+   Runge–Kutta stages. The cut spacing of a fluid cell $c$ with a solid neighbour $s$ is
+   $\Delta/2 - \phi_c\,\Delta/(\phi_s - \phi_c)$; the denominator is positive ($\phi_s > 0 > \phi_c$), so it carries no
+   guard (the absolute $10^{-12}$ inherited from CHASE was a length, removed with issue #49).
 
 The solid surface can drive the AMR (the refined ring of the [shock-over-a-cylinder example](./verification#shock-over-a-cylinder)).
 `mhd-ideal` with solids is refused.

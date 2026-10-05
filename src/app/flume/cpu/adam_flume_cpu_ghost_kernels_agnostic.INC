@@ -1,7 +1,7 @@
    ! Model-agnostic CPU loop of the ghost positivity blend (issue #50, D2).
    !
    ! Included in the `contains` part of every model's kernel module, which provides by use association `NV_K`, `IQ_R`,
-   ! `POSITIVITY_LIMITER_EPS`, `POSITIVITY_LIMITER_KAPPA` and the private adapter `internal_energy(q)` (the internal
+   ! `POSITIVITY_LIMITER_KAPPA` and the private adapter `internal_energy(q)` (the internal
    ! energy per unit volume, a concave function of `q`).
    !
    ! Why: a coarse-to-fine seam ghost is a tricubic interpolant of each conservative variable (`[amr] seam_ghost_fill`,
@@ -63,8 +63,8 @@
                            q(1:NV_K,i,j,k,b) = qi
                            cycle
                         endif
-                        er = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * rb), POSITIVITY_LIMITER_KAPPA * rb)
-                        ee = max(min(POSITIVITY_LIMITER_EPS, 0.5_R8P * eb), POSITIVITY_LIMITER_KAPPA * eb)
+                        er = POSITIVITY_LIMITER_KAPPA * rb
+                        ee = POSITIVITY_LIMITER_KAPPA * eb
                         dc = qg - qi
                         t = 1._R8P
                         r1 = rb + dc(IQ_R)

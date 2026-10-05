@@ -1411,7 +1411,6 @@ contains
    real(R8P),    intent(in)           :: flz(1:,1:,1:,0:,1:)             !< Z-face fluxes.
    real(R8P),    intent(inout)        :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Residuals.
    real(R8P),    intent(in), optional :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Immersed solids distance function.
-   real(R8P), parameter               :: IB_EPS=1.e-12_R8P               !< Guard of the cut spacing (CHASE value).
    real(R8P)                          :: wx, wy, wz                      !< Direction weights: 1 active, 0 null.
    real(R8P)                          :: dx, dy, dz                      !< Cell spacings.
    integer(I4P)                       :: ns                              !< All-solids summary slot of phi.
@@ -1428,12 +1427,9 @@ contains
             do i=1, ni
                dx = dxyz(1,b) ; dy = dxyz(2,b) ; dz = dxyz(3,b)
                if (ns > 0_I4P) then
-                  dx = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i-1,j,k,b), phi_p=phi(ns,i+1,j,k,b), ds=dx, &
-                                      eps=IB_EPS)
-                  dy = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i,j-1,k,b), phi_p=phi(ns,i,j+1,k,b), ds=dy, &
-                                      eps=IB_EPS)
-                  dz = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i,j,k-1,b), phi_p=phi(ns,i,j,k+1,b), ds=dz, &
-                                      eps=IB_EPS)
+                  dx = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i-1,j,k,b), phi_p=phi(ns,i+1,j,k,b), ds=dx)
+                  dy = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i,j-1,k,b), phi_p=phi(ns,i,j+1,k,b), ds=dy)
+                  dz = ib_cut_spacing(phi_c=phi(ns,i,j,k,b), phi_m=phi(ns,i,j,k-1,b), phi_p=phi(ns,i,j,k+1,b), ds=dz)
                endif
                do v=1, nv
                   dq(v,i,j,k,b) = -(wx * (flx(v,i,j,k,b) - flx(v,i-1,j,k,b)) / dx + &
