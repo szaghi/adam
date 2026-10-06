@@ -409,6 +409,11 @@ solution.
 | regression cases | the 21 single-realm ones (orszag-tang and the 5 multi-realm ones are refused by the layer) | 21/21 bitwise, conversions exact and complete |
 | generated inputs | the MHD linear waves (fast GLM, Alfvén EGLM, slow), CPAW, the magnetised vortex, the div(B) peak, the EGLM pulse, Shu–Osher, the isentropic vortex, Sod with a slice, Sod with two gradient AMR markers | 11/11 bitwise, conversions exact and complete |
 
+NV-8 (`reference.sh --restart`): on sod-x (fast path), shock-cylinder-ib (immersed boundary, AMR),
+amr-periodic-reflux (staged path, reflux) and blast-amr-limiter (MHD EGLM, AMR, positivity limiter), dimensionalised as
+above, a run of 20 steps equals a run of 10 steps plus a restart to 20 bit for bit (conservative fields, residual and
+conservation histories); restarting with another density reference, or without the `.reference` record, is refused.
+
 The first run found two options the scaling tool had misclassified since N0: `rho_amplitude` taken as dimensionless
 (it is a density) and `loop_amplitude` as a vector potential (it is the field of the loop). The two independent tables
 disagreed, and the field-loop case was not bitwise.

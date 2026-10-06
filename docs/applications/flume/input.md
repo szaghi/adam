@@ -353,7 +353,10 @@ value is divided by the reference of its dimension (issue #49). With this sectio
 the loaded file, before any other section is parsed; without it nothing changes. References: density `rho0`, length
 `L0`, velocity `u0`; derived: time `L0/u0`, pressure and energy density `rho0 u0^2`, field `u0 sqrt(rho0)`, the GLM
 `psi` `u0^2 sqrt(rho0)` (the EGLM one as the field). `cp`, `cv` are replaced by `gamma = cp/cv` (the gas constant
-becomes 1, the temperature unit `u0^2/R`). Outputs, restart files and logs stay in code units.
+becomes 1, the temperature unit `u0^2/R`). Outputs, restart files and logs stay in code units. Every restart save
+also writes `<restart_basename>.reference` (the three references, 1 without this section); a restart under different
+references is refused, and restart files without that record (written before it existed, so in code units) restart only
+when the references are all 1.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|

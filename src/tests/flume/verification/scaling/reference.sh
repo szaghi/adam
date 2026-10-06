@@ -17,7 +17,15 @@
 # any input files instead (each as input.ini in its own work directory), e.g. the generated verification inputs that
 # exercise the initial conditions, gradient AMR markers and slices no regression case uses.
 #
+# --restart runs NV-8 instead on the cases (default sod-x shock-cylinder-ib amr-periodic-reflux blast-amr-limiter),
+# each dimensionalised as above: run A goes N = 20 steps; run B goes N/2 saving a restart, then restarts and completes
+# N, and must equal A bit for bit (conservative fields, residual and conservation histories). The restart files record
+# their references (<restart_basename>.reference): restarting B with another density reference must be refused, and
+# so must restarting without the record (restart files written before the record existed are code units) while the
+# references are not 1.
+#
 # Usage: ./reference.sh [--np N] [--j J --k K --m M] [--cases "sod-x rotor ..." | --inputs "a.ini b.ini ..."]
+#                       [--restart]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./reference.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -29,7 +37,7 @@ REG_DIR="$REPO_ROOT/src/tests/flume/regression"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TOOL="$CASE_DIR/scaling.py"
-NP=2 ; J=2 ; K=-1 ; M=-2 ; INPUTS=""
+NP=2 ; J=2 ; K=-1 ; M=-2 ; INPUTS="" ; RESTART=0
 CASES="$(cd "$REG_DIR" && for d in */; do [[ -f "$d/input.ini" ]] && echo "${d%/}"; done)"
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +48,7 @@ while [[ $# -gt 0 ]]; do
       --m)     M="$2" ; shift 2 ;;
       --cases) CASES="$2" ; shift 2 ;;
       --inputs) INPUTS="$2" ; shift 2 ;;
+      --restart) RESTART=1 ; shift ;;
       *) echo "reference.sh: unknown argument '$1'" >&2 ; exit 2 ;;
    esac
 done
@@ -64,6 +73,67 @@ copy_case() { # copy_case <case or input file> <work-dir>: the case inputs, with
            -exec cp {} "$2" \;
    fi
 }
+
+set_keys() { # set_keys <ini> <section.key=value>...: rewrite options of an input
+   "$VENV_PY" - "$@" <<'PYEOF'
+import configparser, sys
+ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None, strict=False)
+ini.optionxform = str
+ini.read(sys.argv[1])
+for item in sys.argv[2:]:
+    key, value = item.split("=", 1)
+    section, option = key.rsplit(".", 1)
+    ini[section][option] = value
+with open(sys.argv[1], "w") as f:
+    ini.write(f)
+PYEOF
+}
+
+refused() { # refused <work-dir> <expected message>: the run must stop with the message
+   (cd "$1" && mpirun -np "$NP" "$EXE" input.ini > log-refused.txt 2>&1) || true
+   grep -aqF "$2" "$1/log-refused.txt"
+}
+
+if [[ $RESTART -eq 1 ]]; then
+   [[ "$CASES" == "$(cd "$REG_DIR" && for d in */; do [[ -f "$d/input.ini" ]] && echo "${d%/}"; done)" ]] && \
+      CASES="sod-x shock-cylinder-ib amr-periodic-reflux blast-amr-limiter"
+   echo ">> reference layer NV-8 restart ($(basename "$EXE"), np $NP): L0 = 2^$J, u0 = 2^$K, rho0 = 4^$M, N = 20"
+   for c in $CASES; do
+      a="$CASE_DIR/work-ref-$TAG-$c-restart-A" ; b="$CASE_DIR/work-ref-$TAG-$c-restart-B"
+      copy_case "$c" "$a" ; copy_case "$c" "$b"
+      "$VENV_PY" "$TOOL" dimensionalize "$a/input.ini" "$b/input.ini" --j "$J" --k "$K" --m "$M" > /dev/null
+      cp "$b/input.ini" "$a/input.ini"
+      rb="$(awk -F= '/^\[/{s=$0} s=="[IO]" && $1~/^ *restart_basename *$/{gsub(/ /, "", $2); print $2}' "$a/input.ini")"
+      set_keys "$a/input.ini" time.it_max=20 IO.restart_save=0 IO.restart=.false.
+      run "$a"
+      set_keys "$b/input.ini" time.it_max=10 IO.restart_save=10 IO.restart=.false.
+      run "$b"
+      set_keys "$b/input.ini" time.it_max=20 IO.restart_save=0 IO.restart=.true.
+      run "$b"
+      status=0
+      result="$("$VENV_PY" "$TOOL" compare "$a" "$b" --ngc 3 --conservative --psi glm)" || status=1
+      for h in "$a"/*-residuals.dat "$a"/*-conservation_history.dat; do
+         cmp -s "$h" "$b/$(basename "$h")" || { status=1 ; result="$result; $(basename "$h") differs" ; }
+      done
+      density="$(awk -F= '/^\[/{s=$0} s=="[reference]" && $1~/^ *density *$/{print $2+0}' "$b/input.ini")"
+      set_keys "$b/input.ini" "reference.density=$(awk -v d="$density" 'BEGIN{printf "%.17g", 4*d}')"
+      if refused "$b" "were written with the references"; then result="$result; other references refused"
+      else status=1 ; result="$result; other references NOT refused" ; fi
+      set_keys "$b/input.ini" "reference.density=$density"
+      rm -f "$b/$rb.reference"
+      if refused "$b" "carry no references"; then result="$result; restart without record refused"
+      else status=1 ; result="$result; restart without record NOT refused" ; fi
+      printf '   %-22s %s\n' "$c" "$(echo "$result" | sed 's/^ *//')"
+      if [[ $status -eq 0 ]]; then passed=$(( passed + 1 )) ; else fails=$(( fails + 1 )) ; fi
+      find "$a" "$b" -name '*.h5' -delete
+   done
+   if [[ $fails -gt 0 ]]; then
+      echo "reference layer NV-8 FAILED: $fails cases, $passed passed ($TAG)"
+      exit 1
+   fi
+   echo "reference layer NV-8: $passed cases restart bitwise, other references and missing records refused ($TAG)"
+   exit 0
+fi
 
 echo ">> reference layer NV-5 ($(basename "$EXE"), np $NP): L0 = 2^$J, u0 = 2^$K, rho0 = 4^$M"
 [[ -n $INPUTS ]] && CASES="$INPUTS"

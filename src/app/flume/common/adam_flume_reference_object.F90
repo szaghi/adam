@@ -20,6 +20,10 @@ module adam_flume_reference_object
 !<
 !< **Gas.** `cp`, `cv` are replaced by `gamma = cp / cv` (the same double the physics object computes), so that
 !< `R* = 1` and the temperature unit is `u0^2 / R`; with `[physics] gamma` there is nothing to convert.
+!<
+!< **Restart.** Restart files stay in code units; `<restart_basename>.reference` records the references they were
+!< written with (1 without the layer), and a restart under different references is refused (NV-8). Restart files
+!< without the record (written before issue #49 N2b) are code units: they restart only with references 1.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
@@ -72,8 +76,10 @@ type :: flume_reference_object
    contains
       ! public methods
       procedure, pass(self) :: description !< Return pretty-printed object description.
-      procedure, pass(self) :: initialize  !< Initialize the layer and convert the input.
-      procedure, pass(self) :: scale       !< Return the reference of a dimension.
+      procedure, pass(self) :: check_restart !< Refuse restart files written under other references.
+      procedure, pass(self) :: initialize    !< Initialize the layer and convert the input.
+      procedure, pass(self) :: save_restart  !< Record the references of the restart files.
+      procedure, pass(self) :: scale         !< Return the reference of a dimension.
       ! private methods
       procedure, pass(self), private :: classify         !< Return the kind and dimension of an option.
       procedure, pass(self), private :: classify_marker  !< Return the dimension of an AMR gradient tolerance.
@@ -104,6 +110,40 @@ contains
    desc = desc//mpih%myrankstr//'  options converted: '//trim(str(self%converted, .true.))
    endfunction description
 
+   subroutine check_restart(self, basename)
+   !< Refuse restart files written under other references: the record must equal the current references exactly; without
+   !< a record (restart files written before issue #49 N2b, in code units) the current references must all be 1.
+   class(flume_reference_object), intent(in) :: self      !< Reference layer.
+   character(*),                  intent(in) :: basename  !< Restart files basename.
+   character(len=*), parameter               :: ORDER='density, length, velocity' !< Record order.
+   real(R8P)                                 :: saved(3)  !< References of the restart files.
+   real(R8P)                                 :: current(3) !< Current references.
+   character(999)                            :: key       !< Record key.
+   integer(I4P)                              :: unit, ios, i !< File unit, I/O status, counter.
+   logical                                   :: is_present !< Record presence.
+
+   current = [self%density, self%length, self%velocity]
+   inquire(file=basename//'.reference', exist=is_present)
+   if (.not.is_present) then
+      if (any(current /= 1._R8P)) &
+         call mpih%error_stop(msg=': the restart files '//basename//' carry no references (code units, written before '// &
+                                  'issue #49 N2b) and the run has ['//INI_SECTION_NAME//'] references not 1: refused')
+      return
+   endif
+   open(newunit=unit, file=basename//'.reference', action='read', iostat=ios)
+   do i=1, 3
+      if (ios == 0) read(unit, *, iostat=ios) key, saved(i)
+   enddo
+   close(unit)
+   if (ios /= 0) call mpih%error_stop(msg=': cannot read the references of the restart files '//basename//'.reference')
+   if (any(saved /= current)) &
+      call mpih%error_stop(msg=': the restart files '//basename//' were written with the references ('//ORDER//') '// &
+                               trim(format_value(saved(1)))//', '//trim(format_value(saved(2)))//', '//          &
+                               trim(format_value(saved(3)))//', the run has '//trim(format_value(current(1)))//   &
+                               ', '//trim(format_value(current(2)))//', '//trim(format_value(current(3)))//       &
+                               ': refused (restart files are in code units of their own references)')
+   endsubroutine check_restart
+
    subroutine initialize(self, file_parameters)
    !< Initialize the layer: without `[reference]` do nothing; with it, load the references and convert every
    !< dimensional option of the loaded input to code units.
@@ -120,6 +160,20 @@ contains
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'flume_reference_object%initialize finish'
    endsubroutine initialize
+
+   subroutine save_restart(self, basename)
+   !< Record the references of the restart files (rank 0), 17 significant digits: read back, the same doubles.
+   class(flume_reference_object), intent(in) :: self     !< Reference layer.
+   character(*),                  intent(in) :: basename !< Restart files basename.
+   integer(I4P)                              :: unit     !< File unit.
+
+   if (mpih%myrank /= 0_I4P) return
+   open(newunit=unit, file=basename//'.reference', action='write', status='replace')
+   write(unit, '(A)') 'density '//trim(format_value(self%density))
+   write(unit, '(A)') 'length '//trim(format_value(self%length))
+   write(unit, '(A)') 'velocity '//trim(format_value(self%velocity))
+   close(unit)
+   endsubroutine save_restart
 
    pure function scale(self, dim) result(s)
    !< Return the reference of a dimension, `L0^a u0^b sqrt(rho0)^c`: exact when the references are powers of two

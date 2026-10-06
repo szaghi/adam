@@ -629,6 +629,7 @@ contains
    integer(I4P),               intent(out)   :: t    !< Time iteration.
    real(R8P),                  intent(out)   :: time !< Time.
 
+   call self%units%check_restart(basename=self%io%restart_basename)
    call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
@@ -641,6 +642,7 @@ contains
    call mpih%print_message('save restart files t: '//trim(str(self%time%it, .true.))//', time: '// &
                            trim(str(self%time%time, .true.)))
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
+   call self%units%save_restart(basename=self%io%restart_basename)
    call self%save_xh5f(output_basename=self%io%restart_basename)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
