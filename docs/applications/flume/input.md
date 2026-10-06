@@ -18,6 +18,15 @@ A realm input is read in this order: `[IO]` → `[reference]` (if present it con
 `[initial_conditions]` → `[diagnostics]` → `[IO].save_auxiliary_fields`. After reading, FLUME applies
 cross-section checks (slices, WENO scheme, Riemann solver per model, ghost cells, even block cells for AMR).
 
+## Units
+
+Any consistent unit system works: the equations carry no dimensionless number
+([units and scaling](./models#units-and-scaling)), so SI, cgs and units of order 1 give the same run. Magnetic fields
+are always $\mathbf{B}_{SI}/\sqrt{\mu_0}$ (a Gaussian field divided by $\sqrt{4\pi}$). With the classic WENO
+weights the data should be of order 1: either write the input in such units, add a
+[`[reference]`](#reference-optional-dimensional-input) section that converts a physical input, or set
+`[weno] weights = si`.
+
 ## Parsing rules
 
 - **Section and key names are case-sensitive**: it is `CFL`,

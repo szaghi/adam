@@ -41,7 +41,10 @@ combination reaches order $2S-1$; the stencils crossing a discontinuity get $\om
 
 The absolute $\varepsilon$ ties the weights to the units of the data: $\beta_k$ scales as the square of the field, so
 on a field of magnitude $10^{-4}$ the ratio $\beta_k/\varepsilon$ is $10^{8}$ times smaller than on the same field at
-magnitude 1, the weights collapse to the linear ones and the scheme stops limiting. `[weno] weights = si` uses
+magnitude 1, the weights collapse to the linear ones and the scheme stops limiting (measured on Sod at an interstellar
+density, $10^{-21}$ kg/m³: the total variation of the density grows by 33%, and by 178% with `weno-riemann`, whose
+sensor reads the same weights; [NV-6](./verification#reference-layer-nv-5)). Two cures: the
+[reference layer](./models#units-and-scaling), which hands the solver numbers of order 1, or `[weno] weights = si`,
 scale-invariant weights after Don, Li, Wang and Wang (2022):
 
 $$\alpha_k = \frac{d_k}{(\varepsilon + \beta_k/\mu^2)^{m}},$$

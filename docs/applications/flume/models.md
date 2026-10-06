@@ -20,12 +20,14 @@ outside the current scope (planned in milestone M4).
 
 ## Thermodynamics
 
-The gas is defined by the specific heats at constant pressure and volume, `[physics] cp, cv` (J/(kg K)):
+The gas is defined by the specific heats at constant pressure and volume, `[physics] cp, cv` (J/(kg K)), or by their
+ratio alone, `[physics] gamma`, with the gas constant then 1 (code units):
 
 $$\gamma = \frac{c_p}{c_v}, \qquad R = c_p - c_v, \qquad p = \rho R T, \qquad a = \sqrt{\frac{\gamma p}{\rho}}.$$
 
 Air, the value of most inputs, is `cp = 1040.004`, `cv = 742.86` ($\gamma = 1.4$). The MHD verification problems use
-$\gamma = 5/3$ or $2$ (Brio–Wu) through the same two keys.
+$\gamma = 5/3$ or $2$ (Brio–Wu). $R$ enters only the temperature: the fluxes, eigensystems and Riemann solvers take
+$\gamma$ alone.
 
 ## Compressible Euler
 
@@ -60,7 +62,8 @@ and the rotation invariance on 10 000 random states in each direction.
 ## Ideal MHD
 
 In code units the magnetic permeability is absorbed into the field, $\mathbf{B} = \mathbf{B}_{SI}/\sqrt{\mu_0}$, so the
-magnetic pressure is $|\mathbf{B}|^2/2$ and the fluid variables stay dimensional SI:
+magnetic pressure is $|\mathbf{B}|^2/2$ and the fluid variables keep the units of the input
+([units and scaling](#units-and-scaling)):
 
 $$\frac{\partial \rho}{\partial t} + \nabla\cdot(\rho\mathbf{u}) = 0,$$
 
@@ -156,6 +159,48 @@ flux, $F_\rho\,\tilde\psi^2/(2\rho_{\text{up}})$ (a passive scalar, upwind densi
 exchange, and count the floored cells (global counters in the log). With the floors disabled, a non-positive state stops
 the run. Independently, every step checks the state for non-finite values and stops the run naming the first one.
 
+## Units and scaling
+
+The equations above carry no dimensionless number. Take three references, a density $\rho_0$, a length $L_0$ and a
+velocity $u_0$, and derive the others:
+
+| Quantity | Reference |
+|---|---|
+| time | $t_0 = L_0/u_0$ |
+| pressure, energy density | $p_0 = \rho_0 u_0^2$ |
+| magnetic field ($\mathbf{B}_{SI}/\sqrt{\mu_0}$) | $B_0 = u_0\sqrt{\rho_0}$ |
+| GLM speed $c_h$ | $u_0$ |
+| $\psi$, mixed GLM | $B_0 u_0$ |
+| $\psi$, EGLM | $B_0$ |
+| temperature | $u_0^2/R$ ($R^* = 1$) |
+
+Dividing every variable by its reference, every term of the Euler and MHD systems, the GLM and EGLM terms and the GLM
+damping $\alpha c_h/L$ included, picks up the same factor, which cancels: the equations in the scaled variables are the
+same equations (Goedbloed & Poedts 2004, section 4.1.2). A run in SI, in cgs or in units of order 1 is the same run.
+PLUTO, Athena++, MPI-AMRVAC, BATS-R-US, FLASH and RAMSES solve the same $\mu_0$-absorbed form and treat units as a
+conversion.
+
+What the invariance does not remove:
+
+- **The parameters move into the data.** The Mach number, the Alfvén Mach number and the plasma $\beta$ live in the
+  initial and boundary states; one reference speed can set only one of the flow, sound and Alfvén speeds to 1.
+- **The temperature needs $R$**, and later a reference temperature, once conduction, cooling or a temperature-dependent
+  resistivity exist.
+- **Gravity is not free** (planned): an external field brings $g L_0/u_0^2$, self-gravity $G\rho_0 L_0^2/u_0^2$; the
+  dissipative terms of M4 bring the Reynolds, Péclet and Lundquist numbers.
+- **The discrete scheme must be scale-free too.** FLUME's is, apart from the classic WENO weights: their absolute
+  $\varepsilon$ stops the limiting at small magnitudes ([numerics](./numerics#weno-reconstruction)). With
+  `[weno] weights = si` a run whose input is scaled by powers of two (lengths, velocities, density) equals the base run
+  bit for bit (the [scaling oracle](./verification#scaling-covariance), NV-4); the admissibility floor of the
+  positivity limiter and the immersed-boundary cut spacing are relative.
+
+FLUME uses the invariance in two ways. An input in physical units can carry a
+[`[reference]`](./input#reference-optional-dimensional-input) section: the values are divided by their references once,
+on the loaded file, and the solver runs on numbers of order 1, whatever the weights; `output_units = dimensional`
+writes the results back in the input units. Or the input runs as it is with `weights = si`. On Sod at an interstellar
+density both match the code-units run to $10^{-13}$, where the classic weights without the layer stop limiting
+(NV-6).
+
 ## Time-step bound
 
 The time step is the minimum over the realm of
@@ -174,6 +219,7 @@ definitions are on the [input reference](./input#derived-output-fields) page.
 ## References
 
 - Dedner A. et al. (2002), Hyperbolic divergence cleaning for the MHD equations, *J. Comput. Phys.* 175, 645–673.
+- Goedbloed J. P., Poedts S. (2004), *Principles of Magnetohydrodynamics*, Cambridge University Press.
 - Derigs D. et al. (2018), Ideal GLM-MHD: about the entropy consistent nine-wave magnetic field divergence diminishing
   ideal MHD equations, *J. Comput. Phys.* 364, 420–467.
 - Mignone A., Tzeferacos P. (2010), A second-order unsplit Godunov scheme for cell-centered MHD: the CTU-GLM scheme,
