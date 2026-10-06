@@ -120,6 +120,7 @@ contains
 
    subroutine save_history(self, it, time, blocks_number, is_to_open, is_to_close)
    !< Save Grms history.
+   implicit none
    class(prism_grms_object), intent(inout)        :: self
    integer(I4P),             intent(in)           :: it
    real(R8P),                intent(in)           :: time
@@ -142,6 +143,7 @@ contains
             '"mean_abs(B-B_ref)_domain [T]" "mean_abs(B-B_ref)_-3dB [T]" ' // &
             '"mean_abs(B-B_ref)_domain/B_ref" "mean_abs(B-B_ref)_-3dB/B_ref" "B_ref [T]" ' // &
             '"B_-3dB [T]" "measure_domain" "cells_domain" "measure_-3dB" "cells_-3dB"'
+      flush(self%history_unit)
    endif
    write(self%history_unit, '(A)') trim(str(it                     ))//' '//&
                                    trim(str(blocks_number          ))//' '//&
@@ -160,6 +162,7 @@ contains
                                    trim(str(self%domain_cells_number        ))//' '//&
                                    trim(str(self%measure_3db                ))//' '//&
                                    trim(str(self%cells_number_3db           ))
+   flush(self%history_unit)
    if (is_to_close_) close(self%history_unit)
    endsubroutine save_history
 

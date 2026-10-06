@@ -64,6 +64,7 @@ contains
 
    subroutine save_history(self, it, time, blocks_number, is_to_open, is_to_close)
    !< Save domain-center magnetic-field history.
+   implicit none
    class(prism_magnetic_field_at_center_domain_object), intent(inout)        :: self
    integer(I4P),                                      intent(in)           :: it
    real(R8P),                                         intent(in)           :: time
@@ -83,6 +84,7 @@ contains
       write(self%history_unit,'(A)') &
             '%VARIABLES="it" "blocks_number" "time" "B_x [T]" "B_y [T]" "B_z [T]" ' // &
             '"x_sample" "y_sample" "z_sample" "center_sample_distance"'
+      flush(self%history_unit)
    endif
    write(self%history_unit, '(A)') trim(str(it                         ))//' '//&
                                    trim(str(blocks_number              ))//' '//&
@@ -94,6 +96,7 @@ contains
                                    trim(str(self%sample_point(2)       ))//' '//&
                                    trim(str(self%sample_point(3)       ))//' '//&
                                    trim(str(self%distance              ))
+   flush(self%history_unit)
    if (is_to_close_) close(self%history_unit)
    endsubroutine save_history
 

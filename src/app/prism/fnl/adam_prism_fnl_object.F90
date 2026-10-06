@@ -1299,13 +1299,25 @@ contains
 
    subroutine set_boundary_conditions(self, q_gpu)
    !< Set boundary conditions of equation.
+   implicit none
    class(prism_fnl_object), intent(in)    :: self                  !< The equation.
    real(R8P),               intent(inout) :: q_gpu(1:,         &
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1-self%ngc:,1:) !< Conservative variables.
    integer(I4P)                           :: crown                 !< Crown counter.
+   integer(I4P) :: ivar_phi_D, ivar_phi_B
    real(R8P)                              :: sm_admittance
+   ivar_phi_D = 0_I4P
+   ivar_phi_B = 0_I4P
+   if (self%physics%nv_cl == 2_I4P .and. self%numerics%constrained_transport_D .and. &
+       self%numerics%constrained_transport_B) then
+      ivar_phi_D = self%physics%nv_c - 1_I4P
+      ivar_phi_B = self%physics%nv_c
+   elseif (self%physics%nv_cl == 1_I4P) then
+      if (self%numerics%constrained_transport_D) ivar_phi_D = self%physics%nv_c
+      if (self%numerics%constrained_transport_B) ivar_phi_B = self%physics%nv_c
+   endif
    sm_admittance = C0*EPS0
    if (is_adim_model(self%physics%physical_model)) sm_admittance = 1._R8P
    if (associated(self%field_fnl%maps%local_map_bc_crown_gpu)) then
@@ -1317,6 +1329,13 @@ contains
                                              nv                     = self%nv                                   ,&
                                              nv_c                   = self%physics%nv_c                         ,&
                                              nv_cl                  = self%physics%nv_cl                        ,&
+                                             ivar_phi_D            = ivar_phi_D, &
+                                             ivar_phi_B            = ivar_phi_B, &
+                                             has_pic_current       = merge(1_I4P,0_I4P, &
+                                                                          is_pic_model(self%physics%physical_model)), &
+                                             var_Jx                = self%physics%var_Jx, &
+                                             var_Jy                = self%physics%var_Jy, &
+                                             var_Jz                = self%physics%var_Jz, &
                                              sm_admittance          = sm_admittance                             ,&
                                              crown                  = crown                                     ,&
                                              local_map_bc_crown_gpu = self%field_fnl%maps%local_map_bc_crown_gpu,&
@@ -1332,12 +1351,15 @@ contains
    endif
    contains
       subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, nv_c, nv_cl, sm_admittance, crown, &
+                                                ivar_phi_D, ivar_phi_B, has_pic_current, var_Jx, var_Jy, var_Jz, &
                                                 local_map_bc_crown_gpu, q_gpu)
       !< Set boundary conditions of equation, kernel device.
+      implicit none
       integer(I4P), intent(in)    :: ni,nj,nk,ngc                      !< Grid dimensions.
       integer(I4P), intent(in)    :: nv                                !< Number of conservative variables.
       integer(I4P), intent(in)    :: nv_c                              !< Number of physical conservative variables.
       integer(I4P), intent(in)    :: nv_cl                             !< Number of cleaning variables.
+      integer(I4P), intent(in) :: ivar_phi_D, ivar_phi_B, has_pic_current, var_Jx, var_Jy, var_Jz
       real(R8P),    intent(in)    :: sm_admittance
       integer(I4P), intent(in)    :: crown                             !< Crown counter.
       integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
@@ -1354,9 +1376,11 @@ contains
       integer(I4P)                :: alfa_B, beta_B, gamma_B           !< Tangential/normal B components.
       real(R8P)                   :: s1                                !< Face orientation sign.
       !$acc parallel loop independent gang vector &
-      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown,sm_admittance)
+      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown,sm_admittance) &
+      !$acc& firstprivate(ivar_phi_D,ivar_phi_B,has_pic_current,var_Jx,var_Jy,var_Jz)
       !$omp OMPLOOP &
-      !$omp& DEVICEPTR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown,sm_admittance)
+      !$omp& DEVICEPTR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown,sm_admittance) &
+      !$omp& firstprivate(ivar_phi_D,ivar_phi_B,has_pic_current,var_Jx,var_Jy,var_Jz)
       do c=1, size(local_map_bc_crown_gpu, dim=1)
          b = local_map_bc_crown_gpu(c, 1 ,crown)
          if (b>0) then
@@ -1476,6 +1500,8 @@ contains
                   q_gpu(b,i,j,k,VAR_BY) =  q_gpu(b,iref,jref,kref,VAR_BY)
                   q_gpu(b,i,j,k,VAR_BZ) = -q_gpu(b,iref,jref,kref,VAR_BZ)
                endselect
+               if (ivar_phi_D > 0_I4P) q_gpu(b,i,j,k,ivar_phi_D) = -q_gpu(b,iref,jref,kref,ivar_phi_D)
+               if (ivar_phi_B > 0_I4P) q_gpu(b,i,j,k,ivar_phi_B) = q_gpu(b,iref,jref,kref,ivar_phi_B)
             elseif (bc_type == BC_DIRICHLET) then
                do v=1, nv
                   q_gpu(b,i,j,k,v) = 0._R8P
@@ -1511,6 +1537,12 @@ contains
                   enddo
                endselect
             endif
+            if (has_pic_current /= 0_I4P) then
+               q_gpu(b,i,j,k,var_Jx) = 0._R8P
+               q_gpu(b,i,j,k,var_Jy) = 0._R8P
+               q_gpu(b,i,j,k,var_Jz) = 0._R8P
+               q_gpu(b,i,j,k,nv) = 0._R8P
+            endif
          endif
       enddo
       endsubroutine set_boundary_conditions_kernel
@@ -1519,6 +1551,7 @@ contains
       !$acc routine seq
       !$omp declare target
       !< Return the donor indexes mirrored across the selected boundary face.
+      implicit none
       integer(I4P), intent(in)  :: face                       !< Boundary face index in [1, 6].
       integer(I4P), intent(in)  :: ni, nj, nk                !< Interior grid extents.
       integer(I4P), intent(in)  :: i_gc, j_gc, k_gc         !< Ghost-cell indexes.
@@ -1547,6 +1580,7 @@ contains
 
       subroutine enforce_silver_muller_normal_bc_fnl(ni, nj, nk, ngc, nv, hs, has_rho, var_rho, local_map_bc_crown_gpu, dxyz_gpu, &
            q_gpu)
+      implicit none
       integer(I4P), intent(in)    :: ni, nj, nk, ngc, nv, hs, has_rho, var_rho
       integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
@@ -1591,6 +1625,7 @@ contains
            dxyz_gpu, face_filter, q_gpu)
       !$acc routine seq
       !$omp declare target
+      implicit none
       integer(I4P), intent(in)    :: c, ni, nj, nk, ngc, nv, hs, has_rho, var_rho, face_filter
       integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
@@ -1642,6 +1677,7 @@ contains
            var_rho)
       !$acc routine seq
       !$omp declare target
+      implicit none
       integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs, has_rho, var_rho
       real(R8P),    intent(in)    :: dxyz(3)
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
@@ -1667,6 +1703,7 @@ contains
       subroutine silver_muller_face_metadata_fnl(face, dir_t1, dir_t2, var_d_t1, var_d_t2, var_d_n, var_b_t1, var_b_t2, var_b_n)
       !$acc routine seq
       !$omp declare target
+      implicit none
       integer(I4P), intent(in)  :: face
       integer(I4P), intent(out) :: dir_t1, dir_t2
       integer(I4P), intent(out) :: var_d_t1, var_d_t2, var_d_n
@@ -1696,6 +1733,7 @@ contains
                                                       dir_t1, dir_t2, var_t1, var_t2, var_n, has_target, target_var)
       !$acc routine seq
       !$omp declare target
+      implicit none
       integer(I4P), intent(in)    :: ngc, ni, nj, nk, b, face, i_seed, j_seed, k_seed, hs
       integer(I4P), intent(in)    :: dir_t1, dir_t2, var_t1, var_t2, var_n, has_target, target_var
       real(R8P),    intent(in)    :: dxyz(3)
@@ -1772,6 +1810,7 @@ contains
       subroutine interior_cell_from_face_fnl(face, eq, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
       !$acc routine seq
       !$omp declare target
+      implicit none
       integer(I4P), intent(in)  :: face, eq, ni, nj, nk, i_seed, j_seed, k_seed
       integer(I4P), intent(out) :: ic, jc, kc
       select case(face)
@@ -1795,6 +1834,7 @@ contains
       subroutine ghost_cell_from_face_fnl(face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed, ic, jc, kc)
       !$acc routine seq
       !$omp declare target
+      implicit none
       integer(I4P), intent(in)  :: face, ghost_layer, ni, nj, nk, i_seed, j_seed, k_seed
       integer(I4P), intent(out) :: ic, jc, kc
       select case(face)

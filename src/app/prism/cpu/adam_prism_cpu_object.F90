@@ -614,6 +614,7 @@ contains
 
    subroutine set_boundary_conditions(self, q, s)
    !< Set boundary conditions of equation.
+   implicit none
    class(prism_cpu_object), intent(inout) :: self                         !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
                                                1-self%ngc:,&
@@ -629,10 +630,22 @@ contains
    integer(I4P)                           :: iref, jref, kref            !< Interior reference indexes for face BCs.
    integer(I4P)                           :: alfa_D, beta_D, gamma_D      !< Indici alfa beta gamma come in Barbas.
    integer(I4P)                           :: alfa_B, beta_B, gamma_B      !< Indici alfa beta gamma come in Barbas.
+   integer(I4P) :: ivar_phi_D, ivar_phi_B !< Allocated electric/magnetic cleaning scalar slots.
    real(R8P)                              :: s1                           !< Coefficiente pari a +-1.
    real(R8P)                              :: sm_admittance
    real(R8P)                              :: ngc_r, crown_r               !< Numero di gc totale, reale
    real(R8P)                              :: ref(1:self%nv)               !< Vettore di stato di riferimento per assegnazione gc.
+
+   ivar_phi_D = 0_I4P
+   ivar_phi_B = 0_I4P
+   if (self%physics%nv_cl == 2_I4P .and. self%numerics%constrained_transport_D .and. &
+       self%numerics%constrained_transport_B) then
+      ivar_phi_D = self%physics%nv_c - 1_I4P
+      ivar_phi_B = self%physics%nv_c
+   elseif (self%physics%nv_cl == 1_I4P) then
+      if (self%numerics%constrained_transport_D) ivar_phi_D = self%physics%nv_c
+      if (self%numerics%constrained_transport_B) ivar_phi_B = self%physics%nv_c
+   endif
 
    sm_admittance = C0*EPS0
    if (is_adim_model(self%physics%physical_model)) sm_admittance = 1._R8P
@@ -764,6 +777,8 @@ contains
                      q(VAR_BY,i,j,k,b) =  ref(VAR_BY)
                      q(VAR_BZ,i,j,k,b) = -ref(VAR_BZ)
                   endselect
+                  if (ivar_phi_D > 0_I4P) q(ivar_phi_D,i,j,k,b) = -ref(ivar_phi_D)
+                  if (ivar_phi_B > 0_I4P) q(ivar_phi_B,i,j,k,b) = ref(ivar_phi_B)
                elseif (bc_type == BC_DIRICHLET) then
                      do v=1, nv
                         q(v,i,j,k,b) = 0._R8P
@@ -784,6 +799,11 @@ contains
                   case(6)
                      q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j   ,k-nk,b)
                   endselect
+               endif
+               ! Physical PIC ghosts carry no deposited charge or current.
+               if (is_pic_model(self%physics%physical_model)) then
+                  q(self%physics%var_Jx:self%physics%var_Jz,i,j,k,b) = 0._R8P
+                  q(nv,i,j,k,b) = 0._R8P
                endif
             endif
          enddo
@@ -3655,6 +3675,7 @@ contains
 
    pure subroutine compute_pml_coefficients(self, center_distance, span, gamma, alpha, kappa)
    !< Return the face-local ADE-PML coefficients for the supported variants.
+   implicit none
    class(prism_cpu_object), intent(in) :: self
    real(R8P),               intent(in) :: center_distance
    real(R8P),               intent(in) :: span
@@ -3663,7 +3684,6 @@ contains
    real(R8P),               intent(out):: kappa
    real(R8P)                           :: depth
    real(R8P)                           :: distance_to_outer
-   real(R8P), parameter                :: BERMUDEZ_EPS = 1.e-6_R8P
    integer(I4P), parameter             :: CFS_PROFILE_EXPONENT = 2_I4P
 
    if (span < 0._R8P) then
@@ -3689,10 +3709,10 @@ contains
    case ('BERMUDEZ')
       if (span > 0._R8P) then
          depth = 1._R8P - center_distance / span
-         distance_to_outer = self%pml%width * center_distance / span + BERMUDEZ_EPS
+         distance_to_outer = self%pml%width * center_distance / span + self%pml%bermudez_eps
       else
          depth = 1._R8P
-         distance_to_outer = BERMUDEZ_EPS
+         distance_to_outer = self%pml%bermudez_eps
       endif
       depth = max(0._R8P, min(1._R8P, depth))
       gamma = self%pml%beta / distance_to_outer**self%pml%gamma_exponent

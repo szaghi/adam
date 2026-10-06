@@ -40,6 +40,7 @@ type :: prism_fnl_pml_object
    real(R8P)                 :: gamma_exponent = 0._R8P
    real(R8P)                 :: alpha_max = 0._R8P
    real(R8P)                 :: k_max = 1._R8P
+   real(R8P)                 :: bermudez_eps = BERMUDEZ_EPS
    real(R8P)                 :: beta = 0._R8P
    integer(I4P)              :: active_blocks(6) = 0_I4P
    integer(I4P)              :: max_cells(6) = 0_I4P
@@ -272,6 +273,7 @@ contains
 
    subroutine initialize(self, pml, grid, field)
    !< Initialize the GPU-side PML support from the host compact PML object.
+   implicit none
    class(prism_fnl_pml_object), intent(inout) :: self
    type(prism_pml_object),      intent(in)    :: pml
    type(grid_object),           intent(in)    :: grid
@@ -287,6 +289,7 @@ contains
    self%alpha_max       = pml%alpha_max
    self%k_max           = pml%k_max
    self%beta            = pml%beta
+   self%bermudez_eps    = pml%bermudez_eps
    self%active_blocks   = pml%active_blocks
    self%max_cells       = pml%max_cells
 
@@ -294,54 +297,62 @@ contains
 
    call initialize_x_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
-                          beta=self%beta, face=PML_FACE_X_M, q_face_cpu=pml%q_pml_x_m, blocks_cpu=pml%blocks_x_m,  &
+                          beta=self%beta, bermudez_eps=self%bermudez_eps, &
+                          face=PML_FACE_X_M, q_face_cpu=pml%q_pml_x_m, blocks_cpu=pml%blocks_x_m,  &
                           range_cpu=pml%ni_pml, profile_span=pml%profile_span(PML_FACE_X_M), grid=grid, field=field, &
                           blocks_gpu=self%blocks_x_m_gpu,            &
                           start_gpu=self%start_x_m_gpu, cells_gpu=self%cells_x_m_gpu, gamma_gpu=self%gamma_x_m_gpu,&
                           alpha_gpu=self%alpha_x_m_gpu, kappa_gpu=self%kappa_x_m_gpu, q_face_gpu=self%q_pml_x_m_gpu)
    call initialize_x_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
-                          beta=self%beta, face=PML_FACE_X_P, q_face_cpu=pml%q_pml_x_p, blocks_cpu=pml%blocks_x_p,  &
+                          beta=self%beta, bermudez_eps=self%bermudez_eps, &
+                          face=PML_FACE_X_P, q_face_cpu=pml%q_pml_x_p, blocks_cpu=pml%blocks_x_p,  &
                           range_cpu=pml%ni_pml, profile_span=pml%profile_span(PML_FACE_X_P), grid=grid, field=field, &
                           blocks_gpu=self%blocks_x_p_gpu,            &
                           start_gpu=self%start_x_p_gpu, cells_gpu=self%cells_x_p_gpu, gamma_gpu=self%gamma_x_p_gpu,&
                           alpha_gpu=self%alpha_x_p_gpu, kappa_gpu=self%kappa_x_p_gpu, q_face_gpu=self%q_pml_x_p_gpu)
    call initialize_y_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
-                          beta=self%beta, face=PML_FACE_Y_M, q_face_cpu=pml%q_pml_y_m, blocks_cpu=pml%blocks_y_m,  &
+                          beta=self%beta, bermudez_eps=self%bermudez_eps, &
+                          face=PML_FACE_Y_M, q_face_cpu=pml%q_pml_y_m, blocks_cpu=pml%blocks_y_m,  &
                           range_cpu=pml%nj_pml, profile_span=pml%profile_span(PML_FACE_Y_M), grid=grid, field=field, &
                           blocks_gpu=self%blocks_y_m_gpu,            &
                           start_gpu=self%start_y_m_gpu, cells_gpu=self%cells_y_m_gpu, gamma_gpu=self%gamma_y_m_gpu,&
                           alpha_gpu=self%alpha_y_m_gpu, kappa_gpu=self%kappa_y_m_gpu, q_face_gpu=self%q_pml_y_m_gpu)
    call initialize_y_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
-                          beta=self%beta, face=PML_FACE_Y_P, q_face_cpu=pml%q_pml_y_p, blocks_cpu=pml%blocks_y_p,  &
+                          beta=self%beta, bermudez_eps=self%bermudez_eps, &
+                          face=PML_FACE_Y_P, q_face_cpu=pml%q_pml_y_p, blocks_cpu=pml%blocks_y_p,  &
                           range_cpu=pml%nj_pml, profile_span=pml%profile_span(PML_FACE_Y_P), grid=grid, field=field, &
                           blocks_gpu=self%blocks_y_p_gpu,            &
                           start_gpu=self%start_y_p_gpu, cells_gpu=self%cells_y_p_gpu, gamma_gpu=self%gamma_y_p_gpu,&
                           alpha_gpu=self%alpha_y_p_gpu, kappa_gpu=self%kappa_y_p_gpu, q_face_gpu=self%q_pml_y_p_gpu)
    call initialize_z_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
-                          beta=self%beta, face=PML_FACE_Z_M, q_face_cpu=pml%q_pml_z_m, blocks_cpu=pml%blocks_z_m,  &
+                          beta=self%beta, bermudez_eps=self%bermudez_eps, &
+                          face=PML_FACE_Z_M, q_face_cpu=pml%q_pml_z_m, blocks_cpu=pml%blocks_z_m,  &
                           range_cpu=pml%nk_pml, profile_span=pml%profile_span(PML_FACE_Z_M), grid=grid, field=field, &
                           blocks_gpu=self%blocks_z_m_gpu,            &
                           start_gpu=self%start_z_m_gpu, cells_gpu=self%cells_z_m_gpu, gamma_gpu=self%gamma_z_m_gpu,&
                           alpha_gpu=self%alpha_z_m_gpu, kappa_gpu=self%kappa_z_m_gpu, q_face_gpu=self%q_pml_z_m_gpu)
    call initialize_z_face(pml_type=self%pml_type, width=self%width, gamma_max=self%gamma_max,                       &
                           gamma_exponent=self%gamma_exponent, alpha_max=self%alpha_max, k_max=self%k_max,          &
-                          beta=self%beta, face=PML_FACE_Z_P, q_face_cpu=pml%q_pml_z_p, blocks_cpu=pml%blocks_z_p,  &
+                          beta=self%beta, bermudez_eps=self%bermudez_eps, &
+                          face=PML_FACE_Z_P, q_face_cpu=pml%q_pml_z_p, blocks_cpu=pml%blocks_z_p,  &
                           range_cpu=pml%nk_pml, profile_span=pml%profile_span(PML_FACE_Z_P), grid=grid, field=field, &
                           blocks_gpu=self%blocks_z_p_gpu,            &
                           start_gpu=self%start_z_p_gpu, cells_gpu=self%cells_z_p_gpu, gamma_gpu=self%gamma_z_p_gpu,&
                           alpha_gpu=self%alpha_z_p_gpu, kappa_gpu=self%kappa_z_p_gpu, q_face_gpu=self%q_pml_z_p_gpu)
    endsubroutine initialize
 
-   subroutine initialize_x_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, q_face_cpu, &
+   subroutine initialize_x_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, bermudez_eps, &
+      face, q_face_cpu, &
                                 blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, &
                                      alpha_gpu, &
                                 kappa_gpu, q_face_gpu)
+   implicit none
    character(len=*),       intent(in)    :: pml_type
-   real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta
+   real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta, bermudez_eps
    integer(I4P),            intent(in)    :: face
    real(R8P), allocatable,  intent(in)    :: q_face_cpu(:,:,:,:,:)
    integer(I4P), allocatable, intent(in)  :: blocks_cpu(:)
@@ -376,7 +387,8 @@ contains
       start_host(lid) = range_cpu(1,b,face)
       cells_host(lid) = range_cpu(2,b,face) - start_host(lid) + 1_I4P
       call fill_face_coefficients(pml_type=pml_type, width=width, gamma_max=gamma_max,                                    &
-                                  gamma_exponent=gamma_exponent, alpha_max=alpha_max, k_max=k_max, beta=beta,            &
+                                  gamma_exponent=gamma_exponent, alpha_max=alpha_max, k_max=k_max, beta=beta, &
+                                  bermudez_eps=bermudez_eps, &
                                   face=face, profile_span=profile_span, grid=grid, field=field, block_id=b,             &
                                   start_idx=start_host(lid), cells=cells_host(lid), gamma=gamma_host(lid,:),             &
                                   alpha=alpha_host(lid,:), kappa=kappa_host(lid,:))
@@ -395,12 +407,14 @@ contains
    call copy_face_state_cpu_gpu(q_cpu=q_face_cpu, q_gpu=q_face_gpu)
    endsubroutine initialize_x_face
 
-   subroutine initialize_y_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, q_face_cpu, &
+   subroutine initialize_y_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, bermudez_eps, &
+      face, q_face_cpu, &
                                 blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, &
                                      alpha_gpu, &
                                 kappa_gpu, q_face_gpu)
+   implicit none
    character(len=*),       intent(in)    :: pml_type
-   real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta
+   real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta, bermudez_eps
    integer(I4P),            intent(in)    :: face
    real(R8P), allocatable,  intent(in)    :: q_face_cpu(:,:,:,:,:)
    integer(I4P), allocatable, intent(in)  :: blocks_cpu(:)
@@ -435,7 +449,8 @@ contains
       start_host(lid) = range_cpu(1,b,face)
       cells_host(lid) = range_cpu(2,b,face) - start_host(lid) + 1_I4P
       call fill_face_coefficients(pml_type=pml_type, width=width, gamma_max=gamma_max,                                    &
-                                  gamma_exponent=gamma_exponent, alpha_max=alpha_max, k_max=k_max, beta=beta,            &
+                                  gamma_exponent=gamma_exponent, alpha_max=alpha_max, k_max=k_max, beta=beta, &
+                                  bermudez_eps=bermudez_eps, &
                                   face=face, profile_span=profile_span, grid=grid, field=field, block_id=b,             &
                                   start_idx=start_host(lid), cells=cells_host(lid), gamma=gamma_host(lid,:),             &
                                   alpha=alpha_host(lid,:), kappa=kappa_host(lid,:))
@@ -454,12 +469,14 @@ contains
    call copy_face_state_cpu_gpu(q_cpu=q_face_cpu, q_gpu=q_face_gpu)
    endsubroutine initialize_y_face
 
-   subroutine initialize_z_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, q_face_cpu, &
+   subroutine initialize_z_face(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, bermudez_eps, &
+      face, q_face_cpu, &
                                 blocks_cpu, range_cpu, profile_span, grid, field, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, &
                                      alpha_gpu, &
                                 kappa_gpu, q_face_gpu)
+   implicit none
    character(len=*),       intent(in)    :: pml_type
-   real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta
+   real(R8P),              intent(in)    :: width, gamma_max, gamma_exponent, alpha_max, k_max, beta, bermudez_eps
    integer(I4P),            intent(in)    :: face
    real(R8P), allocatable,  intent(in)    :: q_face_cpu(:,:,:,:,:)
    integer(I4P), allocatable, intent(in)  :: blocks_cpu(:)
@@ -494,7 +511,8 @@ contains
       start_host(lid) = range_cpu(1,b,face)
       cells_host(lid) = range_cpu(2,b,face) - start_host(lid) + 1_I4P
       call fill_face_coefficients(pml_type=pml_type, width=width, gamma_max=gamma_max,                                    &
-                                  gamma_exponent=gamma_exponent, alpha_max=alpha_max, k_max=k_max, beta=beta,            &
+                                  gamma_exponent=gamma_exponent, alpha_max=alpha_max, k_max=k_max, beta=beta, &
+                                  bermudez_eps=bermudez_eps, &
                                   face=face, profile_span=profile_span, grid=grid, field=field, block_id=b,             &
                                   start_idx=start_host(lid), cells=cells_host(lid), gamma=gamma_host(lid,:),             &
                                   alpha=alpha_host(lid,:), kappa=kappa_host(lid,:))
@@ -535,9 +553,11 @@ contains
    deallocate(q_t)
    endsubroutine copy_face_state_cpu_gpu
 
-   subroutine fill_face_coefficients(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, face, profile_span, grid, &
+   subroutine fill_face_coefficients(pml_type, width, gamma_max, gamma_exponent, alpha_max, k_max, beta, &
+      bermudez_eps, face, profile_span, grid, &
                                      field, block_id, start_idx, cells, &
                                      gamma, alpha, kappa)
+   implicit none
    character(len=*), intent(in) :: pml_type
    real(R8P),        intent(in) :: width
    real(R8P),        intent(in) :: gamma_max
@@ -545,6 +565,7 @@ contains
    real(R8P),        intent(in) :: alpha_max
    real(R8P),        intent(in) :: k_max
    real(R8P),        intent(in) :: beta
+   real(R8P),        intent(in) :: bermudez_eps
     integer(I4P),    intent(in) :: face
    real(R8P),        intent(in) :: profile_span
    type(grid_object), intent(in) :: grid
@@ -613,10 +634,10 @@ contains
       case (PML_TYPE_BERMUDEZ)
          if (profile_span > 0._R8P) then
             depth = 1._R8P - center_distance / profile_span
-            distance_to_outer = width * center_distance / profile_span + BERMUDEZ_EPS
+            distance_to_outer = width * center_distance / profile_span + bermudez_eps
          else
             depth = 1._R8P
-            distance_to_outer = BERMUDEZ_EPS
+            distance_to_outer = bermudez_eps
          endif
          depth = max(0._R8P, min(1._R8P, depth))
          gamma(li) = beta / distance_to_outer**gamma_exponent

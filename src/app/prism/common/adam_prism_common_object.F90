@@ -888,6 +888,7 @@ contains
 
    subroutine initialize_single_particle_output(filename)
    !< Reset the single-particle output file before a fresh run from t = 0.
+   implicit none
    character(len=*), intent(in) :: filename
    integer(I4P)                 :: iu, ios
 
@@ -896,12 +897,14 @@ contains
       write(*,'(a,i0)') 'initialize_single_particle_output: errore open(), iostat=', ios
       error stop
    endif
-   write(iu,'(a)') 'time x y z vx vy vz charge mass Fx_E Fy_E Fz_E Fx_vxB Fy_vxB Fz_vxB'
+   write(iu,'(a)') '% time x y z vx vy vz charge mass Fx_E Fy_E Fz_E Fx_vxB Fy_vxB Fz_vxB'
+   flush(iu)
    close(iu)
    endsubroutine initialize_single_particle_output
 
    subroutine write_single_particle_output(filename, time, q_pic, pic_fields)
    !< Append the single-particle trajectory/state sample.
+   implicit none
    character(len=1), parameter  :: TAB = achar(9)
    character(len=*), intent(in) :: filename
    real(R8P),        intent(in) :: q_pic(1:,1:)
@@ -926,6 +929,7 @@ contains
    endif
    write(iu,'(ES24.16,14(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l), &
                                         (TAB, force_E(j), j=1,3), (TAB, force_vxB(j), j=1,3)
+   flush(iu)
    close(iu)
    endsubroutine write_single_particle_output
 
@@ -2341,6 +2345,7 @@ contains
 
    subroutine write_rectangular_current_tab(self, filename, coil_id, current_density, time)
    !< Append numerical per-side rectangular current measured from the analytic J_vec support.
+   implicit none
    class(prism_common_object), intent(inout) :: self            !< The equation.
    character(len=*),          intent(in)    :: filename        !< Output file name.
    integer(I4P),              intent(in)    :: coil_id         !< Coil index.
@@ -2370,12 +2375,14 @@ contains
          write(iu,'(A,ES24.16)', advance='no') TAB, current_density * self%coil%rectangular_current_flux(p, coil_id)
       enddo
       write(iu,*)
+      flush(iu)
       close(iu)
    endif
    endsubroutine write_rectangular_current_tab
 
    subroutine write_helicon_current_tab(self, filename, coil_id, current_density, time)
    !< Append numerical per-segment helicon current measured from the analytic J_vec support.
+   implicit none
    class(prism_common_object), intent(inout) :: self            !< The equation.
    character(len=*),          intent(in)    :: filename        !< Output file name.
    integer(I4P),              intent(in)    :: coil_id         !< Coil index.
@@ -2409,6 +2416,7 @@ contains
          write(iu,'(A,ES24.16)', advance='no') TAB, current_density * self%coil%helicon_current_flux(p, coil_id)
       enddo
       write(iu,*)
+      flush(iu)
       close(iu)
    endif
    endsubroutine write_helicon_current_tab

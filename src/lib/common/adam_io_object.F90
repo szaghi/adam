@@ -180,6 +180,7 @@ contains
    subroutine save_energy_error(self,it,time,blocks_number,energy_D,energy_B,rms_energy_error_D,rms_energy_error_B,&
                                 is_to_open,is_to_close)
    !< Save energy error history.
+   implicit none
    class(io_object), intent(inout)        :: self               !< IO handler.
    integer(I4P),     intent(in)           :: it                 !< Current iteration.
    real(R8P),        intent(in)           :: time               !< Current time.
@@ -199,6 +200,7 @@ contains
       if (is_to_open_) then
          open(newunit=self%energy_error_unit, file=self%output_basename//'-energy_error.dat')
          write(self%energy_error_unit,'(A)')'VARIABLES="it" "blocks_number" "time" "error_D" "error_B" "rms_error_D" "rms_error_B"'
+         flush(self%energy_error_unit)
       endif
       write(self%energy_error_unit, '(A)') trim(str(it                                                  ))//' '//&
                                            trim(str(blocks_number                                       ))//' '//&
@@ -207,6 +209,7 @@ contains
                                            trim(str(sqrt(abs(energy_B(it)-energy_B(1))/abs(energy_B(1)))))//' '//&
                                            trim(str(rms_energy_error_D                                  ))//' '//&
                                            trim(str(rms_energy_error_B                                  ))
+      flush(self%energy_error_unit)
       if (is_to_close_) close(self%energy_error_unit)
    endif
    endsubroutine save_energy_error
@@ -214,6 +217,7 @@ contains
    subroutine save_energy_history(self,it,time,blocks_number,energy_D,energy_B,coil_power,Poynting_flux, &
                                   is_to_open,is_to_close)
    !< Save energy history.
+   implicit none
    class(io_object), intent(inout)        :: self              !< IO handler.
    integer(I4P),     intent(in)           :: it                !< Current iteration.
    real(R8P),        intent(in)           :: time              !< Current time.
@@ -234,6 +238,7 @@ contains
          open(newunit=self%energy_history_unit, file=self%output_basename//'-energy_history.dat')
          write(self%energy_history_unit,'(A)')&
                '%VARIABLES="it" "blocks_number" "time" "D_energy [J]" "B_energy [J]" "coil_power [W]" "Poynting_flux [W]"'
+         flush(self%energy_history_unit)
       endif
       if (it > 0) then
          write(self%energy_history_unit, '(A)') trim(str(it               ))//' '//&
@@ -243,6 +248,7 @@ contains
                                                 trim(str(energy_B(it)     ))//' '//&
                                                 trim(str(coil_power(it)   ))//' '//&
                                                 trim(str(Poynting_flux(it)))
+         flush(self%energy_history_unit)
       endif
       if (is_to_close_) close(self%energy_history_unit)
    endif
@@ -376,6 +382,7 @@ contains
    !<
    !< A restarted run (`is_restart = .true.`) appends to the existing history instead of replacing it, so the history of
    !< a run split by restarts is the history of the uninterrupted run.
+   implicit none
    class(io_object), intent(inout)        :: self        !< IO handler.
    integer(I4P),     intent(in)           :: nv          !< Number of residuals variables.
    logical,          intent(in), optional :: is_restart  !< Restarted run: append to the existing file.
@@ -394,12 +401,14 @@ contains
          enddo
          open(newunit=self%residuals_unit, file=self%output_basename//'-residuals.dat')
          write(self%residuals_unit, '(A)') 'VARIABLES="it" "time" "blocks_number"'//rqs
+         flush(self%residuals_unit)
       endif
    endif
    endsubroutine open_file_residuals
 
    subroutine save_residuals(self, it, time, blocks_number, residuals)
    !< Save residuals history.
+   implicit none
    class(io_object), intent(in) :: self          !< IO handler.
    integer(I4P),     intent(in) :: it            !< Current iteration.
    real(R8P),        intent(in) :: time          !< Current time.
@@ -410,6 +419,7 @@ contains
                                      trim(str(time         ))//' '//&
                                      trim(str(blocks_number))//' '//&
                                      trim(str(residuals(1:), separator=' '))
+   flush(self%residuals_unit)
    endsubroutine save_residuals
 
    ! XH5F IO
