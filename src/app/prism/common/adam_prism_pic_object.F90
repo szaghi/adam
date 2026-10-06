@@ -124,9 +124,7 @@ type :: prism_pic_object
    character(len=99)         :: particle_weighting_model    !< Particle weighting model.
    character(len=99)         :: current_weighting_model     !< Current weighting model.
    character(len=99)         :: field_weighting_model       !< Field weighting model.
-   logical                   :: esirkepov_tail_diagnostic = .false. !< Save per-stage particle tail metrics every timestep.
    logical                   :: esirkepov_tail_cleanup = .false. !< Remove small current leakage outside each particle's support.
-   integer(I4P)              :: esirkepov_tail_profile_it = -1_I4P !< Optional timestep for 1D tail profiles.
    character(len=99)         :: current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER !< Conserving current solver.
    character(len=99)         :: scheme_time                 !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    !< Pointer (abstract) TBP.
@@ -496,18 +494,10 @@ contains
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(elliptic_correction)')
 
-   self%esirkepov_tail_diagnostic = .false.
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_diagnostic', &
-                            val=self%esirkepov_tail_diagnostic, error=error)
-   if (error > 0) self%esirkepov_tail_diagnostic = .false.
    self%esirkepov_tail_cleanup = .false.
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_cleanup', &
                             val=self%esirkepov_tail_cleanup, error=error)
    if (error > 0) self%esirkepov_tail_cleanup = .false.
-   self%esirkepov_tail_profile_it = -1_I4P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_profile_it', &
-                            val=self%esirkepov_tail_profile_it, error=error)
-   if (error > 0) self%esirkepov_tail_profile_it = -1_I4P
 
    self%filter_deposition = .false.
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='filter_deposition', &

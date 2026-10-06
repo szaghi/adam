@@ -1002,14 +1002,12 @@ contains
    real(R8P), optional, intent(in) :: current_solver_residual !< Maximum current linear-solve residual.
    character(len=:), allocatable                    :: div_D_name  !< Header label for the first divergence monitor.
 
-   if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
-      div_D_name = 'D_divergence'
-      if (is_pic_model(self%physics%physical_model)) div_D_name = 'D_divergence_minus_rho'
-      call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
-                                           div_D=div_D,div_B=div_B,div_J=div_J,div_D_name=div_D_name,           &
-                                           is_to_open=is_to_open,is_to_close=is_to_close, &
-                                           current_solver_residual=current_solver_residual)
-   endif
+   div_D_name = 'D_divergence'
+   if (is_pic_model(self%physics%physical_model)) div_D_name = 'D_divergence_minus_rho'
+   call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
+                                        div_D=div_D,div_B=div_B,div_J=div_J,div_D_name=div_D_name,           &
+                                        is_to_open=is_to_open,is_to_close=is_to_close, &
+                                        current_solver_residual=current_solver_residual)
    ! Seam div(B) guard-rail (issue #29 — accept-truncation resolution). The 2:1 AMR seam
    ! injects an O(h^p) div(B) source, refinement-convergent but UNBOUNDED in t at fixed h;
    ! no local collocated-FD fix exists (E1/E2/E3/E/A all ruled out with evidence — see the

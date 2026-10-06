@@ -92,7 +92,15 @@ type, extends(prism_common_object) :: prism_fnl_object
    procedure(compute_laplacian_interface_dev),  pass(self),pointer :: compute_laplacian_dev  =>null()!< Compute laplacian.
    procedure(compute_residuals_interface_dev),  pass(self),pointer :: compute_residuals_dev  =>null()!< Compute residuals.
    procedure(integrate_interface_dev),          pass(self),pointer :: integrate_dev          =>null()!< Integrate, time operator.
+   real(R8P), pointer :: charge_conservation_acc_gpu(:,:,:,:)=>null()  !< PIC charge-continuity residual accumulator.
+   real(R8P), pointer :: charge_conservation_divj_gpu(:,:,:,:)=>null() !< PIC temporary div(J) for charge diagnostic.
+   real(R8P)             :: charge_conservation_error_max = 0._R8P          !< Max PIC charge-continuity residual.
+   logical               :: charge_conservation_ready = .false.             !< True when current step PIC diagnostic is ready.
    contains
+      procedure, pass(self) :: save_charge_conservation_diagnostic       !< Save PIC charge-continuity diagnostic.
+      procedure, pass(self) :: finalize_charge_conservation_diagnostic   !< Finalize PIC charge-continuity diagnostic.
+      procedure, pass(self) :: accumulate_charge_conservation_current    !< Accumulate weighted PIC stage div(J).
+      procedure, pass(self) :: initialize_charge_conservation_diagnostic !< Initialize PIC charge-continuity diagnostic.
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu     !< Allocate GPU data.
       procedure, pass(self) :: copy_cpu_gpu     !< Copy data from CPU to GPU.
@@ -311,6 +319,7 @@ contains
 
    subroutine free_prism_core_gpu(self)
    !< Free raw device buffers allocated directly by prism_fnl_object%allocate_gpu.
+   implicit none
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    if (associated(self%q_gpu)) then
@@ -345,6 +354,14 @@ contains
       call dev_free(self%divergence_gpu, mydev)
       nullify(self%divergence_gpu)
    endif
+   if (associated(self%charge_conservation_acc_gpu)) then
+      call dev_free(self%charge_conservation_acc_gpu, mydev)
+      nullify(self%charge_conservation_acc_gpu)
+   endif
+   if (associated(self%charge_conservation_divj_gpu)) then
+      call dev_free(self%charge_conservation_divj_gpu, mydev)
+      nullify(self%charge_conservation_divj_gpu)
+   endif
    if (allocated(self%buf_5D_R8P)) deallocate(self%buf_5D_R8P)
    if (allocated(self%buf_6D_R8P)) deallocate(self%buf_6D_R8P)
    self%db5 = 0_I4P
@@ -356,6 +373,7 @@ contains
    ! auxiliary methods
    subroutine allocate_gpu(self)
    !< Allocate GPU data.
+   implicit none
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: ierr !< Error status.
    integer(I4P)                           :: nc   !< Number of coils.
@@ -388,6 +406,16 @@ contains
    call dev_alloc(fptr_dev=self%divergence_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate divergence_gpu in prism_fnl_object%allocate_gpu')
+   if (is_pic_model(self%physics%physical_model)) then
+      call dev_alloc(fptr_dev=self%charge_conservation_acc_gpu, &
+                     ubounds=[nb,ni+ngc,nj+ngc,nk+ngc], lbounds=[1,1-ngc,1-ngc,1-ngc], init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) &
+         call mpih_fnl%error_stop(msg=': failed to allocate charge_conservation_acc_gpu in allocate_gpu')
+      call dev_alloc(fptr_dev=self%charge_conservation_divj_gpu, &
+                     ubounds=[nb,ni+ngc,nj+ngc,nk+ngc], lbounds=[1,1-ngc,1-ngc,1-ngc], init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) &
+         call mpih_fnl%error_stop(msg=': failed to allocate charge_conservation_divj_gpu in allocate_gpu')
+   endif
    ! buffer for transposed copy
    call allocate_variable(var=self%buf_5D_R8P,       &
                           ulb=reshape([1,nb,         &
@@ -5070,6 +5098,7 @@ contains
 
    subroutine integrate_rk_ssp_pic(self)
    !< Integrate PIC equations with SSP RK on device.
+   implicit none
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
@@ -5077,6 +5106,8 @@ contains
    call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
+
+   call self%initialize_charge_conservation_diagnostic
 
    do s=1, self%rk%nrk
       if (self%ib%solids_number>0) then
@@ -5094,6 +5125,8 @@ contains
       call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                               q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
                                               q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+      call self%accumulate_charge_conservation_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                                       weight=self%rk%beta(s), s=s)
       call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), check_current=.true., &
                                                       context='integrate_rk_ssp_pic(stage current)')
       call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
@@ -5144,6 +5177,7 @@ contains
    call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
                                                    context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
+   call self%finalize_charge_conservation_diagnostic
    endsubroutine integrate_rk_ssp_pic
 
    subroutine integrate_rk_ls_dev(self)
@@ -5262,6 +5296,7 @@ contains
    subroutine finalize_forest(self)
    !< Shut this realm down: final state dump, close residuals file, finalize
    !< MPI handler.
+   implicit none
    class(prism_fnl_object), intent(inout) :: self !< The realm.
    logical                                :: is_open
 
@@ -5279,6 +5314,8 @@ contains
          inquire(unit=self%magnetic_field_at_center_domain%history_unit, opened=is_open)
          if (is_open) close(self%magnetic_field_at_center_domain%history_unit)
       endif
+      inquire(unit=self%io%charge_conservation_history_unit, opened=is_open)
+      if (is_open) close(self%io%charge_conservation_history_unit)
       inquire(unit=self%io%divergence_history_unit, opened=is_open)
       if (is_open) close(self%io%divergence_history_unit)
    endif
@@ -5420,6 +5457,12 @@ contains
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(is_to_open=.true., div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
                                      div_J=self%max_divergence_J)
+   if (is_pic_model(self%physics%physical_model)) &
+      call self%io%save_charge_conservation_history(time=0._R8P, Q_particles=0._R8P, Q_deposited=0._R8P, &
+                                                    Q_deposition_error=0._R8P, R_cont_L1=0._R8P, R_cont_L2=0._R8P, &
+                                                    R_cont_Linf=0._R8P, dQ_num_net=0._R8P, dQ_num_abs=0._R8P, &
+                                                    Gauss_L1=0._R8P, Gauss_L2=0._R8P, Gauss_Linf=0._R8P, &
+                                                    is_to_open=.true., do_write=.false.)
    call self%io%open_file_residuals(nv=self%nv)
 
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
@@ -5928,6 +5971,7 @@ contains
    !<
    !< Optional `realm(:)`: forwarded to save_simulation_data and
    !< update_ghost for the dummy-argument inter-realm halo refresh path.
+   implicit none
    class(prism_fnl_object), intent(inout)                   :: self              !< The realm.
    real(R8P),               intent(in)                      :: dt                !< Timestep size just advanced.
    real(R8P),               intent(in)                      :: t                 !< Simulation time after the advance.
@@ -5970,6 +6014,7 @@ contains
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
                                      div_J=self%max_divergence_J)
+   call self%save_charge_conservation_diagnostic
    endsubroutine post_step_forest
 
    ! numerical methods
@@ -5987,6 +6032,336 @@ contains
    call self%compute_local_dt_forest(dt_local=self%time%dt)
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
    endsubroutine compute_dt
+
+   subroutine initialize_charge_conservation_diagnostic(self)
+   !< Initialize rho_n/dt + sum_s beta_s div(J_s) diagnostic accumulator.
+   implicit none
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   self%charge_conservation_error_max = 0._R8P
+   self%charge_conservation_ready = .false.
+   if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. associated(self%charge_conservation_acc_gpu)) return
+   if (.not. associated(self%charge_conservation_divj_gpu)) return
+   if (self%time%dt <= 0._R8P) return
+
+   call initialize_charge_conservation_diagnostic_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                             blocks_number=self%blocks_number, nv=self%nv,     &
+                                                             dt=self%time%dt, q_gpu=self%q_gpu,                &
+                                                             acc_gpu=self%charge_conservation_acc_gpu,         &
+                                                             divj_gpu=self%charge_conservation_divj_gpu)
+   contains
+      subroutine initialize_charge_conservation_diagnostic_dev_kernel(ni, nj, nk, ngc, blocks_number, nv, dt, &
+                                                                      q_gpu, acc_gpu, divj_gpu)
+      implicit none
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, nv
+      real(R8P),    intent(in)    :: dt
+      real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(inout) :: acc_gpu(1:,1-ngc:,1-ngc:,1-ngc:)
+      real(R8P),    intent(inout) :: divj_gpu(1:,1-ngc:,1-ngc:,1-ngc:)
+      integer(I4P)                :: i, j, k, b
+
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,acc_gpu,divj_gpu) firstprivate(nv,dt)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu,acc_gpu,divj_gpu) firstprivate(nv,dt)
+      do b=1,blocks_number
+      do k=1-ngc,nk+ngc
+      do j=1-ngc,nj+ngc
+      do i=1-ngc,ni+ngc
+         acc_gpu(b,i,j,k) = -q_gpu(b,i,j,k,nv) / dt
+         divj_gpu(b,i,j,k) = 0._R8P
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine initialize_charge_conservation_diagnostic_dev_kernel
+   endsubroutine initialize_charge_conservation_diagnostic
+
+   subroutine accumulate_charge_conservation_current(self, q_gpu, weight, s)
+   !< Accumulate beta_s div(J_s) for the current PIC RK stage.
+   implicit none
+   class(prism_fnl_object), intent(inout) :: self
+   real(R8P),               intent(inout) :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P),               intent(in)    :: weight
+   integer(I4P),            intent(in)    :: s
+
+   if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. associated(self%charge_conservation_acc_gpu)) return
+   if (.not. associated(self%charge_conservation_divj_gpu)) return
+
+   call self%update_ghost(q_gpu=q_gpu, s=s)
+   call zero_current_ghosts_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                       blocks_number=self%blocks_number,                 &
+                                       var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                       var_jz=self%physics%var_jz, q_gpu=q_gpu)
+   call accumulate_charge_conservation_current_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                          blocks_number=self%blocks_number,                 &
+                                                          var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                                          var_jz=self%physics%var_jz,                       &
+                                                          s1=self%fdv_half_stencils(1), weight=weight,      &
+                                                          dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu,    &
+                                                          acc_gpu=self%charge_conservation_acc_gpu,         &
+                                                          divj_gpu=self%charge_conservation_divj_gpu)
+   contains
+      subroutine zero_current_ghosts_dev_kernel(ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, q_gpu)
+      implicit none
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+      integer(I4P), intent(in)    :: var_jx, var_jy, var_jz
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      integer(I4P)                :: i, j, k, b
+
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu) firstprivate(var_jx,var_jy,var_jz)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu) firstprivate(var_jx,var_jy,var_jz)
+      do b=1,blocks_number
+      do k=1-ngc,nk+ngc
+      do j=1-ngc,nj+ngc
+      do i=1-ngc,ni+ngc
+         if (i < 1 .or. i > ni) q_gpu(b,i,j,k,var_jx) = 0._R8P
+         if (j < 1 .or. j > nj) q_gpu(b,i,j,k,var_jy) = 0._R8P
+         if (k < 1 .or. k > nk) q_gpu(b,i,j,k,var_jz) = 0._R8P
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine zero_current_ghosts_dev_kernel
+
+      subroutine accumulate_charge_conservation_current_dev_kernel(ni, nj, nk, ngc, blocks_number, &
+                                                                   var_jx, var_jy, var_jz, s1, weight, &
+                                                                   dxyz_gpu, q_gpu, acc_gpu, divj_gpu)
+      implicit none
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+      integer(I4P), intent(in)    :: var_jx, var_jy, var_jz
+      integer(I4P), intent(in)    :: s1
+      real(R8P),    intent(in)    :: weight
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(inout) :: acc_gpu(1:,1-ngc:,1-ngc:,1-ngc:)
+      real(R8P),    intent(inout) :: divj_gpu(1:,1-ngc:,1-ngc:,1-ngc:)
+      real(R8P)                   :: divergenceJ
+      real(R8P)                   :: dxyz_b(3)
+      integer(I4P)                :: i, j, k, b, ss
+
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,acc_gpu,divj_gpu) &
+      !$acc& firstprivate(var_jx,var_jy,var_jz,s1,weight) private(divergenceJ,dxyz_b)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,acc_gpu,divj_gpu) &
+      !$omp& firstprivate(var_jx,var_jy,var_jz,s1,weight) private(divergenceJ,dxyz_b)
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+         divergenceJ = 0._R8P
+         !$acc loop seq
+         do ss=1,s1
+            divergenceJ = divergenceJ + FD1_CC(ss,s1)*((q_gpu(b,i+ss,j,k,var_jx) - q_gpu(b,i-ss,j,k,var_jx))/dxyz_b(1) &
+                                                     + (q_gpu(b,i,j+ss,k,var_jy) - q_gpu(b,i,j-ss,k,var_jy))/dxyz_b(2) &
+                                                     + (q_gpu(b,i,j,k+ss,var_jz) - q_gpu(b,i,j,k-ss,var_jz))/dxyz_b(3))
+         enddo
+         divj_gpu(b,i,j,k) = divergenceJ
+         acc_gpu(b,i,j,k) = acc_gpu(b,i,j,k) + weight * divergenceJ
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine accumulate_charge_conservation_current_dev_kernel
+   endsubroutine accumulate_charge_conservation_current
+
+   subroutine finalize_charge_conservation_diagnostic(self)
+   !< Finalize max |(rho_np1-rho_n)/dt + sum_s beta_s div(J_s)|.
+   implicit none
+   class(prism_fnl_object), intent(inout) :: self
+   real(R8P)                              :: local_error
+
+   if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. associated(self%charge_conservation_acc_gpu)) return
+   if (self%time%dt <= 0._R8P) return
+
+   call finalize_charge_conservation_diagnostic_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                           blocks_number=self%blocks_number, nv=self%nv,     &
+                                                           dt=self%time%dt, q_gpu=self%q_gpu,                &
+                                                           acc_gpu=self%charge_conservation_acc_gpu,         &
+                                                           local_error=local_error)
+   self%charge_conservation_error_max = local_error
+   self%charge_conservation_ready = .true.
+   contains
+      subroutine finalize_charge_conservation_diagnostic_dev_kernel(ni, nj, nk, ngc, blocks_number, nv, dt, &
+                                                                    q_gpu, acc_gpu, local_error)
+      implicit none
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, nv
+      real(R8P),    intent(in)    :: dt
+      real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(inout) :: acc_gpu(1:,1-ngc:,1-ngc:,1-ngc:)
+      real(R8P),    intent(out)   :: local_error
+      real(R8P)                   :: error_max
+      integer(I4P)                :: i, j, k, b
+
+      error_max = 0._R8P
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,acc_gpu) firstprivate(nv,dt) reduction(max:error_max)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu,acc_gpu) firstprivate(nv,dt) reduction(max:error_max)
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         acc_gpu(b,i,j,k) = acc_gpu(b,i,j,k) + q_gpu(b,i,j,k,nv) / dt
+         error_max = max(error_max, abs(acc_gpu(b,i,j,k)))
+      enddo
+      enddo
+      enddo
+      enddo
+      local_error = error_max
+      endsubroutine finalize_charge_conservation_diagnostic_dev_kernel
+   endsubroutine finalize_charge_conservation_diagnostic
+
+   subroutine save_charge_conservation_diagnostic(self)
+   !< Save the 12-column PIC charge-conservation diagnostic for the current completed step.
+   implicit none
+   class(prism_fnl_object), intent(inout) :: self
+   real(R8P)                              :: volume_local
+   real(R8P)                              :: volume_global
+   real(R8P)                              :: Q_particles
+   real(R8P)                              :: Q_deposited
+   real(R8P)                              :: R_sum
+   real(R8P)                              :: R_abs_sum
+   real(R8P)                              :: R2_sum
+   real(R8P)                              :: R_linf
+   real(R8P)                              :: Gauss_abs_sum
+   real(R8P)                              :: Gauss2_sum
+   real(R8P)                              :: Gauss_linf
+   real(R8P)                              :: R_cont_L1
+   real(R8P)                              :: R_cont_L2
+   real(R8P)                              :: dQ_num_net
+   real(R8P)                              :: dQ_num_abs
+   real(R8P)                              :: Gauss_L1
+   real(R8P)                              :: Gauss_L2
+
+   if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. self%charge_conservation_ready) return
+   if (.not. associated(self%charge_conservation_acc_gpu)) return
+   if (self%time%dt <= 0._R8P) return
+
+   Q_particles = 0._R8P
+   if (associated(self%pic_fnl%q_pic_gpu) .and. self%pic_fnl%particle_number > 0_I4P) &
+      call compute_particles_charge_dev_kernel(particle_number=self%pic_fnl%particle_number, &
+                                               q_pic_gpu=self%pic_fnl%q_pic_gpu, Q_particles=Q_particles)
+   call compute_charge_conservation_sums_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                                    blocks_number=self%blocks_number, nv=self%nv,     &
+                                                    s1=self%fdv_half_stencils(1),                     &
+                                                    dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu, &
+                                                    acc_gpu=self%charge_conservation_acc_gpu,         &
+                                                    Q_deposited=Q_deposited, R_sum=R_sum,             &
+                                                    R_abs_sum=R_abs_sum, R2_sum=R2_sum, R_linf=R_linf, &
+                                                    Gauss_abs_sum=Gauss_abs_sum, Gauss2_sum=Gauss2_sum, &
+                                                    Gauss_linf=Gauss_linf, volume_local=volume_local)
+
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Q_particles,   1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Q_deposited,   1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R_sum,         1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R_abs_sum,     1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R2_sum,        1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss_abs_sum, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss2_sum,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, volume_local,  1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R_linf,        1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss_linf,    1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+
+   volume_global = volume_local
+   if (volume_global <= 0._R8P) return
+
+   R_cont_L1  = R_abs_sum / volume_global
+   R_cont_L2  = sqrt(R2_sum / volume_global)
+   dQ_num_net = self%time%dt * R_sum
+   dQ_num_abs = self%time%dt * R_abs_sum
+   Gauss_L1   = Gauss_abs_sum / volume_global
+   Gauss_L2   = sqrt(Gauss2_sum / volume_global)
+
+   call self%io%save_charge_conservation_history(time=self%time%time, Q_particles=Q_particles,                  &
+                                                 Q_deposited=Q_deposited,                                      &
+                                                 Q_deposition_error=Q_deposited-Q_particles,                   &
+                                                 R_cont_L1=R_cont_L1, R_cont_L2=R_cont_L2, R_cont_Linf=R_linf, &
+                                                 dQ_num_net=dQ_num_net, dQ_num_abs=dQ_num_abs,                 &
+                                                 Gauss_L1=Gauss_L1, Gauss_L2=Gauss_L2, Gauss_Linf=Gauss_linf)
+   contains
+      subroutine compute_particles_charge_dev_kernel(particle_number, q_pic_gpu, Q_particles)
+      implicit none
+      integer(I4P), intent(in)  :: particle_number
+      real(R8P),    intent(in)  :: q_pic_gpu(1:,1:)
+      real(R8P),    intent(out) :: Q_particles
+      real(R8P)                 :: qsum
+      integer(I4P)              :: n
+
+      qsum = 0._R8P
+      !$acc parallel loop independent gang vector DEVICEVAR(q_pic_gpu) reduction(+:qsum)
+      !$omp OMPLOOP DEVICEPTR(q_pic_gpu) reduction(+:qsum)
+      do n=1,particle_number
+         qsum = qsum + q_pic_gpu(n,7)
+      enddo
+      Q_particles = qsum
+      endsubroutine compute_particles_charge_dev_kernel
+
+      subroutine compute_charge_conservation_sums_dev_kernel(ni, nj, nk, ngc, blocks_number, nv, s1, &
+                                                             dxyz_gpu, q_gpu, acc_gpu,                &
+                                                             Q_deposited, R_sum, R_abs_sum, R2_sum,  &
+                                                             R_linf, Gauss_abs_sum, Gauss2_sum,      &
+                                                             Gauss_linf, volume_local)
+      implicit none
+      integer(I4P), intent(in)  :: ni, nj, nk, ngc, blocks_number, nv, s1
+      real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)
+      real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+      real(R8P),    intent(in)  :: acc_gpu(1:,1-ngc:,1-ngc:,1-ngc:)
+      real(R8P),    intent(out) :: Q_deposited, R_sum, R_abs_sum, R2_sum, R_linf
+      real(R8P),    intent(out) :: Gauss_abs_sum, Gauss2_sum, Gauss_linf, volume_local
+      real(R8P)                 :: qdep, rsum, rabs, r2, rmax
+      real(R8P)                 :: gabs, g2, gmax, volsum
+      real(R8P)                 :: cell_volume, residual, gauss_error, divD
+      real(R8P)                 :: dxyz_b(3)
+      integer(I4P)              :: i, j, k, b, ss
+
+      qdep = 0._R8P ; rsum = 0._R8P ; rabs = 0._R8P ; r2 = 0._R8P ; rmax = 0._R8P
+      gabs = 0._R8P ; g2 = 0._R8P ; gmax = 0._R8P ; volsum = 0._R8P
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,acc_gpu) &
+      !$acc& firstprivate(nv,s1) private(cell_volume,residual,gauss_error,divD,dxyz_b)          &
+      !$acc& reduction(+:qdep,rsum,rabs,r2,gabs,g2,volsum) reduction(max:rmax,gmax)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,acc_gpu)                               &
+      !$omp& firstprivate(nv,s1) private(cell_volume,residual,gauss_error,divD,dxyz_b)          &
+      !$omp& reduction(+:qdep,rsum,rabs,r2,gabs,g2,volsum) reduction(max:rmax,gmax)
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
+         cell_volume = dxyz_b(1) * dxyz_b(2) * dxyz_b(3)
+         divD = 0._R8P
+         !$acc loop seq
+         do ss=1,s1
+            divD = divD + FD1_CC(ss,s1)*((q_gpu(b,i+ss,j,k,VAR_DX) - q_gpu(b,i-ss,j,k,VAR_DX))/dxyz_b(1) &
+                                       + (q_gpu(b,i,j+ss,k,VAR_DY) - q_gpu(b,i,j-ss,k,VAR_DY))/dxyz_b(2) &
+                                       + (q_gpu(b,i,j,k+ss,VAR_DZ) - q_gpu(b,i,j,k-ss,VAR_DZ))/dxyz_b(3))
+         enddo
+         residual = acc_gpu(b,i,j,k)
+         gauss_error = divD - q_gpu(b,i,j,k,nv)
+         qdep = qdep + q_gpu(b,i,j,k,nv) * cell_volume
+         rsum = rsum + residual * cell_volume
+         rabs = rabs + abs(residual) * cell_volume
+         r2 = r2 + residual * residual * cell_volume
+         rmax = max(rmax, abs(residual))
+         gabs = gabs + abs(gauss_error) * cell_volume
+         g2 = g2 + gauss_error * gauss_error * cell_volume
+         gmax = max(gmax, abs(gauss_error))
+         volsum = volsum + cell_volume
+      enddo
+      enddo
+      enddo
+      enddo
+      Q_deposited = qdep
+      R_sum = rsum
+      R_abs_sum = rabs
+      R2_sum = r2
+      R_linf = rmax
+      Gauss_abs_sum = gabs
+      Gauss2_sum = g2
+      Gauss_linf = gmax
+      volume_local = volsum
+      endsubroutine compute_charge_conservation_sums_dev_kernel
+   endsubroutine save_charge_conservation_diagnostic
 
    subroutine compute_energy(self)
    !< Compute energy.
@@ -6690,6 +7065,7 @@ contains
 
    subroutine compute_max_divergence(self)
    !< Compute maximum divergence.
+   implicit none
    class(prism_fnl_object), intent(inout) :: self           !< The equation.
    real(R8P)                              :: max_div(3)     !< Maximum divergence.
    integer(I4P), allocatable              :: valid_lo_i(:), valid_hi_i(:) !< Valid diagnostic i-window per block.
@@ -6785,6 +7161,8 @@ contains
                                           max_div       = max_div)
    deallocate(valid_lo_i, valid_hi_i, valid_lo_j, valid_hi_j, valid_lo_k, valid_hi_k)
 
+   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div, 3, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   if (mpih_fnl%error /= MPI_SUCCESS) call mpih_fnl%error_stop(msg=': failed to reduce divergence diagnostics')
 	self%max_divergence_D = max_div(1)
 	self%max_divergence_B = max_div(2)
 	self%max_divergence_J = max_div(3)
@@ -6792,6 +7170,7 @@ contains
       pure subroutine exclude_stencil_contaminated_face(lo, hi, face_first, face_last, is_minus, hs)
       !< Shrink a 1D diagnostic window so that no retained cell uses a centered
       !< divergence stencil intersecting the selected absorbing layer face.
+      implicit none
       integer(I4P), intent(inout) :: lo
       integer(I4P), intent(inout) :: hi
       integer(I4P), intent(in)    :: face_first
@@ -6813,6 +7192,7 @@ contains
                                                    valid_lo_k, valid_hi_k,                               &
                                                    dxyz_gpu, q_gpu, max_div)
 		!< Compute maximum divergence of D, B and J fields, device kernel.
+      implicit none
 		integer(I4P), intent(in)  :: ni, nj, nk, blocks_number, ngc        !< Grids dimensions.
 		integer(I4P), intent(in)  :: var_Jx, var_Jy, var_Jz                !< Current variables indices.
 		integer(I4P), intent(in)  :: rho_ivar                              !< Charge-density slot for PIC.
