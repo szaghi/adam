@@ -4054,14 +4054,16 @@ contains
       real(R8P),               intent(inout) :: slab(:,:)
       real(R8P)                              :: fine_face(1:nv_c, 1:inner_n, 1:outer_n)
       integer(I4P)                           :: fi, fo
+      integer(I4P)                           :: ratios(2) !< Refinement ratios of the tangential axes (issue #46).
 
       do fo = 1_I4P, outer_n
          do fi = 1_I4P, inner_n
             fine_face(1:nv_c, fi, fo) = fine_face_cell(self, fec, ni, nj, nk, nv_c, b, fi, fo)
          enddo
       enddo
+      ratios = face_tangential_ratios(fec=fec, refine_ratio=self%adam%maps%refine_ratio)
       call restrict_fine_face_to_quadrant(fine_face=fine_face, inner_n=inner_n, outer_n=outer_n, &
-                                          ioff=ioff, joff=joff, slab=slab)
+                                          ioff=ioff, joff=joff, slab=slab, inner_ratio=ratios(1), outer_ratio=ratios(2))
       endsubroutine restrict_fine_face
 
       function fine_face_cell(self, fec, ni, nj, nk, nv_c, b, fi, fo) result(val)

@@ -4871,6 +4871,7 @@ contains
    integer(I4P)                               :: fec, b          !< Face, block counters.
    integer(I4P)                               :: inner_n, outer_n   !< Cell counts along tangential axes.
    integer(I4P)                               :: ioff, joff      !< Fine-block quadrant offset ∈ {0,1}.
+   integer(I4P)                               :: ratios(2)       !< Refinement ratios of the tangential axes (#46).
    integer(I4P)                               :: c, v, fi, fo    !< Packing counters.
    integer(I4P)                               :: ierr            !< Device allocation error flag.
 
@@ -4953,8 +4954,10 @@ contains
                   enddo
                enddo
             enddo
+            ratios = face_tangential_ratios(fec=fec, refine_ratio=self%adam%maps%refine_ratio)
             call restrict_fine_face_to_quadrant(fine_face=fine_face, inner_n=inner_n, outer_n=outer_n, &
-                                                ioff=ioff, joff=joff, slab=flux_slab)
+                                                ioff=ioff, joff=joff, slab=flux_slab, inner_ratio=ratios(1), &
+                                                outer_ratio=ratios(2))
             call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=weight*flux_slab)
             deallocate(fine_face)
          endif

@@ -117,6 +117,44 @@ block
    endif
 endblock
 
+! --- Test 4 (issue #46): quadtree face, the outer axis (z) unrefined: 2x1 means, 2 halves tile the face. ---
+! Each coarse cell (ic, oc) gets the mean of the fine cells (2 ic - 1, oc) and (2 ic, oc) of its half; the two fine
+! blocks (ioff = 0, 1) cover the face exactly once.
+block
+   logical      :: ok
+   real(R8P)    :: expected
+   ok = .true.
+   cover = 0.0_R8P
+   do ioff = 0_I4P, 1_I4P
+      do fo = 1_I4P, outer_n
+         do fi = 1_I4P, inner_n
+            fine_face(:, fi, fo) = real(10*fo + fi + 100*ioff, R8P)
+         enddo
+      enddo
+      slab = -1.0_R8P
+      call restrict_fine_face_to_quadrant(fine_face=fine_face, inner_n=inner_n, outer_n=outer_n, &
+                                          ioff=ioff, joff=0_I4P, slab=slab, inner_ratio=2_I4P, outer_ratio=1_I4P)
+      do oc = 1_I4P, outer_n
+         do ic = 1_I4P, inner_n/2_I4P
+            c = (oc - 1_I4P)*inner_n + ioff*inner_n/2_I4P + ic
+            expected = 0.5_R8P * (fine_face(1, 2*ic - 1, oc) + fine_face(1, 2*ic, oc))
+            if (abs(slab(1, c) - expected) > tol) ok = .false.
+            cover(c) = cover(c) + 1.0_R8P
+         enddo
+      enddo
+      do c = 1_I4P, nface ! cells outside this half untouched
+         if (slab(1, c) /= -1.0_R8P .and. (mod(c - 1_I4P, inner_n) / (inner_n/2_I4P)) /= ioff) ok = .false.
+      enddo
+   enddo
+   if (any(cover /= 1.0_R8P)) ok = .false.
+   if (ok) then
+      write(*,'(A)') 'PASS: quadtree face (outer axis unrefined): 2x1 means, two halves tile the face once'
+   else
+      write(*,'(A)') 'FAIL: quadtree face restriction (inner_ratio 2, outer_ratio 1)'
+      test_passed = .false.
+   endif
+endblock
+
 if (test_passed) then
    write(*,'(A)') 'TEST PASSED: amr reflux restrict'
 else

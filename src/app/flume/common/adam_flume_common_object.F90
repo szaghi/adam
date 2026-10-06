@@ -12,7 +12,8 @@ module adam_flume_common_object
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
                                              AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD
 use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
-use :: adam_flux_register_object,     only : flux_register_object, restrict_fine_face_to_quadrant, SEAM_KIND_INTER_REALM
+use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
+                                             SEAM_KIND_INTER_REALM
 use :: adam_parameters,               only : TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,             only : realm_object
 use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
@@ -307,7 +308,8 @@ contains
    !< packs it on the device and copies it to the host. `skin(v, c)` is the face flux with the cell index `c` running
    !< over the two tangential axes, inner fastest (x faces: j, k; y faces: i, k; z faces: i, j), the register order.
    !< Coarse side (positive register index): the skin is the coarse face. Fine side (negative index): on an intra-realm
-   !< AMR seam the skin is 2:1-restricted (2x2 average) into this block's quadrant of the coarse face, the quadrant offset
+   !< AMR seam the skin is 2:1-restricted (2x2 average; 2x1 across the unrefined z of a quadtree, issue #46) into this
+   !< block's quadrant of the coarse face, the quadrant offset
    !< precomputed by the forest from the Morton codes (`maps%amr_seam_quadrant`); on an inter-realm mirror seam (same
    !< resolution) it is accumulated unrestricted into the register faces it overlaps (`maps%seam_overlap`, issue #51:
    !< the blocks of the two realms need not line up; one full-skin overlap when they do).
@@ -327,6 +329,7 @@ contains
    integer(I4P)                               :: inner_n, outer_n    !< Tangential cell counts.
    integer(I4P)                               :: ioff, joff          !< Fine-block quadrant offset.
    integer(I4P)                               :: nv                  !< Skin variables number.
+   integer(I4P)                               :: ratios(2)           !< Refinement ratios of the tangential axes.
 
    sgn_idx = self%adam%maps%inter_realm_face_register_index(b, fec)
    if (sgn_idx == 0_I4P) return
@@ -369,8 +372,9 @@ contains
       endif
       allocate(fine_face(nv, inner_n, outer_n))
       fine_face = weight * reshape(skin, [nv, inner_n, outer_n])
+      ratios = face_tangential_ratios(fec=fec, refine_ratio=self%adam%maps%refine_ratio)
       call restrict_fine_face_to_quadrant(fine_face=fine_face, inner_n=inner_n, outer_n=outer_n, ioff=ioff, joff=joff, &
-                                          slab=slab)
+                                          slab=slab, inner_ratio=ratios(1), outer_ratio=ratios(2))
       call flux_register%accumulate_fine_flux(face_index=face_idx, stage=1_I4P, flux_face=slab)
    endif
    endsubroutine accumulate_seam_skin

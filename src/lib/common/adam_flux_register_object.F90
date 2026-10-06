@@ -73,6 +73,7 @@ implicit none
 private
 public :: flux_register_object
 public :: restrict_fine_face_to_quadrant
+public :: face_tangential_ratios
 public :: flux_register_face_t
 public :: SEAM_KIND_INTRA_REALM_AMR, SEAM_KIND_INTER_REALM, SEAM_KIND_INTER_REALM_REFINED
 
@@ -431,10 +432,27 @@ contains
    self%nfaces = 0_I4P
    self%is_initialized_ = .false.
    endsubroutine destroy
+   pure function face_tangential_ratios(fec, refine_ratio) result(ratios)
+   !< Refinement ratios of the (inner, outer) tangential axes of face `fec` (1..6: -x, +x, -y, +y, -z, +z), the axis
+   !< order of the face skins (x faces: y, z; y faces: x, z; z faces: x, y) and of `restrict_fine_face_to_quadrant`.
+   integer(I4P), intent(in) :: fec             !< Face (1..6).
+   integer(I4P), intent(in) :: refine_ratio(3) !< Refinement ratio per axis (`maps%refine_ratio`).
+   integer(I4P)             :: ratios(2)       !< Ratios of the inner and outer tangential axes.
+
+   select case(fec)
+   case(1_I4P, 2_I4P)
+      ratios = [refine_ratio(2), refine_ratio(3)]
+   case(3_I4P, 4_I4P)
+      ratios = [refine_ratio(1), refine_ratio(3)]
+   case default
+      ratios = [refine_ratio(1), refine_ratio(2)]
+   endselect
+   endfunction face_tangential_ratios
+
    ! coarse-fine seam reflux helper (moved here from adam_prism_cpu_object, issue #23 R3:
    ! pure 2:1 face-flux restriction needed by BOTH backends' seam-flux accumulation;
    ! unit-tested by test_amr_reflux_restrict)
-   pure subroutine restrict_fine_face_to_quadrant(fine_face, inner_n, outer_n, ioff, joff, slab)
+   pure subroutine restrict_fine_face_to_quadrant(fine_face, inner_n, outer_n, ioff, joff, slab, inner_ratio, outer_ratio)
    !< 2:1-restrict one fine block's tangential face flux into its (ioff,joff)
    !< quadrant of the coarse-face skin slab (#13 §7.5 M3).
    !<
@@ -447,31 +465,43 @@ contains
    !< the four fine blocks of a 2:1 face fill disjoint quadrants that together
    !< cover the whole coarse face exactly once.
    !<
+   !< Along a tangential axis the tree does not refine (`inner_ratio` or
+   !< `outer_ratio` = 1: z of a quadtree, issue #46) the fine and coarse cells
+   !< coincide: no offset, no averaging along it (a 2x1 mean, two fine blocks per
+   !< face). Both ratios default to 2 (the octree).
+   !<
    !< Conservative averaging (the 0.25 factor) is the correct face-FLUX restriction:
    !< the coarse-face flux per unit area equals the mean of the fine-face fluxes
    !< per unit area covering it (Berger-Colella 1989 §4; Olivares 2019 Eq. 26-27),
    !< so `F_coarse - F_fine_sum` telescopes to round-off for a consistent scheme.
-   real(R8P),    intent(in)    :: fine_face(:,:,:) !< Fine face flux (nv, inner_n, outer_n).
-   integer(I4P), intent(in)    :: inner_n, outer_n !< Coarse-face tangential cell counts.
-   integer(I4P), intent(in)    :: ioff, joff       !< Quadrant offset along (inner, outer) ∈ {0,1}.
-   real(R8P),    intent(inout) :: slab(:,:)        !< Coarse-skin slab (nv, inner_n*outer_n); quadrant written.
-   integer(I4P)                :: ic, oc, v, c_coarse, nv_ !< Counters / coarse linear index.
-   integer(I4P)                :: fi, fo, di, do_  !< Fine cell indices and 2x2 offsets.
+   real(R8P),    intent(in)           :: fine_face(:,:,:) !< Fine face flux (nv, inner_n, outer_n).
+   integer(I4P), intent(in)           :: inner_n, outer_n !< Coarse-face tangential cell counts.
+   integer(I4P), intent(in)           :: ioff, joff       !< Quadrant offset along (inner, outer) ∈ {0,1}.
+   real(R8P),    intent(inout)        :: slab(:,:)        !< Coarse-skin slab (nv, inner_n*outer_n); quadrant written.
+   integer(I4P), intent(in), optional :: inner_ratio      !< Refinement ratio along the inner axis (2 default, or 1).
+   integer(I4P), intent(in), optional :: outer_ratio      !< Refinement ratio along the outer axis (2 default, or 1).
+   integer(I4P)                       :: ic, oc, v, c_coarse, nv_ !< Counters / coarse linear index.
+   integer(I4P)                       :: fi, fo, di, do_  !< Fine cell indices and offsets.
+   integer(I4P)                       :: ri, ro           !< Ratios along the inner and outer axes.
+   real(R8P)                          :: mean_factor      !< 1 / (ri ro), exact.
 
+   ri = 2_I4P ; if (present(inner_ratio)) ri = inner_ratio
+   ro = 2_I4P ; if (present(outer_ratio)) ro = outer_ratio
+   mean_factor = 1._R8P / real(ri * ro, R8P)
    nv_ = int(size(fine_face, dim=1), I4P)
-   do oc = 1_I4P, outer_n/2_I4P
-      do ic = 1_I4P, inner_n/2_I4P
+   do oc = 1_I4P, outer_n/ro
+      do ic = 1_I4P, inner_n/ri
          c_coarse = (joff*outer_n/2_I4P + oc - 1_I4P) * inner_n + (ioff*inner_n/2_I4P + ic)
          do v = 1_I4P, nv_
             slab(v, c_coarse) = 0._R8P
-            do do_ = 0_I4P, 1_I4P
-               fo = 2_I4P*oc - 1_I4P + do_
-               do di = 0_I4P, 1_I4P
-                  fi = 2_I4P*ic - 1_I4P + di
+            do do_ = 0_I4P, ro - 1_I4P
+               fo = ro*oc - ro + 1_I4P + do_
+               do di = 0_I4P, ri - 1_I4P
+                  fi = ri*ic - ri + 1_I4P + di
                   slab(v, c_coarse) = slab(v, c_coarse) + fine_face(v, fi, fo)
                enddo
             enddo
-            slab(v, c_coarse) = 0.25_R8P * slab(v, c_coarse)
+            slab(v, c_coarse) = mean_factor * slab(v, c_coarse)
          enddo
       enddo
    enddo
