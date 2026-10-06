@@ -129,7 +129,7 @@ contains
 
       self%gamm(2) = 1._R8P
    case(RK_SSP_33) ! 3 stages, 3rd order SSP
-      self%nrk = 2
+      self%nrk = 3
       allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
       self%alph = 0._R8P
       self%beta = 0._R8P

@@ -495,6 +495,10 @@ contains
    ! Bytes -> GB via 1e9 to match compute_blocks_number's memory_avail*1e9.
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P)/1e9_R8P / real(realms_number_, R8P)
    call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+   if (is_pic_model(self%physics%physical_model)) then
+      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
+         call mpih_fnl%error_stop(msg=': conserving PIC current is implemented on CPU only; FNL port pending')
+   endif
    call check_pml_configuration()
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)

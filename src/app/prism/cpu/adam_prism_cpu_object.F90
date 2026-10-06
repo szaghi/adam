@@ -31,10 +31,28 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P), allocatable ::   flx_f(:,:,:,:,:    ) !< Fluxes along x at cell face.
    real(R8P), allocatable ::   fly_f(:,:,:,:,:    ) !< Fluxes along y at cell face.
    real(R8P), allocatable ::   flz_f(:,:,:,:,:    ) !< Fluxes along z at cell face.
+   real(R8P), allocatable :: charge_conservation_acc(:,:,:,:)  !< Accumulator for rho/dt + weighted div(J) diagnostic.
+   real(R8P), allocatable :: charge_conservation_divj(:,:,:,:) !< Workspace for stage div(J) diagnostic.
+   real(R8P), allocatable :: direct_current_matrix_x(:,:,:)    !< Cached factored x-line matrices for direct PIC current.
+   real(R8P), allocatable :: direct_current_matrix_y(:,:,:)    !< Cached factored y-line matrices for direct PIC current.
+   real(R8P), allocatable :: direct_current_matrix_z(:,:,:)    !< Cached factored z-line matrices for direct PIC current.
+   real(R8P), allocatable :: direct_current_dxyz(:,:)          !< Grid spacings used to build direct current matrices.
+   integer(I4P), allocatable :: direct_current_pivot_x(:,:)    !< Cached x-line pivots for direct PIC current.
+   integer(I4P), allocatable :: direct_current_pivot_y(:,:)    !< Cached y-line pivots for direct PIC current.
+   integer(I4P), allocatable :: direct_current_pivot_z(:,:)    !< Cached z-line pivots for direct PIC current.
+   integer(I4P)          :: direct_current_cache_ni = 0_I4P    !< Cached x-line size.
+   integer(I4P)          :: direct_current_cache_nj = 0_I4P    !< Cached y-line size.
+   integer(I4P)          :: direct_current_cache_nk = 0_I4P    !< Cached z-line size.
+   integer(I4P)          :: direct_current_cache_nb = 0_I4P    !< Cached block count.
+   integer(I4P)          :: direct_current_cache_hs = 0_I4P    !< Cached half-stencil.
+   logical               :: direct_current_cache_esirkepov = .false.
    logical               :: fv_add_phi_damping = .false. !< Apply phi damping in FV residuals.
    logical               :: fv_add_psi_damping = .false. !< Apply psi damping in FV residuals.
    integer(I4P)          :: fv_ivar_phi        = 0_I4P   !< Phi slot index in FV residuals.
    integer(I4P)          :: fv_ivar_psi        = 0_I4P   !< Psi slot index in FV residuals.
+   real(R8P)             :: charge_conservation_error_max = 0._R8P !< Max continuity-equation residual over one PIC step.
+   real(R8P)             :: current_solver_residual_max = 0._R8P !< Max residual of the direct current line solves.
+   logical               :: charge_conservation_ready = .false. !< True when the current PIC step has a finalized diagnostic.
    !< Pointer (abstract) TBP.
    procedure(compute_residuals_interface), pass(self),pointer :: compute_residuals=>null()!< Compute residuals, space operator.
    procedure(integrate_interface),         pass(self),pointer :: integrate        =>null()!< Integrate, time operator.
@@ -72,6 +90,10 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: pack_seam_cells_forest       !< Pack own cells of the cross-rank seam send rows.
       procedure, pass(self) :: unpack_seam_cells_forest     !< Unpack the cross-rank seam receive rows into own ghosts.
       procedure, pass(self) :: apply_reflux_to_stage_forest !< Apply end-of-step Berger-Colella reflux to self's committed q.
+      procedure, pass(self) :: initialize_charge_conservation_diagnostic !< Initialize PIC continuity-equation diagnostic.
+      procedure, pass(self) :: accumulate_charge_conservation_current !< Accumulate weighted stage div(J).
+      procedure, pass(self) :: finalize_charge_conservation_diagnostic !< Finalize PIC continuity-equation diagnostic.
+      procedure, pass(self) :: save_charge_conservation_diagnostic !< Save PIC charge-conservation diagnostic history.
       ! numerical methods
       procedure, pass(self) :: compute_dt                   !< Compute time step.
       procedure, pass(self) :: compute_energy               !< Compute energy.
@@ -209,6 +231,17 @@ contains
    msg = msg_//' flz_f '
    call allocate_variable(var=self%flz_f,ulb=reshape([1,nv,1,ni,1,nj,0,nk,1,nb],[2,5]),msg=msg)
    self%flz_f = 0._R8P
+   if (is_pic_model(self%physics%physical_model) .and. &
+       trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+      msg = msg_//' charge_conservation_acc '
+      call allocate_variable(var=self%charge_conservation_acc, &
+                             ulb=reshape([1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,4]), msg=msg)
+      self%charge_conservation_acc = 0._R8P
+      msg = msg_//' charge_conservation_divj '
+      call allocate_variable(var=self%charge_conservation_divj, &
+                             ulb=reshape([1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,4]), msg=msg)
+      self%charge_conservation_divj = 0._R8P
+   endif
    endassociate
    call mpih%print_message('prism_cpu_object%allocate_cpu finish')
    endsubroutine allocate_cpu
@@ -226,6 +259,20 @@ contains
    call mpih%print_message('prism_cpu_object%initialize start')
    memory_avail_ = mpih%memory_avail / real(realms_number_, R8P)
    call self%prism_common_object%initialize(filename=filename,memory_avail=memory_avail_,verbose=.true.)
+   if (is_pic_model(self%physics%physical_model)) then
+      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+         if (self%numerics%scheme_space /= NUM_SCHEME_SPACE_FD_CENTERED .or. &
+             self%numerics%scheme_time /= NUM_SCHEME_TIME_RUNGE_KUTTA .or. &
+             self%pic%scheme_time /= NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
+            call mpih%error_stop(msg=': conserving PIC current requires centered FD and SSP Runge-Kutta')
+         if (self%rk%scheme /= RK_SSP_22 .and. self%rk%scheme /= RK_SSP_33 .and. self%rk%scheme /= RK_SSP_54) &
+            call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
+         if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+            if (self%fdv_order /= 2_I4P .and. self%fdv_order /= 6_I4P) &
+               call mpih%error_stop(msg=': esirkepov-modified supports FD2 and FD6 only')
+         endif
+      endif
+   endif
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
@@ -260,7 +307,11 @@ contains
          case(RK_1, RK_2, RK_3)
             !self%integrate => integrate_rk_ls_pic
          case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
-            self%integrate => integrate_rk_ssp_pic
+            if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+               self%integrate => integrate_rk_ssp_pic_charge_conserving
+            else
+               self%integrate => integrate_rk_ssp_pic
+            endif
          case(RK_YOSHIDA)
             !self%integrate => integrate_rk_yoshida_pic
          endselect
@@ -1303,6 +1354,13 @@ contains
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, &
                                                             grid=self%adam%grid, q=self%q)
    if (.not.is_restart) call self%initialize_pic_time_zero()
+   if (.not.is_restart .and. is_pic_model(self%physics%physical_model)) then
+      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+         if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) &
+            call deposit_pic_modified_charge(self=self, q=self%q)
+         call initialize_pic_conserving_current_time_zero(self=self)
+      endif
+   endif
 
    call self%initialize_coils
    if (.not.is_restart) then
@@ -1469,6 +1527,12 @@ contains
    call self%save_grms_history(is_to_open=.true.)
    call self%save_magnetic_field_at_center_domain_history(is_to_open=.true.)
    call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
+   if (is_pic_model(self%physics%physical_model)) &
+      call self%io%save_charge_conservation_history(time=0._R8P, Q_particles=0._R8P, Q_deposited=0._R8P, &
+                                                    Q_deposition_error=0._R8P, R_cont_L1=0._R8P, R_cont_L2=0._R8P, &
+                                                    R_cont_Linf=0._R8P, dQ_num_net=0._R8P, dQ_num_abs=0._R8P, &
+                                                    Gauss_L1=0._R8P, Gauss_L2=0._R8P, Gauss_Linf=0._R8P, &
+                                                    is_to_open=.true., do_write=.false.)
    call self%io%open_file_residuals(nv=self%nv)
 
    if (.not.self%io%restart .and. is_pic_model(self%physics%physical_model)) then
@@ -1583,6 +1647,10 @@ contains
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
    real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
 
+   if (is_pic_model(self%physics%physical_model)) then
+      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
+         call mpih%error_stop(msg=': conserving PIC current is not implemented in the staged forest path')
+   endif
    self%time%it = self%time%it + 1
    dt_step = dt
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
@@ -1900,6 +1968,7 @@ contains
    logical,                 intent(in),    optional         :: do_save_restart   !< Save restart dump this step.
    logical,                 intent(in),    optional         :: do_amr            !< Run AMR update this step.
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
+   real(R8P) :: current_residual !< Maximum current linear-solve residual.
    real(R8P)                                                :: max_div_D         !< Maximum of divergence of D field.
    real(R8P)                                                :: max_div_B         !< Maximum of divergence of B
    real(R8P)                                                :: max_div_J         !< Maximum of divergence of J field.
@@ -1937,7 +2006,15 @@ contains
    endassociate
    call compute_max_divergence_outside_absorbing_layers(self=self, hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
                                                         max_div_B=max_div_B, max_div_J=max_div_J)
-   call self%save_divergence_history(div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
+   current_residual = 0._R8P
+   if (is_pic_model(self%physics%physical_model) .and. &
+       trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+      current_residual = self%current_solver_residual_max
+      call MPI_ALLREDUCE(MPI_IN_PLACE, current_residual, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   endif
+   call self%save_divergence_history(div_D=max_div_D, div_B=max_div_B, div_J=max_div_J, &
+                                     current_solver_residual=current_residual)
+   call self%save_charge_conservation_diagnostic
    endsubroutine post_step_forest
 
    subroutine is_done_forest(self, done)
@@ -1991,6 +2068,10 @@ contains
       if (self%magnetic_field_at_center_domain%history_unit > 0_I4P) then
          inquire(unit=self%magnetic_field_at_center_domain%history_unit, opened=is_open)
          if (is_open) close(self%magnetic_field_at_center_domain%history_unit)
+      endif
+      if (is_pic_model(self%physics%physical_model)) then
+         inquire(unit=self%io%charge_conservation_history_unit, opened=is_open)
+         if (is_open) close(self%io%charge_conservation_history_unit)
       endif
       inquire(unit=self%io%divergence_history_unit, opened=is_open)
       if (is_open) close(self%io%divergence_history_unit)
@@ -4358,6 +4439,1795 @@ contains
    !endif
    !endassociate
    !endsubroutine update_q_BC
+
+   subroutine integrate_rk_ssp_pic_charge_conserving(self)
+   !< Integrate PIC equations with SSP RK and charge-conserving current reconstruction.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P)                           :: s, r, np, nrk
+   real(R8P), allocatable                 :: q_stage(:,:,:,:,:)
+   real(R8P), allocatable                 :: q_work(:,:,:,:,:)
+   real(R8P), allocatable                 :: q_gather(:,:,:,:,:)
+   real(R8P), allocatable                 :: q_pic_next(:,:)
+   real(R8P), allocatable                 :: q_pic_to_stage(:,:,:)
+   real(R8P), allocatable                 :: q_pic_ref(:,:)
+   real(R8P), allocatable                 :: h_q(:,:,:,:,:,:,:)
+   real(R8P), allocatable                 :: coeff(:)
+
+
+   np = self%pic%particle_number
+   nrk = self%rk%nrk
+   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
+   call self%rk_pic%initialize_stages(q_pic=self%q_pic)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
+
+   call allocate_variable(var=q_stage,                              &
+                          ulb=reshape([1,self%nv,                   &
+                                       1-self%ngc,self%ni+self%ngc, &
+                                       1-self%ngc,self%nj+self%ngc, &
+                                       1-self%ngc,self%nk+self%ngc, &
+                                       1,self%nb],[2,5]),           &
+                          msg=mpih%myrankstr//'integrate_rk_ssp_pic_charge_conserving allocate q_stage')
+   if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_CURRENT_CONSERVING_SOLVER .and. &
+       trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+      call allocate_variable(var=q_work,                               &
+                             ulb=reshape([1,self%nv,                   &
+                                          1-self%ngc,self%ni+self%ngc, &
+                                          1-self%ngc,self%nj+self%ngc, &
+                                          1-self%ngc,self%nk+self%ngc, &
+                                          1,self%nb],[2,5]),           &
+                             msg=mpih%myrankstr//'integrate_rk_ssp_pic_charge_conserving allocate q_work')
+   endif
+   allocate(q_pic_next(1:8, 1:np), coeff(1:nrk))
+   if (self%pic%esirkepov_tail_cleanup) then
+      if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) &
+         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires esirkepov-modified')
+      allocate(q_pic_to_stage(1:8,1:np,1:nrk))
+      allocate(q_pic_ref,source=self%q_pic)
+   endif
+   allocate(h_q(1:3, 1-self%ngc:self%ni+self%ngc, 1-self%ngc:self%nj+self%ngc, &
+                1-self%ngc:self%nk+self%ngc, 1:self%nb, 1:nrk, 1:1))
+   h_q = 0._R8P
+   self%current_solver_residual_max = 0._R8P
+   call self%initialize_charge_conservation_diagnostic
+
+   do s=1, nrk
+      if (self%ib%solids_number>0) then
+         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
+      else
+         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
+      endif
+      call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
+      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
+
+      q_stage = self%rk%q_rk(:,:,:,:,:,s)
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, &
+                                                   q_pic=self%rk_pic%q_pic_rk(:,:,s))
+      if (self%external_fields%ef_type /= EF_TYPE_NONE) then
+         if (.not.allocated(q_gather)) allocate(q_gather, mold=q_stage)
+         q_gather = q_stage
+         call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                       time=self%time%time, dt=self%time%dt, &
+                                                       gamm=self%rk%gamm(s), q=q_gather)
+         call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_gather, &
+                                       q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+      else
+         call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
+                                       q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+      endif
+      call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
+
+      coeff = 0._R8P
+      q_pic_next = self%q_pic
+      if (s < nrk) then
+         coeff(1:s) = self%rk%alph(s+1, 1:s)
+      else
+         coeff(1:s) = self%rk%beta(1:s)
+      endif
+      do r=1, s
+         q_pic_next(1:6,:) = q_pic_next(1:6,:) + self%time%dt * coeff(r) * self%rk_pic%q_pic_rk(1:6,:,r)
+      enddo
+      q_pic_next(7:8,:) = self%q_pic(7:8,:)
+      if (self%pic%esirkepov_tail_cleanup) q_pic_to_stage(:,:,s) = q_pic_next
+
+      if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_CURRENT_CONSERVING_SOLVER .or. &
+          trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+         call compute_pic_esirkepov_displacement(self=self, q_ref=self%q_pic, q_to=q_pic_next, &
+                                                 h_dir=h_q(:,:,:,:,:,s,1), stage=s)
+      else
+         call compute_pic_charge_displacement_decomposition(self=self, q_ref=self%q_pic, q_to=q_pic_next, &
+                                                            q_work=q_work, h_dir=h_q(:,:,:,:,:,s,1))
+      endif
+      do r=1, s-1
+         h_q(:,:,:,:,:,s,1) = h_q(:,:,:,:,:,s,1) - coeff(r) * h_q(:,:,:,:,:,r,1)
+      enddo
+      if (abs(coeff(s)) <= tiny(1._R8P)) call mpih%error_stop(msg=': zero SSP coefficient in charge-conserving PIC current')
+      h_q(:,:,:,:,:,s,1) = h_q(:,:,:,:,:,s,1) / coeff(s)
+
+      if (self%pic%esirkepov_tail_cleanup) then
+         call solve_modified_current_with_cleanup(self=self, q=q_stage, q_ref=self%q_pic, &
+                                                  q_to_history=q_pic_to_stage(:,:,1:s), active_stage=s, &
+                                                  mixed_source=h_q(:,:,:,:,:,s,1))
+      else
+         call solve_pic_charge_conserving_current_dispatch(self=self, q=q_stage, hq=h_q(:,:,:,:,:,s,1))
+      endif
+      call self%accumulate_charge_conservation_current(q=q_stage, weight=self%rk%beta(s))
+      call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
+                                                  context='integrate_rk_ssp_pic_charge_conserving(stage current)')
+      call self%compute_coils_current(q=q_stage, gamma=self%rk%gamm(s))
+      call self%compute_residuals(q=q_stage, dq=self%dq, s=s)
+      if (s==1) call self%save_residuals
+
+      if (self%ib%solids_number>0) then
+         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
+      else
+         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
+      endif
+      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=s)
+   enddo
+
+   if (self%ib%solids_number>0) then
+      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
+   else
+      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q)
+   endif
+   call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
+      call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
+   call self%apply_fWL_correction(q=self%q)
+   call self%impose_div_free
+   call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
+   if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+      call deposit_pic_modified_charge(self=self, q=self%q)
+   else
+      call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   endif
+   call self%finalize_charge_conservation_diagnostic
+   if (self%pic%esirkepov_tail_cleanup) then
+      call solve_modified_current_with_cleanup(self=self, q=self%q, q_ref=q_pic_ref, &
+                                               q_to_history=q_pic_to_stage, active_stage=nrk, &
+                                               mixed_source=h_q(:,:,:,:,:,nrk,1))
+   else
+      call solve_pic_charge_conserving_current_dispatch(self=self, q=self%q, hq=h_q(:,:,:,:,:,nrk,1))
+   endif
+   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
+                                               context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
+   call self%compute_coils_current(q=self%q)
+   if (allocated(q_stage)) deallocate(q_stage)
+   if (allocated(q_work)) deallocate(q_work)
+   if (allocated(q_pic_next)) deallocate(q_pic_next)
+   if (allocated(q_pic_to_stage)) deallocate(q_pic_to_stage)
+   if (allocated(q_pic_ref)) deallocate(q_pic_ref)
+   if (allocated(h_q)) deallocate(h_q)
+   if (allocated(coeff)) deallocate(coeff)
+   endsubroutine integrate_rk_ssp_pic_charge_conserving
+
+   subroutine compute_pic_charge_displacement_decomposition(self, q_ref, q_to, q_work, h_dir)
+   !< Directional telescopic decomposition of rho(q_to)-rho(q_ref), using the configured particle shape.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(in)    :: q_ref(1:,1:)
+   real(R8P),               intent(in)    :: q_to(1:,1:)
+   real(R8P),               intent(inout) :: q_work(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P),               intent(inout) :: h_dir(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   integer(I4P), parameter                :: perm(3,6) = reshape([1,2,3, 1,3,2, 2,1,3, 2,3,1, 3,1,2, 3,2,1], [3,6])
+   real(R8P), allocatable                 :: q_mixed(:,:)
+   integer(I4P)                           :: p, step, l, alpha
+
+   allocate(q_mixed(1:8, 1:self%pic%particle_number))
+   h_dir = 0._R8P
+   do p=1, 6
+      do step=1, 3
+         q_mixed = q_ref
+         do l=1, step-1
+            q_mixed(perm(l,p),:) = q_to(perm(l,p),:)
+         enddo
+         alpha = perm(step,p)
+         call deposit_pic_charge_density(self=self, q_pic_pos=q_mixed, q_work=q_work)
+         h_dir(alpha,:,:,:,:) = h_dir(alpha,:,:,:,:) - q_work(self%nv,:,:,:,:) / 6._R8P
+         q_mixed(alpha,:) = q_to(alpha,:)
+         call deposit_pic_charge_density(self=self, q_pic_pos=q_mixed, q_work=q_work)
+         h_dir(alpha,:,:,:,:) = h_dir(alpha,:,:,:,:) + q_work(self%nv,:,:,:,:) / 6._R8P
+      enddo
+   enddo
+   if (allocated(q_mixed)) deallocate(q_mixed)
+   endsubroutine compute_pic_charge_displacement_decomposition
+
+   subroutine compute_pic_esirkepov_displacement(self, q_ref, q_to, h_dir, stage, particle)
+   !< Symmetric Esirkepov density decomposition for the same separable shape used by rho.
+   implicit none
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(in)    :: q_ref(1:,1:), q_to(1:,1:)
+   real(R8P),               intent(inout) :: h_dir(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   integer(I4P), optional,  intent(in)    :: stage
+   integer(I4P), optional,  intent(in)    :: particle
+   integer(I4P)                           :: p, b, bt, ip, jp, kp, it, jt, kt
+   integer(I4P)                           :: p_first, p_last
+   integer(I4P)                           :: rx, ry, rz, i0, i1, j0, j1, k0, k1, i, j, k
+   real(R8P)                              :: a0, a1, da, b0, b1, db, c0, c1, dc, charge_density
+   real(R8P), allocatable                 :: wx(:,:), wy(:,:), wz(:,:)
+   logical                                :: gaussian, quartic
+
+   gaussian = trim(self%pic%particle_weighting_model) == 'Gaussian'
+   quartic = trim(self%pic%particle_weighting_model) == 'quartic' .and. &
+             trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER
+   if (gaussian .or. quartic) then
+      if (gaussian .and. (self%pic%sigma <= 0._R8P .or. self%pic%cutoff_sigma <= 0._R8P .or. &
+          self%pic%gaussian_support_cells < 0_I4P)) &
+         call mpih%error_stop(msg=': invalid Gaussian width, cutoff or support in Esirkepov current')
+      call allocate_variable(var=wx, ulb=reshape([1,self%ni,1,2],[2,2]), &
+                             msg=mpih%myrankstr//'compute_pic_esirkepov_displacement allocate wx')
+      call allocate_variable(var=wy, ulb=reshape([1,self%nj,1,2],[2,2]), &
+                             msg=mpih%myrankstr//'compute_pic_esirkepov_displacement allocate wy')
+      call allocate_variable(var=wz, ulb=reshape([1,self%nk,1,2],[2,2]), &
+                             msg=mpih%myrankstr//'compute_pic_esirkepov_displacement allocate wz')
+   endif
+   h_dir = 0._R8P
+   p_first = 1_I4P ; p_last = self%pic%particle_number
+   if (present(particle)) then
+      p_first = particle ; p_last = particle
+   endif
+   do p=p_first,p_last
+      call find_pic_position_cell(self=self, q_pos=q_ref(:,p), b=b, i=ip, j=jp, k=kp)
+      call find_pic_position_cell(self=self, q_pos=q_to(:,p), b=bt, i=it, j=jt, k=kt)
+      if (bt /= b) call mpih%error_stop(msg=': esirkepov particle crossed a block; inter-block current is unsupported')
+      if (q_ref(7,p) /= q_to(7,p)) call mpih%error_stop(msg=': esirkepov particle charge changed during an RK stage')
+      call particle_weighting_radius(self=self, b=b, rx=rx, ry=ry, rz=rz)
+      if (self%pic%filter_deposition .and. &
+          trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+         rx = rx + 1_I4P ; ry = ry + 1_I4P ; rz = rz + 1_I4P
+      endif
+      i0 = min(ip,it) - rx ; i1 = max(ip,it) + rx
+      j0 = min(jp,jt) - ry ; j1 = max(jp,jt) + ry
+      k0 = min(kp,kt) - rz ; k1 = max(kp,kt) + rz
+      if (i0 < 1_I4P .or. i1 > self%ni .or. j0 < 1_I4P .or. j1 > self%nj .or. &
+          k0 < 1_I4P .or. k1 > self%nk) &
+         call mpih%error_stop(msg=': esirkepov particle shape touches a boundary; charge flux BC is unsupported')
+      if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+         if (min(i0,j0,k0) <= modified_filter_radius(self) .or. &
+             self%ni-i1 <= modified_filter_radius(self) .or. &
+             self%nj-j1 <= modified_filter_radius(self) .or. &
+             self%nk-k1 <= modified_filter_radius(self)) &
+            call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a boundary')
+      endif
+      if (gaussian) then
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_ref(1,p), x_cell=self%adam%field%x_cell(1:self%ni,b), &
+                                                   dx=self%adam%field%dxyz(1,b), ip=ip, radius=rx, &
+                                                   lo=i0, hi=i1, w=wx(i0:i1,1))
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_to(1,p), x_cell=self%adam%field%x_cell(1:self%ni,b), &
+                                                   dx=self%adam%field%dxyz(1,b), ip=it, radius=rx, &
+                                                   lo=i0, hi=i1, w=wx(i0:i1,2))
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_ref(2,p), x_cell=self%adam%field%y_cell(1:self%nj,b), &
+                                                   dx=self%adam%field%dxyz(2,b), ip=jp, radius=ry, &
+                                                   lo=j0, hi=j1, w=wy(j0:j1,1))
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_to(2,p), x_cell=self%adam%field%y_cell(1:self%nj,b), &
+                                                   dx=self%adam%field%dxyz(2,b), ip=jt, radius=ry, &
+                                                   lo=j0, hi=j1, w=wy(j0:j1,2))
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_ref(3,p), x_cell=self%adam%field%z_cell(1:self%nk,b), &
+                                                   dx=self%adam%field%dxyz(3,b), ip=kp, radius=rz, &
+                                                   lo=k0, hi=k1, w=wz(k0:k1,1))
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_to(3,p), x_cell=self%adam%field%z_cell(1:self%nk,b), &
+                                                   dx=self%adam%field%dxyz(3,b), ip=kt, radius=rz, &
+                                                   lo=k0, hi=k1, w=wz(k0:k1,2))
+      elseif (quartic) then
+         wx = 0._R8P ; wy = 0._R8P ; wz = 0._R8P
+         call quartic_closed_weights(q_ref(1,p),self%adam%field%x_cell(ip-2:ip+2,b), &
+                                     self%adam%field%dxyz(1,b),wx(ip-2:ip+2,1))
+         call quartic_closed_weights(q_to(1,p),self%adam%field%x_cell(it-2:it+2,b), &
+                                     self%adam%field%dxyz(1,b),wx(it-2:it+2,2))
+         call quartic_closed_weights(q_ref(2,p),self%adam%field%y_cell(jp-2:jp+2,b), &
+                                     self%adam%field%dxyz(2,b),wy(jp-2:jp+2,1))
+         call quartic_closed_weights(q_to(2,p),self%adam%field%y_cell(jt-2:jt+2,b), &
+                                     self%adam%field%dxyz(2,b),wy(jt-2:jt+2,2))
+         call quartic_closed_weights(q_ref(3,p),self%adam%field%z_cell(kp-2:kp+2,b), &
+                                     self%adam%field%dxyz(3,b),wz(kp-2:kp+2,1))
+         call quartic_closed_weights(q_to(3,p),self%adam%field%z_cell(kt-2:kt+2,b), &
+                                     self%adam%field%dxyz(3,b),wz(kt-2:kt+2,2))
+      endif
+      charge_density = q_ref(7,p) / product(self%adam%field%dxyz(:,b))
+      do k=k0,k1
+         if (gaussian .or. quartic) then
+            c0 = wz(k,1) ; c1 = wz(k,2)
+         else
+            call esirkepov_shape_weight_1d(self=self, x=q_ref(3,p), xc=self%adam%field%z_cell(k,b), &
+                                           dx=self%adam%field%dxyz(3,b), w=c0)
+            call esirkepov_shape_weight_1d(self=self, x=q_to(3,p), xc=self%adam%field%z_cell(k,b), &
+                                           dx=self%adam%field%dxyz(3,b), w=c1)
+         endif
+         dc = c1-c0
+         do j=j0,j1
+            if (gaussian .or. quartic) then
+               b0 = wy(j,1) ; b1 = wy(j,2)
+            else
+               call esirkepov_shape_weight_1d(self=self, x=q_ref(2,p), xc=self%adam%field%y_cell(j,b), &
+                                              dx=self%adam%field%dxyz(2,b), w=b0)
+               call esirkepov_shape_weight_1d(self=self, x=q_to(2,p), xc=self%adam%field%y_cell(j,b), &
+                                              dx=self%adam%field%dxyz(2,b), w=b1)
+            endif
+            db = b1-b0
+            do i=i0,i1
+               if (gaussian .or. quartic) then
+                  a0 = wx(i,1) ; a1 = wx(i,2)
+               else
+                  call esirkepov_shape_weight_1d(self=self, x=q_ref(1,p), xc=self%adam%field%x_cell(i,b), &
+                                                 dx=self%adam%field%dxyz(1,b), w=a0)
+                  call esirkepov_shape_weight_1d(self=self, x=q_to(1,p), xc=self%adam%field%x_cell(i,b), &
+                                                 dx=self%adam%field%dxyz(1,b), w=a1)
+               endif
+               da = a1-a0
+               h_dir(1,i,j,k,b) = h_dir(1,i,j,k,b) + charge_density*da*(b0*c0 + 0.5_R8P*(db*c0+b0*dc) + db*dc/3._R8P)
+               h_dir(2,i,j,k,b) = h_dir(2,i,j,k,b) + charge_density*db*(a0*c0 + 0.5_R8P*(da*c0+a0*dc) + da*dc/3._R8P)
+               h_dir(3,i,j,k,b) = h_dir(3,i,j,k,b) + charge_density*dc*(a0*b0 + 0.5_R8P*(da*b0+a0*db) + da*db/3._R8P)
+            enddo
+         enddo
+      enddo
+      if (.not.present(particle)) then
+         if (p == 1_I4P) call diagnose_esirkepov_particle(self=self, q_ref=q_ref, q_to=q_to, &
+            h_dir=h_dir, b=b, p=p, lo=[i0,j0,k0], hi=[i1,j1,k1], &
+            old_cell=[ip,jp,kp], new_cell=[it,jt,kt], radius=[rx,ry,rz], stage=stage)
+      endif
+   enddo
+   endsubroutine compute_pic_esirkepov_displacement
+
+   subroutine diagnose_esirkepov_particle(self, q_ref, q_to, h_dir, b, p, lo, hi, old_cell, new_cell, radius, stage)
+   !< Optional, observational diagnostic of particle 1 before SSP mixing and matched filtering.
+   !< Controlled by PIC input; the environment variables retain single-iteration override support.
+   implicit none
+   class(prism_cpu_object), intent(in) :: self
+   real(R8P), intent(in) :: q_ref(1:,1:), q_to(1:,1:)
+   real(R8P), intent(in) :: h_dir(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   integer(I4P), intent(in) :: b, p, lo(3), hi(3), old_cell(3), new_cell(3), radius(3)
+   integer(I4P), optional, intent(in) :: stage
+   real(R8P), allocatable :: shape(:,:,:), source(:,:,:), filtered(:,:,:), work(:,:,:)
+   real(R8P), allocatable :: fraw(:,:,:), ffiltered(:,:,:), jcur(:,:,:)
+   real(R8P) :: pk(-7:7), qw(0:9), sums(2), ds, running, running_filtered
+   real(R8P) :: fstart, fend, fmax, fout, jmax, jout, f_ratio, j_ratio
+   integer(I4P) :: n(3), maxn, dir, axis, i, j, k, t, face, idx(3), js_lo(3), js_hi(3)
+   integer(I4P) :: filter_radius, qfirst, nq, selected_it, diag_stage, unit, profile_unit, ios
+   character(32) :: setting, rank_string, it_string, stage_string
+   character(:), allocatable :: filename
+   logical :: profile
+
+   if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) return
+   if (.not.self%pic%esirkepov_tail_diagnostic) then
+      call get_environment_variable('ADAM_ESIRKEPOV_DIAG_IT', setting, status=ios)
+      if (ios /= 0) return
+      read(setting,*,iostat=ios) selected_it
+      if (ios /= 0) return
+      if (self%time%it /= selected_it) return
+   endif
+   diag_stage = 0_I4P
+   if (present(stage)) diag_stage = stage
+   profile = self%pic%esirkepov_tail_profile_it == self%time%it
+   call get_environment_variable('ADAM_ESIRKEPOV_DIAG_PROFILE', setting, status=ios)
+   if (ios == 0 .and. trim(setting) == '1') profile = .true.
+   n = [self%ni,self%nj,self%nk]
+   maxn = maxval(n)
+   allocate(shape(1:maxn,1:2,1:3), source(self%ni,self%nj,self%nk), &
+            filtered(self%ni,self%nj,self%nk), work(self%ni,self%nj,self%nk), &
+            fraw(self%ni,self%nj,self%nk), ffiltered(self%ni,self%nj,self%nk), jcur(self%ni,self%nj,self%nk))
+   shape = 0._R8P
+   do axis=1,3
+      if (trim(self%pic%particle_weighting_model) == 'Gaussian') then
+         select case(axis)
+         case(1)
+            call compute_esirkepov_gaussian_shape_1d(self,q_ref(axis,p),self%adam%field%x_cell(1:n(axis),b), &
+               self%adam%field%dxyz(axis,b),old_cell(axis),radius(axis),lo(axis),hi(axis),shape(lo(axis):hi(axis),1,axis))
+            call compute_esirkepov_gaussian_shape_1d(self,q_to(axis,p),self%adam%field%x_cell(1:n(axis),b), &
+               self%adam%field%dxyz(axis,b),new_cell(axis),radius(axis),lo(axis),hi(axis),shape(lo(axis):hi(axis),2,axis))
+         case(2)
+            call compute_esirkepov_gaussian_shape_1d(self,q_ref(axis,p),self%adam%field%y_cell(1:n(axis),b), &
+               self%adam%field%dxyz(axis,b),old_cell(axis),radius(axis),lo(axis),hi(axis),shape(lo(axis):hi(axis),1,axis))
+            call compute_esirkepov_gaussian_shape_1d(self,q_to(axis,p),self%adam%field%y_cell(1:n(axis),b), &
+               self%adam%field%dxyz(axis,b),new_cell(axis),radius(axis),lo(axis),hi(axis),shape(lo(axis):hi(axis),2,axis))
+         case(3)
+            call compute_esirkepov_gaussian_shape_1d(self,q_ref(axis,p),self%adam%field%z_cell(1:n(axis),b), &
+               self%adam%field%dxyz(axis,b),old_cell(axis),radius(axis),lo(axis),hi(axis),shape(lo(axis):hi(axis),1,axis))
+            call compute_esirkepov_gaussian_shape_1d(self,q_to(axis,p),self%adam%field%z_cell(1:n(axis),b), &
+               self%adam%field%dxyz(axis,b),new_cell(axis),radius(axis),lo(axis),hi(axis),shape(lo(axis):hi(axis),2,axis))
+         endselect
+      elseif (trim(self%pic%particle_weighting_model) == 'quartic') then
+         select case(axis)
+         case(1)
+            call quartic_closed_weights(q_ref(axis,p),self%adam%field%x_cell(old_cell(axis)-2:old_cell(axis)+2,b), &
+                                        self%adam%field%dxyz(axis,b),shape(old_cell(axis)-2:old_cell(axis)+2,1,axis))
+            call quartic_closed_weights(q_to(axis,p),self%adam%field%x_cell(new_cell(axis)-2:new_cell(axis)+2,b), &
+                                        self%adam%field%dxyz(axis,b),shape(new_cell(axis)-2:new_cell(axis)+2,2,axis))
+         case(2)
+            call quartic_closed_weights(q_ref(axis,p),self%adam%field%y_cell(old_cell(axis)-2:old_cell(axis)+2,b), &
+                                        self%adam%field%dxyz(axis,b),shape(old_cell(axis)-2:old_cell(axis)+2,1,axis))
+            call quartic_closed_weights(q_to(axis,p),self%adam%field%y_cell(new_cell(axis)-2:new_cell(axis)+2,b), &
+                                        self%adam%field%dxyz(axis,b),shape(new_cell(axis)-2:new_cell(axis)+2,2,axis))
+         case(3)
+            call quartic_closed_weights(q_ref(axis,p),self%adam%field%z_cell(old_cell(axis)-2:old_cell(axis)+2,b), &
+                                        self%adam%field%dxyz(axis,b),shape(old_cell(axis)-2:old_cell(axis)+2,1,axis))
+            call quartic_closed_weights(q_to(axis,p),self%adam%field%z_cell(new_cell(axis)-2:new_cell(axis)+2,b), &
+                                        self%adam%field%dxyz(axis,b),shape(new_cell(axis)-2:new_cell(axis)+2,2,axis))
+         endselect
+      else
+         do i=lo(axis),hi(axis)
+            select case(axis)
+            case(1)
+               call esirkepov_shape_weight_1d(self,q_ref(axis,p),self%adam%field%x_cell(i,b), &
+                  self%adam%field%dxyz(axis,b),shape(i,1,axis))
+               call esirkepov_shape_weight_1d(self,q_to(axis,p),self%adam%field%x_cell(i,b), &
+                  self%adam%field%dxyz(axis,b),shape(i,2,axis))
+            case(2)
+               call esirkepov_shape_weight_1d(self,q_ref(axis,p),self%adam%field%y_cell(i,b), &
+                  self%adam%field%dxyz(axis,b),shape(i,1,axis))
+               call esirkepov_shape_weight_1d(self,q_to(axis,p),self%adam%field%y_cell(i,b), &
+                  self%adam%field%dxyz(axis,b),shape(i,2,axis))
+            case(3)
+               call esirkepov_shape_weight_1d(self,q_ref(axis,p),self%adam%field%z_cell(i,b), &
+                  self%adam%field%dxyz(axis,b),shape(i,1,axis))
+               call esirkepov_shape_weight_1d(self,q_to(axis,p),self%adam%field%z_cell(i,b), &
+                  self%adam%field%dxyz(axis,b),shape(i,2,axis))
+            endselect
+         enddo
+      endif
+   enddo
+
+   call modified_kernels(self,pk,qw,filter_radius,qfirst,nq)
+   write(rank_string,'(i6.6)') mpih%myrank
+   filename = 'esirkepov_tail_rank'//trim(rank_string)//'.dat'
+   open(newunit=unit,file=filename,status='unknown',position='append',action='write',iostat=ios)
+   if (ios /= 0) return
+   write(unit,'(a)') '# it stage p block comp shape_lo shape_hi sum_S_old sum_S_new sum_dS '// &
+      'F_start_absmax F_end_absmax F_max F_end_over_Fmax F_out_max J_max J_out_max J_out_over_Jmax'
+   do dir=1,3
+      sums = [sum(shape(lo(dir):hi(dir),1,dir)),sum(shape(lo(dir):hi(dir),2,dir))]
+      ds = sum(shape(lo(dir):hi(dir),2,dir)-shape(lo(dir):hi(dir),1,dir))
+      source = h_dir(dir,1:self%ni,1:self%nj,1:self%nk,b)
+      filtered = source
+      do axis=1,3
+         if (axis == dir) cycle
+         call filter_modified_axis(filtered,work,axis,pk,filter_radius)
+         filtered = work
+      enddo
+      fraw = 0._R8P ; ffiltered = 0._R8P
+      select case(dir)
+      case(1)
+         do k=1,self%nk
+            do j=1,self%nj
+               running=0._R8P ; running_filtered=0._R8P
+               do i=1,self%ni
+                  running=running-self%adam%field%dxyz(dir,b)*source(i,j,k)/self%time%dt
+                  running_filtered=running_filtered-self%adam%field%dxyz(dir,b)*filtered(i,j,k)/self%time%dt
+                  fraw(i,j,k)=running ; ffiltered(i,j,k)=running_filtered
+               enddo
+            enddo
+         enddo
+      case(2)
+         do k=1,self%nk
+            do i=1,self%ni
+               running=0._R8P ; running_filtered=0._R8P
+               do j=1,self%nj
+                  running=running-self%adam%field%dxyz(dir,b)*source(i,j,k)/self%time%dt
+                  running_filtered=running_filtered-self%adam%field%dxyz(dir,b)*filtered(i,j,k)/self%time%dt
+                  fraw(i,j,k)=running ; ffiltered(i,j,k)=running_filtered
+               enddo
+            enddo
+         enddo
+      case(3)
+         do j=1,self%nj
+            do i=1,self%ni
+               running=0._R8P ; running_filtered=0._R8P
+               do k=1,self%nk
+                  running=running-self%adam%field%dxyz(dir,b)*source(i,j,k)/self%time%dt
+                  running_filtered=running_filtered-self%adam%field%dxyz(dir,b)*filtered(i,j,k)/self%time%dt
+                  fraw(i,j,k)=running ; ffiltered(i,j,k)=running_filtered
+               enddo
+            enddo
+         enddo
+      endselect
+      fstart = 0._R8P
+      select case(dir)
+      case(1)
+         fend = maxval(abs(fraw(hi(dir),:,:)))
+         if (lo(dir) > 1) fstart = maxval(abs(fraw(lo(dir)-1,:,:)))
+      case(2)
+         fend = maxval(abs(fraw(:,hi(dir),:)))
+         if (lo(dir) > 1) fstart = maxval(abs(fraw(:,lo(dir)-1,:)))
+      case(3)
+         fend = maxval(abs(fraw(:,:,hi(dir))))
+         if (lo(dir) > 1) fstart = maxval(abs(fraw(:,:,lo(dir)-1)))
+      endselect
+      jcur=0._R8P
+      do k=1,self%nk
+         do j=1,self%nj
+            do i=1,self%ni
+               idx=[i,j,k]
+               do t=0,nq-1
+                  face=idx(dir)+qfirst+t
+                  if (face < 1 .or. face > n(dir)) cycle
+                  idx(dir)=face
+                  jcur(i,j,k)=jcur(i,j,k)+qw(t)*ffiltered(idx(1),idx(2),idx(3))
+                  idx=[i,j,k]
+               enddo
+            enddo
+         enddo
+      enddo
+      js_lo=lo-filter_radius ; js_hi=hi+filter_radius
+      js_lo(dir)=lo(dir)-qfirst-(nq-1) ; js_hi(dir)=hi(dir)-1-qfirst
+      fmax=0._R8P ; fout=0._R8P ; jmax=maxval(abs(jcur)) ; jout=0._R8P
+      do k=1,self%nk
+         do j=1,self%nj
+            do i=1,self%ni
+               idx=[i,j,k]
+               if (all(idx >= lo) .and. all(idx <= hi) .and. idx(dir) < hi(dir)) then
+                  fmax=max(fmax,abs(fraw(i,j,k)))
+               else
+                  fout=max(fout,abs(fraw(i,j,k)))
+               endif
+               if (any(idx < js_lo) .or. any(idx > js_hi)) jout=max(jout,abs(jcur(i,j,k)))
+            enddo
+         enddo
+      enddo
+      f_ratio=0._R8P ; j_ratio=0._R8P
+      if (fmax > 0._R8P) f_ratio=abs(fend)/fmax
+      if (jmax > 0._R8P) j_ratio=jout/jmax
+      write(unit,'(5(i0,1x),2(i0,1x),11(es24.16e3,1x))') &
+         self%time%it,diag_stage,p,b,dir,lo(dir),hi(dir),sums(1),sums(2),ds, &
+         fstart,fend,fmax,f_ratio,fout,jmax,jout,j_ratio
+      if (profile) then
+         write(it_string,'(i0)') self%time%it
+         write(stage_string,'(i0)') diag_stage
+         filename='esirkepov_profile_rank'//trim(rank_string)//'_it'//trim(it_string)// &
+            '_stage'//trim(stage_string)//'_comp'//achar(iachar('0')+dir)//'.dat'
+         open(newunit=profile_unit,file=filename,status='unknown',position='append',action='write',iostat=ios)
+         if (ios == 0) then
+            write(profile_unit,'(a)') '# index dS source_term F_before_PQ J_after_PQ; transverse indices = old particle cell'
+            do i=1,n(dir)
+               idx=old_cell ; idx(dir)=i
+               write(profile_unit,'(i0,1x,4(es24.16e3,1x))') i,shape(i,2,dir)-shape(i,1,dir), &
+                  source(idx(1),idx(2),idx(3)),fraw(idx(1),idx(2),idx(3)),jcur(idx(1),idx(2),idx(3))
+            enddo
+            close(profile_unit)
+         endif
+      endif
+   enddo
+   close(unit)
+   endsubroutine diagnose_esirkepov_particle
+
+   subroutine compute_esirkepov_gaussian_shape_1d(self, x, x_cell, dx, ip, radius, lo, hi, w)
+   !< Normalize the filtered Gaussian on the endpoint's own deposition stencil.
+   !< Its tensor product equals Gaussian_charge_weighting's 3D normalization up to roundoff.
+   implicit none
+   class(prism_cpu_object), intent(in)  :: self
+   real(R8P),               intent(in)  :: x, x_cell(1:), dx
+   integer(I4P),            intent(in)  :: ip, radius, lo, hi
+   real(R8P),               intent(out) :: w(lo:hi)
+   integer(I4P)                         :: i
+   real(R8P)                            :: cutoff_limit, weight_sum, shift
+
+   cutoff_limit = self%pic%cutoff_sigma + 64._R8P*epsilon(self%pic%cutoff_sigma)* &
+                                           max(1._R8P, abs(self%pic%cutoff_sigma))
+   shift = dx / self%pic%sigma
+   w = 0._R8P
+   do i=ip-radius, ip+radius
+      w(i) = effective_gaussian_weight(r=(x-x_cell(i))/self%pic%sigma, shift=shift, &
+                                        cutoff_limit=cutoff_limit, filter=self%pic%filter_deposition .and. &
+                                        trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER)
+   enddo
+   weight_sum = sum(w)
+   if (weight_sum <= tiny(1._R8P)) &
+      call mpih%error_stop(msg=': empty Gaussian deposition support in Esirkepov current')
+   w = w / weight_sum
+   endsubroutine compute_esirkepov_gaussian_shape_1d
+
+   subroutine esirkepov_shape_weight_1d(self, x, xc, dx, w)
+   !< Apply the optional binomial filter to the B-spline before computing particle fluxes.
+   implicit none
+   class(prism_cpu_object), intent(in) :: self
+   real(R8P),               intent(in) :: x, xc, dx
+   real(R8P),               intent(out) :: w
+   real(R8P)                           :: wm, wc, wp
+   real(R8P)                           :: r
+   real(R8P), parameter                :: tol = 64._R8P*epsilon(1._R8P)
+
+   if (trim(self%pic%particle_weighting_model) == 'NGP') then
+      r = (x-xc)/dx
+      if (self%pic%filter_deposition .and. &
+          trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+         w = 0._R8P
+         if (r > -0.5_R8P+tol .and. r <= 0.5_R8P+tol) then
+            w = 0.5_R8P
+         elseif ((r > 0.5_R8P-tol .and. r <= 1.5_R8P+tol) .or. &
+                 (r > -1.5_R8P-tol .and. r <= -0.5_R8P+tol)) then
+            w = 0.25_R8P
+         endif
+      else
+         w = 0._R8P
+         if (r > -0.5_R8P .and. r <= 0.5_R8P) w = 1._R8P
+      endif
+      return
+   endif
+
+   call particle_shape_weight_1d(self=self, model=trim(self%pic%particle_weighting_model), x=x, xc=xc, dx=dx, w=wc)
+   w = wc
+   if (self%pic%filter_deposition .and. &
+       trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+      call particle_shape_weight_1d(self=self, model=trim(self%pic%particle_weighting_model), &
+                                    x=x, xc=xc-dx, dx=dx, w=wm)
+      call particle_shape_weight_1d(self=self, model=trim(self%pic%particle_weighting_model), &
+                                    x=x, xc=xc+dx, dx=dx, w=wp)
+      w = 0.25_R8P*wm + 0.5_R8P*wc + 0.25_R8P*wp
+   endif
+   endsubroutine esirkepov_shape_weight_1d
+
+   subroutine deposit_pic_charge_density(self, q_pic_pos, q_work)
+   !< Deposit charge density for an arbitrary PIC position array.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(in)    :: q_pic_pos(1:,1:)
+   real(R8P),               intent(inout) :: q_work(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+
+   q_work = 0._R8P
+   call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=q_pic_pos)
+   call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=q_work, q_pic=q_pic_pos, nv=self%nv)
+   endsubroutine deposit_pic_charge_density
+
+   subroutine initialize_charge_conservation_diagnostic(self)
+   !< Initialize rho_n/dt + sum_s beta_s div(J_s) diagnostic accumulator.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+
+   self%charge_conservation_error_max = 0._R8P
+   self%charge_conservation_ready = .false.
+   if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. allocated(self%charge_conservation_acc)) return
+   if (self%time%dt <= 0._R8P) return
+
+   self%charge_conservation_acc = -self%q(self%nv,:,:,:,:) / self%time%dt
+   self%charge_conservation_divj = 0._R8P
+   endsubroutine initialize_charge_conservation_diagnostic
+
+   subroutine accumulate_charge_conservation_current(self, q, weight)
+   !< Accumulate beta_s div(J_s) for the current PIC RK stage.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P),               intent(in)    :: weight
+
+   if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. allocated(self%charge_conservation_acc)) return
+
+   call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+   call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q)
+   if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_CURRENT_CONSERVING_SOLVER .or. &
+       trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+      call impose_odd_current_ghosts(self=self, q=q)
+   else
+      call impose_zero_current_ghosts(self=self, q=q)
+   endif
+   call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=self%physics%var_Jx, q=q, &
+                                divergence=self%charge_conservation_divj)
+   self%charge_conservation_acc = self%charge_conservation_acc + weight * self%charge_conservation_divj
+   endsubroutine accumulate_charge_conservation_current
+
+   subroutine finalize_charge_conservation_diagnostic(self)
+   !< Finalize max |(rho_np1-rho_n)/dt + sum_s beta_s div(J_s)|.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P)                           :: i, j, k, b
+   real(R8P)                              :: local_error
+
+   if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. allocated(self%charge_conservation_acc)) return
+   if (self%time%dt <= 0._R8P) return
+
+   self%charge_conservation_acc = self%charge_conservation_acc + self%q(self%nv,:,:,:,:) / self%time%dt
+   local_error = 0._R8P
+   do b=1, self%blocks_number
+      do k=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               local_error = max(local_error, abs(self%charge_conservation_acc(i,j,k,b)))
+            enddo
+         enddo
+      enddo
+   enddo
+   self%charge_conservation_error_max = local_error
+   self%charge_conservation_ready = .true.
+   endsubroutine finalize_charge_conservation_diagnostic
+
+   subroutine save_charge_conservation_diagnostic(self)
+   !< Save the 12-column PIC charge-conservation diagnostic for the current completed step.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P)                           :: i, j, k, b
+   real(R8P)                              :: cell_volume
+   real(R8P)                              :: volume_local
+   real(R8P)                              :: volume_global
+   real(R8P)                              :: Q_particles
+   real(R8P)                              :: Q_deposited
+   real(R8P)                              :: R_sum
+   real(R8P)                              :: R_abs_sum
+   real(R8P)                              :: R2_sum
+   real(R8P)                              :: R_linf
+   real(R8P)                              :: Gauss_abs_sum
+   real(R8P)                              :: Gauss2_sum
+   real(R8P)                              :: Gauss_linf
+   real(R8P)                              :: residual
+   real(R8P)                              :: gauss_error
+   real(R8P)                              :: R_cont_L1
+   real(R8P)                              :: R_cont_L2
+   real(R8P)                              :: dQ_num_net
+   real(R8P)                              :: dQ_num_abs
+   real(R8P)                              :: Gauss_L1
+   real(R8P)                              :: Gauss_L2
+
+   if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. self%charge_conservation_ready) return
+   if (.not. allocated(self%charge_conservation_acc)) return
+   if (self%time%dt <= 0._R8P) return
+
+   Q_particles = 0._R8P
+   if (allocated(self%q_pic)) Q_particles = sum(self%q_pic(7,:))
+   Q_deposited   = 0._R8P
+   R_sum         = 0._R8P
+   R_abs_sum     = 0._R8P
+   R2_sum        = 0._R8P
+   R_linf        = 0._R8P
+   Gauss_abs_sum = 0._R8P
+   Gauss2_sum    = 0._R8P
+   Gauss_linf    = 0._R8P
+   volume_local  = 0._R8P
+
+   do b=1, self%blocks_number
+      cell_volume = product(self%adam%field%dxyz(:,b))
+      volume_local = volume_local + real(self%ni*self%nj*self%nk, R8P) * cell_volume
+      do k=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               residual = self%charge_conservation_acc(i,j,k,b)
+               gauss_error = self%divergence(1,i,j,k,b) - self%q(self%nv,i,j,k,b)
+               Q_deposited   = Q_deposited   + self%q(self%nv,i,j,k,b) * cell_volume
+               R_sum         = R_sum         + residual * cell_volume
+               R_abs_sum     = R_abs_sum     + abs(residual) * cell_volume
+               R2_sum        = R2_sum        + residual * residual * cell_volume
+               R_linf        = max(R_linf, abs(residual))
+               Gauss_abs_sum = Gauss_abs_sum + abs(gauss_error) * cell_volume
+               Gauss2_sum    = Gauss2_sum    + gauss_error * gauss_error * cell_volume
+               Gauss_linf    = max(Gauss_linf, abs(gauss_error))
+            enddo
+         enddo
+      enddo
+   enddo
+
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Q_particles,   1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Q_deposited,   1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R_sum,         1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R_abs_sum,     1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R2_sum,        1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss_abs_sum, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss2_sum,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, volume_local,  1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R_linf,        1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss_linf,    1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+
+   volume_global = volume_local
+   if (volume_global <= 0._R8P) return
+
+   R_cont_L1  = R_abs_sum / volume_global
+   R_cont_L2  = sqrt(R2_sum / volume_global)
+   dQ_num_net = self%time%dt * R_sum
+   dQ_num_abs = self%time%dt * R_abs_sum
+   Gauss_L1   = Gauss_abs_sum / volume_global
+   Gauss_L2   = sqrt(Gauss2_sum / volume_global)
+
+   call self%io%save_charge_conservation_history(time=self%time%time, Q_particles=Q_particles,                  &
+                                                 Q_deposited=Q_deposited,                                      &
+                                                 Q_deposition_error=Q_deposited-Q_particles,                   &
+                                                 R_cont_L1=R_cont_L1, R_cont_L2=R_cont_L2, R_cont_Linf=R_linf, &
+                                                 dQ_num_net=dQ_num_net, dQ_num_abs=dQ_num_abs,                 &
+                                                 Gauss_L1=Gauss_L1, Gauss_L2=Gauss_L2, Gauss_Linf=Gauss_linf)
+   endsubroutine save_charge_conservation_diagnostic
+
+   subroutine solve_pic_charge_conserving_current_dispatch(self, q, hq)
+   !< Select the configured charge-conserving current reconstruction.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P),               intent(in)    :: hq(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+
+   select case(trim(self%pic%current_conserving_solver))
+   case(DIRECT_CURRENT_CONSERVING_SOLVER)
+      call solve_pic_charge_conserving_current(self=self, q=q, hq=hq)
+   case(ESIRKEPOV_CURRENT_CONSERVING_SOLVER)
+      call solve_pic_charge_conserving_current_esirkepov(self=self, q=q, hq=hq)
+   case(ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER)
+      call solve_pic_charge_conserving_current_modified(self=self, q=q, hq=hq)
+   case default
+      call mpih%error_stop(msg=': unsupported current_conserving_solver '//trim(self%pic%current_conserving_solver))
+   endselect
+   endsubroutine solve_pic_charge_conserving_current_dispatch
+
+   subroutine ensure_esirkepov_current_solver_cache(self)
+   !< Factor the interior face map plus one checkerboard constraint per line.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P), allocatable                 :: face_map(:,:)
+   integer(I4P)                           :: b, dir, n, face, col, maxn
+
+   if (self%direct_current_cache_esirkepov .and. allocated(self%direct_current_matrix_x)) then
+      if (self%direct_current_cache_ni == self%ni .and. self%direct_current_cache_nj == self%nj .and. &
+          self%direct_current_cache_nk == self%nk .and. self%direct_current_cache_nb == self%blocks_number .and. &
+          self%direct_current_cache_hs == self%fdv_half_stencils(1)) return
+   endif
+   if (allocated(self%direct_current_matrix_x)) deallocate(self%direct_current_matrix_x)
+   if (allocated(self%direct_current_matrix_y)) deallocate(self%direct_current_matrix_y)
+   if (allocated(self%direct_current_matrix_z)) deallocate(self%direct_current_matrix_z)
+   if (allocated(self%direct_current_pivot_x)) deallocate(self%direct_current_pivot_x)
+   if (allocated(self%direct_current_pivot_y)) deallocate(self%direct_current_pivot_y)
+   if (allocated(self%direct_current_pivot_z)) deallocate(self%direct_current_pivot_z)
+   allocate(self%direct_current_matrix_x(self%ni,self%ni,self%blocks_number), &
+            self%direct_current_matrix_y(self%nj,self%nj,self%blocks_number), &
+            self%direct_current_matrix_z(self%nk,self%nk,self%blocks_number))
+   allocate(self%direct_current_pivot_x(self%ni,self%blocks_number), &
+            self%direct_current_pivot_y(self%nj,self%blocks_number), &
+            self%direct_current_pivot_z(self%nk,self%blocks_number))
+   maxn = max(self%ni,self%nj,self%nk)
+   allocate(face_map(0:maxn,1:maxn))
+   do b=1,self%blocks_number
+      do dir=1,3
+         select case(dir)
+         case(1)
+            n = self%ni
+         case(2)
+            n = self%nj
+         case(3)
+            n = self%nk
+         endselect
+         call build_centered_reconstruction_matrix(self=self, n=n, a=face_map(0:n,1:n))
+         select case(dir)
+         case(1)
+            do face=1,n-1
+               self%direct_current_matrix_x(face,1:n,b) = face_map(face,1:n)
+            enddo
+            do col=1,n
+               self%direct_current_matrix_x(n,col,b) = (-1._R8P)**col
+            enddo
+            call factorize_matrix_pivot(a=self%direct_current_matrix_x(:,:,b), &
+                                        pivot=self%direct_current_pivot_x(:,b), n=n)
+         case(2)
+            do face=1,n-1
+               self%direct_current_matrix_y(face,1:n,b) = face_map(face,1:n)
+            enddo
+            do col=1,n
+               self%direct_current_matrix_y(n,col,b) = (-1._R8P)**col
+            enddo
+            call factorize_matrix_pivot(a=self%direct_current_matrix_y(:,:,b), &
+                                        pivot=self%direct_current_pivot_y(:,b), n=n)
+         case(3)
+            do face=1,n-1
+               self%direct_current_matrix_z(face,1:n,b) = face_map(face,1:n)
+            enddo
+            do col=1,n
+               self%direct_current_matrix_z(n,col,b) = (-1._R8P)**col
+            enddo
+            call factorize_matrix_pivot(a=self%direct_current_matrix_z(:,:,b), &
+                                        pivot=self%direct_current_pivot_z(:,b), n=n)
+         endselect
+      enddo
+   enddo
+   deallocate(face_map)
+   self%direct_current_cache_ni = self%ni
+   self%direct_current_cache_nj = self%nj
+   self%direct_current_cache_nk = self%nk
+   self%direct_current_cache_nb = self%blocks_number
+   self%direct_current_cache_hs = self%fdv_half_stencils(1)
+   self%direct_current_cache_esirkepov = .true.
+   endsubroutine ensure_esirkepov_current_solver_cache
+
+   subroutine solve_pic_charge_conserving_current_esirkepov(self, q, hq)
+   !< Integrate Esirkepov's directional charge changes to faces and invert D=G A.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P),               intent(in)    :: hq(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   integer(I4P)                           :: b, i, j, k, n, maxn
+   real(R8P), allocatable                 :: flux(:), rhs(:), sol(:)
+
+   call ensure_esirkepov_current_solver_cache(self=self)
+   maxn = max(self%ni,self%nj,self%nk)
+   allocate(flux(0:maxn), rhs(maxn), sol(maxn))
+   q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
+   do b=1,self%blocks_number
+      n = self%ni
+      do k=1,self%nk
+         do j=1,self%nj
+            call build_esirkepov_face_line(self=self, source=hq(1,1:n,j,k,b), dir=1_I4P, b=b, n=n, flux=flux)
+            rhs(1:n-1) = flux(1:n-1) ; rhs(n) = 0._R8P
+            call solve_factored_matrix_pivot(a=self%direct_current_matrix_x(:,:,b), pivot=self%direct_current_pivot_x(:,b), &
+                                             rhs=rhs(1:n), sol=sol(1:n), n=n)
+            call update_esirkepov_face_residual(self=self, n=n, sol=sol, flux=flux)
+            q(self%physics%var_Jx,1:n,j,k,b) = sol(1:n)
+         enddo
+      enddo
+      n = self%nj
+      do k=1,self%nk
+         do i=1,self%ni
+            call build_esirkepov_face_line(self=self, source=hq(2,i,1:n,k,b), dir=2_I4P, b=b, n=n, flux=flux)
+            rhs(1:n-1) = flux(1:n-1) ; rhs(n) = 0._R8P
+            call solve_factored_matrix_pivot(a=self%direct_current_matrix_y(:,:,b), pivot=self%direct_current_pivot_y(:,b), &
+                                             rhs=rhs(1:n), sol=sol(1:n), n=n)
+            call update_esirkepov_face_residual(self=self, n=n, sol=sol, flux=flux)
+            q(self%physics%var_Jy,i,1:n,k,b) = sol(1:n)
+         enddo
+      enddo
+      n = self%nk
+      do j=1,self%nj
+         do i=1,self%ni
+            call build_esirkepov_face_line(self=self, source=hq(3,i,j,1:n,b), dir=3_I4P, b=b, n=n, flux=flux)
+            rhs(1:n-1) = flux(1:n-1) ; rhs(n) = 0._R8P
+            call solve_factored_matrix_pivot(a=self%direct_current_matrix_z(:,:,b), pivot=self%direct_current_pivot_z(:,b), &
+                                             rhs=rhs(1:n), sol=sol(1:n), n=n)
+            call update_esirkepov_face_residual(self=self, n=n, sol=sol, flux=flux)
+            q(self%physics%var_Jz,i,j,1:n,b) = sol(1:n)
+         enddo
+      enddo
+   enddo
+   call impose_odd_current_ghosts(self=self, q=q)
+   endsubroutine solve_pic_charge_conserving_current_esirkepov
+
+   integer(I4P) function modified_filter_radius(self) result(radius)
+   implicit none
+   class(prism_cpu_object), intent(in) :: self
+
+   select case(self%fdv_order)
+   case(2_I4P) ; radius = 1_I4P
+   case(6_I4P) ; radius = 7_I4P
+   case default
+      call mpih%error_stop(msg=': esirkepov-modified supports FD2 and FD6 only; FD4 and FD8 are unsupported')
+   endselect
+   endfunction modified_filter_radius
+
+   subroutine modified_kernels(self, p, qw, radius, qfirst, nq)
+   !< P acts on cell centers (or transverse face lines); Q maps normal faces to centers.
+   implicit none
+   class(prism_cpu_object), intent(in)  :: self
+   real(R8P),               intent(out) :: p(-7:7), qw(0:9)
+   integer(I4P),            intent(out) :: radius, qfirst, nq
+
+   p = 0._R8P ; qw = 0._R8P
+   radius = modified_filter_radius(self)
+   select case(self%fdv_order)
+   case(2_I4P)
+      p(-1:1) = [1._R8P,2._R8P,1._R8P]/4._R8P
+      qw(0:1) = [1._R8P,1._R8P]/2._R8P
+      qfirst = -1_I4P ; nq = 2_I4P
+   case(6_I4P)
+      p(-7:7) = real([1,1,1,166,1111,3487,6567,8052,6567,3487,1111,166,1,1,1],R8P)/30720._R8P
+      qw(0:9) = real([1,9,36,84,126,126,84,36,9,1],R8P)/512._R8P
+      qfirst = -5_I4P ; nq = 10_I4P
+   endselect
+   endsubroutine modified_kernels
+
+   subroutine filter_modified_axis(input, output, axis, p, radius)
+   !< Zero extension is used only outside the block; supported particles stay in the bulk.
+   implicit none
+   real(R8P),    intent(in)  :: input(1:,1:,1:), p(-7:7)
+   real(R8P),    intent(out) :: output(1:,1:,1:)
+   integer(I4P), intent(in)  :: axis, radius
+   integer(I4P)             :: i,j,k,s,ii,jj,kk
+
+   output = 0._R8P
+   do k=1,size(input,3)
+      do j=1,size(input,2)
+         do i=1,size(input,1)
+            do s=-radius,radius
+               ii=i ; jj=j ; kk=k
+               select case(axis)
+               case(1) ; ii=i+s
+               case(2) ; jj=j+s
+               case(3) ; kk=k+s
+               endselect
+               if (ii<1 .or. ii>size(input,1) .or. jj<1 .or. jj>size(input,2) .or. &
+                   kk<1 .or. kk>size(input,3)) cycle
+               output(i,j,k) = output(i,j,k) + p(s)*input(ii,jj,kk)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine filter_modified_axis
+
+   subroutine deposit_pic_modified_charge(self, q)
+   !< Deposit the unfiltered particle shape, then apply P_c=Q A in all directions.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P), allocatable                 :: a(:,:,:), z(:,:,:)
+   real(R8P)                              :: p(-7:7), qw(0:9)
+   integer(I4P)                           :: radius,qfirst,nq,b,part,rx,ry,rz,margin
+   logical                                :: old_filter
+
+   call modified_kernels(self=self,p=p,qw=qw,radius=radius,qfirst=qfirst,nq=nq)
+   margin = radius
+   do part=1,self%pic%particle_number
+      b = self%pic%neighbour_list(1,part)
+      call particle_weighting_radius(self=self,b=b,rx=rx,ry=ry,rz=rz)
+      if (self%pic%neighbour_list(2,part)-rx <= margin .or. self%ni-self%pic%neighbour_list(2,part)-rx <= margin .or. &
+          self%pic%neighbour_list(3,part)-ry <= margin .or. self%nj-self%pic%neighbour_list(3,part)-ry <= margin .or. &
+          self%pic%neighbour_list(4,part)-rz <= margin .or. self%nk-self%pic%neighbour_list(4,part)-rz <= margin) &
+         call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a boundary')
+   enddo
+   old_filter = self%pic%filter_deposition
+   self%pic%filter_deposition = .false.
+   call self%pic%particle_weighting(field=self%adam%field,grid=self%adam%grid,q=q,q_pic=self%q_pic,nv=self%nv)
+   self%pic%filter_deposition = old_filter
+   allocate(a(self%ni,self%nj,self%nk),z(self%ni,self%nj,self%nk))
+   do b=1,self%blocks_number
+      a = q(self%nv,1:self%ni,1:self%nj,1:self%nk,b)
+      call filter_modified_axis(input=a,output=z,axis=1_I4P,p=p,radius=radius)
+      call filter_modified_axis(input=z,output=a,axis=2_I4P,p=p,radius=radius)
+      call filter_modified_axis(input=a,output=z,axis=3_I4P,p=p,radius=radius)
+      q(self%nv,:,:,:,b) = 0._R8P
+      q(self%nv,1:self%ni,1:self%nj,1:self%nk,b) = z
+   enddo
+   endsubroutine deposit_pic_modified_charge
+
+   subroutine initialize_pic_conserving_current_time_zero(self)
+   !< Deposit the current at t=0 using the same trajectory operator as the PIC evolution.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P), allocatable                 :: q_minus(:,:), q_plus(:,:), q_plus_history(:,:,:)
+   real(R8P), allocatable                 :: h_dir(:,:,:,:,:), q_work(:,:,:,:,:)
+
+   ! The virtual interval is centered on the real particle positions and uses the first CFL step.
+   call self%compute_dt
+   if (self%time%it_max <= 0_I4P) self%time%dt = min(self%time%dt, self%time%time_max)
+   if (self%time%dt <= 0._R8P) call mpih%error_stop(msg=': nonpositive initial PIC timestep')
+   allocate(q_minus, mold=self%q_pic)
+   allocate(q_plus, mold=self%q_pic)
+   allocate(h_dir(1:3,1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc, &
+                      1-self%ngc:self%nk+self%ngc,1:self%blocks_number))
+   q_minus = self%q_pic
+   q_plus = self%q_pic
+   q_minus(1:3,:) = self%q_pic(1:3,:) - 0.5_R8P*self%time%dt*self%q_pic(4:6,:)
+   q_plus(1:3,:) = self%q_pic(1:3,:) + 0.5_R8P*self%time%dt*self%q_pic(4:6,:)
+
+   select case(trim(self%pic%current_conserving_solver))
+   case(ESIRKEPOV_CURRENT_CONSERVING_SOLVER, ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER)
+      call compute_pic_esirkepov_displacement(self=self, q_ref=q_minus, q_to=q_plus, h_dir=h_dir)
+   case(DIRECT_CURRENT_CONSERVING_SOLVER)
+      allocate(q_work, mold=self%q)
+      call compute_pic_charge_displacement_decomposition(self=self, q_ref=q_minus, q_to=q_plus, &
+                                                         q_work=q_work, h_dir=h_dir)
+      ! The direct deposition updates the lookup for virtual positions; restore the real positions.
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
+   case default
+      call mpih%error_stop(msg=': unsupported conserving current solver at t=0')
+   endselect
+
+   if (self%pic%esirkepov_tail_cleanup) then
+      if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) &
+         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires esirkepov-modified')
+      allocate(q_plus_history(1:8,1:self%pic%particle_number,1:1))
+      q_plus_history(:,:,1) = q_plus
+      call solve_modified_current_with_cleanup(self=self, q=self%q, q_ref=q_minus, &
+                                               q_to_history=q_plus_history, active_stage=0_I4P, mixed_source=h_dir)
+   else
+      call solve_pic_charge_conserving_current_dispatch(self=self, q=self%q, hq=h_dir)
+   endif
+   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
+                                               context='initialize_pic_conserving_current_time_zero')
+   endsubroutine initialize_pic_conserving_current_time_zero
+
+   subroutine modified_current_line(self, source, dir, b, n, qw, qfirst, nq, sol)
+   !< F^E is the face prefix sum of the directional Esirkepov charge change.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(in)    :: source(1:), qw(0:9)
+   integer(I4P),            intent(in)    :: dir,b,n,qfirst,nq
+   real(R8P),               intent(out)   :: sol(1:)
+   real(R8P)                              :: flux(0:n)
+   integer(I4P)                           :: i,t,f
+
+   call build_esirkepov_face_line(self=self,source=source,dir=dir,b=b,n=n,flux=flux)
+   sol = 0._R8P
+   do i=1,n
+      do t=0,nq-1
+         f = i+qfirst+t
+         if (f<0 .or. f>n) cycle
+         sol(i) = sol(i) + qw(t)*flux(f)
+      enddo
+   enddo
+   endsubroutine modified_current_line
+
+   subroutine solve_pic_charge_conserving_current_modified(self, q, hq)
+   !< J_d=Q_d P_transverse F_d^E; no inverse reconstruction or line solve.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P),               intent(in)    :: hq(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P), allocatable                 :: a(:,:,:), z(:,:,:)
+   real(R8P)                              :: p(-7:7), qw(0:9)
+   integer(I4P)                           :: radius,qfirst,nq,b,dir,axis,i,j,k
+
+   call modified_kernels(self=self,p=p,qw=qw,radius=radius,qfirst=qfirst,nq=nq)
+   allocate(a(self%ni,self%nj,self%nk),z(self%ni,self%nj,self%nk))
+   q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
+   do b=1,self%blocks_number
+      do dir=1,3
+         a = hq(dir,1:self%ni,1:self%nj,1:self%nk,b)
+         do axis=1,3
+            if (axis==dir) cycle
+            call filter_modified_axis(input=a,output=z,axis=axis,p=p,radius=radius)
+            a = z
+         enddo
+         select case(dir)
+         case(1)
+            do k=1,self%nk
+               do j=1,self%nj
+                  call modified_current_line(self,a(:,j,k),dir,b,self%ni,qw,qfirst,nq, &
+                                             q(self%physics%var_Jx,1:self%ni,j,k,b))
+               enddo
+            enddo
+         case(2)
+            do k=1,self%nk
+               do i=1,self%ni
+                  call modified_current_line(self,a(i,:,k),dir,b,self%nj,qw,qfirst,nq, &
+                                             q(self%physics%var_Jy,i,1:self%nj,k,b))
+               enddo
+            enddo
+         case(3)
+            do j=1,self%nj
+               do i=1,self%ni
+                  call modified_current_line(self,a(i,j,:),dir,b,self%nk,qw,qfirst,nq, &
+                                             q(self%physics%var_Jz,i,j,1:self%nk,b))
+               enddo
+            enddo
+         endselect
+      enddo
+   enddo
+   call impose_odd_current_ghosts(self=self,q=q)
+   endsubroutine solve_pic_charge_conserving_current_modified
+
+   subroutine solve_modified_current_with_cleanup(self, q, q_ref, q_to_history, active_stage, mixed_source)
+   !< Reconstruct one particle's SSP source at a time, clean its matched current, then accumulate.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P), intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P), intent(in) :: q_ref(1:,1:), q_to_history(1:,1:,1:)
+   integer(I4P), intent(in) :: active_stage
+   real(R8P), optional, intent(in) :: mixed_source(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P), allocatable :: source(:,:,:,:,:), source_stage(:,:,:,:,:,:), q_particle(:,:,:,:,:)
+   real(R8P) :: coeff(1:self%rk%nrk)
+   integer(I4P) :: particle, t, r, stage_count, slot_count, b, bt, i, j, k, rx, ry, rz
+   integer(I4P) :: support_lo(3), support_hi(3), cell(3)
+
+   stage_count = max(1_I4P,active_stage)
+   slot_count = stage_count
+   if (self%pic%particle_number == 1_I4P .and. present(mixed_source)) slot_count = 1_I4P
+   if (.not.(self%pic%particle_number == 1_I4P .and. present(mixed_source))) &
+      allocate(source(1:3,1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc, &
+                      1-self%ngc:self%nk+self%ngc,1:self%nb))
+   allocate(source_stage(1:3,1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc, &
+                         1-self%ngc:self%nk+self%ngc,1:self%nb,1:slot_count))
+   allocate(q_particle(1:self%nv,1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc, &
+                       1-self%ngc:self%nk+self%ngc,1:self%nb))
+   q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
+
+   do particle=1,self%pic%particle_number
+      if (self%pic%particle_number == 1_I4P .and. present(mixed_source)) then
+         source_stage(:,:,:,:,:,slot_count) = mixed_source
+      else
+         do t=1,stage_count
+            call compute_pic_esirkepov_displacement(self=self,q_ref=q_ref,q_to=q_to_history(:,:,t), &
+                                                    h_dir=source,particle=particle)
+            if (active_stage == 0_I4P) then
+               source_stage(:,:,:,:,:,t) = source
+            else
+               coeff = 0._R8P
+               if (t < self%rk%nrk) then
+                  coeff(1:t) = self%rk%alph(t+1,1:t)
+               else
+                  coeff(1:t) = self%rk%beta(1:t)
+               endif
+               do r=1,t-1
+                  source = source - coeff(r)*source_stage(:,:,:,:,:,r)
+               enddo
+               if (abs(coeff(t)) <= tiny(1._R8P)) &
+                  call mpih%error_stop(msg=': zero SSP coefficient in particle current cleanup')
+               source_stage(:,:,:,:,:,t) = source/coeff(t)
+            endif
+         enddo
+      endif
+
+      call find_pic_position_cell(self=self,q_pos=q_ref(:,particle),b=b,i=i,j=j,k=k)
+      call particle_weighting_radius(self=self,b=b,rx=rx,ry=ry,rz=rz)
+      support_lo = [i-rx,j-ry,k-rz]
+      support_hi = [i+rx,j+ry,k+rz]
+      do t=1,stage_count
+         call find_pic_position_cell(self=self,q_pos=q_to_history(:,particle,t),b=bt,i=i,j=j,k=k)
+         if (bt /= b) call mpih%error_stop(msg=': particle crossed a block in current cleanup')
+         cell = [i,j,k]
+         support_lo = min(support_lo,cell-[rx,ry,rz])
+         support_hi = max(support_hi,cell+[rx,ry,rz])
+      enddo
+
+      q_particle = 0._R8P
+      call solve_pic_charge_conserving_current_modified(self=self,q=q_particle, &
+                                                        hq=source_stage(:,:,:,:,:,slot_count))
+      call cleanup_modified_particle_current(self=self,q_particle=q_particle,particle=particle,block=b, &
+                                             shape_lo=support_lo,shape_hi=support_hi,stage=active_stage)
+      call impose_odd_current_ghosts(self=self,q=q_particle)
+      q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = &
+         q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) + &
+         q_particle(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+   enddo
+   endsubroutine solve_modified_current_with_cleanup
+
+   subroutine cleanup_modified_particle_current(self, q_particle, particle, block, shape_lo, shape_hi, stage)
+   !< Zero only sub-threshold leakage outside the exact P/Q-expanded source support.
+   implicit none
+   class(prism_cpu_object), intent(in) :: self
+   real(R8P), intent(inout) :: q_particle(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   integer(I4P), intent(in) :: particle, block, shape_lo(3), shape_hi(3), stage
+   real(R8P), parameter :: tau_tail = 1.e-11_R8P
+   real(R8P) :: pk(-7:7), qw(0:9), j_ref, j_max(3), out_before, out_after, ratio, value
+   integer(I4P) :: radius, qfirst, nq, p_min, p_max, q_min, q_max
+   integer(I4P) :: lo(3,3), hi(3,3), n(3), dir, axis, s, t, b, i, j, k, unit, ios, ivar
+   character(6) :: rank_string
+   logical :: inside
+
+   call modified_kernels(self=self,p=pk,qw=qw,radius=radius,qfirst=qfirst,nq=nq)
+   p_min = huge(1_I4P) ; p_max = -huge(1_I4P)
+   do s=-radius,radius
+      if (pk(s) == 0._R8P) cycle
+      p_min = min(p_min,s) ; p_max = max(p_max,s)
+   enddo
+   q_min = huge(1_I4P) ; q_max = -huge(1_I4P)
+   do t=0,nq-1
+      if (qw(t) == 0._R8P) cycle
+      q_min = min(q_min,qfirst+t) ; q_max = max(q_max,qfirst+t)
+   enddo
+   n = [self%ni,self%nj,self%nk]
+   do dir=1,3
+      lo(:,dir) = shape_lo-p_max
+      hi(:,dir) = shape_hi-p_min
+      lo(dir,dir) = shape_lo(dir)-q_max
+      hi(dir,dir) = shape_hi(dir)-1_I4P-q_min
+   enddo
+
+   j_max = 0._R8P
+   do dir=1,3
+      ivar = self%physics%var_Jx+dir-1
+      j_max(dir) = maxval(abs(q_particle(ivar, &
+         max(1_I4P,lo(1,dir)):min(n(1),hi(1,dir)), &
+         max(1_I4P,lo(2,dir)):min(n(2),hi(2,dir)), &
+         max(1_I4P,lo(3,dir)):min(n(3),hi(3,dir)),block)))
+   enddo
+   j_ref = maxval(j_max)
+   out_before = 0._R8P ; out_after = 0._R8P
+   do dir=1,3
+      ivar = self%physics%var_Jx+dir-1
+      do b=1,self%blocks_number
+         do k=1,self%nk
+            do j=1,self%nj
+               do i=1,self%ni
+                  inside = b == block .and. i >= lo(1,dir) .and. i <= hi(1,dir) .and. &
+                           j >= lo(2,dir) .and. j <= hi(2,dir) .and. &
+                           k >= lo(3,dir) .and. k <= hi(3,dir)
+                  if (inside) cycle
+                  value = q_particle(ivar,i,j,k,b)
+                  out_before = max(out_before,abs(value))
+                  if (j_ref == 0._R8P) then
+                     if (value /= 0._R8P) then
+                        write(*,'(a)') 'ERROR: nonzero particle current outside support with J_ref=0'
+                        call report_particle_tail_error(particle,dir,b,i,j,k,value,j_ref, &
+                                                        huge(1._R8P),lo(:,dir),hi(:,dir))
+                     endif
+                  elseif (abs(value) < tau_tail*j_ref) then
+                     q_particle(ivar,i,j,k,b) = 0._R8P
+                  else
+                     ratio = abs(value)/j_ref
+                     call report_particle_tail_error(particle,dir,b,i,j,k,value,j_ref,ratio,lo(:,dir),hi(:,dir))
+                  endif
+                  out_after = max(out_after,abs(q_particle(ivar,i,j,k,b)))
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   if (self%pic%esirkepov_tail_diagnostic) then
+      ratio = 0._R8P
+      if (j_ref > 0._R8P) ratio = out_before/j_ref
+      write(rank_string,'(i6.6)') mpih%myrank
+      open(newunit=unit,file='esirkepov_tail_cleanup_rank'//rank_string//'.dat', &
+           status='unknown',position='append',action='write',iostat=ios)
+      if (ios == 0) then
+         write(unit,'(a)') '# it stage particle J_ref J_out_before ratio_out J_out_after'
+         write(unit,'(3(i0,1x),4(es24.16e3,1x))') self%time%it,stage,particle,j_ref,out_before,ratio,out_after
+         close(unit)
+      endif
+   endif
+   endsubroutine cleanup_modified_particle_current
+
+   subroutine report_particle_tail_error(particle,component,block,i,j,k,value,j_ref,ratio,lo,hi)
+   implicit none
+   integer(I4P), intent(in) :: particle, component, block, i, j, k, lo(3), hi(3)
+   real(R8P), intent(in) :: value, j_ref, ratio
+
+   write(*,'(a)') 'ERROR: non-negligible current outside theoretical particle support'
+   write(*,'(a,i0)') 'particle = ',particle
+   write(*,'(a,i0)') 'component = ',component
+   write(*,'(a,i0)') 'block = ',block
+   write(*,'(a,3(1x,i0))') 'i,j,k = ',i,j,k
+   write(*,'(a,es24.16e3)') 'J_value = ',value
+   write(*,'(a,es24.16e3)') 'J_ref = ',j_ref
+   write(*,'(a,es24.16e3)') 'ratio = ',ratio
+   write(*,'(a,3(1x,i0))') 'support_lo = ',lo
+   write(*,'(a,3(1x,i0))') 'support_hi = ',hi
+   call mpih%error_stop(msg=': particle current outside theoretical support exceeds tail threshold')
+   endsubroutine report_particle_tail_error
+
+   subroutine build_esirkepov_face_line(self, source, dir, b, n, flux)
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(in)    :: source(1:)
+   integer(I4P),            intent(in)    :: dir, b, n
+   real(R8P),               intent(out)   :: flux(0:)
+   integer(I4P)                           :: i
+
+   flux(0:n) = 0._R8P
+   do i=1,n
+      flux(i) = flux(i-1) - self%adam%field%dxyz(dir,b)*source(i)/self%time%dt
+   enddo
+   self%current_solver_residual_max = max(self%current_solver_residual_max, abs(flux(n)))
+   endsubroutine build_esirkepov_face_line
+
+   subroutine update_esirkepov_face_residual(self, n, sol, flux)
+   !< Check the reconstructed flux on both boundary faces and every interior face.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P),            intent(in)    :: n
+   real(R8P),               intent(in)    :: sol(1:), flux(0:)
+   integer(I4P)                           :: face, m, col
+   real(R8P)                              :: reconstructed, sgn, coeff
+
+   do face=0,n
+      reconstructed = 0._R8P
+      do m=1,self%fdv_half_stencils(1)
+         coeff = FV1_CC(m,self%fdv_half_stencils(1))
+         call odd_mirror_index(idx=face+m, n=n, col=col, sgn=sgn)
+         reconstructed = reconstructed + coeff*sgn*sol(col)
+         call odd_mirror_index(idx=face+1-m, n=n, col=col, sgn=sgn)
+         reconstructed = reconstructed + coeff*sgn*sol(col)
+      enddo
+      self%current_solver_residual_max = max(self%current_solver_residual_max, abs(reconstructed-flux(face)))
+   enddo
+   endsubroutine update_esirkepov_face_residual
+
+   subroutine ensure_direct_current_solver_cache(self)
+   !< Build cached factored line matrices for the direct conserving-current solver.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P)                           :: b
+   logical                                :: rebuild
+
+   rebuild = self%direct_current_cache_esirkepov .or. .not. allocated(self%direct_current_matrix_x)
+   rebuild = rebuild .or. .not. allocated(self%direct_current_matrix_y)
+   rebuild = rebuild .or. .not. allocated(self%direct_current_matrix_z)
+   rebuild = rebuild .or. .not. allocated(self%direct_current_pivot_x)
+   rebuild = rebuild .or. .not. allocated(self%direct_current_pivot_y)
+   rebuild = rebuild .or. .not. allocated(self%direct_current_pivot_z)
+   rebuild = rebuild .or. .not. allocated(self%direct_current_dxyz)
+   rebuild = rebuild .or. self%direct_current_cache_ni /= self%ni
+   rebuild = rebuild .or. self%direct_current_cache_nj /= self%nj
+   rebuild = rebuild .or. self%direct_current_cache_nk /= self%nk
+   rebuild = rebuild .or. self%direct_current_cache_nb /= self%blocks_number
+   rebuild = rebuild .or. self%direct_current_cache_hs /= self%fdv_half_stencils(1)
+   if (.not. rebuild) rebuild = any(self%direct_current_dxyz(:,1:self%blocks_number) /= &
+                                    self%adam%field%dxyz(:,1:self%blocks_number))
+   if (.not. rebuild) return
+
+   if (allocated(self%direct_current_matrix_x)) deallocate(self%direct_current_matrix_x)
+   if (allocated(self%direct_current_matrix_y)) deallocate(self%direct_current_matrix_y)
+   if (allocated(self%direct_current_matrix_z)) deallocate(self%direct_current_matrix_z)
+   if (allocated(self%direct_current_pivot_x)) deallocate(self%direct_current_pivot_x)
+   if (allocated(self%direct_current_pivot_y)) deallocate(self%direct_current_pivot_y)
+   if (allocated(self%direct_current_pivot_z)) deallocate(self%direct_current_pivot_z)
+   if (allocated(self%direct_current_dxyz)) deallocate(self%direct_current_dxyz)
+
+   allocate(self%direct_current_matrix_x(1:self%ni,1:self%ni,1:self%blocks_number))
+   allocate(self%direct_current_matrix_y(1:self%nj,1:self%nj,1:self%blocks_number))
+   allocate(self%direct_current_matrix_z(1:self%nk,1:self%nk,1:self%blocks_number))
+   allocate(self%direct_current_pivot_x(1:self%ni,1:self%blocks_number))
+   allocate(self%direct_current_pivot_y(1:self%nj,1:self%blocks_number))
+   allocate(self%direct_current_pivot_z(1:self%nk,1:self%blocks_number))
+   allocate(self%direct_current_dxyz(1:3,1:self%blocks_number))
+
+   do b=1, self%blocks_number
+      call build_centered_derivative_matrix(self=self, dir=1_I4P, b=b, n=self%ni, &
+                                            a=self%direct_current_matrix_x(:,:,b))
+      call factorize_matrix_pivot(a=self%direct_current_matrix_x(:,:,b), &
+                                  pivot=self%direct_current_pivot_x(:,b), n=self%ni)
+
+      call build_centered_derivative_matrix(self=self, dir=2_I4P, b=b, n=self%nj, &
+                                            a=self%direct_current_matrix_y(:,:,b))
+      call factorize_matrix_pivot(a=self%direct_current_matrix_y(:,:,b), &
+                                  pivot=self%direct_current_pivot_y(:,b), n=self%nj)
+
+      call build_centered_derivative_matrix(self=self, dir=3_I4P, b=b, n=self%nk, &
+                                            a=self%direct_current_matrix_z(:,:,b))
+      call factorize_matrix_pivot(a=self%direct_current_matrix_z(:,:,b), &
+                                  pivot=self%direct_current_pivot_z(:,b), n=self%nk)
+   enddo
+
+   self%direct_current_dxyz(:,1:self%blocks_number) = self%adam%field%dxyz(:,1:self%blocks_number)
+   self%direct_current_cache_ni = self%ni
+   self%direct_current_cache_nj = self%nj
+   self%direct_current_cache_nk = self%nk
+   self%direct_current_cache_nb = self%blocks_number
+   self%direct_current_cache_hs = self%fdv_half_stencils(1)
+   self%direct_current_cache_esirkepov = .false.
+   endsubroutine ensure_direct_current_solver_cache
+
+   subroutine solve_pic_charge_conserving_current(self, q, hq)
+   !< Reconstruct J from D_alpha J_alpha = -H_alpha(Q)/dt with homogeneous ghost-cell values.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P),               intent(in)    :: hq(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   integer(I4P)                           :: maxn, n, b, i, j, k
+   real(R8P), allocatable                 :: rhs(:), sol(:)
+
+   maxn = max(self%ni, max(self%nj, self%nk))
+   allocate(rhs(1:maxn), sol(1:maxn))
+   q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
+   call ensure_direct_current_solver_cache(self=self)
+
+   do b=1, self%blocks_number
+      n = self%ni
+      do k=1, self%nk
+         do j=1, self%nj
+            rhs(1:n) = -hq(1,1:n,j,k,b) / self%time%dt
+            call solve_factored_matrix_pivot(a=self%direct_current_matrix_x(1:n,1:n,b), &
+                                             pivot=self%direct_current_pivot_x(1:n,b), rhs=rhs(1:n), &
+                                             sol=sol(1:n), n=n)
+            call update_current_line_solver_residual(self=self, dir=1_I4P, b=b, n=n, sol=sol(1:n), &
+                                                     target=-hq(1,1:n,j,k,b) / self%time%dt)
+            do i=1, n
+               q(self%physics%var_Jx,i,j,k,b) = sol(i)
+            enddo
+         enddo
+      enddo
+      n = self%nj
+      do k=1, self%nk
+         do i=1, self%ni
+            rhs(1:n) = -hq(2,i,1:n,k,b) / self%time%dt
+            call solve_factored_matrix_pivot(a=self%direct_current_matrix_y(1:n,1:n,b), &
+                                             pivot=self%direct_current_pivot_y(1:n,b), rhs=rhs(1:n), &
+                                             sol=sol(1:n), n=n)
+            call update_current_line_solver_residual(self=self, dir=2_I4P, b=b, n=n, sol=sol(1:n), &
+                                                     target=-hq(2,i,1:n,k,b) / self%time%dt)
+            do j=1, n
+               q(self%physics%var_Jy,i,j,k,b) = sol(j)
+            enddo
+         enddo
+      enddo
+      n = self%nk
+      do j=1, self%nj
+         do i=1, self%ni
+            rhs(1:n) = -hq(3,i,j,1:n,b) / self%time%dt
+            call solve_factored_matrix_pivot(a=self%direct_current_matrix_z(1:n,1:n,b), &
+                                             pivot=self%direct_current_pivot_z(1:n,b), rhs=rhs(1:n), &
+                                             sol=sol(1:n), n=n)
+            call update_current_line_solver_residual(self=self, dir=3_I4P, b=b, n=n, sol=sol(1:n), &
+                                                     target=-hq(3,i,j,1:n,b) / self%time%dt)
+            do k=1, n
+               q(self%physics%var_Jz,i,j,k,b) = sol(k)
+            enddo
+         enddo
+      enddo
+   enddo
+   call impose_zero_current_ghosts(self=self, q=q)
+   if (allocated(rhs)) deallocate(rhs)
+   if (allocated(sol)) deallocate(sol)
+   endsubroutine solve_pic_charge_conserving_current
+
+   subroutine find_pic_position_cell(self, q_pos, b, i, j, k)
+   !< Locate one PIC position on the local Cartesian block grid.
+   implicit none
+   class(prism_cpu_object), intent(in)  :: self
+   real(R8P),               intent(in)  :: q_pos(1:)
+   integer(I4P),            intent(out) :: b, i, j, k
+   integer(I4P)                         :: bb
+
+   do bb=1, self%blocks_number
+      i = ceiling((q_pos(1) - self%adam%field%emin(1,bb)) / self%adam%field%dxyz(1,bb))
+      j = ceiling((q_pos(2) - self%adam%field%emin(2,bb)) / self%adam%field%dxyz(2,bb))
+      k = ceiling((q_pos(3) - self%adam%field%emin(3,bb)) / self%adam%field%dxyz(3,bb))
+      if (i >= 1_I4P .and. i <= self%ni .and. j >= 1_I4P .and. j <= self%nj .and. &
+          k >= 1_I4P .and. k <= self%nk) then
+         b = bb
+         return
+      endif
+   enddo
+   call mpih%error_stop(msg=': PIC particle outside local grid in Esirkepov current')
+   endsubroutine find_pic_position_cell
+
+   subroutine particle_weighting_radius(self, b, rx, ry, rz)
+   !< Integer support radius for the configured particle shape.
+   implicit none
+   class(prism_cpu_object), intent(in)  :: self
+   integer(I4P),            intent(in)  :: b
+   integer(I4P),            intent(out) :: rx, ry, rz
+
+   select case(trim(self%pic%particle_weighting_model))
+   case('NGP')
+      rx = 0_I4P ; ry = 0_I4P ; rz = 0_I4P
+   case('CIC', 'TSC')
+      rx = 1_I4P ; ry = 1_I4P ; rz = 1_I4P
+   case('cubic', 'quartic')
+      rx = 2_I4P ; ry = 2_I4P ; rz = 2_I4P
+   case('quintic', 'sextic')
+      rx = 3_I4P ; ry = 3_I4P ; rz = 3_I4P
+   case('Gaussian')
+      rx = self%pic%gaussian_support_cells
+      ry = self%pic%gaussian_support_cells
+      rz = self%pic%gaussian_support_cells
+   case default
+      call mpih%error_stop(msg=': unsupported particle weighting in Esirkepov current')
+   endselect
+   endsubroutine particle_weighting_radius
+
+   subroutine particle_shape_weight_1d(self, model, x, xc, dx, w, cutoff_limit)
+   !< One-dimensional particle shape used by the PIC charge deposition.
+   implicit none
+   class(prism_cpu_object), intent(in)           :: self
+   character(*),            intent(in)           :: model
+   real(R8P),               intent(in)           :: x, xc, dx
+   real(R8P),               intent(out)          :: w
+   real(R8P), optional,     intent(in)           :: cutoff_limit
+   real(R8P)                                     :: r, ar, sigma, limit
+
+   w = 0._R8P
+   select case(trim(model))
+   case('NGP')
+      if (abs((x - xc) / dx) <= 0.5_R8P) w = 1._R8P
+   case('CIC')
+      ar = abs((x - xc) / dx)
+      if (ar <= 1._R8P) w = 1._R8P - ar
+   case('TSC')
+      ar = abs((x - xc) / dx)
+      if (ar <= 0.5_R8P) then
+         w = 0.75_R8P - ar**2
+      elseif (ar <= 1.5_R8P) then
+         w = 0.5_R8P * (1.5_R8P - ar)**2
+      endif
+   case('cubic')
+      ar = abs((x - xc) / dx)
+      if (ar <= 1._R8P) then
+         w = 2._R8P/3._R8P - ar**2 + 0.5_R8P*ar**3
+      elseif (ar <= 2._R8P) then
+         w = (2._R8P - ar)**3 / 6._R8P
+      endif
+   case('quartic')
+      ar = abs((x - xc) / dx)
+      if (ar <= 0.5_R8P) then
+         w = 0.25_R8P*ar**4 - 5._R8P/8._R8P*ar**2 + 115._R8P/192._R8P
+      elseif (ar <= 1.5_R8P) then
+         w = -ar**4/6._R8P + 5._R8P*ar**3/6._R8P - 5._R8P*ar**2/4._R8P + 5._R8P*ar/24._R8P + 55._R8P/96._R8P
+      elseif (ar <= 2.5_R8P) then
+         w = (2.5_R8P - ar)**4 / 24._R8P
+      endif
+   case('quintic')
+      ar = abs((x - xc) / dx)
+      if (ar <= 1._R8P) then
+         w = -ar**5/12._R8P + ar**4/4._R8P - ar**2/2._R8P + 11._R8P/20._R8P
+      elseif (ar <= 2._R8P) then
+         w = ar**5/24._R8P - 3._R8P*ar**4/8._R8P + 5._R8P*ar**3/4._R8P - 7._R8P*ar**2/4._R8P + &
+             5._R8P*ar/8._R8P + 17._R8P/40._R8P
+      elseif (ar <= 3._R8P) then
+         w = (3._R8P - ar)**5 / 120._R8P
+      endif
+   case('sextic')
+      w = bspline_weight(order=6_I4P, r=(x - xc)/dx)
+   case('Gaussian')
+      sigma = self%pic%sigma
+      limit = self%pic%cutoff_sigma
+      if (present(cutoff_limit)) limit = cutoff_limit
+      r = (x - xc) / sigma
+      if (abs(r) <= limit) w = exp(-0.5_R8P*r*r)
+   case default
+      call mpih%error_stop(msg=': unsupported particle shape in Esirkepov current')
+   endselect
+   endsubroutine particle_shape_weight_1d
+
+   subroutine build_centered_reconstruction_matrix(self, n, a)
+   !< Build face-reconstruction matrix R such that FD1_CC J = (R_{i+1/2}-R_{i-1/2})/dx.
+   implicit none
+   class(prism_cpu_object), intent(in)    :: self
+   integer(I4P),            intent(in)    :: n
+   real(R8P),               intent(inout) :: a(0:,1:)
+   integer(I4P)                           :: face, m, col
+   real(R8P)                              :: coeff, sgn
+
+   a(0:n,1:n) = 0._R8P
+   do face=0, n
+      do m=1, self%fdv_half_stencils(1)
+         coeff = FV1_CC(m,self%fdv_half_stencils(1))
+         call odd_mirror_index(idx=face+m, n=n, col=col, sgn=sgn)
+         a(face,col) = a(face,col) + coeff * sgn
+         call odd_mirror_index(idx=face+1-m, n=n, col=col, sgn=sgn)
+         a(face,col) = a(face,col) + coeff * sgn
+      enddo
+   enddo
+   endsubroutine build_centered_reconstruction_matrix
+
+   subroutine build_centered_derivative_matrix(self, dir, b, n, a)
+   implicit none
+   class(prism_cpu_object), intent(in)    :: self
+   integer(I4P),            intent(in)    :: dir, b, n
+   real(R8P),               intent(inout) :: a(1:,1:)
+   integer(I4P)                           :: row, m, col
+   real(R8P)                              :: coeff
+
+   a(1:n,1:n) = 0._R8P
+   do row=1, n
+      do m=1, self%fdv_half_stencils(1)
+         coeff = FD1_CC(m,self%fdv_half_stencils(1)) / self%adam%field%dxyz(dir,b)
+         col = row + m
+         if (col >= 1_I4P .and. col <= n) a(row,col) = a(row,col) + coeff
+         col = row - m
+         if (col >= 1_I4P .and. col <= n) a(row,col) = a(row,col) - coeff
+      enddo
+   enddo
+   endsubroutine build_centered_derivative_matrix
+
+   subroutine factorize_matrix_pivot(a, pivot, n)
+   implicit none
+   real(R8P),    intent(inout) :: a(1:,1:)
+   integer(I4P), intent(out)   :: pivot(1:)
+   integer(I4P), intent(in)    :: n
+   integer(I4P)                :: i, j, k, p
+   real(R8P)                   :: pivot_abs, factor, tmp
+
+   do k=1, n-1
+      p = k
+      pivot_abs = abs(a(k,k))
+      do i=k+1, n
+         if (abs(a(i,k)) > pivot_abs) then
+            p = i
+            pivot_abs = abs(a(i,k))
+         endif
+      enddo
+      if (pivot_abs <= 100._R8P*tiny(1._R8P)) call mpih%error_stop(msg=': singular PIC current derivative line solve')
+      pivot(k) = p
+      if (p /= k) then
+         do j=1, n
+            tmp = a(k,j) ; a(k,j) = a(p,j) ; a(p,j) = tmp
+         enddo
+      endif
+      do i=k+1, n
+         factor = a(i,k) / a(k,k)
+         a(i,k) = factor
+         do j=k+1, n
+            a(i,j) = a(i,j) - factor * a(k,j)
+         enddo
+      enddo
+   enddo
+   if (abs(a(n,n)) <= 100._R8P*tiny(1._R8P)) call mpih%error_stop(msg=': singular PIC current derivative line solve')
+   pivot(n) = n
+   endsubroutine factorize_matrix_pivot
+
+   subroutine solve_factored_matrix_pivot(a, pivot, rhs, sol, n)
+   implicit none
+   real(R8P),    intent(in)  :: a(1:,1:)
+   integer(I4P), intent(in)  :: pivot(1:)
+   real(R8P),    intent(in)  :: rhs(1:)
+   real(R8P),    intent(out) :: sol(1:)
+   integer(I4P), intent(in)  :: n
+   integer(I4P)              :: i, j, p
+   real(R8P)                 :: tmp
+
+   sol(1:n) = rhs(1:n)
+   do i=1, n-1
+      p = pivot(i)
+      if (p /= i) then
+         tmp = sol(i) ; sol(i) = sol(p) ; sol(p) = tmp
+      endif
+   enddo
+   do i=2, n
+      tmp = sol(i)
+      do j=1, i-1
+         tmp = tmp - a(i,j) * sol(j)
+      enddo
+      sol(i) = tmp
+   enddo
+   do i=n, 1, -1
+      tmp = sol(i)
+      do j=i+1, n
+         tmp = tmp - a(i,j) * sol(j)
+      enddo
+      sol(i) = tmp / a(i,i)
+   enddo
+   endsubroutine solve_factored_matrix_pivot
+
+   subroutine update_current_line_solver_residual(self, dir, b, n, sol, target)
+   !< Update max residual |D_alpha sol - target| for one direct current line solve.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   integer(I4P),            intent(in)    :: dir, b, n
+   real(R8P),               intent(in)    :: sol(1:)
+   real(R8P),               intent(in)    :: target(1:)
+   integer(I4P)                           :: row, m, col
+   real(R8P)                              :: coeff, value
+
+   do row=1, n
+      value = 0._R8P
+      do m=1, self%fdv_half_stencils(1)
+         coeff = FD1_CC(m,self%fdv_half_stencils(1)) / self%adam%field%dxyz(dir,b)
+         col = row + m
+         if (col >= 1_I4P .and. col <= n) value = value + coeff * sol(col)
+         col = row - m
+         if (col >= 1_I4P .and. col <= n) value = value - coeff * sol(col)
+      enddo
+      self%current_solver_residual_max = max(self%current_solver_residual_max, abs(value - target(row)))
+   enddo
+   endsubroutine update_current_line_solver_residual
+
+   subroutine odd_mirror_index(idx, n, col, sgn)
+   implicit none
+   integer(I4P), intent(in)  :: idx, n
+   integer(I4P), intent(out) :: col
+   real(R8P),    intent(out) :: sgn
+
+   if (idx < 1_I4P) then
+      col = 1_I4P - idx
+      sgn = -1._R8P
+   elseif (idx > n) then
+      col = 2_I4P*n + 1_I4P - idx
+      sgn = -1._R8P
+   else
+      col = idx
+      sgn = 1._R8P
+   endif
+   if (col < 1_I4P .or. col > n) call mpih%error_stop(msg=': centered derivative line solve needs more interior cells')
+   endsubroutine odd_mirror_index
+
+   subroutine impose_zero_current_ghosts(self, q)
+   implicit none
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   integer(I4P)                           :: g, b
+
+   do b=1, self%blocks_number
+      do g=1, self%ngc
+         q(self%physics%var_Jx,1-g,:,:,b) = 0._R8P
+         q(self%physics%var_Jx,self%ni+g,:,:,b) = 0._R8P
+         q(self%physics%var_Jy,:,1-g,:,b) = 0._R8P
+         q(self%physics%var_Jy,:,self%nj+g,:,b) = 0._R8P
+         q(self%physics%var_Jz,:,:,1-g,b) = 0._R8P
+         q(self%physics%var_Jz,:,:,self%nk+g,b) = 0._R8P
+      enddo
+   enddo
+   endsubroutine impose_zero_current_ghosts
+
+   subroutine impose_odd_current_ghosts(self, q)
+   !< Zero normal face flux: J outside the face is the odd mirror of J inside.
+   implicit none
+   class(prism_cpu_object), intent(in)    :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   integer(I4P)                           :: g, b
+
+   if (self%ngc > min(self%ni,self%nj,self%nk)) &
+      call mpih%error_stop(msg=': esirkepov needs at least ngc interior cells per direction')
+   do b=1,self%blocks_number
+      do g=1,self%ngc
+         q(self%physics%var_Jx,1-g,:,:,b) = -q(self%physics%var_Jx,g,:,:,b)
+         q(self%physics%var_Jx,self%ni+g,:,:,b) = -q(self%physics%var_Jx,self%ni+1-g,:,:,b)
+         q(self%physics%var_Jy,:,1-g,:,b) = -q(self%physics%var_Jy,:,g,:,b)
+         q(self%physics%var_Jy,:,self%nj+g,:,b) = -q(self%physics%var_Jy,:,self%nj+1-g,:,b)
+         q(self%physics%var_Jz,:,:,1-g,b) = -q(self%physics%var_Jz,:,:,g,b)
+         q(self%physics%var_Jz,:,:,self%nk+g,b) = -q(self%physics%var_Jz,:,:,self%nk+1-g,b)
+      enddo
+   enddo
+   endsubroutine impose_odd_current_ghosts
+
 
    subroutine integrate_rk_yoshida(self)
    !< Integrate equation, time operator, Yoshida RK scheme.

@@ -10,6 +10,7 @@ private
 public :: FDV_S_MAX
 public :: FD0_CC
 public :: FD1_CC ! device-readable pair-form first-derivative coefficients (issue #22 F1-bis: buffer-free diagnostics)
+public :: FV1_CC !< Face reconstruction coefficients used by the CPU conserving PIC current.
 ! interfaces
 public :: compute_curl_fdv_interface
 public :: compute_derivative1_fdv_interface

@@ -37,7 +37,13 @@ public :: UNIFORM_CELL
 public :: NUM_SCHEME_TIME_PIC_LEAPFROG
 public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
 public :: COHERENT_INITIALIZATION
+public :: ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER
+public :: ESIRKEPOV_CURRENT_CONSERVING_SOLVER
+public :: DIRECT_CURRENT_CONSERVING_SOLVER
+public :: CONSERVING_CURRENT_WEIGHTING_MODEL
 public :: effective_gaussian_weight
+public :: bspline_weight
+public :: quartic_closed_weights
 !public :: CIC_charge_weighting
 !public :: NGP_charge_weighting
 !public :: TSC_charge_weighting
@@ -77,6 +83,14 @@ character(len=12), parameter :: UNIFORM_CELL                     = 'Uniform_cell
 !character(len=32), parameter :: UNIFORM_BOX_SPACE_DISTRIBUTION   = 'Uniform_boxes_space_distribution'
 !character(len=31), parameter :: UNIFORM_CELL_SPACE_DISTRIBUTION  = 'Uniform_cell_space_distribution'
 
+character(len=10), parameter :: CONSERVING_CURRENT_WEIGHTING_MODEL = 'conserving'      !< Charge-conserving current model.
+
+character(len=6 ), parameter :: DIRECT_CURRENT_CONSERVING_SOLVER = 'direct'            !< Direct line-solve conserving current.
+
+character(len=9 ), parameter :: ESIRKEPOV_CURRENT_CONSERVING_SOLVER = 'esirkepov'      !< Esirkepov particle current.
+
+character(len=18), parameter :: ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER = 'esirkepov-modified' !< Matched local current.
+
 ! PIC variables layout in q_pic array:
 !q_pic(1) = x
 !q_pic(2) = y
@@ -110,6 +124,10 @@ type :: prism_pic_object
    character(len=99)         :: particle_weighting_model    !< Particle weighting model.
    character(len=99)         :: current_weighting_model     !< Current weighting model.
    character(len=99)         :: field_weighting_model       !< Field weighting model.
+   logical                   :: esirkepov_tail_diagnostic = .false. !< Save per-stage particle tail metrics every timestep.
+   logical                   :: esirkepov_tail_cleanup = .false. !< Remove small current leakage outside each particle's support.
+   integer(I4P)              :: esirkepov_tail_profile_it = -1_I4P !< Optional timestep for 1D tail profiles.
+   character(len=99)         :: current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER !< Conserving current solver.
    character(len=99)         :: scheme_time                 !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    !< Pointer (abstract) TBP.
    procedure(particle_weighting_interface), pass(self), pointer :: particle_weighting =>null() !< Particle weighting.
@@ -215,6 +233,8 @@ contains
    desc = desc//NL//mpih%myrankstr//'    Filter deposition and gather: '//trim(str(self%filter_deposition))
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
+   if (self%current_weighting_model == CONSERVING_CURRENT_WEIGHTING_MODEL) &
+      desc = desc//NL//mpih%myrankstr//'    Conserving current solver: '//trim(self%current_conserving_solver)
    if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
          self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
          self%field_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
@@ -326,6 +346,27 @@ contains
       self%current_weighting => sextic_current_weighting
    case(GAUSSIAN_WEIGHTING_MODEL)
       self%current_weighting => Gaussian_current_weighting
+   case(CONSERVING_CURRENT_WEIGHTING_MODEL)
+      select case(self%particle_weighting_model)
+      case(CIC_WEIGHTING_MODEL)
+         self%current_weighting => CIC_current_weighting
+      case(NGP_WEIGHTING_MODEL)
+         self%current_weighting => NGP_current_weighting
+      case(TSC_WEIGHTING_MODEL)
+         self%current_weighting => TSC_current_weighting
+      case(CUBIC_WEIGHTING_MODEL)
+         self%current_weighting => cubic_current_weighting
+      case(QUARTIC_WEIGHTING_MODEL)
+         self%current_weighting => quartic_current_weighting
+      case(QUINTIC_WEIGHTING_MODEL)
+         self%current_weighting => quintic_current_weighting
+      case(SEXTIC_WEIGHTING_MODEL)
+         self%current_weighting => sextic_current_weighting
+      case(GAUSSIAN_WEIGHTING_MODEL)
+         self%current_weighting => Gaussian_current_weighting
+      case default
+         call mpih%error_stop(msg=': invalid particle weighting model for conserving current initialization')
+      endselect
    case default
       call mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
    endselect
@@ -455,6 +496,19 @@ contains
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(elliptic_correction)')
 
+   self%esirkepov_tail_diagnostic = .false.
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_diagnostic', &
+                            val=self%esirkepov_tail_diagnostic, error=error)
+   if (error > 0) self%esirkepov_tail_diagnostic = .false.
+   self%esirkepov_tail_cleanup = .false.
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_cleanup', &
+                            val=self%esirkepov_tail_cleanup, error=error)
+   if (error > 0) self%esirkepov_tail_cleanup = .false.
+   self%esirkepov_tail_profile_it = -1_I4P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_profile_it', &
+                            val=self%esirkepov_tail_profile_it, error=error)
+   if (error > 0) self%esirkepov_tail_profile_it = -1_I4P
+
    self%filter_deposition = .false.
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='filter_deposition', &
                             val=self%filter_deposition, error=error)
@@ -509,6 +563,8 @@ contains
       self%current_weighting_model = SEXTIC_WEIGHTING_MODEL
    case('GAUSSIAN', 'Gaussian', 'gaussian', 'GAUSS', 'gauss')
       self%current_weighting_model = GAUSSIAN_WEIGHTING_MODEL
+   case('CONSERVING', 'Conserving', 'conserving', 'charge_conserving', 'CHARGE_CONSERVING')
+      self%current_weighting_model = CONSERVING_CURRENT_WEIGHTING_MODEL
 	case default
 		call mpih%error_stop(msg=': invalid current weighting model ['//trim(buff)//'] in  &
       ['//INI_SECTION_NAME//'].(current_weighting_model)')
@@ -541,6 +597,26 @@ contains
       call mpih%error_stop(msg=': invalid field weighting model ['//trim(buff)//'] in  &
       ['//INI_SECTION_NAME//'].(field_weighting_model)')
    endselect
+
+   self%current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER
+   buff = ''
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='current_conserving_solver', val=buff, error=error)
+   if (error == 0) then
+      buff = trim(adjustl(buff))
+      select case(trim(adjustl(buff)))
+      case('direct', 'DIRECT', 'Direct', 'line', 'LINE', 'line_solve', 'LINE_SOLVE')
+         self%current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER
+      case('esirkepov', 'ESIRKEPOV', 'Esirkepov')
+         self%current_conserving_solver = ESIRKEPOV_CURRENT_CONSERVING_SOLVER
+      case('esirkepov-modified', 'ESIRKEPOV-MODIFIED', 'Esirkepov-Modified', 'esirkepov_modified')
+         self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER
+      case default
+         call mpih%error_stop(msg=': invalid current conserving solver ['//trim(buff)//'] in  &
+      ['//INI_SECTION_NAME//'].(current_conserving_solver)')
+      endselect
+   endif
+   if (self%current_weighting_model /= CONSERVING_CURRENT_WEIGHTING_MODEL) &
+      self%current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER
 
    if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
          self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
@@ -721,7 +797,7 @@ contains
    endsubroutine sextic_charge_weighting
 
    subroutine bspline_charge_weighting(self, field, grid, q, q_pic, nv, order)
-   !< Deposit particle charge density with B-spline support and optional binomial filtering.
+   !< Deposit particle charge density with the fixed (order+1)^3 B-spline support.
    implicit none
    class(prism_pic_object), intent(inout) :: self
    type(field_object),      intent(inout) :: field
@@ -739,7 +815,9 @@ contains
    integer(I4P)                           :: k_min, k_max
    real(R8P)                              :: dx, dy, dz
    real(R8P)                              :: wx, wy, wz, weight
-   real(R8P)                              :: prefactor
+   real(R8P)                              :: wx_quartic(5), wy_quartic(5), wz_quartic(5)
+   real(R8P)                              :: charge_density
+   logical                                :: close_quartic
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
 
@@ -754,7 +832,7 @@ contains
       dx = field%dxyz(1,b_p)
       dy = field%dxyz(2,b_p)
       dz = field%dxyz(3,b_p)
-      prefactor = q_pic(7,n) / (dx * dy * dz)
+      charge_density = q_pic(7,n) / (dx * dy * dz)
 
       call set_bspline_stencil(order=order, x_p=q_pic(1,n), x_c=x_cell(i_p,b_p), &
                                i_p=i_p, i_min=i_min, i_max=i_max)
@@ -769,21 +847,45 @@ contains
          k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
       endif
 
+      close_quartic = order == 4_I4P .and. .not.self%filter_deposition
+      if (close_quartic) then
+         close_quartic = i_p-2 >= lbound(x_cell,1) .and. i_p+2 <= ubound(x_cell,1) .and. &
+                         j_p-2 >= lbound(y_cell,1) .and. j_p+2 <= ubound(y_cell,1) .and. &
+                         k_p-2 >= lbound(z_cell,1) .and. k_p+2 <= ubound(z_cell,1)
+      endif
+      if (close_quartic) then
+         call quartic_closed_weights(q_pic(1,n),x_cell(i_p-2:i_p+2,b_p),dx,wx_quartic)
+         call quartic_closed_weights(q_pic(2,n),y_cell(j_p-2:j_p+2,b_p),dy,wy_quartic)
+         call quartic_closed_weights(q_pic(3,n),z_cell(k_p-2:k_p+2,b_p),dz,wz_quartic)
+      endif
+
       i_min = max(i_min, lbound(q,dim=2)) ; i_max = min(i_max, ubound(q,dim=2))
       j_min = max(j_min, lbound(q,dim=3)) ; j_max = min(j_max, ubound(q,dim=3))
       k_min = max(k_min, lbound(q,dim=4)) ; k_max = min(k_max, ubound(q,dim=4))
 
       do k = k_min, k_max
-         wz = effective_bspline_weight(order=order, r=(q_pic(3,n) - z_cell(k,b_p)) / dz, &
-                                       filter=self%filter_deposition)
-         do j = j_min, j_max
-            wy = effective_bspline_weight(order=order, r=(q_pic(2,n) - y_cell(j,b_p)) / dy, &
+         if (close_quartic) then
+            wz = wz_quartic(k-k_p+3)
+         else
+            wz = effective_bspline_weight(order=order, r=(q_pic(3,n) - z_cell(k,b_p)) / dz, &
                                           filter=self%filter_deposition)
-            do i = i_min, i_max
-               wx = effective_bspline_weight(order=order, r=(q_pic(1,n) - x_cell(i,b_p)) / dx, &
+         endif
+         do j = j_min, j_max
+            if (close_quartic) then
+               wy = wy_quartic(j-j_p+3)
+            else
+               wy = effective_bspline_weight(order=order, r=(q_pic(2,n) - y_cell(j,b_p)) / dy, &
                                              filter=self%filter_deposition)
+            endif
+            do i = i_min, i_max
+               if (close_quartic) then
+                  wx = wx_quartic(i-i_p+3)
+               else
+                  wx = effective_bspline_weight(order=order, r=(q_pic(1,n) - x_cell(i,b_p)) / dx, &
+                                                filter=self%filter_deposition)
+               endif
                weight = wx * wy * wz
-               q(nv,i,j,k,b_p) = q(nv,i,j,k,b_p) + prefactor * weight
+               q(nv,i,j,k,b_p) = q(nv,i,j,k,b_p) + charge_density * weight
             enddo
          enddo
       enddo
@@ -791,6 +893,25 @@ contains
 
    endassociate
    endsubroutine bspline_charge_weighting
+
+   pure subroutine quartic_closed_weights(x_p, x_cell, dx, w)
+   !< Close the five unfiltered quartic weights by changing only the largest one.
+   implicit none
+   real(R8P), intent(in)  :: x_p, x_cell(1:5), dx
+   real(R8P), intent(out) :: w(1:5)
+   real(R8P)              :: sum_other
+   integer(I4P)           :: i, largest
+
+   do i=1,5
+      w(i) = bspline_weight(order=4_I4P,r=(x_p-x_cell(i))/dx)
+   enddo
+   largest = maxloc(w,dim=1)
+   sum_other = 0._R8P
+   do i=1,5
+      if (i /= largest) sum_other = sum_other + w(i)
+   enddo
+   w(largest) = 1._R8P - sum_other
+   endsubroutine quartic_closed_weights
 
    subroutine Gaussian_charge_weighting(self, field, grid, q, q_PIC, nv)
    !< Gaussian weighting of particle charge density to the grid.

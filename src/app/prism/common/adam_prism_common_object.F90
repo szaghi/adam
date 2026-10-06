@@ -505,6 +505,7 @@ contains
 
    subroutine initialize_pic_time_zero(self)
    !< Initialize PIC particles and deposit host-side charge/current sources at t=0.
+   implicit none
    class(prism_common_object), intent(inout) :: self !< The equation.
 
    if (.not. is_pic_model(self%physics%physical_model)) return
@@ -512,6 +513,7 @@ contains
    call self%particle_injection%set_particle_initial_injection(field=self%adam%field, grid=self%adam%grid, &
                                                                pic=self%pic, q_pic=self%q_pic)
    if (is_adim_model(self%physics%physical_model)) then
+      ! Positions are already in grid units; thermal velocities, charges and masses come from SI input.
       self%q_pic(4:6,:) = self%q_pic(4:6,:)/C0
       self%q_pic(7,:) = self%q_pic(7,:)/self%physics%Q0
       self%q_pic(8,:) = self%q_pic(8,:)/self%physics%M0
@@ -520,9 +522,16 @@ contains
    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list, R8P), &
                                     np=self%pic%particle_number)
 
-   call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+      ! The CPU backend deposits the conserving current from a centered virtual trajectory.
+      self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
+   else
+      call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   endif
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
+   call self%verify_no_pic_deposition_on_coils(q=self%q, &
+                                               check_current=trim(self%pic%current_weighting_model) /= &
+                                                             CONSERVING_CURRENT_WEIGHTING_MODEL, check_charge=.true., &
                                                context='initialize_pic_time_zero')
    endsubroutine initialize_pic_time_zero
 
@@ -980,14 +989,17 @@ contains
    close(file_unit)
    endsubroutine load_pic_restart_files
 
-   subroutine save_divergence_history(self, is_to_open, is_to_close, div_D, div_B, div_J)
+   subroutine save_divergence_history(self, is_to_open, is_to_close, div_D, div_B, div_J, &
+                                      current_solver_residual)
    !< Save divergence history.
+   implicit none
    class(prism_common_object), intent(inout)        :: self        !< The equation.
    logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
    real(R8P),                  intent(in)           :: div_D       !< Maximum of divergence of D field.
    real(R8P),                  intent(in)           :: div_B       !< Maximum of divergence of B
    real(R8P),                  intent(in)           :: div_J       !< Maximum of divergence of J field.
+   real(R8P), optional, intent(in) :: current_solver_residual !< Maximum current linear-solve residual.
    character(len=:), allocatable                    :: div_D_name  !< Header label for the first divergence monitor.
 
    if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
@@ -995,7 +1007,8 @@ contains
       if (is_pic_model(self%physics%physical_model)) div_D_name = 'D_divergence_minus_rho'
       call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
                                            div_D=div_D,div_B=div_B,div_J=div_J,div_D_name=div_D_name,           &
-                                           is_to_open=is_to_open,is_to_close=is_to_close)
+                                           is_to_open=is_to_open,is_to_close=is_to_close, &
+                                           current_solver_residual=current_solver_residual)
    endif
    ! Seam div(B) guard-rail (issue #29 — accept-truncation resolution). The 2:1 AMR seam
    ! injects an O(h^p) div(B) source, refinement-convergent but UNBOUNDED in t at fixed h;

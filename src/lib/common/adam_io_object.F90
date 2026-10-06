@@ -36,6 +36,7 @@ type :: io_object
    integer(I4P)                :: divergence_history_save=10_I4P !< Divergence history output iteration save frequency.
    integer(I4P)                :: divergence_history_unit        !< Divergence history file unit.
    logical                     :: is_initialized=.false.         !< Initialization status.
+   integer(I4P) :: charge_conservation_history_unit = 0_I4P
    ! auxiliary fields saving
    logical :: save_residual_fields  =.false. !< Flag to activate residual fields saving.
    logical :: save_curl_fields      =.false. !< Flag to activate curl fields saving.
@@ -57,6 +58,7 @@ type :: io_object
       procedure, pass(self) :: save_energy_error       !< Save energy error history.
       procedure, pass(self) :: save_energy_history     !< Save energy history.
       procedure, pass(self) :: save_divergence_history !< Save divergence history.
+      procedure, pass(self) :: save_charge_conservation_history
       ! residuals IO
       procedure, pass(self) :: close_file_residuals !< Close file for saving residuals history.
       procedure, pass(self) :: open_file_residuals  !< Open file for saving residuals history.
@@ -246,8 +248,74 @@ contains
    endif
    endsubroutine save_energy_history
 
-   subroutine save_divergence_history(self,it,time,blocks_number,div_D,div_B,div_J,div_D_name,is_to_open,is_to_close)
+   subroutine save_charge_conservation_history(self,time,Q_particles,Q_deposited,Q_deposition_error,R_cont_L1,R_cont_L2, &
+                                               R_cont_Linf,dQ_num_net,dQ_num_abs,Gauss_L1,Gauss_L2,Gauss_Linf,             &
+                                               is_to_open,is_to_close,do_write)
+   !< Save PIC charge-conservation diagnostic history.
+   implicit none
+   class(io_object), intent(inout)        :: self               !< IO handler.
+   real(R8P),        intent(in)           :: time               !< Physical time.
+   real(R8P),        intent(in)           :: Q_particles        !< Total particle charge.
+   real(R8P),        intent(in)           :: Q_deposited        !< Total grid-deposited charge.
+   real(R8P),        intent(in)           :: Q_deposition_error !< Deposited-particle charge mismatch.
+   real(R8P),        intent(in)           :: R_cont_L1          !< Continuity residual L1 mean.
+   real(R8P),        intent(in)           :: R_cont_L2          !< Continuity residual L2 RMS.
+   real(R8P),        intent(in)           :: R_cont_Linf        !< Continuity residual Linf.
+   real(R8P),        intent(in)           :: dQ_num_net         !< Net numerical charge equivalent.
+   real(R8P),        intent(in)           :: dQ_num_abs         !< Absolute numerical charge equivalent.
+   real(R8P),        intent(in)           :: Gauss_L1           !< Gauss-law residual L1 mean.
+   real(R8P),        intent(in)           :: Gauss_L2           !< Gauss-law residual L2 RMS.
+   real(R8P),        intent(in)           :: Gauss_Linf         !< Gauss-law residual Linf.
+   logical,          intent(in), optional :: is_to_open         !< Flag to open file before first saving.
+   logical,          intent(in), optional :: is_to_close        !< Flag to close file after last saving.
+   logical,          intent(in), optional :: do_write           !< Flag to write a data row.
+   logical                                :: is_to_open_        !< Open flag, local var.
+   logical                                :: is_to_close_       !< Close flag, local var.
+   logical                                :: do_write_          !< Write flag, local var.
+
+   if (mpih%myrank==0) then
+      is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
+      is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
+      do_write_    = .true.  ; if (present(do_write   )) do_write_    = do_write
+      if (is_to_open_) then
+         open(newunit=self%charge_conservation_history_unit, file=self%output_basename//'-charge_conservation_history.dat')
+         write(self%charge_conservation_history_unit,'(A)') '# time'
+         write(self%charge_conservation_history_unit,'(A)') '# Q_particles'
+         write(self%charge_conservation_history_unit,'(A)') '# Q_deposited'
+         write(self%charge_conservation_history_unit,'(A)') '# Q_deposition_error'
+         write(self%charge_conservation_history_unit,'(A)') '# R_cont_L1'
+         write(self%charge_conservation_history_unit,'(A)') '# R_cont_L2'
+         write(self%charge_conservation_history_unit,'(A)') '# R_cont_Linf'
+         write(self%charge_conservation_history_unit,'(A)') '# dQ_num_net'
+         write(self%charge_conservation_history_unit,'(A)') '# dQ_num_abs'
+         write(self%charge_conservation_history_unit,'(A)') '# Gauss_L1'
+         write(self%charge_conservation_history_unit,'(A)') '# Gauss_L2'
+         write(self%charge_conservation_history_unit,'(A)') '# Gauss_Linf'
+         flush(self%charge_conservation_history_unit)
+      endif
+      if (do_write_) then
+         write(self%charge_conservation_history_unit, '(A)') trim(str(time              ))//' '//&
+                                                             trim(str(Q_particles       ))//' '//&
+                                                             trim(str(Q_deposited       ))//' '//&
+                                                             trim(str(Q_deposition_error))//' '//&
+                                                             trim(str(R_cont_L1         ))//' '//&
+                                                             trim(str(R_cont_L2         ))//' '//&
+                                                             trim(str(R_cont_Linf       ))//' '//&
+                                                             trim(str(dQ_num_net        ))//' '//&
+                                                             trim(str(dQ_num_abs        ))//' '//&
+                                                             trim(str(Gauss_L1          ))//' '//&
+                                                             trim(str(Gauss_L2          ))//' '//&
+                                                             trim(str(Gauss_Linf        ))
+         flush(self%charge_conservation_history_unit)
+      endif
+      if (is_to_close_) close(self%charge_conservation_history_unit)
+   endif
+   endsubroutine save_charge_conservation_history
+
+   subroutine save_divergence_history(self,it,time,blocks_number,div_D,div_B,div_J,div_D_name,div_J_name, &
+                                      current_solver_residual,is_to_open,is_to_close)
    !< Save energy history.
+   implicit none
    class(io_object), intent(inout)        :: self              !< IO handler.
    integer(I4P),     intent(in)           :: it                !< Current iteration.
    real(R8P),        intent(in)           :: time              !< Current time.
@@ -256,21 +324,30 @@ contains
    real(R8P),        intent(in)           :: div_B             !< Coil power history.
    real(R8P),        intent(in)           :: div_J             !< Poynting flux history.
    character(*),     intent(in), optional :: div_D_name        !< Header label for the first divergence monitor.
+   character(*),     intent(in), optional :: div_J_name        !< Header label for the third divergence monitor.
+   real(R8P),        intent(in), optional :: current_solver_residual !< Current linear-solve residual diagnostic.
    logical,          intent(in), optional :: is_to_open        !< Flag to open  file before first saving.
    logical,          intent(in), optional :: is_to_close       !< Flag to close file after last saving.
    logical                                :: is_to_open_       !< Flag to open  file before first saving, local var.
    logical                                :: is_to_close_      !< Flag to close file after last saving, local var.
    character(len=:), allocatable          :: div_D_name_       !< Resolved header label for the first divergence monitor.
+   character(len=:), allocatable          :: div_J_name_       !< Resolved header label for the third divergence monitor.
+   real(R8P)                              :: current_residual_ !< Resolved current linear-solve residual diagnostic.
 
    if (mpih%myrank==0.and.it>=0) then !>= aggiunto da FN, era solo >
       is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
       is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
+      current_residual_ = 0._R8P ; if (present(current_solver_residual)) current_residual_ = current_solver_residual
       div_D_name_ = 'D_divergence'
       if (present(div_D_name)) div_D_name_ = trim(div_D_name)
+      div_J_name_ = 'J_divergence'
+      if (present(div_J_name)) div_J_name_ = trim(div_J_name)
       if (is_to_open_) then
          open(newunit=self%divergence_history_unit, file=self%output_basename//'-divergence_history.dat')
          write(self%divergence_history_unit,'(A)')&
-               '%VARIABLES="it" "blocks_number" "time" "'//div_D_name_//'" "B_divergence" "J_divergence"'
+               '%VARIABLES="it" "blocks_number" "time" "'//div_D_name_//'" "B_divergence" "'//div_J_name_//'" '//&
+               '"current_solver_residual"'
+         flush(self%divergence_history_unit)
       endif
       if (it>0) then
          write(self%divergence_history_unit, '(A)') trim(str(it               ))//' '//&
@@ -278,7 +355,9 @@ contains
                                                     trim(str(time             ))//' '//&
                                                     trim(str(div_D            ))//' '//&
                                                     trim(str(div_B            ))//' '//&
-                                                    trim(str(div_J            ))
+                                                    trim(str(div_J            ))//' '//&
+                                                    trim(str(current_residual_))
+         flush(self%divergence_history_unit)
       endif
       if (is_to_close_) close(self%divergence_history_unit)
    endif
