@@ -37,6 +37,7 @@ public :: write_single_particle_output
 
 type, extends(realm_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
+   logical :: save_em_only = .false. !< `[IO] save_fields = em`: the XH5F output holds D and B only.
    logical :: amr_locked_ = .false. !< AMR regrid lock (issue #22 GA6): set .true. by backends whose device/topology
                                     !< state cannot follow a regrid after initialization (FNL sets it at the end of
                                     !< initialize_forest); `amr_update` error_stops when locked. CPU never sets it.
@@ -352,6 +353,7 @@ contains
    if (verbose_) call mpih%print_message('prism_common_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
+   call load_save_fields
    call self%numerics%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters,                              &
                                 reconstruction_vars=self%numerics%reconstruction_vars,        &
@@ -425,6 +427,28 @@ contains
          call mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (fdv_hs):'//&
                                    ' ngc='//trim(str(self%adam%grid%ngc))//' fdv_hs='//trim(str(self%fdv_half_stencil)))
       endsubroutine check_ngc_number
+
+      subroutine load_save_fields
+      !< Load `[IO] save_fields`: `all` (default, every field as before) or `em` (D and B only, for production runs; the
+      !< `save_residual/curl/divergence_fields` flags still add their arrays). Any other value is fatal.
+      character(99) :: buff  !< Option value.
+      integer(I4P)  :: c     !< Counter.
+      integer(I4P)  :: error !< Error status.
+
+      call self%io%file_parameters%get(section_name='IO', option_name='save_fields', val=buff, error=error)
+      if (error > 0) buff = 'all'
+      do c=1, len(buff) ! blank the control characters (a CR of a Windows input)
+         if (iachar(buff(c:c)) < 32) buff(c:c) = ' '
+      enddo
+      select case(trim(adjustl(buff)))
+      case('all')
+         self%save_em_only = .false.
+      case('em')
+         self%save_em_only = .true.
+      case default
+         call mpih%error_stop(msg=': unknown [IO].(save_fields) "'//trim(adjustl(buff))//'"; accepted: all, em')
+      endselect
+      endsubroutine load_save_fields
 
       subroutine io_initialize
       !< Initialize IO data.
@@ -1138,10 +1162,16 @@ contains
       bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
       call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
 
-      call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
-                              q=self%q(:,:,:,:,b), q_name=self%q_name)
+      if (self%save_em_only) then
+         ! the state starts with Dx, Dy, Dz, Bx, By, Bz (io_initialize)
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
+                                 q=self%q(1:6,:,:,:,b), q_name=self%q_name(1:6))
+      else
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
+                                 q=self%q(:,:,:,:,b), q_name=self%q_name)
+      endif
 
-      if (self%coil%total_coils_number>0) then
+      if (self%coil%total_coils_number>0 .and. .not.self%save_em_only) then
          do c=1, self%coil%total_coils_number
             call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
                                     q=self%coil%j_vec(:,:,:,:,b,c), q_name=self%coil%j_vec_name(:,c))

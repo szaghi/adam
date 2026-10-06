@@ -83,6 +83,14 @@ Total: `nv = nv_c + nv_s + nv_cl + nv_pic`
 
 **Maximum supported**: `NV_MAX = 11`.
 
+### Saved fields
+
+The XH5F checkpoints hold, by default (`[IO] save_fields = all`), the whole state vector (its width depends on the
+model above) and the current density of every coil, plus the arrays switched on by `save_residual_fields`,
+`save_curl_fields` and `save_divergence_fields`. `save_fields = em` writes only $D_x, D_y, D_z, B_x, B_y, B_z$ (the
+fields as stored, no conversion to $E$) for production runs; the three `save_*_fields` flags still add their arrays, so
+set them to `.false.` for an output with the electromagnetic fields alone. Any other value is fatal.
+
 ## Numerical Methods
 
 ### Temporal Schemes
