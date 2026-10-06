@@ -7,7 +7,7 @@ use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
-use :: adam_prism_physics_object, only : prism_physics_object
+use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 use :: adam_prism_parameters
 ! third party modules
 use :: finer
@@ -268,6 +268,7 @@ contains
 	   real(R8P)										        :: cell_coord(3)
       integer(I4P)                                   :: i_dir
       real(R8P)                                      :: x, y, r, omega, phase, c, s
+      real(R8P)                                      :: wave_B, wave_D, wave_lambda, wave_phase
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, &
              nv=>physics%nv, nv_c=>physics%nv_c, nv_cl=>physics%nv_cl)
    select case(self%ic_type)
@@ -284,25 +285,28 @@ contains
          enddo
       enddo
    case(IC_TYPE_PLANE_WAVE) !plane wave initial conditions
+      wave_B = self%B0
+      wave_D = self%B0*C0*EPS0
+      wave_lambda = self%lambda
+      if (is_adim_model(physics%physical_model)) then
+         wave_B = wave_B/physics%B0
+         wave_D = wave_D/physics%D0
+         wave_lambda = wave_lambda/physics%L0
+      endif
       do b=1, blocks_number
          call grid%cell_xyz(coordinates = field%coordinates(:,b), &
                x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  q(1,i,j,k,b) = self%B0*C0*EPS0*self%kz*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
-                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Dx
-                  q(2,i,j,k,b) = self%B0*C0*EPS0*self%kx*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
-                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Dy
-                  q(3,i,j,k,b) = self%B0*C0*EPS0*self%ky*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
-                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Dz
-
-                  q(4,i,j,k,b) = self%B0*self%ky*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
-                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Bx
-                  q(5,i,j,k,b) = self%B0*self%kz*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
-                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !By
-                  q(6,i,j,k,b) = self%B0*self%kx*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
-                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Bz
+                  wave_phase = cos(self%kx*2*PI/wave_lambda*x_cell(i)+ &
+                                   self%ky*2*PI/wave_lambda*y_cell(j)+self%kz*2*PI/wave_lambda*z_cell(k))
+                  q(1,i,j,k,b) = wave_D*self%kz*wave_phase
+                  q(2,i,j,k,b) = wave_D*self%kx*wave_phase
+                  q(3,i,j,k,b) = wave_D*self%ky*wave_phase
+                  q(4,i,j,k,b) = wave_B*self%ky*wave_phase
+                  q(5,i,j,k,b) = wave_B*self%kz*wave_phase
+                  q(6,i,j,k,b) = wave_B*self%kx*wave_phase
                   do var= (nv_c-nv_cl+1), nv
                      q(var,i,j,k,b) = 0.0_R8P
                   enddo

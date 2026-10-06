@@ -431,10 +431,10 @@ contains
    ! call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
    ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
    ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+   if (is_pic_model(self%physics%physical_model)) &
       call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
                                      verbose=verbose)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
+   if (is_pic_model(self%physics%physical_model) .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
       call self%leapfrog_pic_fnl%copy_cpu_gpu(q_pic_old=self%leapfrog_pic%q_pic_old, verbose=verbose)
    if (allocated(self%buf_6D_R8P)) then
       call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid, buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
@@ -458,10 +458,10 @@ contains
    ! call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,ij=[1,5])
    ! call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
    ! call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+   if (is_pic_model(self%physics%physical_model)) &
       call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
                                      verbose=verbose)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
+   if (is_pic_model(self%physics%physical_model) .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
       call self%leapfrog_pic_fnl%copy_gpu_cpu(q_pic_old=self%leapfrog_pic%q_pic_old, verbose=verbose)
    if (allocated(self%buf_6D_R8P)) then
       call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid, buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
@@ -510,7 +510,7 @@ contains
    else
       call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid)
    endif
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (is_pic_model(self%physics%physical_model)) then
       call self%pic_fnl%initialize(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
       if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic_fnl%initialize(pic=self%pic, leapfrog_pic=self%leapfrog_pic)
@@ -531,7 +531,7 @@ contains
          case(RK_YOSHIDA)                      ; self%integrate_dev => integrate_rk_yoshida_dev
          endselect
       endselect
-   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   elseif (is_pic_model(self%physics%physical_model)) then
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
          select case(self%pic%scheme_time)
@@ -565,7 +565,7 @@ contains
    self%fv_ivar_phi        = 0_I4P
    self%fv_ivar_psi        = 0_I4P
    select case(self%physics%physical_model)
-   case(ADIM_EM_PHYSICAL_MODEL)
+   case(ADIM_EM_PHYSICAL_MODEL, ADIM_PIC_PHYSICAL_MODEL)
       select case(self%numerics%div_corr_var)
       case(DIV_CORR_VAR_HYPER)
          if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
@@ -617,7 +617,7 @@ contains
    self%fd_ivar_phi         = 0_I4P
    self%fd_ivar_psi         = 0_I4P
    select case(self%physics%physical_model)
-   case(ADIM_EM_PHYSICAL_MODEL)
+   case(ADIM_EM_PHYSICAL_MODEL, ADIM_PIC_PHYSICAL_MODEL)
       self%fd_inv_mu_scale  = 1._R8P
       self%fd_inv_eps_scale = 1._R8P
       self%fd_chi_wave      = self%physics%chi
@@ -852,6 +852,8 @@ contains
                                                  domain_emin_n=self%adam%grid%domain_emin(n(face)),                  &
                                                  domain_emax_n=self%adam%grid%domain_emax(n(face)),                  &
                                                  profile_extent=profile_extent(face), profile_cells=profile_cells(face), &
+                                                 db_coupling=self%fWLayer%db_coupling, &
+                                                 bd_coupling=self%fWLayer%bd_coupling, &
                                                  x_cell_gpu=x_cell_gpu, y_cell_gpu=y_cell_gpu, z_cell_gpu=z_cell_gpu, &
                                                  dxyz_gpu=dxyz_gpu, q_gpu=q_gpu)
          enddo
@@ -1271,6 +1273,9 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,1:) !< Conservative variables.
    integer(I4P)                           :: crown                 !< Crown counter.
+   real(R8P)                              :: sm_admittance
+   sm_admittance = C0*EPS0
+   if (is_adim_model(self%physics%physical_model)) sm_admittance = 1._R8P
    if (associated(self%field_fnl%maps%local_map_bc_crown_gpu)) then
       do crown=1, self%ngc
          call set_boundary_conditions_kernel(ni                     = self%ni                                   ,&
@@ -1280,25 +1285,28 @@ contains
                                              nv                     = self%nv                                   ,&
                                              nv_c                   = self%physics%nv_c                         ,&
                                              nv_cl                  = self%physics%nv_cl                        ,&
+                                             sm_admittance          = sm_admittance                             ,&
                                              crown                  = crown                                     ,&
                                              local_map_bc_crown_gpu = self%field_fnl%maps%local_map_bc_crown_gpu,&
                                              q_gpu                  = q_gpu)
       enddo
       call enforce_silver_muller_normal_bc_fnl(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
                                                hs=self%fdv_half_stencils(1), has_rho=merge(1_I4P, 0_I4P,      &
-                                               self%physics%physical_model == PIC_PHYSICAL_MODEL),             &
+                                               is_pic_model(self%physics%physical_model)),             &
                                                var_rho=merge(self%nv, 0_I4P,                                  &
-                                               self%physics%physical_model == PIC_PHYSICAL_MODEL),             &
+                                               is_pic_model(self%physics%physical_model)),             &
                                                local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu, &
                                                dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu)
    endif
    contains
-      subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, nv_c, nv_cl, crown, local_map_bc_crown_gpu, q_gpu)
+      subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, nv_c, nv_cl, sm_admittance, crown, &
+                                                local_map_bc_crown_gpu, q_gpu)
       !< Set boundary conditions of equation, kernel device.
       integer(I4P), intent(in)    :: ni,nj,nk,ngc                      !< Grid dimensions.
       integer(I4P), intent(in)    :: nv                                !< Number of conservative variables.
       integer(I4P), intent(in)    :: nv_c                              !< Number of physical conservative variables.
       integer(I4P), intent(in)    :: nv_cl                             !< Number of cleaning variables.
+      real(R8P),    intent(in)    :: sm_admittance
       integer(I4P), intent(in)    :: crown                             !< Crown counter.
       integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
@@ -1314,9 +1322,9 @@ contains
       integer(I4P)                :: alfa_B, beta_B, gamma_B           !< Tangential/normal B components.
       real(R8P)                   :: s1                                !< Face orientation sign.
       !$acc parallel loop independent gang vector &
-      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown)
+      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown,sm_admittance)
       !$omp OMPLOOP &
-      !$omp& DEVICEPTR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown)
+      !$omp& DEVICEPTR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,nv_c,nv_cl,crown,sm_admittance)
       do c=1, size(local_map_bc_crown_gpu, dim=1)
          b = local_map_bc_crown_gpu(c, 1 ,crown)
          if (b>0) then
@@ -1397,11 +1405,11 @@ contains
                   beta_B = 5_I4P
                   gamma_B = 6_I4P
                endselect
-               q_gpu(b,i,j,k,alfa_D ) =  s1*C0*q_gpu(b,iref,jref,kref,beta_B )*EPS0
-               q_gpu(b,i,j,k,beta_D ) = -s1*C0*q_gpu(b,iref,jref,kref,alfa_B)*EPS0
+               q_gpu(b,i,j,k,alfa_D ) =  s1*sm_admittance*q_gpu(b,iref,jref,kref,beta_B)
+               q_gpu(b,i,j,k,beta_D ) = -s1*sm_admittance*q_gpu(b,iref,jref,kref,alfa_B)
                q_gpu(b,i,j,k,gamma_D) =       q_gpu(b,iref,jref,kref,gamma_D)
-               q_gpu(b,i,j,k,alfa_B ) = -s1/C0*q_gpu(b,iref,jref,kref,beta_D)/EPS0
-               q_gpu(b,i,j,k,beta_B ) =  s1/C0*q_gpu(b,iref,jref,kref,alfa_D)/EPS0
+               q_gpu(b,i,j,k,alfa_B ) = -s1*q_gpu(b,iref,jref,kref,beta_D)/sm_admittance
+               q_gpu(b,i,j,k,beta_B ) =  s1*q_gpu(b,iref,jref,kref,alfa_D)/sm_admittance
                q_gpu(b,i,j,k,gamma_B) =       q_gpu(b,iref,jref,kref,gamma_B)
                do v=nv_c-nv_cl+1, nv
                   q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
@@ -1879,7 +1887,7 @@ contains
    call self%initialize_coils
    if (.not.is_restart) then
       call self%compute_coils_current_time_zero()
-      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+      if (is_pic_model(self%physics%physical_model)) &
          call self%impose_pic_fields_time_zero(ivar=VAR_DX)
       if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0._R8P) &
          call self%impose_pic_fields_time_zero(ivar=VAR_BX)
@@ -1889,7 +1897,7 @@ contains
 
    if (.not.is_restart) then
       call self%apply_fWL_correction(q_gpu=self%q_gpu)
-      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if (is_pic_model(self%physics%physical_model)) then
          call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q,src=self%q_gpu,buf=self%buf_5D_R8P)
          call self%weight_pic_fields_time_zero()
          call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
@@ -2409,7 +2417,8 @@ contains
       real(R8P) :: qsy_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the y stencil.
       real(R8P) :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the z stencil.
 
-      if (self%physics%physical_model == EM_PHYSICAL_MODEL .or.  self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. &
+          self%physics%physical_model == PIC_PHYSICAL_MODEL) then
 		   if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
             self%numerics%constrained_transport_D .and. &
 		      .not.self%numerics%constrained_transport_B) then
@@ -2728,7 +2737,7 @@ contains
             enddo
             enddo
          endif
-      elseif (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+      elseif (is_adim_model(self%physics%physical_model)) then
          	if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
             self%numerics%constrained_transport_D .and. &
 		      .not.self%numerics%constrained_transport_B) then
@@ -3078,7 +3087,7 @@ contains
    dxyz_gpu => self%field_fnl%dxyz_gpu
 
    select case (self%physics%physical_model)
-   case (ADIM_EM_PHYSICAL_MODEL)
+   case (ADIM_EM_PHYSICAL_MODEL, ADIM_PIC_PHYSICAL_MODEL)
       inv_eps_scale = 1._R8P
       inv_mu_scale  = 1._R8P
    case default
@@ -4163,7 +4172,7 @@ contains
          endif
       endif
       chi_damp = self%physics%chi * C0
-      if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) chi_damp = self%physics%chi
+      if (is_adim_model(self%physics%physical_model)) chi_damp = self%physics%chi
       if (self%fv_add_phi_damping .and. self%fv_add_psi_damping) then
          call fv_flux_diff_phi_psi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                               nv_c=self%nv_c, blocks_number=self%blocks_number, &
@@ -5392,7 +5401,7 @@ contains
    call mpih_fnl%print_message('Initial conditions setting completed')
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       call mpih_fnl%print_message('   max div(D) at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
-   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   elseif (is_pic_model(self%physics%physical_model)) then
       ind = size(self%q(:,1,1,1,1))
       call mpih_fnl%print_message('   max div(D)-rho at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:, &
            :))))))
@@ -5427,7 +5436,7 @@ contains
 
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       call mpih_fnl%print_message('   max div(D) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
-   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   elseif (is_pic_model(self%physics%physical_model)) then
       ind = size(self%q(:,1,1,1,1))
       call mpih_fnl%print_message('   max div(D)-rho at t0 after update ghost='// &
                                   trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
@@ -5455,7 +5464,7 @@ contains
       ! self%q = self%q + self%time%dt * self%dq
    endif
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (is_pic_model(self%physics%physical_model)) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! to be implemented
       endif
@@ -6034,6 +6043,12 @@ contains
    call compute_poynting_flux_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
                                          s=self%fdv_half_stencils(1),                                                   &
                                          dxyz_gpu=self%field_fnl%dxyz_gpu,q_gpu=self%q_gpu,poynting_flux=poynting_flux)
+   if (is_adim_model(self%physics%physical_model)) then
+      energy_D = energy_D*EPS0
+      energy_B = energy_B*MU0
+      coil_power = coil_power*EPS0
+      poynting_flux = poynting_flux*MU0
+   endif
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
@@ -6779,7 +6794,7 @@ contains
    enddo
    rho_ivar = self%nv
    use_rho = 0_I4P
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) use_rho = 1_I4P
+   if (is_pic_model(self%physics%physical_model)) use_rho = 1_I4P
 
 	call compute_max_divergence_dev_kernel(ni            = self%ni                  ,&
                                           nj            = self%nj                  ,&

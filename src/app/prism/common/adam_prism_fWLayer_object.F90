@@ -14,7 +14,7 @@ use :: adam_tree_object,       only : tree_object
 use :: adam_prism_absorbing_layer_geometry, only : compute_absorbing_face_range
 ! PRISM modules
 use :: adam_prism_parameters
-use :: adam_prism_physics_object, only : prism_physics_object
+use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
@@ -31,6 +31,8 @@ type :: prism_fWLayer_object
    !< PRISM fWLayer class definition.
    logical                   :: layer(6) = .false.                       !< Layer flags for each side (-x, +x, -y, +y, -z, +z).
    real(R8P)                 :: width    = 0._R8P                        !< Requested physical layer width.
+   real(R8P)                 :: db_coupling = EPS0_SQ/MU0_SQ
+   real(R8P)                 :: bd_coupling = MU0_SQ/EPS0_SQ
    integer(I4P), allocatable :: C(:,:)                                   !< Derived layer width in cells for each block/face [nb,6].
    integer(I4P), allocatable :: ni_fWL(:,:,:), nj_fWL(:,:,:), nk_fWL(:,:,:) !< FWL bounds for each block/face [2,nb,6].
    real(R8P)                 :: profile_extent(6) = 0._R8P !< Face-wise discrete profile extent measured from the boundary-cell
@@ -89,6 +91,13 @@ contains
 
    print '(A)', mpih%myrankstr//'prism_fWLayer_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
+   self%db_coupling = EPS0_SQ/MU0_SQ
+   self%bd_coupling = MU0_SQ/EPS0_SQ
+   if (is_adim_model(physics%physical_model)) then
+      self%width = self%width/physics%L0
+      self%db_coupling = 1._R8P
+      self%bd_coupling = 1._R8P
+   endif
    if (allocated(self%C     )) deallocate(self%C)
    if (allocated(self%ni_fWL)) deallocate(self%ni_fWL)
    if (allocated(self%nj_fWL)) deallocate(self%nj_fWL)
@@ -278,7 +287,7 @@ contains
 
    subroutine apply_fWL_correction_fun(blocks_number, ngc, ni, nj, nk, face, profile_extent, profile_cells, ni_fWL, nj_fWL, &
                                        nk_fWL, n, s2, alfa_D, beta_D, alfa_B, beta_B, domain_emin, domain_emax, emin, emax, & 
-                                       dxyz, q)
+                                       dxyz, db_coupling, bd_coupling, q)
    !< Applay FWL correction, direction agnostic.
    integer(I4P), intent(in)    :: blocks_number                     !< Blocks number.
    integer(I4P), intent(in)    :: ngc                               !< Number of ghost cells.
@@ -298,6 +307,7 @@ contains
    real(R8P),    intent(in)    :: emin(1:,1:)                       !< Block minimum coordinates [3,nb].
    real(R8P),    intent(in)    :: emax(1:,1:)                       !< Block maximum coordinates [3,nb].
    real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Block mesh spacing [3,nb].
+   real(R8P),    intent(in)    :: db_coupling, bd_coupling
    real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Field variables.
    real(R8P)                   :: f_value                           !< Local fWLayer factor.
    real(R8P)                   :: fm1, fp1                          !< fWLayer function values in -+ cell.
@@ -333,10 +343,10 @@ contains
                D_beta = q(beta_D,i,j,k,b)
                B_alfa = q(alfa_B,i,j,k,b)
                B_beta = q(beta_B,i,j,k,b)
-               q(alfa_D,i,j,k,b) = MU0_SQ_I2  * ( s2*fm1*B_beta*EPS0_SQ +    fp1*D_alfa*MU0_SQ)
-               q(beta_D,i,j,k,b) = MU0_SQ_I2  * (-s2*fm1*B_alfa*EPS0_SQ +    fp1*D_beta*MU0_SQ)
-               q(alfa_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*B_alfa*EPS0_SQ - s2*fm1*D_beta*MU0_SQ)
-               q(beta_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*B_beta*EPS0_SQ + s2*fm1*D_alfa*MU0_SQ)
+               q(alfa_D,i,j,k,b) = 0.5_R8P*(fp1*D_alfa + s2*fm1*B_beta*db_coupling)
+               q(beta_D,i,j,k,b) = 0.5_R8P*(fp1*D_beta - s2*fm1*B_alfa*db_coupling)
+               q(alfa_B,i,j,k,b) = 0.5_R8P*(fp1*B_alfa - s2*fm1*D_beta*bd_coupling)
+               q(beta_B,i,j,k,b) = 0.5_R8P*(fp1*B_beta + s2*fm1*D_alfa*bd_coupling)
             enddo
          enddo
       enddo

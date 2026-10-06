@@ -22,6 +22,7 @@ type :: prism_fnl_rk_pic_object
    real(R8P),    pointer :: q_pic_rk_gpu(:,:,:) => null() !< RK stages [particle, variable, stage].
    integer(I4P)          :: particle_number = 0_I4P       !< Total number of particles.
    integer(I4P)          :: nrk             = 0_I4P       !< Number of stages.
+   real(R8P)             :: inv_eps_scale   = 1._R8P/EPS0 !< Convert D to E in the particle force.
 contains
    procedure, pass(self) :: destroy
    procedure, pass(self) :: initialize
@@ -62,6 +63,7 @@ contains
    call self%destroy()
    self%particle_number = pic%particle_number
    self%nrk             = rk_pic%nrk
+   self%inv_eps_scale   = rk_pic%inv_eps_scale
 
    if (self%particle_number == 0 .or. self%nrk == 0) return
 
@@ -129,10 +131,12 @@ contains
    real(R8P)                                      :: bx, by, bz            !< Magnetic field.
    real(R8P)                                      :: fx, fy, fz            !< Lorentz force.
    real(R8P)                                      :: charge, mass          !< Particle charge and mass.
+   real(R8P)                                      :: inv_eps_scale
    real(R8P), pointer                             :: q_pic_rk_gpu(:,:,:)   !< PIC stages on device.
 
    if (.not.associated(self%q_pic_rk_gpu)) return
    q_pic_rk_gpu => self%q_pic_rk_gpu
+   inv_eps_scale = self%inv_eps_scale
 
    !$acc parallel loop independent DEVICEVAR(q_pic_rk_gpu, pic_fields_gpu)&
    !$acc& private(vx, vy, vz, ex, ey, ez, bx, by, bz, fx, fy, fz, charge, mass)
@@ -145,9 +149,9 @@ contains
       charge = q_pic_rk_gpu(n,7,s)
       mass = q_pic_rk_gpu(n,8,s)
 
-      ex = pic_fields_gpu(n,1) / EPS0
-      ey = pic_fields_gpu(n,2) / EPS0
-      ez = pic_fields_gpu(n,3) / EPS0
+      ex = pic_fields_gpu(n,1) * inv_eps_scale
+      ey = pic_fields_gpu(n,2) * inv_eps_scale
+      ez = pic_fields_gpu(n,3) * inv_eps_scale
       bx = pic_fields_gpu(n,4)
       by = pic_fields_gpu(n,5)
       bz = pic_fields_gpu(n,6)

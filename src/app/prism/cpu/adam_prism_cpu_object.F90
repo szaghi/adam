@@ -242,7 +242,7 @@ contains
          case(RK_YOSHIDA)                      ; self%integrate => integrate_rk_yoshida
          endselect
       endselect
-   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then !Metterei qualche error stop sulle combinazioni non valide
+   elseif (is_pic_model(self%physics%physical_model)) then !Metterei qualche error stop sulle combinazioni non valide
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
          select case(self%pic%scheme_time)
@@ -279,7 +279,7 @@ contains
    self%fv_ivar_phi        = 0_I4P
    self%fv_ivar_psi        = 0_I4P
    select case(self%physics%physical_model)
-   case(ADIM_EM_PHYSICAL_MODEL)
+   case(ADIM_EM_PHYSICAL_MODEL, ADIM_PIC_PHYSICAL_MODEL)
       select case(self%numerics%div_corr_var)
       case(DIV_CORR_VAR_HYPER)
          if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
@@ -553,6 +553,8 @@ contains
                                                         emin          = emin,                &
                                                         emax          = emax,                &
                                                         dxyz          = dxyz,                &
+                                                        db_coupling   = self%fWLayer%db_coupling, &
+                                                        bd_coupling   = self%fWLayer%bd_coupling, &
                                                         q             = q)
       enddo
    endif
@@ -577,9 +579,12 @@ contains
    integer(I4P)                           :: alfa_D, beta_D, gamma_D      !< Indici alfa beta gamma come in Barbas.
    integer(I4P)                           :: alfa_B, beta_B, gamma_B      !< Indici alfa beta gamma come in Barbas.
    real(R8P)                              :: s1                           !< Coefficiente pari a +-1.
+   real(R8P)                              :: sm_admittance
    real(R8P)                              :: ngc_r, crown_r               !< Numero di gc totale, reale
    real(R8P)                              :: ref(1:self%nv)               !< Vettore di stato di riferimento per assegnazione gc.
 
+   sm_admittance = C0*EPS0
+   if (is_adim_model(self%physics%physical_model)) sm_admittance = 1._R8P
    associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                              &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:),     &
              dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,      &
@@ -669,11 +674,11 @@ contains
                      beta_B = 5_I4P
                      gamma_B = 6_I4P
                   endselect
-                  q(alfa_D, i,j,k,b) =  s1*C0*ref(beta_B)*EPS0
-                  q(beta_D, i,j,k,b) = -s1*C0*ref(alfa_B)*EPS0
+                  q(alfa_D, i,j,k,b) =  s1*sm_admittance*ref(beta_B)
+                  q(beta_D, i,j,k,b) = -s1*sm_admittance*ref(alfa_B)
                   q(gamma_D,i,j,k,b) = ref(gamma_D)
-                  q(alfa_B, i,j,k,b) = -s1/C0*ref(beta_D)/EPS0
-                  q(beta_B, i,j,k,b) =  s1/C0*ref(alfa_D)/EPS0
+                  q(alfa_B, i,j,k,b) = -s1*ref(beta_D)/sm_admittance
+                  q(beta_B, i,j,k,b) =  s1*ref(alfa_D)/sm_admittance
                   q(gamma_B,i,j,k,b) = ref(gamma_B)
 
                   do v=(nv_c-nv_cl+1), nv
@@ -854,7 +859,7 @@ contains
    if (hs <= 0) return
    if (self%ngc < hs) call mpih%error_stop(msg='Silver_Muller requires ngc >= fdv_half_stencils(1)')
 
-   has_rho = self%physics%physical_model == PIC_PHYSICAL_MODEL
+   has_rho = is_pic_model(self%physics%physical_model)
    if (has_rho) then
       var_rho = self%nv
    else
@@ -1303,7 +1308,7 @@ contains
    if (.not.is_restart) then
       call self%compute_coils_current_time_zero()
 
-      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+      if (is_pic_model(self%physics%physical_model)) &
          call self%impose_pic_fields_time_zero(ivar=VAR_DX)
       if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0.0_R8P) &
          call self%impose_pic_fields_time_zero(ivar=VAR_BX)
@@ -1322,7 +1327,7 @@ contains
       call mpih%print_message('Restart state ancillary initialization completed')
       if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
          call mpih%print_message('   max div(D) outside absorbing layers on restart state='//trim(str(max_div_D)))
-      elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      elseif (is_pic_model(self%physics%physical_model)) then
          call mpih%print_message('   max div(D)-rho outside absorbing layers on restart state='//trim(str(max_div_D)))
       endif
       call mpih%print_message('   max div(B) outside absorbing layers on restart state='//trim(str(max_div_B)))
@@ -1330,7 +1335,7 @@ contains
       call mpih%print_message('Initial conditions setting completed')
       if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
          call mpih%print_message('   max div(D) outside absorbing layers at t0='//trim(str(max_div_D)))
-      elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      elseif (is_pic_model(self%physics%physical_model)) then
          call mpih%print_message('   max div(D)-rho outside absorbing layers at t0='//trim(str(max_div_D)))
       endif
       call mpih%print_message('   max div(B) outside absorbing layers at t0='//trim(str(max_div_B)))
@@ -1450,7 +1455,7 @@ contains
                                                         max_div_B=max_div_B, max_div_J=max_div_J)
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       call mpih%print_message('   max div(D) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_D)))
-   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   elseif (is_pic_model(self%physics%physical_model)) then
       call mpih%print_message('   max div(D)-rho outside absorbing layers at t0 after update ghost='//trim(str(max_div_D)))
    endif
    call mpih%print_message('   max div(B) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_B)))
@@ -1466,7 +1471,7 @@ contains
    call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
    call self%io%open_file_residuals(nv=self%nv)
 
-   if (.not.self%io%restart .and. self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (.not.self%io%restart .and. is_pic_model(self%physics%physical_model)) then
       if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! first time integration done apart with explicit euler scheme to iniziale leapfrog
          call self%leapfrog_pic%assign_step(grid=self%adam%grid, s=1, q_pic=self%q_pic)
@@ -2026,6 +2031,12 @@ contains
       coil_power = 0.0_R8P
    endif
    call compute_Poynting_flux(Poynting_flux=Poynting_flux)
+   if (is_adim_model(self%physics%physical_model)) then
+      energy_D = energy_D*EPS0
+      energy_B = energy_B*MU0
+      coil_power = coil_power*EPS0
+      poynting_flux = poynting_flux*MU0
+   endif
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
@@ -2550,7 +2561,7 @@ contains
                                                 face_last=self%pml%nk_pml(2,b,PML_FACE_Z_P), is_minus=.false., hs=hs)
       endif
       if (lo_i > hi_i .or. lo_j > hi_j .or. lo_k > hi_k) cycle
-      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if (is_pic_model(self%physics%physical_model)) then
          ! In PIC runs rho is appended as the last state variable, so the most useful
          ! electric-field constraint monitor is max|div(D) - rho|.
          max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b) - &
@@ -2690,7 +2701,7 @@ contains
              constrained_transport_B=>self%numerics%constrained_transport_B,                                          &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
    if (blocks_number > 0) then
-      if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then !Adimensional equations
+      if (is_adim_model(self%physics%physical_model)) then !Adimensional equations
          if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
             .not.constrained_transport_B) then
             ! RHS:
@@ -3222,7 +3233,7 @@ contains
    real(R8P),               intent(out) :: inv_mu_scale
 
    select case (self%physics%physical_model)
-   case (ADIM_EM_PHYSICAL_MODEL)
+   case (ADIM_EM_PHYSICAL_MODEL, ADIM_PIC_PHYSICAL_MODEL)
       inv_eps_scale = 1._R8P
       inv_mu_scale  = 1._R8P
    case default
@@ -3774,7 +3785,7 @@ contains
          dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q(var_Jz,i,j,k,b)
          if (self%fv_add_phi_damping) then
             if (c_r > 0._R8P) then
-               if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+               if (is_adim_model(self%physics%physical_model)) then
                   damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
                else
                   damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
@@ -3785,7 +3796,7 @@ contains
          endif
          if (self%fv_add_psi_damping) then
             if (c_r > 0._R8P) then
-               if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+               if (is_adim_model(self%physics%physical_model)) then
                   damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
                else
                   damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))

@@ -18,7 +18,8 @@ public :: apply_fwl_correction_dev_kernel
 contains
    subroutine apply_fwl_correction_dev_kernel(block_idx, ngc, ni, nj, nk, ni1, ni2, nj1, nj2, nk1, nk2, face, n, s2,  &
                                               alfa_D, beta_D, alfa_B, beta_B, domain_emin_n, domain_emax_n,           &
-                                              profile_extent, profile_cells, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, q_gpu)
+                                              profile_extent, profile_cells, db_coupling, bd_coupling, &
+                                              x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, q_gpu)
    !< Applay FWL correction, direction agnostic, device kernel.
    integer(I4P), intent(in)    :: block_idx                         !< Block index.
    integer(I4P), intent(in)    :: ngc                               !< Number of ghost cells.
@@ -33,6 +34,7 @@ contains
    real(R8P),    intent(in)    :: domain_emax_n                     !< Domain maximum coordinate along the layer normal.
    real(R8P),    intent(in)    :: profile_extent                    !< Discrete face-wise profile extent.
    integer(I4P), intent(in)    :: profile_cells                     !< Effective face-wise layer thickness in cells.
+   real(R8P),    intent(in)    :: db_coupling, bd_coupling
    real(R8P),    intent(in)    :: x_cell_gpu(1:,1-ngc:)             !< Cells x coordinates on GPU.
    real(R8P),    intent(in)    :: y_cell_gpu(1:,1-ngc:)             !< Cells y coordinates on GPU.
    real(R8P),    intent(in)    :: z_cell_gpu(1:,1-ngc:)             !< Cells z coordinates on GPU.
@@ -49,12 +51,14 @@ contains
    !$acc& DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) &
    !$acc& private(center_distance,f_value,fm1,fp1,D_alfa,D_beta,B_alfa,B_beta) &
    !$acc& firstprivate(block_idx,ni,nj,nk,ni1,ni2,nj1,nj2,nk1,nk2,face,n,s2,alfa_D,&
-   !$acc&              beta_D,alfa_B,beta_B,domain_emin_n,domain_emax_n,profile_extent,profile_cells)
+   !$acc&              beta_D,alfa_B,beta_B,domain_emin_n,domain_emax_n,profile_extent,profile_cells, &
+   !$acc&              db_coupling,bd_coupling)
    !$omp OMPLOOP collapse(3) &
    !$omp& DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu) &
    !$omp& private(center_distance,f_value,fm1,fp1,D_alfa,D_beta,B_alfa,B_beta) &
    !$omp& firstprivate(block_idx,ni,nj,nk,ni1,ni2,nj1,nj2,nk1,nk2,face,n,s2,alfa_D,&
-   !$omp& beta_D,alfa_B,beta_B,domain_emin_n,domain_emax_n,profile_extent,profile_cells)
+   !$omp& beta_D,alfa_B,beta_B,domain_emin_n,domain_emax_n,profile_extent,profile_cells, &
+   !$omp& db_coupling,bd_coupling)
    do k=nk1, nk2
    do j=nj1, nj2
    do i=ni1, ni2
@@ -79,10 +83,10 @@ contains
       D_beta = q_gpu(block_idx,i,j,k,beta_D)
       B_alfa = q_gpu(block_idx,i,j,k,alfa_B)
       B_beta = q_gpu(block_idx,i,j,k,beta_B)
-      q_gpu(block_idx,i,j,k,alfa_D) = MU0_SQ_I2  * ( s2*fm1*B_beta*EPS0_SQ +    fp1*D_alfa*MU0_SQ)
-      q_gpu(block_idx,i,j,k,beta_D) = MU0_SQ_I2  * (-s2*fm1*B_alfa*EPS0_SQ +    fp1*D_beta*MU0_SQ)
-      q_gpu(block_idx,i,j,k,alfa_B) = EPS0_SQ_I2 * (    fp1*B_alfa*EPS0_SQ - s2*fm1*D_beta*MU0_SQ)
-      q_gpu(block_idx,i,j,k,beta_B) = EPS0_SQ_I2 * (    fp1*B_beta*EPS0_SQ + s2*fm1*D_alfa*MU0_SQ)
+      q_gpu(block_idx,i,j,k,alfa_D) = 0.5_R8P*(fp1*D_alfa + s2*fm1*B_beta*db_coupling)
+      q_gpu(block_idx,i,j,k,beta_D) = 0.5_R8P*(fp1*D_beta - s2*fm1*B_alfa*db_coupling)
+      q_gpu(block_idx,i,j,k,alfa_B) = 0.5_R8P*(fp1*B_alfa - s2*fm1*D_beta*bd_coupling)
+      q_gpu(block_idx,i,j,k,beta_B) = 0.5_R8P*(fp1*B_beta + s2*fm1*D_alfa*bd_coupling)
    enddo
    enddo
    enddo

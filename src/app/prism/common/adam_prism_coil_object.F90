@@ -7,7 +7,7 @@ use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
-use :: adam_prism_physics_object, only : prism_physics_object, ADIM_EM_PHYSICAL_MODEL
+use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 use :: adam_prism_parameters
 ! third party modules
 use :: finer
@@ -448,7 +448,7 @@ contains
       endselect
    enddo
 
-   if (physics%physical_model == ADIM_EM_PHYSICAL_MODEL) &
+   if (is_adim_model(physics%physical_model)) &
       call self%adimensionalize_coils_parameters(physics=physics)
    
    contains

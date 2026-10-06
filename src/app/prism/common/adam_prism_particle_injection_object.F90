@@ -7,6 +7,7 @@ use :: adam_field_object, only : field_object
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
+use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_pic_object, only: prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM, &
@@ -262,15 +263,21 @@ contains
 	endif
    endfunction description
 
-   subroutine initialize(self, file_parameters, pic)
+   subroutine initialize(self, file_parameters, pic, physics)
    !< Initialize particle_injection.
    class(prism_particle_injection_object), intent(inout) :: self            !< External fields.
    type(file_ini),          					 intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 	type(prism_pic_object), 					 intent(in)		:: pic				 !< Pic object
+   type(prism_physics_object), intent(in) :: physics
 
    print '(A)', mpih%myrankstr//'prism_particle_injection_object%initialize start'
 
    call self%load_from_file(file_parameters=file_parameters, pic=pic)
+   if (is_adim_model(physics%physical_model) .and. pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      self%x_position = self%x_position/physics%L0
+      self%y_position = self%y_position/physics%L0
+      self%z_position = self%z_position/physics%L0
+   endif
    print '(A)', self%description(pic = pic)
 
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then

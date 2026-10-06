@@ -9,6 +9,7 @@ use :: adam_grid_object,  only : grid_object
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_parameters
+use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
@@ -213,12 +214,13 @@ contains
    desc = desc//NL//mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
    endfunction description
 
-   subroutine initialize(self, field, grid, file_parameters)
+   subroutine initialize(self, field, grid, file_parameters, physics)
    !< Initialize PIC.
    class(prism_pic_object), intent(inout) :: self            !< Pic object.
    type(field_object),      intent(in)    :: field           !< Field (sibling realm component, threaded in).
    type(grid_object),       intent(in)    :: grid            !< Grid (sibling realm component, threaded in).
    type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   type(prism_physics_object), intent(in) :: physics
    real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
                                                              !< present at t0
 	character(len=:),        allocatable   :: desc
@@ -227,6 +229,17 @@ contains
    print '(A)', mpih%myrankstr//'prism_pic_object%initialize start'
 
    call self%load_from_file(file_parameters=file_parameters)
+   if (is_adim_model(physics%physical_model)) then
+      if (self%problem_type == PLASMA_TYPE_PROBLEM) then
+         self%plasma_density = self%plasma_density*physics%L0**3
+         if (self%plasma_domain == UNIFORM_CILINDER) then
+            self%cilinder_radius = self%cilinder_radius/physics%L0
+            self%cilinder_length = self%cilinder_length/physics%L0
+            self%cilinder_center = self%cilinder_center/physics%L0
+         endif
+      endif
+      if (self%sigma > 0._R8P) self%sigma = self%sigma/physics%L0
+   endif
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, &
                emin=>grid%domain_emin, emax=>grid%domain_emax)
 

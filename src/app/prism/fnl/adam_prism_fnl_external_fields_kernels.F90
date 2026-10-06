@@ -109,7 +109,7 @@ contains
                                            ef_gamma        = ef_gamma            ,&
                                            omega           = omega               ,&
                                            RMF_B_amplitude = RMF_B_amplitude     ,&
-                                           displacement_scale = EPS0,&
+                                           displacement_scale = external_fields%displacement_from_rmf,&
                                            x_cell_gpu      = field_gpu%x_cell_gpu,&
                                            y_cell_gpu      = field_gpu%y_cell_gpu,&
                                            z_cell_gpu      = field_gpu%z_cell_gpu,&
@@ -203,7 +203,7 @@ contains
                                            ef_gamma        = ef_gamma            ,&
                                            omega           = omega               ,&
                                            RMF_B_amplitude = RMF_B_amplitude     ,&
-                                           displacement_scale = EPS0,&
+                                           displacement_scale = external_fields%displacement_from_rmf,&
                                            x_cell_gpu      = field_gpu%x_cell_gpu,&
                                            y_cell_gpu      = field_gpu%y_cell_gpu,&
                                            z_cell_gpu      = field_gpu%z_cell_gpu,&
@@ -409,7 +409,7 @@ contains
       integer(I4P)             :: i,j,k,axis,m,idx(3),sample(3)
       real(R8P)                :: sign_D(3),sign_B(3),value(6,2),coord(3),x,y,r,theta,phase,omega,br,bt,c,s
       real(R8P)                :: d_amp,b_amp
-      real(R8P)                :: rmf_amp
+      real(R8P)                :: rmf_amp, displacement_scale
       real(R8P), pointer       :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:)
       integer(I4P)             :: alpha,beta,gamma,uniform_axis,ni,nj,nk,ngc,naxis(3)
       x_cell_gpu => field_gpu%x_cell_gpu
@@ -425,13 +425,16 @@ contains
       d_amp = external_fields%Uniform_D_amplitude
       b_amp = external_fields%Uniform_B_amplitude
       rmf_amp = external_fields%RMF_B_amplitude
+      displacement_scale = external_fields%displacement_from_rmf
       !$acc parallel loop independent gang vector collapse(3) &
       !$acc& DEVICEVAR(q_gpu,x_cell_gpu,y_cell_gpu,z_cell_gpu) &
-      !$acc& firstprivate(b,faces,field_kind,factor,time_stage,alpha,beta,gamma,uniform_axis,omega,d_amp,b_amp,rmf_amp,naxis) &
+      !$acc& firstprivate(b,faces,field_kind,factor,time_stage,alpha,beta,gamma,uniform_axis,omega,d_amp,b_amp,rmf_amp,naxis, &
+      !$acc&              displacement_scale) &
       !$acc& private(idx,sample,sign_D,sign_B,value,coord,x,y,r,theta,phase,br,bt,c,s,axis,m)
       !$omp OMPLOOP collapse(3) &
       !$omp& DEVICEPTR(q_gpu,x_cell_gpu,y_cell_gpu,z_cell_gpu) &
-      !$omp& firstprivate(b,faces,field_kind,factor,time_stage,alpha,beta,gamma,uniform_axis,omega,d_amp,b_amp,rmf_amp,naxis) &
+      !$omp& firstprivate(b,faces,field_kind,factor,time_stage,alpha,beta,gamma,uniform_axis,omega,d_amp,b_amp,rmf_amp,naxis, &
+      !$omp&              displacement_scale) &
       !$omp& private(idx,sample,sign_D,sign_B,value,coord,x,y,r,theta,phase,br,bt,c,s,axis,m)
       do k=1-ngc,nk+ngc
       do j=1-ngc,nj+ngc
@@ -469,7 +472,7 @@ contains
                c=cos(theta); s=sin(theta)
                value(alpha+3,m)=br*c-bt*s
                value(beta+3,m)=br*s+bt*c
-               value(gamma,m)=r*omega*rmf_amp*cos(phase)*EPS0
+               value(gamma,m)=r*omega*rmf_amp*cos(phase)*displacement_scale
             enddo
          endif
          do m=1,3

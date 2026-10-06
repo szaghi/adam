@@ -9,6 +9,7 @@ use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_pic_object
+use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 ! third party modules
 use :: finer
 use :: penf
@@ -22,6 +23,7 @@ type :: prism_rk_pic_object
    !< RK class definition.
    character(:), pointer     :: scheme    !< RK scheme.
    integer(I4P)              :: nrk=3_I4P !< Runge-Kutta stages number.
+   real(R8P)                 :: inv_eps_scale = 1._R8P/EPS0 !< Convert D to E in the particle force.
    ! classic, Butcher schemes
    real(R8P), allocatable    :: ark(:)    !< Runge-Kutta low storage alpha coefficients.
    real(R8P), allocatable    :: brk(:)    !< Runge-Kutta low storage beta coefficients.
@@ -82,7 +84,7 @@ contains
    desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, rk, pic)
+   subroutine initialize(self, file_parameters, rk, pic, physics)
    !< Initialize class.
    class(prism_rk_pic_object),  intent(inout)        :: self            !< RK object.
    type(file_ini),              intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
@@ -90,10 +92,13 @@ contains
    !type(field_object),          intent(in), target   :: field           !< The field.
    type(rk_object),             intent(in), target   :: rk              !< RK scheme
    type(prism_pic_object),  	  intent(in), target   :: pic         		!< Physics object
+   type(prism_physics_object), intent(in) :: physics
    real(R8P)                                         :: w0, w1          !< Sympletic RK coefficients.
 
    call mpih%print_message('rk_pic_object%initialize start')
    call associate_adam_data(rk=rk, pic=pic)
+   self%inv_eps_scale = 1._R8P/EPS0
+   if (is_adim_model(physics%physical_model)) self%inv_eps_scale = 1._R8P
    select case(self%scheme)
    case(RK_1) ! 1 stage, 1st order, Euler
       self%nrk = 1
@@ -323,7 +328,7 @@ contains
          v_p = [q_pic_rk(4,p,s), q_pic_rk(5,p,s), q_pic_rk(6,p,s)]
          q_p = q_pic_rk(7,p,s)
          m_p = q_pic_rk(8,p,s)
-         E_p = pic_fields(1:3,p)/EPS0
+         E_p = pic_fields(1:3,p)*self%inv_eps_scale
          B_p = pic_fields(4:6,p)
          F_l = crossproduct(a=v_p, b=B_p)
          F_p(1) = q_p*(E_p(1) + F_l(1))

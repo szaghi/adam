@@ -6,6 +6,7 @@ module adam_prism_external_fields_object
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_object,  only : grid_object
 use :: adam_field_object, only : field_object
+use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 use :: adam_prism_bc_object, only : BC_PEC
 ! PRISM modules
 use :: adam_prism_parameters
@@ -46,6 +47,7 @@ type :: prism_external_fields_object
 	character(len=99) :: RMF_rotation_axis !< Rotating magnetic field rotation axis (X, Y, Z).
    real(R8P)         :: Uniform_D_amplitude = 0._R8P !< Uniform electric displacement field amplitude.
    real(R8P)         :: Uniform_B_amplitude = 0._R8P !< Uniform magnetic field amplitude.
+   real(R8P)         :: displacement_from_rmf = EPS0 !< D scale for the RMF.
    character(len=99) :: Uniform_direction   = 'x'    !< Uniform field direction (X, Y, Z).
 	integer(I4P)      :: alpha             !< RMF rotation axis coordinate 1
 	integer(I4P)      :: beta              !< RMF rotation axis coordinate 2
@@ -134,16 +136,25 @@ contains
    endselect
    endfunction description
 
-   subroutine initialize(self, file_parameters, field, grid)
+   subroutine initialize(self, file_parameters, field, grid, physics)
    !< Initialize external fields.
    class(prism_external_fields_object), intent(inout) :: self            !< External fields.
    type(file_ini),                      intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(field_object),                  intent(in)    :: field
    type(grid_object),                   intent(in)    :: grid
+   type(prism_physics_object),           intent(in)    :: physics
    integer(I4P)                                      :: b
    logical                                           :: faces(6)
    print '(A)', mpih%myrankstr//'prism_external_fields_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
+   self%displacement_from_rmf = EPS0
+   if (is_adim_model(physics%physical_model)) then
+      self%RMF_frequency = self%RMF_frequency*physics%T0
+      self%RMF_B_amplitude = self%RMF_B_amplitude/physics%B0
+      self%Uniform_D_amplitude = self%Uniform_D_amplitude/physics%D0
+      self%Uniform_B_amplitude = self%Uniform_B_amplitude/physics%B0
+      self%displacement_from_rmf = 1._R8P
+   endif
    if (allocated(self%pec_faces)) deallocate(self%pec_faces)
    allocate(self%pec_faces(6,field%blocks_number))
    do b=1, field%blocks_number
@@ -410,7 +421,7 @@ contains
                   q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) + sign_B(alpha)*(B_r*c - B_theta*s)
                   q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) + sign_B(beta )*(B_r*s + B_theta*c)
                   q(ef_gamma,i,j,k,b) = q(ef_gamma,i,j,k,b) + &
-                                         sign_D(ef_gamma)*r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
+                                         sign_D(ef_gamma)*r*omega*self%RMF_B_amplitude*cos(phase)*self%displacement_from_rmf
                enddo
             enddo
          enddo
@@ -509,7 +520,7 @@ contains
                   q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) - sign_B(alpha)*(B_r*c - B_theta*s)
                   q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) - sign_B(beta )*(B_r*s + B_theta*c)
                   q(ef_gamma,i,j,k,b) = q(ef_gamma,i,j,k,b) - &
-                                         sign_D(ef_gamma)*r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
+                                         sign_D(ef_gamma)*r*omega*self%RMF_B_amplitude*cos(phase)*self%displacement_from_rmf
                enddo
             enddo
          enddo

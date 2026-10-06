@@ -4,6 +4,7 @@ module adam_prism_time_object
 
 ! ADAM singleton objects
 use :: adam_mpih_global,  only : mpih
+use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 ! third party modules
 use :: finer
 use :: penf
@@ -44,13 +45,15 @@ contains
    desc = desc//mpih%myrankstr//'  CFL:      '//trim(str(self%CFL     ))
    endfunction description
 
-   subroutine initialize(self, file_parameters)
+   subroutine initialize(self, file_parameters, physics)
    !< Initialize time handler.
    class(prism_time_object), intent(inout) :: self            !< Time handler.
    type(file_ini),           intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   type(prism_physics_object), intent(in) :: physics
 
    print '(A)', mpih%myrankstr//'prism_time_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
+   if (is_adim_model(physics%physical_model)) self%time_max = self%time_max/physics%T0
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'prism_time_object%initialize finish'
    endsubroutine initialize

@@ -278,7 +278,7 @@ contains
    allocate(self%div_name( self%nv))
    allocate(self%curl_name(self%nv))
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (is_pic_model(self%physics%physical_model)) then
       ! allocate(q_pic_name(:))
       call allocate_variable(var=self%q_pic,                          &
                              ulb=reshape([1,8,                        &
@@ -370,7 +370,7 @@ contains
       call self%compute_fields_number(file_parameters=file_parameters, fields_number=fields_number_)
    endif
    if (verbose_) call mpih%print_message('prism_common_object%initialize fields_number: '//trim(str(fields_number_)))
-   if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+   if (is_adim_model(self%physics%physical_model)) then
       call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
                                        fields_number=fields_number_, verbose=verbose_, L0=self%physics%L0)
    else
@@ -379,25 +379,27 @@ contains
    endif
    call self%bc%initialize(file_parameters=file_parameters)
    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
-      call self%pic%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
-      call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic)
-   call self%time%initialize(file_parameters=file_parameters)
+   if (is_pic_model(self%physics%physical_model)) &
+      call self%pic%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
+                               physics=self%physics)
+   if (is_pic_model(self%physics%physical_model)) &
+      call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic, physics=self%physics)
+   call self%time%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%ic%initialize(file_parameters=file_parameters)
    call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, physics=self%physics, file_parameters=file_parameters)
-   call self%external_fields%initialize(file_parameters=file_parameters, field=self%adam%field, grid=self%adam%grid)
+   call self%external_fields%initialize(file_parameters=file_parameters, field=self%adam%field, &
+                                        grid=self%adam%grid, physics=self%physics)
    call self%grms%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, verbose=verbose_)
    call self%magnetic_field_at_center_domain%initialize(file_parameters=file_parameters, &
                                                         output_basename=self%io%output_basename, verbose=verbose_)
    !if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
    !   call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
    !                              rk=self%rk, physics=self%physics)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   if (is_pic_model(self%physics%physical_model)) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-         call self%rk_pic%initialize(file_parameters=file_parameters, rk=self%rk, pic=self%pic)
+         call self%rk_pic%initialize(file_parameters=file_parameters, rk=self%rk, pic=self%pic, physics=self%physics)
    endif
    call check_ngc_number
    call self%allocate_common
@@ -408,7 +410,7 @@ contains
    call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, &
                   tree=self%adam%tree, file_parameters=file_parameters, physics=self%physics)
    call self%pml%initialize(field=self%adam%field, grid=self%adam%grid, tree=self%adam%tree, &
-                            file_parameters=file_parameters)
+                            file_parameters=file_parameters, physics=self%physics)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize(rk=self%rk, pml=self%pml)
    call io_initialize
    endassociate
@@ -456,7 +458,7 @@ contains
       logical                    :: add_rho   !< Flag to add rho for PIC.
       integer(I4P)               :: v         !< Counter.
 
-      add_rho = self%physics%physical_model == PIC_PHYSICAL_MODEL
+      add_rho = is_pic_model(self%physics%physical_model)
       associate(add_phi=>self%numerics%constrained_transport_D, &
                 add_psi=>self%numerics%constrained_transport_B)
                    q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ']
@@ -505,10 +507,15 @@ contains
    !< Initialize PIC particles and deposit host-side charge/current sources at t=0.
    class(prism_common_object), intent(inout) :: self !< The equation.
 
-   if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
+   if (.not. is_pic_model(self%physics%physical_model)) return
 
    call self%particle_injection%set_particle_initial_injection(field=self%adam%field, grid=self%adam%grid, &
                                                                pic=self%pic, q_pic=self%q_pic)
+   if (is_adim_model(self%physics%physical_model)) then
+      self%q_pic(4:6,:) = self%q_pic(4:6,:)/C0
+      self%q_pic(7,:) = self%q_pic(7,:)/self%physics%Q0
+      self%q_pic(8,:) = self%q_pic(8,:)/self%physics%M0
+   endif
    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
    call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list, R8P), &
                                     np=self%pic%particle_number)
@@ -581,7 +588,7 @@ contains
    class(prism_common_object), intent(inout) :: self !< The equation.
    real(R8P), allocatable :: q_view(:,:,:,:,:)
 
-   if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
+   if (.not. is_pic_model(self%physics%physical_model)) return
    if (self%external_fields%ef_type /= EF_TYPE_NONE) then
       allocate(q_view, mold=self%q)
       q_view = self%q
@@ -630,7 +637,7 @@ contains
    real(R8P)                              :: max_weight_pair_diff
    real(R8P)                              :: cutoff_limit
 
-   if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
+   if (.not. is_pic_model(self%physics%physical_model)) return
    if (self%pic%problem_type /= SINGLE_PARTICLE_TYPE_PROBLEM) return
    if (self%pic%particle_number < 1_I4P) return
 
@@ -915,7 +922,7 @@ contains
    integer(I4P)                              :: history_slots         !< Stored leapfrog history depth.
    logical                                   :: file_exist            !< File-existence flag.
 
-   if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
+   if (.not. is_pic_model(self%physics%physical_model)) return
 
    filename = trim(adjustl(self%io%restart_basename))//'-proc'//trim(strz(mpih%myrank,6))//'.pbd'
    inquire(file=filename, exist=file_exist)
@@ -965,7 +972,7 @@ contains
 
    if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
       div_D_name = 'D_divergence'
-      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) div_D_name = 'D_divergence_minus_rho'
+      if (is_pic_model(self%physics%physical_model)) div_D_name = 'D_divergence_minus_rho'
       call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
                                            div_D=div_D,div_B=div_B,div_J=div_J,div_D_name=div_D_name,           &
                                            is_to_open=is_to_open,is_to_close=is_to_close)
@@ -1117,7 +1124,7 @@ contains
    integer(I4P)                           :: file_unit             !< Restart file unit.
    integer(I4P)                           :: history_slots         !< Stored leapfrog history depth.
 
-   if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
+   if (.not. is_pic_model(self%physics%physical_model)) return
 
    history_slots = 0_I4P
    if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) then
@@ -1363,7 +1370,7 @@ contains
       if (ivar == VAR_DX) then
          if (physical_model == EM_PHYSICAL_MODEL .or. physical_model == ADIM_EM_PHYSICAL_MODEL) then
             call mpih%print_message('There is no particle and so at t0 no electric field has to be initialized...there is a bug!')
-         elseif (physical_model == PIC_PHYSICAL_MODEL) then
+         elseif (is_pic_model(physical_model)) then
             ind = size(self%q(:,1,1,1,1))
             if (blocks_number > 0) then
                call self%compute_divergence(hs=hs, ivar=ivar, q=self%q, divergence=buffer(5,:,:,:,:))
@@ -1491,12 +1498,19 @@ contains
    integer(I4P)                              :: progress_total   !< Planned smoothing sweeps.
    integer(I4P)                              :: iter            !< Counter.
    integer(I4P)                              :: i, j, k, b, v   !< Counters.
+   real(R8P)                                 :: eps_scale, mu_scale
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
              nb=>self%nb, buffer=>self%divergence, hs=>self%fdv_half_stencil)
       if (.not. allocated(self%adam%maps%local_map_bc_crown)) call self%adam%make_comm_local_maps_ghost_bc
       call self%bc%build_elliptic_bc_types(ivar=ivar, ell_bc_type=elliptic_bc_type)
-      if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      eps_scale = EPS0
+      mu_scale = MU0
+      if (is_adim_model(self%physics%physical_model)) then
+         eps_scale = 1._R8P
+         mu_scale = 1._R8P
+      endif
+      if (is_pic_model(self%physics%physical_model)) then
          if (ivar == VAR_DX) then
             allocate(phi(1:1,        &
                          1-ngc:ni+ngc, &
@@ -1517,10 +1531,10 @@ contains
             dphi(:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:)    = 0._R8P
             ind = size(self%q(:,1,1,1,1))
-            f(1,:,:,:,:) = -self%q(ind,:,:,:,:)/EPS0
+            f(1,:,:,:,:) = -self%q(ind,:,:,:,:)/eps_scale
             if (blocks_number > 0) then
                call solve_pic_elliptic(nv_solve=1_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                       dphi_max=dphi_max, eps=EPS0)
+                                       dphi_max=dphi_max, eps=eps_scale)
                call mpih%print_message('FLAIL convergence for electric displacement field at t0 '// &
                                        'reached at iteration '//trim(str(iter,.true.)))
                call self%compute_gradient_extended(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
@@ -1529,7 +1543,7 @@ contains
                      do j=1-ngc/2, nj+ngc/2
                         do i=1-ngc/2, ni+ngc/2
                            do v=1, 3
-                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*EPS0
+                              self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*eps_scale
                            enddo
                         enddo
                      enddo
@@ -1556,10 +1570,10 @@ contains
             phi(:,:,:,:,:)  = 0._R8P
             dphi(:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:)    = 0._R8P
-            f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+            f(:,:,:,:,:) = -mu_scale*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             if (blocks_number > 0) then
                call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                       dphi_max=dphi_max, mu=MU0)
+                                       dphi_max=dphi_max, mu=mu_scale)
                call mpih%print_message('FLAIL convergence for magnetic field at t0 reached at iteration '// &
                                        trim(str(iter,.true.)))
                call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))

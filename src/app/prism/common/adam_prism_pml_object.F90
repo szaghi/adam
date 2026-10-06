@@ -7,6 +7,7 @@ use :: adam_grid_object,      only : grid_object
 use :: adam_field_object,     only : field_object
 use :: adam_tree_object,      only : tree_object
 use :: adam_prism_absorbing_layer_geometry, only : compute_absorbing_face_range
+use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
@@ -53,6 +54,7 @@ type :: prism_pml_object
    real(R8P)                 :: alpha_max = 0._R8P
    real(R8P)                 :: k_max     = 1._R8P
    real(R8P)                 :: beta      = 0._R8P
+   real(R8P)                 :: bermudez_eps = BERMUDEZ_EPS
    real(R8P)                 :: profile_span(6) = 0._R8P !< Face-wise maximum center distance inside the PML.
    integer(I4P), allocatable :: ni_pml(:,:,:)  !< Local i-range of active PML support [2,nb,6].
    integer(I4P), allocatable :: nj_pml(:,:,:)  !< Local j-range of active PML support [2,nb,6].
@@ -118,13 +120,14 @@ contains
    enddo
    endfunction description
 
-   subroutine initialize(self, field, grid, tree, file_parameters)
+   subroutine initialize(self, field, grid, tree, file_parameters, physics)
    !< Initialize the PML support and allocate reduced face-local states.
    class(prism_pml_object), intent(inout) :: self
    type(field_object),      intent(in)    :: field
    type(grid_object),       intent(in)    :: grid
    type(tree_object),       intent(in)    :: tree
    type(file_ini),          intent(in)    :: file_parameters
+   type(prism_physics_object), intent(in) :: physics
    integer(I4P)                           :: alloc_error
    integer(I4P)                           :: b
    integer(I4P)                           :: face
@@ -138,6 +141,14 @@ contains
    print '(A)', mpih%myrankstr//'prism_pml_object%initialize start'
    call reset_pml_object(self=self)
    call self%load_from_file(file_parameters=file_parameters)
+   if (self%enabled .and. is_adim_model(physics%physical_model)) then
+      self%width = self%width/physics%L0
+      self%gamma_max = self%gamma_max*physics%T0
+      self%gamma_eff_max = self%gamma_eff_max*physics%T0
+      self%alpha_max = self%alpha_max*physics%T0
+      self%beta = self%beta*physics%T0/physics%L0**self%gamma_exponent
+      self%bermudez_eps = BERMUDEZ_EPS/physics%L0
+   endif
    print '(A)', self%description()
 
    if (.not. self%enabled) then
@@ -534,9 +545,9 @@ contains
       gamma = self%gamma_max * depth**CFS_PROFILE_EXPONENT
    case (PML_TYPE_BERMUDEZ)
       if (span > 0._R8P) then
-         distance_to_outer = self%width * center_distance / span + BERMUDEZ_EPS
+         distance_to_outer = self%width * center_distance / span + self%bermudez_eps
       else
-         distance_to_outer = BERMUDEZ_EPS
+         distance_to_outer = self%bermudez_eps
       endif
       gamma = self%beta / distance_to_outer**self%gamma_exponent
    endselect
@@ -557,6 +568,7 @@ contains
    self%alpha_max = 0._R8P
    self%k_max     = 1._R8P
    self%beta      = 0._R8P
+   self%bermudez_eps = BERMUDEZ_EPS
    self%profile_span = 0._R8P
    endsubroutine reset_pml_configuration
 

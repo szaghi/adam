@@ -43,11 +43,13 @@ public :: prism_physics_object
 public :: EM_PHYSICAL_MODEL
 public :: PIC_PHYSICAL_MODEL
 public :: ADIM_EM_PHYSICAL_MODEL
+public :: ADIM_PIC_PHYSICAL_MODEL, is_pic_model, is_adim_model
 
 character(len=7) , parameter :: INI_SECTION_NAME       = 'physics'              !< INI file section name containing fluid physics.
 character(len=15), parameter :: EM_PHYSICAL_MODEL      = 'electromagnetic'      !< Electromagnetic physical model.
 character(len=3) , parameter :: PIC_PHYSICAL_MODEL     = 'PIC'                  !< PIC physical model.
 character(len=20), parameter :: ADIM_EM_PHYSICAL_MODEL = 'adim_electromagnetic' !< Adimensional electromagnetic physical model.
+character(len=8), parameter :: ADIM_PIC_PHYSICAL_MODEL = 'adim_PIC' !< Adimensional PIC physical model.
 
 integer(I4P),  parameter, public :: VAR_DX = 1_I4P !< Conservative variable 1, Dx.
 integer(I4P),  parameter, public :: VAR_DY = 2_I4P !< Conservative variable 2, Dy.
@@ -81,6 +83,9 @@ type :: prism_physics_object
    real(R8P)                   :: D0                     !< Maximum signal speed (eigenvalue).
    real(R8P)                   :: T0                     !< Maximum signal speed (eigenvalue).
    real(R8P)                   :: I0                     !< Maximum signal speed (eigenvalue).
+   real(R8P)                   :: rho0                   !< Charge density scale D0/L0.
+   real(R8P)                   :: Q0                     !< Particle charge scale rho0*L0**3.
+   real(R8P)                   :: M0                     !< Particle mass scale Q0*B0*T0.
    real(R8P), pointer          :: erw(:,:,:)=>null()     !< Right eigenvectors for high order reconstruction.
    real(R8P), pointer          :: elw(:,:,:)=>null()     !< Left  eigenvectors for high order reconstruction.
    real(R8P)                   :: EV_D(7)                !< Eigenvalues with D divergence cleaning.
@@ -100,6 +105,16 @@ type :: prism_physics_object
 endtype prism_physics_object
 
 contains
+   pure logical function is_pic_model(model)
+   character(*), intent(in) :: model
+   is_pic_model = model == PIC_PHYSICAL_MODEL .or. model == ADIM_PIC_PHYSICAL_MODEL
+   endfunction is_pic_model
+
+   pure logical function is_adim_model(model)
+   character(*), intent(in) :: model
+   is_adim_model = model == ADIM_EM_PHYSICAL_MODEL .or. model == ADIM_PIC_PHYSICAL_MODEL
+   endfunction is_adim_model
+
    ! public methods
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
@@ -115,12 +130,17 @@ contains
    desc = desc//mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi      ))//NL
    desc = desc//mpih%myrankstr//'  c_r:                                          '//trim(str(self%c_r      ))//NL
    !desc = desc//mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta ))
-   if (self%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+   if (is_adim_model(self%physical_model)) then
       desc = desc//mpih%myrankstr//'  L0:                                           '//trim(str(self%L0       ))//NL
       desc = desc//mpih%myrankstr//'  B0:                                           '//trim(str(self%B0       ))//NL
       desc = desc//mpih%myrankstr//'  D0:                                           '//trim(str(self%D0       ))//NL
       desc = desc//mpih%myrankstr//'  T0:                                           '//trim(str(self%T0       ))//NL
       desc = desc//mpih%myrankstr//'  I0:                                           '//trim(str(self%I0       ))!//NL
+      if (is_pic_model(self%physical_model)) then
+         desc = desc//NL//mpih%myrankstr//'  rho0: '//trim(str(self%rho0))
+         desc = desc//NL//mpih%myrankstr//'  Q0:   '//trim(str(self%Q0))
+         desc = desc//NL//mpih%myrankstr//'  M0:   '//trim(str(self%M0))
+      endif
    endif
    endfunction description
 
@@ -409,7 +429,7 @@ contains
    endselect
    self%nv = self%nv_c + self%nv_s + self%nv_cl
    self%nv_c = self%nv_c + self%nv_cl
-   if (self%physical_model == PIC_PHYSICAL_MODEL) then
+   if (is_pic_model(self%physical_model)) then
       self%nv_pic = 1_I4P
       self%nv = self%nv + self%nv_pic ! Per il PIC aggiungo nel vettore di stato la densita' di carica
    elseif (self%physical_model == EM_PHYSICAL_MODEL .or. self%physical_model == ADIM_EM_PHYSICAL_MODEL) then
@@ -443,18 +463,25 @@ contains
       self%physical_model = PIC_PHYSICAL_MODEL
    case('AdimEM', 'adimem', 'AdimensionalizedElectromagnetic', 'adimensionalelectromagnetic')
       self%physical_model = ADIM_EM_PHYSICAL_MODEL
+   case('AdimPIC', 'adimpic', 'adim_PIC', 'adim_pic')
+      self%physical_model = ADIM_PIC_PHYSICAL_MODEL
    case default
       call mpih%error_stop(msg=': unknown physical model "'//trim(buff)//'" in ['//INI_SECTION_NAME//'].(physical_model)')
 	endselect
 
-   if (self%physical_model == ADIM_EM_PHYSICAL_MODEL) then
+   if (is_adim_model(self%physical_model)) then
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='L0', val=self%L0, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(L0)')
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
+      if (self%L0 <= 0._R8P .or. self%B0 <= 0._R8P) &
+         call mpih%error_stop(msg=': [physics] L0 and B0 must be positive')
       self%T0 = self%L0/C0
       self%D0 = self%B0*C0*EPS0
       self%I0 = self%B0/(MU0*self%L0)*(self%L0**2)
+      self%rho0 = self%D0/self%L0
+      self%Q0 = self%rho0*self%L0**3
+      self%M0 = self%Q0*self%B0*self%T0
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
@@ -476,6 +503,9 @@ contains
       self%T0 = 1.0_R8P
       self%D0 = 1.0_R8P
       self%I0 = 1.0_R8P
+      self%rho0 = 1._R8P
+      self%Q0 = 1._R8P
+      self%M0 = 1._R8P
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
