@@ -460,6 +460,9 @@ contains
    call mpih%initialize(do_mpi_init=.true., verbose=.true.)
    call self%flume_common_object%initialize(filename=filename, memory_avail=mpih%memory_avail/realms_number_, &
                                             verbose=.true.)
+   if (realms_number_ > 1_I4P .and. self%units%is_active) &
+      call mpih%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
+                               'input and nothing yet checks that the realms share the references)')
    if (realms_number_ > 1_I4P .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported on multi-realm runs (the '// &
                                'inter-realm seam faces carry no limiting factor)')

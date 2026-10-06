@@ -32,6 +32,7 @@ use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, I
                                              SCHEME_SPACE_WENO_RIEMANN
 use :: adam_weno_object,              only : WENO_WEIGHTS_SI
 use :: adam_flume_physics_object,     only : flume_physics_object
+use :: adam_flume_reference_object,   only : flume_reference_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
 use :: finer,                         only : file_ini
@@ -71,6 +72,7 @@ type, extends(realm_object) :: flume_common_object
    type(flume_ic_object)          :: ic                  !< Initial conditions.
    type(flume_numerics_object)    :: numerics            !< Numerics.
    type(flume_physics_object)     :: physics             !< Physics.
+   type(flume_reference_object)   :: units               !< Reference layer (dimensional input, issue #49).
    type(flume_time_object)        :: time                !< Time handler.
    contains
       ! AMR methods
@@ -468,6 +470,10 @@ contains
    call mpih%initialize(verbose=verbose_)
    if (verbose_) call mpih%print_message('flume_common_object%initialize start')
    call self%io%initialize(filename=trim(filename), verbose=verbose_)
+   ! dimensional input: convert it to code units in the loaded file, before any parser reads it (the IO options, read
+   ! by io%initialize, are read again)
+   call self%units%initialize(file_parameters=self%io%file_parameters)
+   if (self%units%is_active) call self%io%load_from_file(file_parameters=self%io%file_parameters)
    associate(file_parameters=>self%io%file_parameters)
    call self%numerics%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters)

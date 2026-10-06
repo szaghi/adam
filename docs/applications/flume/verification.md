@@ -393,6 +393,26 @@ and bounds as the default ones. One tolerance differs: RJ2a's GLM-against-no-cle
 bitwise with `js` but within $10^{-11}$ with `si` (measured $\le 2.5\cdot10^{-13}$), the round-off of a uniform field
 reconstructed with face-varying weights ([numerics](./numerics#weno-reconstruction)).
 
+### Reference layer (NV-5)
+
+A dimensional input with a [`[reference]`](./input#reference-optional-dimensional-input) section must run as its
+hand-normalised twin. `scaling/reference.sh` writes each case in the units $L_0 = 2^j$, $u_0 = 2^k$, $\rho_0 = 4^m$
+(`scaling.py dimensionalize`, default $j = 2$, $k = -1$, $m = -2$) with the section that converts it back; the
+references are powers of two, so the solver sees the base numbers exactly and the run must equal the base run bit for
+bit (every conservative field, the history and slice files byte for byte). `scaling.py` classifies every option
+independently of the Fortran layer, and `check-log` compares every conversion the layer logs with the base value (exact
+equality, every dimensional option converted), which also covers the options whose conversion does not show in the
+solution.
+
+| Leg | Cases | Result (CPU and FNL) |
+|---|---|---|
+| regression cases | the 21 single-realm ones (orszag-tang and the 5 multi-realm ones are refused by the layer) | 21/21 bitwise, conversions exact and complete |
+| generated inputs | the MHD linear waves (fast GLM, Alfvén EGLM, slow), CPAW, the magnetised vortex, the div(B) peak, the EGLM pulse, Shu–Osher, the isentropic vortex, Sod with a slice, Sod with two gradient AMR markers | 11/11 bitwise, conversions exact and complete |
+
+The first run found two options the scaling tool had misclassified since N0: `rho_amplitude` taken as dimensionless
+(it is a density) and `loop_amplitude` as a vector potential (it is the field of the loop). The two independent tables
+disagreed, and the field-loop case was not bitwise.
+
 ## Unit tests
 
 | Test | What it pins |

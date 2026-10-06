@@ -86,8 +86,6 @@ contains
       endif
       self%nv_aux = NV_AUX_MHD
    endselect
-   self%gamma = self%cp / self%cv
-   self%R     = self%cp - self%cv
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize finish'
    endsubroutine initialize
@@ -108,13 +106,38 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(physical_model) "'//self%physical_model// &
                                '"; expected one of '//PHYSICAL_MODEL_EULER//', '//PHYSICAL_MODEL_MHD_IDEAL)
    endselect
+   ! the gas: cp and cv, or gamma alone (R = 1, the code-unit gas constant of issue #49, ND-2); giving both is fatal
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gamma', val=self%gamma, error=error)
+   if (error <= 0) then
+      if (has(option_name='cp') .or. has(option_name='cv')) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] takes either gamma or cp, cv, not both')
+      if (.not.(self%gamma > 1._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] requires gamma > 1, got gamma='//trim(str(self%gamma)))
+      self%R  = 1._R8P
+      self%cv = 1._R8P / (self%gamma - 1._R8P)
+      self%cp = self%gamma * self%cv
+      return
+   endif
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cp', val=self%cp, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cp)')
+   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cp) (or give gamma)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cv', val=self%cv, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cv)')
+   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cv) (or give gamma)')
    if (.not.(self%cp > self%cv .and. self%cv > 0._R8P)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] requires cp > cv > 0, got cp='//trim(str(self%cp))// &
                                ', cv='//trim(str(self%cv)))
+   self%gamma = self%cp / self%cv
+   self%R     = self%cp - self%cv
+   contains
+      function has(option_name) result(is_present)
+      !< Return true if the option is in the section.
+      character(*), intent(in) :: option_name !< Option name.
+      logical                  :: is_present  !< Presence.
+      character(999)           :: buff        !< Option value buffer.
+      integer(I4P)             :: error       !< Error status.
+
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name=option_name, val=buff, error=error)
+      is_present = error <= 0
+      endfunction has
    endsubroutine load_from_file
 
    ! public procedures

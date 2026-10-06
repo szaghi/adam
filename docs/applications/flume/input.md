@@ -11,7 +11,8 @@ and what happens on an invalid one. The two complete inputs at the end are verif
 `realms_number >= 1`, it is a **forest manifest** and every `[realm.N]` names a per-realm INI of the form documented
 below; otherwise the file is itself a single-realm input.
 
-A realm input is read in this order: `[IO]` → `[numerics]` → `[physics]`
+A realm input is read in this order: `[IO]` → `[reference]` (if present it converts the file to code units, then
+`[IO]` is read again) → `[numerics]` → `[physics]`
 (+ `[mhd]`) → `[runge_kutta].scheme` (memory budget) → `[grid]` → `[amr]` (tree, seam fill, markers) → `[solids]`
 → `[slices]` → `[runge_kutta]` → `[weno]` → `[linear-algebra]` → `[fdv]` → `[bc_*]` → `[time]` →
 `[initial_conditions]` → `[diagnostics]` → `[IO].save_auxiliary_fields`. After reading, FLUME applies
@@ -345,15 +346,42 @@ Only the conservative variables are sliced.
 
 ---
 
+## [reference] (optional: dimensional input)
+
+FLUME's equations carry no dimensionless number (`B` is `B_SI/sqrt(mu0)`), so a dimensional input runs once every
+value is divided by the reference of its dimension (issue #49). With this section present, FLUME does that once, on
+the loaded file, before any other section is parsed; without it nothing changes. References: density `rho0`, length
+`L0`, velocity `u0`; derived: time `L0/u0`, pressure and energy density `rho0 u0^2`, field `u0 sqrt(rho0)`, the GLM
+`psi` `u0^2 sqrt(rho0)` (the EGLM one as the field). `cp`, `cv` are replaced by `gamma = cp/cv` (the gas constant
+becomes 1, the temperature unit `u0^2/R`). Outputs, restart files and logs stay in code units.
+
+| Key | Type | Req. | Accepted / invalid | Meaning |
+|-----|------|------|--------------------|---------|
+| `density` | real | no (1) | `> 0`, otherwise fatal | `rho0`. |
+| `length` | real | no (1) | `> 0`, otherwise fatal | `L0`. |
+| `velocity` | real or string | no (1) | `> 0`; `acoustic` (`sqrt(gamma pressure / density)`, needs `pressure`); `alfvenic` (`field / sqrt(density)`, needs `field` and `mhd-ideal`). Other → fatal. | `u0`. |
+| `pressure` | real | cond. | `> 0` | Reference pressure of the `acoustic` preset. |
+| `field` | real | cond. | `> 0` | Reference field of the `alfvenic` preset. |
+
+Any other key is fatal. With the section active **every** section and key of the file must be known to the layer:
+an unknown one is fatal, so no dimensional value can pass unconverted. Keys whose dimension depends on the context are
+resolved from it: `[amr_marker_N].tol` of a gradient marker takes the dimension of the marked variable per length (a
+marker on the temperature is refused), `[initial_conditions].wave_amplitude` that of the eigenvector it multiplies.
+`type = orszag-tang` (a state hard-coded in code units) and multi-realm runs are refused. The log lists every
+converted key with its old and new value.
+
+---
+
 ## [physics]
 
-Every key is required.
+`physical_model` is required, with either `gamma` or both `cp` and `cv`.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
 | `physical_model` | string | yes | `euler` (nv = 5) or `mhd-ideal` (nv = 8, or 9 with GLM or EGLM). Other → fatal. | Equation set. `mhd-ideal` also loads `[mhd]`. |
-| `cp` | real | yes | `cp > cv > 0`, otherwise fatal | Specific heat at constant pressure. |
-| `cv` | real | yes | as above | Specific heat at constant volume. `gamma = cp/cv`, `R = cp - cv`. |
+| `gamma` | real | cond. | `> 1`; with `cp` or `cv` → fatal | Specific heats ratio; the gas constant is 1 (code units). |
+| `cp` | real | cond. | `cp > cv > 0`, otherwise fatal; required without `gamma` | Specific heat at constant pressure. |
+| `cv` | real | cond. | as above | Specific heat at constant volume. `gamma = cp/cv`, `R = cp - cv`. |
 
 ---
 
