@@ -6,6 +6,7 @@ module adam_prism_external_fields_object
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_object,  only : grid_object
 use :: adam_field_object, only : field_object
+use :: adam_prism_bc_object, only : BC_PEC
 ! PRISM modules
 use :: adam_prism_parameters
 ! third party modules
@@ -34,14 +35,14 @@ character(len=15), parameter :: INI_SECTION_NAME               ='external_fields
 character(len=15), parameter :: EF_TYPE_MAGNETIC_NOZZLE        ='magnetic_nozzle'        !< Magnetic Nozzle.
 character(len=4),  parameter :: EF_TYPE_NONE                   ='none'                   !< Disable external field.
 character(len=3),  parameter :: EF_TYPE_RMF                    ='RMF'                    !< Rotating Magnetic Field.
-character(len=13), parameter :: EF_TYPE_UNIFORM_FIELD          ='Uniform_field'          !< Uniform electric displacement/magnetic field.
+character(len=13), parameter :: EF_TYPE_UNIFORM_FIELD          ='Uniform_field'          !< Uniform D and B field.
 character(len=23), parameter :: EF_TYPE_RMF_AND_MAGNETIC_NOZZLE='RMF_and_magnetic_nozzle'!< Rotating Magnetic Field/Magnetic Nozzle.
 
 type :: prism_external_fields_object
    !< PRISM external fields object.
    character(len=99) :: ef_type           !< Field type.
-   real(R8P)         :: RMF_frequency     !< Rotating magnetic field frequency.
-   real(R8P)         :: RMF_B_amplitude   !< Rotating magnetic field amplitude.
+   real(R8P)         :: RMF_frequency = 0._R8P !< Rotating magnetic field frequency.
+   real(R8P)         :: RMF_B_amplitude = 0._R8P !< Rotating magnetic field amplitude.
 	character(len=99) :: RMF_rotation_axis !< Rotating magnetic field rotation axis (X, Y, Z).
    real(R8P)         :: Uniform_D_amplitude = 0._R8P !< Uniform electric displacement field amplitude.
    real(R8P)         :: Uniform_B_amplitude = 0._R8P !< Uniform magnetic field amplitude.
@@ -50,6 +51,7 @@ type :: prism_external_fields_object
 	integer(I4P)      :: beta              !< RMF rotation axis coordinate 2
 	integer(I4P)      :: gamm              !< RMF rotation axis coordinate 3
    integer(I4P)      :: uniform_axis = 1_I4P !< Uniform field direction index.
+   integer(I4P), allocatable :: pec_faces(:,:) !< Physical PEC faces by local block, for FNL kernels.
    ! pointer methods
    procedure(add_external_fields_interface), pass(self), pointer :: add_external_fields=>null() !< Add external fields.
    procedure(sub_external_fields_interface), pass(self), pointer :: sub_external_fields=>null() !< Subtract external fields.
@@ -132,12 +134,22 @@ contains
    endselect
    endfunction description
 
-   subroutine initialize(self, file_parameters)
+   subroutine initialize(self, file_parameters, field, grid)
    !< Initialize external fields.
    class(prism_external_fields_object), intent(inout) :: self            !< External fields.
    type(file_ini),                      intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   type(field_object),                  intent(in)    :: field
+   type(grid_object),                   intent(in)    :: grid
+   integer(I4P)                                      :: b
+   logical                                           :: faces(6)
    print '(A)', mpih%myrankstr//'prism_external_fields_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
+   if (allocated(self%pec_faces)) deallocate(self%pec_faces)
+   allocate(self%pec_faces(6,field%blocks_number))
+   do b=1, field%blocks_number
+      call physical_pec_faces(field=field, grid=grid, b=b, pec_faces=faces)
+      self%pec_faces(:,b) = merge(1_I4P, 0_I4P, faces)
+   enddo
 
    select case(self%ef_type)
    case(EF_TYPE_RMF)
@@ -363,6 +375,9 @@ contains
    real(R8P)										                      :: time1					 !< Time at the next sub-step
 	real(R8P)										                      :: theta                !< Angle in cylindrical coordinates
    integer(I4P)                                                 :: b,i,j,k					 !< Counters
+   integer(I4P)                                                 :: i_sample, j_sample, k_sample
+   logical                                                      :: pec_faces(6)
+   real(R8P)                                                   :: sign_D(3), sign_B(3)
 	real(R8P)										                      :: cell_coord(3)			 !< Cell coordinates vector and scalar variables
    real(R8P)                                                    :: x, y, r, omega, phase, c, s
 
@@ -374,10 +389,14 @@ contains
       time1 = time + dt
    end if
    do b = 1, blocks_number
-         do i = 1, ni
-            do j = 1, nj
-               do k = 1, nk
-					   cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+         call physical_pec_faces(field=field, grid=grid, b=b, pec_faces=pec_faces)
+         do i = 1 - ngc, ni + ngc
+            do j = 1 - ngc, nj + ngc
+               do k = 1 - ngc, nk + ngc
+                  call reflect_pec_ghost(i=i, j=j, k=k, ni=ni, nj=nj, nk=nk, pec_faces=pec_faces, &
+                                         i_sample=i_sample, j_sample=j_sample, k_sample=k_sample, &
+                                         sign_D=sign_D, sign_B=sign_B)
+					   cell_coord = [x_cell(i_sample,b), y_cell(j_sample,b), z_cell(k_sample,b)]
                   x = cell_coord(alpha)
                   y = cell_coord(beta)
                   r = sqrt(x*x + y*y)
@@ -388,9 +407,10 @@ contains
                   B_theta = self%RMF_B_amplitude*sin(phase)
                   c = cos(theta)
                   s = sin(theta)
-                  q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) + B_r*c - B_theta*s
-                  q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) + B_r*s + B_theta*c
-                  q(ef_gamma,i,j,k,b) = q(ef_gamma,i,j,k,b) + r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
+                  q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) + sign_B(alpha)*(B_r*c - B_theta*s)
+                  q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) + sign_B(beta )*(B_r*s + B_theta*c)
+                  q(ef_gamma,i,j,k,b) = q(ef_gamma,i,j,k,b) + &
+                                         sign_D(ef_gamma)*r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
                enddo
             enddo
          enddo
@@ -411,18 +431,25 @@ contains
                                                                         1-grid%ngc:,&
                                                                         1-grid%ngc:,1:) !< Primitive variables.
    integer(I4P)                                                 :: b,i,j,k              !< Counters.
+   integer(I4P)                                                 :: i_sample, j_sample, k_sample
+   logical                                                      :: pec_faces(6)
+   real(R8P)                                                   :: sign_D(3), sign_B(3)
 
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, axis=>self%uniform_axis)
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, axis=>self%uniform_axis)
    if (present(dt)) continue
    if (present(gamm)) continue
    associate(time_unused=>time)
    endassociate
    do b = 1, blocks_number
-      do i = 1, ni
-         do j = 1, nj
-            do k = 1, nk
-               q(axis,       i,j,k,b) = q(axis,       i,j,k,b) + self%Uniform_D_amplitude
-               q(axis+3_I4P, i,j,k,b) = q(axis+3_I4P, i,j,k,b) + self%Uniform_B_amplitude
+      call physical_pec_faces(field=field, grid=grid, b=b, pec_faces=pec_faces)
+      do i = 1 - ngc, ni + ngc
+         do j = 1 - ngc, nj + ngc
+            do k = 1 - ngc, nk + ngc
+               call reflect_pec_ghost(i=i, j=j, k=k, ni=ni, nj=nj, nk=nk, pec_faces=pec_faces, &
+                                      i_sample=i_sample, j_sample=j_sample, k_sample=k_sample, &
+                                      sign_D=sign_D, sign_B=sign_B)
+               q(axis,       i,j,k,b) = q(axis,       i,j,k,b) + sign_D(axis)*self%Uniform_D_amplitude
+               q(axis+3_I4P, i,j,k,b) = q(axis+3_I4P, i,j,k,b) + sign_B(axis)*self%Uniform_B_amplitude
             enddo
          enddo
       enddo
@@ -447,6 +474,9 @@ contains
    real(R8P)										                      :: time1					 !< Time at the next sub-step
 	real(R8P)										                      :: theta                !< Angle in cylindrical coordinates
    integer(I4P)                                                 :: b,i,j,k					 !< Counters
+   integer(I4P)                                                 :: i_sample, j_sample, k_sample
+   logical                                                      :: pec_faces(6)
+   real(R8P)                                                   :: sign_D(3), sign_B(3)
 	real(R8P)										                      :: cell_coord(3)			 !< Cell coordinates vector and scalar variables
    real(R8P)                                                    :: x, y, r, omega, phase, c, s
 
@@ -458,10 +488,14 @@ contains
       time1 = time
    end if
    do b = 1, blocks_number
-         do i = 1, ni
-            do j = 1, nj
-               do k = 1, nk
-					   cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+         call physical_pec_faces(field=field, grid=grid, b=b, pec_faces=pec_faces)
+         do i = 1 - ngc, ni + ngc
+            do j = 1 - ngc, nj + ngc
+               do k = 1 - ngc, nk + ngc
+                  call reflect_pec_ghost(i=i, j=j, k=k, ni=ni, nj=nj, nk=nk, pec_faces=pec_faces, &
+                                         i_sample=i_sample, j_sample=j_sample, k_sample=k_sample, &
+                                         sign_D=sign_D, sign_B=sign_B)
+					   cell_coord = [x_cell(i_sample,b), y_cell(j_sample,b), z_cell(k_sample,b)]
                   x = cell_coord(alpha)
                   y = cell_coord(beta)
                   r = sqrt(x*x + y*y)
@@ -472,9 +506,10 @@ contains
                   B_theta = self%RMF_B_amplitude*sin(phase)
                   c = cos(theta)
                   s = sin(theta)
-                  q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) - (B_r*c - B_theta*s)
-                  q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) - (B_r*s + B_theta*c)
-                  q(ef_gamma,i,j,k,b) = q(ef_gamma,i,j,k,b) - r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
+                  q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) - sign_B(alpha)*(B_r*c - B_theta*s)
+                  q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) - sign_B(beta )*(B_r*s + B_theta*c)
+                  q(ef_gamma,i,j,k,b) = q(ef_gamma,i,j,k,b) - &
+                                         sign_D(ef_gamma)*r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
                enddo
             enddo
          enddo
@@ -494,23 +529,83 @@ contains
                                                                         1-grid%ngc:,&
                                                                         1-grid%ngc:,1:) !< Primitive variables.
    integer(I4P)                                                 :: b,i,j,k              !< Counters.
+   integer(I4P)                                                 :: i_sample, j_sample, k_sample
+   logical                                                      :: pec_faces(6)
+   real(R8P)                                                   :: sign_D(3), sign_B(3)
 
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, axis=>self%uniform_axis)
+   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, axis=>self%uniform_axis)
    if (present(dt)) continue
    if (present(gamm)) continue
    associate(time_unused=>time)
    endassociate
    do b = 1, blocks_number
-      do i = 1, ni
-         do j = 1, nj
-            do k = 1, nk
-               q(axis,       i,j,k,b) = q(axis,       i,j,k,b) - self%Uniform_D_amplitude
-               q(axis+3_I4P, i,j,k,b) = q(axis+3_I4P, i,j,k,b) - self%Uniform_B_amplitude
+      call physical_pec_faces(field=field, grid=grid, b=b, pec_faces=pec_faces)
+      do i = 1 - ngc, ni + ngc
+         do j = 1 - ngc, nj + ngc
+            do k = 1 - ngc, nk + ngc
+               call reflect_pec_ghost(i=i, j=j, k=k, ni=ni, nj=nj, nk=nk, pec_faces=pec_faces, &
+                                      i_sample=i_sample, j_sample=j_sample, k_sample=k_sample, &
+                                      sign_D=sign_D, sign_B=sign_B)
+               q(axis,       i,j,k,b) = q(axis,       i,j,k,b) - sign_D(axis)*self%Uniform_D_amplitude
+               q(axis+3_I4P, i,j,k,b) = q(axis+3_I4P, i,j,k,b) - sign_B(axis)*self%Uniform_B_amplitude
             enddo
          enddo
       enddo
    enddo
    endassociate
    endsubroutine sub_external_fields_uniform
+
+   pure subroutine physical_pec_faces(field, grid, b, pec_faces)
+   !< Identify physical PEC faces of one block; internal block ghosts keep the unreflected field.
+   type(field_object), intent(in)  :: field
+   type(grid_object),  intent(in)  :: grid
+   integer(I4P),      intent(in)  :: b
+   logical,           intent(out) :: pec_faces(6)
+   real(R8P)                      :: boundary_tol
+   integer(I4P)                   :: axis
+
+   boundary_tol = 16._R8P*epsilon(1._R8P)*max(1._R8P, maxval(abs(grid%domain_emin)), &
+                                                    maxval(abs(grid%domain_emax)))
+   do axis = 1, 3
+      pec_faces(2*axis-1) = grid%bc_type(2*axis-1) == BC_PEC .and. &
+                            abs(field%emin(axis,b)-grid%domain_emin(axis)) <= boundary_tol
+      pec_faces(2*axis  ) = grid%bc_type(2*axis  ) == BC_PEC .and. &
+                            abs(field%emax(axis,b)-grid%domain_emax(axis)) <= boundary_tol
+   enddo
+   endsubroutine physical_pec_faces
+
+   pure subroutine reflect_pec_ghost(i, j, k, ni, nj, nk, pec_faces, i_sample, j_sample, k_sample, sign_D, sign_B)
+   !< Apply the same PEC parity as prism_cpu_object%set_boundary_conditions to an external field.
+   integer(I4P), intent(in)  :: i, j, k, ni, nj, nk
+   logical,      intent(in)  :: pec_faces(6)
+   integer(I4P), intent(out) :: i_sample, j_sample, k_sample
+   real(R8P),    intent(out) :: sign_D(3), sign_B(3)
+   integer(I4P)             :: cell_index(3), cell_count(3), sample_index(3), axis
+   logical                  :: reflected
+
+   cell_index = [i, j, k]
+   cell_count = [ni, nj, nk]
+   sample_index = cell_index
+   sign_D = 1._R8P
+   sign_B = 1._R8P
+   do axis = 1, 3
+      reflected = .false.
+      if (cell_index(axis) < 1 .and. pec_faces(2*axis-1)) then
+         sample_index(axis) = 1 - cell_index(axis)
+         reflected = .true.
+      elseif (cell_index(axis) > cell_count(axis) .and. pec_faces(2*axis)) then
+         sample_index(axis) = 2*cell_count(axis) + 1 - cell_index(axis)
+         reflected = .true.
+      endif
+      if (reflected) then
+         sign_D = -sign_D
+         sign_D(axis) = -sign_D(axis)
+         sign_B(axis) = -sign_B(axis)
+      endif
+   enddo
+   i_sample = sample_index(1)
+   j_sample = sample_index(2)
+   k_sample = sample_index(3)
+   endsubroutine reflect_pec_ghost
 
 endmodule adam_prism_external_fields_object

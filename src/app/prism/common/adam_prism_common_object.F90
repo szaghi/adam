@@ -386,7 +386,7 @@ contains
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
    call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, physics=self%physics, file_parameters=file_parameters)
-   call self%external_fields%initialize(file_parameters=file_parameters)
+   call self%external_fields%initialize(file_parameters=file_parameters, field=self%adam%field, grid=self%adam%grid)
    call self%grms%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, verbose=verbose_)
    call self%magnetic_field_at_center_domain%initialize(file_parameters=file_parameters, &
                                                         output_basename=self%io%output_basename, verbose=verbose_)
@@ -579,10 +579,20 @@ contains
    subroutine weight_pic_fields_time_zero(self)
    !< Interpolate initialized fields at particle positions at t=0.
    class(prism_common_object), intent(inout) :: self !< The equation.
+   real(R8P), allocatable :: q_view(:,:,:,:,:)
 
    if (self%physics%physical_model /= PIC_PHYSICAL_MODEL) return
-   call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
-                                 pic_fields=self%pic_fields, nv=self%nv)
+   if (self%external_fields%ef_type /= EF_TYPE_NONE) then
+      allocate(q_view, mold=self%q)
+      q_view = self%q
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=0._R8P, dt=0._R8P, q=q_view)
+      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_view, q_pic=self%q_pic, &
+                                    pic_fields=self%pic_fields, nv=self%nv)
+   else
+      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
+                                    pic_fields=self%pic_fields, nv=self%nv)
+   endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) call self%save_pic_self_force_diagnostic_time_zero()
    endsubroutine weight_pic_fields_time_zero
 
@@ -1132,6 +1142,7 @@ contains
    logical,                    intent(in), optional :: with_ghost       !< Flag to save ghost cells.
    character(:), allocatable                        :: output_basename_ !< Output basename, local var.
    logical                                          :: with_ghost_      !< Flag to save ghost cells, local var.
+   real(R8P), allocatable                           :: q_output(:,:,:,:,:) !< Output view with external fields.
    type(xh5f_file_object)                           :: xh5f             !< XH5F file handler.
    integer(I4P)                                     :: ngc              !< Ghost cells saved.
    integer(I4P)                                     :: ijk(2,3)         !< Blocks extents.
@@ -1157,15 +1168,28 @@ contains
            ijk(2,2)-ijk(1,2)+1, &
            ijk(2,3)-ijk(1,3)+1]
    endassociate
+   ! Restart data retain the evolved state. Regular HDF5 output shows the total field.
+   if (.not.present(output_basename) .and. self%external_fields%ef_type /= EF_TYPE_NONE) then
+      allocate(q_output, mold=self%q)
+      q_output = self%q
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=self%time%time, dt=0._R8P, q=q_output)
+   endif
    call self%open_file_xh5f(basename=trim(output_basename_), xh5f=xh5f)
    do b=1, self%adam%field%blocks_number
       bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
       call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
 
-      if (self%save_em_only) then
+      if (self%save_em_only .and. allocated(q_output)) then
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
+                                 q=q_output(1:6,:,:,:,b), q_name=self%q_name(1:6))
+      elseif (self%save_em_only) then
          ! the state starts with Dx, Dy, Dz, Bx, By, Bz (io_initialize)
          call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
                                  q=self%q(1:6,:,:,:,b), q_name=self%q_name(1:6))
+      elseif (allocated(q_output)) then
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
+                                 q=q_output(:,:,:,:,b), q_name=self%q_name)
       else
          call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
                                  q=self%q(:,:,:,:,b), q_name=self%q_name)

@@ -383,6 +383,7 @@ contains
    subroutine save_simulation_data(self)
    !< Save all simulation data.
    class(prism_cpu_object), intent(inout) :: self    !< The equation.
+   real(R8P), allocatable :: q_view(:,:,:,:,:)
 
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
@@ -407,8 +408,17 @@ contains
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
-      call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
-                                    pic_fields=self%pic_fields, nv=self%nv)
+      if (self%external_fields%ef_type /= EF_TYPE_NONE) then
+         allocate(q_view, mold=self%q)
+         q_view = self%q
+         call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                       time=self%time%time, dt=0._R8P, q=q_view)
+         call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_view, q_pic=self%q_pic, &
+                                       pic_fields=self%pic_fields, nv=self%nv)
+      else
+         call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
+                                       pic_fields=self%pic_fields, nv=self%nv)
+      endif
       call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic, &
                                         pic_fields=self%pic_fields)
       self%single_particle_output_last_time = self%time%time
@@ -1299,9 +1309,6 @@ contains
          call self%impose_pic_fields_time_zero(ivar=VAR_BX)
 
       call self%apply_fWL_correction(q=self%q)
-      if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-         call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                       time=0._R8P, dt=0._R8P, q=self%q)
       call self%weight_pic_fields_time_zero()
    endif
 
@@ -1574,9 +1581,6 @@ contains
    dt_step = dt
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
    self%time%dt = dt_step
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                    time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    endsubroutine open_step_forest
 
@@ -1649,9 +1653,6 @@ contains
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                      time=self%time%time, dt=self%time%dt, q=self%q)
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    ! Clear active-stage marker so any `fill_seam_from_peer_forest`
@@ -4121,8 +4122,14 @@ contains
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
    !< Pic residual computation
+   if (self%external_fields%ef_type /= EF_TYPE_NONE) &
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=self%time%time, dt=0._R8P, q=self%q)
    call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
                                  pic_fields=self%pic_fields, nv=self%nv)
+   if (self%external_fields%ef_type /= EF_TYPE_NONE) &
+      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=self%time%time, dt=0._R8P, q=self%q)
    !< Integration of equations
    call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
@@ -4136,9 +4143,6 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                    time=self%time%time, dt=self%time%dt, q=self%q)
    call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    do s=1, self%rk%nrk
@@ -4153,9 +4157,6 @@ contains
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                    time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ls
 
    subroutine integrate_rk_ssp(self)
@@ -4164,9 +4165,6 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                      time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
    do s=1, self%rk%nrk
@@ -4199,9 +4197,6 @@ contains
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                      time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ssp
 
    subroutine integrate_rk_ssp_pic(self)
@@ -4210,10 +4205,6 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
    real(R8P), allocatable                 :: q_stage(:,:,:,:,:) !< Contiguous stage scratch to avoid huge slice temporaries.
-
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                    time=self%time%time, dt=self%time%dt, q=self%q)
 
    !Inizializzo stadi RK per campi e PIC
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
@@ -4285,9 +4276,6 @@ contains
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
                                                context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q=self%q)
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                    time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ssp_pic
 
    !subroutine update_q_BC(self, dt, phi)

@@ -729,6 +729,7 @@ contains
    integer(I4P)                           :: iu, ios
    real(R8P), allocatable                 :: pic_fields_dev(:,:)
    real(R8P), allocatable                 :: pic_fields_host(:,:)
+   real(R8P), allocatable                 :: q_view(:,:,:,:,:)
    integer(I4P), allocatable              :: neighbour_list_dev(:,:)
    integer(I4P), allocatable              :: neighbour_list_host(:,:)
 
@@ -756,9 +757,15 @@ contains
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
       call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
                                                           grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+      if (self%external_fields%ef_type /= EF_TYPE_NONE) &
+         call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                      dt=0._R8P, time=self%time%time, q_gpu=self%q_gpu)
       call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                             pic_fields_gpu=self%pic_fnl%pic_fields_gpu, q_gpu=self%q_gpu, &
                                             q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+      if (self%external_fields%ef_type /= EF_TYPE_NONE) &
+         call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                      dt=0._R8P, time=self%time%time, q_gpu=self%q_gpu)
       call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
       if (self%time%it == 0_I4P) then
          allocate(pic_fields_dev, source=self%pic_fields)
@@ -770,8 +777,17 @@ contains
          pic_fields_host = 0._R8P
          call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
          neighbour_list_host = self%pic%neighbour_list
-         call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
-                                       pic_fields=pic_fields_host, nv=self%nv)
+         if (self%external_fields%ef_type /= EF_TYPE_NONE) then
+            allocate(q_view, mold=self%q)
+            q_view = self%q
+            call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                          time=self%time%time, dt=0._R8P, q=q_view)
+            call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_view, q_pic=self%q_pic, &
+                                          pic_fields=pic_fields_host, nv=self%nv)
+         else
+            call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
+                                          pic_fields=pic_fields_host, nv=self%nv)
+         endif
 
          open(newunit=iu, file='pic_gather_compare_t0.dat', status='replace', action='write', form='formatted', iostat=ios)
          if (ios /= 0_I4P) then
@@ -1873,9 +1889,6 @@ contains
 
    if (.not.is_restart) then
       call self%apply_fWL_correction(q_gpu=self%q_gpu)
-      if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-         call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                      dt=0._R8P, time=0._R8P, q_gpu=self%q_gpu)
       if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
          call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q,src=self%q_gpu,buf=self%buf_5D_R8P)
          call self%weight_pic_fields_time_zero()
@@ -5085,9 +5098,6 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
@@ -5159,9 +5169,6 @@ contains
    call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
                                                    context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ssp_pic
 
    subroutine integrate_rk_ls_dev(self)
@@ -5170,9 +5177,6 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
@@ -5190,9 +5194,7 @@ contains
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
+
    endsubroutine integrate_rk_ls_dev
 
    subroutine integrate_rk_ssp_dev(self)
@@ -5201,9 +5203,6 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
@@ -5241,9 +5240,7 @@ contains
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
+
    endsubroutine integrate_rk_ssp_dev
 
    subroutine integrate_rk_yoshida_dev(self)
@@ -5561,9 +5558,7 @@ contains
    dt_step = dt
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
    self%time%dt = dt_step
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
+
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
@@ -5651,9 +5646,7 @@ contains
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
-   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
-      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
+
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    ! Clear active-stage marker (mirror of CPU). Inter-step get_cell /
