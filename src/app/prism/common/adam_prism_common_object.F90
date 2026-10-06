@@ -635,7 +635,7 @@ contains
    real(R8P)                              :: max_d_pair_sum, max_weighted_d_pair_sum
    real(R8P)                              :: max_b_pair_sum, max_weighted_b_pair_sum
    real(R8P)                              :: max_weight_pair_diff
-   real(R8P)                              :: cutoff_limit
+   real(R8P)                              :: cutoff_limit, sx, sy, sz
 
    if (.not. is_pic_model(self%physics%physical_model)) return
    if (self%pic%problem_type /= SINGLE_PARTICLE_TYPE_PROBLEM) return
@@ -654,6 +654,8 @@ contains
    write(iu,'(a,3(1x,es24.16))') '# gathered_D', self%pic_fields(1,1), self%pic_fields(2,1), self%pic_fields(3,1)
    write(iu,'(a,3(1x,es24.16))') '# gathered_B', self%pic_fields(4,1), self%pic_fields(5,1), self%pic_fields(6,1)
    write(iu,'(a,1x,es24.16,1x,es24.16)') '# gaussian_sigma_cutoff', self%pic%sigma, self%pic%cutoff_sigma
+   write(iu,'(a,1x,i0,1x,l1)') '# gaussian_support_cells_filter', &
+                              self%pic%gaussian_support_cells, self%pic%filter_deposition
    write(iu,'(a)') '#'
    write(iu,'(a)') '# nonzero rho cells'
    write(iu,'(a)') '# b i j k x_cell y_cell z_cell rho D_x D_y D_z B_x B_y B_z'
@@ -700,29 +702,38 @@ contains
    sigma_y = self%pic%sigma
    sigma_z = self%pic%sigma
    cutoff_limit = self%pic%cutoff_sigma + 64._R8P*epsilon(self%pic%cutoff_sigma)*max(1._R8P, abs(self%pic%cutoff_sigma))
-   ni_sigma = ceiling(self%pic%cutoff_sigma*sigma_x/dx, kind=I4P)
-   nj_sigma = ceiling(self%pic%cutoff_sigma*sigma_y/dy, kind=I4P)
-   nk_sigma = ceiling(self%pic%cutoff_sigma*sigma_z/dz, kind=I4P)
-   i_min = max(i_p-ni_sigma-1_I4P, lbound(self%q, dim=2))
-   i_max = min(i_p+ni_sigma+1_I4P, ubound(self%q, dim=2))
-   j_min = max(j_p-nj_sigma-1_I4P, lbound(self%q, dim=3))
-   j_max = min(j_p+nj_sigma+1_I4P, ubound(self%q, dim=3))
-   k_min = max(k_p-nk_sigma-1_I4P, lbound(self%q, dim=4))
-   k_max = min(k_p+nk_sigma+1_I4P, ubound(self%q, dim=4))
+   sx = dx/sigma_x ; sy = dy/sigma_y ; sz = dz/sigma_z
+   ni_sigma = self%pic%gaussian_support_cells
+   nj_sigma = self%pic%gaussian_support_cells
+   nk_sigma = self%pic%gaussian_support_cells
+   if (self%pic%filter_deposition) then
+      ni_sigma = ni_sigma + 1_I4P
+      nj_sigma = nj_sigma + 1_I4P
+      nk_sigma = nk_sigma + 1_I4P
+   endif
+   i_min = max(i_p-ni_sigma, lbound(self%q, dim=2))
+   i_max = min(i_p+ni_sigma, ubound(self%q, dim=2))
+   j_min = max(j_p-nj_sigma, lbound(self%q, dim=3))
+   j_max = min(j_p+nj_sigma, ubound(self%q, dim=3))
+   k_min = max(k_p-nk_sigma, lbound(self%q, dim=4))
+   k_max = min(k_p+nk_sigma, ubound(self%q, dim=4))
 
    weight_sum = 0._R8P
    do k=k_min, k_max
       rz = (self%q_pic(3,n)-self%adam%field%z_cell(k,b_p))/sigma_z
-      if (abs(rz) > cutoff_limit) cycle
-      wz = exp(-0.5_R8P*rz*rz)
+      wz = effective_gaussian_weight(r=rz, shift=sz, cutoff_limit=cutoff_limit, &
+                                      filter=self%pic%filter_deposition)
+      if (wz <= 0._R8P) cycle
       do j=j_min, j_max
          ry = (self%q_pic(2,n)-self%adam%field%y_cell(j,b_p))/sigma_y
-         if (abs(ry) > cutoff_limit) cycle
-         wy = exp(-0.5_R8P*ry*ry)
+         wy = effective_gaussian_weight(r=ry, shift=sy, cutoff_limit=cutoff_limit, &
+                                         filter=self%pic%filter_deposition)
+         if (wy <= 0._R8P) cycle
          do i=i_min, i_max
             rx = (self%q_pic(1,n)-self%adam%field%x_cell(i,b_p))/sigma_x
-            if (abs(rx) > cutoff_limit) cycle
-            wx = exp(-0.5_R8P*rx*rx)
+            wx = effective_gaussian_weight(r=rx, shift=sx, cutoff_limit=cutoff_limit, &
+                                            filter=self%pic%filter_deposition)
+            if (wx <= 0._R8P) cycle
             weight_sum = weight_sum + wx*wy*wz
          enddo
       enddo
@@ -746,31 +757,37 @@ contains
    if (weight_sum > tiny(1._R8P)) then
       do k=k_min, k_max
          rz = (self%q_pic(3,n)-self%adam%field%z_cell(k,b_p))/sigma_z
-         if (abs(rz) > cutoff_limit) cycle
-         wz = exp(-0.5_R8P*rz*rz)
+         wz = effective_gaussian_weight(r=rz, shift=sz, cutoff_limit=cutoff_limit, &
+                                         filter=self%pic%filter_deposition)
+         if (wz <= 0._R8P) cycle
          k_o = 2_I4P*k_p - k
          if (k_o < k_min .or. k_o > k_max) cycle
          rz_o = (self%q_pic(3,n)-self%adam%field%z_cell(k_o,b_p))/sigma_z
-         if (abs(rz_o) > cutoff_limit) cycle
-         wz_o = exp(-0.5_R8P*rz_o*rz_o)
+         wz_o = effective_gaussian_weight(r=rz_o, shift=sz, cutoff_limit=cutoff_limit, &
+                                         filter=self%pic%filter_deposition)
+         if (wz_o <= 0._R8P) cycle
          do j=j_min, j_max
             ry = (self%q_pic(2,n)-self%adam%field%y_cell(j,b_p))/sigma_y
-            if (abs(ry) > cutoff_limit) cycle
-            wy = exp(-0.5_R8P*ry*ry)
+            wy = effective_gaussian_weight(r=ry, shift=sy, cutoff_limit=cutoff_limit, &
+                                            filter=self%pic%filter_deposition)
+            if (wy <= 0._R8P) cycle
             j_o = 2_I4P*j_p - j
             if (j_o < j_min .or. j_o > j_max) cycle
             ry_o = (self%q_pic(2,n)-self%adam%field%y_cell(j_o,b_p))/sigma_y
-            if (abs(ry_o) > cutoff_limit) cycle
-            wy_o = exp(-0.5_R8P*ry_o*ry_o)
+            wy_o = effective_gaussian_weight(r=ry_o, shift=sy, cutoff_limit=cutoff_limit, &
+                                            filter=self%pic%filter_deposition)
+            if (wy_o <= 0._R8P) cycle
             do i=i_min, i_max
                rx = (self%q_pic(1,n)-self%adam%field%x_cell(i,b_p))/sigma_x
-               if (abs(rx) > cutoff_limit) cycle
-               wx = exp(-0.5_R8P*rx*rx)
+               wx = effective_gaussian_weight(r=rx, shift=sx, cutoff_limit=cutoff_limit, &
+                                               filter=self%pic%filter_deposition)
+               if (wx <= 0._R8P) cycle
                i_o = 2_I4P*i_p - i
                if (i_o < i_min .or. i_o > i_max) cycle
                rx_o = (self%q_pic(1,n)-self%adam%field%x_cell(i_o,b_p))/sigma_x
-               if (abs(rx_o) > cutoff_limit) cycle
-               wx_o = exp(-0.5_R8P*rx_o*rx_o)
+               wx_o = effective_gaussian_weight(r=rx_o, shift=sx, cutoff_limit=cutoff_limit, &
+                                               filter=self%pic%filter_deposition)
+               if (wx_o <= 0._R8P) cycle
 
                weight = wx*wy*wz/weight_sum
                weight_o = wx_o*wy_o*wz_o/weight_sum
@@ -828,16 +845,19 @@ contains
    if (weight_sum > tiny(1._R8P)) then
       do k=k_min, k_max
          rz = (self%q_pic(3,n)-self%adam%field%z_cell(k,b_p))/sigma_z
-         if (abs(rz) > cutoff_limit) cycle
-         wz = exp(-0.5_R8P*rz*rz)
+         wz = effective_gaussian_weight(r=rz, shift=sz, cutoff_limit=cutoff_limit, &
+                                         filter=self%pic%filter_deposition)
+         if (wz <= 0._R8P) cycle
          do j=j_min, j_max
             ry = (self%q_pic(2,n)-self%adam%field%y_cell(j,b_p))/sigma_y
-            if (abs(ry) > cutoff_limit) cycle
-            wy = exp(-0.5_R8P*ry*ry)
+            wy = effective_gaussian_weight(r=ry, shift=sy, cutoff_limit=cutoff_limit, &
+                                            filter=self%pic%filter_deposition)
+            if (wy <= 0._R8P) cycle
             do i=i_min, i_max
                rx = (self%q_pic(1,n)-self%adam%field%x_cell(i,b_p))/sigma_x
-               if (abs(rx) > cutoff_limit) cycle
-               wx = exp(-0.5_R8P*rx*rx)
+               wx = effective_gaussian_weight(r=rx, shift=sx, cutoff_limit=cutoff_limit, &
+                                               filter=self%pic%filter_deposition)
+               if (wx <= 0._R8P) cycle
                weight = wx*wy*wz/weight_sum
                d_weighted = weight * self%q(VAR_DX:VAR_DZ,i,j,k,b_p)
                b_weighted = weight * self%q(VAR_BX:VAR_BZ,i,j,k,b_p)

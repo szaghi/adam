@@ -37,6 +37,7 @@ public :: UNIFORM_CELL
 public :: NUM_SCHEME_TIME_PIC_LEAPFROG
 public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
 public :: COHERENT_INITIALIZATION
+public :: effective_gaussian_weight
 !public :: CIC_charge_weighting
 !public :: NGP_charge_weighting
 !public :: TSC_charge_weighting
@@ -59,6 +60,7 @@ character(len=3 ), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'        
 character(len=5 ), parameter :: CUBIC_WEIGHTING_MODEL            = 'cubic'            !< cubic order weighting model.
 character(len=7 ), parameter :: QUARTIC_WEIGHTING_MODEL          = 'quartic'          !< quartic order weighting model.
 character(len=7 ), parameter :: QUINTIC_WEIGHTING_MODEL          = 'quintic'          !< quintic order weighting model.
+character(len=6 ), parameter :: SEXTIC_WEIGHTING_MODEL = 'sextic' !< Sextic B-spline weighting.
 character(len=8 ), parameter :: GAUSSIAN_WEIGHTING_MODEL         = 'Gaussian'         !< Gaussian weighting model.
 character(len=2 ), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL     = '0D'               !< 0D field weighting.
 character(len=2 ), parameter :: ONED_FIELDS_WEIGHTING_MODEL      = '1D'               !< 1D field weighting.
@@ -66,6 +68,7 @@ character(len=2 ), parameter :: TWOD_FIELDS_WEIGHTING_MODEL      = '2D'         
 character(len=2 ), parameter :: THREED_FIELDS_WEIGHTING_MODEL    = '3D'               !< 3D field weighting.
 character(len=2 ), parameter :: FOURD_FIELDS_WEIGHTING_MODEL     = '4D'               !< 4D field weighting.
 character(len=2 ), parameter :: FIVED_FIELDS_WEIGHTING_MODEL     = '5D'               !< 5D field weighting.
+character(len=2 ), parameter :: SIXD_FIELDS_WEIGHTING_MODEL = '6D' !< Sextic field weighting.
 character(len=8 ), parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG' !< Leapfrog numerical scheme for time operator.
 character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA' !< Runge-Kutta numerical scheme for time operator.
 character(len=14), parameter :: UNIFORM_DOMAIN                   = 'Uniform_domain'   !<
@@ -93,6 +96,7 @@ type :: prism_pic_object
    character(len=1)          :: cilinder_axis               !<
    real(R8P)                 :: sigma = 0.0_R8P             !< Standard deviation for a gaussian weighting
    real(R8P)                 :: cutoff_sigma = 0._R8P       !< Gaussian cutoff.
+   integer(I4P)              :: gaussian_support_cells = -1_I4P !< Gaussian support radius; negative selects automatic.
    integer(I4P)              :: particle_number  = 0_I4P    !< Total number of particles.
 	integer(I4P)				  :: n_ions = 0_I4P              !< Total ions number
 	integer(I4P)				  :: n_electrons = 0_I4P         !< Total electrons number
@@ -102,6 +106,7 @@ type :: prism_pic_object
    character(len=99)         :: plasma_domain = ''          !< Domain of plasma at t0
    character(len=99)         :: initialization = COHERENT_INITIALIZATION !< Field initialization solver.
    logical                   :: elliptic_correction=.false. !< elliptic correction for the initial fields
+   logical                   :: filter_deposition = .false. !< Binomial filter for deposition and gather weights.
    character(len=99)         :: particle_weighting_model    !< Particle weighting model.
    character(len=99)         :: current_weighting_model     !< Current weighting model.
    character(len=99)         :: field_weighting_model       !< Field weighting model.
@@ -120,6 +125,8 @@ contains
    procedure, pass(self) :: TSC_charge_weighting          !< Triangular Shaped Cloud weighting of particle quantities to the grid.
    procedure, pass(self) :: cubic_charge_weighting        !< 3rd order weighting of particle quantities to the grid.
    procedure, pass(self) :: quartic_charge_weighting      !< 4th order weighting of particle quantities to the grid.
+   procedure, pass(self) :: sextic_charge_weighting
+   procedure, pass(self) :: sextic_current_weighting
    procedure, pass(self) :: quintic_charge_weighting      !< 5th order weighting of particle quantities to the grid.
    procedure, pass(self) :: Gaussian_charge_weighting     !< Gaussian Shaped Cloud weighting of particle quantities to the grid.
    procedure, pass(self) :: CIC_current_weighting         !< Cloud-in-Cell weighting of particle quantities to the grid.
@@ -131,6 +138,7 @@ contains
    procedure, pass(self) :: twoD_field_weighting
    procedure, pass(self) :: threeD_field_weighting
    procedure, pass(self) :: fourD_field_weighting
+   procedure, pass(self) :: sixD_field_weighting
    procedure, pass(self) :: fiveD_field_weighting
    procedure, pass(self) :: Gaussian_field_weighting
    procedure, pass(self) :: bspline_field_weighting
@@ -178,6 +186,7 @@ endinterface
 contains
    function description(self) result(desc)
    !< Return a pretty-formatted object description.
+   implicit none
    class(prism_pic_object), intent(in) :: self             !< External fields.
    character(len=:), allocatable       :: desc             !< Description.
    character(len=1), parameter         :: NL=new_line('a') !< New line character.
@@ -203,12 +212,15 @@ contains
    endif
    desc = desc//NL//mpih%myrankstr//'    Initialization type: '//trim(self%initialization)
    desc = desc//NL//mpih%myrankstr//'    Elliptic correction: '//trim(str(self%elliptic_correction))
+   desc = desc//NL//mpih%myrankstr//'    Filter deposition and gather: '//trim(str(self%filter_deposition))
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
    if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
-         self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
+         self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
+         self%field_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
       desc = desc//NL//mpih%myrankstr//'    Sigma: '//trim(str(self%sigma))
       desc = desc//NL//mpih%myrankstr//'    Cutoff_sigma: '//trim(str(self%cutoff_sigma))
+      desc = desc//NL//mpih%myrankstr//'    Gaussian support cells: '//trim(str(self%gaussian_support_cells))
    endif
    desc = desc//NL//mpih%myrankstr//'    Field weighting model: '//trim(self%field_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
@@ -216,6 +228,7 @@ contains
 
    subroutine initialize(self, field, grid, file_parameters, physics)
    !< Initialize PIC.
+   implicit none
    class(prism_pic_object), intent(inout) :: self            !< Pic object.
    type(field_object),      intent(in)    :: field           !< Field (sibling realm component, threaded in).
    type(grid_object),       intent(in)    :: grid            !< Grid (sibling realm component, threaded in).
@@ -223,6 +236,7 @@ contains
    type(prism_physics_object), intent(in) :: physics
    real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
                                                              !< present at t0
+   integer(I4P)                           :: b
 	character(len=:),        allocatable   :: desc
    character(len=1),        parameter     :: NL=new_line('a')
 
@@ -259,6 +273,15 @@ contains
    elseif (self%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
       self%particle_number = 1_I4P
    endif
+   if ((self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
+        self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
+        self%field_weighting_model == GAUSSIAN_WEIGHTING_MODEL) .and. self%gaussian_support_cells < 0_I4P) then
+      self%gaussian_support_cells = 0_I4P
+      do b=1, blocks_number
+         self%gaussian_support_cells = max(self%gaussian_support_cells, &
+            ceiling(self%cutoff_sigma*self%sigma/minval(field%dxyz(:,b)), kind=I4P) + 1_I4P)
+      enddo
+   endif
    endassociate
 
    print '(A)', self%description()
@@ -278,6 +301,8 @@ contains
       self%particle_weighting => quartic_charge_weighting
    case(QUINTIC_WEIGHTING_MODEL)
       self%particle_weighting => quintic_charge_weighting
+   case(SEXTIC_WEIGHTING_MODEL)
+      self%particle_weighting => sextic_charge_weighting
    case(GAUSSIAN_WEIGHTING_MODEL)
       self%particle_weighting => Gaussian_charge_weighting
    case default
@@ -297,6 +322,8 @@ contains
       self%current_weighting => quartic_current_weighting
    case(QUINTIC_WEIGHTING_MODEL)
       self%current_weighting => quintic_current_weighting
+   case(SEXTIC_WEIGHTING_MODEL)
+      self%current_weighting => sextic_current_weighting
    case(GAUSSIAN_WEIGHTING_MODEL)
       self%current_weighting => Gaussian_current_weighting
    case default
@@ -316,6 +343,8 @@ contains
       self%field_weighting => fourD_field_weighting
    case(FIVED_FIELDS_WEIGHTING_MODEL)
       self%field_weighting => fiveD_field_weighting
+   case(SIXD_FIELDS_WEIGHTING_MODEL)
+      self%field_weighting => sixD_field_weighting
    case(GAUSSIAN_WEIGHTING_MODEL)
       self%field_weighting => Gaussian_field_weighting
    case default
@@ -327,6 +356,7 @@ contains
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
    !< Load PIC configuration from file.
+   implicit none
 	class(prism_pic_object), intent(inout)   			 :: self             !< PIC object.
 	type(file_ini),          intent(in)		  			 :: file_parameters  !< File handler.
    logical,                 intent(in), optional    :: go_on_fail      	!< Go on if load fails.
@@ -425,6 +455,11 @@ contains
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(elliptic_correction)')
 
+   self%filter_deposition = .false.
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='filter_deposition', &
+                            val=self%filter_deposition, error=error)
+   if (error > 0) self%filter_deposition = .false.
+
    buff = ''
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
@@ -443,6 +478,8 @@ contains
 		self%particle_weighting_model = quartic_WEIGHTING_MODEL
 	case('quintic', '5th', '5TH')
 		self%particle_weighting_model = quintic_WEIGHTING_MODEL
+   case('sextic', 'Sextic', 'SEXTIC', 'sixth', '6th', '6TH')
+      self%particle_weighting_model = SEXTIC_WEIGHTING_MODEL
    case('GAUSSIAN', 'Gaussian', 'gaussian', 'GAUSS', 'gauss')
       self%particle_weighting_model = GAUSSIAN_WEIGHTING_MODEL
 	case default
@@ -468,6 +505,8 @@ contains
 		self%current_weighting_model = quartic_WEIGHTING_MODEL
 	case('quintic', '5th', '5TH')
 		self%current_weighting_model = quintic_WEIGHTING_MODEL
+   case('sextic', 'Sextic', 'SEXTIC', 'sixth', '6th', '6TH')
+      self%current_weighting_model = SEXTIC_WEIGHTING_MODEL
    case('GAUSSIAN', 'Gaussian', 'gaussian', 'GAUSS', 'gauss')
       self%current_weighting_model = GAUSSIAN_WEIGHTING_MODEL
 	case default
@@ -475,18 +514,6 @@ contains
       ['//INI_SECTION_NAME//'].(current_weighting_model)')
 	endselect
 
-   if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
-         self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='sigma', &
-         val=self%sigma, error=error)
-         if (.not.go_on_fail_.and.error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sigma)')
-
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cutoff_sigma', &
-         val=self%cutoff_sigma, error=error)
-         if (.not.go_on_fail_.and.error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cutoff_sigma)')
-   endif
 
    buff = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='field_weighting_model', val=buff,error=error)
@@ -506,12 +533,34 @@ contains
       self%field_weighting_model = FOURD_FIELDS_WEIGHTING_MODEL
    case('5D', '5d', '5_d', '5_D')
       self%field_weighting_model = FIVED_FIELDS_WEIGHTING_MODEL
+   case('6D', '6d', '6_d', '6_D')
+      self%field_weighting_model = SIXD_FIELDS_WEIGHTING_MODEL
    case('GAUSSIAN', 'Gaussian', 'gaussian', 'GAUSS', 'gauss')
       self%field_weighting_model = GAUSSIAN_WEIGHTING_MODEL
    case default
       call mpih%error_stop(msg=': invalid field weighting model ['//trim(buff)//'] in  &
       ['//INI_SECTION_NAME//'].(field_weighting_model)')
    endselect
+
+   if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
+         self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
+         self%field_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='sigma', &
+         val=self%sigma, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sigma)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cutoff_sigma', &
+         val=self%cutoff_sigma, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cutoff_sigma)')
+         self%gaussian_support_cells = -1_I4P
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gaussian_support_cells', &
+                                  val=self%gaussian_support_cells, error=error)
+         if (error > 0) self%gaussian_support_cells = -1_I4P
+         if (self%sigma <= 0._R8P .or. self%cutoff_sigma <= 0._R8P) &
+            call mpih%error_stop(msg=': PIC Gaussian weighting requires positive sigma and cutoff_sigma')
+   endif
 
    buff = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
@@ -567,6 +616,7 @@ contains
 
    subroutine NGP_charge_weighting(self, field, grid, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -575,32 +625,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
-   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
-   real(R8P)                              :: wx, wy, wz           !< Weighting factors
-   real(R8P)                              :: dx, dy, dz           !< Cell dimensions
-   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
-   !Per iniziare, azzero tutte le cariche altrimenti vado a sommare le cariche del tempo precedente
-   q(nv,:,:,:,:) = 0.0_R8P
-
-   do n = 1, self%particle_number
-      ! Get particle grid indices
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-
-      q(nv, i_p, j_p, k_p, b_p) = q(nv, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)
-   enddo
+   call bspline_charge_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=0_I4P)
    endsubroutine NGP_charge_weighting
 
    subroutine CIC_charge_weighting(self, field, grid, q, q_PIC, nv)
    !< Cloud-in-Cell weighting of particle quantities to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -609,59 +640,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_PIC(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
-   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
-   real(R8P)                              :: dx, dy, dz           !< Grid spacing
-   real(R8P)                              :: wx, wy, wz           !< Weighting factors
-   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
-   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
-
-   q(nv,:,:,:,:) = 0.0_R8P
-
-   do n = 1, self%particle_number
-      ! Get particle grid indices
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-
-      do i = i_p-1, i_p+1
-         do j = j_p-1, j_p+1
-            do k = k_p-1, k_p+1
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
-               if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 1.0_R8P) then
-                  Wx = 1.0_R8P - abs((q_pic(1,n) - cell_coord(1))/dx)
-               else
-                  Wx = 0.0_R8P
-               end if
-               if (abs((q_pic(2,n) - cell_coord(2))/dy) <= 1.0_R8P) then
-                  Wy = 1.0_R8P - abs((q_pic(2,n) - cell_coord(2))/dy)
-               else
-                  Wy = 0.0_R8P
-               end if
-               if (abs((q_pic(3,n) - cell_coord(3))/dz) <= 1.0_R8P) then
-                  Wz = 1.0_R8P - abs((q_pic(3,n) - cell_coord(3))/dz)
-               else
-                  Wz = 0.0_R8P
-               end if
-               q(nv, i, j, k, b_p) = q(nv, i, j, k, b_p) + q_pic(7,n)/(dx*dy*dz) * Wx * Wy * Wz
-
-               !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
-               !se scritta in questo modo
-            enddo
-         enddo
-      enddo
-   enddo
-   endassociate
+   call bspline_charge_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=1_I4P)
    endsubroutine CIC_charge_weighting
 
    subroutine TSC_charge_weighting(self, field, grid, q, q_pic, nv)
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -670,66 +655,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n, i, j, k ,b        !< Particle counter
-   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
-   real(R8P)                              :: dx, dy, dz           !< Grid spacing
-   real(R8P)                              :: wx, wy, wz           !< Weighting factors
-   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
-   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
-
-   !Per iniziare, azzero tutte le cariche altrimenti vado a sommare le cariche del tempo precedente
-   q(nv,:,:,:,:) = 0.0_R8P
-
-   do n = 1, self%particle_number
-      ! Get particle grid indices
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-
-      ! Qua va capito come gestire la questione dei blocchi multipli
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-
-      !Qua ci va sicuramente un if per le celle di confine, altrimenti darà errore quando arrivo alla frontiera
-
-      do i = i_p-1, i_p+1
-         do j = j_p-1, j_p+1
-            do k = k_p-1, k_p+1
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
-               if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 0.5_R8P) then
-                  Wx = 0.75_R8P - ((q_pic(1,n) - cell_coord(1))/dx)**2
-               elseif (abs((q_pic(1,n) - cell_coord(1))/dx) <= 1.5_R8P .and. abs((q_pic(1,n) - cell_coord(1))/dx) > 0.5_R8P) then
-                  Wx = 0.5_R8P * (1.5_R8P - abs((q_pic(1,n) - cell_coord(1))/dx))**2
-               else
-                  Wx = 0.0_R8P
-               end if
-               if (abs((q_pic(2,n) - cell_coord(2))/dy) <= 0.5_R8P) then
-                  Wy = 0.75_R8P - ((q_pic(2,n) - cell_coord(2))/dy)**2
-               elseif (abs((q_pic(2,n) - cell_coord(2))/dy) <= 1.5_R8P .and. abs((q_pic(2,n) - cell_coord(2))/dy) > 0.5_R8P) then
-                  Wy = 0.5_R8P * (1.5_R8P - abs((q_pic(2,n) - cell_coord(2))/dy))**2
-               else
-                  Wy = 0.0_R8P
-               end if
-               if (abs((q_pic(3,n) - cell_coord(3))/dz) <= 0.5_R8P) then
-                  Wz = 0.75_R8P - ((q_pic(3,n) - cell_coord(3))/dz)**2
-               elseif (abs((q_pic(3,n) - cell_coord(3))/dz) <= 1.5_R8P .and. abs((q_pic(3,n) - cell_coord(3))/dz) > 0.5_R8P) then
-                  Wz = 0.5_R8P * (1.5_R8P - abs((q_pic(3,n) - cell_coord(3))/dz))**2
-               else
-                  Wz = 0.0_R8P
-               end if
-               q(nv, i, j, k, b_p) = q(nv, i, j, k, b_p) + q_pic(7,n)/(dx*dy*dz) * Wx * Wy * Wz
-            enddo
-         enddo
-      enddo
-   enddo
-   endassociate
+   call bspline_charge_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=2_I4P)
    endsubroutine TSC_charge_weighting
 
    subroutine cubic_charge_weighting(self, field, grid, q, q_pic, nv)
    !!< Cubic B-spline weighting of particle charge to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< PIC object.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -738,75 +670,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Charge variable index.
-   integer(I4P)                           :: n, i, j, k           !< Particle and grid counters.
-   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices.
-   real(R8P)                              :: dx, dy, dz           !< Grid spacing.
-   real(R8P)                              :: rx, ry, rz           !< Normalized distances.
-   real(R8P)                              :: wx, wy, wz           !< Weighting factors.
-   real(R8P)                              :: cell_coord(3)        !< Cell coordinates.
 
-   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
-
-   ! Reset the charge density before depositing the current particle distribution.
-   q(nv,:,:,:,:) = 0.0_R8P
-   do n = 1, self%particle_number
-      ! Get particle grid indices.
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-      ! Grid spacing of the block containing the particle.
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-      ! A boundary treatment is required when the stencil crosses
-      ! physical boundaries or block interfaces.
-      do i = i_p-2, i_p+2
-         do j = j_p-2, j_p+2
-            do k = k_p-2, k_p+2
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
-               rx = abs((q_pic(1,n) - cell_coord(1)) / dx)
-               ry = abs((q_pic(2,n) - cell_coord(2)) / dy)
-               rz = abs((q_pic(3,n) - cell_coord(3)) / dz)
-               if (rx <= 1.0_R8P) then
-                  wx = 2.0_R8P / 3.0_R8P      &
-                     - rx**2                  &
-                     + 0.5_R8P * rx**3
-               elseif (rx <= 2.0_R8P) then
-                  wx = (2.0_R8P - rx)**3 / 6.0_R8P
-               else
-                  wx = 0.0_R8P
-               end if
-               if (ry <= 1.0_R8P) then
-                  wy = 2.0_R8P / 3.0_R8P      &
-                     - ry**2                  &
-                     + 0.5_R8P * ry**3
-               elseif (ry <= 2.0_R8P) then
-                  wy = (2.0_R8P - ry)**3 / 6.0_R8P
-               else
-                  wy = 0.0_R8P
-               end if
-               if (rz <= 1.0_R8P) then
-                  wz = 2.0_R8P / 3.0_R8P      &
-                     - rz**2                  &
-                     + 0.5_R8P * rz**3
-               elseif (rz <= 2.0_R8P) then
-                  wz = (2.0_R8P - rz)**3 / 6.0_R8P
-               else
-                  wz = 0.0_R8P
-               end if
-               q(nv,i,j,k,b_p) = q(nv,i,j,k,b_p)               &
-                                + q_pic(7,n) / (dx * dy * dz)  &
-                                * wx * wy * wz
-            enddo
-         enddo
-      enddo
-   enddo
-   endassociate
+   call bspline_charge_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=3_I4P)
    endsubroutine cubic_charge_weighting
 
    subroutine quartic_charge_weighting(self, field, grid, q, q_pic, nv)
    !!< Quartic B-spline weighting of particle charge to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< PIC object.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -815,98 +685,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Charge variable index.
-   integer(I4P)                           :: n, i, j, k            !< Particle and grid counters.
-   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices.
-   real(R8P)                              :: dx, dy, dz           !< Grid spacing.
-   real(R8P)                              :: rx, ry, rz           !< Normalized distances.
-   real(R8P)                              :: wx, wy, wz           !< Weighting factors.
-   real(R8P)                              :: cell_coord(3)        !< Cell coordinates.
 
-   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
-
-   ! Reset the charge density before depositing the current particle distribution.
-   q(nv,:,:,:,:) = 0.0_R8P
-   do n = 1, self%particle_number
-      ! Get particle grid indices.
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-      ! Grid spacing of the block containing the particle.
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-      ! A boundary treatment is required when the stencil crosses
-      ! physical boundaries or block interfaces.
-      do i = i_p-2, i_p+2
-         do j = j_p-2, j_p+2
-            do k = k_p-2, k_p+2
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
-
-               rx = abs((q_pic(1,n) - cell_coord(1)) / dx)
-               ry = abs((q_pic(2,n) - cell_coord(2)) / dy)
-               rz = abs((q_pic(3,n) - cell_coord(3)) / dz)
-
-               if (rx <= 0.5_R8P) then
-                  wx = 0.25_R8P * rx**4           &
-                     - 5.0_R8P / 8.0_R8P * rx**2  &
-                     + 115.0_R8P / 192.0_R8P
-               elseif (rx <= 1.5_R8P) then
-                  wx = -rx**4 / 6.0_R8P             &
-                     + 5.0_R8P * rx**3 / 6.0_R8P    &
-                     - 5.0_R8P * rx**2 / 4.0_R8P    &
-                     + 5.0_R8P * rx / 24.0_R8P      &
-                     + 55.0_R8P / 96.0_R8P
-               elseif (rx <= 2.5_R8P) then
-                  wx = (2.5_R8P - rx)**4 / 24.0_R8P
-               else
-                  wx = 0.0_R8P
-               end if
-
-               if (ry <= 0.5_R8P) then
-                  wy = 0.25_R8P * ry**4           &
-                     - 5.0_R8P / 8.0_R8P * ry**2  &
-                     + 115.0_R8P / 192.0_R8P
-               elseif (ry <= 1.5_R8P) then
-                  wy = -ry**4 / 6.0_R8P             &
-                     + 5.0_R8P * ry**3 / 6.0_R8P    &
-                     - 5.0_R8P * ry**2 / 4.0_R8P    &
-                     + 5.0_R8P * ry / 24.0_R8P      &
-                     + 55.0_R8P / 96.0_R8P
-               elseif (ry <= 2.5_R8P) then
-                  wy = (2.5_R8P - ry)**4 / 24.0_R8P
-               else
-                  wy = 0.0_R8P
-               end if
-
-               if (rz <= 0.5_R8P) then
-                  wz = 0.25_R8P * rz**4            &
-                     - 5.0_R8P / 8.0_R8P * rz**2   &
-                     + 115.0_R8P / 192.0_R8P
-               elseif (rz <= 1.5_R8P) then
-                  wz = -rz**4 / 6.0_R8P             &
-                     + 5.0_R8P * rz**3 / 6.0_R8P    &
-                     - 5.0_R8P * rz**2 / 4.0_R8P    &
-                     + 5.0_R8P * rz / 24.0_R8P      &
-                     + 55.0_R8P / 96.0_R8P
-               elseif (rz <= 2.5_R8P) then
-                  wz = (2.5_R8P - rz)**4 / 24.0_R8P
-               else
-                  wz = 0.0_R8P
-               end if
-
-               q(nv,i,j,k,b_p) = q(nv,i,j,k,b_p)               &
-                                + q_pic(7,n) / (dx * dy * dz)  &
-                                * wx * wy * wz
-            enddo
-         enddo
-      enddo
-   enddo
-   endassociate
+   call bspline_charge_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=4_I4P)
    endsubroutine quartic_charge_weighting
 
    subroutine quintic_charge_weighting(self, field, grid, q, q_pic, nv)
    !!< Quintic B-spline weighting of particle charge to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< PIC object.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -915,98 +700,101 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Charge variable index.
-   integer(I4P)                           :: n, i, j, k            !< Particle and grid counters.
-   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices.
-   real(R8P)                              :: dx, dy, dz           !< Grid spacing.
-   real(R8P)                              :: rx, ry, rz           !< Normalized distances.
-   real(R8P)                              :: wx, wy, wz           !< Weighting factors.
-   real(R8P)                              :: cell_coord(3)        !< Cell coordinates.
+
+   call bspline_charge_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=5_I4P)
+   endsubroutine quintic_charge_weighting
+
+   subroutine sextic_charge_weighting(self, field, grid, q, q_pic, nv)
+   !!< Sextic B-spline weighting of particle charge to the grid.
+   implicit none
+   class(prism_pic_object), intent(inout) :: self                 !< PIC object.
+   type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
+                                                  1-grid%ngc:,1:) !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Charge variable index.
+
+   call bspline_charge_weighting( &
+        self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=6_I4P)
+   endsubroutine sextic_charge_weighting
+
+   subroutine bspline_charge_weighting(self, field, grid, q, q_pic, nv, order)
+   !< Deposit particle charge density with B-spline support and optional binomial filtering.
+   implicit none
+   class(prism_pic_object), intent(inout) :: self
+   type(field_object),      intent(inout) :: field
+   type(grid_object),       intent(in)    :: grid
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
+                                                  1-grid%ngc:,1:)
+   real(R8P),               intent(in)    :: q_pic(1:,1:)
+   integer(I4P),            intent(in)    :: nv
+   integer(I4P),            intent(in)    :: order
+   integer(I4P)                           :: n, i, j, k
+   integer(I4P)                           :: i_p, j_p, k_p, b_p
+   integer(I4P)                           :: i_min, i_max
+   integer(I4P)                           :: j_min, j_max
+   integer(I4P)                           :: k_min, k_max
+   real(R8P)                              :: dx, dy, dz
+   real(R8P)                              :: wx, wy, wz, weight
+   real(R8P)                              :: prefactor
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
-   ! Reset the charge density before depositing the current particle distribution.
+
    q(nv,:,:,:,:) = 0.0_R8P
+
    do n = 1, self%particle_number
-      ! Get particle grid indices.
       b_p = self%neighbour_list(1,n)
       i_p = self%neighbour_list(2,n)
       j_p = self%neighbour_list(3,n)
       k_p = self%neighbour_list(4,n)
-      ! Grid spacing of the block containing the particle.
+
       dx = field%dxyz(1,b_p)
       dy = field%dxyz(2,b_p)
       dz = field%dxyz(3,b_p)
-      ! A boundary treatment is required when the stencil crosses
-      ! physical boundaries or block interfaces.
-      do i = i_p-3, i_p+3
-         do j = j_p-3, j_p+3
-            do k = k_p-3, k_p+3
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
-               rx = abs((q_pic(1,n) - cell_coord(1)) / dx)
-               ry = abs((q_pic(2,n) - cell_coord(2)) / dy)
-               rz = abs((q_pic(3,n) - cell_coord(3)) / dz)
-               if (rx <= 1.0_R8P) then
-                  wx = -rx**5 / 12.0_R8P             &
-                     +  rx**4 / 4.0_R8P              &
-                     -  rx**2 / 2.0_R8P              &
-                     + 11.0_R8P / 20.0_R8P
-               elseif (rx <= 2.0_R8P) then
-                  wx =  rx**5 / 24.0_R8P             &
-                     - 3.0_R8P * rx**4 / 8.0_R8P     &
-                     + 5.0_R8P * rx**3 / 4.0_R8P     &
-                     - 7.0_R8P * rx**2 / 4.0_R8P     &
-                     + 5.0_R8P * rx / 8.0_R8P        &
-                     + 17.0_R8P / 40.0_R8P
-               elseif (rx <= 3.0_R8P) then
-                  wx = (3.0_R8P - rx)**5 / 120.0_R8P
-               else
-                  wx = 0.0_R8P
-               end if
-               if (ry <= 1.0_R8P) then
-                  wy = -ry**5 / 12.0_R8P             &
-                     +  ry**4 / 4.0_R8P              &
-                     -  ry**2 / 2.0_R8P              &
-                     + 11.0_R8P / 20.0_R8P
-               elseif (ry <= 2.0_R8P) then
-                  wy =  ry**5 / 24.0_R8P             &
-                     - 3.0_R8P * ry**4 / 8.0_R8P     &
-                     + 5.0_R8P * ry**3 / 4.0_R8P     &
-                     - 7.0_R8P * ry**2 / 4.0_R8P     &
-                     + 5.0_R8P * ry / 8.0_R8P        &
-                     + 17.0_R8P / 40.0_R8P
-               elseif (ry <= 3.0_R8P) then
-                  wy = (3.0_R8P - ry)**5 / 120.0_R8P
-               else
-                  wy = 0.0_R8P
-               end if
-               if (rz <= 1.0_R8P) then
-                  wz = -rz**5 / 12.0_R8P             &
-                     +  rz**4 / 4.0_R8P              &
-                     -  rz**2 / 2.0_R8P              &
-                     + 11.0_R8P / 20.0_R8P
-               elseif (rz <= 2.0_R8P) then
-                  wz =  rz**5 / 24.0_R8P             &
-                     - 3.0_R8P * rz**4 / 8.0_R8P     &
-                     + 5.0_R8P * rz**3 / 4.0_R8P     &
-                     - 7.0_R8P * rz**2 / 4.0_R8P     &
-                     + 5.0_R8P * rz / 8.0_R8P        &
-                     + 17.0_R8P / 40.0_R8P
-               elseif (rz <= 3.0_R8P) then
-                  wz = (3.0_R8P - rz)**5 / 120.0_R8P
-               else
-                  wz = 0.0_R8P
-               end if
-               q(nv,i,j,k,b_p) = q(nv,i,j,k,b_p)               &
-                                + q_pic(7,n) / (dx * dy * dz)  &
-                                * wx * wy * wz
+      prefactor = q_pic(7,n) / (dx * dy * dz)
+
+      call set_bspline_stencil(order=order, x_p=q_pic(1,n), x_c=x_cell(i_p,b_p), &
+                               i_p=i_p, i_min=i_min, i_max=i_max)
+      call set_bspline_stencil(order=order, x_p=q_pic(2,n), x_c=y_cell(j_p,b_p), &
+                               i_p=j_p, i_min=j_min, i_max=j_max)
+      call set_bspline_stencil(order=order, x_p=q_pic(3,n), x_c=z_cell(k_p,b_p), &
+                               i_p=k_p, i_min=k_min, i_max=k_max)
+
+      if (self%filter_deposition) then
+         i_min = i_min - 1_I4P ; i_max = i_max + 1_I4P
+         j_min = j_min - 1_I4P ; j_max = j_max + 1_I4P
+         k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
+      endif
+
+      i_min = max(i_min, lbound(q,dim=2)) ; i_max = min(i_max, ubound(q,dim=2))
+      j_min = max(j_min, lbound(q,dim=3)) ; j_max = min(j_max, ubound(q,dim=3))
+      k_min = max(k_min, lbound(q,dim=4)) ; k_max = min(k_max, ubound(q,dim=4))
+
+      do k = k_min, k_max
+         wz = effective_bspline_weight(order=order, r=(q_pic(3,n) - z_cell(k,b_p)) / dz, &
+                                       filter=self%filter_deposition)
+         do j = j_min, j_max
+            wy = effective_bspline_weight(order=order, r=(q_pic(2,n) - y_cell(j,b_p)) / dy, &
+                                          filter=self%filter_deposition)
+            do i = i_min, i_max
+               wx = effective_bspline_weight(order=order, r=(q_pic(1,n) - x_cell(i,b_p)) / dx, &
+                                             filter=self%filter_deposition)
+               weight = wx * wy * wz
+               q(nv,i,j,k,b_p) = q(nv,i,j,k,b_p) + prefactor * weight
             enddo
          enddo
       enddo
    enddo
+
    endassociate
-   endsubroutine quintic_charge_weighting
+   endsubroutine bspline_charge_weighting
 
    subroutine Gaussian_charge_weighting(self, field, grid, q, q_PIC, nv)
    !< Gaussian weighting of particle charge density to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                    !< PIC object.
    type(field_object),      intent(inout) :: field                   !< The field.
    type(grid_object),       intent(in)    :: grid                    !< Grid object.
@@ -1034,6 +822,7 @@ contains
    real(R8P)                              :: weight_sum              !< Discrete normalization factor.
    real(R8P)                              :: inverse_cell_volume     !< Inverse cell volume.
    real(R8P)                              :: cutoff_limit            !< Cutoff including roundoff tolerance.
+   real(R8P)                              :: sx, sy, sz              !< Grid spacing in Gaussian-width units.
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%sigma, cutoff_sigma=>self%cutoff_sigma)
 
@@ -1055,40 +844,48 @@ contains
       sigma_y = sigma
       sigma_z = sigma
       cutoff_limit = cutoff_sigma + 64._R8P*epsilon(cutoff_sigma)*max(1._R8P, abs(cutoff_sigma))
+      sx = dx / sigma_x
+      sy = dy / sigma_y
+      sz = dz / sigma_z
 
       inverse_cell_volume = 1._R8P / (dx*dy*dz)
 
-      ! Number of cells required to cover the Gaussian cutoff.
-      ni_sigma = ceiling(cutoff_sigma*sigma_x/dx, kind=I4P)
-      nj_sigma = ceiling(cutoff_sigma*sigma_y/dy, kind=I4P)
-      nk_sigma = ceiling(cutoff_sigma*sigma_z/dz, kind=I4P)
+      ! Fixed compact support radius for Gaussian loops.
+      ni_sigma = self%gaussian_support_cells
+      nj_sigma = self%gaussian_support_cells
+      nk_sigma = self%gaussian_support_cells
+      if (self%filter_deposition) then
+         ni_sigma = ni_sigma + 1_I4P
+         nj_sigma = nj_sigma + 1_I4P
+         nk_sigma = nk_sigma + 1_I4P
+      endif
 
       ! Restrict the support to the locally available grid, including ghost cells. !Parte da rivedere, perchè alla frontiera hai una
       ! distribuzione asimmetrica, che taglia e riscala di conseguenza
-      i_min = max(i_p-ni_sigma-1_I4P, lbound(q,dim=2))
-      i_max = min(i_p+ni_sigma+1_I4P, ubound(q,dim=2))
+      i_min = max(i_p-ni_sigma, lbound(q,dim=2))
+      i_max = min(i_p+ni_sigma, ubound(q,dim=2))
 
-      j_min = max(j_p-nj_sigma-1_I4P, lbound(q,dim=3))
-      j_max = min(j_p+nj_sigma+1_I4P, ubound(q,dim=3))
+      j_min = max(j_p-nj_sigma, lbound(q,dim=3))
+      j_max = min(j_p+nj_sigma, ubound(q,dim=3))
 
-      k_min = max(k_p-nk_sigma-1_I4P, lbound(q,dim=4))
-      k_max = min(k_p+nk_sigma+1_I4P, ubound(q,dim=4))
+      k_min = max(k_p-nk_sigma, lbound(q,dim=4))
+      k_max = min(k_p+nk_sigma, ubound(q,dim=4))
 
       ! Compute the discrete normalization factor over the effective support.
       weight_sum = 0._R8P
 
       do k=k_min, k_max
          rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
-         if (abs(rz) > cutoff_limit) cycle
-         wz = exp(-0.5_R8P*rz*rz)
+         wz = effective_gaussian_weight(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+         if (wz <= 0._R8P) cycle
          do j=j_min, j_max
             ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
-            if (abs(ry) > cutoff_limit) cycle
-            wy = exp(-0.5_R8P*ry*ry)
+            wy = effective_gaussian_weight(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wy <= 0._R8P) cycle
             do i=i_min, i_max
                rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
-               if (abs(rx) > cutoff_limit) cycle
-               wx = exp(-0.5_R8P*rx*rx)
+               wx = effective_gaussian_weight(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wx <= 0._R8P) cycle
                weight_sum = weight_sum + wx*wy*wz
             enddo
          enddo
@@ -1098,16 +895,16 @@ contains
       if (weight_sum > tiny(1._R8P)) then
          do k=k_min, k_max
             rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
-            if (abs(rz) > cutoff_limit) cycle
-            wz = exp(-0.5_R8P*rz*rz)
+            wz = effective_gaussian_weight(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wz <= 0._R8P) cycle
             do j=j_min, j_max
                ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
-               if (abs(ry) > cutoff_limit) cycle
-               wy = exp(-0.5_R8P*ry*ry)
+               wy = effective_gaussian_weight(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wy <= 0._R8P) cycle
                do i=i_min, i_max
                   rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
-                  if (abs(rx) > cutoff_limit) cycle
-                  wx = exp(-0.5_R8P*rx*rx)
+                  wx = effective_gaussian_weight(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+                  if (wx <= 0._R8P) cycle
                   weight = wx*wy*wz/weight_sum
                   q(nv,i,j,k,b_p) = q(nv,i,j,k,b_p) + q_PIC(7,n)*inverse_cell_volume*weight
                enddo
@@ -1120,6 +917,7 @@ contains
 
    subroutine NGP_current_weighting(self, field, grid, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -1128,38 +926,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n, i, j, k ,b        !< Particle counters
-   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
-   real(R8P)                              :: dx, dy, dz           !< Grid spacing
-   real(R8P)                              :: wx, wy, wz           !< Weighting factors
-   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
-   !Per iniziare, azzero tutte le correnti altrimenti vado a sommare le cariche del tempo precedente
-   q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
-
-   do n = 1, self%particle_number
-      ! Get particle grid indices
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-
-      ! Qua va capito come gestire la questione dei blocchi multipli
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-
-      !Qua ci va sicuramente un if per le celle di confine, altrimenti darà errore quando arrivo alla frontiera
-      q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)
-      q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)
-      q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)
-      !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
-      !se scritta in questo modo
-   enddo
+   call bspline_current_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=0_I4P)
    endsubroutine NGP_current_weighting
 
    subroutine CIC_current_weighting(self, field, grid, q, q_pic, nv)
    !< Cloud-in-Cell weighting of particle quantities to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -1168,62 +941,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n, i, j, k ,b        !< Particle counter
-   integer(I4P)                           :: i_p, j_p, k_p, b_p   !< Particle grid indices
-   real(R8P)                              :: dx, dy, dz           !< Grid spacing
-   real(R8P)                              :: wx, wy, wz           !< Weighting factors
-   real(R8P)                              :: cell_coord(3)        !< Cell coordinates
 
-   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
-
-   !Per iniziare, azzero tutte le correnti altrimenti vado a sommare le cariche del tempo precedente
-   q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
-
-   do n = 1, self%particle_number
-      ! Get particle grid indices
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-
-      ! Qua va capito come gestire la questione dei blocchi multipli
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-
-      !Qua ci va sicuramente un if per le celle di confine, altrimenti darà errore quando arrivo alla frontiera
-
-      do i = i_p-1, i_p+1
-         do j = j_p-1, j_p+1
-            do k = k_p-1, k_p+1
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
-               if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 1.0_R8P) then
-                  Wx = 1.0_R8P - abs((q_pic(1,n) - cell_coord(1))/dx)
-               else
-                  Wx = 0.0_R8P
-               end if
-               if (abs((q_pic(2,n) - cell_coord(2))/dy) <= 1.0_R8P) then
-                  Wy = 1.0_R8P - abs((q_pic(2,n) - cell_coord(2))/dy)
-               else
-                  Wy = 0.0_R8P
-               end if
-               if (abs((q_pic(3,n) - cell_coord(3))/dz) <= 1.0_R8P) then
-                  Wz = 1.0_R8P - abs((q_pic(3,n) - cell_coord(3))/dz)
-               else
-                  Wz = 0.0_R8P
-               end if
-               q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)* Wx * Wy * Wz
-               q(nv-2,i,j,k,b_p) = q(nv-2,i,j,k,b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)* Wx * Wy * Wz
-               q(nv-1,i,j,k,b_p) = q(nv-1,i,j,k,b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)* Wx * Wy * Wz
-            enddo
-         enddo
-      enddo
-   enddo
-   endassociate
+   call bspline_current_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=1_I4P)
    endsubroutine CIC_current_weighting
 
    subroutine TSC_current_weighting(self, field, grid, q, q_pic, nv)
    !< Triangular-Shaped-Cloud weighting of particle current density to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -1232,75 +956,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n,i,j,k               !< Particle and grid counters.
-   integer(I4P)                           :: i_p,j_p,k_p,b_p       !< Particle grid indices.
-   real(R8P)                              :: dx,dy,dz              !< Grid spacing.
-   real(R8P)                              :: wx,wy,wz              !< Weighting factors.
-   real(R8P)                              :: cell_coord(3)         !< Cell coordinates.
 
-   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
-
-   ! Reset the current density before depositing the current particle distribution.
-   q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
-
-   do n=1, self%particle_number
-      ! Get particle block and grid indices.
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-
-      ! Boundary and multi-block treatment must ensure that the full TSC support is available.
-      do i=i_p-1, i_p+1
-         do j=j_p-1, j_p+1
-            do k=k_p-1, k_p+1
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
-
-               if (abs((q_pic(1,n)-cell_coord(1))/dx) <= 0.5_R8P) then
-                  wx = 0.75_R8P-((q_pic(1,n)-cell_coord(1))/dx)**2
-               elseif (abs((q_pic(1,n)-cell_coord(1))/dx) <= 1.5_R8P) then
-                  wx = 0.5_R8P*(1.5_R8P-abs((q_pic(1,n)-cell_coord(1))/dx))**2
-               else
-                  wx = 0.0_R8P
-               end if
-
-               if (abs((q_pic(2,n)-cell_coord(2))/dy) <= 0.5_R8P) then
-                  wy = 0.75_R8P-((q_pic(2,n)-cell_coord(2))/dy)**2
-               elseif (abs((q_pic(2,n)-cell_coord(2))/dy) <= 1.5_R8P) then
-                  wy = 0.5_R8P*(1.5_R8P-abs((q_pic(2,n)-cell_coord(2))/dy))**2
-               else
-                  wy = 0.0_R8P
-               end if
-
-               if (abs((q_pic(3,n)-cell_coord(3))/dz) <= 0.5_R8P) then
-                  wz = 0.75_R8P-((q_pic(3,n)-cell_coord(3))/dz)**2
-               elseif (abs((q_pic(3,n)-cell_coord(3))/dz) <= 1.5_R8P) then
-                  wz = 0.5_R8P*(1.5_R8P-abs((q_pic(3,n)-cell_coord(3))/dz))**2
-               else
-                  wz = 0.0_R8P
-               end if
-
-               q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)*wx*wy*wz
-
-               q(nv-2,i,j,k,b_p) = q(nv-2,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)*wx*wy*wz
-
-               q(nv-1,i,j,k,b_p) = q(nv-1,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)*wx*wy*wz
-            enddo
-         enddo
-      enddo
-   enddo
-   endassociate
+   call bspline_current_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=2_I4P)
    endsubroutine TSC_current_weighting
 
    subroutine cubic_current_weighting(self, field, grid, q, q_pic, nv)
    !< Cubic B-spline weighting of particle current density to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -1309,80 +971,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n,i,j,k               !< Particle and grid counters.
-   integer(I4P)                           :: i_p,j_p,k_p,b_p       !< Particle grid indices.
-   real(R8P)                              :: dx,dy,dz              !< Grid spacing.
-   real(R8P)                              :: rx,ry,rz              !< Normalized particle-cell distances.
-   real(R8P)                              :: wx,wy,wz              !< Weighting factors.
-   real(R8P)                              :: cell_coord(3)         !< Cell coordinates.
 
-   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
-
-   ! Reset the current density before depositing the current particle distribution.
-   q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
-
-   do n=1, self%particle_number
-      ! Get particle block and grid indices.
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-
-      ! Boundary and multi-block treatment must ensure that the full cubic support is available.
-      do i=i_p-2, i_p+2
-         do j=j_p-2, j_p+2
-            do k=k_p-2, k_p+2
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
-
-               rx = abs((q_pic(1,n)-cell_coord(1))/dx)
-               ry = abs((q_pic(2,n)-cell_coord(2))/dy)
-               rz = abs((q_pic(3,n)-cell_coord(3))/dz)
-
-               if (rx <= 1.0_R8P) then
-                  wx = 2.0_R8P/3.0_R8P-rx**2+0.5_R8P*rx**3
-               elseif (rx <= 2.0_R8P) then
-                  wx = (2.0_R8P-rx)**3/6.0_R8P
-               else
-                  wx = 0.0_R8P
-               end if
-
-               if (ry <= 1.0_R8P) then
-                  wy = 2.0_R8P/3.0_R8P-ry**2+0.5_R8P*ry**3
-               elseif (ry <= 2.0_R8P) then
-                  wy = (2.0_R8P-ry)**3/6.0_R8P
-               else
-                  wy = 0.0_R8P
-               end if
-
-               if (rz <= 1.0_R8P) then
-                  wz = 2.0_R8P/3.0_R8P-rz**2+0.5_R8P*rz**3
-               elseif (rz <= 2.0_R8P) then
-                  wz = (2.0_R8P-rz)**3/6.0_R8P
-               else
-                  wz = 0.0_R8P
-               end if
-
-               q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)*wx*wy*wz
-
-               q(nv-2,i,j,k,b_p) = q(nv-2,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)*wx*wy*wz
-
-               q(nv-1,i,j,k,b_p) = q(nv-1,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)*wx*wy*wz
-            enddo
-         enddo
-      enddo
-   enddo
-   endassociate
+   call bspline_current_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=3_I4P)
    endsubroutine cubic_current_weighting
 
    subroutine quartic_current_weighting(self, field, grid, q, q_pic, nv)
    !< Quartic B-spline weighting of particle current density to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -1391,97 +986,13 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n,i,j,k              !< Particle and grid counters.
-   integer(I4P)                           :: i_p,j_p,k_p,b_p      !< Particle grid indices.
-   real(R8P)                              :: dx,dy,dz             !< Grid spacing.
-   real(R8P)                              :: rx,ry,rz             !< Normalized particle-cell distances.
-   real(R8P)                              :: wx,wy,wz             !< Weighting factors.
-   real(R8P)                              :: cell_coord(3)        !< Cell coordinates.
 
-   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
-
-   ! Reset the current density before depositing the current particle distribution.
-   q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
-
-   do n=1, self%particle_number
-      ! Get particle block and grid indices.
-      b_p = self%neighbour_list(1,n)
-      i_p = self%neighbour_list(2,n)
-      j_p = self%neighbour_list(3,n)
-      k_p = self%neighbour_list(4,n)
-      dx = field%dxyz(1,b_p)
-      dy = field%dxyz(2,b_p)
-      dz = field%dxyz(3,b_p)
-      ! Boundary and multi-block treatment must ensure that the full quartic support is available.
-      do i=i_p-2, i_p+2
-         do j=j_p-2, j_p+2
-            do k=k_p-2, k_p+2
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
-               rx = abs((q_pic(1,n)-cell_coord(1))/dx)
-               ry = abs((q_pic(2,n)-cell_coord(2))/dy)
-               rz = abs((q_pic(3,n)-cell_coord(3))/dz)
-               if (rx <= 0.5_R8P) then
-                  wx = 0.25_R8P*rx**4                         &
-                     - 5.0_R8P/8.0_R8P*rx**2                  &
-                     + 115.0_R8P/192.0_R8P
-               elseif (rx <= 1.5_R8P) then
-                  wx = -rx**4/6.0_R8P                         &
-                     + 5.0_R8P/6.0_R8P*rx**3                  &
-                     - 5.0_R8P/4.0_R8P*rx**2                  &
-                     + 5.0_R8P/24.0_R8P*rx                    &
-                     + 55.0_R8P/96.0_R8P
-               elseif (rx <= 2.5_R8P) then
-                  wx = (2.5_R8P-rx)**4/24.0_R8P
-               else
-                  wx = 0.0_R8P
-               end if
-
-               if (ry <= 0.5_R8P) then
-                  wy = 0.25_R8P*ry**4                         &
-                     - 5.0_R8P/8.0_R8P*ry**2                  &
-                     + 115.0_R8P/192.0_R8P
-               elseif (ry <= 1.5_R8P) then
-                  wy = -ry**4/6.0_R8P                         &
-                     + 5.0_R8P/6.0_R8P*ry**3                  &
-                     - 5.0_R8P/4.0_R8P*ry**2                  &
-                     + 5.0_R8P/24.0_R8P*ry                    &
-                     + 55.0_R8P/96.0_R8P
-               elseif (ry <= 2.5_R8P) then
-                  wy = (2.5_R8P-ry)**4/24.0_R8P
-               else
-                  wy = 0.0_R8P
-               end if
-
-               if (rz <= 0.5_R8P) then
-                  wz = 0.25_R8P*rz**4                         &
-                     - 5.0_R8P/8.0_R8P*rz**2                  &
-                     + 115.0_R8P/192.0_R8P
-               elseif (rz <= 1.5_R8P) then
-                  wz = -rz**4/6.0_R8P                         &
-                     + 5.0_R8P/6.0_R8P*rz**3                  &
-                     - 5.0_R8P/4.0_R8P*rz**2                  &
-                     + 5.0_R8P/24.0_R8P*rz                    &
-                     + 55.0_R8P/96.0_R8P
-               elseif (rz <= 2.5_R8P) then
-                  wz = (2.5_R8P-rz)**4/24.0_R8P
-               else
-                  wz = 0.0_R8P
-               end if
-               q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)*wx*wy*wz
-               q(nv-2,i,j,k,b_p) = q(nv-2,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)*wx*wy*wz
-               q(nv-1,i,j,k,b_p) = q(nv-1,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)*wx*wy*wz
-            enddo
-         enddo
-      enddo
-   enddo
-   endassociate
+   call bspline_current_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=4_I4P)
    endsubroutine quartic_current_weighting
 
    subroutine quintic_current_weighting(self, field, grid, q, q_pic, nv)
    !< Quintic B-spline weighting of particle current density to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                 !< External fields.
    type(field_object),      intent(inout) :: field                !< The field.
    type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
@@ -1490,20 +1001,53 @@ contains
                                                   1-grid%ngc:,1:) !< Field variables.
    real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
    integer(I4P),            intent(in)    :: nv                   !< Number of variables.
-   integer(I4P)                           :: n,i,j,k               !< Particle and grid counters.
-   integer(I4P)                           :: i_p,j_p,k_p,b_p       !< Particle grid indices.
-   real(R8P)                              :: dx,dy,dz              !< Grid spacing.
-   real(R8P)                              :: rx,ry,rz              !< Normalized particle-cell distances.
-   real(R8P)                              :: wx,wy,wz              !< Weighting factors.
-   real(R8P)                              :: cell_coord(3)         !< Cell coordinates.
+
+   call bspline_current_weighting(self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=5_I4P)
+   endsubroutine quintic_current_weighting
+
+   subroutine sextic_current_weighting(self, field, grid, q, q_pic, nv)
+   !< Sextic B-spline weighting of particle current density to the grid.
+   implicit none
+   class(prism_pic_object), intent(inout) :: self                 !< External fields.
+   type(field_object),      intent(inout) :: field                !< The field.
+   type(grid_object),       intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
+                                                  1-grid%ngc:,1:) !< Field variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)         !< PIC variables.
+   integer(I4P),            intent(in)    :: nv                   !< Number of variables.
+
+   call bspline_current_weighting( &
+        self=self, field=field, grid=grid, q=q, q_pic=q_pic, nv=nv, order=6_I4P)
+   endsubroutine sextic_current_weighting
+
+   subroutine bspline_current_weighting(self, field, grid, q, q_pic, nv, order)
+   !< Deposit particle current density with B-spline support and optional binomial filtering.
+   implicit none
+   class(prism_pic_object), intent(inout) :: self
+   type(field_object),      intent(inout) :: field
+   type(grid_object),       intent(in)    :: grid
+   real(R8P),               intent(inout) :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
+                                                  1-grid%ngc:,1:)
+   real(R8P),               intent(in)    :: q_pic(1:,1:)
+   integer(I4P),            intent(in)    :: nv
+   integer(I4P),            intent(in)    :: order
+   integer(I4P)                           :: n, i, j, k
+   integer(I4P)                           :: i_p, j_p, k_p, b_p
+   integer(I4P)                           :: i_min, i_max
+   integer(I4P)                           :: j_min, j_max
+   integer(I4P)                           :: k_min, k_max
+   real(R8P)                              :: dx, dy, dz
+   real(R8P)                              :: wx, wy, wz, weight
+   real(R8P)                              :: prefactor
+   real(R8P)                              :: jx, jy, jz
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
 
-   ! Reset the current density before depositing the current particle distribution.
-   q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
+   q(nv-3:nv-1,:,:,:,:) = 0.0_R8P
 
-   do n=1, self%particle_number
-      ! Get particle block and grid indices.
+   do n = 1, self%particle_number
       b_p = self%neighbour_list(1,n)
       i_p = self%neighbour_list(2,n)
       j_p = self%neighbour_list(3,n)
@@ -1512,85 +1056,52 @@ contains
       dx = field%dxyz(1,b_p)
       dy = field%dxyz(2,b_p)
       dz = field%dxyz(3,b_p)
+      prefactor = q_pic(7,n) / (dx * dy * dz)
+      jx = prefactor * q_pic(4,n)
+      jy = prefactor * q_pic(5,n)
+      jz = prefactor * q_pic(6,n)
 
-      ! Boundary and multi-block treatment must ensure that the full quintic support is available.
-      do i=i_p-3, i_p+3
-         do j=j_p-3, j_p+3
-            do k=k_p-3, k_p+3
-               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
+      call set_bspline_stencil(order=order, x_p=q_pic(1,n), x_c=x_cell(i_p,b_p), &
+                               i_p=i_p, i_min=i_min, i_max=i_max)
+      call set_bspline_stencil(order=order, x_p=q_pic(2,n), x_c=y_cell(j_p,b_p), &
+                               i_p=j_p, i_min=j_min, i_max=j_max)
+      call set_bspline_stencil(order=order, x_p=q_pic(3,n), x_c=z_cell(k_p,b_p), &
+                               i_p=k_p, i_min=k_min, i_max=k_max)
 
-               rx = abs((q_pic(1,n)-cell_coord(1))/dx)
-               ry = abs((q_pic(2,n)-cell_coord(2))/dy)
-               rz = abs((q_pic(3,n)-cell_coord(3))/dz)
+      if (self%filter_deposition) then
+         i_min = i_min - 1_I4P ; i_max = i_max + 1_I4P
+         j_min = j_min - 1_I4P ; j_max = j_max + 1_I4P
+         k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
+      endif
 
-               if (rx <= 1.0_R8P) then
-                  wx = -rx**5/12.0_R8P                         &
-                     +  rx**4/4.0_R8P                          &
-                     -  rx**2/2.0_R8P                          &
-                     + 11.0_R8P/20.0_R8P
-               elseif (rx <= 2.0_R8P) then
-                  wx =  rx**5/24.0_R8P                        &
-                     - 3.0_R8P/8.0_R8P*rx**4                  &
-                     + 5.0_R8P/4.0_R8P*rx**3                  &
-                     - 7.0_R8P/4.0_R8P*rx**2                  &
-                     + 5.0_R8P/8.0_R8P*rx                     &
-                     + 17.0_R8P/40.0_R8P
-               elseif (rx <= 3.0_R8P) then
-                  wx = (3.0_R8P-rx)**5/120.0_R8P
-               else
-                  wx = 0.0_R8P
-               end if
+      i_min = max(i_min, lbound(q,dim=2)) ; i_max = min(i_max, ubound(q,dim=2))
+      j_min = max(j_min, lbound(q,dim=3)) ; j_max = min(j_max, ubound(q,dim=3))
+      k_min = max(k_min, lbound(q,dim=4)) ; k_max = min(k_max, ubound(q,dim=4))
 
-               if (ry <= 1.0_R8P) then
-                  wy = -ry**5/12.0_R8P                         &
-                     +  ry**4/4.0_R8P                          &
-                     -  ry**2/2.0_R8P                          &
-                     + 11.0_R8P/20.0_R8P
-               elseif (ry <= 2.0_R8P) then
-                  wy =  ry**5/24.0_R8P                        &
-                     - 3.0_R8P/8.0_R8P*ry**4                  &
-                     + 5.0_R8P/4.0_R8P*ry**3                  &
-                     - 7.0_R8P/4.0_R8P*ry**2                  &
-                     + 5.0_R8P/8.0_R8P*ry                     &
-                     + 17.0_R8P/40.0_R8P
-               elseif (ry <= 3.0_R8P) then
-                  wy = (3.0_R8P-ry)**5/120.0_R8P
-               else
-                  wy = 0.0_R8P
-               end if
-
-               if (rz <= 1.0_R8P) then
-                  wz = -rz**5/12.0_R8P                         &
-                     +  rz**4/4.0_R8P                          &
-                     -  rz**2/2.0_R8P                          &
-                     + 11.0_R8P/20.0_R8P
-               elseif (rz <= 2.0_R8P) then
-                  wz =  rz**5/24.0_R8P                        &
-                     - 3.0_R8P/8.0_R8P*rz**4                  &
-                     + 5.0_R8P/4.0_R8P*rz**3                  &
-                     - 7.0_R8P/4.0_R8P*rz**2                  &
-                     + 5.0_R8P/8.0_R8P*rz                     &
-                     + 17.0_R8P/40.0_R8P
-               elseif (rz <= 3.0_R8P) then
-                  wz = (3.0_R8P-rz)**5/120.0_R8P
-               else
-                  wz = 0.0_R8P
-               end if
-               q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)*wx*wy*wz
-               q(nv-2,i,j,k,b_p) = q(nv-2,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)*wx*wy*wz
-               q(nv-1,i,j,k,b_p) = q(nv-1,i,j,k,b_p) + &
-                                    q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)*wx*wy*wz
+      do k = k_min, k_max
+         wz = effective_bspline_weight(order=order, r=(q_pic(3,n) - z_cell(k,b_p)) / dz, &
+                                       filter=self%filter_deposition)
+         do j = j_min, j_max
+            wy = effective_bspline_weight(order=order, r=(q_pic(2,n) - y_cell(j,b_p)) / dy, &
+                                          filter=self%filter_deposition)
+            do i = i_min, i_max
+               wx = effective_bspline_weight(order=order, r=(q_pic(1,n) - x_cell(i,b_p)) / dx, &
+                                             filter=self%filter_deposition)
+               weight = wx * wy * wz
+               q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + jx * weight
+               q(nv-2,i,j,k,b_p) = q(nv-2,i,j,k,b_p) + jy * weight
+               q(nv-1,i,j,k,b_p) = q(nv-1,i,j,k,b_p) + jz * weight
             enddo
          enddo
       enddo
    enddo
+
    endassociate
-   endsubroutine quintic_current_weighting
+   endsubroutine bspline_current_weighting
 
    subroutine Gaussian_current_weighting(self, field, grid, q, q_PIC, nv)
    !< Gaussian weighting of particle current density to the grid.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                    !< PIC object.
    type(field_object),      intent(inout) :: field                   !< The field.
    type(grid_object),       intent(in)    :: grid                    !< Grid object.
@@ -1619,6 +1130,7 @@ contains
    real(R8P)                              :: inverse_cell_volume     !< Inverse cell volume.
    real(R8P)                              :: current_prefactor(3)    !< Qp*vp/volume.
    real(R8P)                              :: cutoff_limit            !< Cutoff including roundoff tolerance.
+   real(R8P)                              :: sx, sy, sz              !< Grid spacing in Gaussian-width units.
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, sigma=>self%sigma, cutoff_sigma=>self%cutoff_sigma)
 
@@ -1638,38 +1150,46 @@ contains
       sigma_y = sigma
       sigma_z = sigma
       cutoff_limit = cutoff_sigma + 64._R8P*epsilon(cutoff_sigma)*max(1._R8P, abs(cutoff_sigma))
+      sx = dx/sigma_x
+      sy = dy/sigma_y
+      sz = dz/sigma_z
       inverse_cell_volume = 1._R8P/(dx*dy*dz)
       current_prefactor(1) = q_PIC(7,n)*q_PIC(4,n)*inverse_cell_volume
       current_prefactor(2) = q_PIC(7,n)*q_PIC(5,n)*inverse_cell_volume
       current_prefactor(3) = q_PIC(7,n)*q_PIC(6,n)*inverse_cell_volume
 
-      ! Number of cells required to cover the Gaussian cutoff.
-      ni_sigma = ceiling(cutoff_sigma*sigma_x/dx, kind=I4P)
-      nj_sigma = ceiling(cutoff_sigma*sigma_y/dy, kind=I4P)
-      nk_sigma = ceiling(cutoff_sigma*sigma_z/dz, kind=I4P)
+      ! Fixed compact support radius for Gaussian loops.
+      ni_sigma = self%gaussian_support_cells
+      nj_sigma = self%gaussian_support_cells
+      nk_sigma = self%gaussian_support_cells
+      if (self%filter_deposition) then
+         ni_sigma = ni_sigma + 1_I4P
+         nj_sigma = nj_sigma + 1_I4P
+         nk_sigma = nk_sigma + 1_I4P
+      endif
 
       ! Restrict the support to the locally available grid, including ghost cells.
-      i_min = max(i_p-ni_sigma-1_I4P, lbound(q,dim=2))
-      i_max = min(i_p+ni_sigma+1_I4P, ubound(q,dim=2))
-      j_min = max(j_p-nj_sigma-1_I4P, lbound(q,dim=3))
-      j_max = min(j_p+nj_sigma+1_I4P, ubound(q,dim=3))
-      k_min = max(k_p-nk_sigma-1_I4P, lbound(q,dim=4))
-      k_max = min(k_p+nk_sigma+1_I4P, ubound(q,dim=4))
+      i_min = max(i_p-ni_sigma, lbound(q,dim=2))
+      i_max = min(i_p+ni_sigma, ubound(q,dim=2))
+      j_min = max(j_p-nj_sigma, lbound(q,dim=3))
+      j_max = min(j_p+nj_sigma, ubound(q,dim=3))
+      k_min = max(k_p-nk_sigma, lbound(q,dim=4))
+      k_max = min(k_p+nk_sigma, ubound(q,dim=4))
 
       ! Compute the discrete normalization factor over the effective support.
       weight_sum = 0._R8P
       do k=k_min, k_max
          rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
-         if (abs(rz) > cutoff_limit) cycle
-         wz = exp(-0.5_R8P*rz*rz)
+         wz = effective_gaussian_weight(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+         if (wz <= 0._R8P) cycle
          do j=j_min, j_max
             ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
-            if (abs(ry) > cutoff_limit) cycle
-            wy = exp(-0.5_R8P*ry*ry)
+            wy = effective_gaussian_weight(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wy <= 0._R8P) cycle
             do i=i_min, i_max
                rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
-               if (abs(rx) > cutoff_limit) cycle
-               wx = exp(-0.5_R8P*rx*rx)
+               wx = effective_gaussian_weight(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wx <= 0._R8P) cycle
                weight_sum = weight_sum + wx*wy*wz
             enddo
          enddo
@@ -1679,16 +1199,16 @@ contains
       if (weight_sum > tiny(1._R8P)) then
          do k=k_min, k_max
             rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
-            if (abs(rz) > cutoff_limit) cycle
-            wz = exp(-0.5_R8P*rz*rz)
+            wz = effective_gaussian_weight(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wz <= 0._R8P) cycle
             do j=j_min, j_max
                ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
-               if (abs(ry) > cutoff_limit) cycle
-               wy = exp(-0.5_R8P*ry*ry)
+               wy = effective_gaussian_weight(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wy <= 0._R8P) cycle
                do i=i_min, i_max
                   rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
-                  if (abs(rx) > cutoff_limit) cycle
-                  wx = exp(-0.5_R8P*rx*rx)
+                  wx = effective_gaussian_weight(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+                  if (wx <= 0._R8P) cycle
                   weight = wx*wy*wz/weight_sum
                   q(nv-3,i,j,k,b_p) = q(nv-3,i,j,k,b_p) + &
                                        current_prefactor(1)*weight
@@ -1836,8 +1356,32 @@ contains
                                 order      = 5_I4P)
    endsubroutine fiveD_field_weighting
 
-      subroutine Gaussian_field_weighting(self, field, grid, pic_fields, q, q_PIC, nv)
+   subroutine sixD_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
+   !< Sixth-order spatial interpolation of cell-centered fields to particle locations.
+   implicit none
+   class(prism_pic_object), intent(inout) :: self
+   type(field_object),      intent(inout) :: field
+   type(grid_object),       intent(in)    :: grid
+   real(R8P),               intent(inout) :: pic_fields(1:,1:)
+   real(R8P),               intent(in)    :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
+                                                  1-grid%ngc:,1:)
+   real(R8P),               intent(in)    :: q_pic(1:,1:)
+   integer(I4P),            intent(in)    :: nv
+
+   call bspline_field_weighting(self       = self,       &
+                                field      = field,      &
+                                grid       = grid,       &
+                                pic_fields = pic_fields, &
+                                q          = q,          &
+                                q_pic      = q_pic,      &
+                                nv         = nv,         &
+                                order      = 6_I4P)
+   endsubroutine sixD_field_weighting
+
+   subroutine Gaussian_field_weighting(self, field, grid, pic_fields, q, q_PIC, nv)
    !< Gaussian interpolation of cell-centered fields to particle locations.
+   implicit none
    class(prism_pic_object), intent(inout) :: self                    !< PIC object.
    type(field_object),      intent(inout) :: field                   !< The field.
    type(grid_object),       intent(in)    :: grid                    !< Grid object.
@@ -1865,6 +1409,7 @@ contains
    real(R8P)                              :: weight                  !< Normalized three-dimensional weight.
    real(R8P)                              :: weight_sum              !< Discrete normalization factor.
    real(R8P)                              :: cutoff_limit            !< Cutoff including roundoff tolerance.
+   real(R8P)                              :: sx, sy, sz              !< Grid spacing in Gaussian-width units.
 
    associate(x_cell      => field%x_cell,       &
              y_cell      => field%y_cell,       &
@@ -1889,39 +1434,47 @@ contains
       sigma_y = sigma
       sigma_z = sigma
       cutoff_limit = cutoff_sigma + 64._R8P*epsilon(cutoff_sigma)*max(1._R8P, abs(cutoff_sigma))
+      sx = dx / sigma_x
+      sy = dy / sigma_y
+      sz = dz / sigma_z
 
-      ! Number of cells required to cover the Gaussian cutoff.
-      ni_sigma = ceiling(cutoff_sigma*sigma_x/dx, kind=I4P)
-      nj_sigma = ceiling(cutoff_sigma*sigma_y/dy, kind=I4P)
-      nk_sigma = ceiling(cutoff_sigma*sigma_z/dz, kind=I4P)
+      ! Fixed compact support radius for Gaussian loops.
+      ni_sigma = self%gaussian_support_cells
+      nj_sigma = self%gaussian_support_cells
+      nk_sigma = self%gaussian_support_cells
+      if (self%filter_deposition) then
+         ni_sigma = ni_sigma + 1_I4P
+         nj_sigma = nj_sigma + 1_I4P
+         nk_sigma = nk_sigma + 1_I4P
+      endif
 
       ! Restrict the support to the locally available grid, including ghost cells.
-      i_min = max(i_p-ni_sigma-1_I4P, lbound(q,dim=2))
-      i_max = min(i_p+ni_sigma+1_I4P, ubound(q,dim=2))
+      i_min = max(i_p-ni_sigma, lbound(q,dim=2))
+      i_max = min(i_p+ni_sigma, ubound(q,dim=2))
 
-      j_min = max(j_p-nj_sigma-1_I4P, lbound(q,dim=3))
-      j_max = min(j_p+nj_sigma+1_I4P, ubound(q,dim=3))
+      j_min = max(j_p-nj_sigma, lbound(q,dim=3))
+      j_max = min(j_p+nj_sigma, ubound(q,dim=3))
 
-      k_min = max(k_p-nk_sigma-1_I4P, lbound(q,dim=4))
-      k_max = min(k_p+nk_sigma+1_I4P, ubound(q,dim=4))
+      k_min = max(k_p-nk_sigma, lbound(q,dim=4))
+      k_max = min(k_p+nk_sigma, ubound(q,dim=4))
 
       ! Compute the discrete normalization factor over the effective support.
       weight_sum = 0._R8P
 
       do k=k_min, k_max
          rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
-         if (abs(rz) > cutoff_limit) cycle
-         wz = exp(-0.5_R8P*rz*rz)
+         wz = effective_gaussian_weight(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+         if (wz <= 0._R8P) cycle
 
          do j=j_min, j_max
             ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
-            if (abs(ry) > cutoff_limit) cycle
-            wy = exp(-0.5_R8P*ry*ry)
+            wy = effective_gaussian_weight(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wy <= 0._R8P) cycle
 
             do i=i_min, i_max
                rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
-               if (abs(rx) > cutoff_limit) cycle
-               wx = exp(-0.5_R8P*rx*rx)
+               wx = effective_gaussian_weight(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wx <= 0._R8P) cycle
 
                weight_sum = weight_sum + wx*wy*wz
             enddo
@@ -1934,18 +1487,18 @@ contains
       if (weight_sum > tiny(1._R8P)) then
          do k=k_min, k_max
             rz = (q_PIC(3,n)-z_cell(k,b_p))/sigma_z
-            if (abs(rz) > cutoff_limit) cycle
-            wz = exp(-0.5_R8P*rz*rz)
+            wz = effective_gaussian_weight(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wz <= 0._R8P) cycle
 
             do j=j_min, j_max
                ry = (q_PIC(2,n)-y_cell(j,b_p))/sigma_y
-               if (abs(ry) > cutoff_limit) cycle
-               wy = exp(-0.5_R8P*ry*ry)
+               wy = effective_gaussian_weight(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wy <= 0._R8P) cycle
 
                do i=i_min, i_max
                   rx = (q_PIC(1,n)-x_cell(i,b_p))/sigma_x
-                  if (abs(rx) > cutoff_limit) cycle
-                  wx = exp(-0.5_R8P*rx*rx)
+                  wx = effective_gaussian_weight(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+                  if (wx <= 0._R8P) cycle
 
                   weight = wx*wy*wz/weight_sum
 
@@ -1962,6 +1515,7 @@ contains
 
    subroutine bspline_field_weighting(self, field, grid, pic_fields, q, q_pic, nv, order)
    !< B-spline interpolation of cell-centered fields to particle locations.
+   implicit none
    class(prism_pic_object), intent(inout) :: self
    type(field_object),      intent(inout) :: field
    type(grid_object),       intent(in)    :: grid
@@ -2014,17 +1568,25 @@ contains
                                i_p   = k_p,                 &
                                i_min = k_min,               &
                                i_max = k_max)
+      if (self%filter_deposition) then
+         i_min = i_min - 1_I4P ; i_max = i_max + 1_I4P
+         j_min = j_min - 1_I4P ; j_max = j_max + 1_I4P
+         k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
+      endif
+      i_min = max(i_min, lbound(q,dim=2)) ; i_max = min(i_max, ubound(q,dim=2))
+      j_min = max(j_min, lbound(q,dim=3)) ; j_max = min(j_max, ubound(q,dim=3))
+      k_min = max(k_min, lbound(q,dim=4)) ; k_max = min(k_max, ubound(q,dim=4))
       ! B-spline field gather.
       pic_fields(1:6,n) = 0.0_R8P
       do k = k_min, k_max
          rz = (q_pic(3,n) - z_cell(k,block_p)) / dz
-         wz = bspline_weight(order=order, r=rz)
+         wz = effective_bspline_weight(order=order, r=rz, filter=self%filter_deposition)
          do j = j_min, j_max
             ry = (q_pic(2,n) - y_cell(j,block_p)) / dy
-            wy = bspline_weight(order=order, r=ry)
+            wy = effective_bspline_weight(order=order, r=ry, filter=self%filter_deposition)
             do i = i_min, i_max
                rx = (q_pic(1,n) - x_cell(i,block_p)) / dx
-               wx = bspline_weight(order=order, r=rx)
+               wx = effective_bspline_weight(order=order, r=rx, filter=self%filter_deposition)
                weight = wx * wy * wz
                pic_fields(1:6,n) = pic_fields(1:6,n) + weight * &
                                    q(1:6,i,j,k,block_p)
@@ -2037,6 +1599,7 @@ contains
 
    pure subroutine set_bspline_stencil(order, x_p, x_c, i_p, i_min, i_max)
    !< Compute the one-dimensional B-spline stencil.
+   implicit none
    integer(I4P), intent(in)  :: order
    real(R8P),    intent(in)  :: x_p, x_c
    integer(I4P), intent(in)  :: i_p
@@ -2076,14 +1639,79 @@ contains
          i_min = i_p - 2_I4P
          i_max = i_p + 3_I4P
       endif
+   case(6_I4P)
+      i_min = i_p - 3_I4P
+      i_max = i_p + 3_I4P
    case default
       i_min = i_p
       i_max = i_p
    endselect
    endsubroutine set_bspline_stencil
 
+   pure function effective_bspline_weight(order, r, filter) result(weight)
+   !< Return the optionally binomial-filtered one-dimensional B-spline weight.
+   implicit none
+   integer(I4P), intent(in) :: order
+   real(R8P),    intent(in) :: r
+   logical,      intent(in) :: filter
+   real(R8P)                :: weight
+   real(R8P), parameter     :: tol = 64.0_R8P * epsilon(1.0_R8P)
+
+   if (filter) then
+      if (order == 0_I4P) then
+         if (r > -0.5_R8P + tol .and. r <= 0.5_R8P + tol) then
+            weight = 0.50_R8P
+         elseif ((r > 0.5_R8P - tol .and. r <= 1.5_R8P + tol) .or. &
+                 (r > -1.5_R8P - tol .and. r <= -0.5_R8P + tol)) then
+            weight = 0.25_R8P
+         else
+            weight = 0.0_R8P
+         endif
+      else
+         weight = 0.25_R8P*bspline_weight(order=order, r=r + 1.0_R8P) &
+                + 0.50_R8P*bspline_weight(order=order, r=r)           &
+                + 0.25_R8P*bspline_weight(order=order, r=r - 1.0_R8P)
+      endif
+   else
+      weight = bspline_weight(order=order, r=r)
+   endif
+   endfunction effective_bspline_weight
+
+   pure function gaussian_weight(r, cutoff_limit) result(weight)
+   !< Return an unnormalized one-dimensional Gaussian weight with compact cutoff.
+   implicit none
+   real(R8P), intent(in) :: r
+   real(R8P), intent(in) :: cutoff_limit
+   real(R8P)             :: weight
+
+   if (abs(r) <= cutoff_limit) then
+      weight = exp(-0.5_R8P*r*r)
+   else
+      weight = 0.0_R8P
+   endif
+   endfunction gaussian_weight
+
+   pure function effective_gaussian_weight(r, shift, cutoff_limit, filter) result(weight)
+   !< Return the optionally binomial-filtered one-dimensional Gaussian weight.
+   implicit none
+   real(R8P), intent(in) :: r
+   real(R8P), intent(in) :: shift
+   real(R8P), intent(in) :: cutoff_limit
+   logical,   intent(in) :: filter
+   real(R8P)             :: weight
+
+   if (filter) then
+      weight = 0.25_R8P*gaussian_weight(r=r + shift, cutoff_limit=cutoff_limit) &
+             + 0.50_R8P*gaussian_weight(r=r,         cutoff_limit=cutoff_limit) &
+             + 0.25_R8P*gaussian_weight(r=r - shift, cutoff_limit=cutoff_limit)
+   else
+      weight = gaussian_weight(r=r, cutoff_limit=cutoff_limit)
+   endif
+   endfunction effective_gaussian_weight
+
    pure function bspline_weight(order, r) result(weight)
    !< Return the centered cardinal B-spline weight.
+   implicit none
    integer(I4P), intent(in) :: order
    real(R8P),    intent(in) :: r
    real(R8P)                :: weight
@@ -2093,9 +1721,13 @@ contains
 
    select case(order)
    case(0_I4P)
-      ! Nearest Grid Point.
-      ! The stencil contains only the cell stored in neighbour_list.
-      weight = 1.0_R8P
+      ! Nearest Grid Point, with the same tie convention as the ceiling-based
+      ! particle cell lookup: the owning cell is (-1/2, +1/2].
+      if (r > -0.5_R8P .and. r <= 0.5_R8P) then
+         weight = 1.0_R8P
+      else
+         weight = 0.0_R8P
+      endif
    case(1_I4P)
       ! Linear B-spline: support |r| <= 1.
       if (a <= 1.0_R8P) then
@@ -2146,6 +1778,25 @@ contains
                   - 6.0_R8P * (2.0_R8P - a)**5) / 120.0_R8P
       elseif (a <= 3.0_R8P) then
          weight = (3.0_R8P - a)**5 / 120.0_R8P
+      else
+         weight = 0.0_R8P
+      endif
+   case(6_I4P)
+      ! Sextic B-spline: support |r| <= 7/2.
+      if (a <= 0.5_R8P) then
+         weight = ((3.5_R8P - a)**6                         &
+                  - 7.0_R8P  * (2.5_R8P - a)**6             &
+                  + 21.0_R8P * (1.5_R8P - a)**6             &
+                  - 35.0_R8P * (0.5_R8P - a)**6) / 720.0_R8P
+      elseif (a <= 1.5_R8P) then
+         weight = ((3.5_R8P - a)**6                         &
+                  - 7.0_R8P  * (2.5_R8P - a)**6             &
+                  + 21.0_R8P * (1.5_R8P - a)**6) / 720.0_R8P
+      elseif (a <= 2.5_R8P) then
+         weight = ((3.5_R8P - a)**6                         &
+                  - 7.0_R8P * (2.5_R8P - a)**6) / 720.0_R8P
+      elseif (a <= 3.5_R8P) then
+         weight = (3.5_R8P - a)**6 / 720.0_R8P
       else
          weight = 0.0_R8P
       endif

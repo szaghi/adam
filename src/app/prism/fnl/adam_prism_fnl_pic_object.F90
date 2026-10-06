@@ -38,6 +38,8 @@ type :: prism_fnl_pic_object
    integer(I4P), allocatable :: buf_neighbour_list_I4P(:,:) !< Host buffer with device layout for neighbour_list copies.
    real(R8P)             :: sigma        = 0.0_R8P           !< Standard deviation for Gaussian weighting.
    real(R8P)             :: cutoff_sigma = 0.0_R8P           !< Gaussian cutoff radius in sigma units.
+   integer(I4P)          :: gaussian_support_cells = -1_I4P  !< Gaussian compact support radius in cells.
+   logical               :: filter_deposition = .false.      !< Apply binomial filtering to particle weighting.
    integer(I4P)          :: particle_number = 0_I4P          !< Total number of particles.
    integer(I4P)          :: n_ions         = 0_I4P           !< Total ions number.
    integer(I4P)          :: n_electrons    = 0_I4P           !< Total electrons number.
@@ -59,6 +61,7 @@ contains
    procedure, pass(self) :: cubic_charge_weighting_dev
    procedure, pass(self) :: quartic_charge_weighting_dev
    procedure, pass(self) :: quintic_charge_weighting_dev
+   procedure, pass(self) :: sextic_charge_weighting_dev
    procedure, pass(self) :: Gaussian_charge_weighting_dev
    procedure, pass(self) :: NGP_current_weighting_dev
    procedure, pass(self) :: CIC_current_weighting_dev
@@ -66,6 +69,7 @@ contains
    procedure, pass(self) :: cubic_current_weighting_dev
    procedure, pass(self) :: quartic_current_weighting_dev
    procedure, pass(self) :: quintic_current_weighting_dev
+   procedure, pass(self) :: sextic_current_weighting_dev
    procedure, pass(self) :: Gaussian_current_weighting_dev
    procedure, pass(self) :: zeroD_field_weighting_dev
    procedure, pass(self) :: oneD_field_weighting_dev
@@ -73,6 +77,7 @@ contains
    procedure, pass(self) :: threeD_field_weighting_dev
    procedure, pass(self) :: fourD_field_weighting_dev
    procedure, pass(self) :: fiveD_field_weighting_dev
+   procedure, pass(self) :: sixD_field_weighting_dev
    procedure, pass(self) :: Gaussian_field_weighting_dev
 endtype prism_fnl_pic_object
 
@@ -230,6 +235,7 @@ contains
 
    subroutine initialize(self, pic, q_pic, pic_fields)
    !< Initialize PIC device mirrors and dispatch hooks.
+   implicit none
    class(prism_fnl_pic_object), intent(inout) :: self              !< PIC object on device.
    type(prism_pic_object),      intent(in)    :: pic               !< PIC object on host.
    real(R8P),                   intent(in), target :: q_pic(1:,1:)      !< PIC variables on host.
@@ -245,6 +251,8 @@ contains
    self%n_neutrals      = pic%n_neutrals
    self%sigma           = pic%sigma
    self%cutoff_sigma    = pic%cutoff_sigma
+   self%gaussian_support_cells = pic%gaussian_support_cells
+   self%filter_deposition = pic%filter_deposition
 
    self%particle_cartesian_grid_index_dev => particle_cartesian_grid_index_dev_impl
 
@@ -261,6 +269,8 @@ contains
       self%particle_weighting_dev => quartic_charge_weighting_dev
    case('quintic')
       self%particle_weighting_dev => quintic_charge_weighting_dev
+   case('sextic')
+      self%particle_weighting_dev => sextic_charge_weighting_dev
    case('Gaussian')
       self%particle_weighting_dev => Gaussian_charge_weighting_dev
    case default
@@ -280,6 +290,8 @@ contains
       self%current_weighting_dev => quartic_current_weighting_dev
    case('quintic')
       self%current_weighting_dev => quintic_current_weighting_dev
+   case('sextic')
+      self%current_weighting_dev => sextic_current_weighting_dev
    case('Gaussian')
       self%current_weighting_dev => Gaussian_current_weighting_dev
    case default
@@ -299,6 +311,8 @@ contains
       self%field_weighting_dev => fourD_field_weighting_dev
    case('5D')
       self%field_weighting_dev => fiveD_field_weighting_dev
+   case('6D')
+      self%field_weighting_dev => sixD_field_weighting_dev
    case('Gaussian')
       self%field_weighting_dev => Gaussian_field_weighting_dev
    case default
@@ -501,6 +515,20 @@ contains
    call deposit_bspline_charge_dev(self=self, field_fnl=field_fnl, grid=grid, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, nv=nv, order=5_I4P)
    endsubroutine quintic_charge_weighting_dev
 
+   subroutine sextic_charge_weighting_dev(self, field_fnl, field, grid, q_gpu, q_pic_gpu, nv)
+   !< Sextic B-spline weighting of particle charge density to the grid.
+   implicit none
+   class(prism_fnl_pic_object), intent(inout) :: self
+   type(field_fnl_object),      intent(in)    :: field_fnl
+   type(field_object),          intent(in)    :: field
+   type(grid_object),           intent(in)    :: grid
+   real(R8P),                   intent(inout) :: q_gpu(1:,1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,1:)
+   real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
+   integer(I4P),                intent(in)    :: nv
+
+   call deposit_bspline_charge_dev(self=self, field_fnl=field_fnl, grid=grid, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, nv=nv, order=6_I4P)
+   endsubroutine sextic_charge_weighting_dev
+
    subroutine Gaussian_charge_weighting_dev(self, field_fnl, field, grid, q_gpu, q_pic_gpu, nv)
    !< Gaussian weighting of particle charge density to the grid.
    class(prism_fnl_pic_object), intent(inout) :: self
@@ -591,6 +619,20 @@ contains
 
    call deposit_bspline_current_dev(self=self, field_fnl=field_fnl, grid=grid, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, nv=nv, order=5_I4P)
    endsubroutine quintic_current_weighting_dev
+
+   subroutine sextic_current_weighting_dev(self, field_fnl, field, grid, q_gpu, q_pic_gpu, nv)
+   !< Sextic B-spline weighting of particle current density to the grid.
+   implicit none
+   class(prism_fnl_pic_object), intent(inout) :: self
+   type(field_fnl_object),      intent(in)    :: field_fnl
+   type(field_object),          intent(in)    :: field
+   type(grid_object),           intent(in)    :: grid
+   real(R8P),                   intent(inout) :: q_gpu(1:,1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,1:)
+   real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
+   integer(I4P),                intent(in)    :: nv
+
+   call deposit_bspline_current_dev(self=self, field_fnl=field_fnl, grid=grid, q_gpu=q_gpu, q_pic_gpu=q_pic_gpu, nv=nv, order=6_I4P)
+   endsubroutine sextic_current_weighting_dev
 
    subroutine Gaussian_current_weighting_dev(self, field_fnl, field, grid, q_gpu, q_pic_gpu, nv)
    !< Gaussian weighting of particle current density to the grid.
@@ -695,6 +737,22 @@ contains
         q_pic_gpu=q_pic_gpu, order=5_I4P)
    endsubroutine fiveD_field_weighting_dev
 
+   subroutine sixD_field_weighting_dev(self, field_fnl, field, grid, pic_fields_gpu, q_gpu, q_pic_gpu, nv)
+   !< Sixth-order spatial interpolation of cell-centered fields to particle locations.
+   implicit none
+   class(prism_fnl_pic_object), intent(inout) :: self
+   type(field_fnl_object),      intent(in)    :: field_fnl
+   type(field_object),          intent(in)    :: field
+   type(grid_object),           intent(in)    :: grid
+   real(R8P),                   intent(inout) :: pic_fields_gpu(1:,1:)
+   real(R8P),                   intent(in)    :: q_gpu(1:,1-grid%ngc:,1-grid%ngc:,1-grid%ngc:,1:)
+   real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:)
+   integer(I4P),                intent(in)    :: nv
+
+   call gather_bspline_fields_dev(self=self, field_fnl=field_fnl, grid=grid, pic_fields_gpu=pic_fields_gpu, q_gpu=q_gpu, &
+        q_pic_gpu=q_pic_gpu, order=6_I4P)
+   endsubroutine sixD_field_weighting_dev
+
    subroutine Gaussian_field_weighting_dev(self, field_fnl, field, grid, pic_fields_gpu, q_gpu, q_pic_gpu, nv)
    !< Gaussian interpolation of cell-centered fields to particle locations.
    class(prism_fnl_pic_object), intent(inout) :: self
@@ -712,6 +770,7 @@ contains
 
    subroutine deposit_bspline_charge_dev(self, field_fnl, grid, q_gpu, q_pic_gpu, nv, order)
    !< Deposit particle charge density with centered cardinal B-splines.
+   implicit none
    class(prism_fnl_pic_object), intent(in)    :: self
    type(field_fnl_object),      intent(in)    :: field_fnl
    type(grid_object),           intent(in)    :: grid
@@ -776,19 +835,28 @@ contains
                                    x_c=z_cell_gpu(block_p,k_p+ngc), i_p=k_p, &
                                    i_min=k_min, i_max=k_max)
 
+      if (self%filter_deposition) then
+         i_min = i_min - 1_I4P ; i_max = i_max + 1_I4P
+         j_min = j_min - 1_I4P ; j_max = j_max + 1_I4P
+         k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
+      endif
+
       i_min = max(i_min, 1-ngc) ; i_max = min(i_max, ni+ngc)
       j_min = max(j_min, 1-ngc) ; j_max = min(j_max, nj+ngc)
       k_min = max(k_min, 1-ngc) ; k_max = min(k_max, nk+ngc)
 
       !$acc loop seq
       do k = k_min, k_max
-         wz = bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz)
+         wz = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz, &
+                                           filter=self%filter_deposition)
          !$acc loop seq
          do j = j_min, j_max
-            wy = bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy)
+            wy = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy, &
+                                              filter=self%filter_deposition)
             !$acc loop seq
             do i = i_min, i_max
-               wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx)
+               wx = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx, &
+                                                 filter=self%filter_deposition)
                weight = wx * wy * wz
                !$acc atomic update
                !$omp atomic update
@@ -801,6 +869,7 @@ contains
 
    subroutine deposit_gaussian_charge_dev(self, field_fnl, grid, q_gpu, q_pic_gpu, nv)
    !< Deposit particle charge density with Gaussian support.
+   implicit none
    class(prism_fnl_pic_object), intent(in)    :: self
    type(field_fnl_object),      intent(in)    :: field_fnl
    type(grid_object),           intent(in)    :: grid
@@ -816,6 +885,7 @@ contains
    real(R8P)                                  :: inverse_cell_volume, charge_prefactor
    real(R8P)                                  :: rx, ry, rz, wx, wy, wz, weight, weight_sum
    real(R8P)                                  :: cutoff_limit
+   real(R8P)                                  :: sx, sy, sz
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
@@ -844,11 +914,11 @@ contains
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$acc&         dx,dy,dz,sigma_x,sigma_y,sigma_z,inverse_cell_volume,charge_prefactor, rx, ry, rz, wx, wy, wz, &
-   !$acc&         weight, weight_sum, cutoff_limit)
+   !$acc&         weight, weight_sum, cutoff_limit, sx, sy, sz)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$omp&         dx,dy,dz,sigma_x,sigma_y,sigma_z,inverse_cell_volume,charge_prefactor, rx, ry, rz, wx, wy, wz, &
-   !$omp&         weight, weight_sum, cutoff_limit)
+   !$omp&         weight, weight_sum, cutoff_limit, sx, sy, sz)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -863,33 +933,41 @@ contains
       sigma_y = self%sigma
       sigma_z = self%sigma
       cutoff_limit = self%cutoff_sigma + 64.0_R8P*epsilon(self%cutoff_sigma)*max(1.0_R8P, abs(self%cutoff_sigma))
+      sx = dx / sigma_x
+      sy = dy / sigma_y
+      sz = dz / sigma_z
       inverse_cell_volume = 1.0_R8P / (dx * dy * dz)
       charge_prefactor = q_pic_gpu(n,7) * inverse_cell_volume
 
-      ni_sigma = ceiling(self%cutoff_sigma * sigma_x / dx, kind=I4P)
-      nj_sigma = ceiling(self%cutoff_sigma * sigma_y / dy, kind=I4P)
-      nk_sigma = ceiling(self%cutoff_sigma * sigma_z / dz, kind=I4P)
+      ni_sigma = self%gaussian_support_cells
+      nj_sigma = self%gaussian_support_cells
+      nk_sigma = self%gaussian_support_cells
+      if (self%filter_deposition) then
+         ni_sigma = ni_sigma + 1_I4P
+         nj_sigma = nj_sigma + 1_I4P
+         nk_sigma = nk_sigma + 1_I4P
+      endif
 
-      i_min = max(i_p - ni_sigma - 1_I4P, 1-ngc) ; i_max = min(i_p + ni_sigma + 1_I4P, ni+ngc)
-      j_min = max(j_p - nj_sigma - 1_I4P, 1-ngc) ; j_max = min(j_p + nj_sigma + 1_I4P, nj+ngc)
-      k_min = max(k_p - nk_sigma - 1_I4P, 1-ngc) ; k_max = min(k_p + nk_sigma + 1_I4P, nk+ngc)
+      i_min = max(i_p - ni_sigma, 1-ngc) ; i_max = min(i_p + ni_sigma, ni+ngc)
+      j_min = max(j_p - nj_sigma, 1-ngc) ; j_max = min(j_p + nj_sigma, nj+ngc)
+      k_min = max(k_p - nk_sigma, 1-ngc) ; k_max = min(k_p + nk_sigma, nk+ngc)
 
       weight_sum = 0.0_R8P
       !$acc loop seq
       do k = k_min, k_max
          rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
-         if (abs(rz) > cutoff_limit) cycle
-         wz = exp(-0.5_R8P * rz * rz)
+         wz = effective_gaussian_weight_dev(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+         if (wz <= 0.0_R8P) cycle
          !$acc loop seq
          do j = j_min, j_max
             ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
-            if (abs(ry) > cutoff_limit) cycle
-            wy = exp(-0.5_R8P * ry * ry)
+            wy = effective_gaussian_weight_dev(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wy <= 0.0_R8P) cycle
             !$acc loop seq
             do i = i_min, i_max
                rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
-               if (abs(rx) > cutoff_limit) cycle
-               wx = exp(-0.5_R8P * rx * rx)
+               wx = effective_gaussian_weight_dev(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wx <= 0.0_R8P) cycle
                weight_sum = weight_sum + wx * wy * wz
             enddo
          enddo
@@ -899,18 +977,18 @@ contains
          !$acc loop seq
          do k = k_min, k_max
             rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
-            if (abs(rz) > cutoff_limit) cycle
-            wz = exp(-0.5_R8P * rz * rz)
+            wz = effective_gaussian_weight_dev(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wz <= 0.0_R8P) cycle
             !$acc loop seq
             do j = j_min, j_max
                ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
-               if (abs(ry) > cutoff_limit) cycle
-               wy = exp(-0.5_R8P * ry * ry)
+               wy = effective_gaussian_weight_dev(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wy <= 0.0_R8P) cycle
                !$acc loop seq
                do i = i_min, i_max
                   rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
-                  if (abs(rx) > cutoff_limit) cycle
-                  wx = exp(-0.5_R8P * rx * rx)
+                  wx = effective_gaussian_weight_dev(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+                  if (wx <= 0.0_R8P) cycle
                   weight = wx * wy * wz / weight_sum
                   !$acc atomic update
                   !$omp atomic update
@@ -924,6 +1002,7 @@ contains
 
    subroutine deposit_bspline_current_dev(self, field_fnl, grid, q_gpu, q_pic_gpu, nv, order)
    !< Deposit particle current density with centered cardinal B-splines.
+   implicit none
    class(prism_fnl_pic_object), intent(in)    :: self
    type(field_fnl_object),      intent(in)    :: field_fnl
    type(grid_object),           intent(in)    :: grid
@@ -994,19 +1073,28 @@ contains
                                    x_c=z_cell_gpu(block_p,k_p+ngc), i_p=k_p, &
                                    i_min=k_min, i_max=k_max)
 
+      if (self%filter_deposition) then
+         i_min = i_min - 1_I4P ; i_max = i_max + 1_I4P
+         j_min = j_min - 1_I4P ; j_max = j_max + 1_I4P
+         k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
+      endif
+
       i_min = max(i_min, 1-ngc) ; i_max = min(i_max, ni+ngc)
       j_min = max(j_min, 1-ngc) ; j_max = min(j_max, nj+ngc)
       k_min = max(k_min, 1-ngc) ; k_max = min(k_max, nk+ngc)
 
       !$acc loop seq
       do k = k_min, k_max
-         wz = bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz)
+         wz = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz, &
+                                           filter=self%filter_deposition)
          !$acc loop seq
          do j = j_min, j_max
-            wy = bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy)
+            wy = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy, &
+                                              filter=self%filter_deposition)
             !$acc loop seq
             do i = i_min, i_max
-               wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx)
+               wx = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx, &
+                                                 filter=self%filter_deposition)
                weight = wx * wy * wz
                !$acc atomic update
                !$omp atomic update
@@ -1025,6 +1113,7 @@ contains
 
    subroutine deposit_gaussian_current_dev(self, field_fnl, grid, q_gpu, q_pic_gpu, nv)
    !< Deposit particle current density with Gaussian support.
+   implicit none
    class(prism_fnl_pic_object), intent(in)    :: self
    type(field_fnl_object),      intent(in)    :: field_fnl
    type(grid_object),           intent(in)    :: grid
@@ -1040,6 +1129,7 @@ contains
    real(R8P)                                  :: rx, ry, rz, wx, wy, wz, weight, weight_sum
    real(R8P)                                  :: jx, jy, jz
    real(R8P)                                  :: cutoff_limit
+   real(R8P)                                  :: sx, sy, sz
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
@@ -1070,11 +1160,11 @@ contains
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$acc&         dx,dy,dz,sigma_x, sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, &
-   !$acc&         jx, jy, jz, cutoff_limit)
+   !$acc&         jx, jy, jz, cutoff_limit, sx, sy, sz)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$omp&         dx,dy,dz,sigma_x,sigma_y, sigma_z, inverse_cell_volume, rx, ry, rz, wx, wy, wz, weight, weight_sum, &
-   !$omp&         jx, jy, jz, cutoff_limit)
+   !$omp&         jx, jy, jz, cutoff_limit, sx, sy, sz)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -1089,35 +1179,43 @@ contains
       sigma_y = self%sigma
       sigma_z = self%sigma
       cutoff_limit = self%cutoff_sigma + 64.0_R8P*epsilon(self%cutoff_sigma)*max(1.0_R8P, abs(self%cutoff_sigma))
+      sx = dx / sigma_x
+      sy = dy / sigma_y
+      sz = dz / sigma_z
       inverse_cell_volume = 1.0_R8P / (dx * dy * dz)
       jx = q_pic_gpu(n,7) * q_pic_gpu(n,4) * inverse_cell_volume
       jy = q_pic_gpu(n,7) * q_pic_gpu(n,5) * inverse_cell_volume
       jz = q_pic_gpu(n,7) * q_pic_gpu(n,6) * inverse_cell_volume
 
-      ni_sigma = ceiling(self%cutoff_sigma * sigma_x / dx, kind=I4P)
-      nj_sigma = ceiling(self%cutoff_sigma * sigma_y / dy, kind=I4P)
-      nk_sigma = ceiling(self%cutoff_sigma * sigma_z / dz, kind=I4P)
+      ni_sigma = self%gaussian_support_cells
+      nj_sigma = self%gaussian_support_cells
+      nk_sigma = self%gaussian_support_cells
+      if (self%filter_deposition) then
+         ni_sigma = ni_sigma + 1_I4P
+         nj_sigma = nj_sigma + 1_I4P
+         nk_sigma = nk_sigma + 1_I4P
+      endif
 
-      i_min = max(i_p - ni_sigma - 1_I4P, 1-ngc) ; i_max = min(i_p + ni_sigma + 1_I4P, ni+ngc)
-      j_min = max(j_p - nj_sigma - 1_I4P, 1-ngc) ; j_max = min(j_p + nj_sigma + 1_I4P, nj+ngc)
-      k_min = max(k_p - nk_sigma - 1_I4P, 1-ngc) ; k_max = min(k_p + nk_sigma + 1_I4P, nk+ngc)
+      i_min = max(i_p - ni_sigma, 1-ngc) ; i_max = min(i_p + ni_sigma, ni+ngc)
+      j_min = max(j_p - nj_sigma, 1-ngc) ; j_max = min(j_p + nj_sigma, nj+ngc)
+      k_min = max(k_p - nk_sigma, 1-ngc) ; k_max = min(k_p + nk_sigma, nk+ngc)
 
       weight_sum = 0.0_R8P
       !$acc loop seq
       do k = k_min, k_max
          rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
-         if (abs(rz) > cutoff_limit) cycle
-         wz = exp(-0.5_R8P * rz * rz)
+         wz = effective_gaussian_weight_dev(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+         if (wz <= 0.0_R8P) cycle
          !$acc loop seq
          do j = j_min, j_max
             ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
-            if (abs(ry) > cutoff_limit) cycle
-            wy = exp(-0.5_R8P * ry * ry)
+            wy = effective_gaussian_weight_dev(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wy <= 0.0_R8P) cycle
             !$acc loop seq
             do i = i_min, i_max
                rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
-               if (abs(rx) > cutoff_limit) cycle
-               wx = exp(-0.5_R8P * rx * rx)
+               wx = effective_gaussian_weight_dev(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wx <= 0.0_R8P) cycle
                weight_sum = weight_sum + wx * wy * wz
             enddo
          enddo
@@ -1127,18 +1225,18 @@ contains
          !$acc loop seq
          do k = k_min, k_max
             rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
-            if (abs(rz) > cutoff_limit) cycle
-            wz = exp(-0.5_R8P * rz * rz)
+            wz = effective_gaussian_weight_dev(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wz <= 0.0_R8P) cycle
             !$acc loop seq
             do j = j_min, j_max
                ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
-               if (abs(ry) > cutoff_limit) cycle
-               wy = exp(-0.5_R8P * ry * ry)
+               wy = effective_gaussian_weight_dev(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wy <= 0.0_R8P) cycle
                !$acc loop seq
                do i = i_min, i_max
                   rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
-                  if (abs(rx) > cutoff_limit) cycle
-                  wx = exp(-0.5_R8P * rx * rx)
+                  wx = effective_gaussian_weight_dev(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+                  if (wx <= 0.0_R8P) cycle
                   weight = wx * wy * wz / weight_sum
                   !$acc atomic update
                   !$omp atomic update
@@ -1158,6 +1256,7 @@ contains
 
    subroutine gather_bspline_fields_dev(self, field_fnl, grid, pic_fields_gpu, q_gpu, q_pic_gpu, order)
    !< Gather cell-centered fields at particle locations with centered cardinal B-splines.
+   implicit none
    class(prism_fnl_pic_object), intent(in)    :: self
    type(field_fnl_object),      intent(in)    :: field_fnl
    type(grid_object),           intent(in)    :: grid
@@ -1218,6 +1317,12 @@ contains
                                    x_c=z_cell_gpu(block_p,k_p+ngc), i_p=k_p, &
                                    i_min=k_min, i_max=k_max)
 
+      if (self%filter_deposition) then
+         i_min = i_min - 1_I4P ; i_max = i_max + 1_I4P
+         j_min = j_min - 1_I4P ; j_max = j_max + 1_I4P
+         k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
+      endif
+
       i_min = max(i_min, 1-ngc) ; i_max = min(i_max, ni+ngc)
       j_min = max(j_min, 1-ngc) ; j_max = min(j_max, nj+ngc)
       k_min = max(k_min, 1-ngc) ; k_max = min(k_max, nk+ngc)
@@ -1227,13 +1332,16 @@ contains
 
       !$acc loop seq
       do k = k_min, k_max
-         wz = bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz)
+         wz = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz, &
+                                           filter=self%filter_deposition)
          !$acc loop seq
          do j = j_min, j_max
-            wy = bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy)
+            wy = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy, &
+                                              filter=self%filter_deposition)
             !$acc loop seq
             do i = i_min, i_max
-               wx = bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx)
+               wx = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx, &
+                                                 filter=self%filter_deposition)
                weight = wx * wy * wz
                f1 = f1 + weight * q_gpu(block_p,i,j,k,1)
                f2 = f2 + weight * q_gpu(block_p,i,j,k,2)
@@ -1256,6 +1364,7 @@ contains
 
    subroutine gather_gaussian_fields_dev(self, field_fnl, grid, pic_fields_gpu, q_gpu, q_pic_gpu)
    !< Gather cell-centered fields at particle locations with Gaussian support.
+   implicit none
    class(prism_fnl_pic_object), intent(in)    :: self
    type(field_fnl_object),      intent(in)    :: field_fnl
    type(grid_object),           intent(in)    :: grid
@@ -1271,6 +1380,7 @@ contains
    real(R8P)                                  :: rx, ry, rz, wx, wy, wz, weight, weight_sum
    real(R8P)                                  :: f1, f2, f3, f4, f5, f6
    real(R8P)                                  :: cutoff_limit
+   real(R8P)                                  :: sx, sy, sz
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
@@ -1287,11 +1397,11 @@ contains
    !$acc& DEVICEVAR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p,i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$acc&         dx, dy, dz, sigma_x, sigma_y, sigma_z, rx, ry, rz, wx, wy, wz, weight, weight_sum, &
-   !$acc&         f1, f2, f3, f4, f5, f6, cutoff_limit)
+   !$acc&         f1, f2, f3, f4, f5, f6, cutoff_limit, sx, sy, sz)
    !$omp OMPLOOP DEVICEPTR(pic_fields_gpu, q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, ni_sigma, nj_sigma, nk_sigma, &
    !$omp&         dx, dy, dz, sigma_x, sigma_y, sigma_z, rx, ry, rz, wx, wy, wz, weight, weight_sum, &
-   !$omp&         f1, f2, f3, f4, f5, f6, cutoff_limit)
+   !$omp&         f1, f2, f3, f4, f5, f6, cutoff_limit, sx, sy, sz)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) then
@@ -1315,31 +1425,39 @@ contains
       sigma_y = self%sigma
       sigma_z = self%sigma
       cutoff_limit = self%cutoff_sigma + 64.0_R8P*epsilon(self%cutoff_sigma)*max(1.0_R8P, abs(self%cutoff_sigma))
+      sx = dx / sigma_x
+      sy = dy / sigma_y
+      sz = dz / sigma_z
 
-      ni_sigma = ceiling(self%cutoff_sigma * sigma_x / dx, kind=I4P)
-      nj_sigma = ceiling(self%cutoff_sigma * sigma_y / dy, kind=I4P)
-      nk_sigma = ceiling(self%cutoff_sigma * sigma_z / dz, kind=I4P)
+      ni_sigma = self%gaussian_support_cells
+      nj_sigma = self%gaussian_support_cells
+      nk_sigma = self%gaussian_support_cells
+      if (self%filter_deposition) then
+         ni_sigma = ni_sigma + 1_I4P
+         nj_sigma = nj_sigma + 1_I4P
+         nk_sigma = nk_sigma + 1_I4P
+      endif
 
-      i_min = max(i_p - ni_sigma - 1_I4P, 1-ngc) ; i_max = min(i_p + ni_sigma + 1_I4P, ni+ngc)
-      j_min = max(j_p - nj_sigma - 1_I4P, 1-ngc) ; j_max = min(j_p + nj_sigma + 1_I4P, nj+ngc)
-      k_min = max(k_p - nk_sigma - 1_I4P, 1-ngc) ; k_max = min(k_p + nk_sigma + 1_I4P, nk+ngc)
+      i_min = max(i_p - ni_sigma, 1-ngc) ; i_max = min(i_p + ni_sigma, ni+ngc)
+      j_min = max(j_p - nj_sigma, 1-ngc) ; j_max = min(j_p + nj_sigma, nj+ngc)
+      k_min = max(k_p - nk_sigma, 1-ngc) ; k_max = min(k_p + nk_sigma, nk+ngc)
 
       weight_sum = 0.0_R8P
       !$acc loop seq
       do k = k_min, k_max
          rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
-         if (abs(rz) > cutoff_limit) cycle
-         wz = exp(-0.5_R8P * rz * rz)
+         wz = effective_gaussian_weight_dev(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+         if (wz <= 0.0_R8P) cycle
          !$acc loop seq
          do j = j_min, j_max
             ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
-            if (abs(ry) > cutoff_limit) cycle
-            wy = exp(-0.5_R8P * ry * ry)
+            wy = effective_gaussian_weight_dev(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wy <= 0.0_R8P) cycle
             !$acc loop seq
             do i = i_min, i_max
                rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
-               if (abs(rx) > cutoff_limit) cycle
-               wx = exp(-0.5_R8P * rx * rx)
+               wx = effective_gaussian_weight_dev(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wx <= 0.0_R8P) cycle
                weight_sum = weight_sum + wx * wy * wz
             enddo
          enddo
@@ -1352,18 +1470,18 @@ contains
          !$acc loop seq
          do k = k_min, k_max
             rz = (q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / sigma_z
-            if (abs(rz) > cutoff_limit) cycle
-            wz = exp(-0.5_R8P * rz * rz)
+            wz = effective_gaussian_weight_dev(r=rz, shift=sz, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+            if (wz <= 0.0_R8P) cycle
             !$acc loop seq
             do j = j_min, j_max
                ry = (q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / sigma_y
-               if (abs(ry) > cutoff_limit) cycle
-               wy = exp(-0.5_R8P * ry * ry)
+               wy = effective_gaussian_weight_dev(r=ry, shift=sy, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+               if (wy <= 0.0_R8P) cycle
                !$acc loop seq
                do i = i_min, i_max
                   rx = (q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / sigma_x
-                  if (abs(rx) > cutoff_limit) cycle
-                  wx = exp(-0.5_R8P * rx * rx)
+                  wx = effective_gaussian_weight_dev(r=rx, shift=sx, cutoff_limit=cutoff_limit, filter=self%filter_deposition)
+                  if (wx <= 0.0_R8P) cycle
                   weight = wx * wy * wz / weight_sum
                   f1 = f1 + weight * q_gpu(block_p,i,j,k,1)
                   f2 = f2 + weight * q_gpu(block_p,i,j,k,2)
@@ -1389,6 +1507,7 @@ contains
    !< Compute the one-dimensional B-spline stencil.
    !$acc routine seq
    !$omp declare target
+   implicit none
    integer(I4P), intent(in)  :: order
    real(R8P),    intent(in)  :: x_p, x_c
    integer(I4P), intent(in)  :: i_p
@@ -1428,16 +1547,87 @@ contains
          i_min = i_p - 2_I4P
          i_max = i_p + 3_I4P
       endif
+   case(6_I4P)
+      i_min = i_p - 3_I4P
+      i_max = i_p + 3_I4P
    case default
       i_min = i_p
       i_max = i_p
    endselect
    endsubroutine set_bspline_stencil_dev
 
+   pure function effective_bspline_weight_dev(order, r, filter) result(weight)
+   !< Return the optionally binomial-filtered one-dimensional B-spline weight.
+   !$acc routine seq
+   !$omp declare target
+   implicit none
+   integer(I4P), intent(in) :: order
+   real(R8P),    intent(in) :: r
+   logical,      intent(in) :: filter
+   real(R8P)                :: weight
+   real(R8P), parameter     :: tol = 64.0_R8P * epsilon(1.0_R8P)
+
+   if (filter) then
+      if (order == 0_I4P) then
+         if (r > -0.5_R8P + tol .and. r <= 0.5_R8P + tol) then
+            weight = 0.50_R8P
+         elseif ((r > 0.5_R8P - tol .and. r <= 1.5_R8P + tol) .or. &
+                 (r > -1.5_R8P - tol .and. r <= -0.5_R8P + tol)) then
+            weight = 0.25_R8P
+         else
+            weight = 0.0_R8P
+         endif
+      else
+         weight = 0.25_R8P*bspline_weight_dev(order=order, r=r + 1.0_R8P) &
+                + 0.50_R8P*bspline_weight_dev(order=order, r=r)           &
+                + 0.25_R8P*bspline_weight_dev(order=order, r=r - 1.0_R8P)
+      endif
+   else
+      weight = bspline_weight_dev(order=order, r=r)
+   endif
+   endfunction effective_bspline_weight_dev
+
+   pure function gaussian_weight_dev(r, cutoff_limit) result(weight)
+   !< Return an unnormalized one-dimensional Gaussian weight with compact cutoff.
+   !$acc routine seq
+   !$omp declare target
+   implicit none
+   real(R8P), intent(in) :: r
+   real(R8P), intent(in) :: cutoff_limit
+   real(R8P)             :: weight
+
+   if (abs(r) <= cutoff_limit) then
+      weight = exp(-0.5_R8P*r*r)
+   else
+      weight = 0.0_R8P
+   endif
+   endfunction gaussian_weight_dev
+
+   pure function effective_gaussian_weight_dev(r, shift, cutoff_limit, filter) result(weight)
+   !< Return the optionally binomial-filtered one-dimensional Gaussian weight.
+   !$acc routine seq
+   !$omp declare target
+   implicit none
+   real(R8P), intent(in) :: r
+   real(R8P), intent(in) :: shift
+   real(R8P), intent(in) :: cutoff_limit
+   logical,   intent(in) :: filter
+   real(R8P)             :: weight
+
+   if (filter) then
+      weight = 0.25_R8P*gaussian_weight_dev(r=r + shift, cutoff_limit=cutoff_limit) &
+             + 0.50_R8P*gaussian_weight_dev(r=r,         cutoff_limit=cutoff_limit) &
+             + 0.25_R8P*gaussian_weight_dev(r=r - shift, cutoff_limit=cutoff_limit)
+   else
+      weight = gaussian_weight_dev(r=r, cutoff_limit=cutoff_limit)
+   endif
+   endfunction effective_gaussian_weight_dev
+
    pure function bspline_weight_dev(order, r) result(weight)
    !< Return the centered cardinal B-spline weight.
    !$acc routine seq
    !$omp declare target
+   implicit none
    integer(I4P), intent(in) :: order
    real(R8P),    intent(in) :: r
    real(R8P)                :: weight
@@ -1447,7 +1637,11 @@ contains
 
    select case(order)
    case(0_I4P)
-      weight = 1.0_R8P
+      if (r > -0.5_R8P .and. r <= 0.5_R8P) then
+         weight = 1.0_R8P
+      else
+         weight = 0.0_R8P
+      endif
    case(1_I4P)
       if (a <= 1.0_R8P) then
          weight = 1.0_R8P - a
@@ -1491,6 +1685,25 @@ contains
          weight = ((3.0_R8P - a)**5 - 6.0_R8P * (2.0_R8P - a)**5) / 120.0_R8P
       elseif (a <= 3.0_R8P) then
          weight = (3.0_R8P - a)**5 / 120.0_R8P
+      else
+         weight = 0.0_R8P
+      endif
+   case(6_I4P)
+      ! Sextic B-spline: support |r| <= 7/2.
+      if (a <= 0.5_R8P) then
+         weight = ((3.5_R8P - a)**6                         &
+                  - 7.0_R8P  * (2.5_R8P - a)**6             &
+                  + 21.0_R8P * (1.5_R8P - a)**6             &
+                  - 35.0_R8P * (0.5_R8P - a)**6) / 720.0_R8P
+      elseif (a <= 1.5_R8P) then
+         weight = ((3.5_R8P - a)**6                         &
+                  - 7.0_R8P  * (2.5_R8P - a)**6             &
+                  + 21.0_R8P * (1.5_R8P - a)**6) / 720.0_R8P
+      elseif (a <= 2.5_R8P) then
+         weight = ((3.5_R8P - a)**6                         &
+                  - 7.0_R8P * (2.5_R8P - a)**6) / 720.0_R8P
+      elseif (a <= 3.5_R8P) then
+         weight = (3.5_R8P - a)**6 / 720.0_R8P
       else
          weight = 0.0_R8P
       endif
