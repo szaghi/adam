@@ -872,8 +872,12 @@ contains
    integer(I4P)                       :: j_send            !< J send index.
    integer(I4P)                       :: k_send            !< K send index.
    integer(I4P)                       :: one_or_eight      !< Flag triggering 8 cells mean.
+   integer(I4P)                       :: r(1:3)            !< Refinement ratio per axis (1 on an unrefined axis, #46).
+   real(R8P)                          :: mean_factor       !< 1 / (r(1) r(2) r(3)), exact (a power of two).
 
    if (.not.allocated(maps%local_map_ghost_cell)) return
+   r = maps%refine_ratio
+   mean_factor = 1._R8P / real(product(r), R8P)
    associate(local_map_ghost_cell=>maps%local_map_ghost_cell)
    do mf=1, size(local_map_ghost_cell, dim=1)
       do v=1, size(q, dim=1)
@@ -896,12 +900,13 @@ contains
                                                                  i_send=i_send, j_send=j_send, k_send=k_send,   &
                                                                  b_send=b_send)
          else
+            ! fine->coarse restriction: the mean of the r(1) r(2) r(3) finer cells
             q(v,i_recv,j_recv,k_recv,b_recv) = 0._R8P
-            do kc=0,1 ; do jc=0,1 ; do ic=0,1
+            do kc=0,r(3)-1 ; do jc=0,r(2)-1 ; do ic=0,r(1)-1
                q(v,i_recv,j_recv,k_recv,b_recv) = q(v,i_recv,   j_recv,   k_recv,   b_recv) + &
                                                   q(v,i_send+ic,j_send+jc,k_send+kc,b_send)
             enddo ; enddo ; enddo
-            q(v,i_recv,j_recv,k_recv,b_recv) = q(v,i_recv,j_recv,k_recv,b_recv) * 0.125_R8P
+            q(v,i_recv,j_recv,k_recv,b_recv) = q(v,i_recv,j_recv,k_recv,b_recv) * mean_factor
          endif
       enddo
    enddo
@@ -972,6 +977,8 @@ contains
    integer(I4P)                              :: b_send,i_send,j_send,k_send,v_send !< Send indexes.
    integer(I4P)                              :: c_recv                             !< Counter.
    integer(I4P)                              :: one_or_eight                       !< Flag triggering 8 cells mean.
+   integer(I4P)                              :: r(1:3)                             !< Refinement ratio per axis (#46).
+   real(R8P)                                 :: mean_factor                        !< 1 / (r(1) r(2) r(3)), exact.
    integer(I4P)                              :: rf                                 !< Counter.
    integer(I4P)                              :: b_recv,i_recv,j_recv,k_recv,v_recv !< Receive indexes.
    integer(I4P)                              :: c_send                             !< Counter.
@@ -993,6 +1000,8 @@ contains
    if (do_step(1)) then
       req_send_recv = MPI_REQUEST_NULL
       if (allocated(maps%comm_map_send_ghost_cell)) then
+         r = maps%refine_ratio
+         mean_factor = 1._R8P / real(product(r), R8P)
          do sf=1, size(maps%comm_map_send_ghost_cell, dim=1)
             b_send       = maps%comm_map_send_ghost_cell(sf,1)
             i_send       = maps%comm_map_send_ghost_cell(sf,2)
@@ -1012,10 +1021,10 @@ contains
                                                              b_send=b_send)
             else
                send_buffer_ghost(c_recv) = 0._R8P
-               do kc=0,1 ; do jc=0,1 ; do ic=0,1
+               do kc=0,r(3)-1 ; do jc=0,r(2)-1 ; do ic=0,r(1)-1 ! the mean of the r(1) r(2) r(3) finer cells
                   send_buffer_ghost(c_recv) = send_buffer_ghost(c_recv) + q(v_send,i_send+ic,j_send+jc,k_send+kc,b_send)
                enddo ; enddo ; enddo
-               send_buffer_ghost(c_recv) = send_buffer_ghost(c_recv) * 0.125_R8P
+               send_buffer_ghost(c_recv) = send_buffer_ghost(c_recv) * mean_factor
             endif
          enddo
       endif

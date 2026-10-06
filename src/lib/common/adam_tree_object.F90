@@ -1352,6 +1352,10 @@ contains
    else
       ijk_size = 2**l
    endif
+   ! an axis the tree does not refine has one block at every level: past it is the boundary (or the block itself if the
+   ! axis is periodic), not a block of the same column (issue #46)
+   if (self%ratio < 8_I4P) ijk_size(3) = 1
+   if (self%ratio < 4_I4P) ijk_size(2) = 1
 
    ! initialize ijk of direct neighbor node as a standard node
    neighbor_type = NODE_STANDARD
@@ -1418,6 +1422,10 @@ contains
       elseif (delta(i)==0) then
          ijkmin(i) = 0
          ijkmax(i) = 1
+         ! an axis the tree does not refine (z of a quadtree, y and z of a binary tree) has one child across it: listing
+         ! two would repeat each child (issue #46)
+         if (i == 3 .and. self%ratio < 8_I4P) ijkmax(i) = 0
+         if (i == 2 .and. self%ratio < 4_I4P) ijkmax(i) = 0
       endif
    enddo
    ! in ijkmin/ijkmax there are the ratio/2 deltas in binary notation that select the ratio/2 children of

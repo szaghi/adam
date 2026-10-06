@@ -10,7 +10,7 @@ use :: adam_parameters
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
-use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, &
+use :: adam_seam_interpolation_library, only : SEAM_SUB_COINCIDENT, seam_meta_pack, seam_shift_anchor_pos, &
                                                seam_tricubic_centered_pos, seam_compatible_centered_pos, &
                                                SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC
 ! third party modules
@@ -98,6 +98,8 @@ type :: maps_object
                                                          !< `[amr] seam_ghost_fill` INI key by `adam_object%initialize`
                                                          !< BEFORE any ghost-map build; default injection so that map builds
                                                          !< predating the parse (or tests bypassing it) keep legacy behavior.
+   integer(I4P) :: refine_ratio(3) = 2_I4P !< Refinement ratio per axis of a 2:1 seam: 2, or 1 along an axis the tree does not
+                                           !< refine (z of a quadtree, y and z of a binary tree, issue #46). Set from the tree.
    ! local maps
    integer(I8P), allocatable :: local_map(:,:)            !< Local map, list block index changes of my nodes.
    integer(I8P), allocatable :: local_map_ghost(:,:)      !< Local map for ghost cells updating [fec_number, 4].
@@ -419,6 +421,14 @@ contains
    if (verbose_) call mpih%print_message('maps_object%initialize start')
    if (.not.tree%is_initialized_) &
       call mpih%error_stop(': maps_object%initialize: tree is not initialized')
+   select case(tree%ratio)
+   case(2_I4P)
+      self%refine_ratio = [2_I4P, 1_I4P, 1_I4P]
+   case(4_I4P)
+      self%refine_ratio = [2_I4P, 2_I4P, 1_I4P]
+   case default
+      self%refine_ratio = 2_I4P
+   endselect
    allocate(self%comm_map_n_send(0:mpih%procs_number-1))
    allocate(self%comm_map_n_recv(0:mpih%procs_number-1))
    allocate(self%comm_map_send_ptr(0:mpih%procs_number))
@@ -793,7 +803,8 @@ contains
    iter%b = 1_I4P ; iter%p => null()
    do while(tree%loop(iter, node_ptr=node_ptr))
       do fec=1, 26
-         weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
+         ! the tangential axes the tree refines halve the ghost slab of a finer neighbour (issue #46)
+         weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P .and. self%refine_ratio==2_I4P, dim=1)
          if (allocated(node_ptr%neighbor(fec)%codes)) then
             neighbor      = node_ptr%neighbor(fec)%codes
             neighbor_type = node_ptr%neighbor(fec)%ntype
@@ -913,7 +924,9 @@ contains
    integer(I4P)                      :: jdelta             !< Delta offset for ghost-inner cells of j.
    integer(I4P)                      :: kdelta             !< Delta offset for ghost-inner cells of k.
    integer(I4P)                      :: recv_ptr, recv_ctr !< Counter.
+   integer(I4P)                      :: r(1:3)             !< Refinement ratio per axis (1 on an unrefined axis, #46).
 
+   r = self%refine_ratio
    if (allocated(self%comm_map_recv_ghost)) self%comm_map_recv_ghost(:,15) = self%comm_map_recv_ghost(:,15) * nv
    if (allocated(self%comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = self%comm_map_recv_ptr_ghost * nv
    if (allocated(self%comm_map_recv_ghost_cell)) deallocate(self%comm_map_recv_ghost_cell)
@@ -944,10 +957,10 @@ contains
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
-                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                     kkk = r(3) * k + kdelta
+                     jjj = r(2) * j + jdelta
+                     iii = r(1) * i + idelta
+                     do kc=0,r(3)-1 ; do jc=0,r(2)-1 ; do ic=0,r(1)-1
                         if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
                         if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
                         if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
@@ -995,10 +1008,10 @@ contains
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
-                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                     kkk = r(3) * k + kdelta
+                     jjj = r(2) * j + jdelta
+                     iii = r(1) * i + idelta
+                     do kc=0,r(3)-1 ; do jc=0,r(2)-1 ; do ic=0,r(1)-1
                         if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
                         if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
                         if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
@@ -1061,7 +1074,9 @@ contains
    integer(I4P)                      :: jdelta              !< Delta offset for ghost-inner cells of j.
    integer(I4P)                      :: kdelta              !< Delta offset for ghost-inner cells of k.
    integer(I4P)                      :: send_ptr, send_ctr  !< Counter.
+   integer(I4P)                      :: r(1:3)              !< Refinement ratio per axis (1 on an unrefined axis, #46).
 
+   r = self%refine_ratio
    if (allocated(self%comm_map_send_ghost)) self%comm_map_send_ghost(:,15) = self%comm_map_send_ghost(:,15) * nv
    if (allocated(self%comm_map_send_ptr_ghost)) self%comm_map_send_ptr_ghost = self%comm_map_send_ptr_ghost * nv
    if (allocated(self%comm_map_send_ghost_cell)) deallocate(self%comm_map_send_ghost_cell)
@@ -1092,10 +1107,10 @@ contains
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
-                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                     kkk = r(3) * k + kdelta
+                     jjj = r(2) * j + jdelta
+                     iii = r(1) * i + idelta
+                     do kc=0,r(3)-1 ; do jc=0,r(2)-1 ; do ic=0,r(1)-1
                         if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
                         if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
                         if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
@@ -1142,26 +1157,34 @@ contains
             enddo
          elseif (portion<0_I4P) then ! Beware! This is < 0 because the reference is the receiver
             ! sending to a block finer than me
-            if (any(nijk < 4_I4P)) call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 '// &
-                                                            '(coarse->fine footprint cannot fit the donor block)')
+            if (any(nijk < 4_I4P .and. r == 2_I4P)) &
+               call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 along the refined axes '// &
+                                        '(coarse->fine footprint cannot fit the donor block)')
             send_ctr = 1
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
                      anchor = [i, j, k]
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
-                     do n=1,8
+                     kkk = r(3) * k + kdelta
+                     jjj = r(2) * j + jdelta
+                     iii = r(1) * i + idelta
+                     do n=1,product(r)
                         ! octant order must match the recv-side unpack loops (kc,jc,ic with ic fastest)
-                        ic = mod(n - 1, 2)
-                        jc = mod((n - 1) / 2, 2)
-                        kc = (n - 1) / 4
+                        ic = mod(n - 1, r(1))
+                        jc = mod((n - 1) / r(1), r(2))
+                        kc = (n - 1) / (r(1) * r(2))
                         if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
                         if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
                         if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
                         sub = [ic, jc, kc] + 1_I4P
+                        where (r == 1_I4P) sub = SEAM_SUB_COINCIDENT ! the fine ghost and the donor share the cell
                         do d=1, 3
+                           if (r(d) == 1_I4P) then
+                              ! identity weight at the anchor: centred, the unread nodes stay within the ghost layers
+                              p4(d) = 2_I4P
+                              p3(d) = 2_I4P
+                              cycle
+                           endif
                            p4(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
                                                          p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
                            p3(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
@@ -1191,14 +1214,14 @@ contains
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
+                     kkk = r(3) * k + kdelta
+                     jjj = r(2) * j + jdelta
+                     iii = r(1) * i + idelta
                      do v=1, nv
                         self%comm_map_send_ghost_cell(c, 1:4) = [b_send,iii,jjj,kkk]
                         self%comm_map_send_ghost_cell(c,  5 ) = v
                         self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
-                        self%comm_map_send_ghost_cell(c,  7 ) = 8
+                        self%comm_map_send_ghost_cell(c,  7 ) = 8 ! the mean of the r(1) r(2) r(3) finer cells
                         self%comm_map_send_ghost_cell(c,  8 ) = 0
                         send_ctr = send_ctr + 1
                         c = c + 1
@@ -1247,7 +1270,9 @@ contains
    integer(I4P)                      :: idelta        !< Delta offset for ghost-inner cells of i.
    integer(I4P)                      :: jdelta        !< Delta offset for ghost-inner cells of j.
    integer(I4P)                      :: kdelta        !< Delta offset for ghost-inner cells of k.
+   integer(I4P)                      :: r(1:3)        !< Refinement ratio per axis (1 on an unrefined axis, issue #46).
 
+   r = self%refine_ratio
    if (allocated(self%local_map_ghost_cell)) deallocate(self%local_map_ghost_cell)
    if (allocated(self%local_map_ghost)) then
       c = 0
@@ -1276,10 +1301,10 @@ contains
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
-                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                     kkk = r(3) * k + kdelta
+                     jjj = r(2) * j + jdelta
+                     iii = r(1) * i + idelta
+                     do kc=0,r(3)-1 ; do jc=0,r(2)-1 ; do ic=0,r(1)-1
                         if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
                         if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
                         if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
@@ -1324,13 +1349,13 @@ contains
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
+                     kkk = r(3) * k + kdelta
+                     jjj = r(2) * j + jdelta
+                     iii = r(1) * i + idelta
                      self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
                      self%local_map_ghost_cell(c,3:5) = [iii, jjj, kkk]
                      self%local_map_ghost_cell(c,6:8) = [i, j, k]
-                     self%local_map_ghost_cell(c, 9 ) = 8
+                     self%local_map_ghost_cell(c, 9 ) = 8 ! the mean of the r(1) r(2) r(3) finer cells
                      self%local_map_ghost_cell(c, 10) = 0
                      c = c + 1
                   enddo
@@ -1338,21 +1363,29 @@ contains
             enddo
          else
             ! receiving from a block coarser than me
-            if (any(nijk < 4_I4P)) call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 '// &
-                                                            '(coarse->fine footprint cannot fit the donor block)')
+            if (any(nijk < 4_I4P .and. r == 2_I4P)) &
+               call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 along the refined axes '// &
+                                        '(coarse->fine footprint cannot fit the donor block)')
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
+                     kkk = r(3) * k + kdelta
+                     jjj = r(2) * j + jdelta
+                     iii = r(1) * i + idelta
                      anchor = [i, j, k]
-                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                     do kc=0,r(3)-1 ; do jc=0,r(2)-1 ; do ic=0,r(1)-1
                         if (iii+ic < 1-ngc .or. iii+ic > nijk(1)+ngc) cycle
                         if (jjj+jc < 1-ngc .or. jjj+jc > nijk(2)+ngc) cycle
                         if (kkk+kc < 1-ngc .or. kkk+kc > nijk(3)+ngc) cycle
                         sub = [ic, jc, kc] + 1_I4P
+                        where (r == 1_I4P) sub = SEAM_SUB_COINCIDENT ! the fine ghost and the donor share the cell
                         do d=1, 3
+                           if (r(d) == 1_I4P) then
+                              ! identity weight at the anchor: centred, the unread nodes stay within the ghost layers
+                              p4(d) = 2_I4P
+                              p3(d) = 2_I4P
+                              cycle
+                           endif
                            p4(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
                                                          p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
                            p3(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
@@ -1528,6 +1561,11 @@ contains
             ijkmin(i) = 1 - ngc
             ijkmax(i) = 0
             ijkdelta(i) = -1 + nijk(i)
+         elseif (delta(i)==0 .and. self%refine_ratio(i)==1) then
+            ! an unrefined axis: the finer neighbour spans it, cell for cell (no portion bit)
+            ijkmin(i) = 1
+            ijkmax(i) = nijk(i)
+            ijkdelta(i) = 0
          elseif (delta(i)==0) then
             portion_cur = mod(abs_portion-1, 2)
             abs_portion = 2 * portion_cur + (abs_portion - 1) / 2 + 1
@@ -1556,6 +1594,11 @@ contains
             ijkmin(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - (ngc + 1) / 2
             ijkmax(i) = ijkmin(i) + (ngc + 1) / 2 - 1
             ijkdelta(i) = - nijk(i) -  nijk(i) * portion_array(i) - 1
+         elseif (delta(i)==0 .and. self%refine_ratio(i)==1) then
+            ! an unrefined axis: the coarser neighbour spans it, cell for cell
+            ijkmin(i) = 1
+            ijkmax(i) = nijk(i)
+            ijkdelta(i) = 0
          elseif (delta(i)==0) then
             ijkmin(i) = nijk(i) / 2 * portion_array(i) + 1
             ijkmax(i) = ijkmin(i) + nijk(i) / 2 - 1
@@ -1591,7 +1634,8 @@ contains
    iter%b = 1_I4P ; iter%p => null()
    do while(tree%loop(iter, node_ptr=node_ptr))
       do fec=1, 26
-         weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
+         ! the tangential axes the tree refines halve the ghost slab of a finer neighbour (issue #46)
+         weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P .and. self%refine_ratio==2_I4P, dim=1)
          if (allocated(node_ptr%neighbor(fec)%codes)) then
             neighbor         = node_ptr%neighbor(fec)%codes
             neighbor_type    = node_ptr%neighbor(fec)%ntype

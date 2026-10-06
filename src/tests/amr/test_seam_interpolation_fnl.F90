@@ -39,7 +39,7 @@ contains
    !$omp OMPLOOP collapse(3) &
    !$omp& DEVICEPTR(w4_dev)
    do p=1, 4
-      do s=1, 2
+      do s=1, 3
          do i=1, 4
             w4_dev(i,s,p) = SEAM_W_TRICUBIC(i,s,p)
          enddo
@@ -50,7 +50,7 @@ contains
    !$omp OMPLOOP collapse(3) &
    !$omp& DEVICEPTR(w3_dev)
    do p=1, 3
-      do s=1, 2
+      do s=1, 3
          do i=1, 3
             w3_dev(i,s,p) = SEAM_W_COMPATIBLE(i,s,p)
          enddo
@@ -60,7 +60,7 @@ contains
    !$acc& DEVICEVAR(wq_dev)
    !$omp OMPLOOP collapse(2) &
    !$omp& DEVICEPTR(wq_dev)
-   do s=1, 2
+   do s=1, 3
       do i=1, 3
          wq_dev(i,s) = SEAM_W_QUADRATIC(i,s)
       enddo
@@ -297,12 +297,12 @@ mydev = dev_get_device_num()
 
 table_residency: block
    real(R8P), pointer :: w4_dev(:,:,:), w3_dev(:,:,:), wq_dev(:,:)
-   real(R8P)          :: w4(1:4,1:2,1:4), w3(1:3,1:2,1:3), wq(1:3,1:2)
+   real(R8P)          :: w4(1:4,1:3,1:4), w3(1:3,1:3,1:3), wq(1:3,1:3)
    logical            :: ok
 
-   call dev_alloc(fptr_dev=w4_dev, lbounds=[1,1,1], ubounds=[4,2,4], ierr=ierr)
-   call dev_alloc(fptr_dev=w3_dev, lbounds=[1,1,1], ubounds=[3,2,3], ierr=ierr)
-   call dev_alloc(fptr_dev=wq_dev, lbounds=[1,1],   ubounds=[3,2],   ierr=ierr)
+   call dev_alloc(fptr_dev=w4_dev, lbounds=[1,1,1], ubounds=[4,3,4], ierr=ierr)
+   call dev_alloc(fptr_dev=w3_dev, lbounds=[1,1,1], ubounds=[3,3,3], ierr=ierr)
+   call dev_alloc(fptr_dev=wq_dev, lbounds=[1,1],   ubounds=[3,3],   ierr=ierr)
    call dump_tables_dev(w4_dev=w4_dev, w3_dev=w3_dev, wq_dev=wq_dev)
    call dev_memcpy_from_device(dst=w4, src=w4_dev)
    call dev_memcpy_from_device(dst=w3, src=w3_dev)

@@ -31,6 +31,14 @@ module adam_seam_interpolation_library
 !< All weights are integer/2^k rationals: EXACT in binary floating point.
 !< Partition of unity therefore holds to 0 ulp in every table.
 !<
+!< **Unrefined directions (issue #46).** A quadtree refines x and y only (a binary
+!< tree x only): along an unrefined direction the fine ghost and the coarse donor
+!< share the cell, the sub-position is "coincident" (sub=3, eta=0) and the 1D
+!< weight is the identity at the anchor node, in every table. The evaluators skip
+!< the zero-weight footprint nodes, so the unread donors (beyond the cells of a
+!< block one cell thick, nk = 1) never enter the sum; on refined directions no
+!< tricubic weight is zero and the octree results are unchanged bit for bit.
+!<
 !< **Device availability (issue #22 F2).** Every public procedure carries
 !< `!$acc routine seq`: single-source host/device, callable from OpenACC
 !< parallel regions on the FNL backend (weight tables are parameters,
@@ -45,48 +53,58 @@ public :: SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, SEAM_W_QUADRATIC
 public :: seam_tricubic_centered_pos, seam_compatible_centered_pos
 public :: seam_interpolate_tricubic, seam_interpolate_compatible, seam_interpolate_quadratic
 public :: seam_shift_anchor_pos, seam_meta_pack, seam_meta_unpack
+public :: SEAM_SUB_COINCIDENT
 
 integer(I4P), parameter :: SEAM_FILL_INJECTION  = 0_I4P !< Regime: 0th-order injection (legacy behavior).
 integer(I4P), parameter :: SEAM_FILL_COMPATIBLE = 1_I4P !< Regime: restriction-compatible fill, q=2 (diagnostic arm).
 integer(I4P), parameter :: SEAM_FILL_TRICUBIC   = 2_I4P !< Regime: plain tensor tricubic, q=4 (default candidate).
+integer(I4P), parameter :: SEAM_SUB_COINCIDENT  = 3_I4P !< Sub-position of an unrefined direction (eta = 0, issue #46).
 
-real(R8P), parameter :: SEAM_W_TRICUBIC(1:4,1:2,1:4) = reshape([ &
+real(R8P), parameter :: SEAM_W_TRICUBIC(1:4,1:3,1:4) = reshape([ &
    ! p=1 (anchor at node 1; offsets 0..3)
    195._R8P, -117._R8P,   65._R8P,  -15._R8P,  & ! sub=1, eta=-1/4
     77._R8P,   77._R8P,  -33._R8P,    7._R8P,  & ! sub=2, eta=+1/4
+   128._R8P,    0._R8P,    0._R8P,    0._R8P,  & ! sub=3, eta=0 (unrefined direction)
    ! p=2 (offsets -1..2; centered for sub=2)
     15._R8P,  135._R8P,  -27._R8P,    5._R8P,  & ! sub=1
     -7._R8P,  105._R8P,   35._R8P,   -5._R8P,  & ! sub=2
+     0._R8P,  128._R8P,    0._R8P,    0._R8P,  & ! sub=3
    ! p=3 (offsets -2..1; centered for sub=1)
     -5._R8P,   35._R8P,  105._R8P,   -7._R8P,  & ! sub=1
      5._R8P,  -27._R8P,  135._R8P,   15._R8P,  & ! sub=2
+     0._R8P,    0._R8P,  128._R8P,    0._R8P,  & ! sub=3
    ! p=4 (anchor at node 4; offsets -3..0)
      7._R8P,  -33._R8P,   77._R8P,   77._R8P,  & ! sub=1
-   -15._R8P,   65._R8P, -117._R8P,  195._R8P], & ! sub=2
-   [4,2,4]) / 128._R8P
-   !< 1D cubic Lagrange weights at eta = -+1/4: (node 1:4, sub 1:2, anchor position p 1:4).
+   -15._R8P,   65._R8P, -117._R8P,  195._R8P,  & ! sub=2
+     0._R8P,    0._R8P,    0._R8P,  128._R8P], & ! sub=3
+   [4,3,4]) / 128._R8P
+   !< 1D cubic Lagrange weights at eta = -+1/4 and the identity at eta = 0: (node 1:4, sub 1:3, anchor position p 1:4).
    !< Exact for per-direction polynomials of degree <= 3 in every state.
 
-real(R8P), parameter :: SEAM_W_COMPATIBLE(1:3,1:2,1:3) = reshape([ &
+real(R8P), parameter :: SEAM_W_COMPATIBLE(1:3,1:3,1:3) = reshape([ &
    ! p=1 (offsets 0..2): linear interp/extrapolation pair, mean = e_1
    10._R8P,  -2._R8P,   0._R8P,  & ! sub=1
     6._R8P,   2._R8P,   0._R8P,  & ! sub=2
+    8._R8P,   0._R8P,   0._R8P,  & ! sub=3 (unrefined direction)
    ! p=2 (offsets -1..1): the unique symmetric compatible pair, mean = e_2
     1._R8P,   8._R8P,  -1._R8P,  & ! sub=1
    -1._R8P,   8._R8P,   1._R8P,  & ! sub=2
+    0._R8P,   8._R8P,   0._R8P,  & ! sub=3
    ! p=3 (offsets -2..0): mirror of p=1, mean = e_3
     0._R8P,   2._R8P,   6._R8P,  & ! sub=1
-    0._R8P,  -2._R8P,  10._R8P], & ! sub=2
-   [3,2,3]) / 8._R8P
-   !< 1D restriction-compatible weights (node 1:3, sub 1:2, anchor position p 1:3):
+    0._R8P,  -2._R8P,  10._R8P,  & ! sub=2
+    0._R8P,   0._R8P,   8._R8P], & ! sub=3
+   [3,3,3]) / 8._R8P
+   !< 1D restriction-compatible weights (node 1:3, sub 1:3, anchor position p 1:3; sub=3 the identity):
    !< exact for linears; per direction (w(sub=1)+w(sub=2))/2 = e_p exactly, so the
    !< 8-octant mean of the tensor interpolant equals the anchor value for ARBITRARY
    !< data (exact R o P = I). Maximal-order compatible fill (q = 2, see theorem above).
 
-real(R8P), parameter :: SEAM_W_QUADRATIC(1:3,1:2) = reshape([ &
+real(R8P), parameter :: SEAM_W_QUADRATIC(1:3,1:3) = reshape([ &
     5._R8P,  30._R8P,  -3._R8P,  & ! sub=1, eta=-1/4
-   -3._R8P,  30._R8P,   5._R8P], & ! sub=2, eta=+1/4
-   [3,2]) / 32._R8P
+   -3._R8P,  30._R8P,   5._R8P,  & ! sub=2, eta=+1/4
+    0._R8P,  32._R8P,   0._R8P], & ! sub=3, eta=0 (unrefined direction)
+   [3,3]) / 32._R8P
    !< 1D centered quadratic weights (node 1:3 at offsets -1..1, sub 1:2): the G3
    !< safety valve, exact for per-direction degree <= 2 (q = 3). Centered only.
 
@@ -94,12 +112,12 @@ contains
    pure function seam_tricubic_centered_pos(sub) result(p)
    !< Centered anchor position for the tricubic footprint: nodes -1..2 for
    !< eta=+1/4 (p=2), nodes -2..1 for eta=-1/4 (p=3).
-   integer(I4P), intent(in) :: sub !< Octant sub-position (1 => eta=-1/4, 2 => eta=+1/4).
+   integer(I4P), intent(in) :: sub !< Octant sub-position (1 => eta=-1/4, 2 => eta=+1/4, 3 => eta=0, unrefined).
    integer(I4P)             :: p   !< Anchor position in the 4-node footprint.
    !$acc routine seq
    !$omp declare target
 
-   p = 4_I4P - sub
+   p = 4_I4P - min(sub, 2_I4P)
    endfunction seam_tricubic_centered_pos
 
    pure function seam_compatible_centered_pos(sub) result(p)
@@ -118,7 +136,7 @@ contains
    !< k - anchor_pos(3))` in coarse-cell units; the target is the octant center
    !< `(eta(sub(1)), eta(sub(2)), eta(sub(3)))`, eta = (-1)^sub / 4.
    real(R8P),    intent(in) :: footprint(1:4,1:4,1:4) !< Coarse donor values.
-   integer(I4P), intent(in) :: sub(1:3)               !< Octant sub-position per direction (1|2).
+   integer(I4P), intent(in) :: sub(1:3)               !< Octant sub-position per direction (1|2|3).
    integer(I4P), intent(in) :: anchor_pos(1:3)        !< Anchor position per direction (1..4).
    real(R8P)                :: value_                 !< Interpolated fine-ghost value.
    real(R8P)                :: wyz                    !< Tangential weight product.
@@ -130,7 +148,9 @@ contains
    do k = 1, 4
       do j = 1, 4
          wyz = SEAM_W_TRICUBIC(j,sub(2),anchor_pos(2)) * SEAM_W_TRICUBIC(k,sub(3),anchor_pos(3))
+         if (wyz == 0._R8P) cycle ! an unrefined direction: the donor is not read
          do i = 1, 4
+            if (SEAM_W_TRICUBIC(i,sub(1),anchor_pos(1)) == 0._R8P) cycle
             value_ = value_ + SEAM_W_TRICUBIC(i,sub(1),anchor_pos(1)) * wyz * footprint(i,j,k)
          enddo
       enddo
@@ -153,7 +173,9 @@ contains
    do k = 1, 3
       do j = 1, 3
          wyz = SEAM_W_COMPATIBLE(j,sub(2),anchor_pos(2)) * SEAM_W_COMPATIBLE(k,sub(3),anchor_pos(3))
+         if (wyz == 0._R8P) cycle ! a zero weight or an unrefined direction: the donor is not read
          do i = 1, 3
+            if (SEAM_W_COMPATIBLE(i,sub(1),anchor_pos(1)) == 0._R8P) cycle
             value_ = value_ + SEAM_W_COMPATIBLE(i,sub(1),anchor_pos(1)) * wyz * footprint(i,j,k)
          enddo
       enddo
@@ -181,27 +203,36 @@ contains
    !< Pack the per-fine-ghost interpolation metadata into one integer
    !< (map-row payload, G4): bits 0-2 = octant (sub-1 per direction),
    !< bits 3-8 = tricubic anchor positions - 1 (2 bits each),
-   !< bits 9-14 = compatible anchor positions - 1 (2 bits each).
+   !< bits 9-14 = compatible anchor positions - 1 (2 bits each),
+   !< bits 15-17 = unrefined (coincident, sub=3) flag per direction, issue #46
+   !< (0 on every octree row: the octree payload is unchanged).
    !< Regime-independent: the kernel unpacks the field matching the active
    !< fill regime. NOTE: 0 is a VALID packed value — consumers must gate on
    !< the map's flag column, never on `meta /= 0`.
-   integer(I4P), intent(in) :: sub(1:3) !< Octant sub-position per direction (1|2).
+   integer(I4P), intent(in) :: sub(1:3) !< Octant sub-position per direction (1|2|3).
    integer(I4P), intent(in) :: p4(1:3)  !< Tricubic anchor position per direction (1..4).
    integer(I4P), intent(in) :: p3(1:3)  !< Compatible anchor position per direction (1..3).
    integer(I4P)             :: meta     !< Packed metadata.
+   integer(I4P)             :: d        !< Direction counter.
    !$acc routine seq
    !$omp declare target
 
-   meta = (sub(1) - 1) + 2_I4P*(sub(2) - 1) + 4_I4P*(sub(3) - 1) + &
-          ishft(p4(1) - 1,  3) + ishft(p4(2) - 1,  5) + ishft(p4(3) - 1,  7) + &
+   meta = ishft(p4(1) - 1,  3) + ishft(p4(2) - 1,  5) + ishft(p4(3) - 1,  7) + &
           ishft(p3(1) - 1,  9) + ishft(p3(2) - 1, 11) + ishft(p3(3) - 1, 13)
+   do d=1, 3
+      if (sub(d) == SEAM_SUB_COINCIDENT) then
+         meta = meta + ishft(1_I4P, 14 + d)
+      else
+         meta = meta + ishft(sub(d) - 1, d - 1)
+      endif
+   enddo
    endfunction seam_meta_pack
 
    pure subroutine seam_meta_unpack(meta, sub, p4, p3)
    !< Unpack the per-fine-ghost interpolation metadata (inverse of
    !< `seam_meta_pack`).
    integer(I4P), intent(in)  :: meta     !< Packed metadata.
-   integer(I4P), intent(out) :: sub(1:3) !< Octant sub-position per direction (1|2).
+   integer(I4P), intent(out) :: sub(1:3) !< Octant sub-position per direction (1|2|3).
    integer(I4P), intent(out) :: p4(1:3)  !< Tricubic anchor position per direction (1..4).
    integer(I4P), intent(out) :: p3(1:3)  !< Compatible anchor position per direction (1..3).
    integer(I4P)              :: d        !< Direction counter.
@@ -210,6 +241,7 @@ contains
 
    do d=1, 3
       sub(d) = 1_I4P + ibits(meta, d - 1,      1)
+      if (ibits(meta, 14 + d, 1) == 1_I4P) sub(d) = SEAM_SUB_COINCIDENT
       p4(d)  = 1_I4P + ibits(meta, 3 + 2*(d-1), 2)
       p3(d)  = 1_I4P + ibits(meta, 9 + 2*(d-1), 2)
    enddo

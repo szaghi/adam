@@ -4,6 +4,7 @@ modes = test-amr-geo-box-gnu                          test-amr-geo-box-gnu-debug
         test-seam-interpolation-gnu                    test-seam-interpolation-gnu-debug
         test-periodic-ghost-gnu                        test-periodic-ghost-gnu-debug
         test-tree-closest-block-gnu                    test-tree-closest-block-gnu-debug
+        test-quadtree-seam-ghost-gnu                   test-quadtree-seam-ghost-gnu-debug
         test-seam-interpolation-fnl-nvf
         test-seam-interpolation-fnl-omp-amd
 
@@ -66,3 +67,13 @@ target   = test_tree_closest_block.F90
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = test_tree_closest_block.F90
+
+[test-quadtree-seam-ghost-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_quadtree_seam_ghost.F90
+
+[test-quadtree-seam-ghost-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_quadtree_seam_ghost.F90
