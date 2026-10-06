@@ -848,17 +848,20 @@ contains
    call xh5f%close_file
    endsubroutine close_file_xh5f
 
-   subroutine open_block_xh5f(self, xh5f, b, nijk, t, time)
-   !< Open XH5F file block.
+   subroutine open_block_xh5f(self, xh5f, b, nijk, t, time, length_scale)
+   !< Open XH5F file block; `length_scale` multiplies the written block origin and spacing (output units of an
+   !< application, e.g. FLUME `[reference] output_units`).
    class(realm_object),    intent(inout)        :: self    !< The equation.
    type(xh5f_file_object), intent(inout)        :: xh5f    !< XH5F file handler.
    integer(I4P),           intent(in)           :: b       !< Block index.
    integer(I8P),           intent(in)           :: nijk(3) !< Blocks dimensions.
    integer(I4P),           intent(in), optional :: t       !< Time iteration.
    real(R8P),              intent(in), optional :: time    !< Time.
+   real(R8P),              intent(in), optional :: length_scale !< Scale of the written origin and spacing.
    integer(I4P)                                 :: t_      !< Time iteration, local var.
    real(R8P)                                    :: time_   !< Time, local var.
    real(R8P)                                    :: emin(3) !< Minimum abscissa of current block.
+   real(R8P)                                    :: dxyz(3) !< Spacing of current block.
    character(:), allocatable                    :: bn      !< Block name.
 
    t_    = 0_I4P   ; if (present(t   )) t_    = t
@@ -866,12 +869,17 @@ contains
    emin = [self%adam%field%emin(1,b)-self%ngc*self%adam%field%dxyz(1,b), &
            self%adam%field%emin(2,b)-self%ngc*self%adam%field%dxyz(2,b), &
            self%adam%field%emin(3,b)-self%ngc*self%adam%field%dxyz(3,b)]
+   dxyz = self%adam%field%dxyz(:,b)
+   if (present(length_scale)) then
+      emin = emin * length_scale
+      dxyz = dxyz * length_scale
+   endif
    bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(mpih%myrank,6))
    call xh5f%open_block(block_type = XH5F_PARAMETERS%XH5F_BLOCK_CARTESIAN_UNIFORM, &
                         block_name = bn,                                           &
                         nijk       = nijk,                                         &
                         emin       = emin,                                         &
-                        dxyz       = self%adam%field%dxyz(:,b),                              &
+                        dxyz       = dxyz,                                         &
                         time       = time_)
    call xh5f%save_block_field(xdmf_field_name = 'time_iteration',                                &
                               field           = t_,                                              &

@@ -120,8 +120,9 @@ contains
    endif
    endsubroutine load_from_file
 
-   subroutine save_mat(self, basename, it, it_max, time, time_max, adam, q, q_name)
-   !< Save simulation data slices in mat format.
+   subroutine save_mat(self, basename, it, it_max, time, time_max, adam, q, q_name, length_scale, q_scale)
+   !< Save simulation data slices in mat format; `length_scale`, `q_scale` scale the written points and variables (see
+   !< `adam_object%save_slice`).
    class(slices_object), intent(inout)        :: self      !< Slices.
    character(*),         intent(in)           :: basename  !< Output file basename.
    integer(I4P),         intent(in)           :: it        !< Time step iteration.
@@ -134,8 +135,10 @@ contains
                                                    1-adam%grid%ngc:, &
                                                    1-adam%grid%ngc:, &
                                                    1:)     !< Field variables.
-   character(*),         intent(in), optional :: q_name(:) !< Variables names.
-   integer(I4P)                               :: s         !< Slices counter.
+   character(*),         intent(in), optional :: q_name(:)       !< Variables names.
+   real(R8P),            intent(in), optional :: length_scale    !< Scale of the written points.
+   real(R8P),            intent(in), optional :: q_scale(1:)     !< Scale of the written variables [nv].
+   integer(I4P)                               :: s               !< Slices counter.
 
    if (self%slices_number>0) then
       do s=1, self%slices_number
@@ -149,7 +152,9 @@ contains
                                     itype=trim(self%slice(s)%itype),                                            &
                                     basename=trim(basename)//'-slice_'//trim(strz(s,2))//'-'//trim(strz(it,9)), &
                                     q=q,                                                                        &
-                                    q_name=q_name)
+                                    q_name=q_name,                                                              &
+                                    length_scale=length_scale,                                                  &
+                                    q_scale=q_scale)
                call mpih%barrier(tictoc=.true.)
             endif
          endif

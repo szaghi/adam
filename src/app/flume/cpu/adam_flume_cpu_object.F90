@@ -381,7 +381,9 @@ contains
    enddo
    integrals = integrals + compensation
    call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, size(integrals), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
-   call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time, integrals=integrals)
+   call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(),        &
+                                               integrals=integrals*self%output_factors(self%q_name)*            &
+                                                         self%units%length_output()**3)
    endsubroutine compute_conservation
 
    subroutine compute_divb_history(self, realm)
@@ -913,8 +915,9 @@ contains
       call MPI_ALLREDUCE(MPI_IN_PLACE, self%adam%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
       self%adam%field%residuals(v) = sqrt(self%adam%field%residuals(v)) / sqrt(real(self%ni*self%nj*self%nk, R8P))
    enddo
-   if (mpih%myrank == 0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
-                                                     blocks_number=self%blocks_number, residuals=self%adam%field%residuals)
+   if (mpih%myrank == 0) call self%io%save_residuals(it=self%time%it, time=self%time%time*self%units%time_output(), &
+                                                     blocks_number=self%blocks_number,                             &
+                                                     residuals=self%adam%field%residuals*self%output_factors(self%dq_name))
    endsubroutine save_residuals
 
    subroutine save_simulation_data(self)

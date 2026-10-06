@@ -24,6 +24,12 @@ module adam_flume_reference_object
 !< **Restart.** Restart files stay in code units; `<restart_basename>.reference` records the references they were
 !< written with (1 without the layer), and a restart under different references is refused (NV-8). Restart files
 !< without the record (written before issue #49 N2b) are code units: they restart only with references 1.
+!<
+!< **Output.** `[reference] output_units = code` (default) writes code units; `dimensional` multiplies, at write time
+!< only, the fields, the grid, the time, the slices and the histories by the reference of their dimension (ND-7:
+!< normalisation and output units are separate settings). The temperature is written as `p / (rho R)` with the gas
+!< constant of the input (`cp - cv` when the layer replaced them by `gamma`). `<output_basename>.units` records the
+!< output units, the references and the factor of every written variable.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
@@ -32,6 +38,7 @@ use :: adam_flume_parameters, only : strip_control
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
+use :: stringifor,            only : string
 
 implicit none
 private
@@ -67,6 +74,8 @@ type :: flume_reference_object
    character(:), allocatable :: velocity_preset      !< `value`, `acoustic` or `alfvenic`.
    real(R8P)                 :: ref_pressure=0._R8P  !< Reference pressure of the `acoustic` preset.
    real(R8P)                 :: ref_field=0._R8P     !< Reference field of the `alfvenic` preset.
+   logical                   :: dimensional_output=.false. !< `output_units = dimensional`.
+   real(R8P)                 :: gas_constant=1._R8P  !< Gas constant of the input, `cp - cv` (1 with `gamma`).
    integer(I4P)              :: converted=0_I4P      !< Options converted.
    ! context of the context-dependent options, read raw from the input
    character(:), allocatable :: physical_model       !< `[physics] physical_model`.
@@ -78,8 +87,12 @@ type :: flume_reference_object
       procedure, pass(self) :: description !< Return pretty-printed object description.
       procedure, pass(self) :: check_restart !< Refuse restart files written under other references.
       procedure, pass(self) :: initialize    !< Initialize the layer and convert the input.
+      procedure, pass(self) :: length_output !< Return the output factor of the lengths.
       procedure, pass(self) :: save_restart  !< Record the references of the restart files.
+      procedure, pass(self) :: save_units    !< Record the output units and the factor of every written variable.
       procedure, pass(self) :: scale         !< Return the reference of a dimension.
+      procedure, pass(self) :: time_output   !< Return the output factor of the time.
+      procedure, pass(self) :: variable_output !< Return the output factor of a written variable.
       ! private methods
       procedure, pass(self), private :: classify         !< Return the kind and dimension of an option.
       procedure, pass(self), private :: classify_marker  !< Return the dimension of an AMR gradient tolerance.
@@ -107,6 +120,11 @@ contains
    desc = desc//mpih%myrankstr//'  time, pressure:    '//trim(str(self%scale(DIM_TIME)))//', '// &
                                                        trim(str(self%scale(DIM_PRESSURE)))//NL
    desc = desc//mpih%myrankstr//'  field:             '//trim(str(self%scale(DIM_FIELD)))//NL
+   if (self%dimensional_output) then
+      desc = desc//mpih%myrankstr//'  output units:      dimensional'//NL
+   else
+      desc = desc//mpih%myrankstr//'  output units:      code'//NL
+   endif
    desc = desc//mpih%myrankstr//'  options converted: '//trim(str(self%converted, .true.))
    endfunction description
 
@@ -161,6 +179,15 @@ contains
    print '(A)', mpih%myrankstr//'flume_reference_object%initialize finish'
    endsubroutine initialize
 
+   pure function length_output(self) result(s)
+   !< Return the output factor of the lengths: `L0` with dimensional output units, 1 otherwise.
+   class(flume_reference_object), intent(in) :: self !< Reference layer.
+   real(R8P)                                 :: s    !< Output factor.
+
+   s = 1._R8P
+   if (self%dimensional_output) s = self%scale(DIM_LENGTH)
+   endfunction length_output
+
    subroutine save_restart(self, basename)
    !< Record the references of the restart files (rank 0), 17 significant digits: read back, the same doubles.
    class(flume_reference_object), intent(in) :: self     !< Reference layer.
@@ -175,6 +202,41 @@ contains
    close(unit)
    endsubroutine save_restart
 
+   subroutine save_units(self, basename, names)
+   !< Record (rank 0) the output units in `<basename>.units`: the references, the derived ones, the gas constant and the
+   !< factor by which every written variable is multiplied; the history columns follow from them (listed as comments).
+   class(flume_reference_object), intent(in) :: self     !< Reference layer.
+   character(*),                  intent(in) :: basename !< Output files basename.
+   type(string),                  intent(in) :: names(:) !< Names of the written variables.
+   integer(I4P)                              :: unit, v  !< File unit, counter.
+
+   if (mpih%myrank /= 0_I4P) return
+   open(newunit=unit, file=basename//'.units', action='write', status='replace')
+   write(unit, '(A)') '# FLUME output units (issue #49, N2c): written value = code value * factor'
+   if (self%dimensional_output) then
+      write(unit, '(A)') 'output_units dimensional'
+   else
+      write(unit, '(A)') 'output_units code'
+   endif
+   write(unit, '(A)') 'density '//trim(format_value(self%density))
+   write(unit, '(A)') 'length '//trim(format_value(self%length))
+   write(unit, '(A)') 'velocity '//trim(format_value(self%velocity))
+   write(unit, '(A)') 'time '//trim(format_value(self%scale(DIM_TIME)))
+   write(unit, '(A)') 'pressure '//trim(format_value(self%scale(DIM_PRESSURE)))
+   write(unit, '(A)') 'field '//trim(format_value(self%scale(DIM_FIELD)))
+   write(unit, '(A)') 'gas_constant '//trim(format_value(self%gas_constant))
+   write(unit, '(A)') 'factor_length '//trim(format_value(self%length_output()))
+   write(unit, '(A)') 'factor_time '//trim(format_value(self%time_output()))
+   do v=1, size(names, dim=1)
+      write(unit, '(A)') 'factor '//names(v)%chars()//' '//trim(format_value(self%variable_output(names(v)%chars())))
+   enddo
+   write(unit, '(A)') '# grid and slice points: factor_length; time (fields, slices, histories): factor_time'
+   write(unit, '(A)') '# conservation history: int_<q> = factor <q> * factor_length^3'
+   write(unit, '(A)') '# div(B) history: max_divb, seam_max_divb = factor divb; l1_divb = factor bmag * factor_length^2'
+   write(unit, '(A)') '# residuals history: residual of <q> = factor dq_<q>'
+   close(unit)
+   endsubroutine save_units
+
    pure function scale(self, dim) result(s)
    !< Return the reference of a dimension, `L0^a u0^b sqrt(rho0)^c`: exact when the references are powers of two
    !< (and `rho0` a power of four).
@@ -184,6 +246,58 @@ contains
 
    s = (self%length**dim(1) * self%velocity**dim(2)) * sqrt(self%density)**dim(3)
    endfunction scale
+
+   pure function time_output(self) result(s)
+   !< Return the output factor of the time: `L0 / u0` with dimensional output units, 1 otherwise.
+   class(flume_reference_object), intent(in) :: self !< Reference layer.
+   real(R8P)                                 :: s    !< Output factor.
+
+   s = 1._R8P
+   if (self%dimensional_output) s = self%scale(DIM_TIME)
+   endfunction time_output
+
+   function variable_output(self, name) result(s)
+   !< Return the output factor of a written variable: the reference of its dimension with dimensional output units, 1
+   !< otherwise. `dq_<name>` is the time derivative of `<name>`. An unknown name is fatal: no variable may be written in
+   !< code units among dimensional ones.
+   class(flume_reference_object), intent(in) :: self   !< Reference layer.
+   character(*),                  intent(in) :: name   !< Variable name.
+   real(R8P)                                 :: s      !< Output factor.
+   character(:), allocatable                 :: base   !< Variable name without the `dq_` prefix.
+   integer(I4P)                              :: dim(3) !< Variable dimension.
+
+   s = 1._R8P
+   if (.not.self%dimensional_output) return
+   base = name
+   if (index(name, 'dq_') == 1) base = name(4:)
+   select case(base)
+   case('r', 'rho')
+      dim = DIM_DENSITY
+   case('ru', 'rv', 'rw')
+      dim = DIM_MOMENTUM
+   case('rE', 'p', 'pt')
+      dim = DIM_PRESSURE
+   case('bx', 'by', 'bz', 'Bx', 'By', 'Bz', 'bmag')
+      dim = DIM_FIELD
+   case('psi')
+      dim = DIM_FIELD
+      if (self%divergence_control == 'glm') dim = DIM_PSI_GLM
+   case('u', 'v', 'w', 'a')
+      dim = DIM_VELOCITY
+   case('H', 'T')
+      dim = DIM_VELOCITY2
+   case('beta')
+      dim = DIM_NONE
+   case('divb')
+      dim = DIM_FIELD_PER_LENGTH
+   case default
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(output_units)=dimensional: the dimension of the output '// &
+                               'variable "'//name//'" is unknown')
+   endselect
+   if (len(base) /= len(name)) dim = dim - DIM_TIME
+   s = self%scale(dim)
+   if (base == 'T') s = s / self%gas_constant
+   endfunction variable_output
 
    ! private methods
    subroutine classify(self, file_parameters, section_name, option_name, kind, dim)
@@ -413,6 +527,7 @@ contains
    call file_parameters%del(section_name='physics', option_name='cp')
    call file_parameters%del(section_name='physics', option_name='cv')
    call file_parameters%add(section_name='physics', option_name='gamma', val=trim(format_value(cp / cv)))
+   self%gas_constant = cp - cv
    self%converted = self%converted + 2_I4P
    if (mpih%myrank == 0_I4P) print '(A)', mpih%myrankstr//'  [physics] cp, cv: '//trim(format_value(cp))//', '// &
                                          trim(format_value(cv))//' -> gamma '//trim(format_value(cp / cv))//', R = 1'
@@ -512,17 +627,19 @@ contains
    subroutine load_from_file(self, file_parameters)
    !< Load `[reference]`: `density`, `length` (default 1, > 0) and `velocity` (default 1): a value > 0, or `acoustic`
    !< (`sqrt(gamma pressure / density)`, needs `pressure`) or `alfvenic` (`field / sqrt(density)`, needs `field`,
-   !< MHD only). Every other option is fatal.
+   !< MHD only); `output_units`, `code` (default) or `dimensional`. Every other option is fatal.
    class(flume_reference_object), intent(inout) :: self            !< Reference layer.
    type(file_ini),                intent(inout) :: file_parameters !< Simulation parameters ini file handler.
    character(len=:), allocatable                :: pair(:)         !< Option name/value pair.
    character(:), allocatable                    :: velocity        !< Velocity option value.
+   character(:), allocatable                    :: output_units    !< Output units option value.
    character(999)                               :: key, val_str    !< Option name and value, control characters blanked.
    real(R8P)                                    :: gamma           !< Specific heats ratio (acoustic preset).
    real(R8P)                                    :: cp, cv          !< Specific heats (acoustic preset).
    integer(I4P)                                 :: error(2), ios   !< Error and I/O status.
 
    velocity = '1'
+   output_units = 'code'
    do while (file_parameters%loop(section_name=INI_SECTION_NAME, option_pairs=pair))
       ! copy the pair into fixed-length buffers before any other use: nvfortran 26.1 (-acc -fast) passes an element of
       ! the deferred-length array to a procedure, or matches it in a select case, as garbage (issue #49, N2a)
@@ -541,11 +658,22 @@ contains
          self%ref_pressure = positive(key, val_str)
       case('field')
          self%ref_field = positive(key, val_str)
+      case('output_units')
+         output_units = trim(val_str)
       case default
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].('//trim(key)//'); accepted: density, '// &
-                                  'length, velocity, pressure, field')
+                                  'length, velocity, pressure, field, output_units')
       endselect
    enddo
+   select case(output_units)
+   case('code')
+      self%dimensional_output = .false.
+   case('dimensional')
+      self%dimensional_output = .true.
+   case default
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(output_units) "'//output_units//'": expected code or '// &
+                               'dimensional')
+   endselect
    select case(velocity)
    case('acoustic')
       self%velocity_preset = 'acoustic'

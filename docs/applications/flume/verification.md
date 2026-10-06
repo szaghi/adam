@@ -414,6 +414,16 @@ amr-periodic-reflux (staged path, reflux) and blast-amr-limiter (MHD EGLM, AMR, 
 above, a run of 20 steps equals a run of 10 steps plus a restart to 20 bit for bit (conservative fields, residual and
 conservation histories); restarting with another density reference, or without the `.reference` record, is refused.
 
+NV-9 (`reference.sh --output`): on sod-x, shock-cylinder-ib, field-loop (GLM), blast-amr-limiter (EGLM, AMR) and
+uniform-amr-mhd (3-D, AMR), each base input with residual and auxiliary fields and a slice along $x$, the
+dimensionalised twin with `output_units = dimensional` computes the base numbers and writes them times the references:
+every field, the block spacing, the XDMF times, every history, the slices and the `.units` record equal the base output
+times its exact power of two, bit for bit (`scaling.py compare --output`). The temperature is the exception: the base
+computes $p/(\rho R)$ with the regression inputs' $c_p$, $c_v$, the twin $(p/\rho)/R$ with $R = 1$ in the solver, a few
+roundings apart ($2.3 \cdot 10^{-16}$ on sod-x; tolerance $2 \cdot 10^{-15}$). A power-of-two scaling is exact except
+where it underflows: the FNL build flushes subnormal results to zero (`-fast`), so a written 0 matches an expected
+subnormal (one `rv` of $3 \cdot 10^{-308}$ on the shock-cylinder slice, scaled by $2^{-5}$).
+
 The first run found two options the scaling tool had misclassified since N0: `rho_amplitude` taken as dimensionless
 (it is a density) and `loop_amplitude` as a vector potential (it is the field of the loop). The two independent tables
 disagreed, and the field-loop case was not bitwise.

@@ -484,8 +484,9 @@ contains
    call self%field%save_blocks(grid=self%grid, basename=basename, q=q)
    endsubroutine save_restart_files
 
-   subroutine save_slice(self, itype, points, basename, q, q_name, phi, t, time)
-   !< Save slice.
+   subroutine save_slice(self, itype, points, basename, q, q_name, phi, t, time, length_scale, q_scale)
+   !< Save slice. `length_scale` multiplies the written points and distance function, `q_scale` the written interpolated
+   !< variables (output units of an application, e.g. FLUME `[reference] output_units`); the interpolation is unchanged.
    class(adam_object), intent(inout)        :: self                  !< ADAM.
    character(*),       intent(in)           :: itype                 !< Type of interpolation.
    real(R8P),          intent(in)           :: points(1:,1:,1:,1:)   !< Interpolation points coordinates [1:3,1:ni,1:nj,1:nk].
@@ -502,9 +503,13 @@ contains
                                                    1-self%grid%ngc:) !< Distance function.
    integer(I4P),       intent(in), optional :: t                     !< Time iteration.
    real(R8P),          intent(in), optional :: time                  !< Time.
+   real(R8P),          intent(in), optional :: length_scale          !< Scale of the written points and distance function.
+   real(R8P),          intent(in), optional :: q_scale(1:)           !< Scale of the written variables [nv].
    character(:), allocatable                :: q_name_(:)            !< Variables names, local var.
    character(:), allocatable                :: q_aux_name_(:)        !< Q auxiliary variables names, l. var.
    real(R8P)                                :: qp(1:size(q,dim=1))   !< Q variables interpolated at given point.
+   real(R8P)                                :: point(3)              !< Written point coordinates.
+   real(R8P)                                :: phi_p                 !< Written distance function.
    logical                                  :: is_mine               !< Flag to check if point interpolation belongs to myrank.
    integer(I4P)                             :: nijkv(4)              !< Points grid dimensions.
    integer(I4P)                             :: i, j, k, v, p         !< Counter.
@@ -546,7 +551,10 @@ contains
             if (is_mine) then
                offset = offset_head + ijk * 8 * (3 + size(q, dim=1) + p)
                ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, points(:,i,j,k), 3, MPI_REAL8, MPI_STATUS_IGNORE, error)
-               call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, points(:,i,j,k), 3, MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
+               point = points(:,i,j,k)
+               if (present(length_scale)) point = point * length_scale
+               if (present(q_scale)) qp = qp * q_scale
+               call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, point, 3, MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
                offset = offset + 8 * 3
                ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, error)
                call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
@@ -555,8 +563,9 @@ contains
                   offset = offset + 8 * size(q, dim=1)
                   ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1)), 1, &
                   !                            MPI_REAL8, MPI_STATUS_IGNORE, error)
-                  call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1)), 1, &
-                                         MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
+                  phi_p = phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1))
+                  if (present(length_scale)) phi_p = phi_p * length_scale
+                  call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, phi_p, 1, MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
                endif
             endif
             ijk = ijk + 1

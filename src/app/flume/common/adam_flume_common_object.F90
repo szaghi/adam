@@ -48,6 +48,7 @@ public :: ib_cut_spacing
 public :: seam_skin_cell
 
 character(len=11), parameter :: SCHEME_TIME_TAG="runge_kutta" !< Time-integration family tag (forest admissibility).
+character(len=4),  parameter :: MHD_DERIVED_NAME(4)=['pt  ', 'beta', 'bmag', 'divb'] !< MHD derived fields names.
 
 type, extends(realm_object) :: flume_common_object
    !< FLUME common object: data and methods shared by all backends.
@@ -89,6 +90,8 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: glm_lambda            !< Return the GLM bound of the local dt, c_h max sum_d 1/dx_d.
       procedure, pass(self) :: initialize            !< Initialize the common data.
       procedure, pass(self) :: null_freeze           !< Return the variable each null direction freezes.
+      procedure, pass(self) :: output_factors        !< Return the output factors of written variables.
+      procedure, pass(self) :: output_names          !< Return the names of every written variable.
       procedure, pass(self) :: report_divb           !< Reduce and save the div(B) norms, apply the divb_tol monitor.
       procedure, pass(self) :: report_glm_speed      !< Check c_h against the fastest wave (warning or stop).
       procedure, pass(self) :: nonfinite_total       !< Sum the non-finite values count over the ranks.
@@ -503,12 +506,52 @@ contains
    call self%check_ngc_number
    call self%allocate_common
    call self%io_initialize
+   if (self%units%is_active) call self%units%save_units(basename=trim(self%io%output_basename), names=self%output_names())
    if (self%adam%tree%iu_ref_levels > 0) &
       call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
                                     do_blocks_reorder=.false., q=self%q)
    endassociate
    if (verbose_) call mpih%print_message('flume_common_object%initialize finish')
    endsubroutine initialize
+
+   function output_factors(self, names) result(factor)
+   !< Return the output factors of written variables (1 with code output units, issue #49 N2c).
+   class(flume_common_object), intent(in) :: self      !< The equation.
+   type(string),               intent(in) :: names(1:) !< Variables names.
+   real(R8P), allocatable                 :: factor(:) !< Output factors.
+   integer(I4P)                           :: v         !< Counter.
+
+   allocate(factor(size(names, dim=1)))
+   do v=1, size(names, dim=1)
+      factor(v) = self%units%variable_output(names(v)%chars())
+   enddo
+   endfunction output_factors
+
+   function output_names(self) result(names)
+   !< Return the names of every variable FLUME may write: conservative, residuals, auxiliary and, for MHD, derived.
+   class(flume_common_object), intent(in) :: self     !< The equation.
+   type(string), allocatable              :: names(:) !< Variables names.
+   integer(I4P)                           :: n, v     !< Names number, counter.
+
+   n = size(self%q_name) + size(self%dq_name) + size(self%q_aux_name)
+   if (self%physics%model /= MODEL_EULER) n = n + size(MHD_DERIVED_NAME)
+   allocate(names(n))
+   n = 0
+   do v=1, size(self%q_name)
+      n = n + 1 ; names(n) = self%q_name(v)
+   enddo
+   do v=1, size(self%dq_name)
+      n = n + 1 ; names(n) = self%dq_name(v)
+   enddo
+   do v=1, size(self%q_aux_name)
+      n = n + 1 ; names(n) = self%q_aux_name(v)
+   enddo
+   if (self%physics%model /= MODEL_EULER) then
+      do v=1, size(MHD_DERIVED_NAME)
+         n = n + 1 ; names(n) = trim(MHD_DERIVED_NAME(v))
+      enddo
+   endif
+   endfunction output_names
 
    function null_freeze(self) result(freeze)
    !< Return, per direction, the conservative variable whose residual a null direction freezes (0: none).
@@ -544,7 +587,10 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, g(1), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, g(2), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, g(3), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
-   call self%diagnostics%save_divb_row(it=self%time%it, time=self%time%time, norms=g)
+   call self%diagnostics%save_divb_row(it=self%time%it, time=self%time%time*self%units%time_output(),          &
+                                       norms=[g(1)*self%units%variable_output('divb'),                         &
+                                              g(2)*self%units%variable_output('bmag')*self%units%length_output()**2, &
+                                              g(3)*self%units%variable_output('divb')])
    if (.not.(self%physics%mhd%divb_tol > 0._R8P .and. g(1) > self%physics%mhd%divb_tol)) return
    if (self%physics%mhd%divb_error) &
       call mpih%error_stop(msg=': max|div B| = '//trim(str(g(1)))//' > [mhd].(divb_tol) = '//             &
@@ -649,7 +695,9 @@ contains
 
    subroutine save_xh5f(self, output_basename, with_ghost)
    !< Save fields in XH5F format: `q` always, `dq` when `[IO].(save_residual_fields)`, the auxiliary variables (computed
-   !< from the saved `q`, ghost cells included) when `[IO].(save_auxiliary_fields)`.
+   !< from the saved `q`, ghost cells included) when `[IO].(save_auxiliary_fields)`. With `[reference] output_units =
+   !< dimensional` every field, the grid and the time are multiplied by their output factors (a scaled copy of each block,
+   !< the state itself is untouched).
    class(flume_common_object), intent(inout)        :: self             !< The equation.
    character(*),               intent(in), optional :: output_basename  !< Output basename.
    logical,                    intent(in), optional :: with_ghost       !< Flag to save ghost cells.
@@ -663,7 +711,11 @@ contains
    real(R8P),    allocatable                        :: derived(:,:,:,:) !< MHD derived fields of one block.
    type(string)                                     :: derived_name(4)  !< MHD derived fields names.
    logical                                          :: with_derived     !< Save the MHD derived fields.
-   integer(I4P)                                     :: b                !< Counter.
+   real(R8P),    allocatable                        :: factor_q(:)      !< Output factors of q.
+   real(R8P),    allocatable                        :: factor_dq(:)     !< Output factors of dq.
+   real(R8P),    allocatable                        :: factor_aux(:)    !< Output factors of q_aux.
+   real(R8P),    allocatable                        :: factor_derived(:) !< Output factors of the MHD derived fields.
+   integer(I4P)                                     :: b, v             !< Counters.
 
    call mpih%barrier(tictoc=.true.)
    call mpih%print_message('save HDF5 files t: '//trim(str(self%time%it, .true.))//', time: '// &
@@ -682,32 +734,49 @@ contains
    with_derived = self%save_auxiliary_fields .and. self%physics%model /= MODEL_EULER
    if (with_derived) then
       allocate(derived(4,1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc))
-      derived_name(1) = 'pt'
-      derived_name(2) = 'beta'
-      derived_name(3) = 'bmag'
-      derived_name(4) = 'divb'
+      do v=1, 4
+         derived_name(v) = trim(MHD_DERIVED_NAME(v))
+      enddo
+      factor_derived = self%output_factors(derived_name)
    endif
+   factor_q   = self%output_factors(self%q_name)
+   factor_dq  = self%output_factors(self%dq_name)
+   factor_aux = self%output_factors(self%q_aux_name)
    call self%open_file_xh5f(basename=trim(output_basename_), xh5f=xh5f)
    do b=1, self%adam%field%blocks_number
       bn = 'block_'//trim(strz(b, 9))//'-proc'//trim(strz(mpih%myrank, 6))
-      call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
-      call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
-                              q=self%q(:,:,:,:,b), q_name=self%q_name)
-      if (self%io%save_residual_fields) &
-         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
-                                 q=self%dq(:,:,:,:,b), q_name=self%dq_name)
-      if (self%save_auxiliary_fields) &
-         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
-                                 q=self%q_aux(:,:,:,:,b), q_name=self%q_aux_name)
+      call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time*self%units%time_output(), &
+                                length_scale=self%units%length_output())
+      call save_block(q=self%q(:,:,:,:,b), q_name=self%q_name, factor=factor_q)
+      if (self%io%save_residual_fields) call save_block(q=self%dq(:,:,:,:,b), q_name=self%dq_name, factor=factor_dq)
+      if (self%save_auxiliary_fields) call save_block(q=self%q_aux(:,:,:,:,b), q_name=self%q_aux_name, factor=factor_aux)
       if (with_derived) then
          call self%compute_mhd_derived(b=b, derived=derived)
-         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, &
-                                 q=derived, q_name=derived_name)
+         call save_block(q=derived, q_name=derived_name, factor=factor_derived)
       endif
       call self%close_block_xh5f(xh5f=xh5f)
    enddo
    call self%close_file_xh5f(xh5f=xh5f)
    call mpih%barrier(tictoc=.true.)
+   contains
+      subroutine save_block(q, q_name, factor)
+      !< Save the variables of one block, multiplied by their output factors (as they are with code output units).
+      real(R8P),    intent(in) :: q(1:,1:,1:,1:) !< Variables of the block [nv,ni,nj,nk], ghost cells included.
+      type(string), intent(in) :: q_name(1:)     !< Variables names [nv].
+      real(R8P),    intent(in) :: factor(1:)     !< Output factors [nv].
+      real(R8P), allocatable   :: q_out(:,:,:,:) !< Variables in output units.
+      integer(I4P)             :: v_             !< Counter.
+
+      if (.not.self%units%dimensional_output) then
+         call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, q=q, q_name=q_name)
+         return
+      endif
+      q_out = q
+      do v_=1, size(q_out, dim=1)
+         q_out(v_,:,:,:) = q_out(v_,:,:,:) * factor(v_)
+      enddo
+      call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, q=q_out, q_name=q_name)
+      endsubroutine save_block
    endsubroutine save_xh5f
 
    subroutine set_divb_seam(self)
@@ -755,7 +824,8 @@ contains
       name(v) = self%q_name(v)%chars()
    enddo
    call self%slices%save_mat(basename=self%io%output_basename, it=self%time%it, it_max=self%time%it_max, &
-                             time=self%time%time, time_max=self%time%time_max, adam=self%adam, q=self%q, q_name=name)
+                             time=self%time%time, time_max=self%time%time_max, adam=self%adam, q=self%q, q_name=name, &
+                             length_scale=self%units%length_output(), q_scale=self%output_factors(self%q_name))
    endsubroutine save_slices
 
    ! forest methods

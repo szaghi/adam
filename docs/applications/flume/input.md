@@ -353,8 +353,8 @@ value is divided by the reference of its dimension (issue #49). With this sectio
 the loaded file, before any other section is parsed; without it nothing changes. References: density `rho0`, length
 `L0`, velocity `u0`; derived: time `L0/u0`, pressure and energy density `rho0 u0^2`, field `u0 sqrt(rho0)`, the GLM
 `psi` `u0^2 sqrt(rho0)` (the EGLM one as the field). `cp`, `cv` are replaced by `gamma = cp/cv` (the gas constant
-becomes 1, the temperature unit `u0^2/R`). Outputs, restart files and logs stay in code units. Every restart save
-also writes `<restart_basename>.reference` (the three references, 1 without this section); a restart under different
+becomes 1, the temperature unit `u0^2/R`). Restart files and logs stay in code units; the other outputs follow
+`output_units`. Every restart save also writes `<restart_basename>.reference` (the three references, 1 without this section); a restart under different
 references is refused, and restart files without that record (written before it existed, so in code units) restart only
 when the references are all 1.
 
@@ -365,6 +365,15 @@ when the references are all 1.
 | `velocity` | real or string | no (1) | `> 0`; `acoustic` (`sqrt(gamma pressure / density)`, needs `pressure`); `alfvenic` (`field / sqrt(density)`, needs `field` and `mhd-ideal`). Other → fatal. | `u0`. |
 | `pressure` | real | cond. | `> 0` | Reference pressure of the `acoustic` preset. |
 | `field` | real | cond. | `> 0` | Reference field of the `alfvenic` preset. |
+| `output_units` | string | no (`code`) | `code`, `dimensional`; other → fatal | Units of the fields, grid, time, slices and histories. |
+
+With `output_units = dimensional` every written value is multiplied, at write time only, by the reference of its
+dimension: the fields (conservative, residuals, auxiliary, MHD derived: `beta` is dimensionless, `divb` a field per
+length), the block origins and spacings, the time, the slice points and values, the conservation integrals (times
+`L0^3`, the cell volume includes the null directions), the div(B) and residual histories. The temperature is written
+as `p / (rho R)` with the gas constant of the input (`cp - cv`, or 1 with `gamma`). `<output_basename>.units` (written
+whenever the section is present) records the output units, the references, the derived ones and the factor of every
+written variable. The state, the restart files and the solver are unaffected.
 
 Any other key is fatal. With the section active **every** section and key of the file must be known to the layer:
 an unknown one is fatal, so no dimensional value can pass unconverted. Keys whose dimension depends on the context are

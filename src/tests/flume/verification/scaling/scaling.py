@@ -27,13 +27,18 @@ WENO zeps, the positivity floor, ...) shows up as a mismatch. This is the measur
       compare the last common checkpoint: each field of the scaled run against the base field times its exact power
       of two, blocks keyed by their scaled origins; prints the max relative difference per field (0 = bitwise) and
       exits 1 unless every field is bitwise (--conservative: the conservative fields only, e.g. when the temperature
-      unit differs).
+      unit differs). --output (issue #49, N2c, NV-9) compares a run written with [reference] output_units =
+      dimensional against its code-units base: every field (conservative, residual, auxiliary, MHD derived), the block
+      spacing, the XDMF times, every history file (.dat), every slice (.mat) and the <output_basename>.units record;
+      --temperature-rtol allows the one rounding of T = p / (rho R) against (p / rho) / R when the base input gives
+      cp, cv (the layer runs with R = 1 and multiplies T by u0^2 / R at write time).
 """
 
 from __future__ import annotations
 
 import argparse
 import configparser
+import re
 import sys
 from pathlib import Path
 
@@ -238,15 +243,147 @@ def check_log(args: argparse.Namespace) -> int:
     return status
 
 
+def field_dim(name: str, psi: str) -> tuple[float, float, float]:
+    """Dimension of a written variable (mirrors adam_flume_reference_object%variable_output); dq_<name> is the time
+    derivative of <name>."""
+    dims = {"r": DENSITY, "rho": DENSITY, "ru": MOMENTUM, "rv": MOMENTUM, "rw": MOMENTUM, "rE": PRESSURE,
+            "p": PRESSURE, "pt": PRESSURE, "bx": FIELD, "by": FIELD, "bz": FIELD, "Bx": FIELD, "By": FIELD,
+            "Bz": FIELD, "bmag": FIELD, "u": VELOCITY, "v": VELOCITY, "w": VELOCITY, "a": VELOCITY, "H": VELOCITY2,
+            "T": VELOCITY2, "beta": NONE, "divb": FIELD_PER_LENGTH, "psi": PSI_GLM if psi == "glm" else FIELD}
+    base = name[3:] if name.startswith("dq_") else name
+    if base not in dims:
+        raise SystemExit(f"scaling: no scale for field '{name}'")
+    dim = dims[base]
+    return tuple(d - t for d, t in zip(dim, TIME, strict=True)) if base != name else dim
+
+
 def field_scale(name: str, psi: str, j: int, k: int, m: int) -> float:
     """Exact scale of a checkpoint field."""
-    dims = {"r": DENSITY, "ru": (0, 1, 1), "rv": (0, 1, 1), "rw": (0, 1, 1), "rE": PRESSURE,
-            "bx": FIELD, "by": FIELD, "bz": FIELD}
-    if name == "psi":
-        return factor((0, 2, 0.5) if psi == "glm" else FIELD, j, k, m)
-    if name not in dims:
-        raise SystemExit(f"scaling: no scale for field '{name}'")
-    return factor(dims[name], j, k, m)
+    return factor(field_dim(name, psi), j, k, m)
+
+
+def flushed(expected: np.ndarray) -> np.ndarray:
+    """Expected values as a flush-to-zero build writes them: a power-of-two scaling is exact except where it
+    underflows, and nvfortran -fast flushes the subnormal result to zero (an rv of 3e-308 on a symmetry line, scaled
+    by 2^-5)."""
+    return np.where(np.abs(expected) < np.finfo(float).tiny, 0.0, expected)
+
+
+def matches(expected: np.ndarray, written: np.ndarray) -> bool:
+    """Bitwise equality, the subnormal results allowed to be flushed to zero."""
+    return expected.shape == written.shape and bool(np.all((expected == written) |
+                                                          ((written == 0.0) & (flushed(expected) == 0.0))))
+
+
+def history_scale(file: str, column: str, psi: str, j: int, k: int, m: int) -> float:
+    """Exact scale of a history column: time, conservation integrals (variable times length^3), div(B) norms,
+    residuals (rq<v>: the residual of the v-th conservative variable)."""
+    if column in ("it", "blocks_number"):
+        return 1.0
+    if column == "time":
+        return factor(TIME, j, k, m)
+    if column.startswith("int_"):
+        dim = field_dim(column[4:], psi)
+        return factor((dim[0] + 3, dim[1], dim[2]), j, k, m)
+    if column in ("max_divb", "seam_max_divb"):
+        return factor(FIELD_PER_LENGTH, j, k, m)
+    if column == "l1_divb":
+        return factor((2, 1, 0.5), j, k, m)
+    if re.fullmatch(r"rq\d+", column):
+        return field_scale("dq_" + CONSERVATIVE[int(column[2:]) - 1], psi, j, k, m)
+    raise SystemExit(f"scaling: no scale for column '{column}' of {file}")
+
+
+def read_history(path: Path) -> tuple[list[str], np.ndarray]:
+    """Columns and rows of a history file (Tecplot VARIABLES header)."""
+    lines = path.read_text().splitlines()
+    columns = re.findall(r'"([^"]+)"', lines[0])
+    return columns, np.array([[float(x) for x in line.split()] for line in lines[1:] if line.strip()])
+
+
+def read_slice(path: Path) -> np.ndarray:
+    """Points and variables of a slice (.mat: 4 int32 dimensions, then per point x, y, z and the variables)."""
+    raw = path.read_bytes()
+    dims = np.frombuffer(raw[:16], dtype=np.int32)
+    return np.frombuffer(raw[16:], dtype=np.float64).reshape(-1, int(dims[3]))
+
+
+def compare_output(args: argparse.Namespace, step: int) -> tuple[int, list[str]]:
+    """Compare everything else a dimensional-output run writes: spacing, XDMF times, histories, slices, units record."""
+    j, k, m = args.j, args.k, args.m
+    status, notes = 0, []
+    lscale, tscale = factor(LENGTH, j, k, m), factor(TIME, j, k, m)
+    # block spacing, keyed by scaled origin
+    spacing = {}
+    for work, scale in ((args.base, lscale), (args.scaled, 1.0)):
+        found = {}
+        for path in sorted(work.glob(f"*-{step:09d}-proc*.h5")):
+            with h5py.File(path, "r") as h5:
+                for blk in {key.rsplit("-", 1)[0] for key in h5}:
+                    origin = tuple(float(o) * scale for o in h5[f"{blk}-origin"][()])
+                    found[origin] = h5[f"{blk}-dxdydz"][()] * scale
+        spacing[work] = found
+    bad = [o for o in spacing[args.base] if not np.array_equal(spacing[args.base][o], spacing[args.scaled].get(o))]
+    status |= int(bool(bad))
+    notes.append("spacing " + ("bitwise" if not bad else f"{len(bad)} blocks differ"))
+    # XDMF times
+    times = {}
+    for work in (args.base, args.scaled):
+        times[work] = [float(t) for x in sorted(work.glob("*-[0-9]*.xdmf"))
+                       for t in re.findall(r'Time Value="([^"]+)"', x.read_text())]
+    ok = len(times[args.base]) == len(times[args.scaled]) and \
+        all(a * tscale == b for a, b in zip(times[args.base], times[args.scaled], strict=True))
+    status |= int(not ok)
+    notes.append(f"{len(times[args.base])} xdmf times " + ("bitwise" if ok else "differ"))
+    # histories
+    differ = []
+    histories = sorted(args.base.glob("*.dat"))
+    for path in histories:
+        other = args.scaled / path.name
+        columns, a = read_history(path)
+        scolumns, b = read_history(other) if other.exists() else ([], np.zeros(0))
+        ok = columns == scolumns and a.shape == b.shape
+        if ok:
+            a = a * np.array([history_scale(path.name, c, args.psi, j, k, m) for c in columns])
+            ok = matches(a, b)
+        if not ok:
+            differ.append(path.name)
+    slices = sorted(args.base.glob("*.mat"))
+    for path in slices:
+        other = args.scaled / path.name
+        a = read_slice(path)
+        b = read_slice(other) if other.exists() else np.zeros(0)
+        nv = a.shape[1] - 3
+        scale = np.array([lscale] * 3 + [field_scale(CONSERVATIVE[v], args.psi, j, k, m) for v in range(nv)])
+        ok = a.shape == b.shape and matches(a * scale, b)
+        if not ok:
+            differ.append(path.name)
+    status |= int(bool(differ))
+    notes.append(f"{len(histories)} histories, {len(slices)} slices " +
+                 ("bitwise" if not differ else "; differ: " + " ".join(differ)))
+    # units record
+    records = list(args.scaled.glob("*.units"))
+    ok = len(records) == 1
+    if ok:
+        expected = {"factor_length": lscale, "factor_time": tscale}
+        found = {}
+        for line in records[0].read_text().splitlines():
+            words = line.split()
+            if line.startswith("#") or not words:
+                continue
+            if words[0] == "output_units":
+                ok &= words[1] == "dimensional"
+            elif words[0] == "factor":
+                found[words[1]] = float(words[2])
+                expected[words[1]] = field_scale(words[1], args.psi, j, k, m)
+                if words[1] == "T":
+                    expected[words[1]] = None  # depends on the gas constant of the input
+            elif words[0] in expected:
+                found[words[0]] = float(words[1])
+        ok &= all(v is None or found.get(key) == v for key, v in expected.items())
+    status |= int(not ok)
+    notes.append("units record " + ("exact" if ok else "MISMATCH"))
+    return status, notes
 
 
 def load(work: Path, step: int, ngc: int) -> tuple[tuple[str, ...], dict]:
@@ -291,12 +428,17 @@ def compare(args: argparse.Namespace) -> int:
         a = np.concatenate([keyed[o][v].ravel() * s for o in sorted(keyed)])
         b = np.concatenate([scaled[o][v].ravel() for o in sorted(keyed)])
         scale = max(float(np.max(np.abs(a))), float(np.finfo(float).tiny))
-        rel = float(np.max(np.abs(a - b))) / scale
-        status |= int(rel != 0.0)
+        rel = float(np.max(np.abs(np.where((b == 0.0) & (flushed(a) == 0.0), 0.0, a - b)))) / scale
+        tol = args.temperature_rtol if name == "T" else 0.0
+        status |= int(rel > tol)
         worst.append(f"{name} {rel:.1e}")
+    notes = []
+    if args.output:
+        out_status, notes = compare_output(args, step)
+        status |= out_status
     steps_note = "" if last_base == last_scaled else f" (last steps differ: base {last_base}, scaled {last_scaled})"
     print(f"   step {step}{steps_note}: {'BITWISE' if status == 0 else 'not bitwise'}; max relative difference "
-          + ", ".join(worst))
+          + ", ".join(worst) + "".join(f"; {n}" for n in notes))
     return status
 
 
@@ -314,6 +456,8 @@ def main() -> int:
     c.add_argument("--ngc", type=int, required=True)
     c.add_argument("--psi", choices=("glm", "eglm"), default="glm")
     c.add_argument("--conservative", action="store_true", help="compare the conservative fields only")
+    c.add_argument("--output", action="store_true", help="dimensional output: spacing, times, histories, slices, units")
+    c.add_argument("--temperature-rtol", type=float, default=0.0, help="relative tolerance of the temperature")
     g = sub.add_parser("check-log")
     g.add_argument("ini", type=Path)
     g.add_argument("log", type=Path)

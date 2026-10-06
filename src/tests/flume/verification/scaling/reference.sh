@@ -24,8 +24,16 @@
 # so must restarting without the record (restart files written before the record existed are code units) while the
 # references are not 1.
 #
+# --output runs NV-9 instead on the cases (default sod-x shock-cylinder-ib field-loop blast-amr-limiter
+# uniform-amr-mhd): each base input gets the residual and auxiliary fields and a slice along x through the domain
+# centre, and its dimensionalised twin [reference] output_units = dimensional. The twin computes the base numbers
+# (NV-5) and multiplies them at write time by the references, powers of two: every field, the block spacing, the XDMF
+# times, every history, the slice and the .units record must equal the base output times its exact power of two, bit
+# for bit (scaling.py compare --output); the temperature, p / (rho R) against (p / rho) / R with the cp, cv of the
+# regression inputs, within a few roundings.
+#
 # Usage: ./reference.sh [--np N] [--j J --k K --m M] [--cases "sod-x rotor ..." | --inputs "a.ini b.ini ..."]
-#                       [--restart]
+#                       [--restart | --output]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./reference.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -37,7 +45,7 @@ REG_DIR="$REPO_ROOT/src/tests/flume/regression"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TOOL="$CASE_DIR/scaling.py"
-NP=2 ; J=2 ; K=-1 ; M=-2 ; INPUTS="" ; RESTART=0
+NP=2 ; J=2 ; K=-1 ; M=-2 ; INPUTS="" ; RESTART=0 ; OUTPUT=0
 CASES="$(cd "$REG_DIR" && for d in */; do [[ -f "$d/input.ini" ]] && echo "${d%/}"; done)"
 
 while [[ $# -gt 0 ]]; do
@@ -49,6 +57,7 @@ while [[ $# -gt 0 ]]; do
       --cases) CASES="$2" ; shift 2 ;;
       --inputs) INPUTS="$2" ; shift 2 ;;
       --restart) RESTART=1 ; shift ;;
+      --output) OUTPUT=1 ; shift ;;
       *) echo "reference.sh: unknown argument '$1'" >&2 ; exit 2 ;;
    esac
 done
@@ -83,6 +92,8 @@ ini.read(sys.argv[1])
 for item in sys.argv[2:]:
     key, value = item.split("=", 1)
     section, option = key.rsplit(".", 1)
+    if not ini.has_section(section):
+        ini.add_section(section)
     ini[section][option] = value
 with open(sys.argv[1], "w") as f:
     ini.write(f)
@@ -132,6 +143,46 @@ if [[ $RESTART -eq 1 ]]; then
       exit 1
    fi
    echo "reference layer NV-8: $passed cases restart bitwise, other references and missing records refused ($TAG)"
+   exit 0
+fi
+
+grid_value() { # grid_value <ini> <key>: a [grid] value
+   awk -F= -v k="$2" '/^\[/{s=$0} s=="[grid]" && $1~"^ *"k" *$"{print $2+0}' "$1"
+}
+
+if [[ $OUTPUT -eq 1 ]]; then
+   [[ "$CASES" == "$(cd "$REG_DIR" && for d in */; do [[ -f "$d/input.ini" ]] && echo "${d%/}"; done)" ]] && \
+      CASES="sod-x shock-cylinder-ib field-loop blast-amr-limiter uniform-amr-mhd"
+   echo ">> reference layer NV-9 output units ($(basename "$EXE"), np $NP): L0 = 2^$J, u0 = 2^$K, rho0 = 4^$M"
+   for c in $CASES; do
+      base="$CASE_DIR/work-ref-$TAG-$c-output-base" ; dim="$CASE_DIR/work-ref-$TAG-$c-output-dimensional"
+      copy_case "$c" "$base" ; copy_case "$c" "$dim"
+      ini="$base/input.ini"
+      mid() { awk -v a="$(grid_value "$ini" "emin_$1")" -v b="$(grid_value "$ini" "emax_$1")" \
+                  'BEGIN{printf "%.17g", (a + b) / 2}' ; }
+      set_keys "$ini" IO.save_residual_fields=.true. IO.save_auxiliary_fields=.true. slices.slices_number=1 \
+         slice_1.itype=trilinear slice_1.n_save=10 slice_1.ni=64 slice_1.nj=1 slice_1.nk=1 \
+         "slice_1.emin_x=$(grid_value "$ini" emin_x)" "slice_1.emax_x=$(grid_value "$ini" emax_x)" \
+         "slice_1.emin_y=$(mid y)" "slice_1.emax_y=$(mid y)" "slice_1.emin_z=$(mid z)" "slice_1.emax_z=$(mid z)"
+      "$VENV_PY" "$TOOL" dimensionalize "$ini" "$dim/input.ini" --j "$J" --k "$K" --m "$M" > /dev/null
+      set_keys "$dim/input.ini" reference.output_units=dimensional
+      run "$base"
+      run "$dim"
+      psi="$(awk -F= '/^\[/{s=$0} s=="[mhd]" && $1~/^ *divergence_control *$/{v=$2; sub(/;.*/, "", v); \
+                                                                             gsub(/ /, "", v); print v}' "$ini")"
+      [[ "$psi" == "eglm" ]] || psi=glm
+      status=0
+      result="$("$VENV_PY" "$TOOL" compare "$base" "$dim" --ngc "$(grid_value "$ini" ngc)" --psi "$psi" --output \
+                --temperature-rtol 2e-15 --j "$J" --k "$K" --m "$M")" || status=1
+      printf '   %-22s %s\n' "$c" "$(echo "$result" | sed 's/^ *//')"
+      if [[ $status -eq 0 ]]; then passed=$(( passed + 1 )) ; else fails=$(( fails + 1 )) ; fi
+      find "$base" "$dim" -name '*.h5' -delete
+   done
+   if [[ $fails -gt 0 ]]; then
+      echo "reference layer NV-9 FAILED: $fails cases, $passed passed ($TAG)"
+      exit 1
+   fi
+   echo "reference layer NV-9: $passed cases, dimensional output equals the base output times its scales ($TAG)"
    exit 0
 fi
 
