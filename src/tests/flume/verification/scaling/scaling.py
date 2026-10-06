@@ -18,6 +18,10 @@ WENO zeps, the positivity floor, ...) shows up as a mismatch. This is the measur
       back (issue #49, N2, NV-5): the solver sees the base numbers, so the run must equal the base run bit for bit
       (any weights), and a key the Fortran layer misclassifies shows up as a mismatch. Exit 3 (nothing written) for
       an input the reference layer refuses: orszag-tang, a forest manifest;
+  scaling.py physical <in.ini> <out.ini> --length L --velocity U --density R [--reference] [--weights js|si]
+      write the same problem in physical units (any positive references, e.g. 1 pc, 10 km/s, 1e-21 kg/m^3: issue
+      #49, N2d, NV-6): every dimensional option times the reference of its dimension, as rescale does with powers of
+      two; --reference adds the [reference] section that converts it back to the base numbers (up to round-off);
   scaling.py check-log <base.ini> <reference-run-log>
       check the conversions the reference layer logged (rank 0): every converted value equals the base value exactly
       (cp, cv: gamma equals cp/cv) and every dimensional option of the base input was converted; exit 1 otherwise. It
@@ -204,6 +208,28 @@ def dimensionalize(args: argparse.Namespace) -> int:
     with open(args.out, "w") as f:
         ini.write(f)
     return 0
+
+def physical(args: argparse.Namespace) -> int:
+    """Write the input in physical units L0, u0, rho0 (any positive values), optionally with the [reference] section."""
+    ini = read_ini(args.ini)
+    if ini.has_section("forest") or ini.get("initial_conditions", "type", fallback="").split(";")[0].strip() in NO_IC:
+        raise SystemExit(f"scaling: {args.ini} cannot be written in physical units (forest manifest or orszag-tang)")
+    for section in ini.sections():
+        for key in ini[section]:
+            dim = classify(ini, section, key)
+            text = ini[section][key].split(";")[0].strip()
+            if dim == NONE or (section == "mhd" and key == "glm_damping_length" and text == "min-cell"):
+                continue
+            scale = args.length ** dim[0] * args.velocity ** dim[1] * args.density ** dim[2]
+            ini[section][key] = repr(float(text) * scale)
+    if args.reference:
+        ini["reference"] = {"density": repr(args.density), "length": repr(args.length), "velocity": repr(args.velocity)}
+    if args.weights is not None:
+        ini["weno"]["weights"] = args.weights
+    with open(args.out, "w") as f:
+        ini.write(f)
+    return 0
+
 
 def check_log(args: argparse.Namespace) -> int:
     """Check the logged conversions of a reference run against the base input; 0 if every one is exact and complete."""
@@ -464,12 +490,21 @@ def main() -> int:
     d = sub.add_parser("dimensionalize")
     d.add_argument("ini", type=Path)
     d.add_argument("out", type=Path)
+    y = sub.add_parser("physical")
+    y.add_argument("ini", type=Path)
+    y.add_argument("out", type=Path)
+    y.add_argument("--length", type=float, required=True, help="L0")
+    y.add_argument("--velocity", type=float, required=True, help="u0")
+    y.add_argument("--density", type=float, required=True, help="rho0")
+    y.add_argument("--reference", action="store_true", help="add the [reference] section")
+    y.add_argument("--weights", choices=("js", "si"), help="set [weno] weights")
     for p in (r, c, d):
         p.add_argument("--j", type=int, default=0, help="lengths times 2^j")
         p.add_argument("--k", type=int, default=0, help="velocities times 2^k")
         p.add_argument("--m", type=int, default=0, help="density times 4^m")
     args = parser.parse_args()
-    commands = {"rescale": rescale, "compare": compare, "dimensionalize": dimensionalize, "check-log": check_log}
+    commands = {"rescale": rescale, "compare": compare, "dimensionalize": dimensionalize, "check-log": check_log,
+                "physical": physical}
     return commands[args.cmd](args)
 
 

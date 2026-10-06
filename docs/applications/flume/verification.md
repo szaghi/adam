@@ -424,6 +424,18 @@ roundings apart ($2.3 \cdot 10^{-16}$ on sod-x; tolerance $2 \cdot 10^{-15}$). A
 where it underflows: the FNL build flushes subnormal results to zero (`-fast`), so a written 0 matches an expected
 subnormal (one `rv` of $3 \cdot 10^{-308}$ on the shock-cylinder slice, scaled by $2^{-5}$).
 
+NV-6 (`scaling/interstellar.sh`): the V1 Sod problem in SI interstellar units, $L_0 = 1$ pc, $u_0 = 10$ km/s,
+$\rho_0 = 10^{-21}$ kg/m³ (`scaling.py physical`; not powers of two), on both flux paths (`weno`, and `weno-riemann`
+HLLC with the 6th-order correction and the `weno` sensor). With the classic weights the absolute `zeps = 1e-6`
+dominates smoothness indicators of order $10^{-42}$: the weights collapse to the linear ones and the scheme stops
+limiting, as issue #48 (A3) predicted from the formula. Measured: the total variation of $\rho/\rho_0$ grows from 0.877
+to 1.162 (`weno`) and from 0.884 to 2.455 (`weno-riemann`, whose blind sensor leaves the unlimited correction on: L1 ×20,
+an 8% undershoot). Both cures restore the code-units solution within round-off ($10^{-13}$ in $\rho/\rho_0$): the
+scale-invariant weights (`[weno] weights = si`) on the raw SI input, and the reference layer with the classic weights.
+The raw-SI classic run is kept as a negative control: its total variation must exceed the code-units one by 10%, or it
+must stop on a non-finite state. The unlimited `weno-riemann` run undershoots towards vacuum and, round-off deciding,
+survives on the CPU and stops at step 90 on the FNL.
+
 The first run found two options the scaling tool had misclassified since N0: `rho_amplitude` taken as dimensionless
 (it is a density) and `loop_amplitude` as a vector potential (it is the field of the loop). The two independent tables
 disagreed, and the field-loop case was not bitwise.
