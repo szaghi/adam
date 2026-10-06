@@ -459,9 +459,17 @@ contains
    integer(I4P)                      :: c           !< Counter.
    logical                           :: block_found !< Flag to check if block has been found.
 
-   ! find the block closest to the point in the finest refinement level
+   ! find the block closest to the point in the finest refinement level; the Morton code interleaves as many coordinates
+   ! as the tree has dimensions (a 3-D code of k = 0 differs from the 2-D one from level 2 on, issue #54)
    ijkl(1:3) = grid%get_closest_block(point=point, level=self%max_level)
-   code = self%coordinates_to_morton(i=ijkl(1), j=ijkl(2), k=ijkl(3), l=self%max_level)
+   select case(self%ratio)
+   case(2_I4P)
+      code = self%coordinates_to_morton(i=ijkl(1), l=self%max_level)
+   case(4_I4P)
+      code = self%coordinates_to_morton(i=ijkl(1), j=ijkl(2), l=self%max_level)
+   case default
+      code = self%coordinates_to_morton(i=ijkl(1), j=ijkl(2), k=ijkl(3), l=self%max_level)
+   endselect
    if (.not.self%has_code(code=code)) then
       ! finest-level block does not exist, return the finest living into its parents-path
       path = self%path(code=code)
@@ -473,6 +481,11 @@ contains
             exit
           endif
       enddo
+      ! the path stops at level 1: on a tree whose only block is the root (code -1, level 0) the root is the block
+      if (.not.block_found .and. self%has_code(code=-1_I8P)) then
+         code = -1_I8P
+         block_found = .true.
+      endif
       if (.not.block_found) call mpih%abort(error_code=-111,                                               &
                                                  msg='ERROR: tree%get_closest block failed, path: '//str(path)//&
                                                      ' point: '//str(point))

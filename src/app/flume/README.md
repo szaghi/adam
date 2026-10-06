@@ -204,8 +204,8 @@ Known limitations:
   realms have the same block cells across the seam and the same `[amr] seam_ghost_fill`, and each coarse seam block
   faces 2x2 fine ones. On a `mirror` seam the blocks of the two realms need not line up (different block sizes along the seam,
   [#51](https://github.com/szaghi/adam/issues/51)); the two seam faces must cover each other, the forest stops at
-  initialization otherwise. Inter-realm seams need an octree (`ratio = 8`): on a quadtree the forest stops at
-  initialization. All realms advance
+  initialization otherwise. Seams work on octrees and quadtrees, and with single-block realms
+  ([#54](https://github.com/szaghi/adam/issues/54)). All realms advance
   with one time step (no subcycling), and the positivity limiter is refused on multi-realm runs.
 
 ## License

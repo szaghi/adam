@@ -138,7 +138,11 @@ tests $\mathbf{B}$, not the cleaning, across the 2:1 seam. Leg 5 ([#51](https://
 splits Sod, along $x$ and along $z$, into realms whose seam blocks do not line up (one realm on blocks twice as large,
 the same cells): bitwise equal to the single-realm run on 2 and 4 ranks. Sod is 1-D, so the MHD rotor (MV-14 leg 5, on an
 octree, split both ways) checks where the scattered fluxes land: bitwise on all nine fields, and a deliberately
-misplaced overlap drives the density negative at step 2.
+misplaced overlap drives the density negative at step 2. MV-14 leg 6 ([#54](https://github.com/szaghi/adam/issues/54))
+repeats the split on the rotor's own quadtree, blocks lined up and not: bitwise on all nine fields. Before #54 the
+tree lookup of the seam peers used the 3-D Morton code on every tree, wrong on a quadtree from level 2 on, and the
+lined-up split stopped at initialization; the library unit test `test_tree_closest_block` pins the lookup on binary
+trees, quadtrees and octrees, including a single-block tree, whose root the lookup now returns instead of aborting.
 
 ## Ideal MHD
 

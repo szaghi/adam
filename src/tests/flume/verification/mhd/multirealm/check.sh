@@ -17,13 +17,15 @@
 #      refined 2:1), against the same cells split at the 2:1 face into a coarse and a fine realm glued by
 #      `coupling = refined` (sod-amr-refined*.ini, the realm grids kept by make_rj2a.py): the 2:1 seam ghosts and the
 #      2:1 inter-realm reflux carry all 9 fields, so the union must be BITWISE;
-#   5. (issue #51) the MHD rotor on an octree (ratio 8, nk 4: inter-realm seams on a quadtree stop at initialization,
-#      a tree-lookup defect of their own) split at x = 0.5 with the seam blocks not lined up (make_split.py
-#      --coarse-blocks: one realm on 2x2 blocks of twice the cells), each way, 50 steps: the fine-side skins are
-#      scattered over several register faces, and the 2-D flow across the seam makes a misplaced overlap visible (a
-#      deliberately misplaced one gives a negative density at step 2). Fields BITWISE; the conservation sums are not
-#      compared (--fields-only): the momentum integrals of the rotor are near zero, so their relative differences
-#      measure summation order only (the same 0.7-2.3 for the lined-up split).
+#   5. (issue #51) the MHD rotor on an octree (ratio 8, nk 4) split at x = 0.5 with the seam blocks not lined up
+#      (make_split.py --coarse-blocks: one realm on 2x2 blocks of twice the cells), each way, 50 steps: the fine-side
+#      skins are scattered over several register faces, and the 2-D flow across the seam makes a misplaced overlap
+#      visible (a deliberately misplaced one gives a negative density at step 2). Fields BITWISE; the conservation
+#      sums are not compared (--fields-only): the momentum integrals of the rotor are near zero, so their relative
+#      differences measure summation order only (the same 0.7-2.3 for the lined-up split);
+#   6. (issue #54) the rotor as committed, on a QUADTREE (ratio 4, nk 1), split the same way: blocks lined up, then
+#      not lined up each way. Before #54 the tree lookup encoded the seam peers with the 3-D Morton code, wrong on a
+#      quadtree from level 2 on, and the lined-up split stopped at initialization. Fields BITWISE (--fields-only).
 # Measured (CPU, M2-P7c): leg 1 bitwise over 297 steps, summed conservation within 1.7e-16; leg 2 (148 + restart)
 # bitwise, 6 histories identical; leg 3 bitwise with max |psi| 1.7e-3. About 4.5 min on the CPU.
 #
@@ -139,7 +141,23 @@ run "$rb2" rotor-2realm.ini log.txt
 "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rb1" "$ro" --ngc 3 --fields-only || STATUS=1
 "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rb2" "$ro" --ngc 3 --fields-only || STATUS=1
 
-for w in "$single" "$multi" "$rst" "$a" "$b" "$rs" "$rm_" "$ro" "$rb1" "$rb2"; do find "$w" -name '*.h5' -delete; done
+echo ">> MV-14 leg 6: rotor (quadtree) split, blocks lined up and not, vs 1 realm (issue #54)"
+qo="$CASE_DIR/work-$TAG-rotor-quad-single" ; qa="$CASE_DIR/work-$TAG-rotor-quad-aligned"
+qb1="$CASE_DIR/work-$TAG-rotor-quad-blocks1" ; qb2="$CASE_DIR/work-$TAG-rotor-quad-blocks2"
+rm -rf "$qo" "$qa" "$qb1" "$qb2" ; mkdir -p "$qo" "$qa" "$qb1" "$qb2"
+sed 's/^it_max = 100/it_max = 50/' "$REPO_ROOT/src/tests/flume/regression/rotor/input.ini" > "$qo/rotor.ini"
+"$VENV_PY" "$CASE_DIR/make_split.py" "$qo/rotor.ini" "$qa" rotor-2realm
+"$VENV_PY" "$CASE_DIR/make_split.py" "$qo/rotor.ini" "$qb1" rotor-2realm --coarse-blocks 1
+"$VENV_PY" "$CASE_DIR/make_split.py" "$qo/rotor.ini" "$qb2" rotor-2realm --coarse-blocks 2
+run "$qo" rotor.ini log.txt
+for w in "$qa" "$qb1" "$qb2"; do
+   run "$w" rotor-2realm.ini log.txt
+   "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$w" "$qo" --ngc 3 --fields-only || STATUS=1
+done
+
+for w in "$single" "$multi" "$rst" "$a" "$b" "$rs" "$rm_" "$ro" "$rb1" "$rb2" "$qo" "$qa" "$qb1" "$qb2"; do
+   find "$w" -name '*.h5' -delete
+done
 if [[ $STATUS -eq 0 ]]; then
    echo "MV-14 PASSED ($TAG)"
 else

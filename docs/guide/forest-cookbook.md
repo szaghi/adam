@@ -371,7 +371,7 @@ chosen so that `dx` halves). Drop the markers in both. `verification/multirealm/
 | `coupling = refined needs ...` (a ratio of exactly 2, the same block cell counts along the seam, the same `seam_ghost_fill`, even counts, nested blocks) | an R6 requirement | see [R6](#r6-refined-seam-a-2-1-jump-between-realms) |
 | `realm R has seam cells of different sizes` | refinement reaches the seam face | keep refinement away from the seam (R7), or put the jump on the seam (R6) |
 | `the cells of realm A and realm B do not line up` / `faces N of its M seam cells` | misaligned cells, or faces that do not cover each other | align the extents to the cell size; make the seam faces coincide |
-| `the seam ghost (i,j,k) of block b of realm R does not match the cells of realm P ...; ghost centre ..., peer cell ...` | a peer cell of the wrong size or position | as above; on a quadtree this is [#54](https://github.com/szaghi/adam/issues/54) |
+| `the seam ghost (i,j,k) of block b of realm R does not match the cells of realm P ...; ghost centre ..., peer cell ...` | a peer cell of the wrong size or position | as above |
 | `stage_coincident requires equal scheme_time / rk_scheme / physics nv / K` | β on unlike realms | `end_of_step`, or align the integrators |
 | `conflicting coupling_cadence between realm A and realm B` | two pairs between the same realms with different cadences | one cadence per realm pair |
 | `[amr] ratio = 4 (quadtree) with AMR markers` | #46 | `ratio = 8` |
@@ -380,9 +380,6 @@ chosen so that `dx` halves). Drop the markers in both. `verification/multirealm/
 
 ## Current limits
 
-- **Quadtrees.** Inter-realm seams need an octree. On a quadtree the tree lookup returns a wrong peer leaf
-  ([#54](https://github.com/szaghi/adam/issues/54)).
-- **Single-block realms.** A realm with one block (`iu_ref_levels = 0`) fails the tree lookup (#54).
 - **Topologies.** The schema takes any number of realms and face pairs, but the verified forests have two realms and
   one face pair.
 - **Time stepping.** There is no subcycling: one global time step, set by the most restrictive realm.

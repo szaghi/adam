@@ -16,6 +16,10 @@
 # Measured (issue #51, CPU and FNL, np 2, 20 steps): reflux mismatch 0 on all faces and steps both ways (320 and 80
 # lines); fields within 3.7e-15 of the single realm.
 #
+# The same acceptance holds with one realm on a SINGLE block (`one1`, `one2`: iu_ref_levels = 0, 16 x 32 x 32 cells,
+# max_level kept 1): the tree lookup of the seam peers then walks up from a level-1 code to the root, and aborted
+# (error -111) before issue #54.
+#
 # Usage: ./check.sh [--build] [--np N]
 #
 # PRISM_EXE: override the executable under test, e.g.
@@ -50,6 +54,7 @@ command -v mpirun >/dev/null 2>&1 || { echo "ERROR: mpirun not on PATH" >&2; exi
 TAG="$(basename "$EXE")-np$NP"
 FV='s/^scheme_space             = fd_centered/scheme_space             = fv_centered/; s/^fdv_scheme = fd/fdv_scheme = fv/'
 SMALL='s/^ni     = 8/ni     = 4/; s/^nj     = 16/nj     = 8/; s/^nk     = 16/nk     = 8/; s/^iu_ref_levels  = 1/iu_ref_levels  = 2/; s/^max_level      = 1/max_level      = 2/'
+ONE='s/^ni     = 8/ni     = 16/; s/^nj     = 16/nj     = 32/; s/^nk     = 16/nk     = 32/; s/^iu_ref_levels  = 1/iu_ref_levels  = 0/'
 fail=0
 
 run_in() { # workdir
@@ -69,12 +74,18 @@ sed "$FV; s/^it_max   = 5$/it_max   = 20/; s/^it_save                = 5/it_save
 echo ">> [rmf-2realm-fv-pulse-blocks] single-realm FV pulse ($TAG)"
 run_in "$single"
 
-for small in 1 2; do
-   w="$CASE_DIR/work-$TAG-small$small"
+for leg in small1 small2 one1 one2; do
+   small="${leg: -1}"
+   w="$CASE_DIR/work-$TAG-$leg"
    rm -rf "$w" ; mkdir -p "$w"
    cp "$CASE_DIR/input.ini" "$CASE_DIR/realm_1.ini" "$CASE_DIR/realm_2.ini" "$w/"
-   sed "$SMALL" "$CASE_DIR/realm_$small.ini" > "$w/realm_$small.ini"
-   echo ">> [rmf-2realm-fv-pulse-blocks] split, realm $small on the small blocks ($TAG)"
+   if [[ $leg == small* ]]; then
+      sed "$SMALL" "$CASE_DIR/realm_$small.ini" > "$w/realm_$small.ini"
+      echo ">> [rmf-2realm-fv-pulse-blocks] split, realm $small on the small blocks ($TAG)"
+   else
+      sed "$ONE" "$CASE_DIR/realm_$small.ini" > "$w/realm_$small.ini"
+      echo ">> [rmf-2realm-fv-pulse-blocks] split, realm $small on a single block (issue #54, $TAG)"
+   fi
    run_in "$w"
    mism="$(grep -ah 'max|F_coarse-F_fine_sum|' "$w/run.log" | awk '{v=$NF+0; if (v<0) v=-v; if (v>m) m=v} END {printf "%.6E %d", m+0, NR}')"
    echo "   reflux max|F_coarse-F_fine_sum| = ${mism% *} over ${mism#* } face-step lines (must be 0)"
