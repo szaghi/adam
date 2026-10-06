@@ -1520,6 +1520,7 @@ contains
    call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
    umax = evmax
    dt_local = self%time%CFL*dxyz_min / umax
+   if (self%physics%alpha > 0._R8P) dt_local = min(dt_local, 1._R8P / self%physics%alpha)
    endassociate
    if (self%pml%enabled .and. self%pml%gamma_eff_max > 0._R8P) &
       dt_local = min(dt_local, self%pml%C_gamma / self%pml%gamma_eff_max)
@@ -2681,10 +2682,13 @@ contains
    real(R8P)                                                    :: KO_Bz_x,KO_Bz_y,KO_Bz_z  !< Buffer for KO correction, B z.
    real(R8P), parameter                                         :: sigma = 1000.01_R8P
    real(R8P)                                                    :: min_curlD,max_curlD
-   real(R8P)                                                    :: damping_coeff !< Optional GLM parabolic damping coefficient.
+   integer(I4P)                                                 :: rho_ivar
+   logical                                                      :: use_rho
 
    min_curlD =  huge(1._R8P)
    max_curlD = -huge(1._R8P)
+   use_rho = is_pic_model(self%physics%physical_model)
+   rho_ivar = self%nv
 
    !call self%apply_fWL_correction(q=q)
    if (present(s)) then
@@ -2696,12 +2700,13 @@ contains
              dxyz=>self%adam%field%dxyz,                                                                              &
              s1=>self%fdv_half_stencils(1),                                                                           &
              s4=>self%fdv_half_stencils(4),                                                                           &
-             chi =>self%physics%chi, c_r=>self%physics%c_r,                                                          &
+             chi=>self%physics%chi, alpha=>self%physics%alpha,                                                      &
              constrained_transport_D=>self%numerics%constrained_transport_D,                                         &
              constrained_transport_B=>self%numerics%constrained_transport_B,                                          &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
    if (blocks_number > 0) then
-      if (is_adim_model(self%physics%physical_model)) then !Adimensional equations
+      if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL .or. &
+          self%physics%physical_model == ADIM_PIC_PHYSICAL_MODEL) then !Adimensional equations
          if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
             .not.constrained_transport_B) then
             ! RHS:
@@ -2725,17 +2730,14 @@ contains
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
                                                    q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
                                                    divergence = divergenceD)
+               if (use_rho) divergenceD = divergenceD - q(rho_ivar,i,j,k,b)
                dq(VAR_DX,i,j,k,b) =  curlB(1) - gradphi(1) - q(var_Jx,i,j,k,b)
                dq(VAR_DY,i,j,k,b) =  curlB(2) - gradphi(2) - q(var_Jy,i,j,k,b)
                dq(VAR_DZ,i,j,k,b) =  curlB(3) - gradphi(3) - q(var_Jz,i,j,k,b)
                dq(VAR_BX,i,j,k,b) = -curlD(1)                                 
                dq(VAR_BY,i,j,k,b) = -curlD(2)                                 
                dq(VAR_BZ,i,j,k,b) = -curlD(3)                                 
-               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceD
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
-                  dq(nv_c,i,j,k,b) = dq(nv_c,i,j,k,b) - damping_coeff * q(nv_c,i,j,k,b)
-               endif
+               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceD - alpha * q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2769,11 +2771,7 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1) - gradpsi(1)       
                dq(VAR_BY,i,j,k,b) = -curlD(2) - gradpsi(2)       
                dq(VAR_BZ,i,j,k,b) = -curlD(3) - gradpsi(3)       
-               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceB
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
-                  dq(nv_c,i,j,k,b) = dq(nv_c,i,j,k,b) - damping_coeff * q(nv_c,i,j,k,b)
-               endif
+               dq(nv_c,i,j,k,b)   = -(chi)**2*divergenceB - alpha * q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2804,6 +2802,7 @@ contains
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
                                                    q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
                                                    divergence = divergenceD)
+               if (use_rho) divergenceD = divergenceD - q(rho_ivar,i,j,k,b)
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
                                                    divergence = divergenceB)
@@ -2813,13 +2812,8 @@ contains
                dq(VAR_BX,i,j,k,b)      = -curlD(1) - gradpsi(1)
                dq(VAR_BY,i,j,k,b)      = -curlD(2) - gradpsi(2)
                dq(VAR_BZ,i,j,k,b)      = -curlD(3) - gradpsi(3)
-               dq(nv_c-1_I4P,i,j,k,b)  = -(chi)**2*divergenceD
-               dq(nv_c,i,j,k,b)        = -(chi)**2*divergenceB
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
-                  dq(nv_c-1_I4P,i,j,k,b) = dq(nv_c-1_I4P,i,j,k,b) - damping_coeff * q(nv_c-1_I4P,i,j,k,b)
-                  dq(nv_c,i,j,k,b)       = dq(nv_c,i,j,k,b)       - damping_coeff * q(nv_c,i,j,k,b)
-               endif
+               dq(nv_c-1_I4P,i,j,k,b)  = -(chi)**2*divergenceD - alpha * q(nv_c-1_I4P,i,j,k,b)
+               dq(nv_c,i,j,k,b)        = -(chi)**2*divergenceB - alpha * q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2872,17 +2866,14 @@ contains
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
                                                    q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
                                                    divergence = divergenceD)
+               if (use_rho) divergenceD = divergenceD - q(rho_ivar,i,j,k,b)
                dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
                dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
                dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
                dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                                 !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                                 !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                                 !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceD
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
-                  dq(nv_c,i,j,k,b) = dq(nv_c,i,j,k,b) - damping_coeff * q(nv_c,i,j,k,b)
-               endif
+               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceD - alpha * q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2915,11 +2906,7 @@ contains
                dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)       !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
                dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)       !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
                dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)       !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceB
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
-                  dq(nv_c,i,j,k,b) = dq(nv_c,i,j,k,b) - damping_coeff * q(nv_c,i,j,k,b)
-               endif
+               dq(nv_c,  i,j,k,b) = -(chi*C0)**2*divergenceB - alpha * q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -2950,6 +2937,7 @@ contains
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
                                                    q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceD)
+               if (use_rho) divergenceD = divergenceD - q(rho_ivar,i,j,k,b)
                call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceB)
@@ -2959,13 +2947,8 @@ contains
                dq(VAR_BX,    i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)                    
                dq(VAR_BY,    i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)                    
                dq(VAR_BZ,    i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)                    
-               dq(nv_c-1_I4P,i,j,k,b) = -(chi*C0)**2*divergenceD
-               dq(nv_c,      i,j,k,b) = -(chi*C0)**2*divergenceB
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
-                  dq(nv_c-1_I4P,i,j,k,b) = dq(nv_c-1_I4P,i,j,k,b) - damping_coeff * q(nv_c-1_I4P,i,j,k,b)
-                  dq(nv_c,i,j,k,b)       = dq(nv_c,i,j,k,b)       - damping_coeff * q(nv_c,i,j,k,b)
-               endif
+               dq(nv_c-1_I4P,i,j,k,b) = -(chi*C0)**2*divergenceD - alpha * q(nv_c-1_I4P,i,j,k,b)
+               dq(nv_c,      i,j,k,b) = -(chi*C0)**2*divergenceB - alpha * q(nv_c,i,j,k,b)
             enddo
             enddo
             enddo
@@ -3671,7 +3654,8 @@ contains
                                                                                        0._R8P,1._R8P,0._R8P,  &
                                                                                        0._R8P,0._R8P,1._R8P], &
                                                                                        [3,3]) !< Direction versor, real.
-   real(R8P)                                                    :: damping_coeff
+   real(R8P)                                                    :: chi_wave2
+   logical                                                      :: use_rho
 
    ! Capture stage BEFORE the associate block rebinds `s` to the
    ! reconstruction stencil half-width. The inter-realm FV reflux hook
@@ -3688,11 +3672,16 @@ contains
    else
       call self%update_ghost(q=q)
    endif
+   use_rho = is_pic_model(self%physics%physical_model) .and. self%fv_add_phi_damping
+   chi_wave2 = self%physics%chi * C0
+   if (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL .or. &
+       self%physics%physical_model == ADIM_PIC_PHYSICAL_MODEL) chi_wave2 = self%physics%chi
+   chi_wave2 = chi_wave2 * chi_wave2
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%adam%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,        &
              s=>self%fdv_half_stencils(1),                                                                            &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,      &
-             c_r=>self%physics%c_r)
+             alpha=>self%physics%alpha)
    if (blocks_number > 0) then
       ! compute fluxes at cell centers
       do b=1, blocks_number
@@ -3783,28 +3772,11 @@ contains
          dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - q(var_Jx,i,j,k,b)
          dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - q(var_Jy,i,j,k,b)
          dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q(var_Jz,i,j,k,b)
-         if (self%fv_add_phi_damping) then
-            if (c_r > 0._R8P) then
-               if (is_adim_model(self%physics%physical_model)) then
-                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
-               else
-                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
-               endif
-               dq(self%fv_ivar_phi,i,j,k,b) = dq(self%fv_ivar_phi,i,j,k,b) - &
-                                              damping_coeff * q(self%fv_ivar_phi,i,j,k,b)
-            endif
-         endif
-         if (self%fv_add_psi_damping) then
-            if (c_r > 0._R8P) then
-               if (is_adim_model(self%physics%physical_model)) then
-                  damping_coeff = chi / (c_r * minval(dxyz(1:3,b)))
-               else
-                  damping_coeff = chi * C0 / (c_r * minval(dxyz(1:3,b)))
-               endif
-               dq(self%fv_ivar_psi,i,j,k,b) = dq(self%fv_ivar_psi,i,j,k,b) - &
-                                              damping_coeff * q(self%fv_ivar_psi,i,j,k,b)
-            endif
-         endif
+         if (use_rho) dq(self%fv_ivar_phi,i,j,k,b) = dq(self%fv_ivar_phi,i,j,k,b) + chi_wave2 * q(self%nv,i,j,k,b)
+         if (self%fv_add_phi_damping) dq(self%fv_ivar_phi,i,j,k,b) = dq(self%fv_ivar_phi,i,j,k,b) - &
+                                                                     alpha * q(self%fv_ivar_phi,i,j,k,b)
+         if (self%fv_add_psi_damping) dq(self%fv_ivar_psi,i,j,k,b) = dq(self%fv_ivar_psi,i,j,k,b) - &
+                                                                     alpha * q(self%fv_ivar_psi,i,j,k,b)
       enddo
       enddo
       enddo
@@ -4018,12 +3990,18 @@ contains
                                                                       1:)        !< Residuals.
    integer(I4P),                intent(in),    optional         :: s             !< Stage counter.
    class(flux_register_object), intent(inout), optional         :: flux_register !< Flux register.
+   real(R8P)                                                    :: chi_wave2
+   logical                                                      :: use_rho
 
    if (present(s)) then
       call self%update_ghost(q=q, s=s)
    else
       call self%update_ghost(q=q)
    endif
+   use_rho = is_pic_model(self%physics%physical_model)
+   chi_wave2 = self%physics%chi
+   if (.not. is_adim_model(self%physics%physical_model)) chi_wave2 = chi_wave2 * C0
+   chi_wave2 = chi_wave2 * chi_wave2
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&
              dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:),                         &
@@ -4048,6 +4026,9 @@ contains
                                      q=q,fluxes=flz)
       call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
                                      var_Jx=var_Jx, var_Jy=var_Jy, var_Jz=var_Jz,                          &
+                                     phi_ivar=self%fv_ivar_phi, psi_ivar=self%fv_ivar_psi,                &
+                                     rho_ivar=self%nv, use_rho=use_rho, chi_wave2=chi_wave2,              &
+                                     alpha=self%physics%alpha,                                            &
                                      dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
    endif
    endassociate
@@ -4523,6 +4504,7 @@ contains
    endsubroutine compute_fluxes_convective_ri_weno
 
    subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv_c, var_Jx, var_Jy, var_Jz, &
+                                       phi_ivar, psi_ivar, rho_ivar, use_rho, chi_wave2, alpha, &
                                        dx, dy, dz, flx, fly, flz, q, dq)
    !< Compute fluxes difference.
    integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
@@ -4532,6 +4514,9 @@ contains
    integer(I4P), intent(in)    :: ngc                             !< Ghost cells number.
    integer(I4P), intent(in)    :: nv_c                            !< Number of conservative varibales in q.
    integer(I4P), intent(in)    :: var_Jx, var_Jy, var_Jz          !< Current variable indices.
+   integer(I4P), intent(in)    :: phi_ivar, psi_ivar, rho_ivar
+   logical,      intent(in)    :: use_rho
+   real(R8P),    intent(in)    :: chi_wave2, alpha
    real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)          !< Space steps.
    real(R8P),    intent(in)    :: flx(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< X direction fluxes.
    real(R8P),    intent(in)    :: fly(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Y direction fluxes.
@@ -4553,13 +4538,11 @@ contains
       dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - q(var_Jx,i,j,k,b)
       dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - q(var_Jy,i,j,k,b)
       dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q(var_Jz,i,j,k,b)
-      ! corrections
-      ! if (d_divergence_cleaner .and. .not.b_divergence_cleaner .and. eta>0._R8P) then
-      !    dq(10,i,j,k,b) = dq(10,i,j,k,b) - chi/eta*chi/eta*q(10,i,j,k,b)
-      ! elseif (D_divergence_cleaner .and. B_divergence_cleaner .and. eta>0._R8P) then
-      !    dq(10,i,j,k,b) = dq(10,i,j,k,b) - chi/eta*chi/eta*q(10,i,j,k,b)
-      !    dq(11,i,j,k,b) = dq(11,i,j,k,b) - chi/eta*chi/eta*q(11,i,j,k,b)
-      ! endif
+      if (phi_ivar > 0_I4P) then
+         if (use_rho) dq(phi_ivar,i,j,k,b) = dq(phi_ivar,i,j,k,b) + chi_wave2 * q(rho_ivar,i,j,k,b)
+         dq(phi_ivar,i,j,k,b) = dq(phi_ivar,i,j,k,b) - alpha * q(phi_ivar,i,j,k,b)
+      endif
+      if (psi_ivar > 0_I4P) dq(psi_ivar,i,j,k,b) = dq(psi_ivar,i,j,k,b) - alpha * q(psi_ivar,i,j,k,b)
    enddo
    enddo
    enddo

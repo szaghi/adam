@@ -81,7 +81,7 @@ type, extends(prism_common_object) :: prism_fnl_object
    real(R8P)             :: fd_inv_mu_scale     = 1._R8P / MU0              !< Dimensional/adimensional scaling on curl(B).
    real(R8P)             :: fd_inv_eps_scale    = 1._R8P / EPS0             !< Dimensional/adimensional scaling on curl(D).
    real(R8P)             :: fd_chi_wave         = 0._R8P                    !< Hyperbolic transport speed for phi/psi equations.
-   real(R8P)             :: fd_chi_damp         = 0._R8P                    !< Dedner damping speed for phi/psi equations.
+   real(R8P)             :: fd_alpha_damp       = 0._R8P                    !< GLM damping rate for phi/psi equations.
    !< Pointer (abstract) TBP.
    procedure(compute_curl_interface_dev),       pass(self),pointer :: compute_curl_dev       =>null()!< Compute curl.
    procedure(compute_derivative1_interface_dev),pass(self),pointer :: compute_derivative1_dev=>null()!< Compute derivative1.
@@ -621,12 +621,12 @@ contains
       self%fd_inv_mu_scale  = 1._R8P
       self%fd_inv_eps_scale = 1._R8P
       self%fd_chi_wave      = self%physics%chi
-      self%fd_chi_damp      = self%physics%chi
+      self%fd_alpha_damp    = self%physics%alpha
    case default
       self%fd_inv_mu_scale  = 1._R8P / MU0
       self%fd_inv_eps_scale = 1._R8P / EPS0
       self%fd_chi_wave      = self%physics%chi * C0
-      self%fd_chi_damp      = self%physics%chi * C0
+      self%fd_alpha_damp    = self%physics%alpha
    endselect
    if (self%fv_add_phi_damping .and. self%fv_add_psi_damping) then
       self%fd_residual_variant = FD_RESIDUAL_VARIANT_PHI_PSI
@@ -2361,15 +2361,17 @@ contains
                                          var_jx=self%physics%var_jx, var_jy=self%physics%var_jy,                     &
                                          var_jz=self%physics%var_jz, s1=self%fdv_half_stencils(1),                   &
                                          inv_mu_scale=self%fd_inv_mu_scale, inv_eps_scale=self%fd_inv_eps_scale,     &
-                                         chi_wave=self%fd_chi_wave, chi_damp=self%fd_chi_damp, c_r=self%physics%c_r, &
-                                         ivar_phi=self%fd_ivar_phi, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
+                                         chi_wave=self%fd_chi_wave, alpha=self%fd_alpha_damp, &
+                                         ivar_phi=self%fd_ivar_phi, rho_ivar=self%nv, &
+                                         use_rho=merge(1_I4P, 0_I4P, is_pic_model(self%physics%physical_model)), &
+                                         dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
       case(FD_RESIDUAL_VARIANT_PSI)
          call fd_centered_psi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                           &
                                          blocks_number=self%blocks_number,                                           &
                                          var_jx=self%physics%var_jx, var_jy=self%physics%var_jy,                     &
                                          var_jz=self%physics%var_jz, s1=self%fdv_half_stencils(1),                   &
                                          inv_mu_scale=self%fd_inv_mu_scale, inv_eps_scale=self%fd_inv_eps_scale,     &
-                                         chi_wave=self%fd_chi_wave, chi_damp=self%fd_chi_damp, c_r=self%physics%c_r, &
+                                         chi_wave=self%fd_chi_wave, alpha=self%fd_alpha_damp, &
                                          ivar_psi=self%fd_ivar_psi, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
       case(FD_RESIDUAL_VARIANT_PHI_PSI)
          call fd_centered_phi_psi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                           &
@@ -2377,8 +2379,10 @@ contains
                                              var_jx=self%physics%var_jx, var_jy=self%physics%var_jy,                     &
                                              var_jz=self%physics%var_jz, s1=self%fdv_half_stencils(1),                   &
                                              inv_mu_scale=self%fd_inv_mu_scale, inv_eps_scale=self%fd_inv_eps_scale,     &
-                                             chi_wave=self%fd_chi_wave, chi_damp=self%fd_chi_damp, c_r=self%physics%c_r, &
-                                             ivar_phi=self%fd_ivar_phi, ivar_psi=self%fd_ivar_psi,                       &
+                                             chi_wave=self%fd_chi_wave, alpha=self%fd_alpha_damp, &
+                                             ivar_phi=self%fd_ivar_phi, ivar_psi=self%fd_ivar_psi, &
+                                             rho_ivar=self%nv, &
+                                             use_rho=merge(1_I4P, 0_I4P, is_pic_model(self%physics%physical_model)), &
                                              dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
       case default
          call mpih_fnl%error_stop(msg=': unknown FD residual variant in FNL backend')
@@ -2387,14 +2391,14 @@ contains
    endif
    contains
       subroutine compute_residuals_fd_centered_dev_kernel(ni, nj, nk, ngc, blocks_number,             &
-                                                          var_Jx, var_Jy, var_Jz, nv_c, chi, c_r, s1, &
+                                                          var_Jx, var_Jy, var_Jz, nv_c, chi, alpha, s1, &
                                                           dxyz_gpu, q_gpu, dq_gpu)
       !< Compute residuals of equation, space operator, centered finite difference schemes, kernel device.
       integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number         !< Grids dimensions.
       integer(I4P), intent(in)    :: var_jx,var_jy,var_jz               !< Indexes of J_vec variables.
       integer(I4P), intent(in)    :: nv_c                               !< Number of conservative variables.
       real(R8P),    intent(in)    :: chi                                !< Hyperbolic correction speed.
-      real(R8P),    intent(in)    :: c_r                                !< Dedner GLM parabolic-damping ratio (issue #29).
+      real(R8P),    intent(in)    :: alpha                              !< Optional GLM damping rate for phi/psi.
       integer(I4P), intent(in)    :: s1                                 !< Half FDV stencil length.
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Delta cells GPU [nb,3].
       real(R8P),    intent(in)    :: q_gpu( 1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
@@ -2404,7 +2408,6 @@ contains
       real(R8P)                   :: divergenceD, divergenceB           !< Divergence for hyperbolic correction.
       real(R8P)   			   	 :: gradphi(3), gradpsi(3) 	         !< Gradient for hyperbolic correction.
       real(R8P)   			   	 :: dxyz_b(3) 	                     !< Per-block deltas, PRIVATE copy (no strided-section temp).
-      real(R8P)                   :: damping_coeff                      !< Optional GLM parabolic damping coefficient.
       ! rank 1D stencil for curl computations on device that contiguos memory is mandatory
       real(R8P) :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the x stencil.
       real(R8P) :: qsx_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the x stencil.
@@ -2417,8 +2420,7 @@ contains
       real(R8P) :: qsy_y(1-FDV_S_MAX:1+FDV_S_MAX) !< Y component of vector field over the y stencil.
       real(R8P) :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX) !< Z component of vector field over the z stencil.
 
-      if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. &
-          self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if (self%physics%physical_model == EM_PHYSICAL_MODEL .or.  is_pic_model(self%physics%physical_model)) then
 		   if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
             self%numerics%constrained_transport_D .and. &
 		      .not.self%numerics%constrained_transport_B) then
@@ -2427,11 +2429,11 @@ contains
             ! dB/dt = -curl(D/EPS0)
             ! dphi/dt = -ch^2*div(D)
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
+            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1)                              &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
             !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,gradphi,dxyz_b)
             !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1) &
+            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1) &
             !$omp& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y, &
             !$omp&         qsx_x,qsy_y,qsz_z,divergenceD,gradphi,dxyz_b)
             do b=1,blocks_number
@@ -2491,11 +2493,7 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)/EPS0
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)/EPS0
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)/EPS0
-               dq_gpu(b,i,j,k,nv_c) = -(chi*C0)**2*divergenceD
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi * C0 / (c_r * minval(dxyz_b))
-                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
-               endif
+               dq_gpu(b,i,j,k,nv_c) = -(chi*C0)**2*divergenceD - alpha * q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -2508,11 +2506,11 @@ contains
             ! dB/dt = -curl(D/EPS0) -grad(psi)
             ! dpsi/dt = -ch^2*div(B)
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
+            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1)                              &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
             !$acc&         qsx_x,qsy_y,qsz_z,divergenceB,gradpsi,dxyz_b)
             !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1) &
+            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1) &
             !$omp& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y, &
             !$omp&         qsx_x,qsy_y,qsz_z,divergenceB,gradpsi,dxyz_b)
             do b=1,blocks_number
@@ -2571,11 +2569,7 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)/EPS0 - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)/EPS0 - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)/EPS0 - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c) = -(chi*C0)**2*divergenceB
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi * C0 / (c_r * minval(dxyz_b))
-                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
-               endif
+               dq_gpu(b,i,j,k,nv_c) = -(chi*C0)**2*divergenceB - alpha * q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -2589,11 +2583,11 @@ contains
             ! dphi/dt = -ch^2*div(D)
             ! dpsi/dt = -ch^2*div(B)
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
+            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1)                              &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
             !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,gradphi,gradpsi,dxyz_b)
             !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1) &
+            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1) &
             !$omp& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y, &
             !$omp&         qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,gradphi,gradpsi,dxyz_b)
             do b=1,blocks_number
@@ -2670,13 +2664,8 @@ contains
                dq_gpu(b,i,j,k,VAR_BX    ) = -curlD(1)/EPS0 - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY    ) = -curlD(2)/EPS0 - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ    ) = -curlD(3)/EPS0 - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c-1_I4P) = -(chi*C0)**2*divergenceD
-               dq_gpu(b,i,j,k,nv_c)       = -(chi*C0)**2*divergenceB
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi * C0 / (c_r * minval(dxyz_b))
-                  dq_gpu(b,i,j,k,nv_c-1_I4P) = dq_gpu(b,i,j,k,nv_c-1_I4P) - damping_coeff * q_gpu(b,i,j,k,nv_c-1_I4P)
-                  dq_gpu(b,i,j,k,nv_c)       = dq_gpu(b,i,j,k,nv_c)       - damping_coeff * q_gpu(b,i,j,k,nv_c)
-               endif
+               dq_gpu(b,i,j,k,nv_c-1_I4P) = -(chi*C0)**2*divergenceD - alpha * q_gpu(b,i,j,k,nv_c-1_I4P)
+               dq_gpu(b,i,j,k,nv_c)       = -(chi*C0)**2*divergenceB - alpha * q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -2737,7 +2726,8 @@ contains
             enddo
             enddo
          endif
-      elseif (is_adim_model(self%physics%physical_model)) then
+      elseif (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL .or. &
+              self%physics%physical_model == ADIM_PIC_PHYSICAL_MODEL) then
          	if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. &
             self%numerics%constrained_transport_D .and. &
 		      .not.self%numerics%constrained_transport_B) then
@@ -2746,11 +2736,11 @@ contains
             ! dB/dt = -curl(D)
             ! dphi/dt = -ch^2*div(D)
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
+            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1)                              &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
             !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,gradphi,dxyz_b)
             !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1) &
+            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1) &
             !$omp& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y, &
             !$omp&         qsx_x,qsy_y,qsz_z,divergenceD,gradphi,dxyz_b)
             do b=1,blocks_number
@@ -2810,11 +2800,7 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)
-               dq_gpu(b,i,j,k,nv_c) = -(chi)**2*divergenceD
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi / (c_r * minval(dxyz_b))
-                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
-               endif
+               dq_gpu(b,i,j,k,nv_c) = -(chi)**2*divergenceD - alpha * q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -2827,11 +2813,11 @@ contains
             ! dB/dt = -curl(D) -grad(psi)
             ! dpsi/dt = -ch^2*div(B)
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
+            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1)                              &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
             !$acc&         qsx_x,qsy_y,qsz_z,divergenceB,gradpsi,dxyz_b)
             !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1) &
+            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1) &
             !$omp& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y, &
             !$omp&         qsx_x,qsy_y,qsz_z,divergenceB,gradpsi,dxyz_b)
             do b=1,blocks_number
@@ -2890,11 +2876,7 @@ contains
                dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c) = -(chi)**2*divergenceB
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi / (c_r * minval(dxyz_b))
-                  dq_gpu(b,i,j,k,nv_c) = dq_gpu(b,i,j,k,nv_c) - damping_coeff * q_gpu(b,i,j,k,nv_c)
-               endif
+               dq_gpu(b,i,j,k,nv_c) = -(chi)**2*divergenceB - alpha * q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -2908,11 +2890,11 @@ contains
             ! dphi/dt = -ch^2*div(D)
             ! dpsi/dt = -ch^2*div(B)
             !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1)                                    &
+            !$acc& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1)                              &
             !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,                          &
             !$acc&         qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,gradphi,gradpsi,dxyz_b)
             !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,dq_gpu) &
-            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,s1) &
+            !$omp& firstprivate(var_jx,var_jy,var_jz,nv_c,chi,alpha,s1) &
             !$omp& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y, &
             !$omp&         qsx_x,qsy_y,qsz_z,divergenceD,divergenceB,gradphi,gradpsi,dxyz_b)
             do b=1,blocks_number
@@ -2989,13 +2971,8 @@ contains
                dq_gpu(b,i,j,k,VAR_BX    ) = -curlD(1) - gradpsi(1)
                dq_gpu(b,i,j,k,VAR_BY    ) = -curlD(2) - gradpsi(2)
                dq_gpu(b,i,j,k,VAR_BZ    ) = -curlD(3) - gradpsi(3)
-               dq_gpu(b,i,j,k,nv_c-1_I4P) = -(chi)**2*divergenceD
-               dq_gpu(b,i,j,k,nv_c)       = -(chi)**2*divergenceB
-               if (c_r > 0._R8P) then
-                  damping_coeff = chi / (c_r * minval(dxyz_b))
-                  dq_gpu(b,i,j,k,nv_c-1_I4P) = dq_gpu(b,i,j,k,nv_c-1_I4P) - damping_coeff * q_gpu(b,i,j,k,nv_c-1_I4P)
-                  dq_gpu(b,i,j,k,nv_c)       = dq_gpu(b,i,j,k,nv_c)       - damping_coeff * q_gpu(b,i,j,k,nv_c)
-               endif
+               dq_gpu(b,i,j,k,nv_c-1_I4P) = -(chi)**2*divergenceD - alpha * q_gpu(b,i,j,k,nv_c-1_I4P)
+               dq_gpu(b,i,j,k,nv_c)       = -(chi)**2*divergenceB - alpha * q_gpu(b,i,j,k,nv_c)
             enddo
             enddo
             enddo
@@ -3778,17 +3755,17 @@ contains
    endsubroutine fd_centered_plain_dev_kernel
 
    subroutine fd_centered_phi_dev_kernel(ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, &
-                                         inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r, ivar_phi, &
-                                         dxyz_gpu, q_gpu, dq_gpu)
+                                         inv_mu_scale, inv_eps_scale, chi_wave, alpha, ivar_phi, &
+                                         rho_ivar, use_rho, dxyz_gpu, q_gpu, dq_gpu)
    !< Centered-FD Maxwell residual with phi cleaning only.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, ivar_phi
-   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r
+   integer(I4P), intent(in)    :: rho_ivar, use_rho
+   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale, chi_wave, alpha
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    integer(I4P)                :: i, j, k, b, s
    real(R8P)                   :: curlD(3), curlB(3), gradphi(3), divergenceD, dxyz_b(3)
-   real(R8P)                   :: damping_coeff, min_h
    real(R8P)                   :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX), qsx_z(1-FDV_S_MAX:1+FDV_S_MAX)
    real(R8P)                   :: qsy_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_z(1-FDV_S_MAX:1+FDV_S_MAX)
    real(R8P)                   :: qsz_x(1-FDV_S_MAX:1+FDV_S_MAX), qsz_y(1-FDV_S_MAX:1+FDV_S_MAX)
@@ -3796,11 +3773,11 @@ contains
    real(R8P)                   :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX)
 
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,chi_damp,c_r,ivar_phi) &
-   !$acc& private(curlD,curlB,gradphi,divergenceD,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b,min_h,damping_coeff)
+   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,alpha,ivar_phi,rho_ivar,use_rho) &
+   !$acc& private(curlD,curlB,gradphi,divergenceD,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,dq_gpu) &
-   !$omp& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,chi_damp,c_r,ivar_phi) &
-   !$omp& private(curlD,curlB,gradphi,divergenceD,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b,min_h,damping_coeff)
+   !$omp& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,alpha,ivar_phi,rho_ivar,use_rho) &
+   !$omp& private(curlD,curlB,gradphi,divergenceD,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b)
    do b=1,blocks_number
    do k=1,nk
    do j=1,nj
@@ -3841,6 +3818,7 @@ contains
       call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                               qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                               divergence=divergenceD)
+      if (use_rho /= 0_I4P) divergenceD = divergenceD - q_gpu(b,i,j,k,rho_ivar)
       !$acc loop seq
       do s=1-s1, 1+s1
          qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,ivar_phi)
@@ -3856,12 +3834,7 @@ contains
       dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) * inv_eps_scale
       dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) * inv_eps_scale
       dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) * inv_eps_scale
-      dq_gpu(b,i,j,k,ivar_phi) = -(chi_wave * chi_wave) * divergenceD
-      if (c_r > 0._R8P) then
-         min_h = min(dxyz_b(1), min(dxyz_b(2), dxyz_b(3)))
-         damping_coeff = chi_damp / (c_r * min_h)
-         dq_gpu(b,i,j,k,ivar_phi) = dq_gpu(b,i,j,k,ivar_phi) - damping_coeff * q_gpu(b,i,j,k,ivar_phi)
-      endif
+      dq_gpu(b,i,j,k,ivar_phi) = -(chi_wave * chi_wave) * divergenceD - alpha * q_gpu(b,i,j,k,ivar_phi)
    enddo
    enddo
    enddo
@@ -3869,17 +3842,16 @@ contains
    endsubroutine fd_centered_phi_dev_kernel
 
    subroutine fd_centered_psi_dev_kernel(ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, &
-                                         inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r, ivar_psi, &
+                                         inv_mu_scale, inv_eps_scale, chi_wave, alpha, ivar_psi, &
                                          dxyz_gpu, q_gpu, dq_gpu)
    !< Centered-FD Maxwell residual with psi cleaning only.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, ivar_psi
-   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r
+   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale, chi_wave, alpha
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    integer(I4P)                :: i, j, k, b, s
    real(R8P)                   :: curlD(3), curlB(3), gradpsi(3), divergenceB, dxyz_b(3)
-   real(R8P)                   :: damping_coeff, min_h
    real(R8P)                   :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX), qsx_z(1-FDV_S_MAX:1+FDV_S_MAX)
    real(R8P)                   :: qsy_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_z(1-FDV_S_MAX:1+FDV_S_MAX)
    real(R8P)                   :: qsz_x(1-FDV_S_MAX:1+FDV_S_MAX), qsz_y(1-FDV_S_MAX:1+FDV_S_MAX)
@@ -3887,11 +3859,11 @@ contains
    real(R8P)                   :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX)
 
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,chi_damp,c_r,ivar_psi) &
-   !$acc& private(curlD,curlB,gradpsi,divergenceB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b,min_h,damping_coeff)
+   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,alpha,ivar_psi) &
+   !$acc& private(curlD,curlB,gradpsi,divergenceB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,dq_gpu) &
-   !$omp& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,chi_damp,c_r,ivar_psi) &
-   !$omp& private(curlD,curlB,gradpsi,divergenceB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b,min_h,damping_coeff)
+   !$omp& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,alpha,ivar_psi) &
+   !$omp& private(curlD,curlB,gradpsi,divergenceB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y,qsx_x,qsy_y,qsz_z,dxyz_b)
    do b=1,blocks_number
    do k=1,nk
    do j=1,nj
@@ -3947,12 +3919,7 @@ contains
       dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) * inv_eps_scale - gradpsi(1)
       dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) * inv_eps_scale - gradpsi(2)
       dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) * inv_eps_scale - gradpsi(3)
-      dq_gpu(b,i,j,k,ivar_psi) = -(chi_wave * chi_wave) * divergenceB
-      if (c_r > 0._R8P) then
-         min_h = min(dxyz_b(1), min(dxyz_b(2), dxyz_b(3)))
-         damping_coeff = chi_damp / (c_r * min_h)
-         dq_gpu(b,i,j,k,ivar_psi) = dq_gpu(b,i,j,k,ivar_psi) - damping_coeff * q_gpu(b,i,j,k,ivar_psi)
-      endif
+      dq_gpu(b,i,j,k,ivar_psi) = -(chi_wave * chi_wave) * divergenceB - alpha * q_gpu(b,i,j,k,ivar_psi)
    enddo
    enddo
    enddo
@@ -3960,17 +3927,17 @@ contains
    endsubroutine fd_centered_psi_dev_kernel
 
    subroutine fd_centered_phi_psi_dev_kernel(ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, &
-                                             inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r, ivar_phi, ivar_psi, &
-                                             dxyz_gpu, q_gpu, dq_gpu)
+                                             inv_mu_scale, inv_eps_scale, chi_wave, alpha, ivar_phi, ivar_psi, &
+                                             rho_ivar, use_rho, dxyz_gpu, q_gpu, dq_gpu)
    !< Centered-FD Maxwell residual with phi/psi cleaning.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, s1, ivar_phi, ivar_psi
-   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale, chi_wave, chi_damp, c_r
+   integer(I4P), intent(in)    :: rho_ivar, use_rho
+   real(R8P),    intent(in)    :: inv_mu_scale, inv_eps_scale, chi_wave, alpha
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    integer(I4P)                :: i, j, k, b, s
    real(R8P)                   :: curlD(3), curlB(3), gradphi(3), gradpsi(3), divergenceD, divergenceB, dxyz_b(3)
-   real(R8P)                   :: damping_coeff, min_h
    real(R8P)                   :: qsx_y(1-FDV_S_MAX:1+FDV_S_MAX), qsx_z(1-FDV_S_MAX:1+FDV_S_MAX)
    real(R8P)                   :: qsy_x(1-FDV_S_MAX:1+FDV_S_MAX), qsy_z(1-FDV_S_MAX:1+FDV_S_MAX)
    real(R8P)                   :: qsz_x(1-FDV_S_MAX:1+FDV_S_MAX), qsz_y(1-FDV_S_MAX:1+FDV_S_MAX)
@@ -3978,13 +3945,15 @@ contains
    real(R8P)                   :: qsz_z(1-FDV_S_MAX:1+FDV_S_MAX)
 
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,chi_damp,c_r,ivar_phi,ivar_psi) &
+   !$acc& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,alpha) &
+   !$acc& firstprivate(ivar_phi,ivar_psi,rho_ivar,use_rho) &
    !$acc& private(curlD,curlB,gradphi,gradpsi,divergenceD,divergenceB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y, &
-   !$acc&         qsx_x,qsy_y,qsz_z,dxyz_b,min_h,damping_coeff)
+   !$acc&         qsx_x,qsy_y,qsz_z,dxyz_b)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,dq_gpu) &
-   !$omp& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,chi_damp,c_r,ivar_phi,ivar_psi) &
+   !$omp& firstprivate(var_jx,var_jy,var_jz,s1,inv_mu_scale,inv_eps_scale,chi_wave,alpha) &
+   !$omp& firstprivate(ivar_phi,ivar_psi,rho_ivar,use_rho) &
    !$omp& private(curlD,curlB,gradphi,gradpsi,divergenceD,divergenceB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y, &
-   !$omp&         qsx_x,qsy_y,qsz_z,dxyz_b,min_h,damping_coeff)
+   !$omp&         qsx_x,qsy_y,qsz_z,dxyz_b)
    do b=1,blocks_number
    do k=1,nk
    do j=1,nj
@@ -4025,6 +3994,7 @@ contains
       call compute_divergence_fd_centered_dev(s=s1,dxyz=dxyz_b,                                      &
                                               qsx=qsx_x(1-s1:1+s1),qsy=qsy_y(1-s1:1+s1),qsz=qsz_z(1-s1:1+s1), &
                                               divergence=divergenceD)
+      if (use_rho /= 0_I4P) divergenceD = divergenceD - q_gpu(b,i,j,k,rho_ivar)
       !$acc loop seq
       do s=1-s1, 1+s1
          qsx_x(s) = q_gpu(b,i+s-1,j    ,k    ,ivar_phi)
@@ -4058,14 +4028,8 @@ contains
       dq_gpu(b,i,j,k,VAR_BX) = -curlD(1) * inv_eps_scale - gradpsi(1)
       dq_gpu(b,i,j,k,VAR_BY) = -curlD(2) * inv_eps_scale - gradpsi(2)
       dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3) * inv_eps_scale - gradpsi(3)
-      dq_gpu(b,i,j,k,ivar_phi) = -(chi_wave * chi_wave) * divergenceD
-      dq_gpu(b,i,j,k,ivar_psi) = -(chi_wave * chi_wave) * divergenceB
-      if (c_r > 0._R8P) then
-         min_h = min(dxyz_b(1), min(dxyz_b(2), dxyz_b(3)))
-         damping_coeff = chi_damp / (c_r * min_h)
-         dq_gpu(b,i,j,k,ivar_phi) = dq_gpu(b,i,j,k,ivar_phi) - damping_coeff * q_gpu(b,i,j,k,ivar_phi)
-         dq_gpu(b,i,j,k,ivar_psi) = dq_gpu(b,i,j,k,ivar_psi) - damping_coeff * q_gpu(b,i,j,k,ivar_psi)
-      endif
+      dq_gpu(b,i,j,k,ivar_phi) = -(chi_wave * chi_wave) * divergenceD - alpha * q_gpu(b,i,j,k,ivar_phi)
+      dq_gpu(b,i,j,k,ivar_psi) = -(chi_wave * chi_wave) * divergenceB - alpha * q_gpu(b,i,j,k,ivar_psi)
    enddo
    enddo
    enddo
@@ -4103,7 +4067,7 @@ contains
    integer(I4P),            intent(in),    optional :: s          !< Stage counter (gates the seam-flux accumulation).
    class(flux_register_object), intent(inout), optional :: flux_register !< Forest's flux register for FV seam reflux.
    integer(I4P)                                     :: stage_idx  !< Captured stage index (CPU-parity gate).
-   real(R8P)                                        :: chi_damp   !< Host-side damping-speed factor.
+   real(R8P)                                        :: alpha      !< Optional GLM damping rate.
 
    stage_idx = 0_I4P ; if (present(s)) stage_idx = s
    ! Collective ghost update on every rank, blocks or not (see compute_residuals_fd_centered_dev, issue #52).
@@ -4171,29 +4135,32 @@ contains
             call accumulate_seam_fluxes_fv_dev(self, self%rk%beta(stage_idx), flux_register)
          endif
       endif
-      chi_damp = self%physics%chi * C0
-      if (is_adim_model(self%physics%physical_model)) chi_damp = self%physics%chi
+      alpha = self%physics%alpha
       if (self%fv_add_phi_damping .and. self%fv_add_psi_damping) then
          call fv_flux_diff_phi_psi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                               nv_c=self%nv_c, blocks_number=self%blocks_number, &
                                               var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
-                                              var_jz=self%physics%var_jz, chi_damp=chi_damp, c_r=self%physics%c_r, &
+                                              var_jz=self%physics%var_jz, chi_wave=self%fd_chi_wave, alpha=alpha, &
                                               fv_ivar_phi=self%fv_ivar_phi, fv_ivar_psi=self%fv_ivar_psi, &
+                                              rho_ivar=self%nv, &
+                                              use_rho=merge(1_I4P, 0_I4P, is_pic_model(self%physics%physical_model)), &
                                               dxyz_gpu=self%field_fnl%dxyz_gpu, flx_f_gpu=self%flx_f_gpu, &
                                               fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
       elseif (self%fv_add_phi_damping) then
          call fv_flux_diff_phi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                           nv_c=self%nv_c, blocks_number=self%blocks_number, &
                                           var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
-                                          var_jz=self%physics%var_jz, chi_damp=chi_damp, c_r=self%physics%c_r, &
+                                          var_jz=self%physics%var_jz, chi_wave=self%fd_chi_wave, alpha=alpha, &
                                           fv_ivar_phi=self%fv_ivar_phi, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                          rho_ivar=self%nv, &
+                                          use_rho=merge(1_I4P, 0_I4P, is_pic_model(self%physics%physical_model)), &
                                           flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, &
                                           q_gpu=q_gpu, dq_gpu=dq_gpu)
       elseif (self%fv_add_psi_damping) then
          call fv_flux_diff_psi_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                           nv_c=self%nv_c, blocks_number=self%blocks_number, &
                                           var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
-                                          var_jz=self%physics%var_jz, chi_damp=chi_damp, c_r=self%physics%c_r, &
+                                          var_jz=self%physics%var_jz, alpha=alpha, &
                                           fv_ivar_psi=self%fv_ivar_psi, dxyz_gpu=self%field_fnl%dxyz_gpu, &
                                           flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, &
                                           q_gpu=q_gpu, dq_gpu=dq_gpu)
@@ -4663,27 +4630,29 @@ contains
    endsubroutine fv_flux_diff_plain_dev_kernel
 
    subroutine fv_flux_diff_phi_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, var_jx, var_jy, var_jz, &
-                                          chi_damp, c_r, fv_ivar_phi, dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)
+                                          chi_wave, alpha, fv_ivar_phi, rho_ivar, use_rho, dxyz_gpu, flx_f_gpu, fly_f_gpu, &
+                                          flz_f_gpu, q_gpu, dq_gpu)
    !< Conservative flux difference + J source + phi damping.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
    integer(I4P), intent(in)    :: nv_c
    integer(I4P), intent(in)    :: var_jx, var_jy, var_jz, fv_ivar_phi
-   real(R8P),    intent(in)    :: chi_damp, c_r
+   integer(I4P), intent(in)    :: rho_ivar, use_rho
+   real(R8P),    intent(in)    :: chi_wave, alpha
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
    real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)
    real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)
    real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   real(R8P)                   :: dxb, dyb, dzb, min_h, damping_coeff
+   real(R8P)                   :: dxb, dyb, dzb
    integer(I4P)                :: i, j, k, b, v
 
    !$acc parallel loop independent gang vector collapse(4)                              &
    !$acc& DEVICEVAR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)            &
-   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_damp, c_r, fv_ivar_phi)
+   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_wave, alpha, fv_ivar_phi, rho_ivar, use_rho)
    !$omp OMPLOOP collapse(4) &
    !$omp& DEVICEPTR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu) &
-   !$omp& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_damp, c_r, fv_ivar_phi)
+   !$omp& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_wave, alpha, fv_ivar_phi, rho_ivar, use_rho)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -4698,11 +4667,9 @@ contains
       dq_gpu(b,i,j,k,VAR_DX) = dq_gpu(b,i,j,k,VAR_DX) - q_gpu(b,i,j,k,var_jx)
       dq_gpu(b,i,j,k,VAR_DY) = dq_gpu(b,i,j,k,VAR_DY) - q_gpu(b,i,j,k,var_jy)
       dq_gpu(b,i,j,k,VAR_DZ) = dq_gpu(b,i,j,k,VAR_DZ) - q_gpu(b,i,j,k,var_jz)
-      if (c_r > 0._R8P) then
-         min_h = min(dxb, min(dyb, dzb))
-         damping_coeff = chi_damp / (c_r * min_h)
-         dq_gpu(b,i,j,k,fv_ivar_phi) = dq_gpu(b,i,j,k,fv_ivar_phi) - damping_coeff * q_gpu(b,i,j,k,fv_ivar_phi)
-      endif
+      if (use_rho /= 0_I4P) dq_gpu(b,i,j,k,fv_ivar_phi) = dq_gpu(b,i,j,k,fv_ivar_phi) + &
+                                                        (chi_wave * chi_wave) * q_gpu(b,i,j,k,rho_ivar)
+      dq_gpu(b,i,j,k,fv_ivar_phi) = dq_gpu(b,i,j,k,fv_ivar_phi) - alpha * q_gpu(b,i,j,k,fv_ivar_phi)
    enddo
    enddo
    enddo
@@ -4710,27 +4677,27 @@ contains
    endsubroutine fv_flux_diff_phi_dev_kernel
 
    subroutine fv_flux_diff_psi_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, var_jx, var_jy, var_jz, &
-                                          chi_damp, c_r, fv_ivar_psi, dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)
+                                          alpha, fv_ivar_psi, dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)
    !< Conservative flux difference + J source + psi damping.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
    integer(I4P), intent(in)    :: nv_c
    integer(I4P), intent(in)    :: var_jx, var_jy, var_jz, fv_ivar_psi
-   real(R8P),    intent(in)    :: chi_damp, c_r
+   real(R8P),    intent(in)    :: alpha
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
    real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)
    real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)
    real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   real(R8P)                   :: dxb, dyb, dzb, min_h, damping_coeff
+   real(R8P)                   :: dxb, dyb, dzb
    integer(I4P)                :: i, j, k, b, v
 
    !$acc parallel loop independent gang vector collapse(4)                              &
    !$acc& DEVICEVAR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)            &
-   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_damp, c_r, fv_ivar_psi)
+   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, alpha, fv_ivar_psi)
    !$omp OMPLOOP collapse(4) &
    !$omp& DEVICEPTR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu) &
-   !$omp& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_damp, c_r, fv_ivar_psi)
+   !$omp& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, alpha, fv_ivar_psi)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -4745,11 +4712,7 @@ contains
       dq_gpu(b,i,j,k,VAR_DX) = dq_gpu(b,i,j,k,VAR_DX) - q_gpu(b,i,j,k,var_jx)
       dq_gpu(b,i,j,k,VAR_DY) = dq_gpu(b,i,j,k,VAR_DY) - q_gpu(b,i,j,k,var_jy)
       dq_gpu(b,i,j,k,VAR_DZ) = dq_gpu(b,i,j,k,VAR_DZ) - q_gpu(b,i,j,k,var_jz)
-      if (c_r > 0._R8P) then
-         min_h = min(dxb, min(dyb, dzb))
-         damping_coeff = chi_damp / (c_r * min_h)
-         dq_gpu(b,i,j,k,fv_ivar_psi) = dq_gpu(b,i,j,k,fv_ivar_psi) - damping_coeff * q_gpu(b,i,j,k,fv_ivar_psi)
-      endif
+      dq_gpu(b,i,j,k,fv_ivar_psi) = dq_gpu(b,i,j,k,fv_ivar_psi) - alpha * q_gpu(b,i,j,k,fv_ivar_psi)
    enddo
    enddo
    enddo
@@ -4757,30 +4720,31 @@ contains
    endsubroutine fv_flux_diff_psi_dev_kernel
 
    subroutine fv_flux_diff_phi_psi_dev_kernel(ni, nj, nk, ngc, nv_c, blocks_number, var_jx, var_jy, var_jz, &
-                                              chi_damp, c_r, fv_ivar_phi, fv_ivar_psi, dxyz_gpu, flx_f_gpu, fly_f_gpu, &
-                                              flz_f_gpu, q_gpu, dq_gpu)
+                                              chi_wave, alpha, fv_ivar_phi, fv_ivar_psi, rho_ivar, use_rho, dxyz_gpu, &
+                                              flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)
    !< Conservative flux difference + J source + phi/psi damping.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
    integer(I4P), intent(in)    :: nv_c
    integer(I4P), intent(in)    :: var_jx, var_jy, var_jz, fv_ivar_phi, fv_ivar_psi
-   real(R8P),    intent(in)    :: chi_damp, c_r
+   integer(I4P), intent(in)    :: rho_ivar, use_rho
+   real(R8P),    intent(in)    :: chi_wave, alpha
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)
    real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)
    real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)
    real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   real(R8P)                   :: dxb, dyb, dzb, min_h, damping_coeff
+   real(R8P)                   :: dxb, dyb, dzb
    integer(I4P)                :: i, j, k, b, v
 
    !$acc parallel loop independent gang vector collapse(4)                              &
    !$acc& DEVICEVAR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu)            &
-   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_damp, c_r, &
-   !$acc&              fv_ivar_phi, fv_ivar_psi)
+   !$acc& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_wave, alpha, &
+   !$acc&              fv_ivar_phi, fv_ivar_psi, rho_ivar, use_rho)
    !$omp OMPLOOP collapse(4) &
    !$omp& DEVICEPTR(dxyz_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, q_gpu, dq_gpu) &
-   !$omp& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_damp, c_r, &
-   !$omp&              fv_ivar_phi, fv_ivar_psi)
+   !$omp& firstprivate(ni, nj, nk, nv_c, blocks_number, var_jx, var_jy, var_jz, chi_wave, alpha, &
+   !$omp&              fv_ivar_phi, fv_ivar_psi, rho_ivar, use_rho)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -4795,12 +4759,10 @@ contains
       dq_gpu(b,i,j,k,VAR_DX) = dq_gpu(b,i,j,k,VAR_DX) - q_gpu(b,i,j,k,var_jx)
       dq_gpu(b,i,j,k,VAR_DY) = dq_gpu(b,i,j,k,VAR_DY) - q_gpu(b,i,j,k,var_jy)
       dq_gpu(b,i,j,k,VAR_DZ) = dq_gpu(b,i,j,k,VAR_DZ) - q_gpu(b,i,j,k,var_jz)
-      if (c_r > 0._R8P) then
-         min_h = min(dxb, min(dyb, dzb))
-         damping_coeff = chi_damp / (c_r * min_h)
-         dq_gpu(b,i,j,k,fv_ivar_phi) = dq_gpu(b,i,j,k,fv_ivar_phi) - damping_coeff * q_gpu(b,i,j,k,fv_ivar_phi)
-         dq_gpu(b,i,j,k,fv_ivar_psi) = dq_gpu(b,i,j,k,fv_ivar_psi) - damping_coeff * q_gpu(b,i,j,k,fv_ivar_psi)
-      endif
+      if (use_rho /= 0_I4P) dq_gpu(b,i,j,k,fv_ivar_phi) = dq_gpu(b,i,j,k,fv_ivar_phi) + &
+                                                        (chi_wave * chi_wave) * q_gpu(b,i,j,k,rho_ivar)
+      dq_gpu(b,i,j,k,fv_ivar_phi) = dq_gpu(b,i,j,k,fv_ivar_phi) - alpha * q_gpu(b,i,j,k,fv_ivar_phi)
+      dq_gpu(b,i,j,k,fv_ivar_psi) = dq_gpu(b,i,j,k,fv_ivar_psi) - alpha * q_gpu(b,i,j,k,fv_ivar_psi)
    enddo
    enddo
    enddo
@@ -5488,6 +5450,7 @@ contains
    call compute_dxyz_min_kernel(blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, dxyz_min=dxyz_min)
    dxyz_min = dxyz_min * 0.5_R8P
    dt_local = self%time%CFL*dxyz_min / self%physics%evmax
+   if (self%physics%alpha > 0._R8P) dt_local = min(dt_local, 1._R8P / self%physics%alpha)
    if (self%pml%enabled .and. self%pml%gamma_eff_max > 0._R8P) &
       dt_local = min(dt_local, self%pml%C_gamma / self%pml%gamma_eff_max)
    contains

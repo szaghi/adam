@@ -71,11 +71,7 @@ type :: prism_physics_object
    integer(I4P)                :: nv_pic = 0_I4P         !< Number of PIC variables in q vector.
    integer(I4P)                :: var_Jx, var_Jy, var_Jz !< Indices of current density components in q vector.
    real(R8P)                   :: chi                    !< Speed coefficient for D & B div-cleaning (Dedner c_h).
-   real(R8P)                   :: c_r = 0.18_R8P         !< Dedner GLM parabolic-damping ratio c_p^2/c_h^2 (dimensionless,
-                                                         !< per cell size). psi decays with rate c_h/(c_r*h). Dedner 2002
-                                                         !< recommend ~0.18 (CONSTANT UNVERIFIED vs the paper — tunable via
-                                                         !< [physics].c_r; set c_r<=0 to disable the parabolic damping and
-                                                         !< keep the cleaning purely hyperbolic.
+   real(R8P)                   :: alpha = 0._R8P         !< Optional GLM damping rate for phi/psi.
    !real(R8P)                   :: eta                   !< Coefficiente for B div-cleaning.
    real(R8P)                   :: evmax                  !< Maximum signal speed (eigenvalue).
    real(R8P)                   :: L0                     !< Maximum signal speed (eigenvalue).
@@ -128,7 +124,7 @@ contains
    desc = desc//mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c     ))//NL
    desc = desc//mpih%myrankstr//'  number of PIC variables in q (nv_PIC):        '//trim(str(self%nv_PIC   ))//NL
    desc = desc//mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi      ))//NL
-   desc = desc//mpih%myrankstr//'  c_r:                                          '//trim(str(self%c_r      ))//NL
+   desc = desc//mpih%myrankstr//'  alpha:                                        '//trim(str(self%alpha    ))//NL
    !desc = desc//mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta ))
    if (is_adim_model(self%physical_model)) then
       desc = desc//mpih%myrankstr//'  L0:                                           '//trim(str(self%L0       ))//NL
@@ -159,7 +155,12 @@ contains
    real(R8P)                                                 :: ch                      !< Divergence cleaning propagation speed.
 
    call self%load_from_file(file_parameters=file_parameters, div_corr_var=div_corr_var)
-   ch = self%evmax
+   if (self%chi > 0._R8P) then
+      ch = self%chi
+      if (.not. is_adim_model(self%physical_model)) ch = ch * C0
+   else
+      ch = self%evmax
+   endif
 
    self%EV_D =   [0._R8P,ch,-ch,C0,C0,-C0,-C0]
    self%EV_B =   [0._R8P,ch,-ch,C0,C0,-C0,-C0]
@@ -485,16 +486,19 @@ contains
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
-         ! Optional Dedner parabolic-damping ratio (issue #29 E). Absent → keep the 0.18 default.
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='c_r', val=self%c_r, error=error)
+         if (self%chi <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(chi) must be positive')
+         self%alpha = 0._R8P
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alpha', val=self%alpha, error=error)
+         if (self%alpha < 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(alpha) must be non-negative')
          !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
          !if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
 
          !In case of hyperbolic divergence cleaning, set evmax to physical max eigenvalue
-         self%evmax = self%chi
+         self%evmax = max(1._R8P, self%chi)
       else
          !In case of no divergence cleaning or poisson cleaning, set evmax to light speed value
          self%chi = 0.0_R8P
+         self%alpha = 0._R8P
          self%evmax = 1.0_R8P
       end if
    else
@@ -509,16 +513,19 @@ contains
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
-         ! Optional Dedner parabolic-damping ratio (issue #29 E). Absent → keep the 0.18 default.
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='c_r', val=self%c_r, error=error)
+         if (self%chi <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(chi) must be positive')
+         self%alpha = 0._R8P
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alpha', val=self%alpha, error=error)
+         if (self%alpha < 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(alpha) must be non-negative')
          !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
          !if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
 
          !In case of hyperbolic divergence cleaning, set evmax to physical max eigenvalue
-         self%evmax = self%chi*C0
+         self%evmax = max(1._R8P, self%chi)*C0
       else
          !In case of no divergence cleaning or poisson cleaning, set evmax to light speed value
          self%chi = 0.0_R8P
+         self%alpha = 0._R8P
          self%evmax = C0
       end if
    endif

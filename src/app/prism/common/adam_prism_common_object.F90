@@ -983,7 +983,7 @@ contains
    ! PRISM seam-div(B) gotcha in CLAUDE.md). This monitor turns the otherwise-SILENT growth
    ! into a visible signal. Active only when: enabled (tol>0) AND a 2:1 AMR seam is present
    ! (amr_seam_quadrant allocated by the intra-realm AMR registration pass). Mitigation to
-   ! extend runs: enable divergence_correction=hyperbolic + tune [physics].c_r (delays, not
+   ! extend runs: enable divergence_correction=hyperbolic + tune [physics].alpha (delays, not
    ! cures). Route 2 (CT/staggered B at the seam) is parked (activates only if a workload
    ! needs it beyond this monitor's tolerance).
    if (self%io%seam_divB_tol > 0.0_R8P .and. allocated(self%adam%maps%amr_seam_quadrant)) then
@@ -993,13 +993,13 @@ contains
                                      ' exceeds [IO].seam_divB_tol '//trim(str(self%io%seam_divB_tol))//     &
                                      ' at it '//trim(str(self%time%it))//' — 2:1 AMR seam O(h^p) source '// &
                                      '(issue #29, no local FD fix; refine h, shorten the run, or enable '// &
-                                     'hyperbolic+c_r cleaning to delay it).')
+                                     'hyperbolic+alpha cleaning to delay it).')
          else
             call mpih%print_message(mpih%myrankstr//'WARNING: seam div(B) '//trim(str(div_B))//             &
                                     ' exceeds [IO].seam_divB_tol '//trim(str(self%io%seam_divB_tol))//      &
                                     ' at it '//trim(str(self%time%it))//' — 2:1 AMR seam O(h^p) source, '// &
                                     'unbounded in t at fixed h (issue #29). Refine h, shorten the run, or ' &
-                                    //'enable hyperbolic+c_r cleaning to delay it.')
+                                    //'enable hyperbolic+alpha cleaning to delay it.')
          endif
       endif
    endif

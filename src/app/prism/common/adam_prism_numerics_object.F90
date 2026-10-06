@@ -161,7 +161,7 @@ contains
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
    select case(trim(adjustl(buff)))
    case('POISSON', 'poisson', 'Poisson')
-      self%div_corr_var = DIV_CORR_VAR_POISS
+      call mpih%error_stop(msg=': [numerics].(divergence_correction)=poisson is not implemented for PRISM CPU/FNL')
    case('HYPERBOLIC', 'hyperbolic', 'Hyperbolic')
       self%div_corr_var = DIV_CORR_VAR_HYPER
    case default
