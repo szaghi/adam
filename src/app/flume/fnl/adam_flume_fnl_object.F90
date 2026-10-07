@@ -15,6 +15,7 @@ module adam_flume_fnl_object
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object
 use :: adam_maps_object,          only : face_axis_sign
+use :: adam_parameters,           only : BC_SEAM
 use :: adam_realm_object,         only : realm_object
 use :: adam_seam_exchange,        only : seam_fill_all
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
@@ -1077,16 +1078,20 @@ contains
                                                                    self%output_factors(self%dq_name))
    endsubroutine save_residuals
 
-   subroutine save_simulation_data(self)
+   subroutine save_simulation_data(self, realm)
    !< Save fields, restart, slices and conservation history, each on its own cadence; state copied to host only when
    !< saved.
-   class(flume_fnl_object), intent(inout) :: self      !< The equation.
-   logical                                :: is_slices !< Slices save step.
+   class(flume_fnl_object), intent(inout)                   :: self      !< The equation.
+   class(realm_object),     intent(inout), optional, target :: realm(:)  !< Sibling realms.
+   logical                                                  :: is_slices !< Slices save step.
 
    is_slices = self%slices%is_to_save(it=self%time%it, it_max=self%time%it_max, time=self%time%time, &
                                       time_max=self%time%time_max)
    if (self%time%is_to_save(cadence=self%io%it_save) .or. self%time%is_to_save(cadence=self%io%restart_save) .or. &
        is_slices) then
+      ! the stage order: inter-realm seams first, then the intra-realm ghosts and the boundary conditions, so that the
+      ! saved ghosts (edges and corners included) are those the residual stencils read
+      if (present(realm)) call seam_fill_all(self=self, realm=realm)
       call self%update_ghost(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu
       if (self%time%is_to_save(cadence=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
@@ -1097,7 +1102,8 @@ contains
    endsubroutine save_simulation_data
 
    subroutine set_boundary_conditions(self, q_gpu)
-   !< Set boundary conditions on the device crown maps, crown by crown.
+   !< Set boundary conditions on the device crown maps: three passes (rows beyond one, two, three realm faces), crown by
+   !< crown within each (see the CPU `set_boundary_conditions`, issue #65 P0).
    class(flume_fnl_object), intent(inout) :: self              !< The equation.
    real(R8P),               intent(inout) :: q_gpu(1:,         &
                                                    1-self%ngc:,&
@@ -1105,12 +1111,19 @@ contains
                                                    1-self%ngc:,&
                                                    1:)         !< Conservative variables.
    integer(I4P)                           :: crown             !< Crown counter.
+   integer(I4P)                           :: pass              !< Pass: realm faces the rows lie beyond.
+   integer(I4P)                           :: face_kind(6)      !< Kind of each realm face, BC_SEAM for a seam.
 
    if (.not.associated(self%field_fnl%maps%local_map_bc_crown_gpu)) return
-   do crown=1, self%ngc
-      call set_boundary_conditions_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, crown=crown, &
-                                       local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu,        &
-                                       q_inflow_gpu=self%q_inflow_gpu, wall_sign_gpu=self%wall_sign_gpu, q_gpu=q_gpu)
+   face_kind = self%bc%bc_type
+   where (self%adam%maps%seam_face) face_kind = BC_SEAM
+   do pass=1, 3
+      do crown=1, self%ngc
+         call set_boundary_conditions_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, crown=crown, &
+                                          pass=pass, face_kind=face_kind,                                          &
+                                          local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu,       &
+                                          q_inflow_gpu=self%q_inflow_gpu, wall_sign_gpu=self%wall_sign_gpu, q_gpu=q_gpu)
+      enddo
    enddo
    endsubroutine set_boundary_conditions
 
@@ -1498,7 +1511,7 @@ contains
    call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
-   call self%save_simulation_data
+   call self%save_simulation_data(realm=realm)
    endsubroutine post_step_forest
 
    function stages_per_step_forest(self) result(K)

@@ -1114,6 +1114,7 @@ contains
       call face_axis_sign(my_face, axis, sgn)
       bc_fec_seam = face_code_to_bc_fec(my_face)
       if (bc_fec_seam == 0_I4P) return  ! malformed face code; defensive.
+      realm(my_realm_idx)%adam%maps%seam_face(bc_fec_seam) = .true.
       if (.not. allocated(realm(my_realm_idx)%adam%maps%local_map_bc_crown)) return
       ngc = realm(my_realm_idx)%adam%grid%ngc
       associate(crown_map => realm(my_realm_idx)%adam%maps%local_map_bc_crown)

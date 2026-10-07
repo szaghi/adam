@@ -11,7 +11,7 @@ module adam_flume_cpu_object
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object
 use :: adam_maps_object,          only : face_axis_sign
-use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
+use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object
 use :: adam_seam_exchange,        only : seam_fill_all, pack_seam_rows, unpack_seam_rows
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
@@ -21,7 +21,8 @@ use :: adam_mpih_global,          only : mpih
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, ib_cut_spacing,             &
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
                                               BC_EXTRAPOLATION,                                                        &
-                                              BC_INFLOW, BC_WALL_INVISCID, MODEL_EULER,                                 &
+                                              BC_INFLOW, BC_WALL_INVISCID, realm_edge_donor, realm_edge_face,           &
+                                              MODEL_EULER,                                                              &
                                               MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,        &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,                                 &
                                               RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
@@ -931,15 +932,19 @@ contains
                                                      residuals=self%adam%field%residuals*self%output_factors(self%dq_name))
    endsubroutine save_residuals
 
-   subroutine save_simulation_data(self)
+   subroutine save_simulation_data(self, realm)
    !< Save fields, restart, slices and conservation history, each on its own cadence (one predicate per output).
-   class(flume_cpu_object), intent(inout) :: self      !< The equation.
-   logical                                :: is_slices !< Slices save step.
+   class(flume_cpu_object), intent(inout)                   :: self      !< The equation.
+   class(realm_object),     intent(inout), optional, target :: realm(:)  !< Sibling realms.
+   logical                                                  :: is_slices !< Slices save step.
 
    is_slices = self%slices%is_to_save(it=self%time%it, it_max=self%time%it_max, time=self%time%time, &
                                       time_max=self%time%time_max)
    if (self%time%is_to_save(cadence=self%io%it_save) .or. self%time%is_to_save(cadence=self%io%restart_save) .or. &
        is_slices) then
+      ! the stage order: inter-realm seams first, then the intra-realm ghosts and the boundary conditions, so that the
+      ! saved ghosts (edges and corners included) are those the residual stencils read
+      if (present(realm)) call seam_fill_all(self=self, realm=realm)
       call self%update_ghost(q=self%q)
       if (self%time%is_to_save(cadence=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
       if (self%time%is_to_save(cadence=self%io%restart_save)) call self%save_restart_files
@@ -949,11 +954,20 @@ contains
    endsubroutine save_simulation_data
 
    subroutine set_boundary_conditions(self, q)
-   !< Set boundary conditions on the crown maps (face ghosts by kind, edge and corner ghosts by extrapolation).
+   !< Set boundary conditions on the crown maps, in three passes: the rows beyond one realm face, then beyond two (realm
+   !< edges), then beyond three (realm corners).
    !<
-   !< Periodic faces have no crown rows: their ghosts are filled by the ghost exchange. Edge and corner ghosts
-   !< (fec > 6) are never read by the directional stencils; they are extrapolated so that every ghost holds a finite,
-   !< deterministic state for the auxiliary variables computation.
+   !< A row beyond one face applies that face's kind from the cell inward along its normal; the donor is interior or in
+   !< a lower crown. This covers the face ghosts and the edge and corner ghosts whose other directions lead into
+   !< another block (their tree boundary is a face). A row beyond several realm faces applies the kind of one physical
+   !< face among them, inflow first, to the donor mirrored (wall) or clamped (extrapolation) along that face's axis.
+   !< The donor lies beyond the other faces only, so it is a face ghost (for an edge row) or an edge ghost (for a
+   !< corner row), already filled by the seams, the exchange or the earlier pass. The realm-edge ghosts then continue
+   !< the face ghosts, as a cross derivative at a boundary face needs (issue #65 P0: the inward diagonal copy used
+   !< before was off by O(1) at walls). A row beyond seams only lies outside the forest (a re-entrant corner of an
+   !< L-shaped forest): it keeps a copy of its inward diagonal, finite, and read by no stencil of a fluid cell.
+   !<
+   !< Periodic faces have no crown rows: their ghosts are filled by the ghost exchange.
    class(flume_cpu_object), intent(inout) :: self                   !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
                                                1-self%ngc:,&
@@ -966,41 +980,62 @@ contains
    integer(I4P)                           :: crown                  !< Crown counter.
    integer(I4P)                           :: fec                    !< Boundary fec (1 to 26).
    integer(I4P)                           :: face                   !< Boundary face (1 to 6).
-   integer(I4P)                           :: iref, jref, kref       !< Mirrored donor indexes.
+   integer(I4P)                           :: iref, jref, kref       !< Donor indexes.
+   integer(I4P)                           :: pass                   !< Pass: realm faces the row lies beyond.
+   integer(I4P)                           :: face_kind(6)           !< Kind of each realm face, BC_SEAM for a seam.
 
    if (.not.allocated(self%adam%maps%local_map_bc_crown)) return
+   face_kind = self%bc%bc_type
+   where (self%adam%maps%seam_face) face_kind = BC_SEAM
    associate(crown_map=>self%adam%maps%local_map_bc_crown, ni=>self%ni, nj=>self%nj, nk=>self%nk)
-   do crown=1, self%ngc
-      do c=1, size(crown_map, dim=1)
-         b = int(crown_map(c,1,crown), I4P)
-         if (b <= 0_I4P) cycle
-         i       = int(crown_map(c,2,crown), I4P)
-         j       = int(crown_map(c,3,crown), I4P)
-         k       = int(crown_map(c,4,crown), I4P)
-         idelta  = int(crown_map(c,5,crown), I4P)
-         jdelta  = int(crown_map(c,6,crown), I4P)
-         kdelta  = int(crown_map(c,7,crown), I4P)
-         bc_type = int(crown_map(c,8,crown), I4P)
-         fec     = int(crown_map(c,9,crown), I4P)
-         if (fec > 6_I4P) then
-            q(:,i,j,k,b) = q(:,i-idelta,j-jdelta,k-kdelta,b)
-            cycle
-         endif
-         face = FEC_1_6_ARRAY(fec)
-         select case(bc_type)
-         case(BC_EXTRAPOLATION)
-            q(:,i,j,k,b) = q(:,i-idelta,j-jdelta,k-kdelta,b)
-         case(BC_INFLOW)
-            q(:,i,j,k,b) = self%bc%q_inflow(:,face)
-         case(BC_WALL_INVISCID)
-            call compute_face_mirror_indexes(face=face, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k, &
-                                             idelta=idelta, jdelta=jdelta, kdelta=kdelta, i_d=iref, j_d=jref, k_d=kref)
-            q(:,i,j,k,b) = self%bc%wall_sign(:,(face+1)/2) * q(:,iref,jref,kref,b)
-         case(BC_SEAM)
-            ! inter-realm seam face: filled by the forest (fill_seam_from_peer_forest), nothing to do here
-         case default
-            call mpih%error_stop(msg=': unexpected boundary condition type '//trim(str(bc_type))//' on the crown map')
-         endselect
+   do pass=1, 3
+      do crown=1, self%ngc
+         do c=1, size(crown_map, dim=1)
+            b = int(crown_map(c,1,crown), I4P)
+            if (b <= 0_I4P) cycle
+            fec = int(crown_map(c,9,crown), I4P)
+            if (count(FEC_TO_DELTA(:,fec) /= 0_I4P) /= pass) cycle
+            i       = int(crown_map(c,2,crown), I4P)
+            j       = int(crown_map(c,3,crown), I4P)
+            k       = int(crown_map(c,4,crown), I4P)
+            idelta  = int(crown_map(c,5,crown), I4P)
+            jdelta  = int(crown_map(c,6,crown), I4P)
+            kdelta  = int(crown_map(c,7,crown), I4P)
+            bc_type = int(crown_map(c,8,crown), I4P)
+            if (pass > 1_I4P) then
+               face = realm_edge_face(fec=fec, face_kind=face_kind)
+               if (face == 0_I4P) then ! beyond seams only: outside the forest
+                  q(:,i,j,k,b) = q(:,i-idelta,j-jdelta,k-kdelta,b)
+                  cycle
+               endif
+               call realm_edge_donor(face=face, face_kind=face_kind(face), ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
+                                     iref=iref, jref=jref, kref=kref)
+               select case(face_kind(face))
+               case(BC_INFLOW)
+                  q(:,i,j,k,b) = self%bc%q_inflow(:,face)
+               case(BC_WALL_INVISCID)
+                  q(:,i,j,k,b) = self%bc%wall_sign(:,(face+1)/2) * q(:,iref,jref,kref,b)
+               case default ! BC_EXTRAPOLATION
+                  q(:,i,j,k,b) = q(:,iref,jref,kref,b)
+               endselect
+               cycle
+            endif
+            face = FEC_1_6_ARRAY(fec)
+            select case(bc_type)
+            case(BC_EXTRAPOLATION)
+               q(:,i,j,k,b) = q(:,i-idelta,j-jdelta,k-kdelta,b)
+            case(BC_INFLOW)
+               q(:,i,j,k,b) = self%bc%q_inflow(:,face)
+            case(BC_WALL_INVISCID)
+               call compute_face_mirror_indexes(face=face, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k,                     &
+                                                idelta=idelta, jdelta=jdelta, kdelta=kdelta, i_d=iref, j_d=jref, k_d=kref)
+               q(:,i,j,k,b) = self%bc%wall_sign(:,(face+1)/2) * q(:,iref,jref,kref,b)
+            case(BC_SEAM)
+               ! inter-realm seam face: filled by the forest (fill_seam_from_peer_forest), nothing to do here
+            case default
+               call mpih%error_stop(msg=': unexpected boundary condition type '//trim(str(bc_type))//' on the crown map')
+            endselect
+         enddo
       enddo
    enddo
    endassociate
@@ -1362,7 +1397,7 @@ contains
    call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
-   call self%save_simulation_data
+   call self%save_simulation_data(realm=realm)
    endsubroutine post_step_forest
 
    function stages_per_step_forest(self) result(K)

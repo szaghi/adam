@@ -208,6 +208,9 @@ type :: maps_object
    integer(I4P), allocatable :: inter_realm_face_register_index(:,:)
                                                                      !< (block, face_1_6) → signed flux register face index; 0 = not
                                                                      !< a seam face, +idx = coarse side, -idx = fine side.
+   ! Realm faces (BC fec 1..6: -x, +x, -y, +y, -z, +z) that are inter-realm seams, set by the forest with the BC_SEAM
+   ! override of the crown: the edge and corner boundary rows need the kind of every face they lie beyond (issue #65 P0).
+   logical                   :: seam_face(6)=.false.                 !< Realm faces that are inter-realm seams.
    !
    ! Fine-side 2:1 quadrant offsets for the intra-realm AMR reflux (issue #28).
    !

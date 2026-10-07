@@ -520,6 +520,64 @@ the z fluxes and keeps the solution z-invariant bit for bit; its z cells enter t
 itself only. The unit test `test_quadtree_seam_ghost` pins the seam exchange on a linear field (octree, quadtree
 `nk = 4` and `nk = 1`, 1 to 3 ranks; its FNL build also asserts the device exchange equal to the CPU one, bit for bit).
 
+## Ghost cells
+
+### GP: every face and edge ghost on a linear field
+
+**Why.** The directional WENO stencils read only the face ghosts: the cells outside a block along one axis. The
+dissipative terms of M4 ([#65](https://github.com/szaghi/adam/issues/65)) take cross derivatives, such as the
+tangential derivatives of the viscous stress or of the current at a face. Those read the edge ghosts too: the cells
+outside a block along two axes, in the rows next to a block edge. Before M4 nothing checked what an edge ghost held.
+GP checks every one, on every path that fills it: the same-level copy and the MPI exchange, the 2:1 restriction and
+tricubic fill, the inter-realm seams (1:1 mirror, misaligned, 2:1 refined), and the physical boundary conditions.
+
+**Oracle.** Each case starts from the [`linear`](./initial-conditions#linear-a-linear-field-verification) initial
+condition, $\mathbf q = \mathbf q_1 (1 + \mathbf g \cdot \mathbf x)$, with every velocity component non-zero. The
+copy, the restriction and the tricubic fill reproduce such a field exactly. Each case takes one step with
+`CFL = 1e-30`, which moves the field by ~$10^{-30}$ relative. The post-step write then fills the ghosts in the order
+of a Runge–Kutta stage (seams, then the intra-realm exchange and the boundary conditions) and writes them.
+`ghosts/ghost_probe.py` compares every ghost with the value a stencil must read:
+- the field at the ghost's own centre, inside the realm or across a seam;
+- along an axis where the ghost lies beyond a physical face, that face's condition applied first: the coordinate
+  mirrored with the normal momentum negated for a wall (and the normal field on MHD), the first interior cell for
+  extrapolation, the inflow state for inflow, the wrapped coordinate for periodic.
+
+Faces and edges must hold that value to $10^{-12}$ of the field scale. Corners are reported, not asserted, since no M4
+stencil reads them, and neither are the ghosts that lie outside every realm (`solid`, inside the step).
+
+| Case (`ghosts/make_probe.py`) | Paths |
+|---|---|
+| `box3d` (Euler and MHD) | octree, the block at the origin refined: 2:1 seams meeting an inflow face and two walls in 3-D |
+| `channel2d` | quadtree, periodic x and a wall in y, the 2:1 seam crossing the periodic boundary at the wall |
+| `mirror3d` | two realms and a 1:1 mirror seam, walls on the other faces: seam edges in every plane |
+| `refined3d` | as `mirror3d`, the second realm one level finer: a `coupling = refined` (2:1) seam |
+| `step` | the [Woodward–Colella forest](#forward-facing-step-a-three-realm-forest-on-quadtrees) at $N = 80$ with its boxes: misaligned mirror seams, a re-entrant corner, inflow, outflow and walls |
+
+**Results.** Every case runs on 1, 2 and 3 ranks on the CPU, and on 1 and 2 ranks on FNL. Every face and edge group
+holds the linear field to round-off: at most $1.3\cdot10^{-15}$ of the field scale on the CPU, the same on FNL.
+
+**What it found.** Before P0, a ghost beyond two realm faces held a copy of its inward diagonal cell. That covers wall
+plus wall at the step corner, wall plus seam where the step face meets the A–B seam, inflow plus wall, and the like.
+On the step forest those ghosts were off by up to 0.78 of the field scale: the wrong position, and the wrong sign of
+the normal momentum. They now compose the conditions of the faces, as
+[Boundary conditions](./boundary-conditions#edges-and-corners-fec-6) describes. The face ghosts, and the edges with
+another block beyond one of their faces, were already right.
+
+![Ghost probe on the step forest, before and after #65 P0](/flume/ghosts.png)
+
+Each point is a face or edge ghost of the step forest, coloured by its error. Top: before P0, the realm edges at the
+step corner, the domain corners and the inflow corners carry $O(10^{-1})$ errors; every other ghost is at round-off.
+Bottom: after.
+
+The probe also caught one gap in its own instrument: the step-0 file is written while each realm initialises, before
+the forest connects the realms, so its seam ghosts are unfilled. GP therefore reads the file written after the
+negligible step, whose write refills the seams first.
+
+```bash
+cd src/tests/flume/verification/ghosts && ./check.sh                    # CPU, np 1 2 3, every case
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --np "1 2"  # FNL
+```
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths

@@ -660,8 +660,53 @@ def fig_order(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_ghosts(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """GP: every face and edge ghost of the step forest on a linear field, its error before and after #65 P0.
+
+    The "before" run is the same probe built from 3f51451d (the inward diagonal copy at the realm edges), kept as
+    ghosts/work-before-p0-np2-step; the "after" run is `ghosts/check.sh --cases step --np 2 --keep`.
+    """
+    sys.path.insert(0, str(HERE / "ghosts"))
+    import ghost_probe  # noqa: PLC0415
+
+    cases = (("before #65 P0: realm edges held an inward diagonal copy", HERE / "ghosts" / "work-before-p0-np2-step"),
+             ("after: realm edges compose the conditions of the faces", HERE / "ghosts" / f"{TAG}-step"))
+    floor = 1.0e-16
+    norm = mpl.colors.LogNorm(vmin=floor, vmax=1.0)
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 7.6), constrained_layout=True, gridspec_kw={"width_ratios": (2.4, 1)})
+    sc = None
+    for row, (title, work) in enumerate(cases):
+        groups = ghost_probe.probe(work)
+        pts = np.array([(c[0], c[1], max(err, floor)) for (cls, _), rows in groups.items()
+                        for err, _, _, _, c in rows if cls in ("face", "edge")])
+        order = np.argsort(pts[:, 2])  # largest errors drawn last, on top
+        worst = pts[:, 2].max()
+        views = ((-0.05, 3.05, -0.05, 1.05, 2.0), (0.45, 0.75, -0.04, 0.34, 14.0))  # x0, x1, y0, y1, marker size
+        for col, (x0, x1, y0, y1, size) in enumerate(views):
+            ax = axs[row, col]
+            sc = ax.scatter(pts[order, 0], pts[order, 1], c=pts[order, 2], s=size, marker="s", cmap="inferno_r",
+                            norm=norm, linewidths=0)
+            ax.add_patch(Rectangle((0.6, 0.0), 2.4, 0.2, fill=True, fc="0.85", ec="k", lw=0.8, zorder=0))
+            for x, y in (((0.0, 0.6), (0.2, 0.2)), ((0.6, 0.6), (0.2, 1.0))):
+                ax.plot(x, y, "c--", lw=0.8)  # inter-realm seams
+            ax.add_patch(Rectangle((0.0, 0.0), 0.6, 1.0, fill=False, ec="k", lw=0.8))
+            ax.add_patch(Rectangle((0.6, 0.2), 2.4, 0.8, fill=False, ec="k", lw=0.8))
+            ax.set_xlim(x0, x1)
+            ax.set_ylim(y0, y1)
+            ax.set_aspect("equal")
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+        axs[row, 0].set_title(f"{title}: max {worst:.1e}")
+        axs[row, 1].set_title("zoom: the step corner of realm A")
+    fig.colorbar(sc, ax=axs, label="error of a face or edge ghost, relative to the field scale (0 shown as 1e-16)",
+                 shrink=0.8)
+    fig.suptitle("Ghost probe GP on the Woodward-Colella step forest (N = 80, refined boxes, 2 ranks): linear field")
+    fig.savefig(out / "ghosts.png", dpi=DPI)
+    plt.close(fig)
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
-           "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees,
+           "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
            "conservation": fig_conservation,
            "orszag-tang": fig_orszag_tang,
            "rotor": fig_rotor, "field-loop": fig_field_loop, "mhd-riemann": fig_mhd_riemann, "glm-pulse": fig_glm_pulse,

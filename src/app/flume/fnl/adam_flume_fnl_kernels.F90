@@ -14,9 +14,10 @@ module adam_flume_fnl_kernels
 !< `(b, i, j, k, v)`: the block index is stride-1, so it is the innermost loop of every `collapse(4)` nest.
 
 ! ADAM classes, libraries, parameters
-use :: adam_parameters,           only : FEC_1_6_ARRAY
+use :: adam_parameters,           only : FEC_1_6_ARRAY, FEC_TO_DELTA
 ! FLUME modules
-use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID
+use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
+                                         realm_edge_donor, realm_edge_face
 ! third party modules
 use :: penf,                      only : I4P, I8P, R8P
 
@@ -394,15 +395,20 @@ contains
    enddo
    endsubroutine scatter_seam_cells_dev
 
-   subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, local_map_bc_crown_gpu, q_inflow_gpu, wall_sign_gpu, &
-                                          q_gpu)
-   !< Set boundary conditions on one crown: face ghosts by kind, edge and corner ghosts by extrapolation.
+   subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, pass, face_kind, local_map_bc_crown_gpu, &
+                                          q_inflow_gpu, wall_sign_gpu, q_gpu)
+   !< Set boundary conditions on one crown, for the rows beyond `pass` realm faces (see the CPU
+   !< `set_boundary_conditions`): pass 1 the face rows (each face's kind, inward along its normal), pass 2 and 3 the
+   !< rows beyond two or three realm faces (the kind of one physical face among them, `realm_edge_face`, on the donor
+   !< `realm_edge_donor`, issue #65 P0).
    !<
-   !< Crowns are processed in order by the caller, so every source cell is interior or in a lower (already filled)
-   !< crown: the rows of one launch are independent.
+   !< The caller runs the passes in order and, within a pass, the crowns in order, so every donor is interior, in a
+   !< lower crown, or filled by an earlier pass (or the seams, the exchange): the rows of one launch are independent.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)    :: nv                                !< Conservative variables number.
    integer(I4P), intent(in)    :: crown                             !< Crown counter.
+   integer(I4P), intent(in)    :: pass                              !< Realm faces the rows of this launch lie beyond.
+   integer(I4P), intent(in)    :: face_kind(6)                      !< Kind of each realm face, BC_SEAM for a seam.
    integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Boundary crown map (row, field, crown).
    real(R8P),    intent(in)    :: q_inflow_gpu(1:,1:)               !< Conservative inflow state of each face [nv, 6].
    real(R8P),    intent(in)    :: wall_sign_gpu(1:,1:)              !< Wall mirror sign per variable and direction [nv, 3].
@@ -415,14 +421,16 @@ contains
    integer(I4P)                :: iref, jref, kref                  !< Donor indexes.
 
    !$acc parallel loop independent gang vector DEVICEVAR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,nv,crown)                                                                   &
+   !$acc& firstprivate(ni,nj,nk,nv,crown,pass,face_kind)                                                      &
    !$acc& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref)
    !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,nv,crown) &
+   !$omp& firstprivate(ni,nj,nk,nv,crown,pass,face_kind) &
    !$omp& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref)
    do c=1, size(local_map_bc_crown_gpu, dim=1)
       b = int(local_map_bc_crown_gpu(c,1,crown), I4P)
+      fec = int(local_map_bc_crown_gpu(c,9,crown), I4P)
       if (b > 0_I4P) then
+      if (abs(FEC_TO_DELTA(1,fec)) + abs(FEC_TO_DELTA(2,fec)) + abs(FEC_TO_DELTA(3,fec)) == pass) then
          i       = int(local_map_bc_crown_gpu(c,2,crown), I4P)
          j       = int(local_map_bc_crown_gpu(c,3,crown), I4P)
          k       = int(local_map_bc_crown_gpu(c,4,crown), I4P)
@@ -430,9 +438,8 @@ contains
          jdelta  = int(local_map_bc_crown_gpu(c,6,crown), I4P)
          kdelta  = int(local_map_bc_crown_gpu(c,7,crown), I4P)
          bc_type = int(local_map_bc_crown_gpu(c,8,crown), I4P)
-         fec     = int(local_map_bc_crown_gpu(c,9,crown), I4P)
          iref = i - idelta ; jref = j - jdelta ; kref = k - kdelta
-         if (fec <= 6_I4P) then
+         if (pass == 1_I4P) then
             face = FEC_1_6_ARRAY(fec)
             if (bc_type == BC_WALL_INVISCID) then
                select case(face)
@@ -450,28 +457,34 @@ contains
                   kref = 2_I4P * nk + 1_I4P - k
                endselect
             endif
-            if (bc_type == BC_INFLOW) then
-               !$acc loop seq
-               do v=1, nv
-                  q_gpu(b,i,j,k,v) = q_inflow_gpu(v,face)
-               enddo
-            elseif (bc_type == BC_EXTRAPOLATION) then
-               !$acc loop seq
-               do v=1, nv
-                  q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
-               enddo
-            elseif (bc_type == BC_WALL_INVISCID) then
-               !$acc loop seq
-               do v=1, nv
-                  q_gpu(b,i,j,k,v) = wall_sign_gpu(v,(face+1)/2) * q_gpu(b,iref,jref,kref,v)
-               enddo
-            endif
          else
+            ! beyond two or three realm faces: the kind of one physical face on the donor; beyond seams only (outside
+            ! the forest) the inward diagonal, as set above
+            face = realm_edge_face(fec=fec, face_kind=face_kind)
+            bc_type = BC_EXTRAPOLATION
+            if (face > 0_I4P) then
+               bc_type = face_kind(face)
+               call realm_edge_donor(face=face, face_kind=face_kind(face), ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
+                                     iref=iref, jref=jref, kref=kref)
+            endif
+         endif
+         if (bc_type == BC_INFLOW) then
+            !$acc loop seq
+            do v=1, nv
+               q_gpu(b,i,j,k,v) = q_inflow_gpu(v,face)
+            enddo
+         elseif (bc_type == BC_EXTRAPOLATION) then
             !$acc loop seq
             do v=1, nv
                q_gpu(b,i,j,k,v) = q_gpu(b,iref,jref,kref,v)
             enddo
+         elseif (bc_type == BC_WALL_INVISCID) then
+            !$acc loop seq
+            do v=1, nv
+               q_gpu(b,i,j,k,v) = wall_sign_gpu(v,(face+1)/2) * q_gpu(b,iref,jref,kref,v)
+            enddo
          endif
+      endif
       endif
    enddo
    endsubroutine set_boundary_conditions_dev

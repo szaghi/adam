@@ -5,9 +5,14 @@ module adam_flume_bc_object
 !< `periodic` is the library `BC_PERIODIC`, so the tree builds true periodic neighbors and the ghost exchange fills
 !< periodic ghosts across blocks and ranks (verified by `src/tests/amr/test_periodic_ghost`); the other kinds are
 !< filled by the backends on the boundary crown maps.
+!<
+!< **Realm edges and corners.** A crown row beyond several realm faces (an edge or a corner of the realm) is filled by
+!< the kind of one of those faces, `realm_edge_face`, applied to the donor `realm_edge_donor`: mirrored (wall) or
+!< clamped (extrapolation) along that face's axis, so the donor lies beyond the other faces only and is a ghost
+!< already filled. The backends fill the rows beyond one face first, then two, then three (issue #65 P0).
 
 ! ADAM classes, libraries, parameters
-use :: adam_parameters,           only : BC_PERIODIC
+use :: adam_parameters,           only : BC_PERIODIC, BC_SEAM, FEC_TO_DELTA
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
@@ -24,6 +29,8 @@ public :: BC_EXTRAPOLATION
 public :: BC_INFLOW
 public :: BC_WALL_INVISCID
 public :: BC_PERIODIC
+public :: realm_edge_donor
+public :: realm_edge_face
 
 integer(I4P), parameter :: BC_EXTRAPOLATION = 1_I4P !< Zeroth-order extrapolation.
 integer(I4P), parameter :: BC_INFLOW        = 2_I4P !< Prescribed state.
@@ -145,4 +152,64 @@ contains
          call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'] and ['//SECTION_NAME(f+1)//'] must be both periodic or neither')
    enddo
    endsubroutine load_from_file
+   ! public procedures
+   pure function realm_edge_face(fec, face_kind) result(face)
+   !< Face whose condition fills a crown row beyond the realm faces of the edge or corner `fec`: the first inflow face
+   !< among them (an inflow ghost holds the inflow state whatever else it lies beyond), else the first physical one,
+   !< 0 when every one is a seam (the row lies outside the forest).
+   integer(I4P), intent(in) :: fec          !< Tree boundary fec of the row (7..26).
+   integer(I4P), intent(in) :: face_kind(6) !< Kind of each realm face (-x, +x, -y, +y, -z, +z), BC_SEAM for a seam.
+   integer(I4P)             :: face         !< Face (1..6), 0 if none.
+   integer(I4P)             :: d, f         !< Axis, face.
+   !$acc routine seq
+   !$omp declare target
+
+   face = 0_I4P
+   do d=1_I4P, 3_I4P
+      if (FEC_TO_DELTA(d,fec) == 0_I4P) cycle
+      f = 2_I4P * d - 1_I4P + (FEC_TO_DELTA(d,fec) + 1_I4P) / 2_I4P
+      if (face_kind(f) == BC_INFLOW) then
+         face = f
+         return
+      endif
+   enddo
+   do d=1_I4P, 3_I4P
+      if (FEC_TO_DELTA(d,fec) == 0_I4P) cycle
+      f = 2_I4P * d - 1_I4P + (FEC_TO_DELTA(d,fec) + 1_I4P) / 2_I4P
+      if (face_kind(f) /= BC_SEAM) then
+         face = f
+         return
+      endif
+   enddo
+   endfunction realm_edge_face
+
+   pure subroutine realm_edge_donor(face, face_kind, ni, nj, nk, i, j, k, iref, jref, kref)
+   !< Donor of the ghost `(i, j, k)` filled by the condition of `face`: the cell mirrored about the face (wall) or the
+   !< first interior cell along its normal (extrapolation); the indexes along the other axes are kept.
+   integer(I4P), intent(in)  :: face             !< Face (1..6: -x, +x, -y, +y, -z, +z).
+   integer(I4P), intent(in)  :: face_kind        !< Kind of the face.
+   integer(I4P), intent(in)  :: ni, nj, nk       !< Grid dimensions.
+   integer(I4P), intent(in)  :: i, j, k          !< Ghost cell.
+   integer(I4P), intent(out) :: iref, jref, kref !< Donor cell.
+   logical                   :: mirror           !< Wall: mirror, else clamp.
+   !$acc routine seq
+   !$omp declare target
+
+   mirror = face_kind == BC_WALL_INVISCID
+   iref = i ; jref = j ; kref = k
+   select case(face)
+   case(1_I4P)
+      iref = merge(1_I4P - i, 1_I4P, mirror)
+   case(2_I4P)
+      iref = merge(2_I4P * ni + 1_I4P - i, ni, mirror)
+   case(3_I4P)
+      jref = merge(1_I4P - j, 1_I4P, mirror)
+   case(4_I4P)
+      jref = merge(2_I4P * nj + 1_I4P - j, nj, mirror)
+   case(5_I4P)
+      kref = merge(1_I4P - k, 1_I4P, mirror)
+   case(6_I4P)
+      kref = merge(2_I4P * nk + 1_I4P - k, nk, mirror)
+   endselect
+   endsubroutine realm_edge_donor
 endmodule adam_flume_bc_object

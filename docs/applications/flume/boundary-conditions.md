@@ -104,10 +104,36 @@ with any number of blocks along the axis. The only constraint is the pairing rul
 
 ### Edges and corners (`fec > 6`)
 
-For every BC type these ghosts are **extrapolated** from the diagonal inward neighbour,
-$\mathbf q(i-\delta_i, j-\delta_j, k-\delta_k)$. This covers wall and inflow edges
-too. The directional stencils never read these cells; they are filled only so that the auxiliary-variable pass sees
-finite values.
+An edge ghost lies outside its block along two axes, a corner ghost along three. The directional WENO stencils never
+read them, but a cross derivative does: the tangential derivatives of the viscous stress or of the current at a face
+(M4, [#65](https://github.com/szaghi/adam/issues/65)) read the edge ghosts of the rows next to a block edge. They are
+filled so that the ghost layer continues the face ghosts, and the probe GP of the [verification](./verification#ghost-cells)
+holds every face and edge ghost to a linear field on every path.
+
+Each crown row carries the boundary its cell lies beyond (`bc_fec`, from the tree), which gives two cases:
+
+- **Beyond one realm face** (`bc_fec` a face). The cell's other directions lead into another block, whose ghosts the
+  exchange has filled. The face's kind applies along its normal exactly as for a face ghost, so a wall edge mirrors
+  the exchanged ghost and negates its normal momentum.
+- **Beyond two or three realm faces** (`bc_fec` an edge or a corner: an edge or a corner of the realm). The kind of
+  one physical face among them applies, inflow first (an inflow ghost holds the inflow state whatever else it lies
+  beyond), else the first non-seam face, `realm_edge_face`. It acts on the donor `realm_edge_donor`: the cell mirrored
+  about that face (wall) or the first interior cell along its normal (extrapolation), with the indexes along the other
+  axes kept. The donor therefore lies beyond the other faces only. It is a face ghost (for an edge) or an edge ghost
+  (for a corner), already filled by the seam, the exchange or its own face. Two walls compose to a double mirror with
+  both normal momenta negated, and a wall beside a seam mirrors the seam ghost.
+
+Beyond seams only, the cell lies outside every realm: the re-entrant corner of an L-shaped forest, inside the step of
+the [Woodward–Colella tunnel](./verification#forward-facing-step-a-three-realm-forest-on-quadtrees). It keeps a copy of
+its inward diagonal, $\mathbf q(i-\delta_i, j-\delta_j, k-\delta_k)$: finite, and read by no stencil of a fluid cell.
+
+Both backends fill the crown in three passes, the rows beyond one face, then two, then three, each crown by crown, so
+that every donor is filled before it is read (`set_boundary_conditions` on the CPU, `set_boundary_conditions_dev` on
+FNL). The kind of each realm face comes from `[bc_*]`, overridden by `maps%seam_face` for the faces the forest glued.
+
+Before [#65](https://github.com/szaghi/adam/issues/65) P0 every row beyond two realm faces held its inward diagonal
+copy. On a linear field that is off by up to 0.78 of the field scale at a wall corner (wrong sign of the normal
+momentum, wrong position), measured by GP on the step forest.
 
 ### Inter-realm seam
 
@@ -116,7 +142,10 @@ The forest fills them through `fill_seam_from_peer_forest`, which is a **plain i
 cell into this realm's ghost cell, following the seam ghost map rows. The
 buffers used are `q` when `stage_active == 0`, otherwise the active stage of `rk%q_rk`, on each side independently.
 `update_ghost` does not fill seam ghosts. Any diagnostic that reads them has to refill them explicitly;
-`compute_divb_history` does this.
+`compute_divb_history` does this. The field write does too: with sibling realms, `save_simulation_data` refills the
+seams and then calls `update_ghost`, the order of a Runge-Kutta stage, so the written ghosts (edges included) are those
+the stencils read. The step-0 file is the exception: it is written while each realm initialises, before the forest
+connects the realms, and its seam ghosts are unfilled.
 
 ### 2:1 AMR coarse-fine ghosts
 

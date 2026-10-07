@@ -72,6 +72,12 @@ module adam_flume_ic_object
 !<   `3.857143, 2.629369, 10.33333`, region 2 `1, 0, 1`, interface -4, amplitude 0.2, wavenumber 5 on [-5, 5], t = 1.8).
 !<   The regions take no extent keys;
 !<
+!< * `linear` (verification, issue #65 P0): every conservative variable linear in space, `q = q_1 (1 + g . x)` with `q_1`
+!<   the state of region 1 and the relative gradient `g = (gradient_x, gradient_y, gradient_z)`. The same-level copy, the
+!<   2:1 restriction (mean of the fine cells) and the tricubic coarse->fine fill reproduce it exactly, so the ghost cells
+!<   of a step-0 checkpoint can be checked against it (`verification/ghosts/ghost_probe.py`). The state is admissible
+!<   only while `1 + g . x > 0` over the domain; the probe runs no step.
+!<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
 
@@ -121,6 +127,8 @@ character(len=14), parameter :: LOOP_KEY(4)=['x0            ', 'y0            ',
                                              'loop_radius   ', 'loop_amplitude'] !< Field loop keys.
 character(len=15), parameter :: IC_ROTATED_RIEMANN_STR="rotated-riemann" !< Rotated periodic Riemann problem.
 character(len=9),  parameter :: IC_SHU_OSHER_STR="shu-osher"             !< Shock-density wave interaction (Euler).
+character(len=6),  parameter :: IC_LINEAR_STR="linear"                   !< Linear field (verification of ghost fills).
+character(len=10), parameter :: LINEAR_KEY(3)=['gradient_x', 'gradient_y', 'gradient_z'] !< Linear field gradient keys.
 character(len=14), parameter :: SHU_OSHER_KEY(3)=['interface     ', 'rho_amplitude ', &
                                                   'rho_wavenumber']      !< Shu-Osher keys.
 character(len=17), parameter :: ROTATED_KEY(6)=['normal_x         ', 'normal_y         ', &
@@ -170,6 +178,7 @@ type :: flume_ic_object
    real(R8P)                 :: prim_2(8)=0._R8P     !< Primitive state of region 2 (global frame, first nprim used).
    integer(I4P)              :: shu_osher_axis=0_I4P !< Shu-Osher: axis, 1=x, 2=y, 3=z.
    real(R8P)                 :: shu_osher(3)=0._R8P  !< Shu-Osher: interface, density amplitude, density wavenumber.
+   real(R8P)                 :: gradient(3)=0._R8P   !< Linear: relative gradient g, q = q_1 (1 + g . x).
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -214,6 +223,8 @@ contains
    if (self%ic_type == IC_SHU_OSHER_STR) &
    desc = desc//NL//mpih%myrankstr//'  shu-osher:      axis '//trim(str(self%shu_osher_axis))//', '// &
                                     trim(str(self%shu_osher))
+   if (self%ic_type == IC_LINEAR_STR) &
+   desc = desc//NL//mpih%myrankstr//'  gradient:       '//trim(str(self%gradient))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -433,6 +444,13 @@ contains
                                   val=self%shu_osher(k), error=error)
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(SHU_OSHER_KEY(k))//')')
       enddo
+   case(IC_LINEAR_STR)
+      self%regions_number = 1_I4P
+      do k=1, 3
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(LINEAR_KEY(k)), &
+                                  val=self%gradient(k), error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(LINEAR_KEY(k))//')')
+      enddo
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -445,7 +463,7 @@ contains
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
                                IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
                                IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR//', '// &
-                               IC_SHU_OSHER_STR)
+                               IC_SHU_OSHER_STR//', '//IC_LINEAR_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -515,6 +533,18 @@ contains
    integer(I4P)                          :: b, i, j, k, r !< Counters.
 
    select case(self%ic_type)
+   case(IC_LINEAR_STR)
+      ! every conservative variable linear in space, exact under copy, restriction and tricubic fill (verification)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  q(:,i,j,k,b) = self%q_region(:,1) * (1._R8P + dot_product(self%gradient, center))
+               enddo
+            enddo
+         enddo
+      enddo
    case(IC_UNIFORM_STR)
       do b=1, field%blocks_number
          do k=1, field%nk

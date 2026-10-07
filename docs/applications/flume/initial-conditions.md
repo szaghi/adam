@@ -1,6 +1,6 @@
 # Initial conditions
 
-The initial state is set by the `[initial_conditions]` section: `type` selects one of the thirteen initial conditions
+The initial state is set by the `[initial_conditions]` section: `type` selects one of the fourteen initial conditions
 below, and the primitive states of the regions are given in `[initial_conditions_region_N]` sections. The value of
 every key is checked: an unknown `type`, a missing key or an inconsistent value stops the run with a message naming the
 accepted values.
@@ -14,6 +14,7 @@ accepted values.
 | `rotated-riemann` | ✓ | ✓ | ✓ | 2 |
 | `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `mhd-rotor`, `field-loop` | ✗ | ✓ | ✓ | 1 |
 | `orszag-tang` | ✗ | ✓ | ✓ | 0 |
+| `linear` (verification) | ✓ | ✓ | ✓ | 1 |
 
 "MHD" in the error messages means `[physics] physical_model = mhd-ideal`. `glm` versus `none` is chosen separately by
 `[mhd] divergence_control`.
@@ -51,7 +52,7 @@ the `update_ghost` call that follows.
 
 | key | type | meaning |
 |---|---|---|
-| `type` | string (control characters are blanked by `strip_control`, so CRLF files parse) | one of the 13 names below. Any other value stops the run and the message lists all 13. |
+| `type` | string (control characters are blanked by `strip_control`, so CRLF files parse) | one of the 14 names below. Any other value stops the run and the message lists all 14. |
 | `amr_iterations` | integer, **required** | the number of init-time AMR passes (set the IC, refine, repeat). The value is clamped to $\ge 0$. The loop is at `cpu/adam_flume_cpu_object.F90` and `fnl/adam_flume_fnl_object.F90`. When the value is $>0$, every refined non-null axis must have an even block cell count of at least `2 ngc`, otherwise `error_stop`. |
 
 **Region sections** are named `[initial_conditions_region_N]`, with $N = 1..$`regions_number`. They hold the primitive keys `r, u, v, w, p`, plus `bx, by, bz` for either MHD
@@ -60,7 +61,7 @@ read depends on the type:
 
 | type | regions read | extent keys |
 |---|---|---|
-| `uniform`, `isentropic-vortex`, `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `mhd-rotor`, `field-loop` | 1 | none |
+| `uniform`, `isentropic-vortex`, `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `mhd-rotor`, `field-loop`, `linear` | 1 | none |
 | `shu-osher`, `rotated-riemann` | 2 | none (any extent keys present are ignored) |
 | `riemann-problem` | `regions_number` (from the INI) | `emin_x, emin_y, emin_z, emax_x, emax_y, emax_z` (required) |
 | `orszag-tang` | 0 | none |
@@ -684,4 +685,39 @@ p = 1.0
 bx = 1.4104739588693909
 by = 1.4104739588693909
 bz = 0.0
+```
+
+## `linear`: a linear field (verification)
+
+Every conservative variable is linear in space,
+
+$$
+\mathbf q(\mathbf x) = \mathbf q_1 \,(1 + \mathbf g \cdot \mathbf x),
+$$
+
+where $\mathbf q_1$ is the conservative state of `[initial_conditions_region_1]` and $\mathbf g$ =
+(`gradient_x`, `gradient_y`, `gradient_z`) a relative gradient (inverse length; the [`[reference]`](./input#reference-optional-dimensional-input)
+layer scales it by $L_0$). The three keys are required.
+
+It is not a flow. It is the field on which every ghost fill FLUME uses is exact: the same-level copy, the 2:1
+restriction (the mean of the fine cells) and the tricubic coarse-to-fine fill reproduce a linear field to round-off,
+and every boundary condition maps it to a known value. The ghost probe GP ([verification](./verification#ghost-cells),
+`verification/ghosts/`) runs it for one negligible step (`CFL = 1e-30`) and checks every face and edge ghost against
+that value. The state is admissible only while $1 + \mathbf g \cdot \mathbf x > 0$ over the domain; nothing checks it,
+since the probe takes no real step. Give the velocity non-zero components, so that every wall sign flip shows.
+
+```ini
+[initial_conditions]
+type = linear
+gradient_x = 0.05
+gradient_y = 0.11
+gradient_z = 0.07
+amr_iterations = 1
+
+[initial_conditions_region_1]
+r = 1.0
+u = 0.3
+v = -0.2
+w = 0.1
+p = 1.0
 ```

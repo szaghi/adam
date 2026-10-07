@@ -18,8 +18,8 @@ The pointwise libraries (`*_library.F90`) are `pure`, take explicit-size argumen
 | `adam_flume_euler_library.F90` | Pointwise Euler physics: conversions, fluxes, Roe average and eigenvectors, flux splitting, face states, LLF/HLL/HLLC Riemann solvers |
 | `adam_flume_mhd_library.F90` | Pointwise ideal MHD physics: conversions, fluxes, fast speed, Roe–Balsara eigensystem (with and without GLM), flux splitting |
 | `adam_flume_mhd_riemann_library.F90` | MHD face states and Riemann solvers (LLF, HLL, HLLD; exact GLM subsystem) of `weno-riemann` |
-| `adam_flume_bc_object.F90` | `[bc_*]`: boundary condition types (extrapolation, inflow, inviscid wall, periodic) and inflow states |
-| `adam_flume_ic_object.F90` | `[initial_conditions]`: 13 initial conditions (uniform, isentropic vortex, Riemann regions, Shu–Osher, rotated Riemann, GLM pulse, div(B) peak, MHD linear wave, CPAW, magnetised vortex, Orszag–Tang, rotor, field loop); init-time AMR passes |
+| `adam_flume_bc_object.F90` | `[bc_*]`: boundary condition types (extrapolation, inflow, inviscid wall, periodic) and inflow states; `realm_edge_face`, `realm_edge_donor` (the face condition and the donor of a ghost at a realm edge or corner, shared by the CPU and FNL backends) |
+| `adam_flume_ic_object.F90` | `[initial_conditions]`: 14 initial conditions (uniform, isentropic vortex, Riemann regions, Shu–Osher, rotated Riemann, GLM pulse, div(B) peak, MHD linear wave, CPAW, magnetised vortex, Orszag–Tang, rotor, field loop, linear); init-time AMR passes |
 | `adam_flume_time_object.F90` | `[time]`: CFL, iteration and time limits |
 | `adam_flume_diagnostics_object.F90` | `[diagnostics]`: conservation (and div(B)) history cadence |
 | `adam_flume_common_object.F90` | `flume_common_object`: initialization and cross-section checks, AMR markers (box, gradient, solid), seam flux accumulation for reflux, immersed-boundary spacing, restart, slices, auxiliary and MHD derived fields |

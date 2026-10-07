@@ -488,6 +488,7 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `field-loop` | **mhd-ideal** | 1 | `x0`, `y0`, `loop_radius` (`> 0`), `loop_amplitude`. |
 | `rotated-riemann` | any | 2 (states given in the **normal frame**: `u`, `bx` normal; `v`, `by` tangential) | `normal_x`, `normal_y` (not both 0), `interface_1`, `interface_2`, `period` (`> 0`), `interface_2_width` (`>= 0`). Requires `interface_1 < interface_2` and `interface_2 + interface_2_width < interface_1 + period`, fatal otherwise. |
 | `shu-osher` | **euler** | 2 | `axis` (string `x`/`y`/`z`), `interface`, `rho_amplitude`, `rho_wavenumber`. Requires `rho_amplitude < region_2 r`. Region 1 applies where `s <= interface`; region 2 applies elsewhere, with `r + rho_amplitude * sin(rho_wavenumber * s)`. |
+| `linear` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z` (inverse length). Every conservative variable is `q_1 (1 + g . x)`, `q_1` the state of region 1: the verification field of the ghost probe (issue #65 P0), not a flow. |
 
 A model mismatch (for example `glm-pulse` with `euler`) is fatal. The complete formulas are in the module header.
 
@@ -880,7 +881,10 @@ target_level = 3
 Both groups are written to the XH5F output only when `[IO] save_auxiliary_fields = .true.`. The key is **required**. The auxiliary variables are recomputed on the host from the saved `q`,
 including ghost cells. The derived MHD group is written only for the MHD models.
 
-`save_simulation_data` calls `save_xh5f(with_ghost=.true.)`, so **field files include the ghost cells**.
+`save_simulation_data` calls `save_xh5f(with_ghost=.true.)`, so **field files include the ghost cells**. In a forest
+the inter-realm seam ghosts are refilled before the write, then the intra-realm ghosts and the boundary conditions
+(the order of a Runge-Kutta stage), so the written ghosts are those the stencils read; the step-0 file, written while
+each realm initialises and before the forest connects them, holds unfilled seam ghosts.
 
 ### Auxiliary variables
 

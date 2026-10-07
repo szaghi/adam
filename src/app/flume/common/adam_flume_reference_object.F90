@@ -437,7 +437,7 @@ contains
          kind = KIND_SCALED ; dim = DIM_DENSITY
       case('pulse_amplitude', 'peak_amplitude', 'b_par', 'mu', 'loop_amplitude')
          kind = KIND_SCALED ; dim = DIM_FIELD
-      case('rho_wavenumber')
+      case('rho_wavenumber', 'gradient_x', 'gradient_y', 'gradient_z')
          kind = KIND_SCALED ; dim = DIM_INV_LENGTH
       case('wave_amplitude')
          ! cpaw: multiplies B_perp; linear wave: multiplies a Stone et al. 2008 right eigenvector, whose density
