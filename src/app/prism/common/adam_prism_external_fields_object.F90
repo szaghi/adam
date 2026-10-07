@@ -169,10 +169,10 @@ contains
    case(EF_TYPE_UNIFORM_FIELD)
       self%add_external_fields => add_external_fields_uniform
       self%sub_external_fields => sub_external_fields_uniform
-   !case(EF_TYPE_MAGNETIC_NOZZLE)
-   !   self%add_external_fields => add_external_fields_magnetic_nozzle
-   !case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
-   !   self%add_external_fields => add_external_fields_rmf_and_magnetic_nozzle
+   case(EF_TYPE_MAGNETIC_NOZZLE, EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
+      ! add/sub kernels not implemented on any backend: fail here instead of calling a null pointer later
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(external_fields_applied) = '//trim(self%ef_type)// &
+                               ' is not implemented')
    endselect
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'prism_external_fields_object%initialize finish'

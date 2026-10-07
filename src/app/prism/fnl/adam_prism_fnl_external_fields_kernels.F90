@@ -6,6 +6,7 @@ module adam_prism_fnl_external_fields_kernels
 !< ADAM, PRISM external fields definition, FNL backend kernels.
 
 ! ADAM modules
+use :: adam_mpih_global, only : mpih
 use :: adam_fnl_field_object
 ! PRISM modules
 use :: adam_prism_external_fields_object
@@ -71,10 +72,10 @@ contains
    case(EF_TYPE_UNIFORM_FIELD)
       add_external_fields_dev => add_external_fields_uniform_dev
       sub_external_fields_dev => sub_external_fields_uniform_dev
-   !case(EF_TYPE_MAGNETIC_NOZZLE)
-   !   add_external_fields => self%external_fields%add_external_fields_magnetic_nozzle
-   !case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
-   !   add_external_fields => self%external_fields%add_external_fields_rmf_and_magnetic_nozzle
+   case(EF_TYPE_NONE)
+      ! no external field: add/sub pointers stay null and are never called (call sites test ef_type)
+   case default
+      call mpih%error_stop(msg=': external field type "'//trim(external_fields%ef_type)//'" not ported to FNL backend')
    endselect
    endsubroutine external_fields_initialize_dev
 

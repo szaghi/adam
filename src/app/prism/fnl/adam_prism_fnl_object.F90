@@ -555,7 +555,9 @@ contains
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)        ; self%integrate_dev => integrate_blanesmoan_dev
       case(NUM_SCHEME_TIME_CFM)                ; self%integrate_dev => integrate_cfm_dev
-      case(NUM_SCHEME_TIME_LEAPFROG)           ; self%integrate_dev => integrate_leapfrog_dev
+      case(NUM_SCHEME_TIME_LEAPFROG)
+         ! integrate_leapfrog_dev is an empty stub: dispatching to it would silently freeze the solution
+         call mpih_fnl%error_stop(msg=': leapfrog time integration not ported to FNL backend')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%rk%scheme)
          case(RK_1, RK_2, RK_3)                ; self%integrate_dev => integrate_rk_ls_dev
@@ -566,16 +568,13 @@ contains
    elseif (is_pic_model(self%physics%physical_model)) then
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
-         select case(self%pic%scheme_time)
-         case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-            self%integrate_dev => integrate_leapfrog_pic
-         case default
-            call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
-         endselect
+         ! integrate_leapfrog_pic (and the leapfrog priming step) are empty stubs on FNL: dispatching to them
+         ! would silently freeze both fields and particles
+         call mpih_fnl%error_stop(msg=': PIC leapfrog time integration not ported to FNL backend')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-            self%integrate_dev => integrate_leapfrog_pic
+            call mpih_fnl%error_stop(msg=': PIC leapfrog time integration not ported to FNL backend')
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
             select case(self%rk_pic%scheme)
             case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
