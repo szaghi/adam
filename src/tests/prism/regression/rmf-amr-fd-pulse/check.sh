@@ -33,7 +33,10 @@
 # Baseline provenance: N3.5 binary (stale-ghost-layer fix), default tricubic
 # fill, fdv_order 6, ni=16, it_max=5, -np 1 — max over the history (= step 5).
 #
-# Usage: ./check.sh [--build] [--convergence]
+# Usage: ./check.sh [--build] [--convergence] [--keep]
+#
+# --keep keeps the checkpoints of the quadtree leg (work-cpu-quad-octree, work-cpu-quadtree) for the documentation
+# figure (src/tests/prism/regression/make_doc_figures.py).
 #
 # PRISM_EXE (issue #22, GA4): override the executable under test, e.g.
 #   PRISM_EXE=$REPO/exe/adam_prism_fnl ./check.sh --convergence
@@ -65,12 +68,13 @@ SEAM_B_SSP11_BASELINE="1.181251E+01" # pinned seam max|div(B)| under runge-kutta
                                      # F3-fix binary, 2026-07-04: ni=16, it_max=5, -np 1, tricubic fill)
 LS_REFUSAL_MSG="not stage-splittable" # the stages_per_step_forest contract message (#25 F1)
 
-do_build=0 ; do_convergence=0
+do_build=0 ; do_convergence=0 ; do_keep=0
 for arg in "$@"; do
    case "$arg" in
       --build)       do_build=1 ;;
       --convergence) do_convergence=1 ;;
-      *) echo "ERROR: unknown flag $arg (use --build / --convergence)" >&2; exit 2 ;;
+      --keep)        do_keep=1 ;;
+      *) echo "ERROR: unknown flag $arg (use --build / --convergence / --keep)" >&2; exit 2 ;;
    esac
 done
 if [[ $do_build -eq 1 ]]; then
@@ -205,6 +209,48 @@ fi
 if ! awk "BEGIN{d=($ssp11_divb-$SEAM_B_SSP11_BASELINE)/$SEAM_B_SSP11_BASELINE; if(d<0)d=-d; exit !(d<=$SEAM_RTOL)}" 2>/dev/null; then
    echo "FAIL [rmf-amr-fd-pulse] SSP-11 seam max|div(B)| off its pinned baseline"; fail=1
 fi
+
+# --- QUADTREE leg (issue #46, default-on) ---
+# The same seam case on a quadtree (ratio 4): x and y refined as on the octree, z never (one z layer of blocks, nk = 16
+# cells, dz = 7.5e-3 against the octree's finest 1.875e-3). The pulse is uniform in z, and PRISM's step is
+# CFL min(dx, dy, dz) / c, set by the finest x/y cells on both trees: the two runs take the same steps, both stay
+# z-invariant, and must agree column by column ((x, y) keyed, quadtree_oracle.py of FLUME MV-15) to round-off. The
+# quadtree seam is 2:1 in x, y and 1:1 in z; before #46 its coarse cells picked up a spurious z dependence. The
+# components are scaled per vector field (--groups): the pulse carries Dz, Bx (and the seam's By), the others are
+# round-off on the octree (Dx, Dy 3e-18, Bz 5e-16) and exactly 0 on the quadtree. Measured (CPU, np 1): quadtree
+# against octree 1.8e-16, div(B) equal to the octree's to every printed digit, div(D) 0.
+QREF="$CASE_DIR/work-cpu-quad-octree"
+QUAD="$CASE_DIR/work-cpu-quadtree"
+QUAD_TOL="1.0E-13"   # agreement with the octree run, relative to each vector field (measured 1.8e-16)
+QUAD_Z_TOL="1.0E-13" # z invariance of both runs (measured: octree 2.6e-16, quadtree 0)
+qtrim='s/^save_residual_fields   = .true./save_residual_fields   = .false./;s/^save_divergence_fields = .true./save_divergence_fields = .false./'
+run_keep() { # workdir, ini-transform-sed: as run_in, checkpoints kept for the oracle
+   local wd="$1" sed_expr="$2"
+   rm -rf "$wd" && mkdir -p "$wd"
+   sed "$sed_expr" "$CASE_DIR/input.ini" > "$wd/input.ini"
+   ( cd "$wd" && timeout 300 mpirun -np 1 "$EXE" > run.log 2>&1 )
+}
+echo ">> [rmf-amr-fd-pulse] running quadtree leg (ratio 4 against ratio 8, the same seam)"
+run_keep "$QREF" "$qtrim"
+run_keep "$QUAD" "$qtrim;s/^ratio          = 8/ratio          = 4/"
+for wd in "$QREF" "$QUAD"; do
+   if grep -qiE 'error|abort| nan |segfault' "$wd/run.log" || ! grep -qE 'progress:[[:space:]]*100%' "$wd/run.log"; then
+      echo "FAIL [rmf-amr-fd-pulse] quadtree leg: $(basename "$wd") did not complete cleanly"; fail=1
+   fi
+done
+quad_divd="$(max_div_d "$QUAD/$HIST")"
+quad_divb="$(max_div_b "$QUAD/$HIST")"
+echo ">> [rmf-amr-fd-pulse] quadtree max|div(D)| = $quad_divd (structural invariant: <= $DIV_TOL)"
+echo ">> [rmf-amr-fd-pulse] quadtree max|div(B)| = $quad_divb (octree seam: $seam_divb)"
+if ! awk "BEGIN{exit !($quad_divd <= $DIV_TOL)}"; then
+   echo "FAIL [rmf-amr-fd-pulse] quadtree seam div(D) above round-off"; fail=1
+fi
+if ! "$REPO_ROOT/exe/.regression-venv/bin/python" "$REPO_ROOT/src/tests/flume/verification/mhd/quadtree/quadtree_oracle.py" \
+        "$QREF" "$QUAD" --ngc 3 --tol "$QUAD_TOL" --z-tol "$QUAD_Z_TOL" --groups Dx,Dy,Dz:Bx,By,Bz:Jx,Jy,Jz \
+        | sed 's/^/   /'; then
+   echo "FAIL [rmf-amr-fd-pulse] quadtree run differs from the octree run"; fail=1
+fi
+[[ $do_keep -eq 1 ]] || find "$QREF" "$QUAD" -type f \( -name '*.h5' -o -name '*.fbd' -o -name '*.xdmf' \) -delete
 
 if [[ $do_convergence -eq 1 ]]; then
    echo ">> [rmf-amr-fd-pulse] --convergence: 2-rung matched-time ladder (ni=16 vs ni=32)"

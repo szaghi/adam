@@ -320,6 +320,96 @@ def fig_cylinder(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_step(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """EV-step: Woodward-Colella Mach 3 step at t = 4, three realms on quadtrees: density with blocks, Mach number,
+    and a zoom on the reflected shock crossing the quadtree 2:1 seam at x = 1.2."""
+    work = HERE / "step" / f"{TAG}-full"
+    ini = read_ini(work / "step-A.ini")
+    gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
+    bl = first_plane(blocks(work, ngc, EULER))
+    uniform = HERE / "step" / f"{TAG}-full-uniform"
+    bu = first_plane(blocks(uniform, ngc, EULER)) if any(uniform.glob("*-proc*.h5")) else None
+    fig = plt.figure(figsize=(12, 12.5), constrained_layout=True)
+    grid = fig.add_gridspec(3, 2, height_ratios=(1.0, 1.0, 1.25))
+    axs = [fig.add_subplot(grid[0, :]), fig.add_subplot(grid[1, :]), fig.add_subplot(grid[2, 0]),
+           fig.add_subplot(grid[2, 1])]
+    panels = ((axs[0], "r", (0.0, 3.0, 0.0, 1.0)), (axs[1], "mach", (0.0, 3.0, 0.0, 1.0)),
+              (axs[2], "r", (0.9, 1.7, 0.2, 0.7)), (axs[3], "r" if bu else "p", (0.9, 1.7, 0.2, 0.7)))
+    labels = {"r": r"$\rho$", "mach": "Mach number", "p": "p"}
+    for ax, key, (x0, x1, y0, y1) in panels:
+        cmap = {"r": "magma", "mach": "coolwarm", "p": "viridis"}[key]
+        src = bu if (bu and ax is axs[3]) else bl
+        im = field_map(ax, src, lambda b, k=key: plane(b, gamma, k), cmap=cmap, outline=(key != "mach"))
+        ax.add_patch(Rectangle((0.6, 0.0), 2.4, 0.2, fill=True, fc="0.6", ec="k", lw=0.8))
+        ax.plot([0.0, 0.6], [0.2, 0.2], "w--", lw=0.8)  # seam A-B
+        ax.plot([0.6, 0.6], [0.2, 1.0], "w--", lw=0.8)  # seam B-C
+        ax.set_xlim(x0, x1)
+        ax.set_ylim(y0, y1)
+        fig.colorbar(im, ax=ax, label=labels[key], shrink=0.9)
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+    axs[0].set_title("density, blocks outlined (refined boxes), inter-realm seams dashed")
+    axs[1].set_title("Mach number")
+    axs[2].set_title("density, zoom: refined box from x = 1.2 (2:1 seams)")
+    axs[3].set_title("density, same zoom, uniform 1/80 (no refined box)" if bu else "pressure, same zoom")
+    fig.suptitle("Woodward-Colella Mach 3 step, t = 4: three realms on quadtrees, 1/80 base, 1/160 in the boxes")
+    fig.savefig(out / "step.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_step_trees(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """EV-step trees leg: the step forest at t = 0.5 on quadtrees and on octrees, and their column-wise difference."""
+    works = {tree: HERE / "step" / f"{TAG}-trees-{tree}" for tree in ("quad", "oct")}
+    ini = read_ini(works["quad"] / "step-A.ini")
+    gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
+    bl = {tree: blocks(w, ngc, EULER) for tree, w in works.items()}
+
+    def key(b: dict, i: int, j: int) -> tuple[float, float]:
+        return (round(float(b["lo"][0] + (i + 0.5) * b["d"][0]), 12),
+                round(float(b["lo"][1] + (j + 0.5) * b["d"][1]), 12))
+
+    cols = {}
+    for tree in ("quad", "oct"):
+        cols[tree] = {}
+        for b in bl[tree]:
+            q = np.stack([b["f"][v][:, :, 0] for v in EULER])
+            for i in range(q.shape[1]):
+                for j in range(q.shape[2]):
+                    cols[tree].setdefault(key(b, i, j), q[:, i, j])
+    scale = np.max(np.abs(np.array(list(cols["oct"].values()))), axis=0)
+    scale[1:4] = scale[1:4].max()  # momentum as one vector
+    diff = {k: float(np.max(np.abs(cols["quad"][k] - cols["oct"][k]) / scale)) for k in cols["quad"]}
+    fig, axs = plt.subplots(3, 1, figsize=(11, 11.5), constrained_layout=True)
+    for ax, tree, title in ((axs[0], "quad", "quadtree (nk = 1)"), (axs[1], "oct", "octree, null z (nk = 4)")):
+        im = field_map(ax, first_plane(bl[tree]), lambda b: plane(b, gamma, "r"), cmap="magma", outline=True)
+        fig.colorbar(im, ax=ax, label=r"$\rho$", shrink=0.9)
+        ax.set_title(f"density, {title}, blocks outlined")
+    floor = 1.0e-16
+    im = None
+    for b in bl["quad"]:
+        nx, ny = b["f"]["r"].shape[:2]
+        v = np.array([[max(diff[key(b, i, j)], floor) for j in range(ny)] for i in range(nx)])
+        xe = b["lo"][0] + np.arange(nx + 1) * b["d"][0]
+        ye = b["lo"][1] + np.arange(ny + 1) * b["d"][1]
+        im = axs[2].pcolormesh(xe, ye, v.T, cmap="viridis", norm=mpl.colors.LogNorm(vmin=floor, vmax=1e-11),
+                               shading="flat")
+        axs[2].add_patch(Rectangle((xe[0], ye[0]), xe[-1] - xe[0], ye[-1] - ye[0], fill=False, lw=0.3, ec="w"))
+    axs[2].set_aspect("equal")
+    fig.colorbar(im, ax=axs[2], label="max relative difference (0 shown as 1e-16)", shrink=0.9)
+    axs[2].set_title(f"quadtree against octree, per (x, y) column: max {max(diff.values()):.1e}")
+    for ax in axs:
+        ax.add_patch(Rectangle((0.6, 0.0), 2.4, 0.2, fill=True, fc="0.6", ec="k", lw=0.8))
+        ax.plot([0.0, 0.6], [0.2, 0.2], "c--", lw=0.8)
+        ax.plot([0.6, 0.6], [0.2, 1.0], "c--", lw=0.8)
+        ax.set_xlim(0.0, 3.0)
+        ax.set_ylim(0.0, 1.0)
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+    fig.suptitle("Woodward-Colella step, t = 0.5, 1/40 base: the three-realm forest on quadtrees and on octrees")
+    fig.savefig(out / "step-trees.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_conservation(out: Path, runs: Path) -> None:
     """V3 / RV-4: relative drift of the volume integrals of the periodic AMR box, with and without reflux."""
     fig, ax = plt.subplots(figsize=(7, 4), constrained_layout=True)
@@ -570,7 +660,9 @@ def fig_order(out: Path, runs: Path) -> None:
 
 
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
-           "shock-cylinder": fig_cylinder, "conservation": fig_conservation, "orszag-tang": fig_orszag_tang,
+           "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees,
+           "conservation": fig_conservation,
+           "orszag-tang": fig_orszag_tang,
            "rotor": fig_rotor, "field-loop": fig_field_loop, "mhd-riemann": fig_mhd_riemann, "glm-pulse": fig_glm_pulse,
            "blast": fig_blast, "near-vacuum": fig_vacuum, "eglm-energy": fig_eglm_energy, "order": fig_order}
 

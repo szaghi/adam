@@ -127,6 +127,7 @@ export default withMermaid({
                 { text: 'Common',      link: '/applications/prism/common' },
                 { text: 'CPU Backend', link: '/applications/prism/cpu' },
                 { text: 'FNL Backend', link: '/applications/prism/fnl' },
+                { text: 'Verification', link: '/applications/prism/verification' },
               ],
             },
             {

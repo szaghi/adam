@@ -24,6 +24,11 @@ Geometry (XH5F): origin and dxdydz stored (z, y, x), the origin at the corner of
 
 Usage:
     quadtree_oracle.py <reference-work-dir> [<work-dir> ...] --ngc N [--tol T] [--z-tol T] [--spread-factor F]
+                       [--groups Dx,Dy,Dz:Bx,By,Bz]
+
+--groups scales the variables of each group by the largest magnitude of the group (the components of one vector
+field): a component the problem does not carry (PRISM's pulse has Dz and Bx, the other components are round-off) would
+otherwise be measured against its own round-off. Variables in no group keep their own scale.
 """
 
 from __future__ import annotations
@@ -91,11 +96,16 @@ def main() -> int:
     parser.add_argument("--z-tol", type=float, default=0.0, help="relative tolerance of the z invariance")
     parser.add_argument("--spread-factor", type=float, default=0.0,
                         help="agreement bound as a multiple of the reference z spread (per variable)")
+    parser.add_argument("--groups", default="", help="groups (colon-separated) of variables sharing a scale")
     args = parser.parse_args()
 
     step = last_step(args.reference)
     variables, ref = load_columns(args.reference, step, args.ngc)
     scale = np.max(np.abs(np.concatenate(list(ref.values()))), axis=0)
+    for group in filter(None, args.groups.split(":")):
+        idx = [variables.index(v) for v in group.split(",") if v in variables]
+        if idx:
+            scale[idx] = np.max(scale[idx])
     scale = np.where(scale > 0.0, scale, 1.0)
     keys = sorted(ref)
     status = 0
