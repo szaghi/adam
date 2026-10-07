@@ -59,11 +59,15 @@ integer(I4P), parameter :: DIM_PRESSURE(3)=[0_I4P, 2_I4P, 2_I4P]           !< Pr
 integer(I4P), parameter :: DIM_FIELD(3)=[0_I4P, 1_I4P, 1_I4P]              !< Magnetic field, B_SI/sqrt(mu0).
 integer(I4P), parameter :: DIM_PSI_GLM(3)=[0_I4P, 2_I4P, 1_I4P]            !< GLM psi: field times velocity.
 integer(I4P), parameter :: DIM_FIELD_PER_LENGTH(3)=[-1_I4P, 1_I4P, 1_I4P]  !< div(B).
+integer(I4P), parameter :: DIM_VISCOSITY(3)=[1_I4P, 1_I4P, 2_I4P]         !< Dynamic viscosity, rho0 u0 L0.
+integer(I4P), parameter :: DIM_DIFFUSIVITY(3)=[1_I4P, 1_I4P, 0_I4P]       !< Diffusivity, u0 L0 (resistivity).
 ! option kinds
 integer(I4P), parameter :: KIND_NONE=0_I4P    !< Not converted.
 integer(I4P), parameter :: KIND_SCALED=1_I4P  !< Divided by the reference of its dimension.
 integer(I4P), parameter :: KIND_GAS=2_I4P     !< `cp`, `cv`: replaced by `gamma`, `R* = 1`.
 integer(I4P), parameter :: KIND_UNKNOWN=3_I4P !< Not classified: fatal.
+integer(I4P), parameter :: KIND_TEMPERATURE=4_I4P  !< A temperature: divided by `u0^2 / R` (issue #65).
+integer(I4P), parameter :: KIND_CONDUCTIVITY=5_I4P !< A thermal conductivity: divided by `rho0 u0 L0 R` (issue #65).
 
 type :: flume_reference_object
    !< FLUME reference layer class definition.
@@ -366,10 +370,25 @@ contains
       kind = KIND_NONE ! dimensionless sections (every option a count, a flag, a name or a dimensionless number)
    case('physics')
       select case(option_name)
-      case('physical_model', 'gamma')
+      case('physical_model', 'gamma', 'reynolds', 'prandtl', 'magnetic_reynolds', 'viscosity_law', 'viscosity_exponent')
+         kind = KIND_NONE
+      case('lundquist')
+         ! S = L v_A / eta is the magnetic Reynolds number in the units of the Alfvenic preset only
+         if (self%velocity_preset /= 'alfvenic') &
+            call mpih%error_stop(msg=': [physics].(lundquist) needs ['//INI_SECTION_NAME//'].(velocity)=alfvenic (the '// &
+                                     'Lundquist number is the magnetic Reynolds number at the Alfven speed); give '// &
+                                     'magnetic_reynolds or resistivity otherwise')
          kind = KIND_NONE
       case('cp', 'cv')
          kind = KIND_GAS
+      case('viscosity')
+         kind = KIND_SCALED ; dim = DIM_VISCOSITY
+      case('conductivity')
+         kind = KIND_CONDUCTIVITY ; dim = DIM_VISCOSITY
+      case('resistivity')
+         kind = KIND_SCALED ; dim = DIM_DIFFUSIVITY
+      case('reference_temperature')
+         kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
       endselect
    case('mhd')
       select case(option_name)
@@ -402,8 +421,10 @@ contains
          kind = KIND_NONE
       case('r')
          kind = KIND_SCALED ; dim = DIM_DENSITY
-      case('u', 'v', 'w')
+      case('u', 'v', 'w', 'wall_u', 'wall_v', 'wall_w')
          kind = KIND_SCALED ; dim = DIM_VELOCITY
+      case('wall_temperature')
+         kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
       case('p')
          kind = KIND_SCALED ; dim = DIM_PRESSURE
       case('bx', 'by', 'bz')
@@ -546,6 +567,7 @@ contains
    integer(I4P)                                 :: kind            !< Option kind.
    integer(I4P)                                 :: dim(3)          !< Option dimension.
    real(R8P)                                    :: val             !< Option value.
+   real(R8P)                                    :: converted       !< Option value in code units.
    integer(I4P)                                 :: s, o, n, ios    !< Counters, I/O status.
    logical                                      :: has_gas         !< True if `cp` or `cv` are given.
 
@@ -577,18 +599,22 @@ contains
                                      ') is not classified: its dimension is unknown, refusing to leave it unconverted')
          case(KIND_GAS)
             has_gas = .true.
-         case(KIND_SCALED)
+         case(KIND_SCALED, KIND_TEMPERATURE, KIND_CONDUCTIVITY)
             if (sname == 'mhd' .and. trim(names(o)) == 'glm_damping_length' .and. &
                 trim(adjustl(strip_control(opt_values(o)))) == 'min-cell') cycle
             read(opt_values(o), *, iostat=ios) val
             if (ios /= 0) call mpih%error_stop(msg=': ['//sname//'].('//trim(names(o))//') "'//trim(opt_values(o))// &
                                                    '" is not a number')
+            ! the temperature unit is u0^2 / R and the conductivity carries 1 / R (issue #65): the reference first
+            ! (a power of two in the verifications, exact), then R, so a single rounding
+            converted = val / self%scale(dim)
+            if (kind == KIND_TEMPERATURE) converted = converted * self%gas_constant
+            if (kind == KIND_CONDUCTIVITY) converted = converted / self%gas_constant
             call file_parameters%add(section_name=sname, option_name=trim(names(o)), &
-                                     val=trim(format_value(val / self%scale(dim))))
+                                     val=trim(format_value(converted)))
             self%converted = self%converted + 1_I4P
             if (mpih%myrank == 0_I4P) print '(A)', mpih%myrankstr//'  ['//sname//'] '//trim(names(o))//': '// &
-                                                  trim(format_value(val))//' -> '//                           &
-                                                  trim(format_value(val / self%scale(dim)))
+                                                  trim(format_value(val))//' -> '//trim(format_value(converted))
          endselect
       enddo
       deallocate(names, opt_values)
@@ -605,6 +631,18 @@ contains
    self%divergence_control = raw(section_name='mhd',                option_name='divergence_control', default='none')
    self%ic_type            = raw(section_name='initial_conditions', option_name='type', default='')
    self%ic_wave            = raw(section_name='initial_conditions', option_name='wave', default='')
+   ! the gas constant of the input, needed before the options are converted (temperatures and the conductivity carry
+   ! it, issue #65): cp - cv, or 1 with gamma alone (the physics object reports missing or inconsistent keys)
+   self%gas_constant = 1._R8P
+   block
+      real(R8P)    :: cp, cv
+      integer(I4P) :: error(2)
+      call file_parameters%get(section_name='physics', option_name='cp', val=cp, error=error(1))
+      call file_parameters%get(section_name='physics', option_name='cv', val=cv, error=error(2))
+      if (all(error <= 0)) then
+         if (cp > cv .and. cv > 0._R8P) self%gas_constant = cp - cv
+      endif
+   endblock
    contains
       function raw(section_name, option_name, default) result(val)
       !< Return an option value without control characters, or a default if the option is absent.

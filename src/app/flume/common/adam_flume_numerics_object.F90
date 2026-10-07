@@ -26,7 +26,7 @@ use :: adam_flume_parameters, only : FLUX_CORRECTION_4TH, FLUX_CORRECTION_6TH, F
                                      SCHEME_SPACE_WENO_RIEMANN, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
-use :: penf,                  only : I4P, R8P
+use :: penf,                  only : I4P, R8P, str
 
 implicit none
 private
@@ -43,6 +43,7 @@ type :: flume_numerics_object
    character(:), allocatable :: flux_correction          !< Face flux correction order (weno-riemann only).
    character(:), allocatable :: flux_correction_sensor   !< Face flux correction sensor (weno-riemann only).
    character(:), allocatable :: positivity_limiter       !< Positivity limiter: none or cell.
+   integer(I4P)              :: dissipative_order=4_I4P  !< Order of the dissipative face fluxes, 2 or 4 (issue #65).
    contains
       ! public methods
       procedure, pass(self) :: correction_coefficients !< Return the face flux correction coefficients.
@@ -94,6 +95,7 @@ contains
    desc = desc//mpih%myrankstr//'  reconstruction_variables: '//self%reconstruction_variables//NL
    desc = desc//mpih%myrankstr//'  reflux:                   '//trim(merge('.true. ', '.false.', self%reflux))
    desc = desc//NL//mpih%myrankstr//'  positivity_limiter:       '//self%positivity_limiter
+   desc = desc//NL//mpih%myrankstr//'  dissipative_order:        '//trim(str(self%dissipative_order))
    if (self%scheme_space == SCHEME_SPACE_WENO_RIEMANN) then
       desc = desc//NL//mpih%myrankstr//'  riemann_solver:           '//self%riemann_solver
       desc = desc//NL//mpih%myrankstr//'  flux_correction:          '//self%flux_correction
@@ -167,6 +169,15 @@ contains
       call load_choice(key='positivity_limiter', val=self%positivity_limiter,                                 &
                        accepted=[character(4) :: POSITIVITY_LIMITER_NONE, POSITIVITY_LIMITER_CELL])
    endif
+
+   ! optional (default 4): the order of the dissipative face fluxes (issue #65, D-M4-2), read only by the dissipative
+   ! kernels
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='dissipative_order', val=self%dissipative_order, &
+                            error=error)
+   if (error > 0) self%dissipative_order = 4_I4P
+   if (.not.any(self%dissipative_order == [2_I4P, 4_I4P])) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(dissipative_order) must be 2 or 4, got '// &
+                               trim(str(self%dissipative_order)))
    contains
       subroutine load_choice(key, val, accepted)
       !< Load a required key whose value must be one of `accepted`.

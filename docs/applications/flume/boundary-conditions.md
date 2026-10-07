@@ -10,18 +10,21 @@ the exchange machinery instead (below).
 
 There are six sections, `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]` and `[bc_z_max]`, which are
 faces 1–6. Each section **requires** `type`. The value goes through
-`strip_control`, so CRLF files are accepted. Four values are accepted, and matching is case-sensitive:
+`strip_control`, so CRLF files are accepted. Six values are accepted, and matching is case-sensitive:
 
 | `type` | id | per-face keys |
 |---|---|---|
 | `extrapolation` | `BC_EXTRAPOLATION = 1` | none |
 | `inflow` | `BC_INFLOW = 2` | `r, u, v, w, p` (+ `bx, by, bz` for MHD), all required |
 | `wall-inviscid` | `BC_WALL_INVISCID = 3` | none |
+| `wall-noslip` | `BC_WALL_NOSLIP = 4` | `wall_u, wall_v, wall_w` (optional, default 0; the normal one must be 0) |
+| `wall-isothermal` | `BC_WALL_ISOTHERMAL = 5` | `wall_temperature` (required, $> 0$), `wall_u, wall_v, wall_w` as above |
 | `periodic` | library `BC_PERIODIC = -1` | none |
 
 *Validation:*
-- an unknown value stops the run and the message lists the four spellings;
-- a missing inflow key is fatal;
+- an unknown value stops the run and the message lists the six spellings;
+- a missing inflow key, or a missing or non-positive `wall_temperature`, is fatal;
+- a non-zero normal wall velocity is fatal (the wall does not move through the domain);
 - periodicity must be **paired**: `[bc_x_min]` and `[bc_x_max]` must both be periodic or neither, and the same for y and z;
 - a physical model other than Euler or MHD is fatal.
 
@@ -96,6 +99,37 @@ $E$ is unchanged by the sign flips because it depends only on squares of the fli
 therefore the exact mirror image. As a result, $u_n = 0$ and $B_n = 0$ at the wall face in the sense of the symmetric
 average, and $\partial_n\psi = 0$ there.
 
+### `wall-noslip` and `wall-isothermal`: no-slip walls
+
+The two no-slip walls ([#65](https://github.com/szaghi/adam/issues/65), D-M4-7) mirror the cell like `wall-inviscid`
+and reflect the **whole** velocity about the wall velocity $\mathbf u_w$ (tangential, `wall_u, wall_v, wall_w`):
+
+$$
+\mathbf u_g = 2\,\mathbf u_w - \mathbf u_m, \qquad p_g = p_m,
+$$
+
+so the mean of the ghost and its mirror cell is the wall velocity (no slip, no penetration). The pressure is mirrored.
+
+- `wall-noslip` (adiabatic) mirrors the temperature, so $\rho_g = \rho_m$ and $\partial_n T = 0$ at the wall in the
+  sense of the symmetric difference.
+- `wall-isothermal` sets the ghost temperature so that the mean is the wall temperature, $T_g = 2\,T_w - T_m$, and
+  the density from the mirrored pressure, $\rho_g = p_m / (R\,T_g)$, with $T = p/(\rho R)$. The ghost stays
+  admissible while $T_m < 2\,T_w$.
+
+The total energy is rebuilt from the ghost state, $E_g = p_g/(\gamma-1) + \tfrac12\rho_g|\mathbf u_g|^2 + e_{mag}$, where
+the magnetic energy $e_{mag}$ (and $\psi^2/2$ under EGLM) is unchanged by the mirror. The field follows the
+`wall-inviscid` rule (normal component odd, a perfectly conducting wall); $\psi$ is even. On a resting adiabatic wall the
+rule reduces to a sign vector with every momentum component odd. Both walls are second-order accurate at the wall, by
+construction of the mirror.
+
+The rule is the pure procedure `wall_noslip_ghost` in `adam_flume_bc_object.F90`, shared by both backends. It is
+model-agnostic: the field components are those present in the state vector (none for Euler), so no kernel branches on
+the model. The ghost probe GP checks it on every face and edge, moving and resting walls, Euler and MHD with EGLM
+([verification](./verification#ghost-cells)).
+
+The walls are boundary conditions of the ideal solver too: they take effect on any run. Their physical test, a Couette
+flow against its exact profiles (VV-3), comes with the viscous fluxes in #65 P2.
+
 ### `periodic`
 
 `periodic` gets **no crown rows**. The library tree builds true periodic neighbours, and `update_ghost_local` and
@@ -118,7 +152,7 @@ Each crown row carries the boundary its cell lies beyond (`bc_fec`, from the tre
 - **Beyond two or three realm faces** (`bc_fec` an edge or a corner: an edge or a corner of the realm). The kind of
   one physical face among them applies, inflow first (an inflow ghost holds the inflow state whatever else it lies
   beyond), else the first non-seam face, `realm_edge_face`. It acts on the donor `realm_edge_donor`: the cell mirrored
-  about that face (wall) or the first interior cell along its normal (extrapolation), with the indexes along the other
+  about that face (any wall kind) or the first interior cell along its normal (extrapolation), with the indexes along the other
   axes kept. The donor therefore lies beyond the other faces only. It is a face ghost (for an edge) or an edge ghost
   (for a corner), already filled by the seam, the exchange or its own face. Two walls compose to a double mirror with
   both normal momenta negated, and a wall beside a seam mirrors the seam ghost.
@@ -129,7 +163,10 @@ its inward diagonal, $\mathbf q(i-\delta_i, j-\delta_j, k-\delta_k)$: finite, an
 
 Both backends fill the crown in three passes, the rows beyond one face, then two, then three, each crown by crown, so
 that every donor is filled before it is read (`set_boundary_conditions` on the CPU, `set_boundary_conditions_dev` on
-FNL). The kind of each realm face comes from `[bc_*]`, overridden by `maps%seam_face` for the faces the forest glued.
+FNL). Within the first pass no row reads another row of the pass: a wall row reads the mirrored interior cell, an
+extrapolation row the **first interior cell** along its normal (not the previous ghost of the chain, which gives the
+same value but is a row of the same launch: on FNL the chain raced, and a ghost beyond a block interface along another
+axis could read its donor before it was written; issue #65 P1). The kind of each realm face comes from `[bc_*]`, overridden by `maps%seam_face` for the faces the forest glued.
 
 Before [#65](https://github.com/szaghi/adam/issues/65) P0 every row beyond two realm faces held its inward diagonal
 copy. On a linear field that is off by up to 0.78 of the field scale at a wall corner (wrong sign of the normal

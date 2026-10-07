@@ -12,9 +12,11 @@ coarse->fine fill are exact on a linear field, so every ghost cell has a known v
 - inside the realm, or across an inter-realm seam, a ghost holds `f(c)` at its own centre `c`;
 - along an axis where it lies beyond a physical face of its realm, the boundary condition of that face acts on the
   value the ghost would hold without the face: `wall-inviscid` mirrors the coordinate about the face and negates the
-  wall-normal momentum (and the wall-normal field on MHD); `extrapolation` copies the first interior cell along the
-  normal; `periodic` wraps the coordinate; `inflow` holds the inflow state. Beyond two physical faces the transforms
-  compose (inflow last: it overrides).
+  wall-normal momentum (and the wall-normal field on MHD); `wall-noslip` and `wall-isothermal` mirror it and reflect
+  the velocity about the wall velocity (the isothermal wall also sets the ghost temperature `2 T_w - T`);
+  `extrapolation` copies the first interior cell along the normal; `periodic` wraps the coordinate; `inflow` holds
+  the inflow state. Beyond two physical faces the transforms compose in the backends' order (inflow first, else the
+  first face in axis order acts on a donor valued the same way).
 
 This is what a stencil reading the ghost must see. The directional WENO stencils read the face ghosts (outside the
 block along one axis); a cross derivative reads the edge ghosts (outside along two axes), such as the tangential
@@ -72,17 +74,25 @@ class Realm:
         self.null = np.array([is_true(grid[f"null_{a}"]) for a in AXES])
         self.seams = seams
         if "gamma" in ini["physics"]:
-            gamma = float(ini["physics"]["gamma"])
+            self.gamma, self.gas = float(ini["physics"]["gamma"]), 1.0
         else:
-            gamma = float(ini["physics"]["cp"]) / float(ini["physics"]["cv"])
+            cp, cv = float(ini["physics"]["cp"]), float(ini["physics"]["cv"])
+            self.gamma, self.gas = cp / cv, cp - cv
+        eglm = ini.has_section("mhd") and ini["mhd"].get("divergence_control", "").strip() == "eglm"
+        self.psi_energy = 1.0 if eglm else 0.0
         self.bc: dict[tuple[int, int], str] = {}
         self.inflow: dict[tuple[int, int], dict[str, float]] = {}
+        self.wall_velocity: dict[tuple[int, int], np.ndarray] = {}
+        self.wall_temperature: dict[tuple[int, int], float] = {}
         for d, a in enumerate(AXES):
             for s, side in enumerate(("min", "max")):
                 section = ini[f"bc_{a}_{side}"]
                 self.bc[(d, s)] = section["type"].strip()
                 if self.bc[(d, s)] == "inflow":
-                    self.inflow[(d, s)] = conservative({k: float(v) for k, v in section.items() if k != "type"}, gamma)
+                    self.inflow[(d, s)] = conservative({k: float(v) for k, v in section.items() if k != "type"},
+                                                       self.gamma)
+                self.wall_velocity[(d, s)] = np.array([float(section.get(f"wall_{c}", "0.0")) for c in "uvw"])
+                self.wall_temperature[(d, s)] = float(section.get("wall_temperature", "0.0"))
         ic = ini["initial_conditions"]
         if ic["type"].strip() != "linear":
             sys.exit(f"ghost_probe: {ini_path} has [initial_conditions] type = {ic['type']}, not linear")
@@ -141,42 +151,81 @@ def load_realms(work: Path) -> list[Realm]:
     return [Realm(singles[0], work, set())]
 
 
+def noslip_ghost(q: np.ndarray, lower: list[str], d: int, realm: Realm, wall_velocity: np.ndarray,
+                 wall_temperature: float | None) -> np.ndarray:
+    """Return the no-slip wall ghost of the mirrored state `q` (the rule of `wall_noslip_ghost`, issue #65 P1)."""
+    i_r, i_e = lower.index("r"), lower.index("re")
+    i_m = [lower.index(n) for n in MOMENTUM]
+    i_b = [lower.index(n) for n in FIELD if n in lower]
+    u = q[i_m] / q[i_r]
+    ug = 2.0 * wall_velocity - u
+    e_mag = 0.5 * float(np.sum(q[i_b] ** 2)) + (0.5 * realm.psi_energy * q[lower.index("psi")] ** 2
+                                                  if "psi" in lower else 0.0)
+    p = (realm.gamma - 1.0) * (q[i_e] - 0.5 * q[i_r] * float(u @ u) - e_mag)
+    rho = q[i_r]
+    if wall_temperature is not None:
+        rho = p / (realm.gas * (2.0 * wall_temperature - p / (q[i_r] * realm.gas)))
+    g = q.copy()
+    if i_b:
+        g[i_b[d]] = -q[i_b[d]]
+    g[i_r] = rho
+    g[i_m] = rho * ug
+    g[i_e] = p / (realm.gamma - 1.0) + 0.5 * rho * float(ug @ ug) + e_mag
+    return g
+
+
 def expected_value(realm: Realm, centre: np.ndarray, blk: dict, q1: np.ndarray, sign_wall: np.ndarray,
                    lower: list[str], realms: list[Realm]) -> tuple[np.ndarray | None, set[str]]:
-    """Return the value a ghost centred at `centre` must hold (None outside the forest) and what lies beyond its block."""
-    c = centre.copy()
-    sign = np.ones(len(lower))
+    """Return the value a ghost centred at `centre` must hold (None outside the forest) and what lies beyond its block.
+
+    The rule of the backends: among the physical realm faces the ghost lies beyond, the first inflow face, else the
+    first in axis order, acts on the donor mirrored (walls), clamped (extrapolation) or wrapped (periodic) along its
+    axis; the donor is valued the same way, recursively, so the transforms compose in the backends' order.
+    """
     beyond: set[str] = set()
-    inflow = None
     for d in range(3):
-        if realm.null[d] or blk["lo"][d] <= c[d] <= blk["hi"][d]:
+        if realm.null[d] or blk["lo"][d] <= centre[d] <= blk["hi"][d]:
             continue
-        s = 0 if c[d] < blk["lo"][d] else 1
-        face = realm.lo[d] if s == 0 else realm.hi[d]
-        if (s == 0 and c[d] > realm.lo[d]) or (s == 1 and c[d] < realm.hi[d]):
+        s = 0 if centre[d] < blk["lo"][d] else 1
+        if (s == 0 and centre[d] > realm.lo[d]) or (s == 1 and centre[d] < realm.hi[d]):
             beyond.add("block")
-            continue
-        if (d, s) in realm.seams:
+        elif (d, s) in realm.seams:
             beyond.add("seam")
-            continue
+        else:
+            beyond.add(realm.bc[(d, s)])
+
+    def value(c: np.ndarray) -> np.ndarray | None:
+        faces = [(d, 0 if c[d] < realm.lo[d] else 1) for d in range(3)
+                 if not realm.null[d] and (c[d] < realm.lo[d] or c[d] > realm.hi[d])]
+        physical = [f for f in faces if f not in realm.seams]
+        if not physical:
+            if not any(((r.lo <= c) | r.null).all() and ((c <= r.hi) | r.null).all() for r in realms):
+                return None  # beyond seams into no realm: a re-entrant corner of the forest, no fluid value
+            return q1 * (1.0 + realm.gradient @ c)
+        inflow = [f for f in physical if realm.bc[f] == "inflow"]
+        d, s = (inflow or physical)[0]
         bc = realm.bc[(d, s)]
-        beyond.add(bc)
-        if bc == "wall-inviscid":
+        face = realm.lo[d] if s == 0 else realm.hi[d]
+        if bc == "inflow":
+            return np.array([realm.inflow[(d, s)][v] for v in lower])
+        c = c.copy()
+        if bc in ("wall-inviscid", "wall-noslip", "wall-isothermal"):
             c[d] = 2.0 * face - c[d]
-            sign = sign * sign_wall[d]
         elif bc == "extrapolation":
             c[d] = face + (0.5 if s == 0 else -0.5) * blk["dx"][d]
         elif bc == "periodic":
             c[d] += (realm.hi[d] - realm.lo[d]) * (1.0 if s == 0 else -1.0)
-        elif bc == "inflow":
-            inflow = realm.inflow[(d, s)]
         else:
             sys.exit(f"ghost_probe: boundary condition '{bc}' is not modelled")
-    if inflow is not None:
-        return np.array([inflow[v] for v in lower]), beyond
-    if not any(((r.lo <= c) | r.null).all() and ((c <= r.hi) | r.null).all() for r in realms):
-        return None, beyond  # beyond seams into no realm: a re-entrant corner of the forest, no fluid value
-    return sign * q1 * (1.0 + realm.gradient @ c), beyond
+        donor = value(c)
+        if donor is None or bc in ("extrapolation", "periodic"):
+            return donor
+        if bc == "wall-inviscid":
+            return sign_wall[d] * donor
+        return noslip_ghost(donor, lower, d, realm, realm.wall_velocity[(d, s)],
+                            realm.wall_temperature[(d, s)] if bc == "wall-isothermal" else None)
+
+    return value(centre.copy()), beyond
 
 
 def probe(work: Path) -> dict[tuple[str, str], list]:
@@ -224,6 +273,8 @@ def probe(work: Path) -> dict[tuple[str, str], list]:
                     cls, err = "solid", 0.0
                 else:
                     err = float(np.max(np.abs(q[:, i, j, k] - value)) / scale)
+                    if not np.isfinite(err):
+                        err = np.inf  # a poisoned ghost the fill missed or read before its donor was filled
                 groups.setdefault((cls, "+".join(sorted(beyond))), []).append(
                     (err, realm.name, tuple(np.round(blk["lo"], 6)), tuple(idx + 1), tuple(np.round(centre, 6))))
     return groups

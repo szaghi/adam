@@ -24,6 +24,7 @@ character(len=11), parameter :: INI_SECTION_NAME="diagnostics" !< INI (config) f
 type :: flume_diagnostics_object
    !< FLUME diagnostics class definition: conservation history.
    integer(I4P) :: conservation_history_save=0_I4P !< Conservation history save cadence (<= 0: disabled).
+   logical      :: ghost_poison=.false.            !< Poison the ghosts before each field write (verification, #65).
    integer(I4P) :: conservation_unit=0_I4P         !< Conservation history file unit.
    integer(I4P) :: divb_unit=0_I4P                 !< div(B) history file unit (MHD only).
    contains
@@ -86,6 +87,12 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='conservation_history_save', &
                             val=self%conservation_history_save, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(conservation_history_save)')
+   ! optional (default .false.): a verification instrument (issue #65): before each field write every ghost cell is set
+   ! to NaN, then refilled in the order of a stage (seams, exchange, boundary conditions), so a ghost that the fill
+   ! does not reach, or reads before its donor is filled, is written as NaN instead of a stale value
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ghost_poison', val=self%ghost_poison, &
+                            error=error)
+   if (error > 0) self%ghost_poison = .false.
    endsubroutine load_from_file
 
    subroutine open_file(self, output_basename, q_name, is_restart, with_divb)

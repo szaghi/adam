@@ -538,9 +538,17 @@ copy, the restriction and the tricubic fill reproduce such a field exactly. Each
 of a Runge–Kutta stage (seams, then the intra-realm exchange and the boundary conditions) and writes them.
 `ghosts/ghost_probe.py` compares every ghost with the value a stencil must read:
 - the field at the ghost's own centre, inside the realm or across a seam;
-- along an axis where the ghost lies beyond a physical face, that face's condition applied first: the coordinate
-  mirrored with the normal momentum negated for a wall (and the normal field on MHD), the first interior cell for
-  extrapolation, the inflow state for inflow, the wrapped coordinate for periodic.
+- along an axis where the ghost lies beyond a physical face, that face's condition applied to the value of its
+  donor: the coordinate mirrored with the normal momentum negated for an inviscid wall (and the normal field on MHD);
+  mirrored with the velocity reflected about the wall velocity for a no-slip wall (and the temperature $2T_w - T$ for
+  an isothermal one); the first interior cell for extrapolation; the inflow state for inflow; the wrapped coordinate
+  for periodic. Beyond two faces the conditions compose in the backends' order (inflow first, else the first face in
+  axis order acts on a donor valued the same way).
+
+The no-slip walls are not linear in the state; the probe evaluates them with an independent implementation of the rule
+of [Boundary conditions](./boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls), so `walls3d` checks the
+plumbing (which donor, which face, which wall parameters, in which order), not the physics of the wall. The physics
+comes with the viscous fluxes (VV-3, Couette).
 
 Faces and edges must hold that value to $10^{-12}$ of the field scale. Corners are reported, not asserted, since no M4
 stencil reads them, and neither are the ghosts that lie outside every realm (`solid`, inside the step).
@@ -551,7 +559,13 @@ stencil reads them, and neither are the ghosts that lie outside every realm (`so
 | `channel2d` | quadtree, periodic x and a wall in y, the 2:1 seam crossing the periodic boundary at the wall |
 | `mirror3d` | two realms and a 1:1 mirror seam, walls on the other faces: seam edges in every plane |
 | `refined3d` | as `mirror3d`, the second realm one level finer: a `coupling = refined` (2:1) seam |
+| `walls3d` (Euler and MHD with EGLM) | the no-slip walls of #65 P1 around a refined corner: a moving `wall-noslip`, a resting one, a `wall-isothermal` with a wall velocity, an inviscid wall, inflow and extrapolation |
 | `step` | the [Woodward–Colella forest](#forward-facing-step-a-three-realm-forest-on-quadtrees) at $N = 80$ with its boxes: misaligned mirror seams, a re-entrant corner, inflow, outflow and walls |
+
+**The poison.** The negligible step leaves a stale ghost equal to a fresh one, so the oracle alone cannot see a ghost
+read before its donor is written. Every case therefore runs with `[diagnostics] ghost_poison = .true.`: each ghost is
+set to NaN before the fill, and a ghost that reads an unfilled donor is written as NaN, which the probe reports as an
+infinite error. Its negative control is the defect it found (below).
 
 **Results.** Every case runs on 1, 2 and 3 ranks on the CPU, and on 1 and 2 ranks on FNL. Every face and edge group
 holds the linear field to round-off: at most $1.3\cdot10^{-15}$ of the field scale on the CPU, the same on FNL.
@@ -562,6 +576,15 @@ On the step forest those ghosts were off by up to 0.78 of the field scale: the w
 the normal momentum. They now compose the conditions of the faces, as
 [Boundary conditions](./boundary-conditions#edges-and-corners-fec-6) describes. The face ghosts, and the edges with
 another block beyond one of their faces, were already right.
+
+**What the poison found** (P1, after P0 had been committed). An extrapolation ghost copied the previous ghost of its
+chain along the normal. When the ghost also lies beyond a block interface along another axis, deeper than along the
+normal, that previous ghost is in the same crown, so in the same device launch: on FNL the rows raced. Two identical FNL
+runs of `sod-x` wrote different edge and corner ghosts (the interior identical), and with the poison GP failed the
+`block+extrapolation` edges on every case (NaN read). The CPU walks each row outward and read its donors fresh, by
+the row order alone. The P0 probe could not see it: without the poison the stale value equalled the fresh one. An
+extrapolation ghost now copies the first interior cell along its normal directly (the same value, and a donor the
+exchange has filled), on both backends; with the poison every case passes and two FNL runs are bit for bit equal.
 
 ![Ghost probe on the step forest, before and after #65 P0](/flume/ghosts.png)
 
@@ -576,6 +599,33 @@ negligible step, whose write refills the seams first.
 ```bash
 cd src/tests/flume/verification/ghosts && ./check.sh                    # CPU, np 1 2 3, every case
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --np "1 2"  # FNL
+```
+
+## Dissipative terms
+
+### DC: the input contract
+
+**Why.** M4 ([#65](https://github.com/szaghi/adam/issues/65)) reads each dissipative coefficient either as a
+coefficient or as its dimensionless number (#49 N4), refuses the positivity limiter with any of them (D-M4-5) and adds
+the no-slip walls (D-M4-7). An invalid combination must stop the run with a message that names it; a valid one must
+imply exactly the coefficient it states; nothing may be dropped silently. The keys are listed in
+[input](./input#dissipative-terms-issue-65-m4).
+
+**Cases** (`dissipation/make_contract.py`, on the regression inputs `sod-x` for Euler and `uniform-amr-mhd` for MHD):
+
+| Kind | Cases | Oracle |
+|---|---|---|
+| refuse | both keys of a term (3), `prandtl` without a viscosity, resistivity on Euler, a negative viscosity, a zero Reynolds number, the power law without a viscosity, its keys without the law, a missing reference temperature, an unknown law, `dissipative_order = 3`, the limiter with a viscosity, a normal wall velocity, an isothermal wall without (or with a negative) temperature, the P1 guard | the run stops with the expected message |
+| log | `reynolds` + `prandtl`; `viscosity` + `conductivity`; `magnetic_reynolds` + `reynolds` (MHD) | the logged $\mu$, $k$, $\eta$ equal $1/Re$, $\mu c_p/Pr$, $1/Rm$ exactly |
+| ideal | zero coefficients, `dissipative_order = 2` | the run equals the base run bit for bit |
+| convert | the Euler case with viscosity, conductivity, the power law and an isothermal moving wall; the MHD case with resistivity; dimensionalised with $L_0 = 2$, $u_0 = 1/2$, $\rho_0 = 4$ | every dimensional key logged converted back exactly (`scaling.py check-log`), the conductivity and the temperatures with the gas constant |
+| convert-refuse | `lundquist` under a `[reference]` without the Alfvénic preset | refused |
+
+**Results.** All 24 cases pass, on the CPU (2 ranks) and on FNL; the conversion check covers 34 keys on the Euler
+case and 30 on the MHD one.
+
+```bash
+cd src/tests/flume/verification/dissipation && ./check.sh
 ```
 
 ## Scaling covariance

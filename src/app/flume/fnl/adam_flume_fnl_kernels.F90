@@ -17,7 +17,8 @@ module adam_flume_fnl_kernels
 use :: adam_parameters,           only : FEC_1_6_ARRAY, FEC_TO_DELTA
 ! FLUME modules
 use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
-                                         realm_edge_donor, realm_edge_face
+                                         BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, realm_edge_donor, realm_edge_face,           &
+                                         wall_noslip_ghost
 ! third party modules
 use :: penf,                      only : I4P, I8P, R8P
 
@@ -35,6 +36,7 @@ public :: pack_seam_skin_dev
 public :: scatter_seam_cells_dev
 public :: scatter_seam_faces_dev
 public :: set_boundary_conditions_dev
+public :: poison_ghosts_dev
 
 contains
    ! public procedures
@@ -163,6 +165,34 @@ contains
    enddo
    enddo
    endsubroutine compute_flux_difference_ib_dev
+
+   subroutine poison_ghosts_dev(ni, nj, nk, ngc, nv, blocks_number, q_gpu)
+   !< Set every ghost cell to a quiet NaN (verification instrument, `[diagnostics] ghost_poison`, issue #65).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: nv                                !< Variables number.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P)                   :: nan                               !< Quiet NaN.
+   integer(I4P)                :: b, i, j, k, v                     !< Counters.
+
+   nan = transfer(int(z'7FF8000000000000', I8P), nan)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu) firstprivate(ni,nj,nk,ngc,nv,nan)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu) firstprivate(ni,nj,nk,ngc,nv,nan)
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do b=1, blocks_number
+      if (i < 1 .or. i > ni .or. j < 1 .or. j > nj .or. k < 1 .or. k > nk) then
+         !$acc loop seq
+         do v=1, nv
+            q_gpu(b,i,j,k,v) = nan
+         enddo
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine poison_ghosts_dev
 
    subroutine compute_rk_ssp_residual_dev(ni, nj, nk, ngc, nv, blocks_number, nrk, beta_gpu, q_rk_gpu, dq_gpu)
    !< Compute the residual of a strong stability preserving step, `dq = sum_s beta_s dq_s`, from the stored stages.
@@ -395,20 +425,26 @@ contains
    enddo
    endsubroutine scatter_seam_cells_dev
 
-   subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, pass, face_kind, local_map_bc_crown_gpu, &
+   subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, pass, face_kind, gamma, R, psi_energy, &
+                                          wall_velocity, wall_temperature, local_map_bc_crown_gpu,          &
                                           q_inflow_gpu, wall_sign_gpu, q_gpu)
    !< Set boundary conditions on one crown, for the rows beyond `pass` realm faces (see the CPU
    !< `set_boundary_conditions`): pass 1 the face rows (each face's kind, inward along its normal), pass 2 and 3 the
    !< rows beyond two or three realm faces (the kind of one physical face among them, `realm_edge_face`, on the donor
    !< `realm_edge_donor`, issue #65 P0).
    !<
-   !< The caller runs the passes in order and, within a pass, the crowns in order, so every donor is interior, in a
-   !< lower crown, or filled by an earlier pass (or the seams, the exchange): the rows of one launch are independent.
+   !< The caller runs the passes in order, and every donor is interior, filled by the exchange or the seams, or by an
+   !< earlier pass: a face row reads the mirrored (walls) or the first interior (extrapolation) cell along its normal,
+   !< never another ghost of its pass, so the rows of one launch are independent.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)    :: nv                                !< Conservative variables number.
    integer(I4P), intent(in)    :: crown                             !< Crown counter.
    integer(I4P), intent(in)    :: pass                              !< Realm faces the rows of this launch lie beyond.
    integer(I4P), intent(in)    :: face_kind(6)                      !< Kind of each realm face, BC_SEAM for a seam.
+   real(R8P),    intent(in)    :: gamma, R                          !< Specific heats ratio, gas constant.
+   real(R8P),    intent(in)    :: psi_energy                        !< 1 if the total energy holds psi^2 / 2 (EGLM).
+   real(R8P),    intent(in)    :: wall_velocity(3,6)                !< No-slip walls: wall velocity of each face.
+   real(R8P),    intent(in)    :: wall_temperature(6)               !< Isothermal walls: wall temperature of each face.
    integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Boundary crown map (row, field, crown).
    real(R8P),    intent(in)    :: q_inflow_gpu(1:,1:)               !< Conservative inflow state of each face [nv, 6].
    real(R8P),    intent(in)    :: wall_sign_gpu(1:,1:)              !< Wall mirror sign per variable and direction [nv, 3].
@@ -419,13 +455,14 @@ contains
    integer(I4P)                :: fec                               !< Boundary fec (1 to 26).
    integer(I4P)                :: face                              !< Boundary face (1 to 6).
    integer(I4P)                :: iref, jref, kref                  !< Donor indexes.
+   real(R8P)                   :: qd(9), qw(9)                      !< No-slip walls: donor and ghost states.
 
    !$acc parallel loop independent gang vector DEVICEVAR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,nv,crown,pass,face_kind)                                                      &
-   !$acc& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref)
+   !$acc& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature)     &
+   !$acc& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw)
    !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,nv,crown,pass,face_kind) &
-   !$omp& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref)
+   !$omp& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature) &
+   !$omp& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw)
    do c=1, size(local_map_bc_crown_gpu, dim=1)
       b = int(local_map_bc_crown_gpu(c,1,crown), I4P)
       fec = int(local_map_bc_crown_gpu(c,9,crown), I4P)
@@ -441,7 +478,12 @@ contains
          iref = i - idelta ; jref = j - jdelta ; kref = k - kdelta
          if (pass == 1_I4P) then
             face = FEC_1_6_ARRAY(fec)
-            if (bc_type == BC_WALL_INVISCID) then
+            ! extrapolation: the first interior cell along the normal, not the previous ghost, which is a row of this
+            ! launch (issue #65 P1: the chain raced); the donor then lies beyond block interfaces only
+            if (bc_type == BC_EXTRAPOLATION) &
+               call realm_edge_donor(face=face, face_kind=BC_EXTRAPOLATION, ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
+                                     iref=iref, jref=jref, kref=kref)
+            if (bc_type == BC_WALL_INVISCID .or. bc_type == BC_WALL_NOSLIP .or. bc_type == BC_WALL_ISOTHERMAL) then
                select case(face)
                case(1)
                   iref = 1_I4P - i
@@ -482,6 +524,18 @@ contains
             !$acc loop seq
             do v=1, nv
                q_gpu(b,i,j,k,v) = wall_sign_gpu(v,(face+1)/2) * q_gpu(b,iref,jref,kref,v)
+            enddo
+         elseif (bc_type == BC_WALL_NOSLIP .or. bc_type == BC_WALL_ISOTHERMAL) then
+            !$acc loop seq
+            do v=1, nv
+               qd(v) = q_gpu(b,iref,jref,kref,v)
+            enddo
+            call wall_noslip_ghost(nv=nv, d=(face+1)/2, gamma=gamma, R=R, psi_energy=psi_energy,                   &
+                                   isothermal=bc_type == BC_WALL_ISOTHERMAL, wall_velocity=wall_velocity(:,face), &
+                                   wall_temperature=wall_temperature(face), q=qd(1:nv), qg=qw(1:nv))
+            !$acc loop seq
+            do v=1, nv
+               q_gpu(b,i,j,k,v) = qw(v)
             enddo
          endif
       endif

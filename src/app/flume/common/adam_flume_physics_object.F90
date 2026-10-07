@@ -12,6 +12,7 @@ use :: adam_mpih_global,         only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library, only : primitive_to_conservative
 use :: adam_flume_mhd_library,   only : mhd_primitive_to_conservative
+use :: adam_flume_dissipation_object, only : flume_dissipation_object
 use :: adam_flume_mhd_object,    only : flume_mhd_object
 use :: adam_flume_parameters,    only : IQ_PSI, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, NV_AUX, NV_AUX_MHD, &
                                         NV_EULER, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM, PHYSICAL_MODEL_EULER,                 &
@@ -38,6 +39,7 @@ type :: flume_physics_object
    integer(I4P)              :: nv=0_I4P       !< Conservative variables number.
    integer(I4P)              :: nv_aux=0_I4P   !< Auxiliary variables number.
    type(flume_mhd_object)    :: mhd            !< MHD configs (`[mhd]`, loaded with mhd-ideal only).
+   type(flume_dissipation_object) :: dissipation !< Dissipative coefficients (`[physics]`, issue #65).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -57,7 +59,8 @@ contains
    desc = desc//mpih%myrankstr//'  physical_model: '//self%physical_model//NL
    desc = desc//mpih%myrankstr//'  cp, cv:         '//trim(str(self%cp))//', '//trim(str(self%cv))//NL
    desc = desc//mpih%myrankstr//'  gamma, R:       '//trim(str(self%gamma))//', '//trim(str(self%R))//NL
-   desc = desc//mpih%myrankstr//'  nv, nv_aux:     '//trim(str(self%nv))//', '//trim(str(self%nv_aux))
+   desc = desc//mpih%myrankstr//'  nv, nv_aux:     '//trim(str(self%nv))//', '//trim(str(self%nv_aux))//NL
+   desc = desc//self%dissipation%description()
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -86,6 +89,7 @@ contains
       endif
       self%nv_aux = NV_AUX_MHD
    endselect
+   call self%dissipation%load_from_file(file_parameters=file_parameters, model=self%model, cp=self%cp)
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize finish'
    endsubroutine initialize

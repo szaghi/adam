@@ -391,6 +391,23 @@ marker on the temperature is refused), `[initial_conditions].wave_amplitude` tha
 `type = orszag-tang` (a state hard-coded in code units) and multi-realm runs are refused. The log lists every
 converted key with its old and new value.
 
+The dissipative coefficients and the wall keys (issue #49 N4, issue #65) convert as follows; the numbers are
+dimensionless and pass unchanged. $R$ is the gas constant of the input ($c_p - c_v$, or 1 with `gamma`), since the layer
+replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
+
+| Key | Divided by |
+|---|---|
+| `viscosity` | $\rho_0 u_0 L_0$ |
+| `conductivity` | $\rho_0 u_0 L_0 R$ |
+| `resistivity` | $u_0 L_0$ |
+| `wall_u`, `wall_v`, `wall_w` | $u_0$ |
+| `wall_temperature`, `reference_temperature` | $u_0^2 / R$ |
+| `reynolds`, `prandtl`, `magnetic_reynolds`, `viscosity_exponent` | — (dimensionless) |
+| `lundquist` | — (refused unless `velocity = alfvenic`) |
+
+The conversion divides by the power-of-two reference first and applies $R$ last, a single rounding, so the
+verification DC can check every converted value exactly.
+
 ---
 
 ## [physics]
@@ -403,6 +420,31 @@ converted key with its old and new value.
 | `gamma` | real | cond. | `> 1`; with `cp` or `cv` → fatal | Specific heats ratio; the gas constant is 1 (code units). |
 | `cp` | real | cond. | `cp > cv > 0`, otherwise fatal; required without `gamma` | Specific heat at constant pressure. |
 | `cv` | real | cond. | as above | Specific heat at constant volume. `gamma = cp/cv`, `R = cp - cv`. |
+
+### Dissipative terms (issue #65, M4)
+
+Each term is given either as its coefficient or as the dimensionless number it stands for. In code units the
+references are 1, so a number is the reciprocal coefficient. Giving two keys of a term is fatal; giving none leaves the
+term off, so an input without these keys stays ideal and bitwise unchanged. The keys are read and validated now; the
+fluxes they drive land in P2 (viscosity and heat conduction) and P3 (resistivity). Until then any non-zero coefficient
+stops the run with *"are read but not yet computed"*, so no coefficient is ever dropped silently.
+
+| Key | Type | Accepted / invalid | Meaning |
+|-----|------|--------------------|---------|
+| `viscosity` | real | `>= 0`; with `reynolds` → fatal | Dynamic viscosity $\mu$ (code units, or dimensional with [`[reference]`](#reference-optional-dimensional-input)). |
+| `reynolds` | real | `> 0` | $Re$: $\mu = 1/Re$. |
+| `conductivity` | real | `>= 0`; with `prandtl` → fatal | Thermal conductivity $k$; the heat flux is $-k\nabla T$ with $T = p/(\rho R)$. |
+| `prandtl` | real | `> 0`; needs `viscosity` or `reynolds` | $Pr$: $k = \mu c_p / Pr$ (follows $\mu(T)$ under the power law). |
+| `resistivity` | real | `>= 0`; MHD only; with a number → fatal | Magnetic diffusivity $\eta$ (Ohmic resistivity). |
+| `magnetic_reynolds` | real | `> 0`; MHD only | $Rm$: $\eta = 1/Rm$. |
+| `lundquist` | real | `> 0`; MHD only; with `[reference]` it needs `velocity = alfvenic` | $S$: $\eta = 1/S$, the magnetic Reynolds number at the Alfvén speed. |
+| `viscosity_law` | string | `constant` (default), `power-law`; other → fatal; `power-law` needs a viscosity | Temperature law of the viscosity. |
+| `viscosity_exponent` | real | required by `power-law`, fatal without it | $\omega$ in $\mu(T) = \mu\,(T/T_\mathrm{ref})^\omega$. |
+| `reference_temperature` | real | `> 0`; required by `power-law`, fatal without it | $T_\mathrm{ref}$ (code temperature $p/(\rho R)$). |
+
+`[numerics] positivity_limiter = cell` is refused with any non-zero coefficient: the limiter's first-order backbone
+with a central dissipative flux is not admissible without the extension of Zhang (2017, *J. Comput. Phys.* 328), which
+is not implemented (D-M4-5).
 
 ---
 
@@ -434,7 +476,9 @@ The section is not read for `euler`.
 | `flux_correction` | string | `weno-riemann` | `6th`, `4th`, `none` (2nd order). Other → fatal. | Face-flux correction `F^ = c1 F + c2 (f_i+f_i+1) + c3 (f_i-1+f_i+2)`. |
 | `flux_correction_sensor` | string | `weno-riemann` | `weno` or `none`. Other → fatal. | `weno`: the correction is switched off at faces where `min_k w_k/d_k < 0.2` (fixed threshold `FLUX_CORRECTION_SENSOR_TAU`). `none`: always on. |
 | `reflux` | logical | yes | logical | Berger–Colella reflux at AMR coarse-fine faces (and inter-realm seams). `.false.` is a diagnostic only: the run is then not conservative across 2:1 faces. |
-| `positivity_limiter` | string | no (default `none`) | `none` or `cell`. Other → fatal. `cell` is fatal with `[mhd] divergence_control = glm`, a non-SSP `[runge_kutta] scheme`, immersed solids and multi-realm runs. | `cell`: the cell-based positivity limiter ([numerics](./numerics#positivity-limiter)): every face flux blended with the first-order Lax–Friedrichs backbone so that each stage keeps the density and the pressure positive; the limited faces are logged per stage. |
+| `positivity_limiter` | string | no (default `none`) | `none` or `cell`. Other → fatal. `cell` is fatal with `[mhd] divergence_control = glm`, a non-SSP `[runge_kutta] scheme`, immersed solids, multi-realm runs and any dissipative coefficient (issue #65, D-M4-5). | `cell`: the cell-based positivity limiter ([numerics](./numerics#positivity-limiter)): every face flux blended with the first-order Lax–Friedrichs backbone so that each stage keeps the density and the pressure positive; the limited faces are logged per stage. |
+
+| `dissipative_order` | int | no (default 4) | `2` or `4`. Other → fatal. | Order of the dissipative face fluxes (issue #65, D-M4-2). Read now and used by the dissipative kernels from P2 on; an ideal run ignores it. |
 
 ---
 
@@ -444,15 +488,20 @@ All six sections are required, even along null directions.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `type` | string | yes (every face) | `extrapolation`, `inflow`, `wall-inviscid`, `periodic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
+| `type` | string | yes (every face) | `extrapolation`, `inflow`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `periodic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
 | `r`, `u`, `v`, `w`, `p` | real | `type = inflow` | no range check | Prescribed primitive inflow state. |
 | `bx`, `by`, `bz` | real | `type = inflow` **and** `mhd-ideal` | no range check | Prescribed inflow magnetic field. `psi` is set to 0. |
+| `wall_u`, `wall_v`, `wall_w` | real | no (default 0) with `wall-noslip`, `wall-isothermal` | the component normal to the face must be 0 (fatal) | Velocity of the wall (tangential): a moving lid, a Couette wall. |
+| `wall_temperature` | real | `type = wall-isothermal` | `> 0`, otherwise fatal | Wall temperature, $T = p/(\rho R)$ in code units. |
 
 What each `type` does:
 
 - `extrapolation`: zeroth-order extrapolation.
 - `inflow`: prescribed state.
 - `wall-inviscid`: slip wall (mirror state with the normal momentum negated; for MHD the normal B is negated too).
+- `wall-noslip`: adiabatic no-slip wall (the velocity reflected about the wall velocity, the temperature mirrored).
+- `wall-isothermal`: isothermal no-slip wall (the velocity as above, the ghost temperature $2T_w - T$). See
+  [Boundary conditions](./boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls).
 - `periodic`: library periodicity, so true periodic neighbours across blocks and ranks.
 
 In a forest, a face glued to another realm by the manifest still needs a `type` here. The seam overrides the ghost
@@ -521,6 +570,7 @@ Every key is required, and none has a range check.
 | Key | Type | Req. | Meaning |
 |-----|------|------|---------|
 | `conservation_history_save` | int | yes | Cadence (steps) of `<output_basename>-conservation_history.dat` (volume integrals of every conservative variable). For MHD it is also the cadence of `-divb_history.dat` and of the `divb_tol` monitor. `<= 0` disables them. |
+| `ghost_poison` | logical | no (`.false.`) | Verification instrument (issue #65): before each field write every ghost cell is set to NaN and refilled in the order of a stage (seams, exchange, boundary conditions), so a ghost the fill misses, or reads before its donor is written, is written as NaN instead of a stale value. Used by the ghost probe GP; it costs one pass over the ghosts per write. |
 
 ---
 

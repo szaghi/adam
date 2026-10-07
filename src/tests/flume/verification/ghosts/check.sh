@@ -9,13 +9,18 @@
 # ghost_probe.py checks every face and edge ghost against the value it must hold (the boundary condition of a face
 # composed with the exchange). Cases (make_probe.py): box3d (octree, 2:1 seams meeting inflow and two walls; Euler
 # and MHD), channel2d (quadtree, periodic x with a wall), mirror3d and refined3d (two realms, 1:1 and 2:1 inter-realm
-# seams), step (the Woodward-Colella three-realm forest of ../step at N = 80, refined boxes on), each on 1, 2 and 3
-# ranks.
+# seams), walls3d (the no-slip and isothermal walls of issue #65 P1, moving and resting; Euler and MHD with EGLM),
+# step (the Woodward-Colella three-realm forest of ../step at N = 80, refined boxes on), each on 1, 2 and 3 ranks.
 #
-# Measured (CPU and FNL): every face and edge group within 1.3e-15 of the field scale. Before P0 the realm edges (rows
-# beyond two realm faces: wall + wall, wall + seam, inflow + wall, ...) held an inward diagonal copy, off by up to 0.78.
+# Every case sets [diagnostics] ghost_poison: each ghost is NaN before the fill, so a ghost read before its donor is
+# written shows as NaN (the negligible step makes a stale ghost equal to a fresh one otherwise).
 #
-# Usage: ./check.sh [--np "1 2 3"] [--cases "box3d box3d-mhd channel2d mirror3d refined3d step"] [--keep]
+# Measured (CPU np 1-3, FNL np 1-2): every face and edge group within 1.3e-15 of the field scale. Before P0 the realm
+# edges (rows beyond two realm faces: wall + wall, wall + seam, inflow + wall, ...) held an inward diagonal copy, off by
+# up to 0.78; before P1 the extrapolation chains raced on FNL (block+extrapolation edges read NaN with the poison).
+#
+# Usage: ./check.sh [--np "1 2 3"] [--cases "box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"]
+#        [--keep]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -25,7 +30,7 @@ CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NPS="1 2 3"
-CASES="box3d box3d-mhd channel2d mirror3d refined3d step"
+CASES="box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"
 KEEP=0
 
 while [[ $# -gt 0 ]]; do
@@ -53,7 +58,8 @@ for np in $NPS; do
          step)      "$VENV_PY" "$CASE_DIR/../step/make_step.py" "$w" --cells 80 --refine > /dev/null
                     "$VENV_PY" "$CASE_DIR/make_probe.py" "$w" --linearize
                     input=step.ini ;;
-         box3d-mhd) "$VENV_PY" "$CASE_DIR/make_probe.py" "$w" box3d --model mhd ;;
+         box3d-mhd)   "$VENV_PY" "$CASE_DIR/make_probe.py" "$w" box3d --model mhd ;;
+         walls3d-mhd) "$VENV_PY" "$CASE_DIR/make_probe.py" "$w" walls3d --model mhd ;;
          *)         "$VENV_PY" "$CASE_DIR/make_probe.py" "$w" "$case" ;;
       esac
       echo ">> GP $case, np $np ($TAG)"

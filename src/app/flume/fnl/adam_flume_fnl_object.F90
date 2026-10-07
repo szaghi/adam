@@ -103,7 +103,7 @@ use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev,            
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
                                               gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skin_dev,     &
                                               scatter_seam_cells_dev, scatter_seam_faces_dev,                          &
-                                              set_boundary_conditions_dev
+                                              poison_ghosts_dev, set_boundary_conditions_dev
 ! third party modules
 use :: fundal,                    only : dev_alloc, dev_assign_to_device, dev_free, dev_memcpy_from_device,     &
                                          dev_memcpy_to_device, mydev
@@ -1090,7 +1090,11 @@ contains
    if (self%time%is_to_save(cadence=self%io%it_save) .or. self%time%is_to_save(cadence=self%io%restart_save) .or. &
        is_slices) then
       ! the stage order: inter-realm seams first, then the intra-realm ghosts and the boundary conditions, so that the
-      ! saved ghosts (edges and corners included) are those the residual stencils read
+      ! saved ghosts (edges and corners included) are those the residual stencils read; with [diagnostics]
+      ! ghost_poison every ghost is NaN before the fill, so one the fill misses or reads too early shows (issue #65)
+      if (self%diagnostics%ghost_poison) call poison_ghosts_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,     &
+                                                               nv=self%nv, blocks_number=self%blocks_number,          &
+                                                               q_gpu=self%q_gpu)
       if (present(realm)) call seam_fill_all(self=self, realm=realm)
       call self%update_ghost(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu
@@ -1113,14 +1117,19 @@ contains
    integer(I4P)                           :: crown             !< Crown counter.
    integer(I4P)                           :: pass              !< Pass: realm faces the rows lie beyond.
    integer(I4P)                           :: face_kind(6)      !< Kind of each realm face, BC_SEAM for a seam.
+   real(R8P)                              :: psi_energy        !< 1 if the total energy holds psi^2 / 2 (EGLM).
 
    if (.not.associated(self%field_fnl%maps%local_map_bc_crown_gpu)) return
+   psi_energy = merge(1._R8P, 0._R8P, self%physics%model == MODEL_MHD_EGLM)
    face_kind = self%bc%bc_type
    where (self%adam%maps%seam_face) face_kind = BC_SEAM
    do pass=1, 3
       do crown=1, self%ngc
          call set_boundary_conditions_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, crown=crown, &
-                                          pass=pass, face_kind=face_kind,                                          &
+                                          pass=pass, face_kind=face_kind, gamma=self%physics%gamma,                &
+                                          R=self%physics%R, psi_energy=psi_energy,                                 &
+                                          wall_velocity=self%bc%wall_velocity,                                     &
+                                          wall_temperature=self%bc%wall_temperature,                               &
                                           local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu,       &
                                           q_inflow_gpu=self%q_inflow_gpu, wall_sign_gpu=self%wall_sign_gpu, q_gpu=q_gpu)
       enddo

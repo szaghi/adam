@@ -25,7 +25,8 @@ OpenACC), and it supersedes the deprecated CHASE.
 **Status.** Milestones M1 (Euler, [#35](https://github.com/szaghi/adam/issues/35)) and M2 (ideal MHD with GLM,
 [#41](https://github.com/szaghi/adam/issues/41)) are complete; M3 ([#47](https://github.com/szaghi/adam/issues/47)) adds
 the Riemann-solver scheme (`weno-riemann`: Euler done, MHD in progress), the energy-consistent EGLM cleaning and a
-positivity-preserving limiter. Dissipative terms (viscosity, resistivity) and runtime AMR are planned (M4, M5).
+positivity-preserving limiter. Dissipative terms (viscosity, heat conduction, resistivity: M4, [#65](https://github.com/szaghi/adam/issues/65), in
+progress) and runtime AMR (M5) are planned.
 
 ## Quick start
 

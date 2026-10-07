@@ -21,7 +21,8 @@ use :: adam_mpih_global,          only : mpih
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, ib_cut_spacing,             &
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
                                               BC_EXTRAPOLATION,                                                        &
-                                              BC_INFLOW, BC_WALL_INVISCID, realm_edge_donor, realm_edge_face,           &
+                                              BC_INFLOW, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP,          &
+                                              realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
                                               MODEL_EULER,                                                              &
                                               MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,        &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,                                 &
@@ -84,6 +85,7 @@ use :: adam_flume_cpu_mhd_glm_kernels, only : add_glm_damping, apply_floors_mhd_
                                               compute_speed_max_mhd_glm=>compute_speed_max,                          &
                                               count_nonfinite_mhd_glm=>count_nonfinite
 ! third party modules
+use, intrinsic :: ieee_arithmetic, only : ieee_quiet_nan, ieee_value
 use :: mpi
 use :: penf,                      only : I4P, I8P, R8P, str
 
@@ -943,7 +945,10 @@ contains
    if (self%time%is_to_save(cadence=self%io%it_save) .or. self%time%is_to_save(cadence=self%io%restart_save) .or. &
        is_slices) then
       ! the stage order: inter-realm seams first, then the intra-realm ghosts and the boundary conditions, so that the
-      ! saved ghosts (edges and corners included) are those the residual stencils read
+      ! saved ghosts (edges and corners included) are those the residual stencils read; with [diagnostics]
+      ! ghost_poison every ghost is NaN before the fill, so one the fill misses or reads too early shows (issue #65)
+      if (self%diagnostics%ghost_poison) call poison_ghosts(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,         &
+                                                           blocks_number=self%blocks_number, q=self%q)
       if (present(realm)) call seam_fill_all(self=self, realm=realm)
       call self%update_ghost(q=self%q)
       if (self%time%is_to_save(cadence=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
@@ -983,8 +988,10 @@ contains
    integer(I4P)                           :: iref, jref, kref       !< Donor indexes.
    integer(I4P)                           :: pass                   !< Pass: realm faces the row lies beyond.
    integer(I4P)                           :: face_kind(6)           !< Kind of each realm face, BC_SEAM for a seam.
+   real(R8P)                              :: psi_energy             !< 1 if the total energy holds psi^2 / 2 (EGLM).
 
    if (.not.allocated(self%adam%maps%local_map_bc_crown)) return
+   psi_energy = merge(1._R8P, 0._R8P, self%physics%model == MODEL_MHD_EGLM)
    face_kind = self%bc%bc_type
    where (self%adam%maps%seam_face) face_kind = BC_SEAM
    associate(crown_map=>self%adam%maps%local_map_bc_crown, ni=>self%ni, nj=>self%nj, nk=>self%nk)
@@ -1015,6 +1022,12 @@ contains
                   q(:,i,j,k,b) = self%bc%q_inflow(:,face)
                case(BC_WALL_INVISCID)
                   q(:,i,j,k,b) = self%bc%wall_sign(:,(face+1)/2) * q(:,iref,jref,kref,b)
+               case(BC_WALL_NOSLIP, BC_WALL_ISOTHERMAL)
+                  call wall_noslip_ghost(nv=self%nv, d=(face+1)/2, gamma=self%physics%gamma, R=self%physics%R,           &
+                                         psi_energy=psi_energy, isothermal=face_kind(face) == BC_WALL_ISOTHERMAL,        &
+                                         wall_velocity=self%bc%wall_velocity(:,face),                                   &
+                                         wall_temperature=self%bc%wall_temperature(face), q=q(:,iref,jref,kref,b),      &
+                                         qg=q(:,i,j,k,b))
                case default ! BC_EXTRAPOLATION
                   q(:,i,j,k,b) = q(:,iref,jref,kref,b)
                endselect
@@ -1023,13 +1036,26 @@ contains
             face = FEC_1_6_ARRAY(fec)
             select case(bc_type)
             case(BC_EXTRAPOLATION)
-               q(:,i,j,k,b) = q(:,i-idelta,j-jdelta,k-kdelta,b)
+               ! the first interior cell along the normal, not the previous ghost: the donor then lies beyond block
+               ! interfaces only (filled by the exchange), never in a row of this pass (issue #65 P1: the chain
+               ! raced on the device, and on the host relied on the row order)
+               call realm_edge_donor(face=face, face_kind=BC_EXTRAPOLATION, ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
+                                     iref=iref, jref=jref, kref=kref)
+               q(:,i,j,k,b) = q(:,iref,jref,kref,b)
             case(BC_INFLOW)
                q(:,i,j,k,b) = self%bc%q_inflow(:,face)
             case(BC_WALL_INVISCID)
                call compute_face_mirror_indexes(face=face, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k,                     &
                                                 idelta=idelta, jdelta=jdelta, kdelta=kdelta, i_d=iref, j_d=jref, k_d=kref)
                q(:,i,j,k,b) = self%bc%wall_sign(:,(face+1)/2) * q(:,iref,jref,kref,b)
+            case(BC_WALL_NOSLIP, BC_WALL_ISOTHERMAL)
+               call compute_face_mirror_indexes(face=face, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k,                     &
+                                                idelta=idelta, jdelta=jdelta, kdelta=kdelta, i_d=iref, j_d=jref, k_d=kref)
+               call wall_noslip_ghost(nv=self%nv, d=(face+1)/2, gamma=self%physics%gamma, R=self%physics%R,                &
+                                      psi_energy=psi_energy, isothermal=bc_type == BC_WALL_ISOTHERMAL,                     &
+                                      wall_velocity=self%bc%wall_velocity(:,face),                                        &
+                                      wall_temperature=self%bc%wall_temperature(face), q=q(:,iref,jref,kref,b),           &
+                                      qg=q(:,i,j,k,b))
             case(BC_SEAM)
                ! inter-realm seam face: filled by the forest (fill_seam_from_peer_forest), nothing to do here
             case default
@@ -1497,6 +1523,26 @@ contains
    enddo
    !$omp end parallel do
    endsubroutine compute_flux_difference
+
+   subroutine poison_ghosts(ni, nj, nk, ngc, blocks_number, q)
+   !< Set every ghost cell to a quiet NaN (verification instrument, `[diagnostics] ghost_poison`, issue #65).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                 !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                   !< Actual blocks number.
+   real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Conservative variables.
+   real(R8P)                   :: nan                             !< Quiet NaN.
+   integer(I4P)                :: b, i, j, k                      !< Counters.
+
+   nan = ieee_value(nan, ieee_quiet_nan)
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               if (i < 1 .or. i > ni .or. j < 1 .or. j > nj .or. k < 1 .or. k > nk) q(:,i,j,k,b) = nan
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine poison_ghosts
 
    subroutine compute_rk_ssp_residual(self)
    !< Compute the residual of a strong stability preserving step, `dq = sum_s beta_s dq_s`, from the stored stages.

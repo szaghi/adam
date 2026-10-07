@@ -20,7 +20,10 @@
 
 All models are inviscid with an ideal gas (`[physics] cp, cv`, J/(kg K)); ideal MHD is a perfectly conducting single
 fluid (ideal Ohm's law $\mathbf{E} + \mathbf{u} \times \mathbf{B} = 0$). `mhd-ideal` with immersed solids is refused.
-Dissipative effects (viscosity, thermal conduction, resistivity) are outside the current scope.
+Dissipative effects (viscosity, thermal conduction, Ohmic resistivity) are milestone M4
+([#65](https://github.com/szaghi/adam/issues/65)): their coefficients (`[physics] viscosity` or `reynolds`,
+`conductivity` or `prandtl`, `resistivity` or `magnetic_reynolds`/`lundquist`, a power-law viscosity) are read and
+validated, but a non-zero one is refused until its fluxes land (P2 Euler, P3 MHD).
 
 ## Implemented Capabilities
 
@@ -30,7 +33,7 @@ Dissipative effects (viscosity, thermal conduction, resistivity) are outside the
 | Space, `weno-riemann` | WENO interpolation of the face states (characteristic, or primitive) into a Riemann solver: Euler `llf`, `hll`, `hllc`; MHD `llf`, `hll`, `hlld` (HLLD falls back to HLL where its intermediate states are inadmissible, counted in the log); optional 4th/6th-order face-flux correction, switched off by a WENO smoothness sensor | `[numerics] scheme_space = weno-riemann`, `reconstruction_variables`, `riemann_solver`, `flux_correction`, `flux_correction_sensor` |
 | Positivity limiter | Cell-based parametrised flux limiter over a first-order Lax–Friedrichs backbone: each stage keeps the density and the pressure positive, and above a tenth of the first-order update; smooth runs bitwise unchanged; at 2:1 AMR seams the seam flux is synchronised at every stage. Euler, MHD without cleaning and EGLM, SSP schemes only; refused with GLM, immersed solids and multi-realm runs | `[numerics] positivity_limiter = none\|cell` |
 | Time | Library Runge-Kutta schemes (SSP and low-storage), CFL time step | `[runge_kutta] scheme`; `[time] CFL, it_max, time_max` |
-| Boundary conditions | `extrapolation`, `inflow` (primitive state `r, u, v, w, p`; MHD adds `bx, by, bz`, with $\psi = 0$), `wall-inviscid` (MHD: perfectly conducting wall, $u_n$ and $B_n$ odd, the rest and $\psi$ even), `periodic` (both faces of an axis or neither); the ghosts at a realm edge or corner compose the conditions of its faces (issue #65 P0) | `[bc_{x,y,z}_{min,max}] type` |
+| Boundary conditions | `extrapolation`, `inflow` (primitive state `r, u, v, w, p`; MHD adds `bx, by, bz`, with $\psi = 0$), `wall-inviscid` (MHD: perfectly conducting wall, $u_n$ and $B_n$ odd, the rest and $\psi$ even), `wall-noslip` and `wall-isothermal` (velocity reflected about a tangential wall velocity; temperature mirrored, or set by `wall_temperature`; issue #65 P1), `periodic` (both faces of an axis or neither); the ghosts at a realm edge or corner compose the conditions of its faces (issue #65 P0) | `[bc_{x,y,z}_{min,max}] type`, `wall_u, wall_v, wall_w`, `wall_temperature` |
 | Initial conditions | `uniform` (optionally with a seeded perturbation), `isentropic-vortex`, `riemann-problem` (piecewise-constant regions; MHD regions add `bx, by, bz`), `shu-osher` (Euler, along x, y or z); MHD only: `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `orszag-tang`, `mhd-rotor`, `field-loop`, `rotated-riemann`; `linear` (verification of the ghost fills) | `[initial_conditions] type` |
 | AMR | Init-time refinement (`amr_iterations` passes) by geometric box, variable gradient or immersed-solid surface; 2:1 coarse-fine faces with stage-weighted conservative reflux (B and $\psi$ included). With markers the tree is an octree (`ratio = 8`; with a null axis, `nk >= 4`) or a quadtree (`ratio = 4`, any `nk`; [#46](https://github.com/szaghi/adam/issues/46), MV-15) | `[amr]`, `[initial_conditions] amr_iterations`, `[numerics] reflux` |
 | Immersed boundary | Euler only. Static solids, inviscid wall: distance function, eikonal extrapolation into the solid, cut-cell spacing, solid masks in the Runge-Kutta stages |

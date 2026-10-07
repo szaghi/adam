@@ -108,6 +108,7 @@ type, extends(realm_object) :: flume_common_object
       ! private methods
       procedure, pass(self), private :: block_spacing    !< Return the spacing of a block by a delta criterion.
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
+      procedure, pass(self), private :: check_dissipation     !< Refuse the dissipative terms not implemented yet.
       procedure, pass(self), private :: check_positivity_limiter !< Refuse the limiter where it cannot work.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
       procedure, pass(self), private :: check_weno_scheme     !< Refuse the centred WENO schemes.
@@ -507,6 +508,7 @@ contains
    call self%check_weno_scheme
    call self%initialize_riemann_scheme
    call self%check_positivity_limiter
+   call self%check_dissipation
    call self%check_ngc_number
    call self%allocate_common
    call self%io_initialize
@@ -1069,7 +1071,25 @@ contains
                                '[runge_kutta].(scheme)='//self%rk%scheme)
    if (self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported with immersed solids')
+   ! issue #65, D-M4-5: the first-order backbone with a central dissipative flux is not admissible without the modified
+   ! bound of Zhang (2017, J. Comput. Phys. 328) and a further time step condition, neither of which is implemented
+   if (self%physics%dissipation%is_active) &
+      call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is refused with dissipative terms ([physics] '// &
+                               'viscosity, conductivity, resistivity or their numbers): the limiter does not bound a '// &
+                               'diffusive flux (issue #65, D-M4-5)')
    endsubroutine check_positivity_limiter
+
+   subroutine check_dissipation(self)
+   !< Refuse the dissipative terms whose kernels have not landed (issue #65): the coefficients are read and validated
+   !< (P1), the viscous and heat-conduction fluxes land in P2 (Euler) and P3 (MHD, with the resistive flux). Without
+   !< this check a coefficient would be silently ignored.
+   class(flume_common_object), intent(in) :: self !< The equation.
+
+   if (self%physics%dissipation%is_active) &
+      call mpih%error_stop(msg=': the dissipative terms ([physics] viscosity, conductivity, resistivity or their '// &
+                               'numbers) are read but not yet computed: their kernels land in issue #65 P2 (Euler) '// &
+                               'and P3 (MHD); remove the keys or set them to 0')
+   endsubroutine check_dissipation
 
    subroutine check_weno_scheme(self)
    !< Refuse the centred WENO schemes: the flux splitting calls the upwind primitive only, so a `weno-c-*` scheme would

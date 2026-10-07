@@ -15,8 +15,9 @@ on the host, the compute kernels compiled for that width (no branching on the mo
 | Ideal MHD with EGLM cleaning ($E$ includes $\psi^2/2$) | `mhd-ideal` | `eglm` | as GLM | 9 |
 | Ideal MHD without divergence control | `mhd-ideal` | `none` | the first 8 of the above | 8 |
 
-All models are inviscid and use a calorically perfect ideal gas; viscosity, heat conduction and resistivity are
-outside the current scope (planned in milestone M4).
+All models are inviscid and use a calorically perfect ideal gas. Viscosity, heat conduction and Ohmic resistivity are
+milestone M4 ([#65](https://github.com/szaghi/adam/issues/65)): their coefficients are read and validated
+([input](./input#dissipative-terms-issue-65-m4)), and their fluxes land in its phases P2 (Euler) and P3 (MHD).
 
 ## Thermodynamics
 
@@ -187,7 +188,8 @@ What the invariance does not remove:
 - **The temperature needs $R$**, and later a reference temperature, once conduction, cooling or a temperature-dependent
   resistivity exist.
 - **Gravity is not free** (planned): an external field brings $g L_0/u_0^2$, self-gravity $G\rho_0 L_0^2/u_0^2$; the
-  dissipative terms of M4 bring the Reynolds, Péclet and Lundquist numbers.
+  dissipative terms of M4 bring the Reynolds, Prandtl, magnetic Reynolds and Lundquist numbers, each accepted in
+  place of its coefficient ([input](./input#dissipative-terms-issue-65-m4)).
 - **The discrete scheme must be scale-free too.** FLUME's is, apart from the classic WENO weights: their absolute
   $\varepsilon$ stops the limiting at small magnitudes ([numerics](./numerics#weno-reconstruction)). With
   `[weno] weights = si` a run whose input is scaled by powers of two (lengths, velocities, density) equals the base run

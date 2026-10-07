@@ -67,7 +67,8 @@ IC_KEYS = {"type": NONE, "amr_iterations": NONE, "regions_number": NONE, "axis":
            "peak_radius": LENGTH, "peak_amplitude": FIELD, "loop_radius": LENGTH, "loop_amplitude": FIELD,
            "interface": LENGTH, "interface_1": LENGTH, "interface_2": LENGTH, "interface_2_width": LENGTH,
            "period": LENGTH, "normal_x": NONE, "normal_y": NONE, "rho_amplitude": DENSITY, "rho_wavenumber": INV_LENGTH,
-           "wavelength": LENGTH, "wave_angle": NONE, "wave_amplitude": NONE, "b_par": FIELD}
+           "wavelength": LENGTH, "wave_angle": NONE, "wave_amplitude": NONE, "b_par": FIELD,
+           "gradient_x": INV_LENGTH, "gradient_y": INV_LENGTH, "gradient_z": INV_LENGTH}
 MHD_KEYS = {"divergence_control": NONE, "divb_error": NONE, "glm_alpha": NONE, "glm_ch_check": NONE,
             "glm_ch": VELOCITY, "glm_damping_length": LENGTH, "rho_floor": DENSITY, "p_floor": PRESSURE,
             "divb_tol": (-1, 1, 0.5)}
@@ -78,12 +79,17 @@ MOMENTUM = (0, 1, 1)
 VELOCITY2 = (0, 2, 0)
 PSI_GLM = (0, 2, 0.5)
 FIELD_PER_LENGTH = (-1, 1, 0.5)
+VISCOSITY = (1, 1, 1)      # dynamic viscosity rho u L; the conductivity too: the layer divides it by R and the base
+DIFFUSIVITY = (1, 1, 0)    # run multiplies T by 1/R, so R cancels (issue #65); a temperature scales as u^2 likewise
 STATE_KEYS = {"r": DENSITY, "u": VELOCITY, "v": VELOCITY, "w": VELOCITY, "p": PRESSURE, "bx": FIELD, "by": FIELD,
               "bz": FIELD}
 DIMENSIONLESS_SECTIONS = ("numerics", "runge_kutta", "weno", "linear-algebra", "fdv", "field", "amr", "solids",
                           "slices", "diagnostics")
 FULL_KEYS = {
-    "physics": {"physical_model": NONE, "gamma": NONE, "cp": NONE, "cv": NONE},  # cp, cv: the layer makes gamma
+    "physics": {"physical_model": NONE, "gamma": NONE, "cp": NONE, "cv": NONE,  # cp, cv: the layer makes gamma
+                "viscosity": VISCOSITY, "conductivity": VISCOSITY, "resistivity": DIFFUSIVITY, "reynolds": NONE,
+                "prandtl": NONE, "magnetic_reynolds": NONE, "lundquist": NONE, "viscosity_law": NONE,
+                "viscosity_exponent": NONE, "reference_temperature": VELOCITY2},
     "mhd": {"divergence_control": NONE, "glm_alpha": NONE, "glm_ch_check": NONE, "divb_error": NONE,
             "glm_ch": VELOCITY, "glm_damping_length": LENGTH, "rho_floor": DENSITY, "p_floor": PRESSURE,
             "divb_tol": FIELD_PER_LENGTH},
@@ -185,7 +191,8 @@ def classify(ini: configparser.ConfigParser, section: str, key: str) -> tuple[fl
     elif section in ("reference",) + DIMENSIONLESS_SECTIONS:
         return NONE
     elif section in BC_SECTIONS:
-        table = {"type": NONE, **STATE_KEYS}
+        table = {"type": NONE, **STATE_KEYS, "wall_u": VELOCITY, "wall_v": VELOCITY, "wall_w": VELOCITY,
+                 "wall_temperature": VELOCITY2}
     elif section == "initial_conditions":
         table = dict(IC_KEYS)
         ic_type = ic.get("type", "").split(";")[0].strip()
@@ -247,6 +254,11 @@ def check_log(args: argparse.Namespace) -> int:
         if sep and " -> " in values:
             logged[(head, key)] = values.split(" -> ")[1].strip()
     status = 0
+    # the layer replaces cp, cv by gamma (R* = 1): a temperature in code units is the base one times R, a conductivity
+    # the base one over R (issue #65), each rounded once
+    gas = 1.0
+    if ini.has_option("physics", "cp"):
+        gas = float(ini["physics"]["cp"].split(";")[0]) - float(ini["physics"]["cv"].split(";")[0])
     for section in ini.sections():
         for key in ini[section]:
             text = ini[section][key].split(";")[0].strip()
@@ -254,11 +266,16 @@ def check_log(args: argparse.Namespace) -> int:
                 continue
             if classify(ini, section, key) == NONE or (key == "glm_damping_length" and text == "min-cell"):
                 continue
+            base = float(text)
+            if key in ("wall_temperature", "reference_temperature"):
+                base = base * gas
+            elif key == "conductivity":
+                base = base / gas
             if (section, key) not in logged:
                 print(f"   [{section}] {key}: not converted")
                 status = 1
-            elif float(logged[(section, key)]) != float(text):
-                print(f"   [{section}] {key}: converted to {logged[(section, key)]}, base {text}")
+            elif float(logged[(section, key)]) != base:
+                print(f"   [{section}] {key}: converted to {logged[(section, key)]}, base {base!r}")
                 status = 1
     if ini.has_option("physics", "cp"):
         expected = float(ini["physics"]["cp"].split(";")[0]) / float(ini["physics"]["cv"].split(";")[0])

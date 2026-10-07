@@ -3,8 +3,10 @@
 
 Every case uses `[initial_conditions] type = linear` (`q = q_1 (1 + g . x)`, with a non-zero velocity so that every
 wall sign flip shows) and `CFL = 1e-30`, `time_max = 0`: one step that moves the field by ~1e-30 relative, after which
-the post-step save writes the fields with their ghosts filled in the order of a Runge-Kutta stage. `ghost_probe.py`
-then checks every face and edge ghost against the value it must hold.
+the post-step save writes the fields with their ghosts filled in the order of a Runge-Kutta stage. `[diagnostics]
+ghost_poison = .true.` sets every ghost to NaN before that fill: the negligible step leaves a stale ghost equal to a
+fresh one, so without the poison a ghost read before its donor was filled would pass. `ghost_probe.py` then checks
+every face and edge ghost against the value it must hold.
 
 Cases (each exercises the exchange paths a cross-derivative stencil reads):
 
@@ -15,7 +17,10 @@ Cases (each exercises the exchange paths a cross-derivative stencil reads):
                block at the origin refined: 2:1 seams across the periodic boundary at the wall;
     mirror3d   two realms [0,1]^3 and [1,2] x [0,1]^2 glued by a 1:1 mirror seam, octree, walls and extrapolation
                on the other faces: seam edges in every plane;
-    refined3d  as mirror3d with the second realm one level finer and a `coupling = refined` (2:1) seam.
+    refined3d  as mirror3d with the second realm one level finer and a `coupling = refined` (2:1) seam;
+    walls3d    box3d with the walls of issue #65 P1: y_min a moving no-slip wall (wall_u, wall_w), y_max a resting
+               no-slip wall, x_max an isothermal wall, z_min an inviscid wall, z_max extrapolation, x_min inflow, the
+               refined block at the origin; --model mhd runs it with EGLM (psi in the total energy).
 
 The Woodward-Colella step forest (`../step/make_step.py`) is probed by `check.sh` through `--linearize`.
 
@@ -36,7 +41,8 @@ INFLOW = {"r": 1.2, "u": 0.4, "v": 0.1, "w": -0.1, "p": 1.1, "bx": 0.7, "by": 0.
 
 
 def realm_ini(name: str, extent: tuple[float, ...], cells: int, levels: int, ratio: int, null_z: bool,
-              faces: dict[str, str], model: str, box: tuple[float, ...] | None = None) -> str:
+              faces: dict[str, str], model: str, box: tuple[float, ...] | None = None,
+              face_keys: dict[str, dict[str, float]] | None = None, divergence_control: str = "glm") -> str:
     """Return a realm INI: `cells` per block along the active axes, `levels` uniform levels, one more level on `box`."""
     keys = ("r", "u", "v", "w", "p") + (("bx", "by", "bz") if model == "mhd" else ())
     lines = [
@@ -74,14 +80,15 @@ def realm_ini(name: str, extent: tuple[float, ...], cells: int, levels: int, rat
         lines += [f"[bc_{face}]", f"type = {'extrapolation' if bc == 'seam' else bc}"]
         if bc == "inflow":
             lines += [f"{k} = {INFLOW[k]!r}" for k in keys]
+        lines += [f"{k} = {v!r}" for k, v in (face_keys or {}).get(face, {}).items()]
     gz = 0.0 if null_z else GRADIENT[2]
     lines += ["[initial_conditions]", "type = linear", f"gradient_x = {GRADIENT[0]!r}", f"gradient_y = {GRADIENT[1]!r}",
               f"gradient_z = {gz!r}", f"amr_iterations = {1 if box else 0}", "[initial_conditions_region_1]"]
     lines += [f"{k} = {STATE[k]!r}" for k in keys]
     lines += ["[time]", "it_max = 0", "time_max = 0.0", "CFL = 1.0e-30", "[diagnostics]",
-              "conservation_history_save = 1"]
+              "conservation_history_save = 1", "ghost_poison = .true."]
     if model == "mhd":
-        lines += ["[mhd]", "divergence_control = glm", "divb_tol = 0.0", "divb_error = .false.", "rho_floor = 0.0",
+        lines += ["[mhd]", f"divergence_control = {divergence_control}", "divb_tol = 0.0", "divb_error = .false.", "rho_floor = 0.0",
                   "p_floor = 0.0", "glm_ch = 3.0", "glm_alpha = 0.18", "glm_damping_length = 1.0",
                   "glm_ch_check = warning"]
     return "\n".join(lines) + "\n"
@@ -120,6 +127,13 @@ def write_case(out: Path, case: str, model: str) -> None:
         (out / "probe-r1.ini").write_text(r1)
         (out / "probe-r2.ini").write_text(r2)
         (out / "probe.ini").write_text(manifest(["probe-r1", "probe-r2"], "refined" if fine else "mirror"))
+    elif case == "walls3d":
+        faces = {"x_min": "inflow", "x_max": "wall-isothermal", "y_min": "wall-noslip", "y_max": "wall-noslip",
+                 "z_min": "wall-inviscid"}
+        keys = {"y_min": {"wall_u": 0.2, "wall_w": -0.1}, "x_max": {"wall_v": 0.15, "wall_temperature": 0.9}}
+        ini = realm_ini("walls3d", (0.0, 1.0, 0.0, 1.0, 0.0, 1.0), 8, 1, 8, False, faces, model,
+                        box=(0.0, 0.5, 0.0, 0.5, 0.0, 0.5), face_keys=keys, divergence_control="eglm")
+        (out / "probe.ini").write_text(ini)
     else:
         raise SystemExit(f"make_probe: unknown case '{case}'")
 
@@ -138,6 +152,7 @@ def linearize(out: Path) -> None:
         text = re.sub(r"it_max\s*=.*\n", "it_max   = 0\n", text)
         text = re.sub(r"time_max\s*=.*\n", "time_max = 0.0\n", text)
         text = re.sub(r"CFL\s*=.*\n", "CFL      = 1.0e-30\n", text)
+        text = re.sub(r"(\[diagnostics\]\n)", r"\1ghost_poison = .true.\n", text)
         if "type = linear" not in text:
             raise SystemExit(f"make_probe: {path} has no uniform initial condition to linearise")
         path.write_text(text)
@@ -147,7 +162,7 @@ def main() -> None:
     """Write a case, or linearise the INIs already in the directory."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("out", type=Path, help="output directory")
-    parser.add_argument("case", nargs="?", help="box3d, channel2d, mirror3d or refined3d")
+    parser.add_argument("case", nargs="?", help="box3d, channel2d, mirror3d, refined3d or walls3d")
     parser.add_argument("--model", choices=("euler", "mhd"), default="euler")
     parser.add_argument("--linearize", action="store_true", help="rewrite the realm INIs of <out> into probe runs")
     args = parser.parse_args()
