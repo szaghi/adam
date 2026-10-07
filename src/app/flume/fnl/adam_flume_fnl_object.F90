@@ -13,7 +13,7 @@ module adam_flume_fnl_object
 !< section 3.4); the per-face physics is the shared `adam_flume_euler_library`, so only the kernels are FNL-specific.
 
 ! ADAM classes, libraries, parameters
-use :: adam_flux_register_object, only : flux_register_object
+use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_realm_object,         only : realm_object
 use :: adam_seam_exchange,        only : seam_fill_all
@@ -763,19 +763,22 @@ contains
                    ' cells with a non-finite high-order flux took the backbone at step '//trim(str(self%time%it))
    endsubroutine limit_positivity_dev
 
-   subroutine seam_lists(self, coarse, ccell, cface, cdst, fine, fcell, fface, fdst, fcc)
+   subroutine seam_lists(self, coarse, ccell, cface, cdst, fine, fcell, fface, fdst, fcc, fw)
    !< Host lists of this rank's seam skin cells (issue #50): `coarse` (or `fine`) selects the coarse (fine) seam faces;
    !< each entry has its interior cell `(i, j, k, b)`, its face `(axis, i, j, k, b)` in the flux arrays' indexing and its
    !< skin destination (`cdst`: skin cell of the coarse skins; `fdst`: compact fine store, `fcc`: the coarse skin cell
-   !< covering it). The order is block, face, skin cell, as on the CPU.
+   !< covering it, `fw`: its weight in the coarse mean, 1/4, or 1/2 along the unrefined z of a quadtree, issue #46). The
+   !< order is block, face, skin cell, as on the CPU.
    class(flume_fnl_object),   intent(in)  :: self                       !< The equation.
    logical,                   intent(in)  :: coarse, fine               !< Lists to build.
    integer(I4P), allocatable, intent(out) :: ccell(:,:), cface(:,:)     !< Coarse cells [4, n], faces [5, n].
    integer(I4P), allocatable, intent(out) :: cdst(:)                    !< Coarse skin destinations.
    integer(I4P), allocatable, intent(out) :: fcell(:,:), fface(:,:)     !< Fine cells [4, n], faces [5, n].
    integer(I4P), allocatable, intent(out) :: fdst(:), fcc(:)            !< Fine store slots, covering coarse skin cells.
+   real(R8P),    allocatable, intent(out), optional :: fw(:)            !< Fine weights in the coarse means.
    integer(I4P)                           :: b, fec, s, c, m, nc, mc, mf !< Counters.
    integer(I4P)                           :: axis, sg, ioff, joff        !< Face axis, side, fine quadrant offsets.
+   integer(I4P)                           :: ratios(2)                   !< Tangential refinement ratios (inner, outer).
    integer(I4P)                           :: i, j, k                     !< Cell indexes.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, idx=>self%adam%maps%inter_realm_face_register_index)
@@ -811,12 +814,16 @@ contains
                                        merge(merge(0_I4P, nj, sg < 0_I4P), j, axis == 2),   &
                                        merge(merge(0_I4P, nk, sg < 0_I4P), k, axis == 3), b]
                   fdst(mf) = self%seam%fine_off(b, fec) + c
-                  fcc(mf) = self%seam%off(-s) + seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+                  ratios = face_tangential_ratios(fec=fec, refine_ratio=self%adam%maps%refine_ratio)
+                  fcc(mf) = self%seam%off(-s) + seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, &
+                                                                    ri=ratios(1), ro=ratios(2), c=c)
+                  if (present(fw)) fw(mf) = 1._R8P / real(ratios(1) * ratios(2), R8P)
                endif
             enddo
          enddo
       enddo
       if (m == 1) allocate(ccell(4,mc), cface(5,mc), cdst(mc), fcell(4,mf), fface(5,mf), fdst(mf), fcc(mf))
+      if (m == 1 .and. present(fw)) allocate(fw(mf))
    enddo
    endassociate
    endsubroutine seam_lists
@@ -831,6 +838,7 @@ contains
                                                      1:)                    !< Conservative variables of the stage.
    integer(I4P), allocatable              :: ccell(:,:), cface(:,:), cdst(:) !< Coarse lists.
    integer(I4P), allocatable              :: fcell(:,:), fface(:,:), fdst(:), fcc(:) !< Fine lists.
+   real(R8P),    allocatable              :: fw(:)                           !< Fine weights in the coarse means.
    real(R8P),    allocatable              :: buf(:,:), fhi(:,:)              !< Gathered states, fine face fluxes.
    real(R8P)                              :: qL(self%physics%nv,1), qR(self%physics%nv,1), fl(self%physics%nv,1) !< Face.
    integer(I4P)                           :: m                               !< Counter.
@@ -838,7 +846,7 @@ contains
    associate(nv=>self%physics%nv)
    if (allocated(self%adam%maps%inter_realm_face_register_index)) then
       call self%seam_lists(coarse=.true., ccell=ccell, cface=cface, cdst=cdst, fine=.true., fcell=fcell, fface=fface, &
-                           fdst=fdst, fcc=fcc)
+                           fdst=fdst, fcc=fcc, fw=fw)
       allocate(buf(nv,size(cdst)))
       call seam_gather_cells(cells=ccell, nv=nv, ngc=self%ngc, a_gpu=q_gpu, out=buf)
       do m=1, size(cdst)
@@ -871,8 +879,8 @@ contains
          endselect
          self%seam%fine_lo(1:nv,fdst(m)) = fl(:,1)
          self%seam%fine_hi(1:nv,fdst(m)) = fhi(:,m)
-         self%seam%flo(1:nv,fcc(m)) = self%seam%flo(1:nv,fcc(m)) + 0.25_R8P * fl(:,1)
-         self%seam%fhi(1:nv,fcc(m)) = self%seam%fhi(1:nv,fcc(m)) + 0.25_R8P * fhi(:,m)
+         self%seam%flo(1:nv,fcc(m)) = self%seam%flo(1:nv,fcc(m)) + fw(m) * fl(:,1)
+         self%seam%fhi(1:nv,fcc(m)) = self%seam%fhi(1:nv,fcc(m)) + fw(m) * fhi(:,m)
       enddo
    endif
    endassociate

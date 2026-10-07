@@ -321,11 +321,15 @@ contains
                                    fields_number=fields_number, verbose=verbose_)
       endif
       call self%amr%initialize(file_parameters=file_parameters)
-      ! A quadtree with markers has 2:1 seams, where the coarse cells pick up a spurious variation along the unrefined
-      ! axis (O(1) within tens of steps, silently): refused until the seam machinery supports it (issue #46).
+#if defined(_NVF) || defined(_GMP)
+      ! A quadtree with markers has 2:1 seams, 1:1 along z: the CPU and FNL seam machinery restricts and interpolates per
+      ! axis (issue #46), the NVF and GMP ghost kernels still average 2x2x2 fine cells, mixing cells of different z (the
+      ! coarse cells pick up a spurious z variation, O(1) within tens of steps, silently).
       if (self%adam%tree%ratio==4.and.self%amr%markers_number>0) &
          call mpih%error_stop(msg=': [amr] ratio = 4 (quadtree) with AMR markers gives wrong results at the 2:1 seams '//&
-                                  '(issue #46); use ratio = 8 (octree; with a null axis, nk >= 4)')
+                                  'on the NVF and GMP backends (issue #46); use ratio = 8 (octree; with a null axis, '// &
+                                  'nk >= 4)')
+#endif
       call check_amr_block_cells
       call self%ib%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters)

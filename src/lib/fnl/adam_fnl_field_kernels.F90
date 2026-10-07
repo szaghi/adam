@@ -154,11 +154,15 @@ contains
    enddo
    endsubroutine compute_normL2_residuals_dev
 
-   subroutine populate_send_buffer_ghost_gpu_dev(ngc, seam_ghost_fill, comm_map_send_ghost_cell_gpu, &
+   subroutine populate_send_buffer_ghost_gpu_dev(ngc, seam_ghost_fill, ri, rj, rk, comm_map_send_ghost_cell_gpu, &
                                                  send_buffer_ghost_gpu, q_gpu)
    !< Polulate send buffer ghost GPU.
+   !<
+   !< A fine->coarse row averages the `ri*rj*rk` fine cells of its coarse ghost: 2 per refined axis, 1 on an axis the
+   !< tree never refines (quadtree z, issue #46).
    integer(I4P),          intent(in)    :: ngc                                    !< Ghost cells number.
    integer(I4P),          intent(in)    :: seam_ghost_fill                        !< Seam ghost-fill regime (flag-4 rows).
+   integer(I4P),          intent(in)    :: ri, rj, rk                             !< Per-axis refinement factor.
    integer(I8P), pointer, intent(in)    :: comm_map_send_ghost_cell_gpu(:,:)      !< Comm map, cell information.
    real(R8P),    pointer, intent(inout) :: send_buffer_ghost_gpu(:)               !< Send buffer of ghost cells.
    real(R8P),             intent(inout) :: q_gpu(1:,    &
@@ -192,11 +196,11 @@ contains
                                                                       i_send=i_send, j_send=j_send, k_send=k_send)
          else
             send_buffer_ghost_gpu(c_recv) = 0._R8P
-            do kc=0,1 ; do jc=0,1 ; do ic=0,1
+            do kc=0,rk-1 ; do jc=0,rj-1 ; do ic=0,ri-1
                send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) + &
                                                q_gpu(b_send,i_send+ic,j_send+jc,k_send+kc,v_send)
             enddo ; enddo ; enddo
-            send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) * 0.125_R8P
+            send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) / real(ri*rj*rk, R8P)
          endif
       enddo
    endif
@@ -231,10 +235,14 @@ contains
    endif
    endsubroutine receive_recv_buffer_ghost_gpu_dev
 
-   subroutine update_ghost_local_gpu_dev(ngc, seam_ghost_fill, l_map_ghost_cell_gpu, q_gpu)
+   subroutine update_ghost_local_gpu_dev(ngc, seam_ghost_fill, ri, rj, rk, l_map_ghost_cell_gpu, q_gpu)
    !< Update (local) ghost cells.
+   !<
+   !< A fine->coarse row averages the `ri*rj*rk` fine cells of its coarse ghost: 2 per refined axis, 1 on an axis the
+   !< tree never refines (quadtree z, issue #46).
    integer(I4P), intent(in)          :: ngc                       !< Ghost cells number.
    integer(I4P), intent(in)          :: seam_ghost_fill           !< Seam ghost-fill regime (flag-4 rows).
+   integer(I4P), intent(in)          :: ri, rj, rk                !< Per-axis refinement factor.
    integer(I8P), intent(in), pointer :: l_map_ghost_cell_gpu(:,:) !< Local map of ghost cells.
    real(R8P),    intent(inout)       :: q_gpu(1:,    &
                                               1-ngc:,&
@@ -276,11 +284,11 @@ contains
                                                                              j_send=j_send, k_send=k_send)
          else
             q_gpu(b_recv,i_recv,j_recv,k_recv,v) = 0._R8P
-            do kc=0,1 ; do jc=0,1 ; do ic=0,1
+            do kc=0,rk-1 ; do jc=0,rj-1 ; do ic=0,ri-1
                q_gpu(b_recv,i_recv,j_recv,k_recv,v) = q_gpu(b_recv,i_recv,   j_recv,   k_recv,   v) + &
                                                       q_gpu(b_send,i_send+ic,j_send+jc,k_send+kc,v)
             enddo ; enddo ; enddo
-            q_gpu(b_recv,i_recv,j_recv,k_recv,v) = q_gpu(b_recv,i_recv,j_recv,k_recv,v) * 0.125_R8P
+            q_gpu(b_recv,i_recv,j_recv,k_recv,v) = q_gpu(b_recv,i_recv,j_recv,k_recv,v) / real(ri*rj*rk, R8P)
          endif
       enddo
    enddo

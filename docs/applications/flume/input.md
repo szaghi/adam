@@ -120,7 +120,7 @@ Read in three places: the grid reads `ratio`, the tree reads the refinement shap
 
 | Key | Type | Req. | Default | Accepted / invalid | Used | Meaning |
 |-----|------|------|---------|--------------------|------|---------|
-| `ratio` | int | **no check** (effectively required) | declared 8, **not applied** | `2` (binary), `4` (quadtree), `8` (octree). Any other value leaves the block sizes undefined, with no error. `4` together with `markers_number > 0` is fatal (issue #46). | yes | Refinement ratio of the tree. |
+| `ratio` | int | **no check** (effectively required) | declared 8, **not applied** | `2` (binary), `4` (quadtree), `8` (octree). Any other value leaves the block sizes undefined, with no error. `4` with `markers_number > 0` runs on CPU and FNL (issue #46; fatal on the NVF and GMP backends). | yes | Refinement ratio of the tree. |
 | `max_level` | int | **no check** | declared 12, **not applied** | Refinements beyond it are silently cancelled. | yes | Maximum refinement level. |
 | `iu_ref_levels` | int | **no check** | declared -1, **not applied** | `<= 0`: none | yes | Uniform refinement levels applied at initialisation, before the initial conditions. |
 | `i_prune`, `j_prune`, `k_prune`, `l_prune` | int | **no check** | declared -1, **not applied** | See the notes below the table. | partly | Pruning of a "simple initial forest". FLUME never calls `prune`, but the values still enter the neighbour/boundary detection. |

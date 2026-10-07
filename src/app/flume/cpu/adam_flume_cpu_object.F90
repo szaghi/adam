@@ -9,7 +9,7 @@ module adam_flume_cpu_object
 !< physical model, never inside a loop (issue #41, section 4).
 
 ! ADAM classes, libraries, parameters
-use :: adam_flux_register_object, only : flux_register_object
+use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_realm_object,         only : realm_object
@@ -623,7 +623,8 @@ contains
    subroutine seam_sync_fluxes(self, q)
    !< Seam synchronisation, first phase (issue #50): publish the coarse donor states of the seam skins, then on every
    !< fine seam face compute the backbone with the donor state as outer state, keep it with the face's high-order flux,
-   !< and accumulate the 2x2 means of both into the coarse skins.
+   !< and accumulate the means of both into the coarse skins (2x2 fine faces per coarse face cell, 2x1 along the
+   !< unrefined z of a quadtree, issue #46).
    class(flume_cpu_object), intent(inout) :: self                     !< The equation.
    real(R8P),               intent(in)    :: q(1:,         &
                                                  1-self%ngc:,&
@@ -634,6 +635,8 @@ contains
    integer(I4P)                           :: b, fec, s, f, c, cc       !< Counters.
    integer(I4P)                           :: axis, sg, nc, off, foff   !< Face axis, side, cells, offsets.
    integer(I4P)                           :: ioff, joff                !< Fine quadrant offsets.
+   integer(I4P)                           :: ratios(2)                 !< Tangential refinement ratios (inner, outer).
+   real(R8P)                              :: w                         !< Mean weight, 1 / (ratios(1) ratios(2)).
    integer(I4P)                           :: i, j, k                   !< Cell indexes.
 
    if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) then ! no block on this rank: collectives only
@@ -666,11 +669,13 @@ contains
          if (allocated(self%adam%maps%amr_seam_quadrant)) then
             ioff = self%adam%maps%amr_seam_quadrant(1, b, fec) ; joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
          endif
+         ratios = face_tangential_ratios(fec=fec, refine_ratio=self%adam%maps%refine_ratio)
+         w = 1._R8P / real(ratios(1) * ratios(2), R8P)
          nc = seam_face_cells(fec=fec, ni=ni, nj=nj, nk=nk)
          allocate(qL(nv,nc), qR(nv,nc), fl(nv,nc))
          do c=1, nc
             call seam_skin_cell(axis=axis, sgn=sg, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
-            cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+            cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, ri=ratios(1), ro=ratios(2), c=c)
             if (sg < 0_I4P) then
                qL(:,c) = self%seam%qc(1:nv,off+cc) ; qR(:,c) = q(1:nv,i,j,k,b)
             else
@@ -697,10 +702,10 @@ contains
                                                   qL=qL, qR=qR, flo=fl)
          endselect
          do c=1, nc
-            cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+            cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, ri=ratios(1), ro=ratios(2), c=c)
             self%seam%fine_lo(1:nv,foff+c) = fl(:,c)
-            self%seam%flo(1:nv,off+cc) = self%seam%flo(1:nv,off+cc) + 0.25_R8P * fl(:,c)
-            self%seam%fhi(1:nv,off+cc) = self%seam%fhi(1:nv,off+cc) + 0.25_R8P * self%seam%fine_hi(1:nv,foff+c)
+            self%seam%flo(1:nv,off+cc) = self%seam%flo(1:nv,off+cc) + w * fl(:,c)
+            self%seam%fhi(1:nv,off+cc) = self%seam%fhi(1:nv,off+cc) + w * self%seam%fine_hi(1:nv,foff+c)
          enddo
          deallocate(qL, qR, fl)
       enddo
@@ -811,6 +816,7 @@ contains
    integer(I4P)                           :: b, fec, s, c, cc   !< Counters.
    integer(I4P)                           :: axis, sg, off, foff !< Face axis, side, offsets.
    integer(I4P)                           :: ioff, joff, i, j, k !< Fine quadrant offsets, cell indexes.
+   integer(I4P)                           :: ratios(2)          !< Tangential refinement ratios (inner, outer).
 
    if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) then ! no block on this rank: collectives only
       call self%seam%reduce_factors
@@ -828,9 +834,11 @@ contains
          if (allocated(self%adam%maps%amr_seam_quadrant)) then
             ioff = self%adam%maps%amr_seam_quadrant(1, b, fec) ; joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
          endif
+         ratios = face_tangential_ratios(fec=fec, refine_ratio=self%adam%maps%refine_ratio)
          do c=1, seam_face_cells(fec=fec, ni=ni, nj=nj, nk=nk)
             call seam_skin_cell(axis=axis, sgn=sg, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
-            cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+            cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, ri=ratios(1), ro=ratios(2), &
+                                     c=c)
             self%seam%lmin(off+cc) = min(self%seam%lmin(off+cc), self%lam(1,i,j,k,b))
          enddo
       enddo
@@ -856,13 +864,14 @@ contains
    subroutine seam_sync_blend(self)
    !< Seam synchronisation, last phase (issue #50): set the seam face fluxes with the seam factor, after the blend of
    !< the other faces. Coarse face `F_LF + theta_s (F_H - F_LF)` of the fine means, fine face the same of its own pair:
-   !< the coarse flux is the mean of the four fine ones.
+   !< the coarse flux is the mean of the fine ones (four, two on a quadtree face normal to x or y).
    class(flume_cpu_object), intent(inout) :: self                   !< The equation.
    real(R8P)                              :: fl(self%physics%nv)    !< Face flux.
    real(R8P)                              :: th                     !< Seam factor.
    integer(I4P)                           :: b, fec, s, c, cc       !< Counters.
    integer(I4P)                           :: axis, sg, off, foff    !< Face axis, side, offsets.
    integer(I4P)                           :: ioff, joff, i, j, k    !< Fine quadrant offsets, cell indexes.
+   integer(I4P)                           :: ratios(2)              !< Tangential refinement ratios (inner, outer).
 
    if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) return
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv=>self%physics%nv, idx=>self%adam%maps%inter_realm_face_register_index)
@@ -878,6 +887,7 @@ contains
          if (s < 0_I4P .and. allocated(self%adam%maps%amr_seam_quadrant)) then
             ioff = self%adam%maps%amr_seam_quadrant(1, b, fec) ; joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
          endif
+         ratios = face_tangential_ratios(fec=fec, refine_ratio=self%adam%maps%refine_ratio)
          do c=1, seam_face_cells(fec=fec, ni=ni, nj=nj, nk=nk)
             call seam_skin_cell(axis=axis, sgn=sg, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
             if (s > 0_I4P) then
@@ -885,7 +895,8 @@ contains
                fl = self%seam%flo(1:nv,off+c)
                if (th > 0._R8P) fl = fl + th * (self%seam%fhi(1:nv,off+c) - fl)
             else
-               cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, c=c)
+               cc = seam_fine_to_coarse(fec=fec, ni=ni, nj=nj, nk=nk, ioff=ioff, joff=joff, ri=ratios(1), ro=ratios(2), &
+                                        c=c)
                th = self%seam%th(off+cc)
                fl = self%seam%fine_lo(1:nv,foff+c)
                if (th > 0._R8P) fl = fl + th * (self%seam%fine_hi(1:nv,foff+c) - fl)

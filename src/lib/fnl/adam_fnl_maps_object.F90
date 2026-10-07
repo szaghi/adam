@@ -48,6 +48,8 @@ type :: maps_fnl_object
    ! the flag-4 branches of the ghost kernels (passed as a scalar kernel
    ! argument, not device-resident). Refreshed on every `copy_cpu_gpu`.
    integer(I4P)          :: seam_ghost_fill = SEAM_FILL_INJECTION             !< Active seam ghost-fill regime (host mirror).
+   integer(I4P)          :: refine_ratio(3) = 2_I4P                           !< Per-axis 2:1 refinement factor (host mirror,
+                                                                              !< issue #46): 1 on axes the tree never refines.
    contains
       procedure, pass(self) :: copy_cpu_gpu !< Copy data from (maps global singleton) CPU to (maps_fnl_object) GPU.
       procedure, pass(self) :: destroy      !< Free device data owned by the helper.
@@ -77,6 +79,7 @@ contains
    ! handled on device by the flag-4 branches of adam_fnl_field_kernels; the
    ! active regime is mirrored here for the kernel callers.
    self%seam_ghost_fill = maps%seam_ghost_fill
+   self%refine_ratio    = maps%refine_ratio
    if (allocated(maps%local_map_ghost_cell)) then
       call dev_assign_to_device(dst=self%local_map_ghost_cell_gpu, src=maps%local_map_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy local_map_ghost_cell_gpu done ('// &

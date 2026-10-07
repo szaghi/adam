@@ -376,6 +376,31 @@ both schemes reach $t = 0.01$ on the CPU and on FNL, the mass stays constant to 
 $\max|F_\text{coarse} - F_\text{fine}|$ at the end-of-step reflux is $3.6\cdot10^{-12}$: the coarse seam flux is the mean of
 the fine ones at every stage. The leg asserts both (mass drift below $10^{-12}$, mismatch below $10^{-9}$).
 
+### Quadtree AMR
+
+A quadtree (`ratio = 4`) refines x and y only, so its 2:1 seams are 1:1 in z. Until
+[#46](https://github.com/szaghi/adam/issues/46) the seam machinery assumed an octree, and the coarse cells beside a
+quadtree seam picked up a spurious z dependence ($10^{-2}$ at the first step, negative pressure in Orszag–Tang at step
+26), so quadtree AMR was refused and every AMR verification ran on an octree with a null z axis and `nk = 4`. MV-15
+(`mhd/quadtree/check.sh`, `quadtree_oracle.py`) runs the same 2-D problem on that octree, on a quadtree with `nk = 1`
+and on a quadtree with an active z axis (`nk = 4`), keys the cells by $(x, y)$ and compares them per variable:
+
+| Leg | Quadtree `nk = 1` against the octree | Octree z spread | Quadtree `nk = 4` z spread |
+|---|---|---|---|
+| Orszag–Tang, $32^2$ + $[0.25, 0.75]^2$ refined, $t = 0.2$ | $4.1\cdot10^{-12}$ ($\psi$; $\le 3\cdot10^{-13}$ elsewhere) | $5.7\cdot10^{-12}$ | 0 |
+| Balsara–Spicer blast, limiter on, $t = 0.006$ | $1.9\cdot10^{-5}$ ($\psi$), $3.7\cdot10^{-6}$ ($\rho$) | $2.8\cdot10^{-5}$, $9.3\cdot10^{-6}$ | — |
+
+The runs agree to round-off, not bit for bit: an octree restriction averages 8 fine cells (two identical z layers), a
+quadtree 4, and even the octree's identical layers differ at round-off, its tricubic weights depending on the z
+sub-position. In the blast the limiter's switches amplify that round-off: the octree's own layers drift apart by
+$2.8\cdot10^{-5}$, and the quadtree differs from the octree by no more than that spread (ratio per variable 0.40 to
+0.80 on the CPU, 0.87 to 1.02 on FNL; the same 579 limited stages on both); the leg bounds the agreement by twice the
+reference spread. FNL gives the same picture on Orszag–Tang ($6.4\cdot10^{-12}$ against the octree, z spread 0 with
+`nk = 4`). The `nk = 4` quadtree computes
+the z fluxes and keeps the solution z-invariant bit for bit; its z cells enter the time step, so it is compared with
+itself only. The unit test `test_quadtree_seam_ghost` pins the seam exchange on a linear field (octree, quadtree
+`nk = 4` and `nk = 1`, 1 to 3 ranks; its FNL build also asserts the device exchange equal to the CPU one, bit for bit).
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths

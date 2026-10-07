@@ -14,11 +14,23 @@ program test_quadtree_seam_ghost
 !< exact on a linear field. Configurations: octree (`ratio = 8`, 8^3 cells per block), quadtree with `nk = 4` and with
 !< `nk = 1` (true 2-D). Ghosts are reported by class (face, edge, corner); every class is asserted.
 !<
-!< Usage: `mpirun -np N exe/test_quadtree_seam_ghost`.
+!< The FNL build (`-D_FNL`) runs the same exchange through the device kernels (`field_fnl_object%update_ghost_local_gpu`
+!< + `update_ghost_mpi_gpu`) on a transposed copy of the field: it is held to the same oracle and must also equal the
+!< CPU exchange bit for bit.
+!<
+!< Usage: `mpirun -np N exe/test_quadtree_seam_ghost` (or `exe/test_quadtree_seam_ghost_fnl`).
 
+#ifdef _FNL
+#include "fundal.H"
+#endif
 use :: adam_common_library, only : realm_object
 use :: adam_parameters,     only : TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_mpih_global,    only : mpih
+#ifdef _FNL
+use :: adam_fnl_field_object, only : field_fnl_object
+use :: adam_fnl_mpih_global,  only : mpih_fnl
+use :: fundal
+#endif
 use :: mpi
 use :: penf,                only : I4P, R8P, str
 
@@ -30,6 +42,9 @@ real(R8P), parameter :: SCALE=6._R8P         !< Field scale, max |f| over the do
 logical              :: test_passed          !< Aggregate pass flag.
 
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
+#ifdef _FNL
+call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
+#endif
 test_passed = .true.
 call check_configuration(label='octree,   nk 8', ratio=8_I4P, nk=8_I4P)
 call check_configuration(label='quadtree, nk 4', ratio=4_I4P, nk=4_I4P)
@@ -63,6 +78,13 @@ contains
    integer(I4P)              :: ierr             !< MPI error status.
    logical                   :: inside(3)        !< Cell inside the block interior per direction.
    logical                   :: ok               !< Configuration pass flag.
+#ifdef _FNL
+   type(field_fnl_object)    :: field_fnl        !< FNL field helper.
+   real(R8P), pointer        :: q_gpu(:,:,:,:,:) !< Device field (b, i, j, k, v).
+   real(R8P),    allocatable :: q_t(:,:,:,:,:)   !< Host transposed field (b, i, j, k, v).
+   real(R8P),    allocatable :: q_cpu(:,:,:,:,:) !< Field after the CPU exchange.
+   logical                   :: same_as_cpu      !< Device exchange equals the CPU one bit for bit.
+#endif
 
    filename = 'test_quadtree_seam_ghost-r'//trim(str(ratio, .true.))//'-nk'//trim(str(nk, .true.))//'.ini'
    if (mpih%myrank == 0) call write_input(filename=filename, ratio=ratio, nk=nk)
@@ -93,8 +115,33 @@ contains
          enddo
       enddo
    enddo
+#ifdef _FNL
+   ! device exchange on the transposed field; the CPU exchange runs on a copy, for the bitwise comparison
+   q_cpu = q
+   call realm%adam%field%update_ghost_local(grid=realm%adam%grid, maps=realm%adam%maps, q=q_cpu)
+   call realm%adam%field%update_ghost_mpi(grid=realm%adam%grid, maps=realm%adam%maps, q=q_cpu)
+   nullify(q_gpu)
+   call field_fnl%initialize(grid=realm%adam%grid, field=realm%adam%field, maps=realm%adam%maps, q_gpu=q_gpu)
+   allocate(q_t(1:realm%adam%field%nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:1))
+   do b=1, realm%adam%field%nb
+      q_t(b,:,:,:,1) = q(1,:,:,:,b)
+   enddo
+   call dev_memcpy_to_device(dst=q_gpu, src=q_t)
+   call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+   call field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=realm%adam%maps%comm_map_send_ptr_ghost, &
+                                       comm_map_recv_ptr_ghost=realm%adam%maps%comm_map_recv_ptr_ghost, q_gpu=q_gpu)
+   call dev_memcpy_from_device(dst=q_t, src=q_gpu)
+   do b=1, realm%adam%field%nb
+      q(1,:,:,:,b) = q_t(b,:,:,:,1)
+   enddo
+   call dev_free(q_gpu, mydev)
+   call field_fnl%destroy
+   same_as_cpu = all(q(:,:,:,:,1:realm%adam%field%blocks_number) == q_cpu(:,:,:,:,1:realm%adam%field%blocks_number))
+   call MPI_ALLREDUCE(MPI_IN_PLACE, same_as_cpu, 1, MPI_LOGICAL, MPI_LAND, MPI_COMM_WORLD, ierr)
+#else
    call realm%adam%field%update_ghost_local(grid=realm%adam%grid, maps=realm%adam%maps, q=q)
    call realm%adam%field%update_ghost_mpi(grid=realm%adam%grid, maps=realm%adam%maps, q=q)
+#endif
 
    err_max = 0._R8P ; unfilled = 0_I4P ; checked = 0_I4P
    do b=1, realm%adam%field%blocks_number
@@ -120,6 +167,10 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, unfilled, 4, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
    call MPI_ALLREDUCE(MPI_IN_PLACE, checked, 4, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
    ok = all(err_max(1:3) <= TOLERANCE) .and. all(unfilled(1:3) == 0_I4P)
+#ifdef _FNL
+   if (mpih%myrank == 0) print '(A,L1)', '   '//label//': device exchange == CPU exchange bit for bit: ', same_as_cpu
+   ok = ok .and. same_as_cpu
+#endif
    test_passed = test_passed .and. ok
    if (mpih%myrank == 0) then
       print '(A)', '   '//label//': '//trim(str(realm%adam%tree%nodes_number, .true.))//' nodes; ghosts checked '// &

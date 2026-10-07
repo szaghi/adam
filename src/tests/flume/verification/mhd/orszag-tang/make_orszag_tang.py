@@ -13,7 +13,10 @@ Grid: the vortex grid of V2 (verification/vortex, [0, 1]^2, 4x4 blocks), N cells
 Usage:
     make_orszag_tang.py <base.ini> <out.ini> --cells N [--cfl C] [--time-max T] [--glm-ch C] [--it-save N]
                         [--divergence-control glm|eglm]
-                        [--refine-box XMIN YMIN XMAX YMAX]
+                        [--refine-box XMIN YMIN XMAX YMAX [--ratio 4|8]] [--nk N]
+
+--ratio is the tree ratio of the AMR variant (8, octree with null z and nk = 4, by default; 4, quadtree, issue #46).
+--nk N > 1 gives the blocks N cells along an active z axis (null_z = .false.): the solution must stay z-invariant.
 """
 
 from __future__ import annotations
@@ -40,6 +43,8 @@ def main() -> None:
     parser.add_argument("--it-save", default="1000000", help="checkpoint period (the first and last are always saved)")
     parser.add_argument("--refine-box", type=float, nargs=4, default=None, metavar=("XMIN", "YMIN", "XMAX", "YMAX"),
                         help="refine the blocks whose centroid lies in the box by one 2:1 level (AMR variant)")
+    parser.add_argument("--ratio", type=int, choices=(4, 8), default=8, help="tree ratio of the AMR variant")
+    parser.add_argument("--nk", type=int, default=None, help="cells per block along an active z axis")
     args = parser.parse_args()
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
     ini.optionxform = str
@@ -61,8 +66,10 @@ def main() -> None:
     ini["time"].update({"it_max": "-1", "time_max": args.time_max, "CFL": args.cfl})
     ini["IO"].update({"output_basename": "orszag-tang", "it_save": args.it_save})
     ini["diagnostics"]["conservation_history_save"] = "1"
+    if args.nk is not None and args.nk > 1:
+        ini["grid"].update({"nk": str(args.nk), "null_z": ".false."})
     if args.refine_box is not None:
-        refine_box(ini, args.refine_box)
+        refine_box(ini, args.refine_box, ratio=args.ratio)
     with args.out.open("w") as out:
         ini.write(out)
 

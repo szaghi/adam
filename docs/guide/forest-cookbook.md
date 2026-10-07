@@ -89,8 +89,9 @@ What happens at a 2:1 face:
 | `injection` | 0 | the anchor cell | legacy, comparisons |
 
 **Requirements.** The first two are checked at initialisation:
-1. An **octree** (`ratio = 8`) when there are markers: a quadtree with markers is refused
-   ([#46](https://github.com/szaghi/adam/issues/46)); with a null z axis use `nk >= 4`.
+1. On an **octree** (`ratio = 8`) with a null z axis, `nk >= 4` (the tricubic footprint is 4 cells along every refined
+   axis). A **quadtree** (`ratio = 4`) never refines z, so any `nk` works, `nk = 1` included
+   ([#46](https://github.com/szaghi/adam/issues/46); the NVF and GMP backends still refuse quadtree AMR).
 2. **Even** `ni`/`nj`/`nk` along every refined, non-null axis when 2:1 refinement is possible (markers and
    `max_level > iu_ref_levels`): an odd count is refused ([#39](https://github.com/szaghi/adam/issues/39); it used to
    give NaN silently).
@@ -374,7 +375,7 @@ chosen so that `dx` halves). Drop the markers in both. `verification/multirealm/
 | `the seam ghost (i,j,k) of block b of realm R does not match the cells of realm P ...; ghost centre ..., peer cell ...` | a peer cell of the wrong size or position | as above |
 | `stage_coincident requires equal scheme_time / rk_scheme / physics nv / K` | β on unlike realms | `end_of_step`, or align the integrators |
 | `conflicting coupling_cadence between realm A and realm B` | two pairs between the same realms with different cadences | one cadence per realm pair |
-| `[amr] ratio = 4 (quadtree) with AMR markers` | #46 | `ratio = 8` |
+| `[amr] ratio = 4 (quadtree) with AMR markers ... on the NVF and GMP backends` | #46: their ghost kernels are octree-only | `ratio = 8`, or the CPU/FNL backend |
 | `[grid].(ni)=+7 is odd: 2:1 refinement ...` | #39 | even counts along refined axes |
 | `(positivity_limiter)=cell is not supported on multi-realm runs` | the FLUME limiter | no limiter in a forest |
 

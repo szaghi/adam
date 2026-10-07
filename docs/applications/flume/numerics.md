@@ -237,8 +237,10 @@ one level (2:1 balance). At a coarse–fine face:
   (`[numerics] reflux = .true.`; $\mathbf{B}$ and $\psi$ included). With reflux the volume integrals of a periodic box stay
   constant to round-off, without it they drift at $10^{-5}$ ([conservation example](./verification#conservation-across-amr-seams)).
 
-With markers the tree must be an octree (`ratio = 8`, and with a null axis `nk ≥ 4`): a quadtree with markers is refused
-(issue #46). For MHD, a cell-centred $\mathbf{B}$ cannot be kept divergence-free across a 2:1 face (Tóth & Roe 2002): the seams
+With markers the tree is an octree (`ratio = 8`, and with a null axis `nk ≥ 4`) or a quadtree (`ratio = 4`, any `nk`,
+`nk = 1` for a true 2-D run): a quadtree seam is 2:1 in x and y and 1:1 in z, and the ghost restriction, the coarse-fine
+interpolation, the reflux and the limiter's seam synchronisation work per axis (issue #46, verified by
+[MV-15](./verification#quadtree-amr)). For MHD, a cell-centred $\mathbf{B}$ cannot be kept divergence-free across a 2:1 face (Tóth & Roe 2002): the seams
 inject a truncation-level $\nabla\cdot\mathbf{B}$ that GLM transports and damps; the div(B) history reports it
 (`seam_max_divb`).
 

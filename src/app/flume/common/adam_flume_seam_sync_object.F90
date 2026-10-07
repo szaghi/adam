@@ -9,15 +9,15 @@ module adam_flume_seam_sync_object
 !<
 !< - the fine faces of the seam take as backbone `F^LF(q_C, q_f)`, with the coarse donor cell `q_C` as outer state;
 !< - the coarse face takes the means of the fine high-order and backbone fluxes, `F_H` and `F_LF` (2x2 fine faces per
-!<   coarse face cell): the coarse backbone update with the mean of `F^LF(q_C, q_f)` is a convex combination of standard
-!<   Lax-Friedrichs partial updates of `q_C`, hence admissible, so the coarse cell factor `Lambda_C` is computed with
-!<   this pair;
+!<   coarse face cell, 2x1 on a quadtree face normal to x or y): the coarse backbone update with the mean of
+!<   `F^LF(q_C, q_f)` is a convex combination of standard Lax-Friedrichs partial updates of `q_C`, hence admissible, so
+!<   the coarse cell factor `Lambda_C` is computed with this pair;
 !< - both sides blend with one factor `theta_s = min(Lambda_C, min Lambda_f)`, so each side stays in its corner box and
 !<   the coarse flux is exactly the mean of the fine ones: conservative at every stage, the reflux reduces to round-off.
 !<
 !< **What this object holds.** The register's intra-realm AMR faces are replicated on every rank (`flux_register_object`,
 !< issue #28), so per-face skins indexed like the register are complete after one MPI_ALLREDUCE each: the coarse donor
-!< states `qc` (SUM: one owner writes), the fine means `flo`, `fhi` (SUM over the four fine quadrants), the fine factors
+!< states `qc` (SUM: one owner writes), the fine means `flo`, `fhi` (SUM over the fine quadrants), the fine factors
 !< `lmin` (MIN) and the seam factors `th` (SUM: the coarse owner writes). The fine seam faces of this rank keep their
 !< backbone and high-order fluxes in a compact store (`fine_lo`, `fine_hi`): the blend overwrites the face fluxes before
 !< the seam faces are set. The skin cell `c` runs over the two tangential axes, inner fastest, the register order.
@@ -198,12 +198,14 @@ contains
    endselect
    endfunction seam_skin_index
 
-   pure function seam_fine_to_coarse(fec, ni, nj, nk, ioff, joff, c) result(cc)
+   pure function seam_fine_to_coarse(fec, ni, nj, nk, ioff, joff, ri, ro, c) result(cc)
    !< Coarse skin cell covering the fine skin cell `c` of a fine block whose quadrant on the coarse face is `(ioff,
-   !< joff)` (the convention of `restrict_fine_face_to_quadrant`: 2x2 fine face cells per coarse face cell).
+   !< joff)` (the convention of `restrict_fine_face_to_quadrant`: `ri x ro` fine face cells per coarse face cell, 2 per
+   !< refined tangential axis, 1 with a zero offset along an axis the tree does not refine, z of a quadtree, issue #46).
    integer(I4P), intent(in) :: fec        !< Fine block face.
    integer(I4P), intent(in) :: ni, nj, nk !< Grid dimensions.
    integer(I4P), intent(in) :: ioff, joff !< Quadrant offsets (inner, outer).
+   integer(I4P), intent(in) :: ri, ro     !< Refinement ratios along the inner and outer tangential axes.
    integer(I4P), intent(in) :: c          !< Fine skin cell.
    integer(I4P)             :: cc         !< Coarse skin cell.
    integer(I4P)             :: inner_n, outer_n, fi, fo !< Tangential extents, fine tangential indexes.
@@ -220,6 +222,6 @@ contains
    endselect
    fi = 1_I4P + mod(c - 1_I4P, inner_n)
    fo = 1_I4P + (c - 1_I4P) / inner_n
-   cc = (joff * outer_n / 2_I4P + (fo + 1_I4P) / 2_I4P - 1_I4P) * inner_n + ioff * inner_n / 2_I4P + (fi + 1_I4P) / 2_I4P
+   cc = (joff * outer_n / 2_I4P + (fo + ro - 1_I4P) / ro - 1_I4P) * inner_n + ioff * inner_n / 2_I4P + (fi + ri - 1_I4P) / ri
    endfunction seam_fine_to_coarse
 endmodule adam_flume_seam_sync_object

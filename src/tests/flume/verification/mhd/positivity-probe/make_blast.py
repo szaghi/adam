@@ -11,10 +11,11 @@ Issue #47, M3-P5c: --3d makes the blast a sphere on the 3-D periodic [0, 1]^3 (o
 per cell row of the (y, z) plane); --b-axis x lays the field along x (Wu & Shu 2018, Example 4.4: with --p-in 1e4,
 --b0 1000/sqrt(4 pi), --time-max 0.001 their second, beta 2.51e-6 blast); --time-max sets the final time.
 Issue #50: --refine-box XMIN YMIN XMAX YMAX refines the blocks whose centroid lies in the box by one 2:1 level at
-initialisation (../amr_box.py; octree, all z), so that the blast crosses a coarse-fine seam.
+initialisation (../amr_box.py; octree, all z), so that the blast crosses a coarse-fine seam; --ratio 4 refines on a
+quadtree instead (issue #46).
 Usage: make_blast.py <out.ini> --cells N [--p-floor F] [--rho-floor F] [--glm-ch C] [--p-in P] [--b0 B] [--cfl C]
                      [--limiter] [--none | --eglm] [--3d] [--b-axis diagonal|x] [--time-max T]
-                     [--refine-box XMIN YMIN XMAX YMAX]
+                     [--refine-box XMIN YMIN XMAX YMAX [--ratio 4|8]]
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ parser.add_argument("--3d", dest="three_d", action="store_true")
 parser.add_argument("--b-axis", choices=("diagonal", "x"), default="diagonal")
 parser.add_argument("--time-max", default="0.01")
 parser.add_argument("--refine-box", type=float, nargs=4, default=None, metavar=("XMIN", "YMIN", "XMAX", "YMAX"))
+parser.add_argument("--ratio", type=int, choices=(4, 8), default=8, help="tree ratio of --refine-box (4: quadtree, #46)")
 args = parser.parse_args()
 subprocess.run([sys.executable, str(V / "mhd/orszag-tang/make_orszag_tang.py"), str(V / "vortex/vortex-n064.ini"),
                 str(args.out), "--cells", str(args.cells)], check=True)
@@ -96,7 +98,7 @@ if args.limiter:
     ini["mhd"]["positivity_limiter"] = ".true."
 ini["IO"].update({"output_basename": "blast", "it_save": "100000"})
 if args.refine_box is not None:
-    refine_box(ini, args.refine_box)
+    refine_box(ini, args.refine_box, ratio=args.ratio)
 with open(args.out, "w") as f:
     ini.write(f)
 print(f"{len(strips)} disk strips, ambient beta {2 * 0.1 / b0**2:.2e}")

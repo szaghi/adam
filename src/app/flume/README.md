@@ -32,7 +32,7 @@ Dissipative effects (viscosity, thermal conduction, resistivity) are outside the
 | Time | Library Runge-Kutta schemes (SSP and low-storage), CFL time step | `[runge_kutta] scheme`; `[time] CFL, it_max, time_max` |
 | Boundary conditions | `extrapolation`, `inflow` (primitive state `r, u, v, w, p`; MHD adds `bx, by, bz`, with $\psi = 0$), `wall-inviscid` (MHD: perfectly conducting wall, $u_n$ and $B_n$ odd, the rest and $\psi$ even), `periodic` (both faces of an axis or neither) | `[bc_{x,y,z}_{min,max}] type` |
 | Initial conditions | `uniform` (optionally with a seeded perturbation), `isentropic-vortex`, `riemann-problem` (piecewise-constant regions; MHD regions add `bx, by, bz`), `shu-osher` (Euler, along x, y or z); MHD only: `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `orszag-tang`, `mhd-rotor`, `field-loop`, `rotated-riemann` | `[initial_conditions] type` |
-| AMR | Init-time refinement (`amr_iterations` passes) by geometric box, variable gradient or immersed-solid surface; 2:1 coarse-fine faces with stage-weighted conservative reflux (B and $\psi$ included). With markers the tree must be an octree (`ratio = 8`; with a null axis, `nk >= 4`): a quadtree with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)) | `[amr]`, `[initial_conditions] amr_iterations`, `[numerics] reflux` |
+| AMR | Init-time refinement (`amr_iterations` passes) by geometric box, variable gradient or immersed-solid surface; 2:1 coarse-fine faces with stage-weighted conservative reflux (B and $\psi$ included). With markers the tree is an octree (`ratio = 8`; with a null axis, `nk >= 4`) or a quadtree (`ratio = 4`, any `nk`; [#46](https://github.com/szaghi/adam/issues/46), MV-15) | `[amr]`, `[initial_conditions] amr_iterations`, `[numerics] reflux` |
 | Immersed boundary | Euler only. Static solids, inviscid wall: distance function, eikonal extrapolation into the solid, cut-cell spacing, solid masks in the Runge-Kutta stages |
 | Multi-realm | A forest manifest glues realms through inter-realm seams, across ranks: `mirror` between cells of the same size, `refined` across a 2:1 resolution jump (the AMR seam formulas); per-seam cadence; every model | `[forest]` manifest | `[solids]` |
 | Output | XH5F checkpoints (optionally with the auxiliary fields `u, v, w, p, H, a`; MHD adds the derived `pt, beta, bmag, divb`), slices, residuals and conservation histories, restart; MHD adds the div(B) history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`) | `[IO]`, `[slices]` |
@@ -195,7 +195,6 @@ Known limitations:
   ([#50](https://github.com/szaghi/adam/issues/50), PV-5).
 - **GLM damping and reflux.** With damping, $\int \psi$ is not conserved across 2:1 faces (O(k dt) of the uncorrected
   leak, MV-11); the 8 physical integrals are.
-- **Quadtree AMR** with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)); use an octree.
 - The FNL backend copies the coarse-fine seam faces to the host at every stage, which dominates its run time on AMR
   cases.
 - **Inter-realm seams** ([#40](https://github.com/szaghi/adam/issues/40),

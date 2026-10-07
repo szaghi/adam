@@ -77,6 +77,5 @@ reflux                   = .true.
 - **Positivity at very low plasma β.** The floors are a heuristic under the mixed GLM; the Balsara–Spicer strong blast
   ($\beta = 2.5\cdot10^{-4}$) fails within a few steps. EGLM and a positivity limiter are planned in M3.
 - **GLM damping and reflux.** With damping, $\int\psi$ is not conserved across 2:1 faces; the 8 physical integrals are.
-- **Quadtree AMR** with markers is refused ([#46](https://github.com/szaghi/adam/issues/46)); use an octree.
 - The GPU backend copies the coarse–fine seam faces to the host at every stage, which dominates its run time on AMR
   cases; inter-realm seams must join blocks of the same resolution.
