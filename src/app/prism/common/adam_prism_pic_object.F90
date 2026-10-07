@@ -136,6 +136,7 @@ contains
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
    procedure, pass(self) :: particle_cartesian_grid_index !< Compute the grid index corresponding to a particle position.
+   procedure, pass(self) :: stencil_radius_cells          !< Max cells reached by deposit/gather stencils beyond the particle cell.
    procedure, pass(self) :: CIC_charge_weighting          !< Cloud-in-Cell weighting of particle quantities to the grid.
    procedure, pass(self) :: NGP_charge_weighting          !< Nearest Grid Point weighting of particle quantities to the grid.
    procedure, pass(self) :: TSC_charge_weighting          !< Triangular Shaped Cloud weighting of particle quantities to the grid.
@@ -657,10 +658,14 @@ contains
             np => self%particle_number, domain_emin => grid%domain_emin, domain_emax => grid%domain_emax,    &
             emin => field%emin, emax => field%emax, neighbour_list => self%neighbour_list)
 
-   !Di sicuro va considerata una parte relativa alle particelle che escono dal dominio
-   ! Rivedi con Stefano, molto dipende se quei min max contano pure le gc. In tal caso a emin devi sommare ngc*dx o dx o dz (non
-   ! dovrebbero contare)
+   ! Multi-block: a stencil spilling beyond the owner-block ghosts would be truncated, while the single-block run of the same
+   ! domain keeps it (deposits are folded back with field%reduce_ghost_local, gathers read the exchanged ghosts).
+   if (blocks_number > 1_I4P .and. self%stencil_radius_cells() > ngc) &
+      call mpih%error_stop(msg=': PIC multi-block needs deposit/gather stencils within ngc cells (stencil radius '// &
+                               trim(str(self%stencil_radius_cells(),.true.))//', ngc '//trim(str(ngc,.true.))//')')
    do n = 1, np
+      ! a particle owned by no block must not keep a stale index: particle boundary conditions are not implemented yet
+      neighbour_list(:,n) = 0_I4P
       do b = 1, blocks_number
          i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
          j_p = ceiling((q_pic(2,n) - emin(2,b)) / dy(b))
@@ -676,9 +681,39 @@ contains
             exit
          endif
       enddo
+      if (neighbour_list(1,n) == 0_I4P) &
+         call mpih%error_stop(msg=': PIC particle '//trim(str(n,.true.))//' is outside the domain; particle boundary '// &
+                                  'conditions are not implemented')
    enddo
    endassociate
    endsubroutine particle_cartesian_grid_index
+
+   function stencil_radius_cells(self) result(radius)
+   !< Max number of cells, beyond the particle cell, reached by the configured charge, current and field stencils.
+   !< B-spline of order o (NGP=0 ... sextic=6, field nD = order n): (o+1)/2 cells; Gaussian: gaussian_support_cells;
+   !< binomial filter: one more cell. A conserving current deposits with the particle shape.
+   class(prism_pic_object), intent(in) :: self   !< PIC object.
+   integer(I4P)                        :: radius !< Stencil radius in cells.
+
+   radius = model_radius(self%particle_weighting_model)
+   if (trim(self%current_weighting_model) /= CONSERVING_CURRENT_WEIGHTING_MODEL) &
+      radius = max(radius, model_radius(self%current_weighting_model))
+   radius = max(radius, model_radius(self%field_weighting_model))
+   contains
+      function model_radius(model) result(r)
+      character(*), intent(in) :: model
+      integer(I4P)             :: r
+      select case(trim(model))
+      case('NGP', '0D')                ; r = 0_I4P
+      case('CIC', 'TSC', '1D', '2D')   ; r = 1_I4P
+      case('cubic', 'quartic', '3D', '4D') ; r = 2_I4P
+      case('quintic', 'sextic', '5D', '6D'); r = 3_I4P
+      case('Gaussian')                 ; r = max(0_I4P, self%gaussian_support_cells)
+      case default                     ; r = 0_I4P
+      endselect
+      if (self%filter_deposition) r = r + 1_I4P
+      endfunction model_radius
+   endfunction stencil_radius_cells
 
    subroutine NGP_charge_weighting(self, field, grid, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.

@@ -9,13 +9,25 @@ module adam_prism_fnl_pic_conserving_object
 !< the helpers it calls). Host-side twins of the CPU matrix builders/factorization live here (private) so the CPU backend is
 !< left untouched; the arithmetic of every kernel follows the CPU routine named in its header line.
 !<
+!< Multi-block (single rank, single refinement level): every solver works on a *virtual block*, the whole domain seen as
+!< one `NX x NY x NZ` block (NX = nbx*ni, ...). The conserving operators are global along grid lines (the inverses of the
+!< direct/Esirkepov line matrices are dense, the modified face flux is a prefix sum from the domain boundary, the P/Q
+!< filters reach 7/5 cells), so a single-block solve of the whole domain is the reference result: on the virtual block the
+!< phase-1 single-block kernels run unchanged and the multi-block result equals the single-block one by construction.
+!< The real blocks are touched only at the two interfaces: (i) inputs, Esirkepov directly in global cell indices, the
+!< direct decomposition and the modified rho through the regular block deposit + `reduce_ghost_local_gpu` + gather of the
+!< block interiors; (ii) outputs, J (and the filtered rho) scattered from the virtual block to every real cell, ghosts
+!< included, so interface ghosts get the neighbour values and physical ghosts the single-block odd/zero values.
+!< With one block the virtual block is the block itself (same origin, spacing and cell centers): phase-1 arithmetic.
+!<
 !< Device layouts (FNL convention, block index first):
-!<+ q-like fields: `[nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nv]`;
-!<+ directional charge changes H: `[nb, ni, nj, nk, 3]` (interior only, the CPU solvers never read H ghosts);
+!<+ real q-like fields: `[nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nv]`;
+!<+ virtual fields: the same with nb=1 and NX, NY, NZ (H, scratches, line buffers, the virtual current `jv_gpu`);
+!<+ directional charge changes H: `[1, NX, NY, NZ, 3]` (interior only, the CPU solvers never read H ghosts);
 !<+ particles: `[particle, variable]` (coalesced across particles).
 !<
-!< Like the CPU reference, the solvers are single-block-interior: particles crossing a block or whose support touches a
-!< block boundary stop the run.
+!< Like the CPU reference, a particle whose support touches the domain boundary stops the run (zero-flux closure, no
+!< particle boundary conditions).
 
 ! ADAM classes, libraries, parameters
 use :: adam_common_library
@@ -51,11 +63,10 @@ integer(I4P), parameter :: SHAPE_GAUSSIAN = 7_I4P !< Gaussian particle shape.
 
 integer(I4P), parameter :: MAX_SPAN = 32_I4P !< Max 1D cells touched by one particle trajectory (gang-private weights).
 
-integer(I4P), parameter :: ERR_OUTSIDE  = 1_I4P !< Particle outside the local grid.
-integer(I4P), parameter :: ERR_CROSSED  = 2_I4P !< Particle crossed a block during the trajectory.
+integer(I4P), parameter :: ERR_OUTSIDE  = 1_I4P !< Particle outside the domain.
 integer(I4P), parameter :: ERR_CHARGE   = 3_I4P !< Particle charge changed during the trajectory.
-integer(I4P), parameter :: ERR_BOUNDARY = 4_I4P !< Particle shape touches a block boundary.
-integer(I4P), parameter :: ERR_FILTER   = 5_I4P !< Esirkepov-modified P filter support reaches a block boundary.
+integer(I4P), parameter :: ERR_BOUNDARY = 4_I4P !< Particle shape touches the domain boundary.
+integer(I4P), parameter :: ERR_FILTER   = 5_I4P !< Esirkepov-modified P filter support reaches the domain boundary.
 integer(I4P), parameter :: ERR_SPAN     = 6_I4P !< Trajectory support wider than MAX_SPAN (FNL-only limit).
 integer(I4P), parameter :: ERR_GAUSS    = 7_I4P !< Empty Gaussian deposition support.
 
@@ -74,9 +85,14 @@ type :: prism_fnl_pic_conserving_object
    integer(I4P) :: gaussian_support_cells = -1_I4P !< Gaussian support radius in cells.
    integer(I4P) :: fdv_order    = 0_I4P   !< FD order.
    integer(I4P) :: hs           = 0_I4P   !< FD half stencil.
-   integer(I4P) :: ni = 0_I4P, nj = 0_I4P, nk = 0_I4P, ngc = 0_I4P !< Block sizes.
-   integer(I4P) :: nb = 0_I4P            !< Allocated blocks.
-   integer(I4P) :: blocks_number = 0_I4P !< Actual blocks (cache key).
+   integer(I4P) :: ni = 0_I4P, nj = 0_I4P, nk = 0_I4P, ngc = 0_I4P !< Virtual block sizes (whole domain), ghost cells.
+   integer(I4P) :: nb = 1_I4P            !< Virtual blocks (always 1).
+   integer(I4P) :: blocks_number = 1_I4P !< Virtual blocks (always 1).
+   integer(I4P) :: bni = 0_I4P, bnj = 0_I4P, bnk = 0_I4P !< Real block sizes.
+   integer(I4P) :: bnb = 0_I4P           !< Real allocated blocks.
+   integer(I4P) :: bblocks = 0_I4P       !< Real actual blocks (cache key).
+   real(R8P)    :: vemin(3) = 0._R8P     !< Virtual block origin (domain minimum).
+   real(R8P)    :: vdx(3) = 0._R8P       !< Cell size (single refinement level).
    integer(I4P) :: nv = 0_I4P            !< Field variables number.
    integer(I4P) :: particle_number = 0_I4P !< Particles number.
    integer(I4P) :: nrk = 0_I4P           !< RK stages number.
@@ -85,7 +101,11 @@ type :: prism_fnl_pic_conserving_object
    real(R8P)    :: qw(0:9) = 0._R8P      !< Modified Q kernel (normal faces to centers).
    real(R8P)    :: residual_max = 0._R8P !< Max current-solver residual of the current step.
    ! device data
-   real(R8P),    pointer :: emin_gpu(:,:)             => null() !< Block minimum coordinates [3,nb].
+   integer(I4P), pointer :: off_gpu(:,:)              => null() !< Real block origin in the virtual block, cells [bnb,3].
+   real(R8P),    pointer :: vx_gpu(:)                 => null() !< Virtual x cell centers [NX].
+   real(R8P),    pointer :: vy_gpu(:)                 => null() !< Virtual y cell centers [NY].
+   real(R8P),    pointer :: vz_gpu(:)                 => null() !< Virtual z cell centers [NZ].
+   real(R8P),    pointer :: jv_gpu(:,:,:,:,:)         => null() !< Virtual current [1,ghosts...,3].
    real(R8P),    pointer :: p_gpu(:)                  => null() !< P kernel [-7:7].
    real(R8P),    pointer :: qw_gpu(:)                 => null() !< Q kernel [0:9].
    real(R8P),    pointer :: fv1_gpu(:)                => null() !< FV1_CC(1:hs,hs), face reconstruction coefficients.
@@ -98,9 +118,9 @@ type :: prism_fnl_pic_conserving_object
    real(R8P),    pointer :: work_a_gpu(:,:,:,:)       => null() !< Interior scratch [nb,ni,nj,nk].
    real(R8P),    pointer :: work_b_gpu(:,:,:,:)       => null() !< Interior scratch [nb,ni,nj,nk].
    real(R8P),    pointer :: line_gpu(:)               => null() !< Line-major scratch for line solves/scans.
-   real(R8P),    pointer :: rho_work_gpu(:,:,:,:,:)   => null() !< Charge deposit scratch, direct [nb,ghosts...,1].
-   real(R8P),    pointer :: gather_gpu(:,:,:,:,:)     => null() !< Field copy for external-field gather [nb,ghosts...,nv].
-   real(R8P),    pointer :: jp_gpu(:,:,:,:,:)         => null() !< Single-particle current, cleanup [nb,ghosts...,3].
+   real(R8P),    pointer :: rho_work_gpu(:,:,:,:,:)   => null() !< Real-block charge deposit scratch, direct [bnb,ghosts...,1].
+   real(R8P),    pointer :: gather_gpu(:,:,:,:,:)     => null() !< Real-block field copy, external-field gather [bnb,...,nv].
+   real(R8P),    pointer :: jp_gpu(:,:,:,:,:)         => null() !< Single-particle virtual current, cleanup [1,ghosts...,3].
    real(R8P),    pointer :: src_gpu(:,:,:,:,:)        => null() !< Single-particle source, cleanup [nb,ni,nj,nk,3].
    real(R8P),    pointer :: src_stage_gpu(:,:,:,:,:,:)=> null() !< Single-particle stage sources [nb,ni,nj,nk,3,nrk].
    real(R8P),    pointer :: mat_x_gpu(:,:,:)          => null() !< Factored x-line matrices [ni,ni,nb].
@@ -126,7 +146,11 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self) :: solve_modified              !< Esirkepov-modified matched current.
       procedure, pass(self) :: solve_modified_with_cleanup !< Per-particle modified current with tail cleanup.
       procedure, pass(self) :: deposit_modified_charge     !< Unfiltered deposit + P_c filter of rho.
-      procedure, pass(self) :: impose_current_ghosts       !< Odd (Esirkepov) or zero (direct) current ghosts.
+      procedure, pass(self) :: impose_current_ghosts       !< Odd/zero current ghosts on the physical faces of real blocks.
+      ! private methods
+      procedure, pass(self), private :: build_virtual_geometry  !< Virtual block of the whole domain.
+      procedure, pass(self), private :: scatter_current         !< Real q(J) = virtual J, ghosts included.
+      procedure, pass(self), private :: impose_virtual_ghosts   !< Odd/zero current ghosts of the virtual block.
 endtype prism_fnl_pic_conserving_object
 
 contains
@@ -140,7 +164,10 @@ contains
    call free_r1(self%fv1_gpu)
    call free_r1(self%fd1_gpu)
    call free_r1(self%line_gpu)
-   call free_r2(self%emin_gpu)
+   call free_r1(self%vx_gpu)
+   call free_r1(self%vy_gpu)
+   call free_r1(self%vz_gpu)
+   call free_i2(self%off_gpu)
    call free_r2(self%q_next_gpu)
    call free_r2(self%q_ref_gpu)
    call free_r2(self%q_mixed_gpu)
@@ -153,6 +180,7 @@ contains
    call free_r5(self%rho_work_gpu)
    call free_r5(self%gather_gpu)
    call free_r5(self%jp_gpu)
+   call free_r5(self%jv_gpu)
    call free_r5(self%src_gpu)
    call free_r6(self%h_gpu)
    call free_r6(self%src_stage_gpu)
@@ -192,13 +220,15 @@ contains
       endsubroutine free_i2
    endsubroutine destroy
 
-   subroutine initialize(self, pic, grid, nb, nv, nrk, fdv_order, hs)
+   subroutine initialize(self, pic, grid, field, nb, nv, nrk, fdv_order, hs)
    !< Initialize from the host configuration and allocate the step-invariant device buffers.
    !< Twin of the CPU validation in prism_cpu_object%initialize plus the allocations of integrate_rk_ssp_pic_charge_conserving.
+   !< The virtual block (whole domain) is built here: the blocks must already be in place (uniform refinement included).
    class(prism_fnl_pic_conserving_object), intent(inout) :: self      !< Conserving current object.
    type(prism_pic_object),                 intent(in)    :: pic       !< Host PIC object.
    type(grid_object),                      intent(in)    :: grid      !< Grid.
-   integer(I4P),                           intent(in)    :: nb        !< Allocated blocks.
+   type(field_object),                     intent(in)    :: field     !< Host field (block geometry).
+   integer(I4P),                           intent(in)    :: nb        !< Allocated real blocks.
    integer(I4P),                           intent(in)    :: nv        !< Field variables number.
    integer(I4P),                           intent(in)    :: nrk       !< RK stages number.
    integer(I4P),                           intent(in)    :: fdv_order !< FD order.
@@ -233,8 +263,10 @@ contains
    self%gaussian_support_cells = pic%gaussian_support_cells
    self%fdv_order              = fdv_order
    self%hs                     = hs
-   self%ni = grid%ni ; self%nj = grid%nj ; self%nk = grid%nk ; self%ngc = grid%ngc
-   self%nb = nb ; self%nv = nv ; self%nrk = nrk
+   self%bni = grid%ni ; self%bnj = grid%nj ; self%bnk = grid%nk ; self%ngc = grid%ngc
+   self%bnb = nb ; self%nv = nv ; self%nrk = nrk
+   self%nb = 1_I4P ; self%blocks_number = 1_I4P
+   call self%build_virtual_geometry(field=field, grid=grid)
    self%particle_number = pic%particle_number
    np = self%particle_number ; ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc
 
@@ -263,10 +295,10 @@ contains
                                   trim(str(MAX_SPAN,.true.))//')')
    endif
 
-   call alloc_r6(self%h_gpu, [nb,ni,nj,nk,3,nrk], [1,1,1,1,1,1], 'h_gpu')
-   call alloc_r4(self%work_a_gpu, [nb,ni,nj,nk], 'work_a_gpu')
-   call alloc_r4(self%work_b_gpu, [nb,ni,nj,nk], 'work_b_gpu')
-   nl = nb*(ni+1)*(nj+1)*(nk+1)
+   call alloc_r6(self%h_gpu, [1,ni,nj,nk,3,nrk], [1,1,1,1,1,1], 'h_gpu')
+   call alloc_r4(self%work_a_gpu, [1,ni,nj,nk], 'work_a_gpu')
+   call alloc_r4(self%work_b_gpu, [1,ni,nj,nk], 'work_b_gpu')
+   nl = (ni+1)*(nj+1)*(nk+1)
    call dev_alloc(fptr_dev=self%line_gpu, ubounds=[nl], lbounds=[1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate line_gpu in prism_fnl_pic_conserving_object')
    if (np > 0_I4P) then
@@ -275,13 +307,15 @@ contains
       call alloc_r3(self%q_hist_gpu,  [np,8,nrk], 'q_hist_gpu')
       if (self%solver == CONSERVING_SOLVER_DIRECT) call alloc_r2(self%q_mixed_gpu, [np,8], 'q_mixed_gpu')
    endif
+   call alloc_r5(self%jv_gpu, [1,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jv_gpu')
    if (self%solver == CONSERVING_SOLVER_DIRECT) &
-      call alloc_r5(self%rho_work_gpu, [nb,ni+ngc,nj+ngc,nk+ngc,1], [1,1-ngc,1-ngc,1-ngc,1], 'rho_work_gpu')
+      call alloc_r5(self%rho_work_gpu, [self%bnb,self%bni+ngc,self%bnj+ngc,self%bnk+ngc,1], [1,1-ngc,1-ngc,1-ngc,1], &
+                    'rho_work_gpu')
    if (self%tail_cleanup) then
-      call alloc_r5(self%jp_gpu, [nb,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jp_gpu')
+      call alloc_r5(self%jp_gpu, [1,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jp_gpu')
       if (np > 1_I4P) then
-         call alloc_r5(self%src_gpu, [nb,ni,nj,nk,3], [1,1,1,1,1], 'src_gpu')
-         call alloc_r6(self%src_stage_gpu, [nb,ni,nj,nk,3,nrk], [1,1,1,1,1,1], 'src_stage_gpu')
+         call alloc_r5(self%src_gpu, [1,ni,nj,nk,3], [1,1,1,1,1], 'src_gpu')
+         call alloc_r6(self%src_stage_gpu, [1,ni,nj,nk,3,nrk], [1,1,1,1,1,1], 'src_stage_gpu')
       endif
    endif
    contains
@@ -322,21 +356,25 @@ contains
       endsubroutine alloc_r6
    endsubroutine initialize
 
-   subroutine prepare(self, field, force)
-   !< Build the geometry-dependent caches: block origins and the factored line matrices.
+   subroutine prepare(self, field, grid, force)
+   !< Build the geometry-dependent caches: virtual block geometry and the factored line matrices.
    !< Twin of CPU ensure_esirkepov_current_solver_cache / ensure_direct_current_solver_cache (host factorization, one upload).
+   !< The matrices span whole virtual lines (the domain extent), one per direction (single refinement level).
    class(prism_fnl_pic_conserving_object), intent(inout)        :: self  !< Conserving current object.
    type(field_object),                     intent(in)           :: field !< Host field.
+   type(grid_object),                      intent(in)           :: grid  !< Grid.
    logical,                                intent(in), optional :: force !< Rebuild even if already prepared.
    real(R8P),    allocatable                                    :: mat(:,:,:), face_map(:,:)
    integer(I4P), allocatable                                    :: piv(:,:)
-   integer(I4P)                                                 :: dir, n, b, face, col
+   integer(I4P)                                                 :: dir, n, b, face, col, nvirt(3)
    logical                                                      :: force_
 
    force_ = .false. ; if (present(force)) force_ = force
-   if (self%prepared .and. (.not. force_) .and. self%blocks_number == field%blocks_number) return
-   self%blocks_number = field%blocks_number
-   call dev_assign_to_device(src=field%emin, dst=self%emin_gpu)
+   if (self%prepared .and. (.not. force_) .and. self%bblocks == field%blocks_number) return
+   nvirt = [self%ni, self%nj, self%nk]
+   call self%build_virtual_geometry(field=field, grid=grid)
+   if (any([self%ni, self%nj, self%nk] /= nvirt)) &
+      call mpih%error_stop(msg=': the FNL conserving PIC virtual block changed size (refinement level change is unsupported)')
    if (self%solver /= CONSERVING_SOLVER_MODIFIED) then
       do dir=1, 3
          select case(dir)
@@ -358,7 +396,7 @@ contains
                enddo
                deallocate(face_map)
             else
-               call build_centered_derivative_matrix(hs=self%hs, dx=field%dxyz(dir,b), n=n, a=mat(:,:,b))
+               call build_centered_derivative_matrix(hs=self%hs, dx=self%vdx(dir), n=n, a=mat(:,:,b))
             endif
             call factorize_matrix_pivot(a=mat(:,:,b), pivot=piv(:,b), n=n)
          enddo
@@ -382,19 +420,19 @@ contains
    integer(I4P)                                          :: ierr !< Error status.
 
    if (associated(self%gather_gpu)) return
-   call dev_alloc(fptr_dev=self%gather_gpu, ubounds=[self%nb,self%ni+self%ngc,self%nj+self%ngc,self%nk+self%ngc,self%nv], &
+   call dev_alloc(fptr_dev=self%gather_gpu, ubounds=[self%bnb,self%bni+self%ngc,self%bnj+self%ngc,self%bnk+self%ngc,self%nv], &
                   lbounds=[1,1-self%ngc,1-self%ngc,1-self%ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gather_gpu in prism_fnl_pic_conserving_object')
    endsubroutine allocate_gather
 
    subroutine copy_field(self, src, dst)
-   !< dst = src, full q-like device field (ghosts included).
+   !< dst = src, full real-block q-like device field (ghosts included).
    class(prism_fnl_pic_conserving_object), intent(in)    :: self !< Conserving current object.
    real(R8P),                              intent(in)    :: src(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Source.
    real(R8P),                              intent(inout) :: dst(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Destination.
    integer(I4P)                                          :: b, i, j, k, v, ngc, ni, nj, nk, nbl, nvv
 
-   ngc = self%ngc ; ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number ; nvv = size(src, dim=5)
+   ngc = self%ngc ; ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; nvv = size(src, dim=5)
    !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(src,dst)
    !$omp OMPLOOP collapse(5) DEVICEPTR(src,dst)
    do v=1, nvv
@@ -495,28 +533,32 @@ contains
    !< vectors (3 directions x 2 endpoints) are computed once per gang into gang-private arrays (CPU recomputes them inside
    !< the triple loop for the non-Gaussian/non-quartic shapes: same values, fewer evaluations). Different particles may
    !< overlap, hence the atomic updates.
+   !<
+   !< Cells are virtual-block (global) indices: a trajectory box may straddle any number of real blocks, only the domain
+   !< boundary (and MAX_SPAN) limits it.
    class(prism_fnl_pic_conserving_object), intent(in)    :: self           !< Conserving current object.
-   type(field_fnl_object),                 intent(in)    :: field_fnl      !< Device field helper.
+   type(field_fnl_object),                 intent(in)    :: field_fnl      !< Device field helper (unused: virtual geometry).
    real(R8P),                              intent(in)    :: q_ref(1:,1:)   !< Trajectory start [np,8].
    real(R8P),                              intent(in)    :: q_to(1:,1:)    !< Trajectory end [np,8].
-   real(R8P),                              intent(inout) :: h(1:,1:,1:,1:,1:) !< Directional charge change [nb,ni,nj,nk,3].
+   real(R8P),                              intent(inout) :: h(1:,1:,1:,1:,1:) !< Directional charge change [1,NX,NY,NZ,3].
    integer(I4P),                           intent(in)    :: p_first        !< First particle.
    integer(I4P),                           intent(in)    :: p_last         !< Last particle.
-   real(R8P), pointer                                    :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:)
-   real(R8P), pointer                                    :: dxyz_gpu(:,:), emin_gpu(:,:)
+   real(R8P), pointer                                    :: vx_gpu(:), vy_gpu(:), vz_gpu(:)
    real(R8P)                                             :: wref(MAX_SPAN,3), wto(MAX_SPAN,3), xc(MAX_SPAN)
    real(R8P)                                             :: dxyz(3), xr(3), xt(3), cutoff_limit, charge_density
    real(R8P)                                             :: a0, a1, da, b0, b1, db, c0, c1, dc, sigma
-   integer(I4P)                                          :: p, b, bt, bb, d, m, i, j, k, perr, ierr
+   real(R8P)                                             :: e1, e2, e3, d1, d2, d3
+   integer(I4P)                                          :: p, d, m, i, j, k, perr, ierr
    integer(I4P)                                          :: cr(3), ct(3), lo(3), hi(3), rr(3), rad, rmod
-   integer(I4P)                                          :: ni, nj, nk, ngc, nbl, shp, nn(3)
-   logical                                               :: modified, filter_esk, inside
+   integer(I4P)                                          :: ni, nj, nk, shp, nn(3)
+   logical                                               :: modified, filter_esk
 
    call zero_h(self=self, h=h)
    if (p_last < p_first) return
-   x_cell_gpu => field_fnl%x_cell_gpu ; y_cell_gpu => field_fnl%y_cell_gpu ; z_cell_gpu => field_fnl%z_cell_gpu
-   dxyz_gpu   => field_fnl%dxyz_gpu   ; emin_gpu   => self%emin_gpu
-   ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc ; nbl = self%blocks_number ; shp = self%shape
+   vx_gpu => self%vx_gpu ; vy_gpu => self%vy_gpu ; vz_gpu => self%vz_gpu
+   ni = self%ni ; nj = self%nj ; nk = self%nk ; shp = self%shape
+   e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
+   d1 = self%vdx(1)   ; d2 = self%vdx(2)   ; d3 = self%vdx(3)
    modified   = self%solver == CONSERVING_SOLVER_MODIFIED
    filter_esk = self%filter_deposition .and. (.not. modified)
    rad  = support_radius(self) ; if (filter_esk) rad = rad + 1_I4P
@@ -525,56 +567,30 @@ contains
    cutoff_limit = self%cutoff_sigma + 64._R8P*epsilon(self%cutoff_sigma)*max(1._R8P, abs(self%cutoff_sigma))
    ierr = 0_I4P
 
-   !$acc parallel loop gang DEVICEVAR(q_ref,q_to,h,x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,emin_gpu) &
-   !$acc& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit) &
-   !$acc& private(nn,wref,wto,xc,dxyz,xr,xt,cr,ct,lo,hi,rr,b,bt,perr,charge_density,inside) reduction(max:ierr)
-   !$omp OMPLOOP DEVICEPTR(q_ref,q_to,h,x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,emin_gpu) &
-   !$omp& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit) &
-   !$omp& private(nn,wref,wto,xc,dxyz,xr,xt,cr,ct,lo,hi,rr,b,bt,perr,charge_density,inside) reduction(max:ierr)
+   !$acc parallel loop gang DEVICEVAR(q_ref,q_to,h,vx_gpu,vy_gpu,vz_gpu) &
+   !$acc& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3) &
+   !$acc& private(nn,wref,wto,xc,dxyz,xr,xt,cr,ct,lo,hi,rr,perr,charge_density) reduction(max:ierr)
+   !$omp OMPLOOP DEVICEPTR(q_ref,q_to,h,vx_gpu,vy_gpu,vz_gpu) &
+   !$omp& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3) &
+   !$omp& private(nn,wref,wto,xc,dxyz,xr,xt,cr,ct,lo,hi,rr,perr,charge_density) reduction(max:ierr)
    do p=p_first, p_last
       perr = 0_I4P
       nn(1) = ni ; nn(2) = nj ; nn(3) = nk
+      dxyz(1) = d1 ; dxyz(2) = d2 ; dxyz(3) = d3
       xr(1) = q_ref(p,1) ; xr(2) = q_ref(p,2) ; xr(3) = q_ref(p,3)
       xt(1) = q_to(p,1)  ; xt(2) = q_to(p,2)  ; xt(3) = q_to(p,3)
-      ! find_pic_position_cell for both endpoints
-      b = 0_I4P ; bt = 0_I4P
+      ! find_pic_position_cell for both endpoints, virtual-block cells
+      cr(1) = ceiling((xr(1) - e1) / d1, kind=I4P) ; ct(1) = ceiling((xt(1) - e1) / d1, kind=I4P)
+      cr(2) = ceiling((xr(2) - e2) / d2, kind=I4P) ; ct(2) = ceiling((xt(2) - e2) / d2, kind=I4P)
+      cr(3) = ceiling((xr(3) - e3) / d3, kind=I4P) ; ct(3) = ceiling((xt(3) - e3) / d3, kind=I4P)
       !$acc loop seq
-      do bb=1, nbl
-         !$acc loop seq
-         do d=1, 3
-            cr(d) = ceiling((xr(d) - emin_gpu(d,bb)) / dxyz_gpu(bb,d), kind=I4P)
-         enddo
-         inside = cr(1) >= 1_I4P .and. cr(1) <= nn(1) .and. cr(2) >= 1_I4P .and. cr(2) <= nn(2) .and. &
-                  cr(3) >= 1_I4P .and. cr(3) <= nn(3)
-         if (inside) then
-            b = bb
-            exit
-         endif
+      do d=1, 3
+         if (cr(d) < 1_I4P .or. cr(d) > nn(d) .or. ct(d) < 1_I4P .or. ct(d) > nn(d)) perr = ERR_OUTSIDE
       enddo
-      !$acc loop seq
-      do bb=1, nbl
-         !$acc loop seq
-         do d=1, 3
-            ct(d) = ceiling((xt(d) - emin_gpu(d,bb)) / dxyz_gpu(bb,d), kind=I4P)
-         enddo
-         inside = ct(1) >= 1_I4P .and. ct(1) <= nn(1) .and. ct(2) >= 1_I4P .and. ct(2) <= nn(2) .and. &
-                  ct(3) >= 1_I4P .and. ct(3) <= nn(3)
-         if (inside) then
-            bt = bb
-            exit
-         endif
-      enddo
-      if (b == 0_I4P .or. bt == 0_I4P) then
-         perr = ERR_OUTSIDE
-      elseif (bt /= b) then
-         perr = ERR_CROSSED
-      elseif (q_ref(p,7) /= q_to(p,7)) then
-         perr = ERR_CHARGE
-      endif
+      if (perr == 0_I4P .and. q_ref(p,7) /= q_to(p,7)) perr = ERR_CHARGE
       if (perr == 0_I4P) then
          !$acc loop seq
          do d=1, 3
-            dxyz(d) = dxyz_gpu(b,d)
             lo(d) = min(cr(d),ct(d)) - rad
             hi(d) = max(cr(d),ct(d)) + rad
             if (lo(d) < 1_I4P .or. hi(d) > nn(d)) perr = ERR_BOUNDARY
@@ -598,9 +614,9 @@ contains
             !$acc loop seq
             do m=1, rr(d)
                select case(d)
-               case(1) ; xc(m) = x_cell_gpu(b,lo(d)+m-1+ngc)
-               case(2) ; xc(m) = y_cell_gpu(b,lo(d)+m-1+ngc)
-               case(3) ; xc(m) = z_cell_gpu(b,lo(d)+m-1+ngc)
+               case(1) ; xc(m) = vx_gpu(lo(d)+m-1)
+               case(2) ; xc(m) = vy_gpu(lo(d)+m-1)
+               case(3) ; xc(m) = vz_gpu(lo(d)+m-1)
                endselect
             enddo
             call shape_weights_dev(shp=shp, modified=modified, filter=filter_esk, sigma=sigma, cutoff_limit=cutoff_limit, &
@@ -624,13 +640,13 @@ contains
             a0 = wref(i-lo(1)+1,1) ; a1 = wto(i-lo(1)+1,1) ; da = a1-a0
             !$acc atomic update
             !$omp atomic update
-            h(b,i,j,k,1) = h(b,i,j,k,1) + charge_density*da*(b0*c0 + 0.5_R8P*(db*c0+b0*dc) + db*dc/3._R8P)
+            h(1,i,j,k,1) = h(1,i,j,k,1) + charge_density*da*(b0*c0 + 0.5_R8P*(db*c0+b0*dc) + db*dc/3._R8P)
             !$acc atomic update
             !$omp atomic update
-            h(b,i,j,k,2) = h(b,i,j,k,2) + charge_density*db*(a0*c0 + 0.5_R8P*(da*c0+a0*dc) + da*dc/3._R8P)
+            h(1,i,j,k,2) = h(1,i,j,k,2) + charge_density*db*(a0*c0 + 0.5_R8P*(da*c0+a0*dc) + da*dc/3._R8P)
             !$acc atomic update
             !$omp atomic update
-            h(b,i,j,k,3) = h(b,i,j,k,3) + charge_density*dc*(a0*b0 + 0.5_R8P*(da*b0+a0*db) + da*db/3._R8P)
+            h(1,i,j,k,3) = h(1,i,j,k,3) + charge_density*dc*(a0*b0 + 0.5_R8P*(da*b0+a0*db) + da*db/3._R8P)
          enddo
          enddo
          enddo
@@ -642,8 +658,9 @@ contains
    subroutine decomposition_displacement(self, pic_fnl, field_fnl, field, grid, q_ref, q_to, h)
    !< Directional telescopic decomposition of rho(q_to)-rho(q_ref) with the configured deposit.
    !< CPU twin: compute_pic_charge_displacement_decomposition (+ deposit_pic_charge_density). Each of the 36 deposits is the
-   !< regular device deposit (grid index + particle_weighting_dev) into a single-slot scratch, so no full-nv work array is
-   !< allocated (the CPU allocates q_work with all nv variables).
+   !< regular device deposit (grid index + particle_weighting_dev) into a single-slot real-block scratch, so no full-nv work
+   !< array is allocated (the CPU allocates q_work with all nv variables). The ghost spill of each deposit is folded back
+   !< onto the neighbour blocks (reduce_ghost_local_gpu), then the complete block interiors are gathered into the virtual H.
    class(prism_fnl_pic_conserving_object), intent(inout) :: self              !< Conserving current object.
    type(prism_fnl_pic_object),             intent(inout) :: pic_fnl           !< Device PIC helper.
    type(field_fnl_object),                 intent(in)    :: field_fnl         !< Device field helper.
@@ -692,35 +709,38 @@ contains
       call pic_fnl%particle_cartesian_grid_index_dev(field_fnl=field_fnl, field=field, grid=grid, q_pic_gpu=q_mixed)
       call pic_fnl%particle_weighting_dev(field_fnl=field_fnl, field=field, grid=grid, q_gpu=self%rho_work_gpu, &
                                           q_pic_gpu=q_mixed, nv=1_I4P)
+      call field_fnl%reduce_ghost_local_gpu(q_gpu=self%rho_work_gpu, v_first=1_I4P, v_last=1_I4P)
       endsubroutine deposit
 
       subroutine accumulate_rho(dir, sgn)
       integer(I4P), intent(in) :: dir
       real(R8P),    intent(in) :: sgn
       real(R8P), pointer       :: rho(:,:,:,:,:)
+      integer(I4P), pointer    :: off(:,:)
       integer(I4P)             :: b, i, j, k, ni, nj, nk, nbl
-      rho => self%rho_work_gpu
-      ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number
+      rho => self%rho_work_gpu ; off => self%off_gpu
+      ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks
+      ! real blocks tile the virtual block: one writer per virtual cell
       if (sgn < 0._R8P) then
-         !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(h,rho)
-         !$omp OMPLOOP collapse(4) DEVICEPTR(h,rho)
+         !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(h,rho,off)
+         !$omp OMPLOOP collapse(4) DEVICEPTR(h,rho,off)
          do k=1, nk
          do j=1, nj
          do i=1, ni
          do b=1, nbl
-            h(b,i,j,k,dir) = h(b,i,j,k,dir) - rho(b,i,j,k,1) / 6._R8P
+            h(1,off(b,1)+i,off(b,2)+j,off(b,3)+k,dir) = h(1,off(b,1)+i,off(b,2)+j,off(b,3)+k,dir) - rho(b,i,j,k,1) / 6._R8P
          enddo
          enddo
          enddo
          enddo
       else
-         !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(h,rho)
-         !$omp OMPLOOP collapse(4) DEVICEPTR(h,rho)
+         !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(h,rho,off)
+         !$omp OMPLOOP collapse(4) DEVICEPTR(h,rho,off)
          do k=1, nk
          do j=1, nj
          do i=1, ni
          do b=1, nbl
-            h(b,i,j,k,dir) = h(b,i,j,k,dir) + rho(b,i,j,k,1) / 6._R8P
+            h(1,off(b,1)+i,off(b,2)+j,off(b,3)+k,dir) = h(1,off(b,1)+i,off(b,2)+j,off(b,3)+k,dir) + rho(b,i,j,k,1) / 6._R8P
          enddo
          enddo
          enddo
@@ -763,19 +783,21 @@ contains
 
    subroutine solve_dispatch(self, field_fnl, q, var_jx, hq, dt)
    !< Select the configured current reconstruction. CPU twin: solve_pic_charge_conserving_current_dispatch.
+   !< The solve runs on the virtual block (jv_gpu), then J is scattered to the real blocks, ghosts included.
    class(prism_fnl_pic_conserving_object), intent(inout) :: self      !< Conserving current object.
    type(field_fnl_object),                 intent(in)    :: field_fnl !< Device field helper.
-   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Target field.
+   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real target field.
    integer(I4P),                           intent(in)    :: var_jx    !< Jx slot in q (Jy, Jz follow).
-   real(R8P),                              intent(in)    :: hq(1:,1:,1:,1:,1:) !< Directional source [nb,ni,nj,nk,3].
+   real(R8P),                              intent(in)    :: hq(1:,1:,1:,1:,1:) !< Directional source [1,NX,NY,NZ,3].
    real(R8P),                              intent(in)    :: dt        !< Time step.
 
    select case(self%solver)
    case(CONSERVING_SOLVER_DIRECT, CONSERVING_SOLVER_ESIRKEPOV)
-      call self%solve_lines(field_fnl=field_fnl, q=q, var_jx=var_jx, hq=hq, dt=dt)
+      call self%solve_lines(field_fnl=field_fnl, q=self%jv_gpu, var_jx=1_I4P, hq=hq, dt=dt)
    case(CONSERVING_SOLVER_MODIFIED)
-      call self%solve_modified(field_fnl=field_fnl, q=q, var_jx=var_jx, hq=hq, dt=dt)
+      call self%solve_modified(field_fnl=field_fnl, q=self%jv_gpu, var_jx=1_I4P, hq=hq, dt=dt)
    endselect
+   call self%scatter_current(q=q, var_jx=var_jx)
    endsubroutine solve_dispatch
 
    subroutine solve_lines(self, field_fnl, q, var_jx, hq, dt)
@@ -795,7 +817,7 @@ contains
    integer(I4P),                           intent(in)    :: var_jx    !< Jx slot in q.
    real(R8P),                              intent(in)    :: hq(1:,1:,1:,1:,1:) !< Directional source [nb,ni,nj,nk,3].
    real(R8P),                              intent(in)    :: dt        !< Time step.
-   real(R8P), pointer                                    :: mat(:,:,:), line(:), dxyz_gpu(:,:), fv1(:), fd1(:)
+   real(R8P), pointer                                    :: mat(:,:,:), line(:), fv1(:), fd1(:)
    integer(I4P), pointer                                 :: piv(:,:)
    real(R8P)                                             :: res, flux, tmp, hdx, recon, coeff, sgn, value
    integer(I4P)                                          :: dir, n, n1, n2, nl, nbl, b, t1, t2, lid, m, c, pv
@@ -805,8 +827,9 @@ contains
    call zero_current(self=self, q=q, var_jx=var_jx)
    esirkepov = self%solver == CONSERVING_SOLVER_ESIRKEPOV
    hs = self%hs ; nbl = self%blocks_number
-   line => self%line_gpu ; dxyz_gpu => field_fnl%dxyz_gpu ; fv1 => self%fv1_gpu ; fd1 => self%fd1_gpu
+   line => self%line_gpu ; fv1 => self%fv1_gpu ; fd1 => self%fd1_gpu
    do dir=1, 3
+      hdx = self%vdx(dir)
       select case(dir)
       case(1) ; n = self%ni ; n1 = self%nj ; n2 = self%nk ; mat => self%mat_x_gpu ; piv => self%piv_x_gpu
       case(2) ; n = self%nj ; n1 = self%ni ; n2 = self%nk ; mat => self%mat_y_gpu ; piv => self%piv_y_gpu
@@ -815,17 +838,16 @@ contains
       nl = nbl*n1*n2
       var = var_jx + dir - 1_I4P
       res = 0._R8P
-      !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(q,hq,mat,piv,line,dxyz_gpu,fv1,fd1) &
-      !$acc& firstprivate(dir,n,n1,nl,hs,var,dt,esirkepov) &
-      !$acc& private(lid,hdx,flux,tmp,recon,coeff,sgn,value,m,c,pv,i,j,k,face,mm,col,row) reduction(max:res)
-      !$omp OMPLOOP collapse(3) DEVICEPTR(q,hq,mat,piv,line,dxyz_gpu,fv1,fd1) &
-      !$omp& firstprivate(dir,n,n1,nl,hs,var,dt,esirkepov) &
-      !$omp& private(lid,hdx,flux,tmp,recon,coeff,sgn,value,m,c,pv,i,j,k,face,mm,col,row) reduction(max:res)
+      !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(q,hq,mat,piv,line,fv1,fd1) &
+      !$acc& firstprivate(dir,n,n1,nl,hs,var,dt,esirkepov,hdx) &
+      !$acc& private(lid,flux,tmp,recon,coeff,sgn,value,m,c,pv,i,j,k,face,mm,col,row) reduction(max:res)
+      !$omp OMPLOOP collapse(3) DEVICEPTR(q,hq,mat,piv,line,fv1,fd1) &
+      !$omp& firstprivate(dir,n,n1,nl,hs,var,dt,esirkepov,hdx) &
+      !$omp& private(lid,flux,tmp,recon,coeff,sgn,value,m,c,pv,i,j,k,face,mm,col,row) reduction(max:res)
       do t2=1, n2
       do t1=1, n1
       do b=1, nbl
          lid = b + nbl*((t1-1) + n1*(t2-1))
-         hdx = dxyz_gpu(b,dir)
          ! right-hand side
          if (esirkepov) then
             flux = 0._R8P
@@ -928,7 +950,7 @@ contains
       enddo
       self%residual_max = max(self%residual_max, res)
    enddo
-   call self%impose_current_ghosts(q=q, var_jx=var_jx)
+   call self%impose_virtual_ghosts(q=q, var_jx=var_jx)
    endsubroutine solve_lines
 
    subroutine solve_modified(self, field_fnl, q, var_jx, hq, dt)
@@ -946,15 +968,16 @@ contains
    integer(I4P),                           intent(in)    :: var_jx    !< Jx slot in q.
    real(R8P),                              intent(in)    :: hq(1:,1:,1:,1:,1:) !< Directional source [nb,ni,nj,nk,3].
    real(R8P),                              intent(in)    :: dt        !< Time step.
-   real(R8P), pointer                                    :: line(:), dxyz_gpu(:,:), qw(:), wb(:,:,:,:)
+   real(R8P), pointer                                    :: line(:), qw(:), wb(:,:,:,:)
    real(R8P)                                             :: res, flux, hdx, sol
    integer(I4P)                                          :: dir, axis_a, axis_b, n, n1, n2, nl, nbl, b, t1, t2, lid
    integer(I4P)                                          :: m, t, f, i, j, k, var, qfirst, nq
 
    call zero_current(self=self, q=q, var_jx=var_jx)
    nbl = self%blocks_number ; qfirst = self%qfirst ; nq = self%nq
-   line => self%line_gpu ; dxyz_gpu => field_fnl%dxyz_gpu ; qw => self%qw_gpu ; wb => self%work_b_gpu
+   line => self%line_gpu ; qw => self%qw_gpu ; wb => self%work_b_gpu
    do dir=1, 3
+      hdx = self%vdx(dir)
       select case(dir)
       case(1) ; axis_a = 2 ; axis_b = 3 ; n = self%ni ; n1 = self%nj ; n2 = self%nk
       case(2) ; axis_a = 1 ; axis_b = 3 ; n = self%nj ; n1 = self%ni ; n2 = self%nk
@@ -966,15 +989,14 @@ contains
       var = var_jx + dir - 1_I4P
       ! face prefix sums, one thread per line
       res = 0._R8P
-      !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(wb,line,dxyz_gpu) &
-      !$acc& firstprivate(dir,n,n1,nl,dt) private(lid,hdx,flux,m,i,j,k) reduction(max:res)
-      !$omp OMPLOOP collapse(3) DEVICEPTR(wb,line,dxyz_gpu) &
-      !$omp& firstprivate(dir,n,n1,nl,dt) private(lid,hdx,flux,m,i,j,k) reduction(max:res)
+      !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(wb,line) &
+      !$acc& firstprivate(dir,n,n1,nl,dt,hdx) private(lid,flux,m,i,j,k) reduction(max:res)
+      !$omp OMPLOOP collapse(3) DEVICEPTR(wb,line) &
+      !$omp& firstprivate(dir,n,n1,nl,dt,hdx) private(lid,flux,m,i,j,k) reduction(max:res)
       do t2=1, n2
       do t1=1, n1
       do b=1, nbl
          lid = b + nbl*((t1-1) + n1*(t2-1))
-         hdx = dxyz_gpu(b,dir)
          flux = 0._R8P
          line(lid) = flux
          !$acc loop seq
@@ -1012,7 +1034,7 @@ contains
       enddo
       enddo
    enddo
-   call self%impose_current_ghosts(q=q, var_jx=var_jx)
+   call self%impose_virtual_ghosts(q=q, var_jx=var_jx)
    endsubroutine solve_modified
 
    subroutine solve_modified_with_cleanup(self, pic_fnl, field_fnl, q, var_jx, q_ref, q_hist, active_stage, alph, beta, dt, &
@@ -1023,11 +1045,12 @@ contains
    !< The particle loop stays on the host, as on the CPU (each particle needs a whole-grid modified solve, so the work per
    !< particle is already a set of grid-parallel kernels). The support box of each particle is obtained with min/max
    !< reductions (no device-to-host array copy). The tail check reports the largest offending ratio instead of the first
-   !< offending cell.
+   !< offending cell. Everything runs on the virtual block (support boxes in global cells, so a box may straddle real
+   !< blocks); the accumulated current is scattered to the real blocks at the end.
    class(prism_fnl_pic_conserving_object), intent(inout)        :: self          !< Conserving current object.
    type(prism_fnl_pic_object),             intent(in)           :: pic_fnl       !< Device PIC helper.
    type(field_fnl_object),                 intent(in)           :: field_fnl     !< Device field helper.
-   real(R8P),                              intent(inout)        :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Target field.
+   real(R8P),                              intent(inout)        :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real target.
    integer(I4P),                           intent(in)           :: var_jx        !< Jx slot in q.
    real(R8P),                              intent(in)           :: q_ref(1:,1:)  !< Trajectory start [np,8].
    real(R8P),                              intent(in)           :: q_hist(1:,1:,1:) !< Stage targets [np,8,>=stages].
@@ -1045,7 +1068,7 @@ contains
    np = self%particle_number
    stage_count = max(1_I4P, active_stage)
    single = np == 1_I4P .and. present(mixed_source)
-   call zero_current(self=self, q=q, var_jx=var_jx)
+   call zero_current(self=self, q=self%jv_gpu, var_jx=1_I4P)
    ! P/Q support offsets (CPU: cleanup_modified_particle_current)
    p_min = huge(1_I4P) ; p_max = -huge(1_I4P)
    do s=-self%radius, self%radius
@@ -1111,9 +1134,10 @@ contains
             call mpih%error_stop(msg=': particle current outside theoretical support exceeds tail threshold')
          endif
       enddo
-      call self%impose_current_ghosts(q=self%jp_gpu, var_jx=1_I4P)
+      call self%impose_virtual_ghosts(q=self%jp_gpu, var_jx=1_I4P)
       call add_particle_current
    enddo
+   call self%scatter_current(q=q, var_jx=var_jx)
    contains
       subroutine copy_source(src, dst)
       real(R8P),    intent(in)    :: src(1:,1:,1:,1:,1:)
@@ -1165,71 +1189,45 @@ contains
       endsubroutine combine_particle_source
 
       subroutine particle_support(particle, block, slo, shi)
-      !< Block and cell box spanned by the particle shape over its reference and stage positions (min/max reductions).
+      !< Virtual-block cell box spanned by the particle shape over its reference and stage positions (min/max reductions).
       integer(I4P), intent(in)  :: particle
       integer(I4P), intent(out) :: block, slo(3), shi(3)
-      real(R8P), pointer        :: emin_gpu(:,:), dxyz_gpu(:,:)
-      real(R8P)                 :: x(3)
-      integer(I4P)              :: tt, bb, d, b0, bt, c(3), cr(3), rx, nbl, ni, nj, nk, ierr, ref_block
+      real(R8P)                 :: x(3), e1, e2, e3, d1, d2, d3
+      integer(I4P)              :: tt, c(3), cr(3), rx, ni, nj, nk, ierr
       integer(I4P)              :: lo1, lo2, lo3, hi1, hi2, hi3
-      logical                   :: inside
-      emin_gpu => self%emin_gpu ; dxyz_gpu => field_fnl%dxyz_gpu
-      nbl = self%blocks_number ; ni = self%ni ; nj = self%nj ; nk = self%nk
+      ni = self%ni ; nj = self%nj ; nk = self%nk
+      e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
+      d1 = self%vdx(1)   ; d2 = self%vdx(2)   ; d3 = self%vdx(3)
       rx = support_radius(self)
       lo1 = huge(1_I4P) ; lo2 = huge(1_I4P) ; lo3 = huge(1_I4P)
       hi1 = -huge(1_I4P) ; hi2 = -huge(1_I4P) ; hi3 = -huge(1_I4P)
-      ierr = 0_I4P ; ref_block = 0_I4P
-      !$acc parallel loop independent gang vector DEVICEVAR(q_ref,q_hist,emin_gpu,dxyz_gpu) firstprivate(ni,nj,nk,rx,particle) &
-      !$acc& private(x,c,cr,b0,bt,inside) &
-      !$acc& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3,ierr,ref_block)
-      !$omp OMPLOOP DEVICEPTR(q_ref,q_hist,emin_gpu,dxyz_gpu) firstprivate(ni,nj,nk,rx,particle) &
-      !$omp& private(x,c,cr,b0,bt,inside) &
-      !$omp& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3,ierr,ref_block)
+      ierr = 0_I4P
+      !$acc parallel loop independent gang vector DEVICEVAR(q_ref,q_hist) &
+      !$acc& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3) private(x,c,cr) &
+      !$acc& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3,ierr)
+      !$omp OMPLOOP DEVICEPTR(q_ref,q_hist) &
+      !$omp& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3) private(x,c,cr) &
+      !$omp& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3,ierr)
       do tt=1, stage_count
-         b0 = 0_I4P
          x(1) = q_ref(particle,1) ; x(2) = q_ref(particle,2) ; x(3) = q_ref(particle,3)
-         !$acc loop seq
-         do bb=1, nbl
-            !$acc loop seq
-            do d=1, 3
-               cr(d) = ceiling((x(d) - emin_gpu(d,bb)) / dxyz_gpu(bb,d), kind=I4P)
-            enddo
-            inside = cr(1) >= 1_I4P .and. cr(1) <= ni .and. cr(2) >= 1_I4P .and. cr(2) <= nj .and. &
-                     cr(3) >= 1_I4P .and. cr(3) <= nk
-            if (inside) then
-               b0 = bb
-               exit
-            endif
-         enddo
-         bt = 0_I4P
+         cr(1) = ceiling((x(1) - e1) / d1, kind=I4P)
+         cr(2) = ceiling((x(2) - e2) / d2, kind=I4P)
+         cr(3) = ceiling((x(3) - e3) / d3, kind=I4P)
          x(1) = q_hist(particle,1,tt) ; x(2) = q_hist(particle,2,tt) ; x(3) = q_hist(particle,3,tt)
-         !$acc loop seq
-         do bb=1, nbl
-            !$acc loop seq
-            do d=1, 3
-               c(d) = ceiling((x(d) - emin_gpu(d,bb)) / dxyz_gpu(bb,d), kind=I4P)
-            enddo
-            inside = c(1) >= 1_I4P .and. c(1) <= ni .and. c(2) >= 1_I4P .and. c(2) <= nj .and. &
-                     c(3) >= 1_I4P .and. c(3) <= nk
-            if (inside) then
-               bt = bb
-               exit
-            endif
-         enddo
-         if (b0 == 0_I4P .or. bt == 0_I4P) then
+         c(1) = ceiling((x(1) - e1) / d1, kind=I4P)
+         c(2) = ceiling((x(2) - e2) / d2, kind=I4P)
+         c(3) = ceiling((x(3) - e3) / d3, kind=I4P)
+         if (cr(1) < 1_I4P .or. cr(1) > ni .or. cr(2) < 1_I4P .or. cr(2) > nj .or. cr(3) < 1_I4P .or. cr(3) > nk .or. &
+             c(1)  < 1_I4P .or. c(1)  > ni .or. c(2)  < 1_I4P .or. c(2)  > nj .or. c(3)  < 1_I4P .or. c(3)  > nk) then
             ierr = max(ierr, ERR_OUTSIDE)
-         elseif (bt /= b0) then
-            ierr = max(ierr, ERR_CROSSED)
          else
-            ref_block = max(ref_block, b0)
             lo1 = min(lo1, cr(1)-rx, c(1)-rx) ; hi1 = max(hi1, cr(1)+rx, c(1)+rx)
             lo2 = min(lo2, cr(2)-rx, c(2)-rx) ; hi2 = max(hi2, cr(2)+rx, c(2)+rx)
             lo3 = min(lo3, cr(3)-rx, c(3)-rx) ; hi3 = max(hi3, cr(3)+rx, c(3)+rx)
          endif
       enddo
-      if (ierr == ERR_OUTSIDE) call mpih%error_stop(msg=': PIC particle outside local grid in Esirkepov current')
-      if (ierr == ERR_CROSSED) call mpih%error_stop(msg=': particle crossed a block in current cleanup')
-      block = ref_block
+      if (ierr == ERR_OUTSIDE) call mpih%error_stop(msg=': PIC particle outside the domain in Esirkepov current cleanup')
+      block = 1_I4P
       slo = [lo1, lo2, lo3]
       shi = [hi1, hi2, hi3]
       endsubroutine particle_support
@@ -1296,19 +1294,19 @@ contains
       endfunction clean_tail
 
       subroutine add_particle_current
-      !< q(J) += jp, full extent (ghosts included, as the CPU accumulation).
-      real(R8P), pointer :: jp(:,:,:,:,:)
-      integer(I4P)       :: b, i, j, k, d, ni, nj, nk, nbl, ngc, vj
-      jp => self%jp_gpu
-      ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number ; ngc = self%ngc ; vj = var_jx
-      !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q,jp) firstprivate(vj)
-      !$omp OMPLOOP collapse(5) DEVICEPTR(q,jp) firstprivate(vj)
+      !< jv(J) += jp, full virtual extent (ghosts included, as the CPU accumulation).
+      real(R8P), pointer :: jp(:,:,:,:,:), jv(:,:,:,:,:)
+      integer(I4P)       :: b, i, j, k, d, ni, nj, nk, nbl, ngc
+      jp => self%jp_gpu ; jv => self%jv_gpu
+      ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number ; ngc = self%ngc
+      !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(jv,jp)
+      !$omp OMPLOOP collapse(5) DEVICEPTR(jv,jp)
       do d=1, 3
       do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
       do i=1-ngc, ni+ngc
       do b=1, nbl
-         q(b,i,j,k,vj+d-1) = q(b,i,j,k,vj+d-1) + jp(b,i,j,k,d)
+         jv(b,i,j,k,d) = jv(b,i,j,k,d) + jp(b,i,j,k,d)
       enddo
       enddo
       enddo
@@ -1320,49 +1318,65 @@ contains
    subroutine deposit_modified_charge(self, pic_fnl, field_fnl, field, grid, q, nv)
    !< Deposit the unfiltered particle shape, then apply P_c in all directions. CPU twin: deposit_pic_modified_charge.
    !< The neighbour list must be current (caller runs the grid index first, as on the CPU).
+   !<
+   !< Multi-block: the regular deposit lands in the real blocks (ghost spill folded back with reduce_ghost_local_gpu), the
+   !< complete interiors are gathered into the virtual block, filtered there (P reaches 7 cells, beyond ngc), and the result
+   !< is scattered back to every real cell: interior and interface ghosts get the filtered values, physical ghosts 0 (as the
+   !< single-block CPU, which zeroes the rho ghosts).
    class(prism_fnl_pic_conserving_object), intent(inout) :: self      !< Conserving current object.
    type(prism_fnl_pic_object),             intent(inout) :: pic_fnl   !< Device PIC helper.
    type(field_fnl_object),                 intent(in)    :: field_fnl !< Device field helper.
    type(field_object),                     intent(in)    :: field     !< Host field.
    type(grid_object),                      intent(in)    :: grid      !< Grid.
-   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field.
+   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real field.
    integer(I4P),                           intent(in)    :: nv        !< Charge density slot.
-   integer(I4P), pointer                                 :: nl_gpu(:,:)
+   integer(I4P), pointer                                 :: nl_gpu(:,:), off(:,:)
    real(R8P),    pointer                                 :: wa(:,:,:,:), wb(:,:,:,:)
    integer(I4P)                                          :: n, np, rx, margin, ierr, ni, nj, nk, nbl, ngc, b, i, j, k
+   integer(I4P)                                          :: nx, ny, nz, gi, gj, gk
    logical                                               :: old_filter
 
-   ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number ; ngc = self%ngc
+   ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
+   nx = self%ni ; ny = self%nj ; nz = self%nk
    rx = support_radius(self) ; margin = self%radius ; np = self%particle_number
+   off => self%off_gpu
    if (np > 0_I4P) then
       nl_gpu => pic_fnl%neighbour_list_gpu
       ierr = 0_I4P
-      !$acc parallel loop independent gang vector DEVICEVAR(nl_gpu) firstprivate(rx,margin) reduction(max:ierr)
-      !$omp OMPLOOP DEVICEPTR(nl_gpu) firstprivate(rx,margin) reduction(max:ierr)
+      !$acc parallel loop independent gang vector DEVICEVAR(nl_gpu,off) firstprivate(rx,margin,nx,ny,nz) &
+      !$acc& private(gi,gj,gk) reduction(max:ierr)
+      !$omp OMPLOOP DEVICEPTR(nl_gpu,off) firstprivate(rx,margin,nx,ny,nz) private(gi,gj,gk) reduction(max:ierr)
       do n=1, np
          if (nl_gpu(n,1) <= 0_I4P) then
             ierr = max(ierr, ERR_OUTSIDE)
-         elseif (nl_gpu(n,2)-rx <= margin .or. ni-nl_gpu(n,2)-rx <= margin .or. &
-                 nl_gpu(n,3)-rx <= margin .or. nj-nl_gpu(n,3)-rx <= margin .or. &
-                 nl_gpu(n,4)-rx <= margin .or. nk-nl_gpu(n,4)-rx <= margin) then
-            ierr = max(ierr, ERR_FILTER)
+         else
+            ! global (virtual-block) cell: the filter margin is measured from the domain boundary
+            gi = off(nl_gpu(n,1),1) + nl_gpu(n,2)
+            gj = off(nl_gpu(n,1),2) + nl_gpu(n,3)
+            gk = off(nl_gpu(n,1),3) + nl_gpu(n,4)
+            if (gi-rx <= margin .or. nx-gi-rx <= margin .or. &
+                gj-rx <= margin .or. ny-gj-rx <= margin .or. &
+                gk-rx <= margin .or. nz-gk-rx <= margin) ierr = max(ierr, ERR_FILTER)
          endif
       enddo
-      if (ierr == ERR_OUTSIDE) call mpih%error_stop(msg=': PIC particle outside local grid in esirkepov-modified charge')
-      if (ierr == ERR_FILTER) call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a boundary')
+      if (ierr == ERR_OUTSIDE) call mpih%error_stop(msg=': PIC particle outside the domain in esirkepov-modified charge')
+      if (ierr == ERR_FILTER) call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a domain boundary')
    endif
    old_filter = pic_fnl%filter_deposition
    pic_fnl%filter_deposition = .false.
    call pic_fnl%particle_weighting_dev(field_fnl=field_fnl, field=field, grid=grid, q_gpu=q, q_pic_gpu=pic_fnl%q_pic_gpu, nv=nv)
    pic_fnl%filter_deposition = old_filter
+   ! no particles: the device deposit returns before zeroing, nothing to fold back
+   if (np > 0_I4P) call field_fnl%reduce_ghost_local_gpu(q_gpu=q, v_first=nv, v_last=nv)
    wa => self%work_a_gpu ; wb => self%work_b_gpu
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wa) firstprivate(nv)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(q,wa) firstprivate(nv)
+   ! gather the real interiors (they tile the virtual block: one writer per virtual cell)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wa,off) firstprivate(nv)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q,wa,off) firstprivate(nv)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, nbl
-      wa(b,i,j,k) = q(b,i,j,k,nv)
+      wa(1,off(b,1)+i,off(b,2)+j,off(b,3)+k) = q(b,i,j,k,nv)
    enddo
    enddo
    enddo
@@ -1370,14 +1384,15 @@ contains
    call filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P)
    call filter_axis(self=self, input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P)
    call filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P)
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wb) firstprivate(nv)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(q,wb) firstprivate(nv)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wb,off) firstprivate(nv,nx,ny,nz) private(gi,gj,gk)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q,wb,off) firstprivate(nv,nx,ny,nz) private(gi,gj,gk)
    do k=1-ngc, nk+ngc
    do j=1-ngc, nj+ngc
    do i=1-ngc, ni+ngc
    do b=1, nbl
-      if (i >= 1 .and. i <= ni .and. j >= 1 .and. j <= nj .and. k >= 1 .and. k <= nk) then
-         q(b,i,j,k,nv) = wb(b,i,j,k)
+      gi = off(b,1) + i ; gj = off(b,2) + j ; gk = off(b,3) + k
+      if (gi >= 1 .and. gi <= nx .and. gj >= 1 .and. gj <= ny .and. gk >= 1 .and. gk <= nz) then
+         q(b,i,j,k,nv) = wb(1,gi,gj,gk)
       else
          q(b,i,j,k,nv) = 0._R8P
       endif
@@ -1388,11 +1403,137 @@ contains
    endsubroutine deposit_modified_charge
 
    subroutine impose_current_ghosts(self, q, var_jx)
-   !< Odd mirror (Esirkepov variants: zero normal face flux) or zero (direct) current ghosts.
-   !< CPU twins: impose_odd_current_ghosts, impose_zero_current_ghosts. Every ghost write reads a cell that is interior in
+   !< Odd mirror (Esirkepov variants: zero normal face flux) or zero (direct) current ghosts on the PHYSICAL faces of the real
+   !< blocks; interface ghosts are left to the ghost exchange. CPU twins: impose_odd_current_ghosts,
+   !< impose_zero_current_ghosts (single block: every face is physical). Every ghost write reads a cell that is interior in
    !< the component's own direction, so all three components are imposed in one race-free kernel.
    class(prism_fnl_pic_conserving_object), intent(in)    :: self   !< Conserving current object.
-   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field.
+   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real field.
+   integer(I4P),                           intent(in)    :: var_jx !< Jx slot in q.
+   integer(I4P), pointer                                 :: off(:,:)
+   integer(I4P)                                          :: b, i, j, k, ni, nj, nk, ngc, nbl, vx, vy, vz, nx, ny, nz
+   logical                                               :: odd, xm, xp, ym, yp, zm, zp
+
+   ni = self%bni ; nj = self%bnj ; nk = self%bnk ; ngc = self%ngc ; nbl = self%bblocks
+   nx = self%ni ; ny = self%nj ; nz = self%nk
+   vx = var_jx ; vy = var_jx + 1_I4P ; vz = var_jx + 2_I4P
+   odd = self%solver /= CONSERVING_SOLVER_DIRECT
+   off => self%off_gpu
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,off) firstprivate(vx,vy,vz,odd,nx,ny,nz) &
+   !$acc& private(xm,xp,ym,yp,zm,zp)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q,off) firstprivate(vx,vy,vz,odd,nx,ny,nz) private(xm,xp,ym,yp,zm,zp)
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do b=1, nbl
+      xm = off(b,1) == 0_I4P ; xp = off(b,1) + ni == nx
+      ym = off(b,2) == 0_I4P ; yp = off(b,2) + nj == ny
+      zm = off(b,3) == 0_I4P ; zp = off(b,3) + nk == nz
+      if (odd) then
+         if (i < 1  .and. xm) q(b,i,j,k,vx) = -q(b,1-i,j,k,vx)
+         if (i > ni .and. xp) q(b,i,j,k,vx) = -q(b,2*ni+1-i,j,k,vx)
+         if (j < 1  .and. ym) q(b,i,j,k,vy) = -q(b,i,1-j,k,vy)
+         if (j > nj .and. yp) q(b,i,j,k,vy) = -q(b,i,2*nj+1-j,k,vy)
+         if (k < 1  .and. zm) q(b,i,j,k,vz) = -q(b,i,j,1-k,vz)
+         if (k > nk .and. zp) q(b,i,j,k,vz) = -q(b,i,j,2*nk+1-k,vz)
+      else
+         if ((i < 1 .and. xm) .or. (i > ni .and. xp)) q(b,i,j,k,vx) = 0._R8P
+         if ((j < 1 .and. ym) .or. (j > nj .and. yp)) q(b,i,j,k,vy) = 0._R8P
+         if ((k < 1 .and. zm) .or. (k > nk .and. zp)) q(b,i,j,k,vz) = 0._R8P
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine impose_current_ghosts
+
+   ! private methods
+   subroutine build_virtual_geometry(self, field, grid)
+   !< Build the virtual block of the whole domain: sizes, origin, spacing, cell centers and the origin of every real block.
+   !< Requirements (error otherwise): one MPI rank, one refinement level (all blocks with the same spacing), real blocks
+   !< tiling the domain exactly once. With one block the virtual block is the block itself.
+   class(prism_fnl_pic_conserving_object), intent(inout) :: self  !< Conserving current object.
+   type(field_object),                     intent(in)    :: field !< Host field.
+   type(grid_object),                      intent(in)    :: grid  !< Grid.
+   integer(I4P), allocatable                             :: off(:,:), slot(:,:,:)
+   real(R8P),    allocatable                             :: vx(:), vy(:), vz(:)
+   integer(I4P)                                          :: b, d, i, nbl, nvirt(3), nblk(3), nbs(3)
+
+   if (mpih%procs_number > 1_I4P) &
+      call mpih%error_stop(msg=': the FNL conserving PIC current supports one MPI rank (distributed lines are not implemented)')
+   nbl = field%blocks_number
+   nblk = [self%bni, self%bnj, self%bnk]
+   self%vemin = grid%domain_emin
+   self%vdx   = field%dxyz(:,1)
+   do b=2, nbl
+      if (any(field%dxyz(:,b) /= self%vdx)) &
+         call mpih%error_stop(msg=': the FNL conserving PIC current needs a single refinement level (uniform block spacing)')
+   enddo
+   do d=1, 3
+      nvirt(d) = nint((grid%domain_emax(d) - grid%domain_emin(d)) / self%vdx(d), kind=I4P)
+      if (mod(nvirt(d), nblk(d)) /= 0_I4P) &
+         call mpih%error_stop(msg=': the FNL conserving PIC current: blocks do not tile the domain')
+      nbs(d) = nvirt(d) / nblk(d)
+   enddo
+   allocate(off(1:max(1_I4P,self%bnb),1:3), slot(0:nbs(1)-1,0:nbs(2)-1,0:nbs(3)-1))
+   off = 0_I4P ; slot = 0_I4P
+   do b=1, nbl
+      do d=1, 3
+         off(b,d) = nint((field%emin(d,b) - self%vemin(d)) / self%vdx(d), kind=I4P)
+         if (off(b,d) < 0_I4P .or. off(b,d) + nblk(d) > nvirt(d) .or. mod(off(b,d), nblk(d)) /= 0_I4P) &
+            call mpih%error_stop(msg=': the FNL conserving PIC current: block origin off the virtual block lattice')
+      enddo
+      slot(off(b,1)/nblk(1),off(b,2)/nblk(2),off(b,3)/nblk(3)) = slot(off(b,1)/nblk(1),off(b,2)/nblk(2),off(b,3)/nblk(3)) + 1
+   enddo
+   if (any(slot /= 1_I4P)) &
+      call mpih%error_stop(msg=': the FNL conserving PIC current: blocks do not tile the domain exactly once')
+   ! virtual cell centers: the real ones, so that the Esirkepov weights use the field geometry of this run
+   allocate(vx(1:nvirt(1)), vy(1:nvirt(2)), vz(1:nvirt(3)))
+   do b=1, nbl
+      do i=1, nblk(1) ; vx(off(b,1)+i) = field%x_cell(i,b) ; enddo
+      do i=1, nblk(2) ; vy(off(b,2)+i) = field%y_cell(i,b) ; enddo
+      do i=1, nblk(3) ; vz(off(b,3)+i) = field%z_cell(i,b) ; enddo
+   enddo
+   self%ni = nvirt(1) ; self%nj = nvirt(2) ; self%nk = nvirt(3)
+   self%bblocks = nbl
+   call dev_assign_to_device(src=off, dst=self%off_gpu)
+   call dev_assign_to_device(src=vx,  dst=self%vx_gpu)
+   call dev_assign_to_device(src=vy,  dst=self%vy_gpu)
+   call dev_assign_to_device(src=vz,  dst=self%vz_gpu)
+   endsubroutine build_virtual_geometry
+
+   subroutine scatter_current(self, q, var_jx)
+   !< Real q(J) = virtual J at the same global cell, for every real cell including ghosts: interface ghosts receive the
+   !< neighbour values, physical ghosts the virtual (single-block) odd/zero ghosts. Other variables are untouched.
+   class(prism_fnl_pic_conserving_object), intent(in)    :: self   !< Conserving current object.
+   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real field.
+   integer(I4P),                           intent(in)    :: var_jx !< Jx slot in q.
+   real(R8P),    pointer                                 :: jv(:,:,:,:,:)
+   integer(I4P), pointer                                 :: off(:,:)
+   integer(I4P)                                          :: b, i, j, k, d, ni, nj, nk, ngc, nbl, vj
+
+   ni = self%bni ; nj = self%bnj ; nk = self%bnk ; ngc = self%ngc ; nbl = self%bblocks ; vj = var_jx
+   jv => self%jv_gpu ; off => self%off_gpu
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q,jv,off) firstprivate(vj)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(q,jv,off) firstprivate(vj)
+   do d=1, 3
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do b=1, nbl
+      q(b,i,j,k,vj+d-1) = jv(1,off(b,1)+i,off(b,2)+j,off(b,3)+k,d)
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine scatter_current
+
+   subroutine impose_virtual_ghosts(self, q, var_jx)
+   !< Odd mirror (Esirkepov variants) or zero (direct) current ghosts of the virtual block (all its faces are physical).
+   !< CPU twins: impose_odd_current_ghosts, impose_zero_current_ghosts.
+   class(prism_fnl_pic_conserving_object), intent(in)    :: self   !< Conserving current object.
+   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Virtual field.
    integer(I4P),                           intent(in)    :: var_jx !< Jx slot in q.
    integer(I4P)                                          :: b, i, j, k, ni, nj, nk, ngc, nbl, vx, vy, vz
    logical                                               :: odd
@@ -1422,7 +1563,7 @@ contains
    enddo
    enddo
    enddo
-   endsubroutine impose_current_ghosts
+   endsubroutine impose_virtual_ghosts
 
    ! private kernels
    subroutine zero_h(self, h)
@@ -1749,11 +1890,11 @@ contains
    integer(I4P), intent(in) :: ierr !< Error code.
 
    select case(ierr)
-   case(ERR_OUTSIDE)  ; call mpih%error_stop(msg=': PIC particle outside local grid in Esirkepov current')
-   case(ERR_CROSSED)  ; call mpih%error_stop(msg=': esirkepov particle crossed a block; inter-block current is unsupported')
+   case(ERR_OUTSIDE)  ; call mpih%error_stop(msg=': PIC particle outside the domain in Esirkepov current')
    case(ERR_CHARGE)   ; call mpih%error_stop(msg=': esirkepov particle charge changed during an RK stage')
-   case(ERR_BOUNDARY) ; call mpih%error_stop(msg=': esirkepov particle shape touches a boundary; charge flux BC is unsupported')
-   case(ERR_FILTER)   ; call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a boundary')
+   case(ERR_BOUNDARY) ; call mpih%error_stop(msg=': esirkepov particle shape touches a domain boundary; charge flux BC is '// &
+                                                 'unsupported')
+   case(ERR_FILTER)   ; call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a domain boundary')
    case(ERR_SPAN)     ; call mpih%error_stop(msg=': esirkepov trajectory support exceeds the FNL limit MAX_SPAN='// &
                                                  trim(str(MAX_SPAN,.true.))//' cells')
    case(ERR_GAUSS)    ; call mpih%error_stop(msg=': empty Gaussian deposition support in Esirkepov current')

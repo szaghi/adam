@@ -174,6 +174,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_grms           !< Compute Grms of the rotating magnetic-field amplitude.
       procedure, pass(self) :: compute_magnetic_field_at_center_domain !< Compute B at the domain center.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
+      procedure, pass(self) :: compute_max_divergence_outside_absorbing_layers !< Host twin of the CPU t0 diagnostic.
       procedure, pass(self) :: impose_ct_correction_dev  !< Device-side constrained-transport correction on q_gpu.
       procedure, pass(self) :: impose_div_free      	!< Impose divergence-free property.
       procedure, pass(self) :: simulate             	!< Perform the simulation.
@@ -562,7 +563,8 @@ contains
       if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
          call self%rk_pic_fnl%initialize(pic=self%pic, rk_pic=self%rk_pic)
       if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
-         call self%conserving_fnl%initialize(pic=self%pic, grid=self%adam%grid, nb=self%nb, nv=self%nv, nrk=self%rk%nrk, &
+         call self%conserving_fnl%initialize(pic=self%pic, grid=self%adam%grid, field=self%adam%field, nb=self%nb, &
+                                             nv=self%nv, nrk=self%rk%nrk, &
                                              fdv_order=self%fdv_order, hs=self%fdv_half_stencils(1))
          if (self%external_fields%ef_type /= EF_TYPE_NONE) call self%conserving_fnl%allocate_gather
       endif
@@ -5193,6 +5195,11 @@ contains
       call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                               q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
                                               q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+      ! no particles: the device deposit returns before zeroing, nothing to fold back
+      if (self%pic_fnl%particle_number > 0_I4P) then
+         call self%field_fnl%reduce_ghost_local_gpu(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                                    v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
+      endif
       call self%accumulate_charge_conservation_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
                                                        weight=self%rk%beta(s), s=s)
       call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), check_current=.true., &
@@ -5240,8 +5247,16 @@ contains
                                                        grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
    call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                            q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+   ! no particles: the device deposit returns before zeroing, nothing to fold back
+   if (self%pic_fnl%particle_number > 0_I4P) then
+      call self%field_fnl%reduce_ghost_local_gpu(q_gpu=self%q_gpu, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
+   endif
    call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                             q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+   ! no particles: the device deposit returns before zeroing, nothing to fold back
+   if (self%pic_fnl%particle_number > 0_I4P) then
+      call self%field_fnl%reduce_ghost_local_gpu(q_gpu=self%q_gpu, v_first=self%nv, v_last=self%nv)
+   endif
    call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
                                                    context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
@@ -5262,7 +5277,7 @@ contains
    nrk = self%rk%nrk
    var_jx = self%physics%var_jx
    cleanup = cc%tail_cleanup
-   call cc%prepare(field=self%adam%field)
+   call cc%prepare(field=self%adam%field, grid=self%adam%grid)
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
@@ -5365,6 +5380,10 @@ contains
    else
       call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                                q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+      ! no particles: the device deposit returns before zeroing, nothing to fold back
+      if (self%pic_fnl%particle_number > 0_I4P) then
+         call self%field_fnl%reduce_ghost_local_gpu(q_gpu=self%q_gpu, v_first=self%nv, v_last=self%nv)
+      endif
    endif
    call self%finalize_charge_conservation_diagnostic
    if (cleanup) then
@@ -5391,7 +5410,7 @@ contains
    associate(cc=>self%conserving_fnl)
    ! geometry may have changed in the IC/AMR loop: refresh the device copies the kernels read
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps)
-   call cc%prepare(field=self%adam%field, force=.true.)
+   call cc%prepare(field=self%adam%field, grid=self%adam%grid, force=.true.)
    call dev_memcpy_to_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q_gpu, src=self%q, buf=self%buf_5D_R8P)
    call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
    call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
@@ -5617,7 +5636,9 @@ contains
    integer(I4P)                                     :: i             !< Counter.
    integer(I4P)                                     :: n             !< Coil counter.
    integer(I4P)                                     :: b             !< Block counter.
-   integer(I4P)                                     :: ind           !< Charge-density variable index for PIC diagnostics.
+   real(R8P)                                        :: max_div_D     !< Max div(D) (or div(D)-rho), interior, t0 diagnostic.
+   real(R8P)                                        :: max_div_B     !< Max div(B), interior, t0 diagnostic.
+   real(R8P)                                        :: max_div_J     !< Max div(J), interior, t0 diagnostic.
 
    call self%initialize_prism(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
@@ -5650,15 +5671,16 @@ contains
    call self%compute_divergence(hs=hs, ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=1_I4P, q=self%q(VAR_BX:VAR_BZ,:,:,:,:), divergence=self%divergence(2,:,:,:,:))
    endassociate
+   ! interior cells only, absorbing layers (and the cells whose stencil reaches them) excluded: CPU twin
+   call self%compute_max_divergence_outside_absorbing_layers(hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
+                                                             max_div_B=max_div_B, max_div_J=max_div_J)
    call mpih_fnl%print_message('Initial conditions setting completed')
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
-      call mpih_fnl%print_message('   max div(D) at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+      call mpih_fnl%print_message('   max div(D) outside absorbing layers at t0='//trim(str(max_div_D)))
    elseif (is_pic_model(self%physics%physical_model)) then
-      ind = size(self%q(:,1,1,1,1))
-      call mpih_fnl%print_message('   max div(D)-rho at t0='//trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:, &
-           :))))))
+      call mpih_fnl%print_message('   max div(D)-rho outside absorbing layers at t0='//trim(str(max_div_D)))
    endif
-   call mpih_fnl%print_message('   max div(B) at t0='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+   call mpih_fnl%print_message('   max div(B) outside absorbing layers at t0='//trim(str(max_div_B)))
 
    call self%update_ghost(q_gpu=self%q_gpu)
 
@@ -5667,7 +5689,8 @@ contains
       call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
                                     divergence=self%divergence(3,:,:,:,:))
       call mpih_fnl%print_message('Coil n='//trim(str(n,.true.)))
-      call mpih_fnl%print_message('   max div(j_vec)='//trim(str(maxval(abs(self%divergence(3,:,:,:,:))))))
+      call mpih_fnl%print_message('   max div(j_vec)='//trim(str(maxval(abs(self%divergence(3,1:self%ni,1:self%nj,1:self%nk, &
+                                                                                       1:self%blocks_number))))))
    enddo
 
    call mpih_fnl%print_message('assigned block number: '//trim(str(self%adam%field%blocks_number,.true.)))
@@ -5686,14 +5709,14 @@ contains
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
    endassociate
 
+   call self%compute_max_divergence_outside_absorbing_layers(hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
+                                                             max_div_B=max_div_B, max_div_J=max_div_J)
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
-      call mpih_fnl%print_message('   max div(D) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(1,:,:,:,:))))))
+      call mpih_fnl%print_message('   max div(D) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_D)))
    elseif (is_pic_model(self%physics%physical_model)) then
-      ind = size(self%q(:,1,1,1,1))
-      call mpih_fnl%print_message('   max div(D)-rho at t0 after update ghost='// &
-                                  trim(str(maxval(abs(self%divergence(1,:,:,:,:)-self%q(ind,:,:,:,:))))))
+      call mpih_fnl%print_message('   max div(D)-rho outside absorbing layers at t0 after update ghost='//trim(str(max_div_D)))
    endif
-   call mpih_fnl%print_message('   max div(B) at t0 after update_ghost='//trim(str(maxval(abs(self%divergence(2,:,:,:,:))))))
+   call mpih_fnl%print_message('   max div(B) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_B)))
    call self%save_simulation_data
    call self%compute_energy
    if (self%grms%do_save_history) call self%compute_grms
@@ -7330,6 +7353,86 @@ contains
       enddo
       endsubroutine compute_magnetic_field_at_center_domain_sample_dev_kernel
    endsubroutine compute_magnetic_field_at_center_domain
+
+   subroutine compute_max_divergence_outside_absorbing_layers(self, hs, max_div_D, max_div_B, max_div_J)
+   !< Host divergence maxima excluding ghost cells, absorbing layers and any cell whose centered-divergence stencil
+   !< intersects them, from the host `divergence` array. CPU twin of the same name (prism_cpu_object); the device
+   !< counterpart used during the run is compute_max_divergence.
+   implicit none
+   class(prism_fnl_object), intent(in)  :: self      !< The equation.
+   integer(I4P),            intent(in)  :: hs        !< Half stencil of the divergence operator.
+   real(R8P),               intent(out) :: max_div_D !< Max |div(D)| (|div(D)-rho| for PIC).
+   real(R8P),               intent(out) :: max_div_B !< Max |div(B)|.
+   real(R8P),               intent(out) :: max_div_J !< Max |div(J)|.
+   integer(I4P)                         :: b, lo_i, hi_i, lo_j, hi_j, lo_k, hi_k, rho_ivar
+
+   max_div_D = 0._R8P
+   max_div_B = 0._R8P
+   max_div_J = 0._R8P
+   rho_ivar = self%nv
+   do b = 1, self%blocks_number
+      lo_i = 1_I4P ; hi_i = self%ni
+      lo_j = 1_I4P ; hi_j = self%nj
+      lo_k = 1_I4P ; hi_k = self%nk
+      if (allocated(self%fWLayer%ni_fWL)) then
+         call exclude_face(lo=lo_i, hi=hi_i, face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_M), &
+                           face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_M), is_minus=.true.)
+         call exclude_face(lo=lo_i, hi=hi_i, face_first=self%fWLayer%ni_fWL(1,b,PML_FACE_X_P), &
+                           face_last=self%fWLayer%ni_fWL(2,b,PML_FACE_X_P), is_minus=.false.)
+         call exclude_face(lo=lo_j, hi=hi_j, face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_M), &
+                           face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_M), is_minus=.true.)
+         call exclude_face(lo=lo_j, hi=hi_j, face_first=self%fWLayer%nj_fWL(1,b,PML_FACE_Y_P), &
+                           face_last=self%fWLayer%nj_fWL(2,b,PML_FACE_Y_P), is_minus=.false.)
+         call exclude_face(lo=lo_k, hi=hi_k, face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_M), &
+                           face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_M), is_minus=.true.)
+         call exclude_face(lo=lo_k, hi=hi_k, face_first=self%fWLayer%nk_fWL(1,b,PML_FACE_Z_P), &
+                           face_last=self%fWLayer%nk_fWL(2,b,PML_FACE_Z_P), is_minus=.false.)
+      endif
+      if (allocated(self%pml%ni_pml)) then
+         call exclude_face(lo=lo_i, hi=hi_i, face_first=self%pml%ni_pml(1,b,PML_FACE_X_M), &
+                           face_last=self%pml%ni_pml(2,b,PML_FACE_X_M), is_minus=.true.)
+         call exclude_face(lo=lo_i, hi=hi_i, face_first=self%pml%ni_pml(1,b,PML_FACE_X_P), &
+                           face_last=self%pml%ni_pml(2,b,PML_FACE_X_P), is_minus=.false.)
+         call exclude_face(lo=lo_j, hi=hi_j, face_first=self%pml%nj_pml(1,b,PML_FACE_Y_M), &
+                           face_last=self%pml%nj_pml(2,b,PML_FACE_Y_M), is_minus=.true.)
+         call exclude_face(lo=lo_j, hi=hi_j, face_first=self%pml%nj_pml(1,b,PML_FACE_Y_P), &
+                           face_last=self%pml%nj_pml(2,b,PML_FACE_Y_P), is_minus=.false.)
+         call exclude_face(lo=lo_k, hi=hi_k, face_first=self%pml%nk_pml(1,b,PML_FACE_Z_M), &
+                           face_last=self%pml%nk_pml(2,b,PML_FACE_Z_M), is_minus=.true.)
+         call exclude_face(lo=lo_k, hi=hi_k, face_first=self%pml%nk_pml(1,b,PML_FACE_Z_P), &
+                           face_last=self%pml%nk_pml(2,b,PML_FACE_Z_P), is_minus=.false.)
+      endif
+      if (lo_i > hi_i .or. lo_j > hi_j .or. lo_k > hi_k) cycle
+      if (is_pic_model(self%physics%physical_model)) then
+         ! in PIC runs rho is the last state variable: the electric constraint monitor is max|div(D) - rho|
+         max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b) - &
+                                               self%q(rho_ivar,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      else
+         max_div_D = max(max_div_D, maxval(abs(self%divergence(1,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      endif
+      max_div_B = max(max_div_B, maxval(abs(self%divergence(2,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+      max_div_J = max(max_div_J, maxval(abs(self%divergence(3,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div_D, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   if (mpih_fnl%error /= MPI_SUCCESS) call mpih_fnl%error_stop(msg=': failed to reduce D divergence diagnostic')
+   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div_B, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   if (mpih_fnl%error /= MPI_SUCCESS) call mpih_fnl%error_stop(msg=': failed to reduce B divergence diagnostic')
+   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div_J, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   if (mpih_fnl%error /= MPI_SUCCESS) call mpih_fnl%error_stop(msg=': failed to reduce J divergence diagnostic')
+   contains
+      pure subroutine exclude_face(lo, hi, face_first, face_last, is_minus)
+      !< Shrink a 1D window so that no retained cell uses a centered stencil intersecting the layer face.
+      integer(I4P), intent(inout) :: lo, hi
+      integer(I4P), intent(in)    :: face_first, face_last
+      logical,      intent(in)    :: is_minus
+      if (face_first <= 0_I4P .or. face_last <= 0_I4P) return
+      if (is_minus) then
+         lo = max(lo, face_last + hs + 1_I4P)
+      else
+         hi = min(hi, face_first - hs - 1_I4P)
+      endif
+      endsubroutine exclude_face
+   endsubroutine compute_max_divergence_outside_absorbing_layers
 
    subroutine compute_max_divergence(self)
    !< Compute maximum divergence.

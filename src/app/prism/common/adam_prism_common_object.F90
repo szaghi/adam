@@ -527,8 +527,11 @@ contains
       self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
    else
       call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+      call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, &
+                                            v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
    endif
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, v_first=self%nv, v_last=self%nv)
    call self%verify_no_pic_deposition_on_coils(q=self%q, &
                                                check_current=trim(self%pic%current_weighting_model) /= &
                                                              CONSERVING_CURRENT_WEIGHTING_MODEL, check_charge=.true., &

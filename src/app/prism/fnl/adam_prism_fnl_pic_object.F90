@@ -40,6 +40,7 @@ type :: prism_fnl_pic_object
    real(R8P)             :: cutoff_sigma = 0.0_R8P           !< Gaussian cutoff radius in sigma units.
    integer(I4P)          :: gaussian_support_cells = -1_I4P  !< Gaussian compact support radius in cells.
    logical               :: filter_deposition = .false.      !< Apply binomial filtering to particle weighting.
+   integer(I4P)          :: stencil_radius = 0_I4P           !< Max cells reached by deposit/gather stencils (multi-block check).
    integer(I4P)          :: particle_number = 0_I4P          !< Total number of particles.
    integer(I4P)          :: n_ions         = 0_I4P           !< Total ions number.
    integer(I4P)          :: n_electrons    = 0_I4P           !< Total electrons number.
@@ -253,6 +254,7 @@ contains
    self%cutoff_sigma    = pic%cutoff_sigma
    self%gaussian_support_cells = pic%gaussian_support_cells
    self%filter_deposition = pic%filter_deposition
+   self%stencil_radius    = pic%stencil_radius_cells()
 
    self%particle_cartesian_grid_index_dev => particle_cartesian_grid_index_dev_impl
 
@@ -392,8 +394,14 @@ contains
    real(R8P), pointer                        :: z_cell_gpu(:,:)   !< Cells z coordinates on GPU.
    real(R8P), pointer                        :: dxyz_gpu(:,:)     !< Cells deltas on GPU.
    integer(I4P), pointer                     :: neighbour_list_gpu(:,:) !< Neighbour list on GPU.
+   integer(I4P)                               :: lost              !< Particles owned by no block.
+   integer(I4P)                               :: np                !< Particles number (local: no implicit copy of self).
 
    if (self%particle_number == 0) return
+   ! CPU twin of the multi-block stencil check of prism_pic_object%particle_cartesian_grid_index
+   if (field_fnl%blocks_number > 1_I4P .and. self%stencil_radius > grid%ngc) &
+      call mpih_fnl%error_stop(msg=': PIC multi-block needs deposit/gather stencils within ngc cells (stencil radius '// &
+                                   trim(str(self%stencil_radius,.true.))//', ngc '//trim(str(grid%ngc,.true.))//')')
 
    ngc = grid%ngc
    ni = grid%ni
@@ -406,11 +414,13 @@ contains
    dxyz_gpu   => field_fnl%dxyz_gpu
    neighbour_list_gpu => self%neighbour_list_gpu
 
+   lost = 0_I4P
+   np = self%particle_number
    !$acc parallel loop independent DEVICEVAR(q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
-   !$acc& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p)
+   !$acc& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p) reduction(+:lost)
    !$omp OMPLOOP DEVICEPTR(q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
-   !$omp& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p)
-   do n = 1, self%particle_number
+   !$omp& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p) reduction(+:lost)
+   do n = 1, np
       x_p = q_pic_gpu(n,1)
       y_p = q_pic_gpu(n,2)
       z_p = q_pic_gpu(n,3)
@@ -440,6 +450,7 @@ contains
          i_p = 0_I4P
          j_p = 0_I4P
          k_p = 0_I4P
+         lost = lost + 1_I4P
       endif
 
       neighbour_list_gpu(n,1) = block_p
@@ -447,6 +458,9 @@ contains
       neighbour_list_gpu(n,3) = j_p
       neighbour_list_gpu(n,4) = k_p
    enddo
+   ! CPU twin: a particle owned by no block stops the run (particle boundary conditions are not implemented yet)
+   if (lost > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(lost,.true.))//' PIC particle(s) outside the domain; '// &
+                                                  'particle boundary conditions are not implemented')
    endsubroutine particle_cartesian_grid_index_dev_impl
 
    subroutine NGP_charge_weighting_dev(self, field_fnl, field, grid, q_gpu, q_pic_gpu, nv)

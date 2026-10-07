@@ -1511,7 +1511,9 @@ contains
       call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
                                    divergence=self%divergence(3,:,:,:,:))
       call mpih%print_message('Coil n='//trim(str(n,.true.)))
-      call mpih%print_message('   max div(J)='//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))*self%coil%coil_amplitude(n))))
+      call mpih%print_message('   max div(J)='//trim(str(maxval(abs(self%divergence(3,1:self%ni,1:self%nj,1:self%nk, &
+                                                                         1:self%blocks_number))) &
+                                                       *self%coil%coil_amplitude(n))))
    enddo
 
    call mpih%print_message('assigned block number: '//trim(str(self%adam%field%blocks_number,.true.)))
@@ -4217,6 +4219,8 @@ contains
    !< Maxwell source terms computation: particles and coils
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, &
+                                         v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., &
                                                context='integrate_leapfrog_pic(current)')
    call self%compute_coils_current(q=self%q)
@@ -4337,6 +4341,8 @@ contains
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
       call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
+      call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q_stage, &
+                                            v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
       call self%accumulate_charge_conservation_current(q=q_stage, weight=self%rk%beta(s))
       call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
                                                   context='integrate_rk_ssp_pic(stage current)')
@@ -4378,7 +4384,10 @@ contains
    call self%impose_div_free
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, &
+                                         v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, v_first=self%nv, v_last=self%nv)
    call self%finalize_charge_conservation_diagnostic
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
                                                context='integrate_rk_ssp_pic(final deposition)')
@@ -4489,6 +4498,7 @@ contains
    real(R8P), allocatable                 :: coeff(:)
 
 
+   call check_conserving_single_block(self=self)
    np = self%pic%particle_number
    nrk = self%rk%nrk
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
@@ -5283,6 +5293,7 @@ contains
    real(R8P), allocatable                 :: q_minus(:,:), q_plus(:,:), q_plus_history(:,:,:)
    real(R8P), allocatable                 :: h_dir(:,:,:,:,:), q_work(:,:,:,:,:)
 
+   call check_conserving_single_block(self=self)
    ! The virtual interval is centered on the real particle positions and uses the first CFL step.
    call self%compute_dt
    if (self%time%it_max <= 0_I4P) self%time%dt = min(self%time%dt, self%time%time_max)
@@ -5322,6 +5333,17 @@ contains
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
                                                context='initialize_pic_conserving_current_time_zero')
    endsubroutine initialize_pic_conserving_current_time_zero
+
+   subroutine check_conserving_single_block(self)
+   !< The CPU charge-conserving current is single-block by design (line solves and P/Q filters per block); the multi-block
+   !< version is FNL-only (prism_fnl_pic_conserving_object, virtual-block solves).
+   implicit none
+   class(prism_cpu_object), intent(in) :: self
+
+   if (self%adam%field%blocks_number > 1_I4P) &
+      call mpih%error_stop(msg=': charge-conserving PIC current is single-block on the CPU backend '// &
+                               '(multi-block is supported by the FNL backend only)')
+   endsubroutine check_conserving_single_block
 
    subroutine modified_current_line(self, source, dir, b, n, qw, qfirst, nq, sol)
    !< F^E is the face prefix sum of the directional Esirkepov charge change.
