@@ -145,6 +145,7 @@ type :: field_object
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
       procedure, pass(self) :: save_blocks                   !< Save blocks data, used for restarting.
+      procedure, pass(self) :: reduce_ghost_local            !< Fold deposited ghosts back onto their owner cells locally.
       procedure, pass(self) :: update_ghost_local            !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi              !< Update ghosts MPI.
       ! private methods
@@ -912,6 +913,54 @@ contains
    enddo
    endassociate
    endsubroutine update_ghost_local
+
+   subroutine reduce_ghost_local(self, grid, maps, q, v_first, v_last)
+   !< Fold (local) ghost cells back onto the cells they mirror: the transpose of update_ghost_local.
+   !<
+   !< Meant for quantities deposited by sources owned by one block (e.g. PIC charge/current), whose stencil spills into the
+   !< ghost cells of the owner block: those contributions belong to the interior cells of the neighbour block that the
+   !< ghosts mirror. For every same-level map row the ghost value is added to its donor cell, then the ghost is refilled
+   !< with the (now complete) donor value, so that the result equals a single-block deposit of the same sources. Ghosts
+   !< without a map row (physical boundaries) are left untouched. Only variables v_first:v_last are processed.
+   !< Rows of 2:1 seams (coarse<->fine) have no transpose implemented yet: their presence is an error.
+   class(field_object), intent(in)    :: self              !< The field.
+   type(grid_object),   intent(in)    :: grid              !< Grid (sibling realm component, threaded in).
+   type(maps_object),   intent(in)    :: maps              !< Maps (sibling realm component, threaded in).
+   real(R8P),           intent(inout) :: q(1:,              &
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1:)             !< Field component to be reduced.
+   integer(I4P),        intent(in)    :: v_first           !< First variable to reduce.
+   integer(I4P),        intent(in)    :: v_last            !< Last variable to reduce.
+   integer(I4P)                       :: mf, v             !< Counter.
+   integer(I4P)                       :: b_recv, b_send    !< Receiving (ghost) and sending (donor) blocks.
+   integer(I4P)                       :: i_recv, j_recv, k_recv !< Ghost cell.
+   integer(I4P)                       :: i_send, j_send, k_send !< Donor cell.
+
+   if (.not.allocated(maps%local_map_ghost_cell)) return
+   associate(local_map_ghost_cell=>maps%local_map_ghost_cell)
+   if (any(local_map_ghost_cell(:,9) /= 1_I8P)) &
+      call mpih%error_stop(msg=': reduce_ghost_local does not support 2:1 (AMR) ghost rows')
+   do v=v_first, v_last
+      do mf=1, size(local_map_ghost_cell, dim=1)
+         b_send = local_map_ghost_cell(mf,1) ; b_recv = local_map_ghost_cell(mf,2)
+         i_send = local_map_ghost_cell(mf,3) ; j_send = local_map_ghost_cell(mf,4) ; k_send = local_map_ghost_cell(mf,5)
+         i_recv = local_map_ghost_cell(mf,6) ; j_recv = local_map_ghost_cell(mf,7) ; k_recv = local_map_ghost_cell(mf,8)
+         q(v,i_send,j_send,k_send,b_send) = q(v,i_send,j_send,k_send,b_send) + q(v,i_recv,j_recv,k_recv,b_recv)
+      enddo
+   enddo
+   ! refill only after every fold is complete: a donor may receive from several ghosts (edges, corners)
+   do v=v_first, v_last
+      do mf=1, size(local_map_ghost_cell, dim=1)
+         b_send = local_map_ghost_cell(mf,1) ; b_recv = local_map_ghost_cell(mf,2)
+         i_send = local_map_ghost_cell(mf,3) ; j_send = local_map_ghost_cell(mf,4) ; k_send = local_map_ghost_cell(mf,5)
+         i_recv = local_map_ghost_cell(mf,6) ; j_recv = local_map_ghost_cell(mf,7) ; k_recv = local_map_ghost_cell(mf,8)
+         q(v,i_recv,j_recv,k_recv,b_recv) = q(v,i_send,j_send,k_send,b_send)
+      enddo
+   enddo
+   endassociate
+   endsubroutine reduce_ghost_local
 
    pure function interp_seam_ghost(regime, meta, ngc, q, v, i_send, j_send, k_send, b_send) result(value_)
    !< Evaluate the coarse->fine seam ghost interpolant for one (variable, fine

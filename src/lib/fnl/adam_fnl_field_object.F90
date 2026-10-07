@@ -50,6 +50,7 @@ type :: field_fnl_object
       ! procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
       procedure, pass(self) :: destroy                !< Free device data owned by the helper.
       procedure, pass(self) :: initialize             !< Initialize field from realm-local CPU grid/field/maps.
+      procedure, pass(self) :: reduce_ghost_local_gpu !< Fold deposited ghosts back onto their owner cells locally.
       procedure, pass(self) :: update_ghost_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu   !< Update ghosts MPI.
 endtype field_fnl_object
@@ -264,6 +265,25 @@ contains
                                    rj=self%maps%refine_ratio(2),                                      &
                                    rk=self%maps%refine_ratio(3),q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
+
+   subroutine reduce_ghost_local_gpu(self, q_gpu, v_first, v_last)
+   !< Fold (local) ghost cells back onto the cells they mirror, the transpose of update_ghost_local_gpu.
+   !< Device twin of `field_object%reduce_ghost_local` (see there for the semantics).
+   class(field_fnl_object), intent(in)    :: self      !< The field.
+   real(R8P),               intent(inout) :: q_gpu(1:,                    &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:) !< Field component to be reduced.
+   integer(I4P),            intent(in)    :: v_first   !< First variable to reduce.
+   integer(I4P),            intent(in)    :: v_last    !< Last variable to reduce.
+   integer(I4P)                           :: bad_rows  !< Number of 2:1 rows.
+
+   call reduce_ghost_local_gpu_dev(ngc=self%ngc, v_first=v_first, v_last=v_last,                 &
+                                   l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu, q_gpu=q_gpu, &
+                                   bad_rows=bad_rows)
+   if (bad_rows > 0_I4P) call mpih_fnl%error_stop(msg=': reduce_ghost_local_gpu does not support 2:1 (AMR) ghost rows')
+   endsubroutine reduce_ghost_local_gpu
 
    subroutine update_ghost_mpi_gpu(self, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu, step)
    !< Update ghost cells within other processes.

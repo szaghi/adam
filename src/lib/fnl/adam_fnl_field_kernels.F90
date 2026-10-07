@@ -21,6 +21,7 @@ public :: unpack_seam_rows_dev
 public :: populate_send_buffer_ghost_gpu_dev
 public :: receive_recv_buffer_ghost_gpu_dev
 public :: update_ghost_local_gpu_dev
+public :: reduce_ghost_local_gpu_dev
 
 contains
    subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu)
@@ -293,6 +294,61 @@ contains
       enddo
    enddo
    endsubroutine update_ghost_local_gpu_dev
+
+   subroutine reduce_ghost_local_gpu_dev(ngc, v_first, v_last, l_map_ghost_cell_gpu, q_gpu, bad_rows)
+   !< Fold (local) ghost cells back onto the cells they mirror, the transpose of update_ghost_local_gpu_dev.
+   !< Device twin of `field_object%reduce_ghost_local`: same-level rows only (`bad_rows` returns the number of 2:1 rows, in
+   !< which case nothing is touched). A donor cell may receive from several ghosts (edges, corners): atomic updates, and the
+   !< ghost refill runs in a second kernel, after every fold is complete.
+   integer(I4P), intent(in)          :: ngc                       !< Ghost cells number.
+   integer(I4P), intent(in)          :: v_first                   !< First variable to reduce.
+   integer(I4P), intent(in)          :: v_last                    !< Last variable to reduce.
+   integer(I8P), intent(in), pointer :: l_map_ghost_cell_gpu(:,:) !< Local map of ghost cells.
+   real(R8P),    intent(inout)       :: q_gpu(1:,    &
+                                              1-ngc:,&
+                                              1-ngc:,&
+                                              1-ngc:,1:)          !< Field component to be reduced.
+   integer(I4P), intent(out)         :: bad_rows                  !< Number of 2:1 (non same-level) rows.
+   integer(I4P)                      :: mf, v, nrows              !< Counters.
+   integer(I4P)                      :: b_recv, i_recv, j_recv, k_recv !< Ghost cell.
+   integer(I4P)                      :: b_send, i_send, j_send, k_send !< Donor cell.
+
+   bad_rows = 0_I4P
+   if (.not.associated(l_map_ghost_cell_gpu)) return
+   nrows = size(l_map_ghost_cell_gpu, dim=1)
+   !$acc parallel loop independent gang vector DEVICEVAR(l_map_ghost_cell_gpu) reduction(+:bad_rows)
+   !$omp OMPLOOP DEVICEPTR(l_map_ghost_cell_gpu) reduction(+:bad_rows)
+   do mf=1, nrows
+      if (l_map_ghost_cell_gpu(mf,9) /= 1_I8P) bad_rows = bad_rows + 1_I4P
+   enddo
+   if (bad_rows > 0_I4P) return
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(l_map_ghost_cell_gpu, q_gpu) &
+   !$acc& private(b_send,i_send,j_send,k_send,b_recv,i_recv,j_recv,k_recv)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(l_map_ghost_cell_gpu, q_gpu) &
+   !$omp& private(b_send,i_send,j_send,k_send,b_recv,i_recv,j_recv,k_recv)
+   do v=v_first, v_last
+      do mf=1, nrows
+         b_send = l_map_ghost_cell_gpu(mf,1) ; b_recv = l_map_ghost_cell_gpu(mf,2)
+         i_send = l_map_ghost_cell_gpu(mf,3) ; j_send = l_map_ghost_cell_gpu(mf,4) ; k_send = l_map_ghost_cell_gpu(mf,5)
+         i_recv = l_map_ghost_cell_gpu(mf,6) ; j_recv = l_map_ghost_cell_gpu(mf,7) ; k_recv = l_map_ghost_cell_gpu(mf,8)
+         !$acc atomic update
+         !$omp atomic update
+         q_gpu(b_send,i_send,j_send,k_send,v) = q_gpu(b_send,i_send,j_send,k_send,v) + q_gpu(b_recv,i_recv,j_recv,k_recv,v)
+      enddo
+   enddo
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(l_map_ghost_cell_gpu, q_gpu) &
+   !$acc& private(b_send,i_send,j_send,k_send,b_recv,i_recv,j_recv,k_recv)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(l_map_ghost_cell_gpu, q_gpu) &
+   !$omp& private(b_send,i_send,j_send,k_send,b_recv,i_recv,j_recv,k_recv)
+   do v=v_first, v_last
+      do mf=1, nrows
+         b_send = l_map_ghost_cell_gpu(mf,1) ; b_recv = l_map_ghost_cell_gpu(mf,2)
+         i_send = l_map_ghost_cell_gpu(mf,3) ; j_send = l_map_ghost_cell_gpu(mf,4) ; k_send = l_map_ghost_cell_gpu(mf,5)
+         i_recv = l_map_ghost_cell_gpu(mf,6) ; j_recv = l_map_ghost_cell_gpu(mf,7) ; k_recv = l_map_ghost_cell_gpu(mf,8)
+         q_gpu(b_recv,i_recv,j_recv,k_recv,v) = q_gpu(b_send,i_send,j_send,k_send,v)
+      enddo
+   enddo
+   endsubroutine reduce_ghost_local_gpu_dev
 
    ! private procedures
    pure function interp_seam_ghost_gpu_dev(regime, meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send) result(value_)
