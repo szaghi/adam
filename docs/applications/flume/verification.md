@@ -169,43 +169,93 @@ no immersed boundary.
 | B | $[0, 0.6] \times [0.2, 1]$ | inflow, seam with A (bottom), seam with C (right), wall (top) |
 | C | $[0.6, 3] \times [0.2, 1]$ | seam with B (left), wall (step top), wall (top), outflow |
 
-The realms share the base cell $1/N$ and $N/20$ blocks per axis. One more level refines two boxes on **quadtrees**
-(`ratio = 4`, `nk = 1`, [#46](https://github.com/szaghi/adam/issues/46)): in C the blocks of $x \ge 1.2$ (at
-$N = 80$), $y \le 0.6$, where the reflected shocks run; in B the upper inflow corner. A refined block may not touch an
-inter-realm seam, so the boxes keep off $x = 0.6$ and $y = 0.2$; the case therefore carries both kinds of seam: two
-inter-realm mirror seams on different axes and the intra-realm 2:1 seams of the boxes. WENO5 characteristic flux
-splitting, SSP-54, CFL 0.5, reflux on; the corner is left untreated (Woodward and Colella reset the entropy near it).
+The realms share the base cell $1/N$. B and C have $N/10$ blocks per axis, narrow enough to refine close to the
+seams. A has $N/40$, so that its blocks keep 8 cells along y: a refined block needs at least $2\,n_{gc} = 6$ cells along
+every active axis (see below). Both seams are misaligned 1:1 mirror seams
+([#51](https://github.com/szaghi/adam/issues/51)). One more level refines a box in each realm, on **quadtrees**
+(`ratio = 4`, `nk = 1`, [#46](https://github.com/szaghi/adam/issues/46)).
 
-**Trees** (the default leg of `step/check.sh`). The same forest at $N = 40$ (2×2 blocks per realm, the refined boxes
-from $x = 1.8$ in C), run to $t = 0.5$ (408 steps) on quadtrees and on octrees with a null z axis and `nk = 4` (the layout
-of every AMR verification before #46), compared column by column with `mhd/quadtree/quadtree_oracle.py` (momentum
-scaled as one vector):
+::: warning The refinement is static
+The boxes are placed by hand on the features of the reference solution at $t = 4$, and the grid is frozen after
+initialisation: FLUME has no runtime AMR (milestone M5). A solution-driven marker could not place them either, since
+the tunnel starts uniform. The boxes therefore follow the flow only once it has settled, and the case verifies the
+seam machinery, not adaptivity.
+:::
 
-| | Octree, null z (`nk = 4`) | Quadtree (`nk = 1`) |
+At $N = 80$ the boxes are:
+- **A**, $y \le 0.1$: the bow shock standing on the lower wall.
+- **B**, $x \in [0.3, 0.525]$, $y \in [0.3, 0.7]$: the bow shock bending up towards the Mach stem. The column
+  $x > 0.525$ touches the B–C seam.
+- **C**, $x \ge 0.9$: all of the realm except the block column on the seam. That covers the reflected shock reaching
+  the step top, the slip line and the re-reflection off the top wall.
+
+A refined block may not touch an inter-realm seam (C's seam is only its face $x = 0.6$; its face $y = 0.2$ is the
+step top, a wall). The strongest features, the Mach stem and the triple point at $x \approx 0.6$, therefore sit on the
+B–C seam and stay on the base grid. Refining across that seam would take the 2:1 inter-realm coupling
+(`coupling = refined`, [#52](https://github.com/szaghi/adam/issues/52)), which is available on octrees only. The case
+carries both kinds of seam: two inter-realm mirror seams on different axes, and the intra-realm 2:1 seams of the boxes.
+
+WENO5 characteristic flux splitting, SSP-54, CFL 0.5, reflux on. The corner is left untreated (Woodward and Colella
+reset the entropy near it).
+
+**Trees** (the default leg of `step/check.sh`). The same forest at $N = 40$, run to $t = 0.5$ (440 steps) on quadtrees
+and on octrees with a null z axis (`nk = 4`, 16 in A: the layout of every AMR verification before #46), compared column
+by column with `mhd/quadtree/quadtree_oracle.py` (momentum scaled as one vector). At this resolution A is a single
+block that touches its seam and stays unrefined; B is refined on $x \in [0.3, 0.45]$, $y \in [0.4, 0.8]$, C from
+$x = 1.2$.
+
+| | Octree, null z | Quadtree (`nk = 1`) |
 |---|---|---|
-| z spread of a column | $7.6\cdot10^{-13}$ (FNL $4.4\cdot10^{-13}$) | 0 (FNL 0) |
-| against the octree, per $(x, y)$ column | — | $6.5\cdot10^{-13}$ (FNL $3.7\cdot10^{-13}$) |
+| z spread of a column | $6.1\cdot10^{-13}$ (FNL $3.1\cdot10^{-13}$) | 0 (FNL 0) |
+| against the octree, per $(x, y)$ column | — | $6.5\cdot10^{-13}$ (FNL $2.7\cdot10^{-13}$) |
 | min $\rho$, min $p$ (CPU and FNL) | 0.469, 0.715 | 0.469, 0.715 |
 
 The trees order the restriction sums differently (8 fine cells over two identical z layers, against 4), so they agree to
 round-off, not bit for bit; the octree is z-invariant to round-off only, its tricubic seam weights depending on the z
-sub-position. The difference map carries no structure at the seams, inter-realm or 2:1. The leg takes 4 min on the
-CPU; the octree costs 16 times the quadtree (its blocks split along z too).
+sub-position. The difference map carries no structure at the seams, inter-realm or 2:1. The leg takes about 10 min on
+the CPU, 9 of them for the octree (its blocks split along z too).
+
+::: details What this leg caught: blocks thinner than 2 ngc ([#66](https://github.com/szaghi/adam/issues/66))
+A first layout kept A's blocks at 4 cells along y and refined them. The quadtree then differed from the octree by
+$2.4\cdot10^{-5}$, with no difference in either tree's z invariance. Bisection put it on the quadtree alone, and only
+across ranks:
+
+| Comparison | Max difference |
+|---|---|
+| Quadtree, np 1, against the octree, np 1 or np 2 | $2\cdot10^{-14}$ |
+| Quadtree, np 1, against np 2 | $4.6\cdot10^{-6}$ after one step |
+
+The difference was independent of `seam_ghost_fill` and of `reflux`. At the bisected cell, the coarse ghost density
+next to the step wall differed by 0.20.
+
+The coarse ghost layers beside a finer block are restricted from $2\,n_{gc}$ fine cells. A 4-cell block holds fewer,
+so the outer layer was restricted from the fine block's own ghost cells, which the same exchange is still filling. They
+are fresh or a stage stale depending on the exchange order: the local order happened to refresh them first, the MPI
+path did not. The octree passed only because its rank layout kept the two fine blocks together.
+
+The library now refuses blocks thinner than $2\,n_{gc}$ along a refined, non-null axis, the constraint block-structured
+AMR codes such as PARAMESH impose. No committed case is affected: every one below 6 cells is so only along a null axis,
+where the field is invariant.
+:::
 
 ![Step forest at t = 0.5 on quadtrees and octrees](/flume/step-trees.png)
 
-**Woodward and Colella's run** (the `full` leg, not default: about 30 min on the CPU). $N = 80$, their coarse grid, the
-boxes at $1/160$, to $t = 4$ (7392 steps): density and pressure stay positive (min 0.356, 0.393). The picture has the
-features of their reference: the bow shock standing at $x \approx 0.3$ on the lower wall, its Mach reflection off the
-top wall at $x \approx 0.6$ with the triple point near $(0.6, 0.78)$ and the slip line leaving it along $y \approx 0.8$,
-the reflected shock striking the step top at $x \approx 1.2$ in a Mach reflection, and its re-reflection reaching the
-top wall at $x \approx 2.4$. The low-Mach layer along the step top is the numerical boundary layer of the untreated
-corner, the artifact Woodward and Colella remove with their entropy fix.
+**Woodward and Colella's run** (the `full` leg, not default: about 41 min on the CPU, plus 13 min for the uniform
+control). $N = 80$, their coarse grid, the boxes at $1/160$, to $t = 4$ (7545 steps): density and pressure stay
+positive (min 0.344, 0.370). The picture has the features of their reference:
+- the bow shock standing at $x \approx 0.3$ on the lower wall;
+- its Mach reflection off the top wall at $x \approx 0.6$, with the triple point near $(0.6, 0.78)$ and the slip line
+  leaving it along $y \approx 0.8$;
+- the reflected shock striking the step top at $x \approx 1.2$ in a Mach reflection;
+- its re-reflection reaching the top wall at $x \approx 2.4$.
 
-The reflected shock meets the step top right where the refined box of C begins, at the 2:1 seam $x = 1.2$; the zoom
-compares it with the same run on a uniform $1/80$ grid (no box, `x = 1.2` a 1:1 block face): the Mach reflection and its
-triple point near $(1.2, 0.31)$ sit at the same place, so the seam does not pin them, and the refined box resolves them
-more sharply.
+The low-Mach layer along the step top is the numerical boundary layer of the untreated corner, the artifact Woodward
+and Colella remove with their entropy fix.
+
+The zoom compares the refined run with the same run on a uniform $1/80$ grid (no box). The Mach stem and the triple
+point sit on the B–C seam, on the base grid in both runs, and agree. C's 2:1 seam at $x = 0.9$ is crossed by the
+reflected shock and the slip line without a kink. Downstream of it, the box resolves the shock pattern near the step top
+($x \approx 1.2$) more sharply than the uniform grid, which smears it into a single blob.
 
 ![Woodward-Colella step at t = 4](/flume/step.png)
 

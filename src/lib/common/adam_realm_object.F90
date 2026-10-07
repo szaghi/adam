@@ -358,6 +358,13 @@ contains
       !< #37, measured with ni = 25). Refinement is possible when there are AMR markers and `max_level` exceeds the
       !< uniform level; the refined axes are x and y, and z on an octree; a null axis is not checked. Uniform refinement
       !< alone (`iu_ref_levels`) has no coarse-fine faces and is not affected.
+      !<
+      !< The same axes need at least `2 ngc` block cells. The coarse ghost layers beside a finer neighbour are restricted
+      !< from `2 ngc` fine cells; a thinner fine block holds fewer, and the outer layers are restricted from the fine
+      !< block's own ghost cells, which the same exchange is filling: they are a stage stale wherever the exchange order
+      !< (MPI in particular) does not refresh them first. Measured on the Woodward-Colella step with nj = 4, ngc = 3: the
+      !< coarse ghost density differed by 0.2 between 1 and 2 ranks after one step, silently. A null axis is invariant, so
+      !< a stale value equals the fresh one there (issue #66).
       character(len=1), parameter :: AXIS(3)=['i', 'j', 'k'] !< Axes names.
       integer(I4P)                :: n(3)                     !< Block cells numbers.
       integer(I4P)                :: d                        !< Axis counter.
@@ -371,6 +378,12 @@ contains
             call mpih%error_stop(msg=': [grid].(n'//AXIS(d)//')='//trim(str(n(d)))//' is odd: 2:1 refinement ([amr] '// &
                                      'markers with max_level > iu_ref_levels) needs an even number of block cells '//  &
                                      'along every refined, non-null axis (issue #39)')
+         if (n(d) < 2_I4P * self%adam%grid%ngc) &
+            call mpih%error_stop(msg=': [grid].(n'//AXIS(d)//')='//trim(str(n(d)))//' is less than 2*ngc = '//          &
+                                     trim(str(2_I4P * self%adam%grid%ngc))//': 2:1 refinement ([amr] markers with '// &
+                                     'max_level > iu_ref_levels) restricts the coarse ghosts from 2*ngc fine cells, a '// &
+                                     'thinner block makes them read stale ghosts (wrong results, silently); use at '//   &
+                                     'least 2*ngc block cells along every refined, non-null axis')
       enddo
       endsubroutine check_amr_block_cells
    endsubroutine initialize

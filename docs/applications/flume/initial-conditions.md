@@ -52,7 +52,7 @@ the `update_ghost` call that follows.
 | key | type | meaning |
 |---|---|---|
 | `type` | string (control characters are blanked by `strip_control`, so CRLF files parse) | one of the 13 names below. Any other value stops the run and the message lists all 13. |
-| `amr_iterations` | integer, **required** | the number of init-time AMR passes (set the IC, refine, repeat). The value is clamped to $\ge 0$. The loop is at `cpu/adam_flume_cpu_object.F90` and `fnl/adam_flume_fnl_object.F90`. When the value is $>0$, every non-null axis must have an even block cell count, otherwise `error_stop`. |
+| `amr_iterations` | integer, **required** | the number of init-time AMR passes (set the IC, refine, repeat). The value is clamped to $\ge 0$. The loop is at `cpu/adam_flume_cpu_object.F90` and `fnl/adam_flume_fnl_object.F90`. When the value is $>0$, every refined non-null axis must have an even block cell count of at least `2 ngc`, otherwise `error_stop`. |
 
 **Region sections** are named `[initial_conditions_region_N]`, with $N = 1..$`regions_number`. They hold the primitive keys `r, u, v, w, p`, plus `bx, by, bz` for either MHD
 model. Every one of these keys is required. $\psi$ has no key. The number of region sections

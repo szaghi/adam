@@ -126,7 +126,7 @@ Read in three places: the grid reads `ratio`, the tree reads the refinement shap
 | `i_prune`, `j_prune`, `k_prune`, `l_prune` | int | **no check** | declared -1, **not applied** | See the notes below the table. | partly | Pruning of a "simple initial forest". FLUME never calls `prune`, but the values still enter the neighbour/boundary detection. |
 | `frequency` | int | yes | 100 | any | **no** | Runtime AMR cadence. FLUME AMR is initialisation-only, and runtime regrid is fatal. |
 | `iters` | int | yes | 5 | any | yes | Maximum marker sweeps per AMR update (it stops early when the grid is stable). |
-| `markers_number` | int | yes | 0 | `>= 0` | yes | Number of `[amr_marker_N]` sections. With markers and `max_level > iu_ref_levels` (2:1 refinement possible), every refined non-null axis (x, y; z too on an octree) needs an even block cell count `ni`/`nj`/`nk`: an odd one is fatal at initialisation (issue #39; it used to give NaN silently). |
+| `markers_number` | int | yes | 0 | `>= 0` | yes | Number of `[amr_marker_N]` sections. With markers and `max_level > iu_ref_levels` (2:1 refinement possible), every refined non-null axis (x, y; z too on an octree) needs an even block cell count `ni`/`nj`/`nk`: an odd one is fatal at initialisation (issue #39; it used to give NaN silently). The same axes need at least `2 ngc` cells (6 with WENO5): a thinner block made the coarse ghosts read stale fine ghosts, silently; fatal at initialisation (issue #66). |
 | `seam_ghost_fill` | string | no | `tricubic` | `injection`, `restriction-compatible`, `tricubic`. Any other value is fatal. | yes | Coarse-to-fine ghost fill at 2:1 AMR seams. |
 
 Notes on the four `*_prune` keys:

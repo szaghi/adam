@@ -6,17 +6,21 @@
 # physical walls (make_step.py), and its 2-D flow runs on quadtrees (ratio 4, nk = 1) since issue #46. The case puts
 # together inter-realm mirror seams (two, on different axes), intra-realm quadtree 2:1 seams (refined boxes off the
 # inter-realm seams) and the walls, inflow and outflow of a supersonic tunnel. Legs:
-#   trees  N = 40 (2x2 blocks per realm, one refined level on two boxes), t = 0.5: the forest on quadtrees (nk = 1)
-#          against the same forest on octrees with a null z axis (nk = 4), quadtree_oracle.py (../mhd/quadtree): every
+#   trees  N = 40 (one refined level on the static boxes of B and C, make_step.py), t = 0.5: the forest on quadtrees
+#          (nk = 1) against the same forest on octrees with a null z axis (nk = 4, 16 in A), quadtree_oracle.py
+#          (../mhd/quadtree): every
 #          run z-invariant, the quadtree within TOL of the octree at the same (x, y), momentum scaled as one vector.
 #          Both runs must also keep density and pressure positive and finite;
 #   full   N = 80, the coarse grid of Woodward and Colella, quadtree, t = 4 (their reference time), with the refined
 #          boxes and, as the control of the figure's zoom, on the uniform 1/80 grid (no box): both positive and finite;
 #          the checkpoints are kept (--keep) for the documentation figures (make_doc_figures.py --only step step-trees).
-#          Measured (CPU, np 2): 7392 steps, min density 0.356, min pressure 0.393 (refined). About 30 + 11 min on the
+#          Measured (CPU, np 2): 7545 steps, min density 0.344, min pressure 0.370 (refined). About 41 + 13 min on the
 #          CPU. Not a default leg.
 #
-# Measured (trees, np 2, CPU): quadtree against octree 6.5e-13, octree z spread 7.6e-13, quadtree 0; 4 min.
+# Measured (trees, np 2): 440 steps, quadtree against octree 6.5e-13 CPU, 2.7e-13 FNL; octree z spread 6.1e-13 CPU,
+# 3.1e-13 FNL; quadtree 0; 10 min on the CPU.
+# A first layout with 4-cell blocks in A refined made the quadtree differ by 2.4e-5 across ranks: issue #66, now
+# refused by the library (blocks need 2 ngc cells along refined axes).
 #
 # Usage: ./check.sh [--np N] [--legs trees,full] [--keep]
 #

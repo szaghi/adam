@@ -321,8 +321,9 @@ def fig_cylinder(out: Path, runs: Path) -> None:
 
 
 def fig_step(out: Path, runs: Path) -> None:  # noqa: ARG001
-    """EV-step: Woodward-Colella Mach 3 step at t = 4, three realms on quadtrees: density with blocks, Mach number,
-    and a zoom on the reflected shock crossing the quadtree 2:1 seam at x = 1.2."""
+    """EV-step: Woodward-Colella Mach 3 step at t = 4, three realms on quadtrees with static refined boxes: density
+    with blocks, Mach number, and a zoom on the Mach stem (on the B-C seam, base grid) and the reflected shock crossing
+    C's quadtree 2:1 seam at x = 0.9, against the uniform 1/80 control."""
     work = HERE / "step" / f"{TAG}-full"
     ini = read_ini(work / "step-A.ini")
     gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
@@ -334,7 +335,7 @@ def fig_step(out: Path, runs: Path) -> None:  # noqa: ARG001
     axs = [fig.add_subplot(grid[0, :]), fig.add_subplot(grid[1, :]), fig.add_subplot(grid[2, 0]),
            fig.add_subplot(grid[2, 1])]
     panels = ((axs[0], "r", (0.0, 3.0, 0.0, 1.0)), (axs[1], "mach", (0.0, 3.0, 0.0, 1.0)),
-              (axs[2], "r", (0.9, 1.7, 0.2, 0.7)), (axs[3], "r" if bu else "p", (0.9, 1.7, 0.2, 0.7)))
+              (axs[2], "r", (0.4, 1.4, 0.2, 1.0)), (axs[3], "r" if bu else "p", (0.4, 1.4, 0.2, 1.0)))
     labels = {"r": r"$\rho$", "mach": "Mach number", "p": "p"}
     for ax, key, (x0, x1, y0, y1) in panels:
         cmap = {"r": "magma", "mach": "coolwarm", "p": "viridis"}[key]
@@ -348,11 +349,11 @@ def fig_step(out: Path, runs: Path) -> None:  # noqa: ARG001
         fig.colorbar(im, ax=ax, label=labels[key], shrink=0.9)
         ax.set_xlabel("x")
         ax.set_ylabel("y")
-    axs[0].set_title("density, blocks outlined (refined boxes), inter-realm seams dashed")
+    axs[0].set_title("density, blocks outlined (static refined boxes), inter-realm seams dashed")
     axs[1].set_title("Mach number")
-    axs[2].set_title("density, zoom: refined box from x = 1.2 (2:1 seams)")
+    axs[2].set_title("density, zoom: C refined from x = 0.9 (2:1 seam)")
     axs[3].set_title("density, same zoom, uniform 1/80 (no refined box)" if bu else "pressure, same zoom")
-    fig.suptitle("Woodward-Colella Mach 3 step, t = 4: three realms on quadtrees, 1/80 base, 1/160 in the boxes")
+    fig.suptitle("Woodward-Colella Mach 3 step, t = 4: three realms on quadtrees, 1/80 base, 1/160 in static boxes")
     fig.savefig(out / "step.png", dpi=DPI)
     plt.close(fig)
 
@@ -380,7 +381,7 @@ def fig_step_trees(out: Path, runs: Path) -> None:  # noqa: ARG001
     scale[1:4] = scale[1:4].max()  # momentum as one vector
     diff = {k: float(np.max(np.abs(cols["quad"][k] - cols["oct"][k]) / scale)) for k in cols["quad"]}
     fig, axs = plt.subplots(3, 1, figsize=(11, 11.5), constrained_layout=True)
-    for ax, tree, title in ((axs[0], "quad", "quadtree (nk = 1)"), (axs[1], "oct", "octree, null z (nk = 4)")):
+    for ax, tree, title in ((axs[0], "quad", "quadtree (nk = 1)"), (axs[1], "oct", "octree, null z (nk = 4, 16 in A)")):
         im = field_map(ax, first_plane(bl[tree]), lambda b: plane(b, gamma, "r"), cmap="magma", outline=True)
         fig.colorbar(im, ax=ax, label=r"$\rho$", shrink=0.9)
         ax.set_title(f"density, {title}, blocks outlined")

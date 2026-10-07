@@ -8,7 +8,9 @@
 #   1. reflux on : the five volume integrals must be constant within MAX_DRIFT (round-off);
 #   2. reflux off: the negative control must drift by at least MIN_DRIFT, which proves the seams are exercised;
 #   3. (issue #39) the case with ni = 7, an odd block cell count along a refined axis, must be refused at
-#      initialization by the library check (it used to give NaN silently).
+#      initialization by the library check (it used to give NaN silently);
+#   4. the case with ni = 4, even but below 2*ngc along a refined axis, must be refused too (the outer coarse ghost
+#      layers would read the fine block's stale ghosts, silently).
 #
 # FLUME accumulates the seam fluxes of every Runge-Kutta stage weighted by its SSP coefficient, so the register holds
 # the flux the committed step actually used; measured (P5): drift <= 6e-15 CPU, 2.2e-16 FNL, with reflux; 2.2e-5
@@ -86,6 +88,23 @@ if (cd "$work" && mpirun -np "$NP" "$EXE" amr-periodic.ini > log.txt 2>&1); then
 fi
 if ! grep -aq '\[grid\].(ni)=+7 is odd: 2:1 refinement' "$work/log.txt"; then
    echo "check.sh: the odd-cell run failed without the expected message, see $work/log.txt" >&2
+   exit 1
+fi
+echo "   refused as expected"
+
+# Refused input: an even block cell count below 2*ngc along a refined axis (ni = 4, ngc = 3) must stop at
+# initialization; the outer coarse ghost layers would be restricted from the fine block's own, stale ghosts (wrong
+# results that depend on the exchange order, measured 0.2 in density between 1 and 2 ranks on the step forest).
+work="$CASE_DIR/work-$TAG-thin-blocks"
+rm -rf "$work" ; mkdir -p "$work"
+sed 's/^ni     = 8/ni     = 4/' "$CASE_DIR/amr-periodic.ini" > "$work/amr-periodic.ini"
+echo ">> amr-periodic with ni = 4 < 2*ngc: must be refused"
+if (cd "$work" && mpirun -np "$NP" "$EXE" amr-periodic.ini > log.txt 2>&1); then
+   echo "check.sh: the thin block was not refused, see $work/log.txt" >&2
+   exit 1
+fi
+if ! grep -aq '\[grid\].(ni)=+4 is less than 2\*ngc' "$work/log.txt"; then
+   echo "check.sh: the thin-block run failed without the expected message, see $work/log.txt" >&2
    exit 1
 fi
 echo "   refused as expected"

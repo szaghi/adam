@@ -95,7 +95,11 @@ What happens at a 2:1 face:
 2. **Even** `ni`/`nj`/`nk` along every refined, non-null axis when 2:1 refinement is possible (markers and
    `max_level > iu_ref_levels`): an odd count is refused ([#39](https://github.com/szaghi/adam/issues/39); it used to
    give NaN silently).
-3. At least 4 cells per block on every axis, null axes included, for the coarse-fine interpolation footprint.
+3. At least `2 ngc` cells (6 with WENO5) along the same axes. The coarse ghosts beside a finer block are restricted from
+   `2 ngc` fine cells; a thinner block makes the outer layers read its own ghosts, which the same exchange is still
+   filling (stale, silently, depending on the exchange order: 0.2 in density between 1 and 2 ranks on the step
+   forest). Refused at initialisation ([#66](https://github.com/szaghi/adam/issues/66)).
+4. At least 4 cells per block on every axis, null axes included, for the coarse-fine interpolation footprint.
 
 **Log.** `forest: registered intra-realm AMR seam faces: +N`.
 
@@ -377,6 +381,7 @@ chosen so that `dx` halves). Drop the markers in both. `verification/multirealm/
 | `conflicting coupling_cadence between realm A and realm B` | two pairs between the same realms with different cadences | one cadence per realm pair |
 | `[amr] ratio = 4 (quadtree) with AMR markers ... on the NVF and GMP backends` | #46: their ghost kernels are octree-only | `ratio = 8`, or the CPU/FNL backend |
 | `[grid].(ni)=+7 is odd: 2:1 refinement ...` | #39 | even counts along refined axes |
+| `[grid].(nj)=+4 is less than 2*ngc = +6 ...` | #66: thin blocks read stale ghosts at 2:1 seams | at least `2 ngc` cells along refined axes |
 | `(positivity_limiter)=cell is not supported on multi-realm runs` | the FLUME limiter | no limiter in a forest |
 
 ## Current limits
