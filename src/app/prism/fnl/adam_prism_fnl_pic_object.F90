@@ -294,6 +294,21 @@ contains
       self%current_weighting_dev => sextic_current_weighting_dev
    case('Gaussian')
       self%current_weighting_dev => Gaussian_current_weighting_dev
+   case(CONSERVING_CURRENT_WEIGHTING_MODEL)
+      ! CPU parity (prism_pic_object%initialize): bind the direct deposit of the particle shape; the conserving current
+      ! itself is built by prism_fnl_pic_conserving_object.
+      select case(trim(pic%particle_weighting_model))
+      case('NGP')      ; self%current_weighting_dev => NGP_current_weighting_dev
+      case('CIC')      ; self%current_weighting_dev => CIC_current_weighting_dev
+      case('TSC')      ; self%current_weighting_dev => TSC_current_weighting_dev
+      case('cubic')    ; self%current_weighting_dev => cubic_current_weighting_dev
+      case('quartic')  ; self%current_weighting_dev => quartic_current_weighting_dev
+      case('quintic')  ; self%current_weighting_dev => quintic_current_weighting_dev
+      case('sextic')   ; self%current_weighting_dev => sextic_current_weighting_dev
+      case('Gaussian') ; self%current_weighting_dev => Gaussian_current_weighting_dev
+      case default
+         call mpih_fnl%error_stop(msg=': invalid particle weighting model for conserving current initialization')
+      endselect
    case default
       call mpih_fnl%error_stop(msg=': invalid current weighting model in prism_fnl_pic_object%initialize')
    endselect
@@ -784,6 +799,9 @@ contains
    integer(I4P)                               :: i_min, i_max, j_min, j_max, k_min, k_max
    real(R8P)                                  :: dx, dy, dz, charge_density
    real(R8P)                                  :: wx, wy, wz, weight
+   real(R8P)                                  :: xc5(5), wx5(5), wy5(5), wz5(5)
+   integer(I4P)                               :: m
+   logical                                    :: close_quartic
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
@@ -810,9 +828,11 @@ contains
    enddo
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
-   !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)
+   !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)&
+   !$acc& private(close_quartic, xc5, wx5, wy5, wz5, m)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
-   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)
+   !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)&
+   !$omp& private(close_quartic, xc5, wx5, wy5, wz5, m)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -841,22 +861,58 @@ contains
          k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
       endif
 
+      ! Unfiltered quartic: close the five weights to sum exactly 1 (CPU twin: quartic_closed_weights in
+      ! bspline_charge_weighting). Esirkepov-modified builds its current from the same closed weights, so rho must match.
+      close_quartic = order == 4_I4P .and. .not.self%filter_deposition
+      if (close_quartic) close_quartic = i_p-2 >= 1-ngc .and. i_p+2 <= ni+ngc .and. &
+                                         j_p-2 >= 1-ngc .and. j_p+2 <= nj+ngc .and. &
+                                         k_p-2 >= 1-ngc .and. k_p+2 <= nk+ngc
+      if (close_quartic) then
+         !$acc loop seq
+         do m = 1, 5
+            xc5(m) = x_cell_gpu(block_p,i_p-3+m+ngc)
+         enddo
+         call quartic_closed_weights_dev(x_p=q_pic_gpu(n,1), x_cell=xc5, dx=dx, w=wx5)
+         !$acc loop seq
+         do m = 1, 5
+            xc5(m) = y_cell_gpu(block_p,j_p-3+m+ngc)
+         enddo
+         call quartic_closed_weights_dev(x_p=q_pic_gpu(n,2), x_cell=xc5, dx=dy, w=wy5)
+         !$acc loop seq
+         do m = 1, 5
+            xc5(m) = z_cell_gpu(block_p,k_p-3+m+ngc)
+         enddo
+         call quartic_closed_weights_dev(x_p=q_pic_gpu(n,3), x_cell=xc5, dx=dz, w=wz5)
+      endif
+
       i_min = max(i_min, 1-ngc) ; i_max = min(i_max, ni+ngc)
       j_min = max(j_min, 1-ngc) ; j_max = min(j_max, nj+ngc)
       k_min = max(k_min, 1-ngc) ; k_max = min(k_max, nk+ngc)
 
       !$acc loop seq
       do k = k_min, k_max
-         wz = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz, &
-                                           filter=self%filter_deposition)
+         if (close_quartic) then
+            wz = wz5(k-k_p+3)
+         else
+            wz = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz, &
+                                              filter=self%filter_deposition)
+         endif
          !$acc loop seq
          do j = j_min, j_max
-            wy = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy, &
-                                              filter=self%filter_deposition)
+            if (close_quartic) then
+               wy = wy5(j-j_p+3)
+            else
+               wy = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy, &
+                                                 filter=self%filter_deposition)
+            endif
             !$acc loop seq
             do i = i_min, i_max
-               wx = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx, &
-                                                 filter=self%filter_deposition)
+               if (close_quartic) then
+                  wx = wx5(i-i_p+3)
+               else
+                  wx = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx, &
+                                                    filter=self%filter_deposition)
+               endif
                weight = wx * wy * wz
                !$acc atomic update
                !$omp atomic update
@@ -1502,6 +1558,30 @@ contains
       pic_fields_gpu(n,6) = f6
    enddo
    endsubroutine gather_gaussian_fields_dev
+
+   pure subroutine quartic_closed_weights_dev(x_p, x_cell, dx, w)
+   !< Close the five unfiltered quartic weights by changing only the largest one. CPU twin: quartic_closed_weights.
+   !$acc routine seq
+   !$omp declare target
+   implicit none
+   real(R8P), intent(in)  :: x_p, x_cell(5), dx
+   real(R8P), intent(out) :: w(5)
+   real(R8P)              :: sum_other
+   integer(I4P)           :: i, largest
+
+   do i=1,5
+      w(i) = bspline_weight_dev(order=4_I4P,r=(x_p-x_cell(i))/dx)
+   enddo
+   largest = 1
+   do i=2,5
+      if (w(i) > w(largest)) largest = i
+   enddo
+   sum_other = 0._R8P
+   do i=1,5
+      if (i /= largest) sum_other = sum_other + w(i)
+   enddo
+   w(largest) = 1._R8P - sum_other
+   endsubroutine quartic_closed_weights_dev
 
    pure subroutine set_bspline_stencil_dev(order, x_p, x_c, i_p, i_min, i_max)
    !< Compute the one-dimensional B-spline stencil.

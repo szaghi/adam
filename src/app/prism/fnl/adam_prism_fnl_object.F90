@@ -52,6 +52,7 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(prism_fnl_leapfrog_pic_object) :: leapfrog_pic_fnl !< GPU PIC leapfrog integrator.
    type(prism_fnl_pic_object)     :: pic_fnl     !< GPU PIC support state.
    type(prism_fnl_rk_pic_object)  :: rk_pic_fnl  !< GPU PIC RK integrator.
+   type(prism_fnl_pic_conserving_object) :: conserving_fnl !< GPU charge-conserving PIC current.
    type(prism_fnl_pml_object)     :: pml_fnl     !< GPU PML compact metadata/state.
    type(prism_fnl_rk_pml_object)  :: rk_pml_fnl  !< GPU PML SSP RK support.
    ! device data
@@ -297,6 +298,7 @@ contains
 
    call self%rk_pml_fnl%destroy()
    call self%pml_fnl%destroy()
+   call self%conserving_fnl%destroy()
    call self%rk_pic_fnl%destroy()
    call self%leapfrog_pic_fnl%destroy()
    call self%pic_fnl%destroy()
@@ -524,8 +526,19 @@ contains
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P)/1e9_R8P / real(realms_number_, R8P)
    call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
    if (is_pic_model(self%physics%physical_model)) then
-      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
-         call mpih_fnl%error_stop(msg=': conserving PIC current is implemented on CPU only; FNL port pending')
+      ! CPU-parity validation (prism_cpu_object%initialize)
+      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+         if (self%numerics%scheme_space /= NUM_SCHEME_SPACE_FD_CENTERED .or. &
+             self%numerics%scheme_time /= NUM_SCHEME_TIME_RUNGE_KUTTA .or. &
+             self%pic%scheme_time /= NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
+            call mpih%error_stop(msg=': conserving PIC current requires centered FD and SSP Runge-Kutta')
+         if (self%rk%scheme /= RK_SSP_22 .and. self%rk%scheme /= RK_SSP_33 .and. self%rk%scheme /= RK_SSP_54) &
+            call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
+         if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+            if (self%fdv_order /= 2_I4P .and. self%fdv_order /= 6_I4P) &
+               call mpih%error_stop(msg=': esirkepov-modified supports FD2 and FD6 only')
+         endif
+      endif
    endif
    call check_pml_configuration()
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
@@ -548,6 +561,11 @@ contains
          call self%leapfrog_pic_fnl%initialize(pic=self%pic, leapfrog_pic=self%leapfrog_pic)
       if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
          call self%rk_pic_fnl%initialize(pic=self%pic, rk_pic=self%rk_pic)
+      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+         call self%conserving_fnl%initialize(pic=self%pic, grid=self%adam%grid, nb=self%nb, nv=self%nv, nrk=self%rk%nrk, &
+                                             fdv_order=self%fdv_order, hs=self%fdv_half_stencils(1))
+         if (self%external_fields%ef_type /= EF_TYPE_NONE) call self%conserving_fnl%allocate_gather
+      endif
    endif
 
    ! set pointer (abstract) TBP
@@ -578,7 +596,11 @@ contains
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
             select case(self%rk_pic%scheme)
             case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
-               self%integrate_dev => integrate_rk_ssp_pic
+               if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+                  self%integrate_dev => integrate_rk_ssp_pic_charge_conserving
+               else
+                  self%integrate_dev => integrate_rk_ssp_pic
+               endif
             case default
                call mpih_fnl%error_stop(msg=': PIC RK scheme not ported to FNL backend')
             endselect
@@ -1954,6 +1976,10 @@ contains
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, &
                                                             q=self%q)
    if (.not.is_restart) call self%initialize_pic_time_zero()
+   if (.not.is_restart .and. is_pic_model(self%physics%physical_model)) then
+      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
+         call initialize_pic_conserving_current_time_zero(self=self)
+   endif
 
    call self%initialize_coils
    if (.not.is_restart) then
@@ -5222,6 +5248,187 @@ contains
    call self%finalize_charge_conservation_diagnostic
    endsubroutine integrate_rk_ssp_pic
 
+   subroutine integrate_rk_ssp_pic_charge_conserving(self)
+   !< Integrate PIC equations with SSP RK and charge-conserving current reconstruction on device.
+   !< CPU twin: prism_cpu_object%integrate_rk_ssp_pic_charge_conserving (same call sequence). The stage field is the RK stage
+   !< buffer itself (the CPU copies it into q_stage, which is only read until assign_stage overwrites the buffer).
+   implicit none
+   class(prism_fnl_object), intent(inout) :: self  !< The equation.
+   real(R8P)                              :: coeff(1:self%rk%nrk)
+   integer(I4P)                           :: s, nrk, var_jx
+   logical                                :: cleanup
+
+   associate(cc=>self%conserving_fnl, q_rk_gpu=>self%rk_fnl%q_rk_gpu, q_pic_rk_gpu=>self%rk_pic_fnl%q_pic_rk_gpu)
+   nrk = self%rk%nrk
+   var_jx = self%physics%var_jx
+   cleanup = cc%tail_cleanup
+   call cc%prepare(field=self%adam%field)
+   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
+   call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
+      call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
+   if (cleanup) call cc%copy_particles(src=self%pic_fnl%q_pic_gpu, dst=cc%q_ref_gpu)
+   cc%residual_max = 0._R8P
+   call self%initialize_charge_conservation_diagnostic
+
+   do s=1, nrk
+      if (self%ib%solids_number>0) then
+         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, &
+                                        phi_gpu=self%ib_fnl%phi_gpu)
+      else
+         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
+      endif
+      call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
+      if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
+         call self%rk_pml_fnl%compute_stage(s=s, dt=self%time%dt)
+
+      ! gather at the stage particles, then the particle right-hand side
+      call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                          grid=self%adam%grid, q_pic_gpu=q_pic_rk_gpu(:,:,s))
+      if (self%external_fields%ef_type /= EF_TYPE_NONE) then
+         call cc%copy_field(src=q_rk_gpu(:,:,:,:,:,s), dst=cc%gather_gpu)
+         call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                      dt=self%time%dt, time=self%time%time, q_gpu=cc%gather_gpu, gamm=self%rk%gamm(s))
+         call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                               pic_fields_gpu=self%pic_fnl%pic_fields_gpu, q_gpu=cc%gather_gpu, &
+                                               q_pic_gpu=q_pic_rk_gpu(:,:,s), nv=self%nv)
+      else
+         call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                               pic_fields_gpu=self%pic_fnl%pic_fields_gpu, q_gpu=q_rk_gpu(:,:,:,:,:,s), &
+                                               q_pic_gpu=q_pic_rk_gpu(:,:,s), nv=self%nv)
+      endif
+      call self%rk_pic_fnl%assign_stage(s=s, pic_fields_gpu=self%pic_fnl%pic_fields_gpu)
+
+      ! stage trajectory end point and its directional charge change
+      coeff = 0._R8P
+      if (s < nrk) then
+         coeff(1:s) = self%rk%alph(s+1,1:s)
+      else
+         coeff(1:s) = self%rk%beta(1:s)
+      endif
+      call cc%build_stage_target(q_pic=self%pic_fnl%q_pic_gpu, q_pic_rk=q_pic_rk_gpu, s=s, coeff=coeff, dt=self%time%dt)
+      if (cleanup) call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,s))
+      if (cc%solver == CONSERVING_SOLVER_DIRECT) then
+         call cc%decomposition_displacement(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, field=self%adam%field, &
+                                            grid=self%adam%grid, q_ref=self%pic_fnl%q_pic_gpu, q_to=cc%q_next_gpu, &
+                                            h=cc%h_gpu(:,:,:,:,:,s))
+      else
+         call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=self%pic_fnl%q_pic_gpu, q_to=cc%q_next_gpu, &
+                                        h=cc%h_gpu(:,:,:,:,:,s), p_first=1_I4P, p_last=cc%particle_number)
+      endif
+      call cc%combine_stage_source(h=cc%h_gpu, s=s, coeff=coeff)
+
+      ! stage current
+      if (cleanup) then
+         call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=q_rk_gpu(:,:,:,:,:,s), &
+                                             var_jx=var_jx, q_ref=self%pic_fnl%q_pic_gpu, q_hist=cc%q_hist_gpu, &
+                                             active_stage=s, alph=self%rk%alph, beta=self%rk%beta, dt=self%time%dt, &
+                                             mixed_source=cc%h_gpu(:,:,:,:,:,s))
+      else
+         call cc%solve_dispatch(field_fnl=self%field_fnl, q=q_rk_gpu(:,:,:,:,:,s), var_jx=var_jx, &
+                                hq=cc%h_gpu(:,:,:,:,:,s), dt=self%time%dt)
+      endif
+      call self%accumulate_charge_conservation_current(q_gpu=q_rk_gpu(:,:,:,:,:,s), weight=self%rk%beta(s), s=s)
+      call self%verify_no_pic_deposition_on_coils_dev(q_gpu=q_rk_gpu(:,:,:,:,:,s), check_current=.true., &
+                                                      context='integrate_rk_ssp_pic_charge_conserving(stage current)')
+      call self%compute_coils_current(q_gpu=q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
+      call self%compute_residuals_dev(q_gpu=q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+      if (s==1) call self%save_residuals
+
+      if (self%ib%solids_number>0) then
+         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
+                                       phi_gpu=self%ib_fnl%phi_gpu)
+      else
+         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
+      endif
+      if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) call self%rk_pml_fnl%assign_stage(s=s)
+   enddo
+
+   if (self%ib%solids_number>0) then
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
+                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+   else
+      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   endif
+   call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
+      call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
+   call self%apply_fwl_correction(q_gpu=self%q_gpu)
+   call self%impose_div_free
+
+   ! end-of-step charge and current
+   call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                       grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   if (cc%solver == CONSERVING_SOLVER_MODIFIED) then
+      call cc%deposit_modified_charge(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, field=self%adam%field, &
+                                      grid=self%adam%grid, q=self%q_gpu, nv=self%nv)
+   else
+      call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                               q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+   endif
+   call self%finalize_charge_conservation_diagnostic
+   if (cleanup) then
+      call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=self%q_gpu, var_jx=var_jx, &
+                                          q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, active_stage=nrk, alph=self%rk%alph, &
+                                          beta=self%rk%beta, dt=self%time%dt, mixed_source=cc%h_gpu(:,:,:,:,:,nrk))
+   else
+      call cc%solve_dispatch(field_fnl=self%field_fnl, q=self%q_gpu, var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,nrk), &
+                             dt=self%time%dt)
+   endif
+   call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
+                                                   context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
+   call self%compute_coils_current(q_gpu=self%q_gpu)
+   endassociate
+   endsubroutine integrate_rk_ssp_pic_charge_conserving
+
+   subroutine initialize_pic_conserving_current_time_zero(self)
+   !< Deposit rho (esirkepov-modified) and the conserving current at t=0 on device, then return them to the host q.
+   !< CPU twins: deposit_pic_modified_charge + initialize_pic_conserving_current_time_zero, called at the same point of
+   !< set_initial_conditions (before the host-side elliptic solves that read rho and J).
+   implicit none
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   associate(cc=>self%conserving_fnl)
+   ! geometry may have changed in the IC/AMR loop: refresh the device copies the kernels read
+   call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps)
+   call cc%prepare(field=self%adam%field, force=.true.)
+   call dev_memcpy_to_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q_gpu, src=self%q, buf=self%buf_5D_R8P)
+   call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+   call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                       grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   if (cc%solver == CONSERVING_SOLVER_MODIFIED) &
+      call cc%deposit_modified_charge(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, field=self%adam%field, &
+                                      grid=self%adam%grid, q=self%q_gpu, nv=self%nv)
+
+   ! the virtual interval is centered on the real particle positions and uses the first CFL step
+   call self%compute_dt
+   if (self%time%it_max <= 0_I4P) self%time%dt = min(self%time%dt, self%time%time_max)
+   if (self%time%dt <= 0._R8P) call mpih%error_stop(msg=': nonpositive initial PIC timestep')
+   call cc%build_centered_trajectory(q_pic=self%pic_fnl%q_pic_gpu, dt=self%time%dt)
+   if (cc%solver == CONSERVING_SOLVER_DIRECT) then
+      call cc%decomposition_displacement(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, field=self%adam%field, &
+                                         grid=self%adam%grid, q_ref=cc%q_ref_gpu, q_to=cc%q_next_gpu, &
+                                         h=cc%h_gpu(:,:,:,:,:,1))
+   else
+      call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=cc%q_ref_gpu, q_to=cc%q_next_gpu, &
+                                     h=cc%h_gpu(:,:,:,:,:,1), p_first=1_I4P, p_last=cc%particle_number)
+   endif
+   if (cc%tail_cleanup) then
+      call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,1))
+      call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=self%q_gpu, &
+                                          var_jx=self%physics%var_jx, q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, &
+                                          active_stage=0_I4P, alph=self%rk%alph, beta=self%rk%beta, dt=self%time%dt, &
+                                          mixed_source=cc%h_gpu(:,:,:,:,:,1))
+   else
+      call cc%solve_dispatch(field_fnl=self%field_fnl, q=self%q_gpu, var_jx=self%physics%var_jx, &
+                             hq=cc%h_gpu(:,:,:,:,:,1), dt=self%time%dt)
+   endif
+   call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
+                                                   context='initialize_pic_conserving_current_time_zero')
+   call dev_memcpy_from_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q, src=self%q_gpu, buf=self%buf_5D_R8P)
+   endassociate
+   endsubroutine initialize_pic_conserving_current_time_zero
+
    subroutine integrate_rk_ls_dev(self)
    !< Integrate equation, time operator, RK classical low storage schemes.
    !< Low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place.
@@ -5615,6 +5822,10 @@ contains
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
    real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
 
+   if (is_pic_model(self%physics%physical_model)) then
+      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
+         call mpih%error_stop(msg=': conserving PIC current is not implemented in the staged forest path')
+   endif
    self%time%it = self%time%it + 1
    dt_step = dt
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
@@ -6023,6 +6234,7 @@ contains
    logical,                 intent(in),    optional         :: do_save_restart   !< Save restart dump this step.
    logical,                 intent(in),    optional         :: do_amr            !< Run AMR update this step.
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms for inter-realm halo refresh.
+   real(R8P)                                                :: current_residual  !< Max conserving-current solver residual.
 
    if (self%io%save_memory_status) then
       call save_memory_status_cpu(file_name='memory_cpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
@@ -6053,9 +6265,14 @@ contains
    call self%save_grms_history
    call self%save_magnetic_field_at_center_domain_history
    call self%compute_max_divergence
+   current_residual = 0._R8P
+   if (self%conserving_fnl%enabled) then
+      current_residual = self%conserving_fnl%residual_max
+      call MPI_ALLREDUCE(MPI_IN_PLACE, current_residual, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   endif
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
-                                     div_J=self%max_divergence_J)
+                                     div_J=self%max_divergence_J, current_solver_residual=current_residual)
    call self%save_charge_conservation_diagnostic
    endsubroutine post_step_forest
 
@@ -6130,11 +6347,20 @@ contains
    if (.not. associated(self%charge_conservation_acc_gpu)) return
    if (.not. associated(self%charge_conservation_divj_gpu)) return
 
-   call self%update_ghost(q_gpu=q_gpu, s=s)
-   call zero_current_ghosts_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
-                                       blocks_number=self%blocks_number,                 &
-                                       var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
-                                       var_jz=self%physics%var_jz, q_gpu=q_gpu)
+   ! CPU parity (prism_cpu_object%accumulate_charge_conservation_current): intra-realm ghost exchange only -- no physical
+   ! BCs and no coil re-stamp (update_ghost would add the analytic coil J to the div(J) of the plasma current) -- then
+   ! the current ghosts the solver assumes: odd mirror for the Esirkepov variants, zero otherwise.
+   call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+   call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                            comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, q_gpu=q_gpu)
+   if (self%conserving_fnl%enabled .and. self%conserving_fnl%solver /= CONSERVING_SOLVER_DIRECT) then
+      call self%conserving_fnl%impose_current_ghosts(q=q_gpu, var_jx=self%physics%var_jx)
+   else
+      call zero_current_ghosts_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                          blocks_number=self%blocks_number,                 &
+                                          var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                          var_jz=self%physics%var_jz, q_gpu=q_gpu)
+   endif
    call accumulate_charge_conservation_current_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                                           blocks_number=self%blocks_number,                 &
                                                           var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
