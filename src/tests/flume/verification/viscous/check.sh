@@ -20,8 +20,19 @@
 #        ideal scheme's error; vv6 covers GLM and EGLM with eta;
 #   vv6  MHD with GLM and EGLM: the Ohmic energy budget (the field's energy loss reappears as heat, total energy
 #        conserved) and div(B) not raised above the ideal twin's (waves.py budget).
+#   vv7  (P4) conservation across 2:1 seams: a diagonal wave of amplitude 0.01 in the periodic box with its centre
+#        refined 2:1 (quadtree), Euler (mu, k) and MHD-GLM (mu, eta, B_n = 1), t = 0.05: with reflux every integral
+#        holds within MAX_DRIFT of int|q| (waves.py conserve); without reflux it drifts by at least MIN_DRIFT, and by
+#        at least MIN_DRIFT differently from the ideal twin's, so the dissipative fluxes do cross the seams unmatched.
+#        The forest: the same wave with outflow x faces split at x = 0.5 into two realms, mirror (1:1, quadtree) and
+#        refined (2:1, octree; the refined coupling needs ratio 2 along every axis), against the single realm:
+#        fields within FOREST_TOL (the sine is evaluated from each realm's block origins, one ulp apart at step 0).
+#   vv8  (P4) accuracy across 2:1 seams: the diagonal shear (mu) and Ohmic (eta, mhd-none) waves on the refined
+#        quadtree, order >= SEAM_ORDER_MIN: a 2:1 seam of point values caps the order at 2 (issue #21), so the
+#        composite error is second order and its ratio to the uniform runs grows with N. Without reflux the Ohmic
+#        ladder falls to first order (<= SEAM_NOREFLUX_MAX): the reflux carries the dissipative flux.
 #
-# Usage: ./check.sh [--np N] [--leg vv1|vv2|vv3|vv4|vv5|vv6 ...]
+# Usage: ./check.sh [--np N] [--leg vv1|vv2|vv3|vv4|vv5|vv6|vv7|vv8 ...]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -35,6 +46,11 @@ LEGS=()
 ORDER4_MIN="3.8"
 ORDER2_MIN="1.9"
 BECKER_ORDER_MIN="3.0"
+MAX_DRIFT="1.0e-13"
+MIN_DRIFT="1.0e-10"
+FOREST_TOL="1.0e-10"
+SEAM_ORDER_MIN="1.8"
+SEAM_NOREFLUX_MAX="1.3"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -43,7 +59,7 @@ while [[ $# -gt 0 ]]; do
       *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --leg L)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(vv1 vv2 vv3 vv4 vv5 vv6)
+[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(vv1 vv2 vv3 vv4 vv5 vv6 vv7 vv8)
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -52,7 +68,7 @@ VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TAG="$(basename "$EXE")-np$NP"
 FAILED=0
 
-run() { (cd "$1" && mpirun -np "$NP" "$EXE" input.ini < /dev/null > log.txt 2>&1) ; } # mpirun reads stdin
+run() { (cd "$1" && mpirun -np "$NP" "$EXE" "${2:-input.ini}" < /dev/null > log.txt 2>&1) ; } # mpirun reads stdin
 
 ladder() { # ladder <tool> <name> <order min> "<resolutions>" <make options...>: run, judge the finest pair
    # LADDER_TWIN=1 also runs each resolution with the amplitude -A into <work>-neg (waves.py: the odd part is judged)
@@ -74,7 +90,43 @@ ladder() { # ladder <tool> <name> <order min> "<resolutions>" <make options...>:
       works+=("$w")
    done
    # pipefail: a failing oracle fails the pipeline, which marks the leg failed instead of aborting the check (set -e)
-   if ! "$VENV_PY" "$tool" oracle "${works[@]}" --order-min "$pmin" | sed 's/^/   /'; then FAILED=1 ; fi
+   # LADDER_ORDER_MAX bounds the order from above instead (a negative control), the minimum then 0
+   local bound=(--order-min "$pmin")
+   [[ -n "${LADDER_ORDER_MAX:-}" ]] && bound=(--order-max "$LADDER_ORDER_MAX")
+   if ! "$VENV_PY" "$tool" oracle "${works[@]}" "${bound[@]}" | sed 's/^/   /'; then FAILED=1 ; fi
+}
+
+conserve() { # conserve <name> <waves.py make options...>: reflux on, off and the ideal twin off; waves.py conserve
+   local name="$1" w="$CASE_DIR/work-$TAG-$1" v
+   shift
+   echo "-- $name"
+   for v in "$w" "$w-off" "$w-ideal"; do
+      rm -rf "$v" ; mkdir -p "$v"
+      case "$v" in
+         *-off)   "$VENV_PY" "$CASE_DIR/waves.py" make "$v/input.ini" "$@" --reflux false ;;
+         *-ideal) "$VENV_PY" "$CASE_DIR/waves.py" make "$v/input.ini" "$@" --reflux false --mu 0.0 --kappa 0.0 \
+                     --eta 0.0 ;;
+         *)       "$VENV_PY" "$CASE_DIR/waves.py" make "$v/input.ini" "$@" ;;
+      esac
+      if ! run "$v"; then echo "   run failed, see $v/log.txt" ; FAILED=1 ; return 0 ; fi
+   done
+   if ! "$VENV_PY" "$CASE_DIR/waves.py" conserve "$w" --leaky "$w-off" --ideal "$w-ideal" --max-drift "$MAX_DRIFT" \
+        --min-drift "$MIN_DRIFT" | sed 's/^/   /'; then FAILED=1 ; fi
+}
+
+forest() { # forest <name> mirror|refined <waves.py make options...>: single realm vs its 2-realm split
+   local name="$1" kind="$2" w="$CASE_DIR/work-$TAG-$1" flag=()
+   shift 2
+   [[ $kind == refined ]] && flag=(--refined)
+   echo "-- $name"
+   rm -rf "$w-single" "$w-forest" ; mkdir -p "$w-single" "$w-forest"
+   "$VENV_PY" "$CASE_DIR/waves.py" make "$w-single/input.ini" --bc-x extrapolation "$@"
+   "$VENV_PY" "$CASE_DIR/waves.py" split "$w-single/input.ini" "$w-forest" wave "${flag[@]}"
+   if ! run "$w-single"; then echo "   run failed, see $w-single/log.txt" ; FAILED=1 ; return 0 ; fi
+   if ! run "$w-forest" wave.ini; then echo "   run failed, see $w-forest/log.txt" ; FAILED=1 ; return 0 ; fi
+   # --fields-only: the momentum integrals of a sine wave are zero, so their relative difference measures nothing
+   if ! "$VENV_PY" "$CASE_DIR/../multirealm/multirealm_oracle.py" "$w-forest" "$w-single" --ngc 3 --tol "$FOREST_TOL" \
+        --fields-only | sed 's/^/   /'; then FAILED=1 ; fi
 }
 
 budget() { # budget <name> <waves.py make options...>: the resistive run and its ideal twin, then the VV-6 oracle
@@ -127,6 +179,26 @@ for leg in "${LEGS[@]}"; do
                 --amplitude 1.0e-4
          budget budget-eglm --n 48 --model mhd-eglm --mode magnetic --angle 45 --order 4 --mu 0.0 --eta 0.01 \
                 --time 0.2 --amplitude 1.0e-4 ;;
+      vv7)
+         box=(--angle 45 --order 4 --time 0.05 --amplitude 0.01 --refine 0.25 0.25 0.75 0.75 --ratio 4)
+         euler=(--mode acoustic --mu 0.01 --kappa 0.02)
+         mhd=(--model mhd-glm --mode magnetic --b0 1.0 --mu 0.01 --eta 0.01)
+         # quadtree only: with z null an octree solves the same problem (measured: identical drifts to the printed
+         # digits, at 4 times the cells); the octree's 2:1 seams are exercised by the refined forest below
+         conserve conserve-euler-quadtree --n 48 "${euler[@]}" "${box[@]}"
+         conserve conserve-mhd-quadtree --n 48 "${mhd[@]}" "${box[@]}"
+         wave=(--n 48 --angle 45 --order 4 --time 0.05 --amplitude 0.01)
+         forest forest-euler-mirror mirror "${wave[@]}" "${euler[@]}"
+         forest forest-mhd-mirror mirror "${wave[@]}" "${mhd[@]}"
+         forest forest-euler-refined refined "${wave[@]}" "${euler[@]}" --refine 0.5 0.0 1.0 1.0 --ratio 8
+         forest forest-mhd-refined refined "${wave[@]}" "${mhd[@]}" --refine 0.5 0.0 1.0 1.0 --ratio 8 ;;
+      vv8)
+         seam=(--angle 45 --order 4 --time 0.1 --refine 0.25 0.25 0.75 0.75 --ratio 4)
+         ladder waves.py seam-shear-o4 "$SEAM_ORDER_MIN" "24 48 96" --mode shear --mu 0.01 "${seam[@]}"
+         ladder waves.py seam-ohmic-o4 "$SEAM_ORDER_MIN" "24 48 96" --model mhd-none --mode magnetic --mu 0.0 \
+                --eta 0.01 "${seam[@]}"
+         LADDER_ORDER_MAX="$SEAM_NOREFLUX_MAX" ladder waves.py seam-ohmic-o4-noreflux 0 "24 48 96" --model mhd-none \
+                --mode magnetic --mu 0.0 --eta 0.01 "${seam[@]}" --reflux false ;;
       *) echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
 done

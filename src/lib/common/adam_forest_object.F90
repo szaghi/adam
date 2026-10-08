@@ -1421,6 +1421,7 @@ contains
          do j=jmin, jmax
             do i=imin, imax
                xg = emin_g + ([real(i, R8P), real(j, R8P), real(k, R8P)] - 0.5_R8P) * d_g
+               call wrap_periodic_tangential(realm(is), realm(ip), axis, xg)
                if (.not.inside_domain(realm(ip), xg, 0.25_R8P * d_g)) cycle ! a corner at a physical boundary
                code_c = realm(ip)%adam%tree%get_closest_block(grid=realm(ip)%adam%grid, point=xg)
                call leaf_metrics(realm(ip), code_c, emin_c, d_c)
@@ -1732,6 +1733,34 @@ contains
    endselect
    endassociate
    endsubroutine ghost_slab_extents
+
+   pure subroutine wrap_periodic_tangential(realm_g, realm_c, axis, xg)
+   !< Wrap a seam ghost centre into the peer domain along every tangential axis periodic on both realms (issue #65 P4).
+   !<
+   !< The edge and corner ghosts of a seam slab past a tangential boundary of the ghost realm lie outside the peer
+   !< domain too. At a physical boundary they are the BC's; at a periodic one no BC fills them (the realm's own maps
+   !< have no neighbour across the seam), and they kept their initial values, read by every stencil with tangential
+   !< reach (the dissipative fluxes: NaN at the first step of a mirror split periodic in y). Their peer is the cell one
+   !< period away, which the wrap makes `get_closest_block` find. Both realms span the same tangential extent at a
+   !< mirror or refined seam (the faces cover each other), so the period is the peer's domain length.
+   class(realm_object), intent(in)    :: realm_g !< Realm owning the ghost.
+   class(realm_object), intent(in)    :: realm_c !< Realm owning the cells.
+   integer(I4P),        intent(in)    :: axis    !< Seam normal axis.
+   real(R8P),           intent(inout) :: xg(3)   !< Ghost centre.
+   real(R8P)                          :: period  !< Peer domain length.
+   integer(I4P)                       :: d       !< Axis counter.
+
+   do d=1_I4P, 3_I4P
+      if (d == axis) cycle
+      if (.not.(realm_g%adam%grid%is_ijk_periodic(d) .and. realm_c%adam%grid%is_ijk_periodic(d))) cycle
+      period = realm_c%adam%grid%domain_emax(d) - realm_c%adam%grid%domain_emin(d)
+      if (xg(d) < realm_c%adam%grid%domain_emin(d)) then
+         xg(d) = xg(d) + period
+      elseif (xg(d) > realm_c%adam%grid%domain_emax(d)) then
+         xg(d) = xg(d) - period
+      endif
+   enddo
+   endsubroutine wrap_periodic_tangential
 
    pure function inside_domain(this_realm, xc, tol) result(yes)
    !< Return .true. iff `xc` lies inside the domain of `this_realm`, at least `tol` away from its boundary.

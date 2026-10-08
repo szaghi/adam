@@ -299,6 +299,11 @@ are inviscid. A null direction freezes the momentum normal to it
 (the CHASE semantics of the flux difference), so a reduced-dimension run cannot carry a velocity along a null axis: a
 shear layer or a Couette flow needs its velocity axis active, if thin.
 
+**Across seams.** The dissipative fluxes enter the AMR reflux and the inter-realm register with the inviscid ones, so a
+2:1 face conserves to round-off (VV-7). A 2:1 face is second order, for them as for the inviscid fluxes (the point-value
+seam of issue #21); without the reflux the dissipative flux at the face is first order
+([VV-8](./verification#vv-8-accuracy-across-2-1-seams)).
+
 ## Time integration
 
 The library Runge–Kutta schemes (`[runge_kutta] scheme`, listed in the [input reference](./input)) integrate the

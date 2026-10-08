@@ -25,9 +25,14 @@ therefore runs the twin with amplitude -A (`--sign -1`, work directory `<work>-n
 `(f(+A) - f(-A)) / 2`, whose residue is O(A^3); with A = 1e-4 that residue (1e-12) still floored the finest
 resolution, so the acoustic amplitude is A = 1e-5. The pointwise error is the RMS over the cells (point values: FLUME is a finite-difference scheme).
 
+P4 (VV-7, VV-8): `--refine` adds one 2:1 level over the blocks whose centroid lies in a box (`mhd/amr_box.py`, quadtree
+`--ratio 4` or octree `--ratio 8`), so the wave crosses coarse-fine seams; `--reflux false` is the negative control of
+the conservation leg. On a composite grid the RMS and the amplitude are weighted by the cell area (on a uniform grid
+the weights are equal and the measure is the plain RMS).
+
 Usage:
     waves.py make <out.ini> --mode shear|acoustic --n N [--angle DEG] [--order 2|4] [--mu MU] [--kappa K] [--cfl C]
-                  [--time T]
+                  [--time T] [--refine XMIN YMIN XMAX YMAX [--ratio 4|8]] [--reflux true|false]
     waves.py oracle <work> [<work> ...] [--order-min P]     # one run per resolution, same case
 """
 
@@ -41,6 +46,9 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mhd"))
+from amr_box import refine_box  # noqa: E402
 
 GAMMA = 1.4
 RHO0, P0 = 1.0, 1.0
@@ -234,7 +242,20 @@ def make(args: argparse.Namespace) -> int:
                            field_keys=f"bx = {float(b0[0])!r}\nby = {float(b0[1])!r}\nbz = 0.0\n" if mhd else "",
                            time=args.time, cfl=args.cfl,
                            mhd_section=MHD_SECTION.format(control=control) if mhd else "")
-    Path(args.out).write_text(text)
+    if args.refine is not None or args.reflux != "true" or args.bc_x != "periodic":
+        ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
+        ini.optionxform = str  # FLUME keys are case-sensitive (e.g. [time] CFL)
+        ini.read_string(text)
+        ini["numerics"]["reflux"] = f".{args.reflux}."
+        for face in ("bc_x_min", "bc_x_max"):
+            ini[face]["type"] = args.bc_x
+        if args.refine is not None:
+            refine_box(ini, args.refine, ratio=args.ratio)
+        with Path(args.out).open("w") as out:
+            out.write(text.splitlines()[0] + "\n")
+            ini.write(out)
+    else:
+        Path(args.out).write_text(text)
     return 0
 
 
@@ -278,8 +299,9 @@ def linear_solution(ini: configparser.ConfigParser) -> tuple[str, float, np.ndar
     return mode, k, n, complex(ct[0]), cp
 
 
-def fields(work: Path) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], float]:
-    """Return the measured field and the phase k n.x of every block of the last checkpoint, and the cell size."""
+def fields(work: Path) -> tuple[dict[str, tuple[np.ndarray, np.ndarray, float]], float]:
+    """Return the phase k n.x, the measured field and the cell area of every block of the last checkpoint, and the
+    smallest cell size."""
     ini = read_ini(work / "input.ini")
     ngc = int(ini["grid"]["ngc"])
     mode, k, n, _, _ = linear_solution(ini)
@@ -308,8 +330,9 @@ def fields(work: Path) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], float]
                     field = -n[1] * get("bx") + n[0] * get("by")
                 else:
                     field = rho - rho0
-                out[blk] = (k * (n[0] * xx + n[1] * yy), field)
-                dx = min(dxyz[0], dxyz[1])  # a null direction spans the block
+                out[blk] = (k * (n[0] * xx + n[1] * yy), field, float(dxyz[0] * dxyz[1]))
+                h = min(dxyz[0], dxyz[1])  # a null direction spans the block
+                dx = h if dx == 0.0 else min(dx, h)
     return out, dx
 
 
@@ -322,15 +345,15 @@ def run_error(work: Path) -> tuple[int, float, float, float]:
     pos, dx = fields(work)
     neg_work = work.parent / f"{work.name}-neg"
     neg = fields(neg_work)[0] if neg_work.is_dir() else None
-    sq, cells, proj = 0.0, 0, 0.0 + 0.0j
-    for blk, (s, field) in pos.items():
+    sq, area, proj = 0.0, 0.0, 0.0 + 0.0j
+    for blk, (s, field, da) in pos.items():
         if neg is not None:
             field = 0.5 * (field - neg[blk][1])
         exact = np.real(coef * np.exp(1j * s))
-        sq += float(((field - exact) ** 2).sum())
-        cells += field.size
-        proj += complex((field * np.exp(-1j * s)).sum())
-    return round(1.0 / dx), math.sqrt(sq / cells), 2.0 * abs(proj) / cells, abs(coef)
+        sq += da * float(((field - exact) ** 2).sum())
+        area += da * field.size
+        proj += da * complex((field * np.exp(-1j * s)).sum())
+    return round(1.0 / dx), math.sqrt(sq / area), 2.0 * abs(proj) / area, abs(coef)
 
 
 def oracle(args: argparse.Namespace) -> int:
@@ -365,6 +388,13 @@ def oracle(args: argparse.Namespace) -> int:
         status = int(p < args.order_min)
         print(f"finest-pair order {p:+.2f} {'>=' if not status else '<'} {args.order_min}: "
               f"{'PASS' if not status else 'FAIL'}")
+    if args.order_max is not None and len(results) > 1:
+        (n0, e0, _, _), (n1, e1, _, _) = results[-2], results[-1]
+        p = math.log(e0 / e1) / math.log(n1 / n0)
+        bad = int(p > args.order_max)
+        print(f"finest-pair order {p:+.2f} {'<=' if not bad else '>'} {args.order_max} (negative control): "
+              f"{'PASS' if not bad else 'FAIL'}")
+        status = max(status, bad)
     return status
 
 
@@ -424,6 +454,131 @@ def budget(args: argparse.Namespace) -> int:
     return int(not all(ok))
 
 
+def history(work: Path) -> tuple[list[str], np.ndarray]:
+    """Return the names (`int_r` -> `r`) and the rows (it, time, integrals...) of the conservation history of a run."""
+    lines = next(work.glob("*-conservation_history.dat")).read_text().splitlines()
+    names = [v.strip('"').removeprefix("int_") for v in lines[0].split("=", 1)[1].split()][2:]
+    rows = np.array([[float(v) for v in line.split()] for line in lines[1:] if line.split()])
+    return names, rows
+
+
+def abs_integrals(work: Path, names: list[str]) -> dict[str, float]:
+    """Return the volume integral of |q| of each conserved variable over the interior cells of the last checkpoint:
+    the scale at which the round-off of the conserved sum lives (the integral of a sine wave's momentum is zero, so
+    its own initial value is no scale)."""
+    ngc = int(read_ini(work / "input.ini")["grid"]["ngc"])
+    files = sorted(work.glob("wave-*-proc*.h5"))
+    last = max(int(f.name.split("-")[-2]) for f in files)
+    out = dict.fromkeys(names, 0.0)
+    for path in (f for f in files if int(f.name.split("-")[-2]) == last):
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({key.rsplit("-", 1)[0] for key in h5}):
+                vol = float(np.prod(h5[f"{blk}-dxdydz"][()]))
+                for v in names:
+                    q = h5[f"{blk}-{v}"][()][ngc:-ngc, ngc:-ngc, ngc:-ngc]
+                    out[v] += vol * float(np.abs(q).sum())
+    return out
+
+
+def drifts(work: Path) -> dict[str, float]:
+    """Return the signed final drift I(T) - I(0) of each conserved integral of a run over its scale (abs_integrals);
+    a variable identically zero takes the largest scale of the run. psi, sourced only by the discrete div(B), has no
+    scale of its own: its drift is measured against c_h int|B| (psi ~ c_h B, the GLM flux pair)."""
+    names, rows = history(work)
+    scale = abs_integrals(work, names)
+    if "psi" in scale:
+        ch = float(read_ini(work / "input.ini")["mhd"]["glm_ch"])
+        scale["psi"] = ch * max(scale["bx"], scale["by"], scale["bz"])
+    top = max(scale.values())
+    return {v: float(rows[-1, 2 + i] - rows[0, 2 + i]) / (scale[v] if scale[v] > 0.0 else top)
+            for i, v in enumerate(names)}
+
+
+MANIFEST = """; FLUME forest (issue #65, P4, VV-7): generated by verification/viscous/waves.py split, do not edit.
+[forest]
+realms_number = 2
+
+[realm.1]
+ini = {name}-r1.ini
+
+[realm.2]
+ini = {name}-r2.ini
+
+[forest.topology]
+inter_realm_faces_number = 1
+
+[forest.topology.face_1]
+realm_a          = 1
+face_a           = +x
+realm_b          = 2
+face_b           = -x
+coupling         = {coupling}
+coupling_cadence = stage_coincident
+"""
+
+
+def split(args: argparse.Namespace) -> int:
+    """Split a single-realm input along x at 0.5 into two realms whose union is its cell set (the MV-14 pattern):
+
+    - mirror: each realm keeps the 4 x 4 blocks of the quadtree on its half, with half the cells along x;
+    - refined: the single input refines x > 0.5 by one level (`--refine 0.5 0 1 1`); realm 1 keeps the base level,
+      realm 2 takes the refined one on its own (one more uniform level, half the cells per block along x), and the
+      seam is the 2:1 face of the single run, glued `coupling = refined` (issue #52).
+
+    The x boundaries must not be periodic: a forest seam cannot close the periodic wrap (`mirror` needs coincident
+    cell centres, `periodic` coupling is reserved)."""
+    for r in (1, 2):
+        ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
+        ini.optionxform = str
+        ini.read(args.single)
+        if ini["bc_x_min"]["type"] == "periodic":
+            sys.exit("waves.py split: the single input is periodic in x (make it with --bc-x extrapolation)")
+        ni = int(ini["grid"]["ni"])
+        if ni % 2:
+            sys.exit(f"waves.py split: ni = {ni} is odd, the realms cannot halve it")
+        ini["grid"].update({"ni": str(ni // 2), "emax_x" if r == 1 else "emin_x": "0.5"})
+        if args.refined:
+            box = [float(ini["amr_marker_1"][k]) for k in ("box_xmin", "box_ymin", "box_xmax", "box_ymax")]
+            if box[0] != 0.5 or box[1] > 0.0 or box[2] < 1.0 or box[3] < 1.0:
+                sys.exit("waves.py split --refined: the single input must refine exactly x > 0.5 (--refine 0.5 0 1 1)")
+            level = int(ini["amr"]["max_level"])
+            ini["amr"].update({"markers_number": "0",
+                               "iu_ref_levels": str(level if r == 2 else level - 1), "max_level": str(level)})
+            ini.remove_section("amr_marker_1")
+            ini["initial_conditions"]["amr_iterations"] = "0"
+        ini["IO"].update({"output_basename": f"{args.name}-r{r}", "restart_basename": f"{args.name}-r{r}-restart"})
+        with (args.out / f"{args.name}-r{r}.ini").open("w") as out:
+            ini.write(out)
+    (args.out / f"{args.name}.ini").write_text(MANIFEST.format(name=args.name,
+                                                               coupling="refined" if args.refined else "mirror"))
+    return 0
+
+
+def conserve(args: argparse.Namespace) -> int:
+    """VV-7: the conserved integrals of a run across 2:1 seams, with the negative controls."""
+    ok = True
+    on = drifts(args.work)
+    worst = max(abs(d) for d in on.values())
+    print("reflux on : " + "  ".join(f"{v} {d:+.2e}" for v, d in on.items()))
+    print(f"   largest |drift| / int|q| {worst:.2e} <= {args.max_drift:.1e}: {'PASS' if worst <= args.max_drift else 'FAIL'}")
+    ok &= worst <= args.max_drift
+    if args.leaky is not None:
+        off = drifts(args.leaky)
+        leak = max(abs(d) for d in off.values())
+        print("reflux off: " + "  ".join(f"{v} {d:+.2e}" for v, d in off.items()))
+        print(f"   largest |drift| / int|q| {leak:.2e} >= {args.min_drift:.1e} (the seams are exercised): "
+              f"{'PASS' if leak >= args.min_drift else 'FAIL'}")
+        ok &= leak >= args.min_drift
+        if args.ideal is not None:
+            ideal = drifts(args.ideal)
+            diff = max(abs(off[v] - ideal[v]) for v in off)
+            print("ideal off : " + "  ".join(f"{v} {d:+.2e}" for v, d in ideal.items()))
+            print(f"   dissipative minus ideal leak {diff:.2e} >= {args.min_drift:.1e} (the dissipative fluxes cross "
+                  f"the seams unmatched): {'PASS' if diff >= args.min_drift else 'FAIL'}")
+            ok &= diff >= args.min_drift
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Dispatch the subcommand."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -443,17 +598,36 @@ def main() -> int:
     pm.add_argument("--cfl", type=float, default=0.2)
     pm.add_argument("--time", type=float, default=0.5)
     pm.add_argument("--sign", type=int, choices=[1, -1], default=1, help="sign of the amplitude (the -A twin run)")
+    pm.add_argument("--refine", type=float, nargs=4, default=None, metavar=("XMIN", "YMIN", "XMAX", "YMAX"),
+                    help="refine the blocks whose centroid lies in this box by one 2:1 level (P4)")
+    pm.add_argument("--ratio", type=int, choices=[4, 8], default=4, help="tree ratio of --refine: quadtree 4, octree 8")
+    pm.add_argument("--reflux", choices=["true", "false"], default="true", help="[numerics] reflux (false: control)")
+    pm.add_argument("--bc-x", choices=["periodic", "extrapolation"], default="periodic",
+                    help="x boundaries (extrapolation: the input can be split into realms along x, see split)")
+    ps = sub.add_parser("split", help="VV-7: split an input along x at 0.5 into a 2-realm forest")
+    ps.add_argument("single", type=Path, help="the single-realm input (made with --bc-x extrapolation)")
+    ps.add_argument("out", type=Path, help="output directory: <name>.ini (manifest), <name>-r1.ini, <name>-r2.ini")
+    ps.add_argument("name")
+    ps.add_argument("--refined", action="store_true",
+                    help="the single input refines x > 0.5 (--refine 0.5 0 1 1): realm 2 takes that level, glued 2:1")
     pb = sub.add_parser("budget", help="VV-6: Ohmic energy budget and div(B) of a resistive MHD run")
     pb.add_argument("work", type=Path, help="the resistive run (its first and last checkpoints are kept)")
     pb.add_argument("ideal", type=Path, help="the same case with eta = 0")
     pb.add_argument("--heat-tol", type=float, default=1.0e-3)
     pb.add_argument("--drift-tol", type=float, default=1.0e-13)
     pb.add_argument("--div-factor", type=float, default=1.05)
+    pc = sub.add_parser("conserve", help="VV-7: conserved integrals across 2:1 seams")
+    pc.add_argument("work", type=Path, help="the run with reflux")
+    pc.add_argument("--leaky", type=Path, default=None, help="the same run without reflux (negative control)")
+    pc.add_argument("--ideal", type=Path, default=None, help="the leaky run without dissipative coefficients")
+    pc.add_argument("--max-drift", type=float, default=1.0e-13)
+    pc.add_argument("--min-drift", type=float, default=1.0e-10)
     po = sub.add_parser("oracle", help="judge one or more runs")
     po.add_argument("work", type=Path, nargs="+")
     po.add_argument("--order-min", type=float, default=None)
+    po.add_argument("--order-max", type=float, default=None, help="upper bound (a negative control's degraded order)")
     args = parser.parse_args()
-    return {"make": make, "oracle": oracle, "budget": budget}[args.command](args)
+    return {"make": make, "oracle": oracle, "budget": budget, "conserve": conserve, "split": split}[args.command](args)
 
 
 if __name__ == "__main__":

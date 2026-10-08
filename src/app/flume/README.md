@@ -25,7 +25,8 @@ Dissipative effects (viscosity, thermal conduction, Ohmic resistivity) are miles
 viscosity` or `reynolds`, `conductivity` or `prandtl`, `resistivity` or `magnetic_reynolds`/`lundquist`, a power-law
 viscosity). The viscosity and the conductivity make each model compressible Navier–Stokes, the resistivity makes
 `mhd-ideal` resistive MHD (4th-order conservative fluxes, or 2nd order, `[numerics] dissipative_order`; no-slip and
-isothermal walls; diffusive time-step limit), on both backends.
+isothermal walls; diffusive time-step limit), on both backends, conserved across 2:1 AMR seams and forest seams
+(verification VV-7, VV-8).
 
 ## Implemented Capabilities
 

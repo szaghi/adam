@@ -791,6 +791,89 @@ cd src/tests/flume/verification/viscous && ./check.sh                  # CPU, ev
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh             # FNL
 ```
 
+### VV-7: conservation across 2:1 seams and forest seams
+
+**Why.** The dissipative fluxes are added to the inviscid ones before the seam accumulation, so the Berger–Colella
+reflux and the inter-realm register must carry them: at a 2:1 face the coarse and the fine side compute different
+viscous, heat and Ohmic fluxes, and without the register the grid leaks. The stencils also reach further than WENO's:
+the tangential derivatives read the edge and corner ghosts, which no inviscid stencil touches.
+
+**Cases.** A diagonal wave of amplitude $0.01$ (large, so the seams carry a real flux) in the periodic box with its
+centre $[0.25, 0.75]^2$ refined 2:1 (a quadtree, 8 coarse-fine faces), $t = 0.05$, 48 cells per side at the base
+level: the acoustic wave on Euler ($\mu = 0.01$, $k = 0.02$: density, normal velocity and temperature all vary) and the
+Alfvén wave on MHD-GLM ($B_n = 1$, $\mu = 0.01$, $\eta = 0.01$). Each runs three times: with reflux, without, and
+without reflux and without the dissipative coefficients (the ideal twin). An octree with null $z$ gave the same drifts to
+the printed digits at four times the cells, so the leg keeps the quadtree; the refined forest below runs on an octree.
+
+**Oracle** (`waves.py conserve`). The drift of each conserved integral is divided by $\int|q|\,dV$, the scale of its
+round-off (the momentum of a sine wave integrates to zero, so its own value is no scale; $\psi$, sourced only by the
+discrete $\nabla\cdot\mathbf B$, is measured against $c_h\int|\mathbf B|\,dV$):
+
+- with reflux, every drift $\le 10^{-13}$;
+- without reflux, the largest drift $\ge 10^{-10}$ (the seams are exercised);
+- the leak without reflux differs from the ideal twin's by $\ge 10^{-10}$: the dissipative fluxes cross the seams
+  unmatched, and the first item shows the register removes that too.
+
+**Results** (CPU and FNL, 2 ranks, identical to the printed digits except the round-off of the conserved runs, at most
+$1.1\cdot10^{-16}$ on FNL):
+
+| Case | With reflux | Without | Dissipative minus ideal leak |
+|---|---|---|---|
+| Euler | $\le 1.1\cdot10^{-17}$ | $3.0\cdot10^{-5}$ | $2.0\cdot10^{-6}$ |
+| MHD-GLM | $\le 1.5\cdot10^{-16}$ | $5.9\cdot10^{-5}$ | $5.1\cdot10^{-6}$ |
+
+**Forests.** The same waves with outflow ($x$ extrapolation) faces, split at $x = 0.5$ into two realms (`waves.py
+split`): `mirror` (1:1, quadtree) and `refined` (the single run refines $x > 0.5$; the coarse and the fine realm are
+glued 2:1, on an octree, because the `refined` coupling needs ratio 2 along every axis, null $z$ included). The union
+must reproduce the single realm: fields within $10^{-10}$ relative. Not bitwise, unlike MV-14's piecewise-constant
+states: each realm evaluates the sine from its own block origins, one ulp apart at step 0 ($3\cdot10^{-15}$); the
+largest difference after the run is $8.7\cdot10^{-12}$ on the CPU and $4.4\cdot10^{-12}$ on FNL, at the outer $x$
+faces, not at the seam.
+
+This leg found a library defect. A seam slab's edge and corner ghosts past a tangential boundary of the realm lie
+outside the peer domain, and were left to the boundary condition; along a periodic axis no condition fills them, and
+they kept their initial values. WENO never reads them, the dissipative tangential derivatives do: the mirror split went
+NaN at the first step (on a single realm of the same half domain the run is clean). The seam enumeration now wraps
+those ghost centres by one period when the axis is periodic on both realms
+([forest guide](/guide/forest#seams-across-ranks-issue-40)).
+
+### VV-8: accuracy across 2:1 seams
+
+**Why.** Conservation says nothing about accuracy: a seam can conserve and still degrade the order.
+
+**Cases.** The diagonal shear wave ($\mu = 0.01$, Euler) and the diagonal Ohmic wave ($\eta = 0.01$, `mhd-none`) of
+VV-1 and VV-5, on the quadtree with its centre refined 2:1, at 24 / 48 / 96 cells at the base level (48 / 96 / 192 in
+the refined box), against the exact linear solution, the RMS weighted by the cell area.
+
+**Oracle.** Order $\ge 1.8$ on the finest pair; the Ohmic ladder without reflux, the negative control, $\le 1.3$.
+
+**Results** (CPU and FNL identical, 2 ranks; N is the finest cell count; the rows without coefficients are probes,
+not legs):
+
+| Leg | N | RMS error | Order |
+|---|---|---|---|
+| shear, $\mu$ | 48 / 96 / 192 | $4.26\cdot10^{-8}$ / $1.09\cdot10^{-8}$ / $2.78\cdot10^{-9}$ | +1.96, +1.98 |
+| shear, $\mu = 0$ | 48 / 96 / 192 | $5.39\cdot10^{-8}$ / $1.36\cdot10^{-8}$ / $3.42\cdot10^{-9}$ | +1.99, +1.99 |
+| Ohmic, $\eta$ | 48 / 96 / 192 | $1.15\cdot10^{-9}$ / $2.94\cdot10^{-10}$ / $8.12\cdot10^{-11}$ | +1.97, +1.86 |
+| Ohmic, $\eta = 0$ | 48 / 96 | $7.9\cdot10^{-15}$ / $2.6\cdot10^{-15}$ | round-off |
+| Ohmic, no reflux | 48 / 96 / 192 | $2.37\cdot10^{-9}$ / $1.18\cdot10^{-9}$ / $5.82\cdot10^{-10}$ | +1.00, +1.02 |
+
+The composite grid is second order, against fourth on a uniform grid. The rows without coefficients say where that
+comes from. The shear wave is second order without viscosity too: its seam error is the inviscid one, the point-value
+2:1 seam whose prolongation and restriction do not invert each other and cap the order at 2
+([issue #21](https://github.com/szaghi/adam/issues/21)). A static field has no inviscid flux at first order, so the
+Ohmic composite at $\eta = 0$ stays at round-off, and the Ohmic composite error is the dissipative flux crossing the
+seam: second order with reflux, first without. The plan in #65 asked for the seam error "within a stated factor of the
+uniform fine run"; between a second-order seam and a fourth-order interior that factor grows with $N$, so the leg
+asserts the order instead.
+
+The error maps show where the seam error lives. On the uniform grid the error of the shear wave is smooth and spread
+over the domain, near $10^{-13}$. On the refined grid the Ohmic error is a ring on the 2:1 faces, two orders above the
+rest of the domain: the dissipative flux at the face. The shear error fills the refined box and its surroundings
+instead, being the inviscid seam error that the flow carries and the viscosity spreads.
+
+![VV-1 and VV-8 in 2-D: the shear wave and its error on a uniform grid; the shear and Ohmic errors with the centre refined 2:1](/flume/viscous-fields.png)
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths

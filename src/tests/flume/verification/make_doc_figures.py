@@ -766,13 +766,75 @@ def fig_viscous(out: Path, runs: Path) -> None:  # noqa: ARG001
     plt.close(fig)
 
 
+def fig_viscous_fields(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """VV-1 and VV-8 in 2-D: the diagonal shear wave and its pointwise error on a uniform grid, then the error maps of
+    the shear and Ohmic waves on the quadtree refined 2:1 in its centre (where the seam error lives)."""
+    sys.path.insert(0, str(HERE / "viscous"))
+    import waves  # noqa: PLC0415
+
+    vdir = HERE / "viscous"
+
+    def wave_blocks(name: str) -> tuple[list[dict], callable, callable]:
+        work = vdir / f"{TAG}-{name}"
+        ini = read_ini(work / "input.ini")
+        mode, k, n, coef, _ = waves.linear_solution(ini)
+        bl = first_plane(blocks(work, int(ini["grid"]["ngc"]), ("r", "ru", "rv", "bx", "by")))
+
+        def measured(b: dict) -> np.ndarray:
+            f = {key: v[:, :, 0] for key, v in b["f"].items()}
+            if mode == "magnetic":
+                return -n[1] * f["bx"] + n[0] * f["by"]
+            return (-n[1] * f["ru"] + n[0] * f["rv"]) / f["r"]
+
+        def error(b: dict) -> np.ndarray:
+            nx, ny = b["f"]["r"].shape[:2]
+            xc = b["lo"][0] + (np.arange(nx) + 0.5) * b["d"][0]
+            yc = b["lo"][1] + (np.arange(ny) + 0.5) * b["d"][1]
+            xx, yy = np.meshgrid(xc, yc, indexing="ij")
+            exact = np.real(coef * np.exp(1j * k * (n[0] * xx + n[1] * yy)))
+            return np.abs(measured(b) - exact)
+
+        return bl, measured, error
+
+    def error_map(ax, bl: list[dict], error, title: str) -> None:  # noqa: ANN001
+        vals = [error(b) for b in bl]
+        hi = max(float(v.max()) for v in vals)
+        norm = mpl.colors.LogNorm(vmin=hi * 1.0e-4, vmax=hi)
+        im = None
+        for b, v in zip(bl, vals, strict=True):
+            nx, ny = v.shape
+            xe = b["lo"][0] + np.arange(nx + 1) * b["d"][0]
+            ye = b["lo"][1] + np.arange(ny + 1) * b["d"][1]
+            im = ax.pcolormesh(xe, ye, np.maximum(v, hi * 1.0e-4).T, cmap="viridis", norm=norm, shading="flat")
+            ax.add_patch(Rectangle((xe[0], ye[0]), xe[-1] - xe[0], ye[-1] - ye[0], fill=False, lw=0.4, ec="w"))
+        ax.set_aspect("equal")
+        fig.colorbar(im, ax=ax, label="|error|", shrink=0.85)
+        ax.set_title(title, fontsize=9)
+
+    fig, axs = plt.subplots(2, 2, figsize=(11.5, 10.5), constrained_layout=True)
+    bl, measured, error = wave_blocks("shear-xy-o4-n96")
+    im = field_map(axs[0, 0], bl, measured, cmap="RdBu_r", outline=True)
+    fig.colorbar(im, ax=axs[0, 0], label=r"$u_t$", shrink=0.85)
+    axs[0, 0].set_title(r"VV-1 shear wave at 45$^\circ$, uniform 96$^2$, $\mu$ = 0.01, t = 0.1", fontsize=9)
+    error_map(axs[0, 1], bl, error, "VV-1 pointwise error, uniform 96$^2$ (4th order, smooth)")
+    bl, _, error = wave_blocks("seam-shear-o4-n48")
+    error_map(axs[1, 0], bl, error, "VV-8 shear error, 48$^2$ with the centre refined 2:1 (96$^2$ cells)")
+    bl, _, error = wave_blocks("seam-ohmic-o4-n48")
+    error_map(axs[1, 1], bl, error, r"VV-8 Ohmic error ($\eta$ = 0.01, mhd-none), same grid")
+    for ax in axs.flat:
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+    fig.savefig(out / "viscous-fields.png", dpi=DPI)
+    plt.close(fig)
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
            "conservation": fig_conservation,
            "orszag-tang": fig_orszag_tang,
            "rotor": fig_rotor, "field-loop": fig_field_loop, "mhd-riemann": fig_mhd_riemann, "glm-pulse": fig_glm_pulse,
            "blast": fig_blast, "near-vacuum": fig_vacuum, "eglm-energy": fig_eglm_energy, "order": fig_order,
-           "viscous": fig_viscous}
+           "viscous": fig_viscous, "viscous-fields": fig_viscous_fields}
 
 
 def main() -> int:
