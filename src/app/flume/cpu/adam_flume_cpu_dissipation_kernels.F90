@@ -25,13 +25,16 @@ module adam_flume_cpu_dissipation_kernels
 !< G''_f dx^2 = (G_2 - G_1 - G_0 + G_-1) / 2,        G_m from 2nd-order central gradients at cell m
 !<```
 !< so `h = G_f - (G_2 - G_1 - G_0 + G_-1) / 48`. Across a strong temperature jump the 4-point face temperature can
-!< undershoot below zero (a power law is then NaN): where it is not positive, the face takes the mean of its two cells. Cells `-2 ... 3` along `d` and `-2 ... 2` along the tangents are
-!< read: `ngc >= 3`. The correction is built from 2nd-order cell fluxes for every term, linear or not, so for constant
+!< undershoot below zero (a power law is then NaN): where it is not positive, the face takes the mean of its two cells.
+!< Cells `-2 ... 3` along `d` and `-2 ... 2` along the tangents are read: `ngc >= 3`. The correction is built from 2nd-order cell fluxes for every term, linear or not, so for constant
 !< `mu` the scheme is a 4th-order `u_xx` on 6 points, not the compact 5-point one; the order is verified by measurement.
+!<
+!< The Ohmic fluxes (MHD, issue #65 P3) use the same stencils on `W = B` (auxiliary `IA_BX..IA_BZ`), adding to the field
+!< and energy fluxes: the kernels `add_resistive_fluxes_o2/o4`, called by the host only when the resistivity is on.
 
 ! FLUME modules
-use :: adam_flume_dissipation_library, only : compute_dissipative_flux
-use :: adam_flume_parameters,          only : IA_T, IA_U, IA_V, IA_W, IQ_RU
+use :: adam_flume_dissipation_library, only : compute_dissipative_flux, compute_resistive_flux
+use :: adam_flume_parameters,          only : IA_BX, IA_BY, IA_BZ, IA_T, IA_U, IA_V, IA_W, IQ_BX, IQ_RE, IQ_RU
 ! third party modules
 use :: penf,                           only : I4P, R8P
 
@@ -39,8 +42,11 @@ implicit none
 private
 public :: add_dissipative_fluxes_o2
 public :: add_dissipative_fluxes_o4
+public :: add_resistive_fluxes_o2
+public :: add_resistive_fluxes_o4
 
-integer(I4P), parameter :: IW(4)=[IA_U, IA_V, IA_W, IA_T] !< Auxiliary indexes of W = (u, v, w, T).
+integer(I4P), parameter :: IW(4)=[IA_U, IA_V, IA_W, IA_T]  !< Auxiliary indexes of W = (u, v, w, T).
+integer(I4P), parameter :: IB(3)=[IA_BX, IA_BY, IA_BZ]     !< Auxiliary indexes of the magnetic field.
 
 contains
    ! public procedures
@@ -168,6 +174,124 @@ contains
    enddo
    !$omp end parallel do
    endsubroutine add_dissipative_fluxes_o4
+
+   subroutine add_resistive_fluxes_o2(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, eta, dxyz, is_null, q_aux, fl)
+   !< Add the 2nd-order Ohmic face fluxes of direction `d` to `fl` (MHD).
+   integer(I4P), intent(in)    :: d                                 !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                        !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)    :: eta                               !< Magnetic diffusivity.
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
+   logical,      intent(in)    :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)       !< Face fluxes of direction `d`.
+   integer(I4P)                :: o(3,3)                            !< Steps o(:,t) along each direction.
+   real(R8P)                   :: b0(3), b1(3)                      !< Left and right cell fields.
+   real(R8P)                   :: g(3,3)                            !< Face gradient.
+   real(R8P)                   :: h(4)                              !< Face flux.
+   real(R8P)                   :: rdx(3)                            !< Inverse steps, 0 along null directions.
+   integer(I4P)                :: c(3)                              !< Right cell index.
+   integer(I4P)                :: b, i, j, k, t                     !< Counters.
+
+   o = steps(is_null)
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q_aux, fl)
+   do b=1, blocks_number
+      do k=1-dk, nk
+         do j=1-dj, nj
+            do i=1-di, ni
+               rdx = inverse_steps(dxyz(:,b), is_null)
+               c = [i+di, j+dj, k+dk]
+               b0 = q_aux(IB,i,j,k,b)
+               b1 = q_aux(IB,c(1),c(2),c(3),b)
+               do t=1, 3
+                  if (t == d) then
+                     g(:,t) = (b1 - b0) * rdx(t)
+                  else
+                     g(:,t) = 0.25_R8P * rdx(t) * (q_aux(IB,i+o(1,t),j+o(2,t),k+o(3,t),b)          - &
+                                                   q_aux(IB,i-o(1,t),j-o(2,t),k-o(3,t),b)          + &
+                                                   q_aux(IB,c(1)+o(1,t),c(2)+o(2,t),c(3)+o(3,t),b) - &
+                                                   q_aux(IB,c(1)-o(1,t),c(2)-o(2,t),c(3)-o(3,t),b))
+                  endif
+               enddo
+               call compute_resistive_flux(d=d, eta=eta, b=0.5_R8P * (b0 + b1), g=g, f=h)
+               fl(IQ_BX:IQ_BX+2,i,j,k,b) = fl(IQ_BX:IQ_BX+2,i,j,k,b) + h(1:3)
+               fl(IQ_RE,i,j,k,b) = fl(IQ_RE,i,j,k,b) + h(4)
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine add_resistive_fluxes_o2
+
+   subroutine add_resistive_fluxes_o4(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, eta, dxyz, is_null, q_aux, fl)
+   !< Add the 4th-order conservative Ohmic face fluxes of direction `d` to `fl` (MHD): the stencils of
+   !< `add_dissipative_fluxes_o4` on `W = B`, with the Shu-Osher correction.
+   integer(I4P), intent(in)    :: d                                 !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                        !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)    :: eta                               !< Magnetic diffusivity.
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
+   logical,      intent(in)    :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)       !< Face fluxes of direction `d`.
+   integer(I4P)                :: o(3,3)                            !< Steps o(:,t) along each direction.
+   real(R8P)                   :: bm(3,-1:2)                        !< Fields of the cells -1 ... 2 along `d`.
+   real(R8P)                   :: dm(3,-1:2)                        !< 4th-order tangential derivative at those cells.
+   real(R8P)                   :: g(3,3)                            !< Face (or cell) gradient.
+   real(R8P)                   :: gm(4,-1:2)                        !< Cell fluxes of the correction.
+   real(R8P)                   :: h(4)                              !< Face flux.
+   real(R8P)                   :: rdx(3)                            !< Inverse steps, 0 along null directions.
+   integer(I4P)                :: c(3)                              !< Cell index.
+   integer(I4P)                :: b, i, j, k, m, t                  !< Counters.
+
+   o = steps(is_null)
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q_aux, fl)
+   do b=1, blocks_number
+      do k=1-dk, nk
+         do j=1-dj, nj
+            do i=1-di, ni
+               rdx = inverse_steps(dxyz(:,b), is_null)
+               do m=-1, 2
+                  bm(:,m) = q_aux(IB,i+m*di,j+m*dj,k+m*dk,b)
+               enddo
+               ! face flux from 4th-order face values and gradients
+               do t=1, 3
+                  if (t == d) then
+                     g(:,t) = (27._R8P * (bm(:,1) - bm(:,0)) - (bm(:,2) - bm(:,-1))) * rdx(t) / 24._R8P
+                  else
+                     do m=-1, 2
+                        c = [i+m*di, j+m*dj, k+m*dk]
+                        dm(:,m) = (8._R8P * (q_aux(IB,c(1)+o(1,t),c(2)+o(2,t),c(3)+o(3,t),b)        -  &
+                                             q_aux(IB,c(1)-o(1,t),c(2)-o(2,t),c(3)-o(3,t),b))       -  &
+                                   (q_aux(IB,c(1)+2*o(1,t),c(2)+2*o(2,t),c(3)+2*o(3,t),b)           -  &
+                                    q_aux(IB,c(1)-2*o(1,t),c(2)-2*o(2,t),c(3)-2*o(3,t),b))) * rdx(t) / 12._R8P
+                     enddo
+                     g(:,t) = (9._R8P * (dm(:,0) + dm(:,1)) - (dm(:,-1) + dm(:,2))) / 16._R8P
+                  endif
+               enddo
+               call compute_resistive_flux(d=d, eta=eta,                                                       &
+                                           b=(9._R8P * (bm(:,0) + bm(:,1)) - (bm(:,-1) + bm(:,2))) / 16._R8P, &
+                                           g=g, f=h)
+               ! Shu-Osher correction from the cell fluxes, 2nd-order central gradients
+               do m=-1, 2
+                  c = [i+m*di, j+m*dj, k+m*dk]
+                  do t=1, 3
+                     g(:,t) = 0.5_R8P * rdx(t) * (q_aux(IB,c(1)+o(1,t),c(2)+o(2,t),c(3)+o(3,t),b) - &
+                                                  q_aux(IB,c(1)-o(1,t),c(2)-o(2,t),c(3)-o(3,t),b))
+                  enddo
+                  call compute_resistive_flux(d=d, eta=eta, b=bm(:,m), g=g, f=gm(:,m))
+               enddo
+               h = h - (gm(:,2) - gm(:,1) - gm(:,0) + gm(:,-1)) / 48._R8P
+               fl(IQ_BX:IQ_BX+2,i,j,k,b) = fl(IQ_BX:IQ_BX+2,i,j,k,b) + h(1:3)
+               fl(IQ_RE,i,j,k,b) = fl(IQ_RE,i,j,k,b) + h(4)
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine add_resistive_fluxes_o4
 
    ! private procedures
    pure function steps(is_null) result(o)

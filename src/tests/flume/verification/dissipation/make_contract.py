@@ -5,12 +5,12 @@ Each case is a base input (an Euler or an MHD regression input) with some keys s
 
 - `refuse`: the run stops with the expected message (every invalid combination of D-M4-5, D-M4-6, D-M4-7);
 - `log`: the run reads the coefficients and logs them: the coefficient implied by each number (`mu = 1/Re`,
-  `k = mu cp/Pr`, `eta = 1/Rm`) must be logged exactly (`--check-log`); an Euler run then completes and logs its
-  diffusive time step limit (P2), an MHD run stops at the P3 guard (its kernels land in P3);
+  `k = mu cp/Pr`, `eta = 1/Rm`) must be logged exactly (`--check-log`); the run then takes ten steps and logs its
+  diffusive time step limit (Euler since P2, MHD since P3);
 - `ideal`: zero coefficients and `dissipative_order = 2` change nothing: the run must equal the base run bit for bit;
 - `convert`: the case dimensionalised by `../scaling/scaling.py` (a `[reference]` section, powers of two) must log
   every dimensional key converted back exactly (`scaling.py check-log`: the coefficients, the temperatures and the wall
-  velocity), then completes (Euler) or stops at the guard (MHD); `convert-refuse`: the dimensionalised case must be refused (a `lundquist` number
+  velocity), then takes ten steps; `convert-refuse`: the dimensionalised case must be refused (a `lundquist` number
   without the Alfvenic preset).
 
 Usage:
@@ -26,8 +26,8 @@ import configparser
 import sys
 from pathlib import Path
 
-# the Euler cases that run through stop after a few steps: a viscous sod-x is diffusion-limited, and the `reference`
-# wall, 330 times hotter than the gas, makes it so by 2000 times (issue #65, P2)
+# the cases that run through stop after a few steps: a viscous sod-x is diffusion-limited, and the `reference` wall,
+# 330 times hotter than the gas, makes it so by 2000 times (issue #65, P2)
 SHORT = {"it_max": "10"}
 
 # name: (kind, base (euler|mhd), keys {section: {key: value}}, expected message for `refuse`)
@@ -65,12 +65,14 @@ CASES: dict[str, tuple[str, str, dict[str, dict[str, str]], str]] = {
                                   "failed to load [bc_x_max].(wall_temperature)"),
     "isothermal-negative": ("refuse", "euler", {"bc_x_max": {"type": "wall-isothermal", "wall_temperature": "-1.0"}},
                             "(wall_temperature) must be positive"),
-    "mhd-guard": ("refuse", "mhd", {"physics": {"viscosity": "0.01"}},
-                  "are not yet computed with [physics].(physical_model)=mhd-ideal"),
+    "order4-ngc2": ("refuse", "euler", {"physics": {"viscosity": "0.01"}, "grid": {"ngc": "2"},
+                                        "weno": {"scheme": "weno-u-3"}},
+                    "(dissipative_order)=4 needs [grid].(ngc) >= 3"),
     "reynolds": ("log", "euler", {"physics": {"reynolds": "64.0", "prandtl": "0.75"}, "time": SHORT}, ""),
     "coefficients": ("log", "euler", {"physics": {"viscosity": "0.015625", "conductivity": "0.03125"},
                                       "time": SHORT}, ""),
-    "magnetic-reynolds": ("log", "mhd", {"physics": {"magnetic_reynolds": "128.0", "reynolds": "32.0"}}, ""),
+    "magnetic-reynolds": ("log", "mhd", {"physics": {"magnetic_reynolds": "128.0", "reynolds": "32.0"},
+                                         "time": SHORT}, ""),
     "zero": ("ideal", "euler", {"physics": {"viscosity": "0.0", "conductivity": "0.0"},
                                 "numerics": {"dissipative_order": "2"}}, ""),
     "reference": ("convert", "euler", {"physics": {"viscosity": "0.015625", "conductivity": "0.03125",
@@ -78,7 +80,8 @@ CASES: dict[str, tuple[str, str, dict[str, dict[str, str]], str]] = {
                                                    "reference_temperature": "1.5"},
                                        "bc_x_max": {"type": "wall-isothermal", "wall_temperature": "0.9",
                                                     "wall_v": "0.1"}, "time": SHORT}, ""),
-    "reference-mhd": ("convert", "mhd", {"physics": {"resistivity": "0.0078125", "viscosity": "0.03125"}}, ""),
+    "reference-mhd": ("convert", "mhd", {"physics": {"resistivity": "0.0078125", "viscosity": "0.03125"},
+                                         "time": SHORT}, ""),
     "lundquist-reference": ("convert-refuse", "mhd", {"physics": {"lundquist": "50.0"}},
                             "(lundquist) needs [reference].(velocity)=alfvenic"),
 }

@@ -80,6 +80,64 @@
    enddo
    endsubroutine compute_lambda_max_dev
 
+   subroutine compute_lambda_max_dissipative_dev(ni, nj, nk, ngc, blocks_number, gamma, R, cp, mu0, k0, eta, t_wall, &
+                                                 tref, omega_mu, omega_k, dxyz_gpu, is_null, q_gpu, lambda_max,     &
+                                                 lambda_hyp, lambda_dif, re_cell_min)
+   !< Device twin of the CPU MHD `compute_lambda_max_dissipative` (issue #65, D-M4-3).
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)  :: gamma, R, cp                      !< Specific heats ratio, gas constant, cp.
+   real(R8P),    intent(in)  :: mu0, k0, eta                      !< Dissipative coefficients.
+   real(R8P),    intent(in)  :: t_wall                            !< Hottest isothermal wall temperature, 0 if none.
+   real(R8P),    intent(in)  :: tref, omega_mu, omega_k           !< Temperature laws.
+   real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: lambda_max                        !< Maximum of the sum.
+   real(R8P),    intent(out) :: lambda_hyp                        !< Maximum of the hyperbolic part.
+   real(R8P),    intent(out) :: lambda_dif                        !< Maximum of the diffusive part.
+   real(R8P),    intent(out) :: re_cell_min                       !< Minimum cell Reynolds number.
+   real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
+   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
+   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
+   real(R8P)                 :: lh, ld                            !< Private hyperbolic and diffusive parts.
+   integer(I4P)              :: b, i, j, k, v                     !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   lambda_max = 0._R8P ; lambda_hyp = 0._R8P ; lambda_dif = 0._R8P ; re_cell_min = huge(1._R8P)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,omega_mu,omega_k,wx,wy,wz) &
+   !$acc& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,omega_mu,omega_k,wx,wy,wz) &
+   !$omp& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      !$acc loop seq
+      do v=1, NV_K
+         q_(v) = q_gpu(b,i,j,k,v)
+      enddo
+      call conservative_to_auxiliary(gamma=gamma, R=R, q=q_, qa=qa_)
+      lh = wx * (abs(qa_(IA_U)) + mhd_fast_speed(d=1_I4P, qa=qa_)) / dxyz_gpu(b,1) + &
+           wy * (abs(qa_(IA_V)) + mhd_fast_speed(d=2_I4P, qa=qa_)) / dxyz_gpu(b,2) + &
+           wz * (abs(qa_(IA_W)) + mhd_fast_speed(d=3_I4P, qa=qa_)) / dxyz_gpu(b,3)
+      ld = 2._R8P * dissipative_diffusivity(rho=qa_(IA_R), T=qa_(IA_T), t_wall=t_wall, gamma=gamma, cp=cp, mu0=mu0, &
+                                            k0=k0, eta=eta, tref=tref, omega_mu=omega_mu, omega_k=omega_k) *    &
+           (wx / dxyz_gpu(b,1)**2 + wy / dxyz_gpu(b,2)**2 + wz / dxyz_gpu(b,3)**2)
+      lambda_max = max(lambda_max, lh + ld)
+      lambda_hyp = max(lambda_hyp, lh)
+      lambda_dif = max(lambda_dif, ld)
+      if (ld > 0._R8P) re_cell_min = min(re_cell_min, 2._R8P * lh / ld)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_lambda_max_dissipative_dev
+
    subroutine apply_floors_dev(ni, nj, nk, ngc, blocks_number, gamma, R, rho_floor, p_floor, q_gpu, floored, nonpositive, &
                                rho_min, p_min)
    !< Apply the MHD positivity floors to the interior cells of a stage state, before its ghost exchange (issue #41,

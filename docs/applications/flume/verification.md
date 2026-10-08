@@ -615,8 +615,8 @@ imply exactly the coefficient it states; nothing may be dropped silently. The ke
 
 | Kind | Cases | Oracle |
 |---|---|---|
-| refuse | both keys of a term (3), `prandtl` without a viscosity, resistivity on Euler, a negative viscosity, a zero Reynolds number, the power law without a viscosity, its keys without the law, a missing reference temperature, an unknown law, `dissipative_order = 3`, the limiter with a viscosity, a normal wall velocity, an isothermal wall without (or with a negative) temperature, a viscosity on MHD (refused until P3), a negative power-law exponent | the run stops with the expected message |
-| log | `reynolds` + `prandtl`; `viscosity` + `conductivity`; `magnetic_reynolds` + `reynolds` (MHD) | the logged $\mu$, $k$, $\eta$ equal $1/Re$, $\mu c_p/Pr$, $1/Rm$ exactly; the Euler runs take ten steps and log their diffusive time-step limit, the MHD one stops at the P3 guard |
+| refuse | both keys of a term (3), `prandtl` without a viscosity, resistivity on Euler, a negative viscosity, a zero Reynolds number, the power law without a viscosity, its keys without the law, a missing reference temperature, an unknown law, `dissipative_order = 3`, the limiter with a viscosity, a normal wall velocity, an isothermal wall without (or with a negative) temperature, `dissipative_order = 4` with `ngc = 2`, a negative power-law exponent | the run stops with the expected message |
+| log | `reynolds` + `prandtl`; `viscosity` + `conductivity`; `magnetic_reynolds` + `reynolds` (MHD) | the logged $\mu$, $k$, $\eta$ equal $1/Re$, $\mu c_p/Pr$, $1/Rm$ exactly; every run takes ten steps and logs its diffusive time-step limit |
 | ideal | zero coefficients, `dissipative_order = 2` | the run equals the base run bit for bit |
 | convert | the Euler case with viscosity, conductivity, the power law and an isothermal moving wall; the MHD case with resistivity; dimensionalised with $L_0 = 2$, $u_0 = 1/2$, $\rho_0 = 4$ | every dimensional key logged converted back exactly (`scaling.py check-log`), the conductivity and the temperatures with the gas constant |
 | convert-refuse | `lundquist` under a `[reference]` without the Alfvénic preset | refused |
@@ -712,7 +712,79 @@ the run itself shows: the acoustic odd part, whose $\pm A$ difference amplifies 
 ($8.196853\cdot10^{-11}$ against $8.196891\cdot10^{-11}$ at 32 cells), and the last digit of the Couette $u$ error at
 128 cells.
 
-![VV-1 to VV-4: convergence, and Becker's shock against the exact profile](/flume/viscous.png)
+### VV-5: Ohmic decay and the visco-resistive Alfvén wave
+
+**Why.** The Ohmic flux has its own kernels, a curl form whose cross terms an axis-aligned wave never reads, and a sign
+that the plan in #65 printed wrong (an anti-diffusion; see [numerics](./numerics#dissipative-fluxes-navier-stokes)). A sign error
+grows the field, a missing cross term changes the diagonal rate, a coefficient error changes every rate: each is a
+number the exact linear mode pins.
+
+**Cases** (`sine-wave` in its `magnetic` mode, a transverse field $b_t = A\sin(\mathbf k\cdot\mathbf x)$ on a gas at
+rest, $A = 10^{-5}$, $\eta = 0.01$, the same numerics as VV-1; oracle `viscous/waves.py`, the $2\times2$ system for
+$(v_t, b_t)$ integrated exactly):
+
+- Ohmic decay along x at `dissipative_order` 4 and 2 (`mhd-none`, no background field): the rate is $\eta k^2$.
+- Ohmic decay along the diagonal, $t = 0.1$ (`mhd-none`): the cross terms $\partial_i B_d$ of the curl form.
+- The visco-resistive Alfvén wave along x, $B_n = 1$, $\mu = 0.01$, $\eta = 0.005$ (`mhd-glm`): $\mu$ and $\eta$
+  together, damping $(\nu + \eta)k^2/2$.
+- VV-2's acoustic wave on `mhd-none` with $\mathbf B = 0$, $\mu = 0.01$, $k = 0.02$, odd part of the $\pm A$ twins: the
+  viscous and heat fluxes on MHD, which read the temperature from the MHD auxiliary state, so a wrong slot or a wrong
+  $T$ shows here and nowhere else (the constant laws of the Alfvén leg never read $T$).
+
+**Oracle.** As VV-1: the observed order of the finest pair $\ge 3.8$ at order 4, $\ge 1.9$ at order 2.
+
+**Results** (CPU and FNL, 2 ranks, identical to the printed digits except as noted):
+
+| Leg | N | RMS error | Order |
+|---|---|---|---|
+| Ohmic x, order 4 | 32 / 64 / 128 | $3.64\cdot10^{-11}$ / $2.29\cdot10^{-12}$ / $1.43\cdot10^{-13}$ | +3.99, +4.00 |
+| Ohmic x, order 2 | 32 / 64 / 128 | $3.68\cdot10^{-9}$ / $9.20\cdot10^{-10}$ / $2.30\cdot10^{-10}$ | +2.00, +2.00 |
+| Ohmic diagonal, order 4 | 24 / 48 / 96 | $1.14\cdot10^{-10}$ / $7.19\cdot10^{-12}$ / $4.50\cdot10^{-13}$ | +3.99, +4.00 |
+| Alfvén x, order 4 | 32 / 64 / 128 | $6.37\cdot10^{-11}$ / $1.10\cdot10^{-12}$ / $2.18\cdot10^{-14}$ | +5.85, +5.66 |
+| acoustic on MHD, order 4 | 32 / 64 / 128 | $8.20\cdot10^{-11}$ / $1.69\cdot10^{-12}$ / $2.19\cdot10^{-14}$ | +5.60, +6.27 |
+
+The measured Ohmic rate is $0.3947841$ against $\eta k^2 = 0.3947842$: the sign is the derived one. Along x the Ohmic
+decay of $b_y$ is the same equation as the shear wave's $u_y$ in VV-1, and its errors are the VV-1 errors scaled by the
+amplitude, to three digits: two kernels, one stencil. The Alfvén wave decays at $0.29610$ against
+$(\nu + \eta)k^2/2 = 0.29609$; as on the acoustic wave, its error is dominated by the inviscid WENO part, hence the order
+above four. The acoustic wave on MHD reproduces VV-2 on Euler: the measured amplitude agrees to ten digits at 32 cells
+($8.6252132315\cdot10^{-6}$ against $8.6252132321\cdot10^{-6}$); the RMS errors agree to three, the inviscid parts of
+the two models being different kernels. FNL differs from the CPU only in the round-off of that leg's odd part
+($2.21\cdot10^{-14}$ against $2.19\cdot10^{-14}$ at 128 cells, +6.26).
+
+**The diagonal runs without divergence control.** With GLM or EGLM the same ladder measured +7.65 then +1.72, and +3.32
+from 96 to 192 cells. The cause is the ideal scheme: run with $\eta = 0$, where the exact field is static, GLM's
+upwinding ($c_h = 3$) damps it at fifth order ($8.5\cdot10^{-12}$ at 48 cells, $2.7\cdot10^{-13}$ at 96), with the
+opposite sign to the Ohmic error and as large, so the two cancel near 48 cells and a 24/48/96 ladder is not
+asymptotic. Without divergence control the $\eta = 0$ field stays at round-off. A smaller time step (CFL 0.05) changed
+no printed digit, so neither error is temporal. GLM and EGLM with resistivity are covered by VV-6.
+
+### VV-6: Ohmic heating and the divergence constraint
+
+**Why.** The Ohmic energy flux $G^E_d = \sum_i B_i\,G^{B_i}_d$ must return to the gas, as heat, exactly the energy the
+field loses: a wrong energy flux leaves the field equations right and shows only in this budget. And the curl form
+must not feed $\nabla\cdot\mathbf B$, the constraint GLM and EGLM are there to keep.
+
+**Case** (`waves.py budget`): the diagonal Ohmic wave, 48 cells, $A = 10^{-4}$ (the budget compares energies of
+$O(A^2)$ with differences of the internal energy, so it needs the signal), $\eta = 0.01$, $t = 0.2$, with `mhd-glm` and
+with `mhd-eglm`, each against its ideal twin ($\eta = 0$).
+
+**Oracle.** Heat gained over field and kinetic energy lost within $10^{-3}$ of 1; the drift of the total energy at most
+$10^{-13}$ of the total; $\max|\nabla\cdot\mathbf B|$ (central differences) at most 1.05 times the ideal twin's plus
+$10^{-14}$.
+
+**Results.** Both models: the field loses $6.770374\cdot10^{-10}$ of its $2.5\cdot10^{-9}$, the gas gains
+$6.770375\cdot10^{-10}$, a ratio of 1.0000002 on the CPU and 1.0000015 on FNL. Those departures are round-off: the
+internal energy is the total minus the kinetic and magnetic parts, and a difference of $6.8\cdot10^{-10}$ out of a total
+of 2.5 keeps six digits. The total energy drifts by $1.8\cdot10^{-16}$ of itself. $\max|\nabla\cdot\mathbf B|$ is
+$2.1\cdot10^{-18}$ with resistivity and $2.6\cdot10^{-18}$ without (GLM; EGLM alike).
+
+**What the divergence leg does not show.** On a uniform periodic grid the diagonal field is discretely solenoidal from
+the start, and the curl-form flux keeps it so; both runs sit at round-off, so the leg checks only that the resistive
+flux adds no divergence there. The test with teeth is the 2:1 AMR seam, where the discrete operators no longer commute
+(PRISM's [#29](https://github.com/szaghi/adam/issues/29) floor): it belongs to M4 P4.
+
+![VV-1 to VV-5: convergence, and Becker's shock against the exact profile](/flume/viscous.png)
 
 ```bash
 cd src/tests/flume/verification/viscous && ./check.sh                  # CPU, every leg

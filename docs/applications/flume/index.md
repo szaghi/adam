@@ -26,8 +26,9 @@ OpenACC), and it supersedes the deprecated CHASE.
 [#41](https://github.com/szaghi/adam/issues/41)) are complete; M3 ([#47](https://github.com/szaghi/adam/issues/47)) adds
 the Riemann-solver scheme (`weno-riemann`: Euler done, MHD in progress), the energy-consistent EGLM cleaning and a
 positivity-preserving limiter. M4 ([#65](https://github.com/szaghi/adam/issues/65), in progress) adds the dissipative
-terms: compressible Navier–Stokes (viscosity and heat conduction, 4th-order conservative fluxes, no-slip walls) is in for
-Euler on both backends; the MHD terms, with Ohmic resistivity, are next. Runtime AMR (M5) is planned.
+terms: compressible Navier–Stokes (viscosity and heat conduction, 4th-order conservative fluxes, no-slip walls) for
+every model and Ohmic resistivity for MHD, on both backends; their verification across AMR seams and realms is next.
+Runtime AMR (M5) is planned.
 
 ## Quick start
 

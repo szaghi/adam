@@ -706,13 +706,13 @@ def fig_ghosts(out: Path, runs: Path) -> None:  # noqa: ARG001
 
 
 def fig_viscous(out: Path, runs: Path) -> None:  # noqa: ARG001
-    """VV-1 to VV-4: convergence of the Navier-Stokes legs, and Becker's shock against the exact profile."""
+    """VV-1 to VV-5: convergence of the Navier-Stokes and Ohmic legs, and Becker's shock against the exact profile."""
     sys.path.insert(0, str(HERE / "viscous"))
     import profiles  # noqa: PLC0415
     import waves  # noqa: PLC0415
 
     vdir = HERE / "viscous"
-    fig, axs = plt.subplots(1, 2, figsize=(11.5, 4.6), constrained_layout=True)
+    fig, axs = plt.subplots(1, 3, figsize=(16.5, 4.6), constrained_layout=True)
     legs = (("VV-1 shear x, order 4", "o-", waves.run_error, "shear-x-o4", (32, 64, 128)),
             ("VV-1 shear x, order 2", "s-", waves.run_error, "shear-x-o2", (32, 64, 128)),
             ("VV-1 shear 45°, order 4", "d-", waves.run_error, "shear-xy-o4", (24, 48, 96)),
@@ -724,14 +724,25 @@ def fig_viscous(out: Path, runs: Path) -> None:  # noqa: ARG001
         res = [fn(vdir / f"{TAG}-{name}-n{n}") for n in ns]
         err = [r[2] if name.startswith("couette") else r[1] for r in res]
         axs[0].loglog([r[0] for r in res], np.array(err) / err[0], fmt, mfc="none", label=lab)
+    mhd = (("VV-5 Ohmic x, order 4", "o-", "ohmic-x-o4", (32, 64, 128)),
+           ("VV-5 Ohmic x, order 2", "s-", "ohmic-x-o2", (32, 64, 128)),
+           ("VV-5 Ohmic 45°, order 4", "d-", "ohmic-xy-o4", (24, 48, 96)),
+           ("VV-5 Alfvén, $\\mu$ and $\\eta$, order 4", "^-", "alfven-x-o4", (32, 64, 128)),
+           ("VV-5 acoustic on MHD, B = 0, order 4", "v-", "acoustic-mhd-x-o4", (32, 64, 128)))
+    for lab, fmt, name, ns in mhd:
+        res = [waves.run_error(vdir / f"{TAG}-{name}-n{n}") for n in ns]
+        err = [r[1] for r in res]
+        axs[1].loglog([r[0] for r in res], np.array(err) / err[0], fmt, mfc="none", label=lab)
     n = np.array([24.0, 256.0])
-    axs[0].loglog(n, (24 / n) ** 4, "k:", label="order 4")
-    axs[0].loglog(n, (24 / n) ** 2, "k--", label="order 2")
-    axs[0].set_xlabel("cells along the wave or profile")
-    axs[0].set_ylabel("RMS error / coarsest RMS error")
-    axs[0].grid(alpha=0.3, which="both")
-    axs[0].legend(fontsize=7)
-    axs[0].set_title("convergence (CPU, 2 ranks)")
+    for ax, title in ((axs[0], "Navier-Stokes convergence (CPU, 2 ranks)"),
+                      (axs[1], "Ohmic (MHD) convergence (CPU, 2 ranks)")):
+        ax.loglog(n, (24 / n) ** 4, "k:", label="order 4")
+        ax.loglog(n, (24 / n) ** 2, "k--", label="order 2")
+        ax.set_xlabel("cells along the wave or profile")
+        ax.set_ylabel("RMS error / coarsest RMS error")
+        ax.grid(alpha=0.3, which="both")
+        ax.legend(fontsize=7)
+        ax.set_title(title)
     for mach, color in ((2, "C0"), (3, "C3")):
         for n, mk in ((64, "o"), (256, ".")):
             work = vdir / f"{TAG}-becker-m{mach}-o4-n{n}"
@@ -740,17 +751,17 @@ def fig_viscous(out: Path, runs: Path) -> None:  # noqa: ARG001
             u = q[1] / q[0]
             mu = float(ini["physics"]["viscosity"])
             ue, u1, u2 = profiles.becker_u(xs, float(mach), mu)
-            axs[1].plot(xs, (u - u2) / (u1 - u2), mk, color=color, ms=4 if n == 64 else 2, mfc="none",
+            axs[2].plot(xs, (u - u2) / (u1 - u2), mk, color=color, ms=4 if n == 64 else 2, mfc="none",
                         label=f"M = {mach}, {n} cells")
         xx = np.linspace(-0.1, 0.1, 801)
         ue, u1, u2 = profiles.becker_u(xx, float(mach), mu)
-        axs[1].plot(xx, (ue - u2) / (u1 - u2), "-", color=color, lw=0.9, label=f"M = {mach}, $\\mu$ = {mu}, Becker")
-    axs[1].set_xlim(-0.06, 0.06)
-    axs[1].set_xlabel("x")
-    axs[1].set_ylabel(r"$(u - u_2)/(u_1 - u_2)$")
-    axs[1].grid(alpha=0.3)
-    axs[1].legend(fontsize=7)
-    axs[1].set_title("VV-4: Becker's shock, Pr = 3/4")
+        axs[2].plot(xx, (ue - u2) / (u1 - u2), "-", color=color, lw=0.9, label=f"M = {mach}, $\\mu$ = {mu}, Becker")
+    axs[2].set_xlim(-0.06, 0.06)
+    axs[2].set_xlabel("x")
+    axs[2].set_ylabel(r"$(u - u_2)/(u_1 - u_2)$")
+    axs[2].grid(alpha=0.3)
+    axs[2].legend(fontsize=7)
+    axs[2].set_title("VV-4: Becker's shock, Pr = 3/4")
     fig.savefig(out / "viscous.png", dpi=DPI)
     plt.close(fig)
 

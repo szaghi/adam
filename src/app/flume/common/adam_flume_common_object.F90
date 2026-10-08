@@ -1116,17 +1116,13 @@ contains
    endsubroutine check_positivity_limiter
 
    subroutine check_dissipation(self)
-   !< Refuse the dissipative terms where they are not computed (issue #65): the viscous and heat-conduction fluxes exist
-   !< for Euler (P2), the MHD ones (with the resistive flux) land in P3. Immersed solids are refused: their walls are
-   !< inviscid (the eikonal inversion mirrors the normal velocity only). The 4th-order fluxes read 3 ghost cells, the
-   !< 2nd-order ones 1. Without this check a coefficient would be silently ignored or a ghost read out of bounds.
+   !< Refuse the dissipative terms where they are not computed (issue #65): immersed solids, whose walls are inviscid
+   !< (the eikonal inversion mirrors the normal velocity only), and the 4th-order fluxes without the 3 ghost cells they
+   !< read (the 2nd-order ones read 1). The viscous and heat fluxes exist for every model (P2, P3), the Ohmic ones for
+   !< MHD (P3; resistivity on Euler is refused by the dissipation object).
    class(flume_common_object), intent(in) :: self !< The equation.
 
    if (.not.self%physics%dissipation%is_active) return
-   if (self%physics%model /= MODEL_EULER) &
-      call mpih%error_stop(msg=': the dissipative terms ([physics] viscosity, conductivity, resistivity or their '// &
-                               'numbers) are not yet computed with [physics].(physical_model)='//                 &
-                               self%physics%physical_model//': the MHD kernels land in issue #65 P3')
    if (self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': the dissipative terms are not supported with immersed solids (inviscid walls)')
    if (self%numerics%dissipative_order == 4_I4P .and. self%ngc < 3_I4P) &

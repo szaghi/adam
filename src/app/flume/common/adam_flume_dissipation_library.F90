@@ -13,6 +13,17 @@ module adam_flume_dissipation_library
 !< with `mu = mu0 (T / T_ref)^omega_mu`, `k = k0 (T / T_ref)^omega_k`: a constant law has `T_ref = 1` and zero
 !< exponents, and `x**0 = 1` exactly, so it costs flops, never a branch. The gradient is stored `g(a,b) = d W_a / d x_b`
 !< with `W = (u, v, w, T)`.
+!<
+!< The Ohmic flux (MHD, issue #65 P3), with the magnetic diffusivity `eta` and `J = curl B` (code units), follows from
+!< `dB/dt = -curl(E)`, `E = -u x B + eta J`, and the Poynting flux `E x B`:
+!<```
+!< field B_i: -eta (dB_i/dx_d - dB_d/dx_i)                      (the curl form: eps_idk eta J_k)
+!< energy:    eta (J x B)_d = eta (B_j dB_d/dx_j - B_j dB_j/dx_d)
+!<```
+!< The curl form differs from `-eta grad B` by `eta grad(div B)`, which is not zero under GLM: the curl form keeps the
+!< resistive term out of the divergence constraint. (#65 section 2 printed the field flux with the opposite sign, an
+!< anti-diffusion; the sign here is the derived one, and VV-5 measures the decay rate.) The gradient is stored
+!< `g(a,b) = d B_a / d x_b`.
 
 ! third party modules
 use :: penf, only : I4P, R8P
@@ -20,6 +31,7 @@ use :: penf, only : I4P, R8P
 implicit none
 private
 public :: compute_dissipative_flux
+public :: compute_resistive_flux
 public :: dissipative_diffusivity
 
 contains
@@ -51,6 +63,24 @@ contains
    f(1:3) = -tau
    f(4)   = -(w(1) * tau(1) + w(2) * tau(2) + w(3) * tau(3)) - k * g(4,d)
    endsubroutine compute_dissipative_flux
+
+   pure subroutine compute_resistive_flux(d, eta, b, g, f)
+   !< Compute the Ohmic flux of direction `d` from the field `b` and its gradient `g`: `f(1:3)` the field components,
+   !< `f(4)` the energy.
+   integer(I4P), intent(in)  :: d      !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: eta    !< Magnetic diffusivity.
+   real(R8P),    intent(in)  :: b(3)   !< Magnetic field.
+   real(R8P),    intent(in)  :: g(3,3) !< Gradient, g(a,b) = d B_a / d x_b.
+   real(R8P),    intent(out) :: f(4)   !< Flux: field (3), energy.
+   integer(I4P)              :: i      !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   do i=1, 3
+      f(i) = -eta * (g(i,d) - g(d,i))
+   enddo
+   f(4) = eta * (b(1) * (g(d,1) - g(1,d)) + b(2) * (g(d,2) - g(2,d)) + b(3) * (g(d,3) - g(3,d)))
+   endsubroutine compute_resistive_flux
 
    pure function dissipative_diffusivity(rho, T, t_wall, gamma, cp, mu0, k0, eta, tref, omega_mu, omega_k) result(nu)
    !< Return the largest diffusivity of a cell, `max(4/3 mu / rho, gamma k / (rho cp), eta)`, the one of the diffusive

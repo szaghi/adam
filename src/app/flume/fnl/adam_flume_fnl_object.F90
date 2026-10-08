@@ -48,7 +48,8 @@ use :: adam_flume_fnl_mhd_eglm_hll_kernels,     only : compute_riemann_face_flux
 use :: adam_flume_fnl_mhd_eglm_hlld_kernels,    only : &
                                                    compute_riemann_face_fluxes_mhd_eglm_hlld_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf_dev=>compute_riemann_face_fluxes_dev
-use :: adam_flume_fnl_dissipation_kernels, only : add_dissipative_fluxes_o2_dev, add_dissipative_fluxes_o4_dev
+use :: adam_flume_fnl_dissipation_kernels, only : add_dissipative_fluxes_o2_dev, add_dissipative_fluxes_o4_dev, &
+                                              add_resistive_fluxes_o2_dev, add_resistive_fluxes_o4_dev
 use :: adam_flume_fnl_euler_kernels,   only : blend_inadmissible_ghosts_euler_dev=>blend_inadmissible_ghosts_dev,      &
                                               blend_positivity_fluxes_euler_dev=>blend_positivity_fluxes_dev,          &
                                               compute_backbone_fluxes_euler_host=>compute_backbone_fluxes_host,        &
@@ -73,6 +74,7 @@ use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors
                                               compute_conservation_mhd_dev=>compute_conservation_dev,                 &
                                               compute_face_fluxes_mhd_dev=>compute_face_fluxes_dev,                   &
                                               compute_lambda_max_mhd_dev=>compute_lambda_max_dev,                     &
+                                              compute_lambda_max_dissipative_mhd_dev=>compute_lambda_max_dissipative_dev, &
                                               compute_q_aux_mhd_dev=>compute_q_aux_dev,                               &
                                               count_nonfinite_mhd_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_mhd_eglm_kernels, only : add_eglm_sources_dev, add_eglm_sources_limited_dev,                  &
@@ -89,6 +91,7 @@ use :: adam_flume_fnl_mhd_eglm_kernels, only : add_eglm_sources_dev, add_eglm_so
                                                compute_conservation_mhd_eglm_dev=>compute_conservation_dev,           &
                                                compute_face_fluxes_mhd_eglm_dev=>compute_face_fluxes_dev,             &
                                                compute_lambda_max_mhd_eglm_dev=>compute_lambda_max_dev,               &
+                                               compute_lambda_max_dissipative_mhd_eglm_dev=>compute_lambda_max_dissipative_dev, &
                                                compute_q_aux_mhd_eglm_dev=>compute_q_aux_dev,                         &
                                                compute_speed_max_mhd_eglm_dev=>compute_speed_max_dev,                 &
                                                count_nonfinite_mhd_eglm_dev=>count_nonfinite_dev
@@ -98,6 +101,7 @@ use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_
                                               compute_conservation_mhd_glm_dev=>compute_conservation_dev,             &
                                               compute_face_fluxes_mhd_glm_dev=>compute_face_fluxes_dev,               &
                                               compute_lambda_max_mhd_glm_dev=>compute_lambda_max_dev,                 &
+                                              compute_lambda_max_dissipative_mhd_glm_dev=>compute_lambda_max_dissipative_dev, &
                                               compute_q_aux_mhd_glm_dev=>compute_q_aux_dev,                           &
                                               compute_speed_max_mhd_glm_dev=>compute_speed_max_dev,                   &
                                               count_nonfinite_mhd_glm_dev=>count_nonfinite_dev
@@ -257,37 +261,57 @@ contains
    endsubroutine accumulate_seam_fluxes
 
    subroutine add_dissipative_fluxes_dev(self)
-   !< Add the dissipative face fluxes of the active directions to the inviscid ones on the device (issue #65), from the
-   !< auxiliary variables of the stage: the kernel of the order is selected here, never inside the kernels.
-   class(flume_fnl_object), intent(inout) :: self                          !< The equation.
-   real(R8P)                              :: tref                          !< Reference temperature of the laws.
-   real(R8P)                              :: omega_mu, omega_k             !< Exponents of the laws.
-   procedure(add_dissipative_fluxes_o4_dev), pointer :: add_fluxes        !< Kernel of the order.
+   !< Add the dissipative face fluxes of the active directions to the inviscid ones (issue #65), from the auxiliary
+   !< variables of the stage, on the device: the viscous and heat fluxes when a viscosity or a conductivity is on, the Ohmic ones
+   !< (MHD) when the resistivity is; the kernel of the order is selected here, never inside the loops.
+   class(flume_fnl_object), intent(inout) :: self              !< The equation.
+   real(R8P)                              :: tref              !< Reference temperature of the laws.
+   real(R8P)                              :: omega_mu, omega_k !< Exponents of the laws.
+   procedure(add_dissipative_fluxes_o4_dev), pointer :: add_fluxes  !< Viscous kernel of the order.
+   procedure(add_resistive_fluxes_o4_dev),   pointer :: add_ohmic   !< Ohmic kernel of the order.
+   integer(I4P)                           :: d                 !< Direction counter.
+   integer(I4P)                           :: e(3)              !< Unit step along `d`.
 
    call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
    select case(self%numerics%dissipative_order)
    case(2_I4P)
       add_fluxes => add_dissipative_fluxes_o2_dev
+      add_ohmic  => add_resistive_fluxes_o2_dev
    case(4_I4P)
       add_fluxes => add_dissipative_fluxes_o4_dev
+      add_ohmic  => add_resistive_fluxes_o4_dev
    case default
       call mpih_fnl%error_stop(msg=': no dissipative kernels of order '//trim(str(self%numerics%dissipative_order)))
    endselect
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                  &
-             mu0=>self%physics%dissipation%mu, k0=>self%physics%dissipation%k, is_null=>self%adam%grid%null_xyz, &
-             dxyz_gpu=>self%field_fnl%dxyz_gpu)
-   if (.not.is_null(1)) call add_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,            &
-                                        blocks_number=nb, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, &
-                                        dxyz_gpu=dxyz_gpu, is_null=is_null, q_aux_gpu=self%q_aux_gpu,                    &
-                                        fl_gpu=self%flx_f_gpu)
-   if (.not.is_null(2)) call add_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,            &
-                                        blocks_number=nb, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, &
-                                        dxyz_gpu=dxyz_gpu, is_null=is_null, q_aux_gpu=self%q_aux_gpu,                    &
-                                        fl_gpu=self%fly_f_gpu)
-   if (.not.is_null(3)) call add_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,            &
-                                        blocks_number=nb, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, &
-                                        dxyz_gpu=dxyz_gpu, is_null=is_null, q_aux_gpu=self%q_aux_gpu,                    &
-                                        fl_gpu=self%flz_f_gpu)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, dxyz_gpu=>self%field_fnl%dxyz_gpu, &
+             mu0=>self%physics%dissipation%mu, k0=>self%physics%dissipation%k, eta=>self%physics%dissipation%eta,   &
+             is_null=>self%adam%grid%null_xyz, has_viscous=>self%physics%dissipation%has_viscosity .or.             &
+                                                            self%physics%dissipation%has_conduction,                &
+             has_ohmic=>self%physics%dissipation%has_resistivity)
+   do d=1, 3
+      if (is_null(d)) cycle
+      e = 0_I4P ; e(d) = 1_I4P
+      select case(d)
+      case(1)
+         if (has_viscous) call add_fluxes(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
+                                          mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, dxyz_gpu=dxyz_gpu,     &
+                                          is_null=is_null, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
+         if (has_ohmic) call add_ohmic(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,   &
+                                       eta=eta, dxyz_gpu=dxyz_gpu, is_null=is_null, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
+      case(2)
+         if (has_viscous) call add_fluxes(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
+                                          mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, dxyz_gpu=dxyz_gpu,     &
+                                          is_null=is_null, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
+         if (has_ohmic) call add_ohmic(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,   &
+                                       eta=eta, dxyz_gpu=dxyz_gpu, is_null=is_null, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
+      case(3)
+         if (has_viscous) call add_fluxes(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
+                                          mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, dxyz_gpu=dxyz_gpu,     &
+                                          is_null=is_null, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+         if (has_ohmic) call add_ohmic(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,   &
+                                       eta=eta, dxyz_gpu=dxyz_gpu, is_null=is_null, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+      endselect
+   enddo
    endassociate
    endsubroutine add_dissipative_fluxes_dev
 
@@ -1323,49 +1347,61 @@ contains
    real(R8P)                            :: tref        !< Reference temperature of the laws.
    real(R8P)                            :: omega_mu    !< Viscosity law exponent.
    real(R8P)                            :: omega_k     !< Conductivity law exponent.
+   procedure(compute_lambda_max_dissipative_euler_dev), pointer :: lambda_dissipative !< Kernel of the model.
 
-   select case(self%physics%model)
-   case(MODEL_EULER)
-      if (self%physics%dissipation%is_active) then
-         call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
-         call compute_lambda_max_dissipative_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                 &
-                                                       blocks_number=self%blocks_number, gamma=self%physics%gamma,       &
-                                                       R=self%physics%R, cp=self%physics%cp,                             &
-                                                       mu0=self%physics%dissipation%mu,                                  &
-                                                       k0=self%physics%dissipation%k,                                    &
-                                                       eta=self%physics%dissipation%eta,                                 &
-                                                       t_wall=self%wall_temperature_bound(), tref=tref, omega_mu=omega_mu, &
-                                                       omega_k=omega_k, dxyz_gpu=self%field_fnl%dxyz_gpu,                &
-                                                       is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu,                &
-                                                       lambda_max=lambda_max, lambda_hyp=lambda_hyp,                     &
-                                                       lambda_dif=lambda_dif, re_cell_min=re_cell_min)
-         if (self%time%it == 0_I4P) call self%log_dt_limit(lambda_hyp=lambda_hyp, lambda_dif=lambda_dif, &
-                                                            re_cell_min=re_cell_min)
-      else
+   if (self%physics%dissipation%is_active) then
+      select case(self%physics%model)
+      case(MODEL_EULER)
+         lambda_dissipative => compute_lambda_max_dissipative_euler_dev
+      case(MODEL_MHD)
+         lambda_dissipative => compute_lambda_max_dissipative_mhd_dev
+      case(MODEL_MHD_GLM)
+         lambda_dissipative => compute_lambda_max_dissipative_mhd_glm_dev
+      case(MODEL_MHD_EGLM)
+         lambda_dissipative => compute_lambda_max_dissipative_mhd_eglm_dev
+      case default
+         call mpih_fnl%error_stop(msg=': no dissipative time step kernels for physical model "'// &
+                                  self%physics%physical_model//'"')
+      endselect
+      call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+      call lambda_dissipative(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number,   &
+                              gamma=self%physics%gamma, R=self%physics%R, cp=self%physics%cp,                       &
+                              mu0=self%physics%dissipation%mu, k0=self%physics%dissipation%k,                       &
+                              eta=self%physics%dissipation%eta, t_wall=self%wall_temperature_bound(), tref=tref,   &
+                              omega_mu=omega_mu, omega_k=omega_k, dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,     &
+                              q_gpu=self%q_gpu, lambda_max=lambda_max, lambda_hyp=lambda_hyp, lambda_dif=lambda_dif,      &
+                              re_cell_min=re_cell_min)
+      if (self%time%it == 0_I4P) call self%log_dt_limit(lambda_hyp=lambda_hyp, lambda_dif=lambda_dif, &
+                                                         re_cell_min=re_cell_min)
+      if (self%physics%model == MODEL_MHD_GLM .or. self%physics%model == MODEL_MHD_EGLM) &
+         lambda_max = max(lambda_max, self%glm_lambda())
+   else
+      select case(self%physics%model)
+      case(MODEL_EULER)
          call compute_lambda_max_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
                                            blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                            dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
                                            q_gpu=self%q_gpu, lambda_max=lambda_max)
-      endif
-   case(MODEL_MHD)
-      call compute_lambda_max_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                                      gamma=self%physics%gamma, R=self%physics%R, dxyz_gpu=self%field_fnl%dxyz_gpu,       &
-                                      is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, lambda_max=lambda_max)
-   case(MODEL_MHD_GLM)
-      call compute_lambda_max_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
-                                          blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
-                                          dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
-                                          q_gpu=self%q_gpu, lambda_max=lambda_max)
-      lambda_max = max(lambda_max, self%glm_lambda())
-   case(MODEL_MHD_EGLM)
-      call compute_lambda_max_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
-                                          blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
-                                          dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
-                                          q_gpu=self%q_gpu, lambda_max=lambda_max)
-      lambda_max = max(lambda_max, self%glm_lambda())
-   case default
-      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
-   endselect
+      case(MODEL_MHD)
+         call compute_lambda_max_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                         gamma=self%physics%gamma, R=self%physics%R, dxyz_gpu=self%field_fnl%dxyz_gpu,       &
+                                         is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, lambda_max=lambda_max)
+      case(MODEL_MHD_GLM)
+         call compute_lambda_max_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                             blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                             dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
+                                             q_gpu=self%q_gpu, lambda_max=lambda_max)
+         lambda_max = max(lambda_max, self%glm_lambda())
+      case(MODEL_MHD_EGLM)
+         call compute_lambda_max_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                             blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                             dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
+                                             q_gpu=self%q_gpu, lambda_max=lambda_max)
+         lambda_max = max(lambda_max, self%glm_lambda())
+      case default
+         call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+      endselect
+   endif
    dt_local = huge(1._R8P)
    if (lambda_max > 0._R8P) dt_local = self%time%CFL / lambda_max
    endsubroutine compute_local_dt_forest

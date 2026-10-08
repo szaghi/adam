@@ -16,11 +16,12 @@ use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
 ! ADAM FNL classes, libraries
 use :: adam_fnl_weno_kernels,  only : weno_reconstruct_upwind_dev
 ! FLUME modules
+use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_glm_face_flux_back_projection, &
                                       conservative_to_auxiliary=>mhd_eglm_conservative_to_auxiliary,        &
                                       mhd_eglm_face_split_fluxes, mhd_fast_speed, mhd_sum3
 use :: adam_flume_mhd_riemann_library, only : mhd_eglm_backbone_flux
-use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
+use :: adam_flume_parameters,  only : IA_P, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
                                       IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD_EGLM,                         &
                                       POSITIVITY_LIMITER_KAPPA, S_MAX
 ! third party modules
@@ -38,6 +39,7 @@ public :: compute_conservation_dev
 public :: compute_divb_norms_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
+public :: compute_lambda_max_dissipative_dev
 public :: compute_backbone_fluxes_host
 public :: compute_positivity_factors_dev
 public :: compute_seam_positivity_factors_host

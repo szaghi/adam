@@ -10,8 +10,8 @@ module adam_flume_fnl_dissipation_kernels
 !< Separate kernels, never fused with the WENO face kernels (FNL register pressure, issue #47 R-4).
 
 ! FLUME modules
-use :: adam_flume_dissipation_library, only : compute_dissipative_flux
-use :: adam_flume_parameters,          only : IA_T, IA_U, IA_V, IA_W, IQ_RU
+use :: adam_flume_dissipation_library, only : compute_dissipative_flux, compute_resistive_flux
+use :: adam_flume_parameters,          only : IA_BX, IA_BY, IA_BZ, IA_T, IA_U, IA_V, IA_W, IQ_BX, IQ_RE, IQ_RU
 ! third party modules
 use :: penf,                           only : I4P, R8P
 
@@ -19,6 +19,8 @@ implicit none
 private
 public :: add_dissipative_fluxes_o2_dev
 public :: add_dissipative_fluxes_o4_dev
+public :: add_resistive_fluxes_o2_dev
+public :: add_resistive_fluxes_o4_dev
 
 contains
    ! public procedures
@@ -221,4 +223,203 @@ contains
    enddo
    enddo
    endsubroutine add_dissipative_fluxes_o4_dev
+
+   subroutine add_resistive_fluxes_o2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, eta, dxyz_gpu, is_null, &
+                                          q_aux_gpu, fl_gpu)
+   !< Add the 2nd-order Ohmic face fluxes of direction `d` to `fl_gpu` (MHD; twin of `add_resistive_fluxes_o2`).
+   integer(I4P), intent(in)    :: d                                     !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                            !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                       !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                         !< Actual blocks number.
+   real(R8P),    intent(in)    :: eta                                   !< Magnetic diffusivity.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                       !< Blocks space steps [nb, 3].
+   logical,      intent(in)    :: is_null(3)                            !< Null directions.
+   real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)       !< Face fluxes of direction `d`.
+   integer(I4P)                :: ib(3)                                 !< Auxiliary indexes of the field.
+   integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
+   real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
+   integer(I4P)                :: ot(3)                                 !< Private step along a direction.
+   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
+   real(R8P)                   :: bl(3), br(3)                          !< Private left and right cell fields.
+   real(R8P)                   :: g(3,3)                                !< Private face gradient.
+   real(R8P)                   :: bf(3)                                 !< Private face field.
+   real(R8P)                   :: h(4)                                  !< Private face flux.
+   integer(I4P)                :: b, i, j, k, a, t                      !< Counters.
+
+   ib = [IA_BX, IA_BY, IA_BZ]
+   s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
+   w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,fl_gpu) &
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3) private(ot,rdx,bl,br,g,bf,h)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3) private(ot,rdx,bl,br,g,bf,h)
+   do k=1-dk, nk
+   do j=1-dj, nj
+   do i=1-di, ni
+   do b=1, blocks_number
+      rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
+      !$acc loop seq
+      do a=1, 3
+         bl(a) = q_aux_gpu(b,i,j,k,ib(a))
+         br(a) = q_aux_gpu(b,i+di,j+dj,k+dk,ib(a))
+      enddo
+      !$acc loop seq
+      do t=1, 3
+         ot(1) = 0_I4P ; ot(2) = 0_I4P ; ot(3) = 0_I4P
+         if (t == 1) ot(1) = s1
+         if (t == 2) ot(2) = s2
+         if (t == 3) ot(3) = s3
+         !$acc loop seq
+         do a=1, 3
+            if (t == d) then
+               g(a,t) = (br(a) - bl(a)) * rdx(t)
+            else
+               g(a,t) = 0.25_R8P * rdx(t) * (q_aux_gpu(b,i+ot(1),j+ot(2),k+ot(3),ib(a))          - &
+                                             q_aux_gpu(b,i-ot(1),j-ot(2),k-ot(3),ib(a))          + &
+                                             q_aux_gpu(b,i+di+ot(1),j+dj+ot(2),k+dk+ot(3),ib(a)) - &
+                                             q_aux_gpu(b,i+di-ot(1),j+dj-ot(2),k+dk-ot(3),ib(a)))
+            endif
+         enddo
+      enddo
+      !$acc loop seq
+      do a=1, 3
+         bf(a) = 0.5_R8P * (bl(a) + br(a))
+      enddo
+      call compute_resistive_flux(d=d, eta=eta, b=bf, g=g, f=h)
+      !$acc loop seq
+      do a=1, 3
+         fl_gpu(b,i,j,k,IQ_BX+a-1) = fl_gpu(b,i,j,k,IQ_BX+a-1) + h(a)
+      enddo
+      fl_gpu(b,i,j,k,IQ_RE) = fl_gpu(b,i,j,k,IQ_RE) + h(4)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine add_resistive_fluxes_o2_dev
+
+   subroutine add_resistive_fluxes_o4_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, eta, dxyz_gpu, is_null, &
+                                          q_aux_gpu, fl_gpu)
+   !< Add the 4th-order conservative Ohmic face fluxes of direction `d` to `fl_gpu` (MHD; twin of
+   !< `add_resistive_fluxes_o4`).
+   integer(I4P), intent(in)    :: d                                     !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                            !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                       !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                         !< Actual blocks number.
+   real(R8P),    intent(in)    :: eta                                   !< Magnetic diffusivity.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                       !< Blocks space steps [nb, 3].
+   logical,      intent(in)    :: is_null(3)                            !< Null directions.
+   real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)       !< Face fluxes of direction `d`.
+   integer(I4P)                :: ib(3)                                 !< Auxiliary indexes of the field.
+   integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
+   real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
+   integer(I4P)                :: ot(3)                                 !< Private step along a direction.
+   integer(I4P)                :: c(3)                                  !< Private cell index.
+   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
+   real(R8P)                   :: bm(3,-1:2)                            !< Private fields of the cells -1 ... 2.
+   real(R8P)                   :: dm(3,-1:2)                            !< Private tangential derivatives there.
+   real(R8P)                   :: g(3,3)                                !< Private face (or cell) gradient.
+   real(R8P)                   :: gm(4,-1:2)                            !< Private cell fluxes of the correction.
+   real(R8P)                   :: bf(3)                                 !< Private face (or cell) field.
+   real(R8P)                   :: h(4)                                  !< Private face flux.
+   real(R8P)                   :: hc(4)                                 !< Private cell flux.
+   integer(I4P)                :: b, i, j, k, a, m, t                   !< Counters.
+
+   ib = [IA_BX, IA_BY, IA_BZ]
+   s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
+   w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,fl_gpu)              &
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3)                          &
+   !$acc& private(ot,c,rdx,bm,dm,g,gm,bf,h,hc)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu)                                             &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3)                          &
+   !$omp& private(ot,c,rdx,bm,dm,g,gm,bf,h,hc)
+   do k=1-dk, nk
+   do j=1-dj, nj
+   do i=1-di, ni
+   do b=1, blocks_number
+      rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
+      !$acc loop seq
+      do m=-1, 2
+         !$acc loop seq
+         do a=1, 3
+            bm(a,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,ib(a))
+         enddo
+      enddo
+      ! face flux from 4th-order face values and gradients
+      !$acc loop seq
+      do t=1, 3
+         ot(1) = 0_I4P ; ot(2) = 0_I4P ; ot(3) = 0_I4P
+         if (t == 1) ot(1) = s1
+         if (t == 2) ot(2) = s2
+         if (t == 3) ot(3) = s3
+         if (t == d) then
+            !$acc loop seq
+            do a=1, 3
+               g(a,t) = (27._R8P * (bm(a,1) - bm(a,0)) - (bm(a,2) - bm(a,-1))) * rdx(t) / 24._R8P
+            enddo
+         else
+            !$acc loop seq
+            do m=-1, 2
+               c(1) = i + m * di ; c(2) = j + m * dj ; c(3) = k + m * dk
+               !$acc loop seq
+               do a=1, 3
+                  dm(a,m) = (8._R8P * (q_aux_gpu(b,c(1)+ot(1),c(2)+ot(2),c(3)+ot(3),ib(a))        -  &
+                                       q_aux_gpu(b,c(1)-ot(1),c(2)-ot(2),c(3)-ot(3),ib(a)))       -  &
+                             (q_aux_gpu(b,c(1)+2*ot(1),c(2)+2*ot(2),c(3)+2*ot(3),ib(a))           -  &
+                              q_aux_gpu(b,c(1)-2*ot(1),c(2)-2*ot(2),c(3)-2*ot(3),ib(a)))) * rdx(t) / 12._R8P
+               enddo
+            enddo
+            !$acc loop seq
+            do a=1, 3
+               g(a,t) = (9._R8P * (dm(a,0) + dm(a,1)) - (dm(a,-1) + dm(a,2))) / 16._R8P
+            enddo
+         endif
+      enddo
+      !$acc loop seq
+      do a=1, 3
+         bf(a) = (9._R8P * (bm(a,0) + bm(a,1)) - (bm(a,-1) + bm(a,2))) / 16._R8P
+      enddo
+      call compute_resistive_flux(d=d, eta=eta, b=bf, g=g, f=h)
+      ! Shu-Osher correction from the cell fluxes, 2nd-order central gradients
+      !$acc loop seq
+      do m=-1, 2
+         c(1) = i + m * di ; c(2) = j + m * dj ; c(3) = k + m * dk
+         !$acc loop seq
+         do t=1, 3
+            ot(1) = 0_I4P ; ot(2) = 0_I4P ; ot(3) = 0_I4P
+            if (t == 1) ot(1) = s1
+            if (t == 2) ot(2) = s2
+            if (t == 3) ot(3) = s3
+            !$acc loop seq
+            do a=1, 3
+               g(a,t) = 0.5_R8P * rdx(t) * (q_aux_gpu(b,c(1)+ot(1),c(2)+ot(2),c(3)+ot(3),ib(a)) - &
+                                            q_aux_gpu(b,c(1)-ot(1),c(2)-ot(2),c(3)-ot(3),ib(a)))
+            enddo
+         enddo
+         !$acc loop seq
+         do a=1, 3
+            bf(a) = bm(a,m)
+         enddo
+         call compute_resistive_flux(d=d, eta=eta, b=bf, g=g, f=hc)
+         !$acc loop seq
+         do a=1, 4
+            gm(a,m) = hc(a)
+         enddo
+      enddo
+      !$acc loop seq
+      do a=1, 4
+         h(a) = h(a) - (gm(a,2) - gm(a,1) - gm(a,0) + gm(a,-1)) / 48._R8P
+      enddo
+      !$acc loop seq
+      do a=1, 3
+         fl_gpu(b,i,j,k,IQ_BX+a-1) = fl_gpu(b,i,j,k,IQ_BX+a-1) + h(a)
+      enddo
+      fl_gpu(b,i,j,k,IQ_RE) = fl_gpu(b,i,j,k,IQ_RE) + h(4)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine add_resistive_fluxes_o4_dev
 endmodule adam_flume_fnl_dissipation_kernels

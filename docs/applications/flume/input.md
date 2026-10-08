@@ -425,10 +425,9 @@ verification DC can check every converted value exactly.
 
 Each term is given either as its coefficient or as the dimensionless number it stands for. In code units the
 references are 1, so a number is the reciprocal coefficient. Giving two keys of a term is fatal; giving none leaves the
-term off, so an input without these keys stays ideal and bitwise unchanged. With `physical_model = euler` the viscosity
-and the conductivity drive the Navier–Stokes fluxes ([numerics](./numerics#dissipative-fluxes-navier-stokes)); the MHD
-kernels, and the resistivity with them, land in P3, and until then a coefficient with `mhd-ideal` stops the run with
-*"are not yet computed with [physics].(physical_model)=mhd-ideal"*, so no coefficient is ever dropped silently.
+term off, so an input without these keys stays ideal and bitwise unchanged. The viscosity and the conductivity drive
+the Navier–Stokes fluxes of every model, the resistivity the Ohmic ones of `mhd-ideal`
+([numerics](./numerics#dissipative-fluxes-navier-stokes)).
 
 | Key | Type | Accepted / invalid | Meaning |
 |-----|------|--------------------|---------|

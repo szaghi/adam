@@ -9,9 +9,19 @@
 #   vv2  viscous-thermal acoustic wave (mu and k together): the same order bound at order 4, on the odd part of the
 #        +A / -A twin runs (an acoustic wave steepens at O(A^2), which would otherwise floor the error);
 #   vv3  compressible Couette flow between an isothermal wall and a moving adiabatic one (couette.py);
-#   vv4  Becker's viscous shock (becker.py).
+#   vv4  Becker's viscous shock (profiles.py);
+#   vv5  MHD (issue #65 P3): Ohmic decay of a transverse field (eta k^2), along x at orders 4 and 2 and along the
+#        diagonal (the curl form's cross terms), and the visco-resistive Alfven wave (B_n = 1, mu and eta together),
+#        against the exact linearised (v_t, b_t) system, and vv2's acoustic wave on mhd-none with B = 0 (the
+#        viscous and heat fluxes on MHD, read through its own auxiliary temperature): the same order bounds as vv1.
+#        The diagonal runs without divergence control: GLM's upwinding (c_h = 3) damps the static diagonal field at
+#        fifth order (8.5e-12 at N = 48, measured with eta = 0), opposite in sign to the Ohmic error and as large, so
+#        the sum cancels near N = 48 and a 24/48/96 ladder is not asymptotic (+1.72; +3.32 at 96/192). That is the
+#        ideal scheme's error; vv6 covers GLM and EGLM with eta;
+#   vv6  MHD with GLM and EGLM: the Ohmic energy budget (the field's energy loss reappears as heat, total energy
+#        conserved) and div(B) not raised above the ideal twin's (waves.py budget).
 #
-# Usage: ./check.sh [--np N] [--leg vv1|vv2|vv3|vv4 ...]
+# Usage: ./check.sh [--np N] [--leg vv1|vv2|vv3|vv4|vv5|vv6 ...]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -33,7 +43,7 @@ while [[ $# -gt 0 ]]; do
       *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --leg L)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(vv1 vv2 vv3 vv4)
+[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(vv1 vv2 vv3 vv4 vv5 vv6)
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -67,7 +77,23 @@ ladder() { # ladder <tool> <name> <order min> "<resolutions>" <make options...>:
    if ! "$VENV_PY" "$tool" oracle "${works[@]}" --order-min "$pmin" | sed 's/^/   /'; then FAILED=1 ; fi
 }
 
-echo ">> VV: Navier-Stokes dissipative fluxes ($TAG)"
+budget() { # budget <name> <waves.py make options...>: the resistive run and its ideal twin, then the VV-6 oracle
+   local name="$1" w="$CASE_DIR/work-$TAG-$1" v
+   shift
+   echo "-- $name"
+   for v in "$w" "$w-ideal"; do
+      rm -rf "$v" ; mkdir -p "$v"
+      if [[ $v == *-ideal ]]; then
+         "$VENV_PY" "$CASE_DIR/waves.py" make "$v/input.ini" "$@" --eta 0.0
+      else
+         "$VENV_PY" "$CASE_DIR/waves.py" make "$v/input.ini" "$@"
+      fi
+      if ! run "$v"; then echo "   run failed, see $v/log.txt" ; FAILED=1 ; return 0 ; fi
+   done
+   if ! "$VENV_PY" "$CASE_DIR/waves.py" budget "$w" "$w-ideal" | sed 's/^/   /'; then FAILED=1 ; fi
+}
+
+echo ">> VV: Navier-Stokes and Ohmic dissipative fluxes ($TAG)"
 for leg in "${LEGS[@]}"; do
    case "$leg" in
       vv1)
@@ -84,6 +110,23 @@ for leg in "${LEGS[@]}"; do
          ladder profiles.py becker-m2-o4 "$BECKER_ORDER_MIN" "64 128 256" --case becker --mach 2 --order 4 --time 0.05
          ladder profiles.py becker-m3-o4 "$BECKER_ORDER_MIN" "64 128 256" --case becker --mach 3 --order 4 --time 0.05 \
                 --mu 0.01 ;;
+      vv5)
+         ladder waves.py ohmic-x-o4 "$ORDER4_MIN" "32 64 128" --model mhd-none --mode magnetic --angle 0 --order 4 \
+                --mu 0.0 --eta 0.01
+         ladder waves.py ohmic-x-o2 "$ORDER2_MIN" "32 64 128" --model mhd-none --mode magnetic --angle 0 --order 2 \
+                --mu 0.0 --eta 0.01
+         ladder waves.py ohmic-xy-o4 "$ORDER4_MIN" "24 48 96" --model mhd-none --mode magnetic --angle 45 --order 4 \
+                --mu 0.0 --eta 0.01 --time 0.1
+         ladder waves.py alfven-x-o4 "$ORDER4_MIN" "32 64 128" --model mhd-glm --mode magnetic --angle 0 --order 4 \
+                --mu 0.01 --eta 0.005 --b0 1.0
+         LADDER_TWIN=1 ladder waves.py acoustic-mhd-x-o4 "$ORDER4_MIN" "32 64 128" --model mhd-none --mode acoustic \
+                --angle 0 --order 4 --mu 0.01 --kappa 0.02 ;;
+      vv6)
+         # A = 1e-4: the budget compares the field energy (A^2) with internal-energy differences, so it needs the signal
+         budget budget-glm --n 48 --model mhd-glm --mode magnetic --angle 45 --order 4 --mu 0.0 --eta 0.01 --time 0.2 \
+                --amplitude 1.0e-4
+         budget budget-eglm --n 48 --model mhd-eglm --mode magnetic --angle 45 --order 4 --mu 0.0 --eta 0.01 \
+                --time 0.2 --amplitude 1.0e-4 ;;
       *) echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
 done

@@ -469,10 +469,11 @@ contains
          ! component is dimensionless for the fast, slow and entropy waves, the momentum one for the Alfven wave
          kind = KIND_SCALED
          if (self%ic_type == 'sine-wave') then
-            ! shear: a velocity; acoustic: a relative density perturbation
-            kind = merge(KIND_SCALED, KIND_NONE, self%ic_wave_mode == 'shear')
-            dim = DIM_VELOCITY
-            if (self%ic_wave_mode /= 'shear') dim = DIM_NONE
+            ! shear: a velocity; magnetic: a field; acoustic: a relative density perturbation
+            kind = merge(KIND_NONE, KIND_SCALED, self%ic_wave_mode == 'acoustic')
+            dim = DIM_NONE
+            if (self%ic_wave_mode == 'shear') dim = DIM_VELOCITY
+            if (self%ic_wave_mode == 'magnetic') dim = DIM_FIELD
          elseif (self%ic_type == 'mhd-cpaw') then
             dim = DIM_FIELD
          elseif (self%ic_wave == 'alfven') then

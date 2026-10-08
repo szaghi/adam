@@ -17,9 +17,9 @@ on the host, the compute kernels compiled for that width (no branching on the mo
 
 All models use a calorically perfect ideal gas and are inviscid by default. Viscosity, heat conduction and Ohmic
 resistivity are milestone M4 ([#65](https://github.com/szaghi/adam/issues/65)), each given as a coefficient or as its
-number ([input](./input#dissipative-terms-issue-65-m4)): with a viscosity or a conductivity, `euler` is the compressible
-Navier–Stokes system ([numerics](./numerics#dissipative-fluxes-navier-stokes), P2); the MHD models refuse the
-coefficients until P3.
+number ([input](./input#dissipative-terms-issue-65-m4)): with a viscosity or a conductivity each model is its
+compressible Navier–Stokes form, and `mhd-ideal` with a resistivity is resistive MHD (Ohm's law
+$\mathbf E = -\mathbf u\times\mathbf B + \eta\mathbf J$; [numerics](./numerics#dissipative-fluxes-navier-stokes)).
 
 ## Thermodynamics
 

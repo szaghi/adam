@@ -7,11 +7,11 @@
 # with a coefficient silently dropped. make_contract.py lists the cases; for each:
 #   refuse          the run stops with the expected message;
 #   log             the run logs the coefficients its keys imply (mu = 1/Re, k = mu cp/Pr, eta = 1/Rm), exactly, then
-#                   completes and logs its diffusive dt limit (Euler, P2) or stops at the P3 guard (MHD);
+#                   takes ten steps and logs its diffusive dt limit (Euler since P2, MHD since P3);
 #   ideal           zero coefficients and dissipative_order = 2 leave the run bit for bit equal to the base run;
 #   convert         the case dimensionalised by ../scaling/scaling.py ([reference] with powers of two) logs every
 #                   dimensional key converted back exactly (scaling.py check-log: coefficients, temperatures, wall
-#                   velocity), then completes (Euler) or stops at the guard (MHD);
+#                   velocity), then takes ten steps;
 #   convert-refuse  the dimensionalised case is refused (lundquist without the Alfvenic preset).
 # Base inputs: the regression sod-x (Euler) and uniform-amr-mhd (MHD) inputs.
 #
@@ -42,17 +42,12 @@ SCALING="$CASE_DIR/../scaling/scaling.py"
 REGRESSION="$REPO_ROOT/src/tests/flume/regression"
 TAG="$(basename "$EXE")-np$NP"
 FAILED=0
-GUARD_MHD="are not yet computed with [physics].(physical_model)=mhd-ideal"
 DT_LOG="dissipative dt limit (issue #65)"
 
 base_of() { [[ $1 == euler ]] && echo "$REGRESSION/sod-x/input.ini" || echo "$REGRESSION/uniform-amr-mhd/input.ini" ; }
 run() { (cd "$1" && mpirun -np "$NP" "$EXE" input.ini < /dev/null > log.txt 2>&1) ; } # mpirun reads stdin
-runs_through() { # runs_through <work> <model>: Euler completes and logs its dt limit, MHD stops at the P3 guard
-   if [[ $2 == euler ]]; then
-      run "$1" && grep -aqF -- "$DT_LOG" "$1/log.txt"
-   else
-      ! run "$1" && grep -aqF -- "$GUARD_MHD" "$1/log.txt"
-   fi
+runs_through() { # runs_through <work>: the run completes and logs its diffusive dt limit
+   run "$1" && grep -aqF -- "$DT_LOG" "$1/log.txt"
 }
 verdict() { # verdict <name> <ok: 0 pass> <note>
    if [[ $2 -eq 0 ]]; then
@@ -94,7 +89,7 @@ while IFS=$'\t' read -r name kind model expected; do
          grep -aqF -- "$expected" "$w/log.txt" || ok=1
          verdict "$name" "$ok" "expected the refusal '$expected', see $w/log.txt" ;;
       log)
-         runs_through "$w" "$model" || ok=1
+         runs_through "$w" || ok=1
          "$VENV_PY" "$TOOL" --check-log "$w/log.txt" "$base" "$name" || ok=1
          verdict "$name" "$ok" "see $w/log.txt" ;;
       ideal)
@@ -111,7 +106,7 @@ while IFS=$'\t' read -r name kind model expected; do
          mv "$w/input.ini" "$w/base.ini"
          "$VENV_PY" "$SCALING" dimensionalize "$w/base.ini" "$w/input.ini" --j 1 --k -1 --m 1 > /dev/null
          if [[ $kind == convert ]]; then
-            runs_through "$w" "$model" || ok=1
+            runs_through "$w" || ok=1
             "$VENV_PY" "$SCALING" check-log "$w/base.ini" "$w/log.txt" | sed 's/^/   /' || ok=1
          else
             run "$w" && ok=1

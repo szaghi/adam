@@ -16,7 +16,8 @@ use :: adam_fnl_weno_kernels,    only : weno_reconstruct_upwind_dev
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_euler_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &
                                         compute_riemann_llf, conservative_to_auxiliary
-use :: adam_flume_parameters,    only : IA_A, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_K=>NV_AUX,     &
+use :: adam_flume_parameters,    only : IA_A, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW,                   &
+                                        NV_AUX_K=>NV_AUX,                                                                   &
                                         NV_K=>NV_EULER,                         &
                                         POSITIVITY_LIMITER_KAPPA, S_MAX
 ! third party modules
@@ -173,7 +174,8 @@ contains
       lh = wx * (abs(qa_(IA_U)) + qa_(IA_A)) / dxyz_gpu(b,1) + &
            wy * (abs(qa_(IA_V)) + qa_(IA_A)) / dxyz_gpu(b,2) + &
            wz * (abs(qa_(IA_W)) + qa_(IA_A)) / dxyz_gpu(b,3)
-      ld = 2._R8P * dissipative_diffusivity(rho=qa_(IA_R), T=qa_(IA_T), t_wall=t_wall, gamma=gamma, cp=cp, mu0=mu0, k0=k0, eta=eta, &
+      ld = 2._R8P * dissipative_diffusivity(rho=qa_(IA_R), T=qa_(IA_T), t_wall=t_wall, gamma=gamma, cp=cp, mu0=mu0, &
+                                            k0=k0, eta=eta, &
                                             tref=tref, omega_mu=omega_mu, omega_k=omega_k) *                      &
            (wx / dxyz_gpu(b,1)**2 + wy / dxyz_gpu(b,2)**2 + wz / dxyz_gpu(b,3)**2)
       lambda_max = max(lambda_max, lh + ld)

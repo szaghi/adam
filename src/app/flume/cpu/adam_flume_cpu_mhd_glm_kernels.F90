@@ -11,10 +11,11 @@ module adam_flume_cpu_mhd_glm_kernels
 use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
 use :: adam_weno_object,           only : weno_object, weno_reconstruct_upwind
 ! FLUME modules
+use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_glm_face_flux_back_projection, &
                                       conservative_to_auxiliary=>mhd_conservative_to_auxiliary,             &
                                       mhd_fast_speed, mhd_glm_face_split_fluxes, mhd_sum3
-use :: adam_flume_parameters,  only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
+use :: adam_flume_parameters,  only : IA_P, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
                                       IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD_GLM,                         &
                                       POSITIVITY_LIMITER_KAPPA, S_MAX
 ! third party modules
@@ -28,6 +29,7 @@ public :: blend_inadmissible_ghosts
 public :: compute_divb_norms
 public :: compute_face_fluxes
 public :: compute_lambda_max
+public :: compute_lambda_max_dissipative
 public :: compute_q_aux
 public :: count_nonfinite
 public :: compute_speed_max

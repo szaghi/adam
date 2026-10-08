@@ -23,9 +23,9 @@ fluid (ideal Ohm's law $\mathbf{E} + \mathbf{u} \times \mathbf{B} = 0$). `mhd-id
 Dissipative effects (viscosity, thermal conduction, Ohmic resistivity) are milestone M4
 ([#65](https://github.com/szaghi/adam/issues/65)): each coefficient is given as itself or as its number (`[physics]
 viscosity` or `reynolds`, `conductivity` or `prandtl`, `resistivity` or `magnetic_reynolds`/`lundquist`, a power-law
-viscosity). With `euler` the viscosity and the conductivity make it compressible Navier–Stokes (4th-order conservative
-fluxes, or 2nd order, `[numerics] dissipative_order`; no-slip and isothermal walls; diffusive time-step limit) on both
-backends; the MHD models refuse the coefficients until P3.
+viscosity). The viscosity and the conductivity make each model compressible Navier–Stokes, the resistivity makes
+`mhd-ideal` resistive MHD (4th-order conservative fluxes, or 2nd order, `[numerics] dissipative_order`; no-slip and
+isothermal walls; diffusive time-step limit), on both backends.
 
 ## Implemented Capabilities
 

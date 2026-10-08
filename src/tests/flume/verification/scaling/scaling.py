@@ -201,9 +201,9 @@ def classify(ini: configparser.ConfigParser, section: str, key: str) -> tuple[fl
         wave = ic.get("wave", "").split(";")[0].strip()
         table["wave_amplitude"] = FIELD if ic_type == "mhd-cpaw" else MOMENTUM if wave == "alfven" else DENSITY
         table["wall_temperature"] = VELOCITY2  # code temperature p / (rho R), converted with R (issue #65)
-        if ic_type == "sine-wave":  # shear: a velocity; acoustic: a relative perturbation
+        if ic_type == "sine-wave":  # shear: a velocity; magnetic: a field; acoustic: a relative perturbation
             mode = ic.get("wave_mode", "").split(";")[0].strip()
-            table["wave_amplitude"] = VELOCITY if mode == "shear" else NONE
+            table["wave_amplitude"] = {"shear": VELOCITY, "magnetic": FIELD}.get(mode, NONE)
     elif section in FULL_KEYS:
         table = FULL_KEYS[section]
     if key not in table:

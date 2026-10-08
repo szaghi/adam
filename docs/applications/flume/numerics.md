@@ -212,8 +212,8 @@ the seam face fluxes.
 ## Dissipative fluxes (Navier–Stokes)
 
 With a viscosity or a conductivity in `[physics]` ([input](./input#dissipative-terms-issue-65-m4)), Euler becomes the
-compressible Navier–Stokes system (issue #65, P2; the MHD models follow in P3). Each term is the divergence of a flux,
-added to the inviscid one in direction $d$:
+compressible Navier–Stokes system (issue #65, P2), and so does each MHD model (P3), which also takes an Ohmic
+resistivity. Each term is the divergence of a flux, added to the inviscid one in direction $d$:
 
 $$
 G_{d}^{\rho u_i} = -\tau_{di},\qquad
@@ -225,6 +225,24 @@ with no bulk viscosity (Stokes hypothesis), $T = p/(\rho R)$, and the laws $\mu 
 $k = k_0 (T/T_\mathrm{ref})^{\omega_k}$ ($\omega_k = \omega$ when $k$ comes from the Prandtl number, otherwise 0; the
 constant law is $\omega = 0$). The pointwise flux is one pure routine shared by both backends
 (`adam_flume_dissipation_library`).
+
+**Ohmic resistivity (MHD).** With the magnetic diffusivity $\eta$ and $\mathbf J = \nabla\times\mathbf B$ (code units),
+Ohm's law $\mathbf E = -\mathbf u\times\mathbf B + \eta\mathbf J$ in $\partial_t\mathbf B = -\nabla\times\mathbf E$ and
+the Poynting flux $\mathbf E\times\mathbf B$ give
+
+$$
+G_{d}^{B_i} = -\eta\left(\frac{\partial B_i}{\partial x_d} - \frac{\partial B_d}{\partial x_i}\right),\qquad
+G_{d}^{E} = \eta\,(\mathbf J\times\mathbf B)_d = \eta\,B_j\left(\frac{\partial B_d}{\partial x_j} - \frac{\partial B_j}{\partial x_d}\right),
+$$
+
+with $G_d^E = \sum_i B_i\,G_d^{B_i}$, so the field's energy loss is exactly the Ohmic heating
+$\eta|\mathbf J|^2$ that the internal energy receives. The field flux is the **curl form**, $\epsilon_{idk}\,\eta J_k$,
+not $-\eta\,\partial_d B_i$: the two differ by $\eta\nabla(\nabla\cdot\mathbf B)$, which is not zero under GLM, and the
+curl form keeps the resistive term out of the divergence constraint. (The plan in #65 printed the field flux with
+the opposite sign, an anti-diffusion; VV-5 measures the decay rate $\eta k^2$.) The Ohmic fluxes have their own
+kernels, with the same stencils on $W = \mathbf B$, called only when the resistivity is on; the viscous and heat kernels
+serve the MHD models unchanged ($(u, v, w, T)$ sit at the same auxiliary indexes). The psi equation and the EGLM
+sources are untouched.
 
 **Where it enters.** The dissipative face fluxes are computed by their own kernels, after the inviscid face fluxes and
 **before** the seam accumulation and the flux difference, in both space schemes. Two consequences: the AMR reflux and
@@ -277,7 +295,7 @@ logs both maxima, the minimum cell Reynolds number $\sum_d (|u_d|+a)/\Delta x_d 
 
 **Limits.** Explicit only: a diffusion-limited run pays $\Delta t \propto \Delta x^2$ (super-time-stepping is a
 follow-up). The positivity limiter is refused with dissipative terms (D-M4-5), and so are immersed solids, whose walls
-are inviscid. The MHD models refuse the coefficients until P3. A null direction freezes the momentum normal to it
+are inviscid. A null direction freezes the momentum normal to it
 (the CHASE semantics of the flux difference), so a reduced-dimension run cannot carry a velocity along a null axis: a
 shear layer or a Couette flow needs its velocity axis active, if thin.
 
