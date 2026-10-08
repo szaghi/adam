@@ -86,6 +86,7 @@ type :: flume_reference_object
    character(:), allocatable :: divergence_control   !< `[mhd] divergence_control` (`none` if absent).
    character(:), allocatable :: ic_type              !< `[initial_conditions] type`.
    character(:), allocatable :: ic_wave              !< `[initial_conditions] wave` (empty if absent).
+   character(:), allocatable :: ic_wave_mode         !< `[initial_conditions] wave_mode` (empty if absent).
    contains
       ! public methods
       procedure, pass(self) :: description !< Return pretty-printed object description.
@@ -447,13 +448,16 @@ contains
    case('initial_conditions')
       select case(option_name)
       case('amr_iterations', 'type', 's', 'pulse_axis', 'wave', 'wave_angle', 'polarisation', 'axis', 'regions_number', &
-           'normal_x', 'normal_y')
+           'normal_x', 'normal_y', 'wave_mode', 'mach')
          kind = KIND_NONE
       case('x0', 'y0', 'radius', 'r0', 'r1', 'pulse_center', 'pulse_width', 'peak_x0', 'peak_y0', 'peak_radius', &
-           'wavelength', 'loop_radius', 'interface_1', 'interface_2', 'period', 'interface_2_width', 'interface')
+           'wavelength', 'loop_radius', 'interface_1', 'interface_2', 'period', 'interface_2_width', 'interface', &
+           'wall_y0', 'height', 'shock_x0')
          kind = KIND_SCALED ; dim = DIM_LENGTH
-      case('strength', 'kappa', 'v0')
+      case('strength', 'kappa', 'v0', 'wall_velocity')
          kind = KIND_SCALED ; dim = DIM_VELOCITY
+      case('wall_temperature')
+         kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
       case('rho_in', 'rho_amplitude')
          kind = KIND_SCALED ; dim = DIM_DENSITY
       case('pulse_amplitude', 'peak_amplitude', 'b_par', 'mu', 'loop_amplitude')
@@ -464,7 +468,12 @@ contains
          ! cpaw: multiplies B_perp; linear wave: multiplies a Stone et al. 2008 right eigenvector, whose density
          ! component is dimensionless for the fast, slow and entropy waves, the momentum one for the Alfven wave
          kind = KIND_SCALED
-         if (self%ic_type == 'mhd-cpaw') then
+         if (self%ic_type == 'sine-wave') then
+            ! shear: a velocity; acoustic: a relative density perturbation
+            kind = merge(KIND_SCALED, KIND_NONE, self%ic_wave_mode == 'shear')
+            dim = DIM_VELOCITY
+            if (self%ic_wave_mode /= 'shear') dim = DIM_NONE
+         elseif (self%ic_type == 'mhd-cpaw') then
             dim = DIM_FIELD
          elseif (self%ic_wave == 'alfven') then
             dim = DIM_MOMENTUM
@@ -631,6 +640,7 @@ contains
    self%divergence_control = raw(section_name='mhd',                option_name='divergence_control', default='none')
    self%ic_type            = raw(section_name='initial_conditions', option_name='type', default='')
    self%ic_wave            = raw(section_name='initial_conditions', option_name='wave', default='')
+   self%ic_wave_mode       = raw(section_name='initial_conditions', option_name='wave_mode', default='')
    ! the gas constant of the input, needed before the options are converted (temperatures and the conductivity carry
    ! it, issue #65): cp - cv, or 1 with gamma alone (the physics object reports missing or inconsistent keys)
    self%gas_constant = 1._R8P

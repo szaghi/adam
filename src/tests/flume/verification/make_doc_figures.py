@@ -705,12 +705,63 @@ def fig_ghosts(out: Path, runs: Path) -> None:  # noqa: ARG001
     plt.close(fig)
 
 
+def fig_viscous(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """VV-1 to VV-4: convergence of the Navier-Stokes legs, and Becker's shock against the exact profile."""
+    sys.path.insert(0, str(HERE / "viscous"))
+    import profiles  # noqa: PLC0415
+    import waves  # noqa: PLC0415
+
+    vdir = HERE / "viscous"
+    fig, axs = plt.subplots(1, 2, figsize=(11.5, 4.6), constrained_layout=True)
+    legs = (("VV-1 shear x, order 4", "o-", waves.run_error, "shear-x-o4", (32, 64, 128)),
+            ("VV-1 shear x, order 2", "s-", waves.run_error, "shear-x-o2", (32, 64, 128)),
+            ("VV-1 shear 45°, order 4", "d-", waves.run_error, "shear-xy-o4", (24, 48, 96)),
+            ("VV-2 acoustic, order 4", "^-", waves.run_error, "acoustic-x-o4", (32, 64, 128)),
+            ("VV-3 Couette (T), order 4", "v-", profiles.run_error, "couette-o4", (32, 64, 128)),
+            ("VV-4 Becker M=2, order 4", "x-", profiles.run_error, "becker-m2-o4", (64, 128, 256)),
+            ("VV-4 Becker M=3, order 4", "+-", profiles.run_error, "becker-m3-o4", (64, 128, 256)))
+    for lab, fmt, fn, name, ns in legs:
+        res = [fn(vdir / f"{TAG}-{name}-n{n}") for n in ns]
+        err = [r[2] if name.startswith("couette") else r[1] for r in res]
+        axs[0].loglog([r[0] for r in res], np.array(err) / err[0], fmt, mfc="none", label=lab)
+    n = np.array([24.0, 256.0])
+    axs[0].loglog(n, (24 / n) ** 4, "k:", label="order 4")
+    axs[0].loglog(n, (24 / n) ** 2, "k--", label="order 2")
+    axs[0].set_xlabel("cells along the wave or profile")
+    axs[0].set_ylabel("RMS error / coarsest RMS error")
+    axs[0].grid(alpha=0.3, which="both")
+    axs[0].legend(fontsize=7)
+    axs[0].set_title("convergence (CPU, 2 ranks)")
+    for mach, color in ((2, "C0"), (3, "C3")):
+        for n, mk in ((64, "o"), (256, ".")):
+            work = vdir / f"{TAG}-becker-m{mach}-o4-n{n}"
+            ini = read_ini(work / "input.ini")
+            _, xs, q = profile(work, int(ini["grid"]["ngc"]), EULER)
+            u = q[1] / q[0]
+            mu = float(ini["physics"]["viscosity"])
+            ue, u1, u2 = profiles.becker_u(xs, float(mach), mu)
+            axs[1].plot(xs, (u - u2) / (u1 - u2), mk, color=color, ms=4 if n == 64 else 2, mfc="none",
+                        label=f"M = {mach}, {n} cells")
+        xx = np.linspace(-0.1, 0.1, 801)
+        ue, u1, u2 = profiles.becker_u(xx, float(mach), mu)
+        axs[1].plot(xx, (ue - u2) / (u1 - u2), "-", color=color, lw=0.9, label=f"M = {mach}, $\\mu$ = {mu}, Becker")
+    axs[1].set_xlim(-0.06, 0.06)
+    axs[1].set_xlabel("x")
+    axs[1].set_ylabel(r"$(u - u_2)/(u_1 - u_2)$")
+    axs[1].grid(alpha=0.3)
+    axs[1].legend(fontsize=7)
+    axs[1].set_title("VV-4: Becker's shock, Pr = 3/4")
+    fig.savefig(out / "viscous.png", dpi=DPI)
+    plt.close(fig)
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
            "conservation": fig_conservation,
            "orszag-tang": fig_orszag_tang,
            "rotor": fig_rotor, "field-loop": fig_field_loop, "mhd-riemann": fig_mhd_riemann, "glm-pulse": fig_glm_pulse,
-           "blast": fig_blast, "near-vacuum": fig_vacuum, "eglm-energy": fig_eglm_energy, "order": fig_order}
+           "blast": fig_blast, "near-vacuum": fig_vacuum, "eglm-energy": fig_eglm_energy, "order": fig_order,
+           "viscous": fig_viscous}
 
 
 def main() -> int:

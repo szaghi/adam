@@ -128,6 +128,14 @@ character(len=14), parameter :: LOOP_KEY(4)=['x0            ', 'y0            ',
 character(len=15), parameter :: IC_ROTATED_RIEMANN_STR="rotated-riemann" !< Rotated periodic Riemann problem.
 character(len=9),  parameter :: IC_SHU_OSHER_STR="shu-osher"             !< Shock-density wave interaction (Euler).
 character(len=6),  parameter :: IC_LINEAR_STR="linear"                   !< Linear field (verification of ghost fills).
+character(len=9),  parameter :: IC_SINE_WAVE_STR="sine-wave"             !< Small sine wave on a uniform state (issue #65).
+character(len=5),  parameter :: SINE_MODE_SHEAR="shear"                  !< Sine wave: transverse velocity (shear) wave.
+character(len=8),  parameter :: SINE_MODE_ACOUSTIC="acoustic"            !< Sine wave: right-running acoustic wave.
+character(len=7),  parameter :: IC_COUETTE_STR="couette"                 !< Exact compressible Couette flow (issue #65).
+character(len=16), parameter :: COUETTE_KEY(4)=['wall_y0         ', 'height          ', &
+                                                'wall_velocity   ', 'wall_temperature'] !< Couette keys.
+character(len=12), parameter :: IC_BECKER_STR="becker-shock"             !< Becker's exact viscous shock (issue #65).
+character(len=8),  parameter :: BECKER_KEY(2)=['mach    ', 'shock_x0']  !< Becker shock keys.
 character(len=10), parameter :: LINEAR_KEY(3)=['gradient_x', 'gradient_y', 'gradient_z'] !< Linear field gradient keys.
 character(len=14), parameter :: SHU_OSHER_KEY(3)=['interface     ', 'rho_amplitude ', &
                                                   'rho_wavenumber']      !< Shu-Osher keys.
@@ -179,6 +187,13 @@ type :: flume_ic_object
    integer(I4P)              :: shu_osher_axis=0_I4P !< Shu-Osher: axis, 1=x, 2=y, 3=z.
    real(R8P)                 :: shu_osher(3)=0._R8P  !< Shu-Osher: interface, density amplitude, density wavenumber.
    real(R8P)                 :: gradient(3)=0._R8P   !< Linear: relative gradient g, q = q_1 (1 + g . x).
+   character(:), allocatable :: sine_mode            !< Sine wave: shear or acoustic.
+   real(R8P)                 :: couette(4)=0._R8P    !< Couette: fixed wall y, height, moving wall velocity, T_wall.
+   real(R8P)                 :: couette_heat=0._R8P  !< Couette: mu U^2 / (k H), the temperature rise scale.
+   real(R8P)                 :: R=0._R8P             !< Gas constant.
+   real(R8P)                 :: becker(2)=0._R8P     !< Becker shock: upstream Mach number, shock position.
+   real(R8P)                 :: becker_mu=0._R8P     !< Becker shock: viscosity.
+   real(R8P)                 :: cp=0._R8P            !< Specific heat at constant pressure.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -225,6 +240,12 @@ contains
                                     trim(str(self%shu_osher))
    if (self%ic_type == IC_LINEAR_STR) &
    desc = desc//NL//mpih%myrankstr//'  gradient:       '//trim(str(self%gradient))
+   if (self%ic_type == IC_BECKER_STR) &
+   desc = desc//NL//mpih%myrankstr//'  becker shock:   '//trim(str(self%becker))
+   if (self%ic_type == IC_COUETTE_STR) &
+   desc = desc//NL//mpih%myrankstr//'  couette:        '//trim(str(self%couette))
+   if (self%ic_type == IC_SINE_WAVE_STR) &
+   desc = desc//NL//mpih%myrankstr//'  sine wave:      '//self%sine_mode//', '//trim(str(self%wave_par))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -252,6 +273,8 @@ contains
    integer(I4P)                              :: r, k            !< Counters.
 
    self%gamma = physics%gamma
+   self%R     = physics%R
+   self%cp    = physics%cp
    self%model = physics%model
    select case(self%model)
    case(MODEL_EULER)
@@ -451,6 +474,57 @@ contains
                                   val=self%gradient(k), error=error)
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(LINEAR_KEY(k))//')')
       enddo
+   case(IC_BECKER_STR)
+      if (self%model /= MODEL_EULER) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_BECKER_STR//' requires '// &
+                                  '[physics].(physical_model) = euler')
+      if (.not.(physics%dissipation%mu > 0._R8P) .or. physics%dissipation%viscosity_law /= 'constant' .or. &
+          abs(physics%dissipation%k - physics%dissipation%mu * physics%cp / 0.75_R8P) >                   &
+          1.e-12_R8P * physics%dissipation%k)                                                             &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_BECKER_STR//' is exact only with a '// &
+                                  'constant viscosity and [physics].(prandtl) = 0.75')
+      self%regions_number = 1_I4P
+      do k=1, 2
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(BECKER_KEY(k)), &
+                                  val=self%becker(k), error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(BECKER_KEY(k))//')')
+      enddo
+      if (.not.(self%becker(1) > 1._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(mach) must exceed 1')
+      self%becker_mu = physics%dissipation%mu
+   case(IC_COUETTE_STR)
+      if (self%model /= MODEL_EULER) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_COUETTE_STR//' requires '// &
+                                  '[physics].(physical_model) = euler')
+      if (.not.(physics%dissipation%mu > 0._R8P .and. physics%dissipation%k > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_COUETTE_STR//' needs a viscosity and a '// &
+                                  'conductivity in [physics]')
+      if (physics%dissipation%viscosity_law /= 'constant') &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_COUETTE_STR//' is exact only with '// &
+                                  '[physics].(viscosity_law) = constant')
+      self%regions_number = 1_I4P
+      do k=1, 4
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(COUETTE_KEY(k)), &
+                                  val=self%couette(k), error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(COUETTE_KEY(k))//')')
+      enddo
+      if (.not.(self%couette(2) > 0._R8P .and. self%couette(4) > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(height, wall_temperature) must be positive')
+      self%couette_heat = physics%dissipation%mu * self%couette(3)**2 / (physics%dissipation%k * self%couette(2))
+   case(IC_SINE_WAVE_STR)
+      self%regions_number = 1_I4P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave_mode', val=buff, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(wave_mode)')
+      self%sine_mode = trim(adjustl(strip_control(buff)))
+      if (self%sine_mode /= SINE_MODE_SHEAR .and. self%sine_mode /= SINE_MODE_ACOUSTIC) &
+         call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(wave_mode) "'//self%sine_mode// &
+                                  '"; expected one of '//SINE_MODE_SHEAR//', '//SINE_MODE_ACOUSTIC)
+      do k=1, 3
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(WAVE_KEY(k)), val=self%wave_par(k), &
+                                  error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(WAVE_KEY(k))//')')
+      enddo
+      if (.not.(self%wave_par(3) > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -463,7 +537,8 @@ contains
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
                                IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
                                IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR//', '// &
-                               IC_SHU_OSHER_STR//', '//IC_LINEAR_STR)
+                               IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_SINE_WAVE_STR//', '// &
+                               IC_COUETTE_STR//', '//IC_BECKER_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -533,6 +608,59 @@ contains
    integer(I4P)                          :: b, i, j, k, r !< Counters.
 
    select case(self%ic_type)
+   case(IC_BECKER_STR)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  call becker_shock(gamma=self%gamma, R=self%R, cp=self%cp, mu=self%becker_mu, prim1=self%prim_1, &
+                                    mach=self%becker(1), x0=self%becker(2), x=field%x_cell(i,b), q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_COUETTE_STR)
+      ! the exact steady compressible Couette flow with constant mu, k (issue #65, VV-3): fixed isothermal wall at
+      ! y0, adiabatic wall at y0 + H moving at U along x; uniform p, u = U s / H, T = T_w + mu U^2 / (k H) (s - s^2 / 2H)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  s_   = field%y_cell(j,b) - self%couette(1)
+                  prim = self%prim_1
+                  prim(2:4) = [self%couette(3) * s_ / self%couette(2), 0._R8P, 0._R8P]
+                  prim(1)   = self%prim_1(5) / (self%R * (self%couette(4) + self%couette_heat * &
+                                                          (s_ - s_**2 / (2._R8P * self%couette(2)))))
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_SINE_WAVE_STR)
+      ! point values at the cell centres, s = A sin(2 pi n . x / wavelength) on the region-1 state, n = (cos, sin) of
+      ! wave_angle in the x-y plane: shear, the velocity gains s t, t = (-sin, cos); acoustic (right-running, linear),
+      ! rho (1 + s), u + a s n, p (1 + gamma s)
+      ca = cos(self%wave_par(1) * PI / 180._R8P)
+      sa = sin(self%wave_par(1) * PI / 180._R8P)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  s_   = self%wave_par(2) * sin(2._R8P * PI * (field%x_cell(i,b) * ca + field%y_cell(j,b) * sa) / &
+                                                self%wave_par(3))
+                  prim = self%prim_1
+                  if (self%sine_mode == SINE_MODE_SHEAR) then
+                     prim(2:3) = prim(2:3) + s_ * [-sa, ca]
+                  else
+                     prim(1)   = self%prim_1(1) * (1._R8P + s_)
+                     prim(2:3) = prim(2:3) + sqrt(self%gamma * self%prim_1(5) / self%prim_1(1)) * s_ * [ca, sa]
+                     prim(5)   = self%prim_1(5) * (1._R8P + self%gamma * s_)
+                  endif
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
    case(IC_LINEAR_STR)
       ! every conservative variable linear in space, exact under copy, restriction and tricubic fill (verification)
       do b=1, field%blocks_number
@@ -929,4 +1057,56 @@ contains
    call primitive_to_conservative(gamma=gamma, r=rho, u=prim(2) - vortex(4) / (2._R8P * PI) * dy * e, &
                                   v=prim(3) + vortex(4) / (2._R8P * PI) * dx * e, w=prim(4), p=rho * T, q=q)
    endsubroutine isentropic_vortex
+
+   subroutine becker_shock(gamma, R, cp, mu, prim1, mach, x0, x, q)
+   !< Set Becker's exact viscous shock (Becker 1922, Z. Phys. 8, 321): steady 1-D Navier-Stokes along x, constant mu,
+   !< Prandtl number 3/4 (the total enthalpy `H = cp T + u^2 / 2` is then uniform), upstream state `prim1` moving at
+   !< `u1 = mach a1` towards +x, shock centred at `x0` (where `u = (u1 + u2) / 2`). With `m = rho1 u1`, the momentum
+   !< integral is `4/3 mu u u' = m (gamma+1) / (2 gamma) (u - u1) (u - u2)`, whose solution is the implicit
+   !< `K (x - x0) = F(u) - F((u1 + u2) / 2)`, `F(u) = A ln(u1 - u) + B ln(u - u2)`, `K = 3 m (gamma+1) / (8 gamma mu)`,
+   !< `A = u1 / (u1 - u2)`, `B = -u2 / (u1 - u2)`; `F` decreases monotonically, so bisection finds `u`.
+   real(R8P), intent(in)  :: gamma, R, cp  !< Specific heats ratio, gas constant, cp.
+   real(R8P), intent(in)  :: mu            !< Viscosity.
+   real(R8P), intent(in)  :: prim1(8)      !< Upstream primitive state (rho, p used; velocity from the Mach number).
+   real(R8P), intent(in)  :: mach          !< Upstream Mach number.
+   real(R8P), intent(in)  :: x0            !< Shock position.
+   real(R8P), intent(in)  :: x             !< Abscissa.
+   real(R8P), intent(out) :: q(:)          !< Conservative variables.
+   real(R8P)              :: u1, u2, m, K  !< Velocities, mass flux, rate.
+   real(R8P)              :: H             !< Total enthalpy.
+   real(R8P)              :: rhs           !< K (x - x0) + F(um).
+   real(R8P)              :: lo, hi, u     !< Bisection bracket and midpoint.
+   real(R8P)              :: prim(8)       !< Primitive state.
+   integer(I4P)           :: it            !< Counter.
+
+   u1 = mach * sqrt(gamma * prim1(5) / prim1(1))
+   u2 = u1 * ((gamma - 1._R8P) * mach**2 + 2._R8P) / ((gamma + 1._R8P) * mach**2)
+   m  = prim1(1) * u1
+   K  = 3._R8P * m * (gamma + 1._R8P) / (8._R8P * gamma * mu)
+   H  = cp * prim1(5) / (prim1(1) * R) + 0.5_R8P * u1**2
+   rhs = K * (x - x0) + F(0.5_R8P * (u1 + u2))
+   lo = u2 ; hi = u1
+   do it=1, 200
+      u = 0.5_R8P * (lo + hi)
+      if (u <= lo .or. u >= hi) exit
+      if (F(u) > rhs) then
+         lo = u
+      else
+         hi = u
+      endif
+   enddo
+   prim    = prim1
+   prim(1) = m / u
+   prim(2) = u
+   prim(5) = prim(1) * R * (H - 0.5_R8P * u**2) / cp
+   call primitive_state_to_conservative(model=MODEL_EULER, gamma=gamma, prim=prim, q=q)
+   contains
+      pure function F(v) result(fv)
+      !< Return `A ln(u1 - v) + B ln(v - u2)`.
+      real(R8P), intent(in) :: v  !< Velocity.
+      real(R8P)             :: fv !< Value.
+
+      fv = (u1 * log(u1 - v) - u2 * log(v - u2)) / (u1 - u2)
+      endfunction F
+   endsubroutine becker_shock
 endmodule adam_flume_ic_object

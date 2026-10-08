@@ -17,7 +17,7 @@ OpenACC), and it supersedes the deprecated CHASE.
 | Grid | Octree/quadtree of Cartesian blocks, initialisation-time AMR (box, gradient and solid markers), 2:1 coarse–fine faces with conservative reflux | [Numerical methods](./numerics#adaptive-mesh-refinement) |
 | Geometry | Immersed boundary for static solids (Euler) | [Numerical methods](./numerics#immersed-boundary-euler) |
 | Coupling | Multi-realm runs glued by a forest manifest | [Numerical methods](./numerics#multi-realm-runs) |
-| Setup | 13 initial conditions (Riemann problems, vortices, Shu–Osher, Orszag–Tang, rotor, field loop, linear waves, ...), 4 boundary conditions | [Initial conditions](./initial-conditions), [Boundary conditions](./boundary-conditions) |
+| Setup | 17 initial conditions (Riemann problems, vortices, Shu–Osher, Orszag–Tang, rotor, field loop, linear waves, exact viscous states, ...), 6 boundary conditions (no-slip walls included) | [Initial conditions](./initial-conditions), [Boundary conditions](./boundary-conditions) |
 | Input | One INI file per realm, every value checked | [Input reference](./input) |
 | Output | XDMF + HDF5 checkpoints (ParaView), restart, slices, residual, conservation and div(B) histories | [Input reference](./input#io) |
 | Verification | Exact solutions, convergence orders, symmetry and conservation oracles on both backends | [Verification gallery](./verification) |
@@ -25,8 +25,9 @@ OpenACC), and it supersedes the deprecated CHASE.
 **Status.** Milestones M1 (Euler, [#35](https://github.com/szaghi/adam/issues/35)) and M2 (ideal MHD with GLM,
 [#41](https://github.com/szaghi/adam/issues/41)) are complete; M3 ([#47](https://github.com/szaghi/adam/issues/47)) adds
 the Riemann-solver scheme (`weno-riemann`: Euler done, MHD in progress), the energy-consistent EGLM cleaning and a
-positivity-preserving limiter. Dissipative terms (viscosity, heat conduction, resistivity: M4, [#65](https://github.com/szaghi/adam/issues/65), in
-progress) and runtime AMR (M5) are planned.
+positivity-preserving limiter. M4 ([#65](https://github.com/szaghi/adam/issues/65), in progress) adds the dissipative
+terms: compressible Navier–Stokes (viscosity and heat conduction, 4th-order conservative fluxes, no-slip walls) is in for
+Euler on both backends; the MHD terms, with Ohmic resistivity, are next. Runtime AMR (M5) is planned.
 
 ## Quick start
 

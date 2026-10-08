@@ -209,12 +209,85 @@ The coarse states, the fine means and the factors travel over the ranks in seam 
 per stage); on the GPU the seam cells are gathered to the host, which recomputes their factors and returns them with
 the seam face fluxes.
 
+## Dissipative fluxes (Navier–Stokes)
+
+With a viscosity or a conductivity in `[physics]` ([input](./input#dissipative-terms-issue-65-m4)), Euler becomes the
+compressible Navier–Stokes system (issue #65, P2; the MHD models follow in P3). Each term is the divergence of a flux,
+added to the inviscid one in direction $d$:
+
+$$
+G_{d}^{\rho u_i} = -\tau_{di},\qquad
+G_{d}^{E} = -u_i\,\tau_{di} - k\,\frac{\partial T}{\partial x_d},\qquad
+\tau = \mu\left(\nabla\mathbf{u} + \nabla\mathbf{u}^T - \tfrac{2}{3}(\nabla\cdot\mathbf{u})\,I\right),
+$$
+
+with no bulk viscosity (Stokes hypothesis), $T = p/(\rho R)$, and the laws $\mu = \mu_0 (T/T_\mathrm{ref})^\omega$,
+$k = k_0 (T/T_\mathrm{ref})^{\omega_k}$ ($\omega_k = \omega$ when $k$ comes from the Prandtl number, otherwise 0; the
+constant law is $\omega = 0$). The pointwise flux is one pure routine shared by both backends
+(`adam_flume_dissipation_library`).
+
+**Where it enters.** The dissipative face fluxes are computed by their own kernels, after the inviscid face fluxes and
+**before** the seam accumulation and the flux difference, in both space schemes. Two consequences: the AMR reflux and
+the inter-realm flux register see the total flux, so conservation across seams needs no new machinery; and the WENO
+face kernels are untouched (their FNL register count does not change). A run without coefficients never calls the
+kernels and stays bitwise identical to the ideal solver. The kernels read $(u, v, w, T)$ from the auxiliary variables,
+whose indexes are common to every model, and the host picks the kernel of the order (`[numerics]
+dissipative_order`), never a branch inside a loop.
+
+**Face derivatives.** The scheme stores point values, so a face flux of order $p$ does not by itself give a flux
+difference of order $p$: the conservative numerical flux is $h = G - \tfrac{\Delta x^2}{24}G'' + O(\Delta x^4)$
+(Shu & Osher 1989). Face $i+\tfrac12$ along $d$, cells $m = -1 \dots 2$ counted from the left one:
+
+| | `dissipative_order = 2` | `dissipative_order = 4` (default) |
+|---|---|---|
+| face state | $(W_0 + W_1)/2$ | $\big(9(W_0 + W_1) - (W_{-1} + W_2)\big)/16$ |
+| normal derivative | $(W_1 - W_0)/\Delta x$ | $\big(27(W_1 - W_0) - (W_2 - W_{-1})\big)/(24\,\Delta x)$ |
+| tangential derivative | mean of the 2nd-order central differences of cells 0 and 1 | the 4th-order central differences $D_m$ of cells $-1 \dots 2$, interpolated as the state |
+| flux | $G(W_f, \nabla W_f)$ | $G(W_f, \nabla W_f) - (G_2 - G_1 - G_0 + G_{-1})/48$ |
+
+where $G_m$ is the flux of cell $m$ from 2nd-order central gradients, so the correction term is
+$\Delta x^2 G''/24$ to second order. The same form serves the linear and the nonlinear terms ($u_i\tau_{di}$,
+$\mu(T)$). Across a strong temperature jump the four-point face temperature undershoots, possibly below zero, where a
+power law $(T/T_\mathrm{ref})^\omega$ is NaN (a wall 300 times hotter than the gas did it in the input-contract check
+DC); where it is not positive, the face takes the mean of its two cells for the laws, which a smooth positive $T$
+never triggers. For constant $\mu$ it is a 4th-order $u_{xx}$ on six points, not the compact five-point one; its Fourier
+symbol is non-positive at every wavenumber ($-4.67\,\nu/\Delta x^2$ at the grid Nyquist mode against $-5.33$ for the compact
+operator), so it damps every mode, and its error is $O(\theta^6)$ in the wavenumber $\theta$. The 4th-order fluxes read
+cells $-2 \dots 3$ along $d$ and $\pm 2$ along the tangents, so they need `[grid] ngc` $\ge 3$ (fatal otherwise); the
+tangential differences read the edge ghosts, whose fill is exact on every path (the ghost probe GP,
+[verification](./verification#ghost-cells)). A null direction has a zero step, so its derivatives are zero exactly and
+its ghosts are never read.
+
+**Walls.** `wall-noslip` and `wall-isothermal` ([boundary conditions](./boundary-conditions)) are mirrors, second-order
+at the wall: a 4th-order interior with them converges at order 2 overall (VV-3).
+
+**Time step.** The explicit unsplit integration adds the diffusive limit to the cell sum of the CFL bound,
+
+$$
+\Delta t = \frac{\mathrm{CFL}}{\max_\text{cells}\Big[\sum_d \frac{|u_d| + a}{\Delta x_d} + 2\,\nu\sum_d\frac{1}{\Delta x_d^2}\Big]},
+\qquad \nu = \max\Big(\tfrac{4}{3}\tfrac{\mu}{\rho},\ \gamma\tfrac{k}{\rho c_p},\ \eta\Big),
+$$
+
+so under AMR the diffusive part tightens four times per level, against twice for the hyperbolic one. With a power
+law and an isothermal wall the laws in $\nu$ are evaluated at $\max(T, T_{w,\max}^2/T)$, the geometric-mirror ghost
+temperature of a cell beside the hottest wall: a wall much hotter than the gas gives its face a coefficient above
+every cell's, which the cell bound alone misses (a wall 330 times hotter than the gas blew up at CFL 0.5). The first step
+logs both maxima, the minimum cell Reynolds number $\sum_d (|u_d|+a)/\Delta x_d \big/ (\nu\sum_d \Delta x_d^{-2})$
+($(|u|+a)\Delta x/\nu$ on a uniform 1-D grid), and whether the run is hyperbolic- or diffusion-limited.
+
+**Limits.** Explicit only: a diffusion-limited run pays $\Delta t \propto \Delta x^2$ (super-time-stepping is a
+follow-up). The positivity limiter is refused with dissipative terms (D-M4-5), and so are immersed solids, whose walls
+are inviscid. The MHD models refuse the coefficients until P3. A null direction freezes the momentum normal to it
+(the CHASE semantics of the flux difference), so a reduced-dimension run cannot carry a velocity along a null axis: a
+shear layer or a Couette flow needs its velocity axis active, if thin.
+
 ## Time integration
 
 The library Runge–Kutta schemes (`[runge_kutta] scheme`, listed in the [input reference](./input)) integrate the
 semi-discrete system: strong-stability-preserving (SSP) and low-storage schemes. Each stage refills the ghost cells,
 recomputes the auxiliary variables, applies the positivity floors (MHD) and evaluates the residual. The time step follows
-the [CFL bound](./models#time-step-bound); `[time] it_max` and `time_max` stop the run.
+the [CFL bound](./models#time-step-bound), with the diffusive part of the
+[dissipative fluxes](#dissipative-fluxes-navier-stokes) when they are on; `[time] it_max` and `time_max` stop the run.
 
 ## Adaptive mesh refinement
 
@@ -287,6 +360,7 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`)
 - Don W. S., Li R., Wang B.-S., Wang Y. H. (2022), A novel and robust scale-invariant WENO scheme for hyperbolic
   conservation laws, *J. Comput. Phys.* 448, 110724.
 - Jiang G.-S., Shu C.-W. (1996), Efficient implementation of weighted ENO schemes, *J. Comput. Phys.* 126, 202–228.
+- Becker R. (1922), Stoßwelle und Detonation, *Z. Phys.* 8, 321–362.
 - Miyoshi T., Kusano K. (2005), A multi-state HLL approximate Riemann solver for ideal MHD, *J. Comput. Phys.* 208, 315–344.
 - Shu C.-W., Osher S. (1989), Efficient implementation of essentially non-oscillatory shock-capturing schemes II,
   *J. Comput. Phys.* 83, 32–78.

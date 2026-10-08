@@ -721,3 +721,62 @@ v = -0.2
 w = 0.1
 p = 1.0
 ```
+
+## `sine-wave`: a small sine wave on a uniform state (verification)
+
+A sine of amplitude $A$ along the unit normal $\mathbf n = (\cos\theta, \sin\theta, 0)$ in the x-y plane, on the state
+of `[initial_conditions_region_1]` ($\rho_0$, $\mathbf u_0$, $p_0$), with $s = A\sin(2\pi\,\mathbf n\cdot\mathbf x/\lambda)$:
+
+| `wave_mode` | Perturbation | `wave_amplitude` |
+|---|---|---|
+| `shear` | $\mathbf u = \mathbf u_0 + s\,\mathbf t$, $\mathbf t = (-\sin\theta, \cos\theta, 0)$ | a velocity |
+| `acoustic` | $\rho = \rho_0(1 + s)$, $\mathbf u = \mathbf u_0 + a_0 s\,\mathbf n$, $p = p_0(1 + \gamma s)$: the right-running linear acoustic wave | relative |
+
+Keys: `wave_mode` (`shear` or `acoustic`, other → fatal), `wave_angle` $\theta$ (degrees), `wave_amplitude` $A$,
+`wavelength` $\lambda$ (`> 0`). The values are point values at the cell centres. It is the initial state of the
+viscous verifications VV-1 (shear-wave decay) and VV-2 (viscous-thermal acoustic attenuation)
+([verification](./verification#vv-1-and-vv-2-viscous-waves)); the wave is periodic in a box whose sides are multiples
+of $\lambda/\cos\theta$ and $\lambda/\sin\theta$.
+
+```ini
+[initial_conditions]
+type           = sine-wave
+amr_iterations = 0
+wave_mode      = shear
+wave_angle     = 45.0
+wave_amplitude = 1.0e-4
+wavelength     = 0.7071067811865476
+```
+
+## `couette`: exact compressible Couette flow (verification)
+
+The steady compressible Couette flow with constant $\mu$ and $k$ (Euler with a viscosity and a conductivity, constant
+law; fatal otherwise): a fixed isothermal wall at $y_0$, an adiabatic wall at $y_0 + H$ moving at $U$ along x, uniform
+pressure $p_0$ (`[initial_conditions_region_1] p`; the other region keys are read and ignored), and, with $s = y - y_0$,
+
+$$
+u = U\,\frac{s}{H},\qquad T = T_w + \frac{\mu U^2}{k H}\Big(s - \frac{s^2}{2H}\Big),\qquad \rho = \frac{p_0}{R\,T}.
+$$
+
+It is an exact solution of the compressible Navier–Stokes equations, so a run started from it keeps it as its exact
+solution at every time, and any departure is the error of the scheme (VV-3, with the walls `wall-isothermal` at
+$y_0$ and `wall-noslip` with `wall_u = U` at $y_0 + H$). Keys: `wall_y0`, `height` ($H > 0$), `wall_velocity` ($U$),
+`wall_temperature` ($T_w > 0$, the code temperature $p/(\rho R)$).
+
+## `becker-shock`: Becker's exact viscous shock (verification)
+
+Becker's (1922) steady shock along x, in the shock frame: constant viscosity and Prandtl number 3/4 (`[physics]
+prandtl = 0.75`, fatal otherwise), for which the total enthalpy $H = c_pT + u^2/2$ is uniform and the momentum integral
+reduces to $\tfrac43\mu\,u\,u' = m\,\tfrac{\gamma+1}{2\gamma}(u - u_1)(u - u_2)$, $m = \rho_1 u_1$. Its solution is the
+implicit
+
+$$
+K\,(x - x_0) = F(u) - F\Big(\frac{u_1 + u_2}{2}\Big),\quad F(u) = \frac{u_1\ln(u_1 - u) - u_2\ln(u - u_2)}{u_1 - u_2},\quad
+K = \frac{3m(\gamma+1)}{8\gamma\mu},
+$$
+
+solved by bisection in each cell ($F$ is monotone). The upstream state is $\rho_1$, $p_1$ of
+`[initial_conditions_region_1]` moving at $u_1 = M a_1$ towards $+x$; $u_2$ is the Rankine–Hugoniot downstream
+velocity, $\rho = m/u$, $T = (H - u^2/2)/c_p$. Keys: `mach` ($M > 1$), `shock_x0`. Pair it with an `inflow` of the
+upstream state at `bc_x_min` and `extrapolation` at `bc_x_max`. It is the initial state of VV-4: like `couette`, an
+exact steady solution, so the error needs no relaxation run and no fit of the shock position.

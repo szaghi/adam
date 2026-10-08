@@ -540,7 +540,7 @@ of a Runge–Kutta stage (seams, then the intra-realm exchange and the boundary 
 - the field at the ghost's own centre, inside the realm or across a seam;
 - along an axis where the ghost lies beyond a physical face, that face's condition applied to the value of its
   donor: the coordinate mirrored with the normal momentum negated for an inviscid wall (and the normal field on MHD);
-  mirrored with the velocity reflected about the wall velocity for a no-slip wall (and the temperature $2T_w - T$ for
+  mirrored with the velocity reflected about the wall velocity for a no-slip wall (and the temperature $T_w^2/T$ for
   an isothermal one); the first interior cell for extrapolation; the inflow state for inflow; the wrapped coordinate
   for periodic. Beyond two faces the conditions compose in the backends' order (inflow first, else the first face in
   axis order acts on a donor valued the same way).
@@ -615,17 +615,108 @@ imply exactly the coefficient it states; nothing may be dropped silently. The ke
 
 | Kind | Cases | Oracle |
 |---|---|---|
-| refuse | both keys of a term (3), `prandtl` without a viscosity, resistivity on Euler, a negative viscosity, a zero Reynolds number, the power law without a viscosity, its keys without the law, a missing reference temperature, an unknown law, `dissipative_order = 3`, the limiter with a viscosity, a normal wall velocity, an isothermal wall without (or with a negative) temperature, the P1 guard | the run stops with the expected message |
-| log | `reynolds` + `prandtl`; `viscosity` + `conductivity`; `magnetic_reynolds` + `reynolds` (MHD) | the logged $\mu$, $k$, $\eta$ equal $1/Re$, $\mu c_p/Pr$, $1/Rm$ exactly |
+| refuse | both keys of a term (3), `prandtl` without a viscosity, resistivity on Euler, a negative viscosity, a zero Reynolds number, the power law without a viscosity, its keys without the law, a missing reference temperature, an unknown law, `dissipative_order = 3`, the limiter with a viscosity, a normal wall velocity, an isothermal wall without (or with a negative) temperature, a viscosity on MHD (refused until P3), a negative power-law exponent | the run stops with the expected message |
+| log | `reynolds` + `prandtl`; `viscosity` + `conductivity`; `magnetic_reynolds` + `reynolds` (MHD) | the logged $\mu$, $k$, $\eta$ equal $1/Re$, $\mu c_p/Pr$, $1/Rm$ exactly; the Euler runs take ten steps and log their diffusive time-step limit, the MHD one stops at the P3 guard |
 | ideal | zero coefficients, `dissipative_order = 2` | the run equals the base run bit for bit |
 | convert | the Euler case with viscosity, conductivity, the power law and an isothermal moving wall; the MHD case with resistivity; dimensionalised with $L_0 = 2$, $u_0 = 1/2$, $\rho_0 = 4$ | every dimensional key logged converted back exactly (`scaling.py check-log`), the conductivity and the temperatures with the gas constant |
 | convert-refuse | `lundquist` under a `[reference]` without the Alfvénic preset | refused |
 
-**Results.** All 24 cases pass, on the CPU (2 ranks) and on FNL; the conversion check covers 34 keys on the Euler
+**Results.** All 25 cases pass, on the CPU (2 ranks) and on FNL; the conversion check covers 34 keys on the Euler
 case and 30 on the MHD one.
 
 ```bash
 cd src/tests/flume/verification/dissipation && ./check.sh
+```
+
+### VV-1 and VV-2: viscous waves
+
+**Why.** A dissipative flux can be consistent and still wrong in its order (a missing correction term), its coefficient
+(a missing 4/3, a conductivity without $R$) or its direction (a cross derivative read with the wrong stencil). A small
+sine wave on a gas at rest is one Fourier mode of the linearised compressible Navier–Stokes equations; the oracle
+(`viscous/waves.py`) integrates that mode exactly, $\exp(Mt)$ of the $3\times3$ system for $(\rho', u_n, T')$ plus the
+decoupled transverse velocity, from the Fourier coefficients of the initial state, so it holds every mode the start
+excites, not only a decay rate. The error is the RMS over the cells of the point values.
+
+**Cases** ([`sine-wave`](./initial-conditions#sine-wave-a-small-sine-wave-on-a-uniform-state-verification), $\gamma = 1.4$,
+$\rho_0 = p_0 = 1$, $\mu = 0.01$, SSP-RK(5,4), CFL 0.2, WENO5 characteristic):
+
+- VV-1, shear wave $A = 10^{-4}$, $t = 0.5$: along x and along y at `dissipative_order` 4, along x at order 2, and along
+  the diagonal (both directions active, so the cross terms $\partial_i u_d$ and the tangential derivatives are
+  exercised; $t = 0.1$). The velocity axis is kept active (4 blocks of 6 cells across it): FLUME freezes the momentum
+  normal to a null direction, which would freeze the shear.
+- VV-2, the right-running acoustic wave with $k = 0.02$ as well, so $\mu$ and $k$ act together. A sound wave steepens at
+  $O(A^2)$: at $A = 10^{-4}$ that residue ($10^{-8}$) flattened the error at every resolution. The leg therefore runs
+  the twin with amplitude $-A$ and judges the odd part $(f(+A) - f(-A))/2$, whose residue is $O(A^3)$, at
+  $A = 10^{-5}$.
+
+**Oracle.** The observed order of the finest pair $\ge 3.8$ at order 4, $\ge 1.9$ at order 2.
+
+**Results** (CPU, 2 ranks):
+
+| Leg | N | RMS error | Order |
+|---|---|---|---|
+| shear x, order 4 | 32 / 64 / 128 | $3.64\cdot10^{-10}$ / $2.29\cdot10^{-11}$ / $1.43\cdot10^{-12}$ | +3.99, +4.00 |
+| shear y, order 4 | 32 / 64 / 128 | identical to x, bit for bit | +3.99, +4.00 |
+| shear x, order 2 | 32 / 64 / 128 | $3.68\cdot10^{-8}$ / $9.20\cdot10^{-9}$ / $2.30\cdot10^{-9}$ | +2.00, +2.00 |
+| shear diagonal, order 4 | 24 / 48 / 96 | $6.72\cdot10^{-10}$ / $1.16\cdot10^{-11}$ / $2.43\cdot10^{-13}$ | +5.86, +5.57 |
+| acoustic, order 4 | 32 / 64 / 128 | $8.20\cdot10^{-11}$ / $1.69\cdot10^{-12}$ / $2.18\cdot10^{-14}$ | +5.60, +6.28 |
+
+The measured decay rate of the shear wave is $\nu k^2$ to $2\cdot10^{-8}$ relative at 128 cells. The diagonal wave
+converges faster than its design order: on the diagonal the leading truncation errors of the x and y fluxes appear to
+cancel. On the acoustic wave the error is dominated by the inviscid WENO part, not by the viscous one, so VV-2 checks
+that $\mu$ and $k$ enter with the right coefficients (the measured amplitude equals the exact one to $6\cdot10^{-10}$
+relative), and VV-1 pins the order of the dissipative flux. The measured acoustic rate, $0.29576$, differs by 4% from the
+first-order Kirchhoff–Stokes rate $k^2/(2\rho_0)\,(\tfrac43\mu + (\gamma-1)k/c_p) = 0.30831$: here
+$\nu k/a = 0.053$, and the exact linear oracle carries that correction.
+
+### VV-3: compressible Couette flow
+
+**Why.** The first test of the no-slip walls with the viscous fluxes, and of a nonlinear energy flux (the viscous
+heating $u\,\tau$).
+
+**Case** ([`couette`](./initial-conditions#couette-exact-compressible-couette-flow-verification), `viscous/profiles.py`):
+a fixed `wall-isothermal` at $y = 0$ ($T_w = 1$), a `wall-noslip` moving at $U = 1$ at $y = 1$, $\mu = 0.01$,
+$Pr = 0.75$, $p = 1$. The exact profile is an exact steady solution, so the run starts from it and the departure at
+$t = 0.2$ is the error of the scheme, with no relaxation transient.
+
+**Oracle.** Order $\ge 1.9$ on $u/U$ and $T/T_w$: the moving-wall mirror is exact for the linear $u$ and the symmetric
+$T$, the isothermal geometric mirror $T_w^2/T$ is second-order, so the run is second-order overall.
+
+**Results** (CPU and FNL, 2 ranks): RMS of $u/U$ $1.71\cdot10^{-7}$ / $3.84\cdot10^{-8}$ / $8.72\cdot10^{-9}$, of $T/T_w$
+$3.01\cdot10^{-6}$ / $6.62\cdot10^{-7}$ / $1.49\cdot10^{-7}$ at 32 / 64 / 128 cells: orders +2.14 and +2.15. (With the
+linear isothermal mirror of P1 the errors were 18% lower, at the same orders: the geometric mirror, adopted because the
+linear one made negative ghost densities beside hot gas, differs from it by $O(\Delta x^2)$.)
+
+### VV-4: Becker's viscous shock
+
+**Why.** The strongest nonlinear viscous flux of the suite: a shock resolved by the viscosity, with the energy flux
+carrying both the viscous work and the heat flux.
+
+**Case** ([`becker-shock`](./initial-conditions#becker-shock-becker-s-exact-viscous-shock-verification)): Becker's
+exact profile in the shock frame (constant $\mu$, $Pr = 3/4$), supersonic `inflow` upstream, `extrapolation`
+downstream, $x \in [-0.25, 0.25]$, $t = 0.05$; Mach 2 with $\mu = 0.005$ and Mach 3 with $\mu = 0.01$, which put about 8
+cells across the shock at 256 cells (at Mach 3 with $\mu = 0.005$ the shock spans 4 cells, WENO's nonlinear weights still
+act, and the measured order was +2.25). Like Couette, the run starts from the exact solution.
+
+**Oracle.** Order $\ge 3$ on the RMS and the maximum of $(u - u_\mathrm{exact})/(u_1 - u_2)$.
+
+**Results** (CPU, 2 ranks):
+
+| Mach | 64 | 128 | 256 | Orders (RMS) |
+|---|---|---|---|---|
+| 2 | RMS $1.05\cdot10^{-2}$, max $6.2\cdot10^{-2}$ | $1.92\cdot10^{-3}$, $1.15\cdot10^{-2}$ | $1.30\cdot10^{-4}$, $8.3\cdot10^{-4}$ | +2.45, +3.88 |
+| 3 | RMS $1.47\cdot10^{-2}$, max $8.9\cdot10^{-2}$ | $3.09\cdot10^{-3}$, $1.89\cdot10^{-2}$ | $2.77\cdot10^{-4}$, $1.7\cdot10^{-3}$ | +2.25, +3.48 |
+
+**FNL.** Every leg passes on FNL (2 ranks) with the same numbers to the printed digits, except where the round-off of
+the run itself shows: the acoustic odd part, whose $\pm A$ difference amplifies the round-off of a $10^{-5}$ wave
+($8.196853\cdot10^{-11}$ against $8.196891\cdot10^{-11}$ at 32 cells), and the last digit of the Couette $u$ error at
+128 cells.
+
+![VV-1 to VV-4: convergence, and Becker's shock against the exact profile](/flume/viscous.png)
+
+```bash
+cd src/tests/flume/verification/viscous && ./check.sh                  # CPU, every leg
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh             # FNL
 ```
 
 ## Scaling covariance

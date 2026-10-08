@@ -19,8 +19,9 @@ module adam_flume_dissipation_object
 !< `viscosity_law = power-law` makes the viscosity depend on the temperature, `mu (T / reference_temperature) **
 !< viscosity_exponent`; with `prandtl` the conductivity follows it, `k = mu(T) cp / Pr`.
 !<
-!< The kernels land in issue #65 P2 (Euler) and P3 (MHD): until then a non-zero coefficient is refused at
-!< initialisation by the common object, so no coefficient is ever ignored silently.
+!< The viscous and heat-conduction kernels landed in issue #65 P2 (Euler), the MHD ones land in P3: until then a
+!< non-zero coefficient with an MHD model is refused at initialisation by the common object, so no coefficient is ever
+!< ignored silently.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
@@ -56,6 +57,7 @@ type :: flume_dissipation_object
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
+      procedure, pass(self) :: laws           !< Return the temperature laws of the kernels.
       procedure, pass(self) :: load_from_file !< Load the coefficients from file.
 endtype flume_dissipation_object
 
@@ -79,6 +81,22 @@ contains
    endif
    desc = desc//mpih%myrankstr//'  resistivity eta: '//trim(str(self%eta))
    endfunction description
+
+   pure subroutine laws(self, tref, omega_mu, omega_k)
+   !< Return the temperature laws as the kernels take them, `mu = mu0 (T / tref)^omega_mu`, `k = k0 (T / tref)^omega_k`:
+   !< the constant law is `tref = 1` with zero exponents; under the power law the conductivity follows the viscosity
+   !< only when it comes from the Prandtl number.
+   class(flume_dissipation_object), intent(in)  :: self              !< Dissipation.
+   real(R8P),                       intent(out) :: tref              !< Reference temperature.
+   real(R8P),                       intent(out) :: omega_mu, omega_k !< Exponents.
+
+   tref = 1._R8P ; omega_mu = 0._R8P ; omega_k = 0._R8P
+   if (self%viscosity_law == VISCOSITY_LAW_POWER) then
+      tref     = self%reference_temperature
+      omega_mu = self%viscosity_exponent
+      if (self%prandtl > 0._R8P) omega_k = self%viscosity_exponent
+   endif
+   endsubroutine laws
 
    subroutine load_from_file(self, file_parameters, model, cp)
    !< Load the coefficients: a coefficient or its number per term (two keys of a term are fatal, none is the ideal 0).
@@ -116,6 +134,10 @@ contains
       if (.not.(self%mu > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(viscosity_law)='// &
                                                             VISCOSITY_LAW_POWER//' needs a viscosity')
       call required(key='viscosity_exponent', val=self%viscosity_exponent)
+      ! the diffusive time step bound evaluates the laws at the largest temperature a face can see (issue #65, P2)
+      if (self%viscosity_exponent < 0._R8P) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(viscosity_exponent) must not be negative, got '// &
+                                  trim(str(self%viscosity_exponent)))
       call required(key='reference_temperature', val=self%reference_temperature)
       if (.not.(self%reference_temperature > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(reference_temperature) must be positive')

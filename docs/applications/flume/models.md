@@ -15,9 +15,11 @@ on the host, the compute kernels compiled for that width (no branching on the mo
 | Ideal MHD with EGLM cleaning ($E$ includes $\psi^2/2$) | `mhd-ideal` | `eglm` | as GLM | 9 |
 | Ideal MHD without divergence control | `mhd-ideal` | `none` | the first 8 of the above | 8 |
 
-All models are inviscid and use a calorically perfect ideal gas. Viscosity, heat conduction and Ohmic resistivity are
-milestone M4 ([#65](https://github.com/szaghi/adam/issues/65)): their coefficients are read and validated
-([input](./input#dissipative-terms-issue-65-m4)), and their fluxes land in its phases P2 (Euler) and P3 (MHD).
+All models use a calorically perfect ideal gas and are inviscid by default. Viscosity, heat conduction and Ohmic
+resistivity are milestone M4 ([#65](https://github.com/szaghi/adam/issues/65)), each given as a coefficient or as its
+number ([input](./input#dissipative-terms-issue-65-m4)): with a viscosity or a conductivity, `euler` is the compressible
+Navier–Stokes system ([numerics](./numerics#dissipative-fluxes-navier-stokes), P2); the MHD models refuse the
+coefficients until P3.
 
 ## Thermodynamics
 
@@ -210,7 +212,9 @@ The time step is the minimum over the realm of
 $$\Delta t = \frac{\mathrm{CFL}}{\max_{\text{cells}} \sum_d \dfrac{|u_d| + c_d}{\Delta x_d}},$$
 
 with $c_d = a$ (Euler) or the fast speed along $d$ (MHD), null directions excluded (`[time] CFL`). With GLM the cleaning
-waves add the bound $\Delta t \le \mathrm{CFL} / (c_h \max \sum_d 1/\Delta x_d)$.
+waves add the bound $\Delta t \le \mathrm{CFL} / (c_h \max \sum_d 1/\Delta x_d)$. With dissipative terms each cell
+sum gains the diffusive part $2\nu\sum_d 1/\Delta x_d^2$
+([numerics](./numerics#dissipative-fluxes-navier-stokes)).
 
 ## Derived output fields
 

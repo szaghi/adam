@@ -13,9 +13,10 @@ module adam_flume_fnl_euler_kernels
 ! ADAM FNL classes, libraries
 use :: adam_fnl_weno_kernels,    only : weno_reconstruct_upwind_dev
 ! FLUME modules
+use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_euler_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &
                                         compute_riemann_llf, conservative_to_auxiliary
-use :: adam_flume_parameters,    only : IA_A, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_K=>NV_AUX,     &
+use :: adam_flume_parameters,    only : IA_A, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, NV_AUX_K=>NV_AUX,     &
                                         NV_K=>NV_EULER,                         &
                                         POSITIVITY_LIMITER_KAPPA, S_MAX
 ! third party modules
@@ -28,6 +29,7 @@ public :: blend_positivity_fluxes_dev
 public :: compute_conservation_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
+public :: compute_lambda_max_dissipative_dev
 public :: compute_backbone_fluxes_host
 public :: compute_positivity_factors_dev
 public :: compute_seam_positivity_factors_host
@@ -124,6 +126,65 @@ contains
    enddo
    enddo
    endsubroutine compute_lambda_max_dev
+
+   subroutine compute_lambda_max_dissipative_dev(ni, nj, nk, ngc, blocks_number, gamma, R, cp, mu0, k0, eta, t_wall, &
+                                                 tref, omega_mu, omega_k, dxyz_gpu, is_null, q_gpu, lambda_max,     &
+                                                 lambda_hyp, lambda_dif, re_cell_min)
+   !< Device twin of the CPU `compute_lambda_max_dissipative` (issue #65, D-M4-3): the maximum of the hyperbolic plus
+   !< diffusive cell sum, the maxima of each part and the minimum cell Reynolds number.
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)  :: gamma, R, cp                      !< Specific heats ratio, gas constant, cp.
+   real(R8P),    intent(in)  :: mu0, k0, eta                      !< Dissipative coefficients.
+   real(R8P),    intent(in)  :: t_wall                            !< Hottest isothermal wall temperature, 0 if none.
+   real(R8P),    intent(in)  :: tref, omega_mu, omega_k           !< Temperature laws.
+   real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: lambda_max                        !< Maximum of the sum.
+   real(R8P),    intent(out) :: lambda_hyp                        !< Maximum of the hyperbolic part.
+   real(R8P),    intent(out) :: lambda_dif                        !< Maximum of the diffusive part.
+   real(R8P),    intent(out) :: re_cell_min                       !< Minimum cell Reynolds number.
+   real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
+   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
+   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
+   real(R8P)                 :: lh, ld                            !< Private hyperbolic and diffusive parts.
+   integer(I4P)              :: b, i, j, k, v                     !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   lambda_max = 0._R8P ; lambda_hyp = 0._R8P ; lambda_dif = 0._R8P ; re_cell_min = huge(1._R8P)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,omega_mu,omega_k,wx,wy,wz) &
+   !$acc& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,omega_mu,omega_k,wx,wy,wz) &
+   !$omp& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      !$acc loop seq
+      do v=1, NV_K
+         q_(v) = q_gpu(b,i,j,k,v)
+      enddo
+      call conservative_to_auxiliary(gamma=gamma, R=R, q=q_, qa=qa_)
+      lh = wx * (abs(qa_(IA_U)) + qa_(IA_A)) / dxyz_gpu(b,1) + &
+           wy * (abs(qa_(IA_V)) + qa_(IA_A)) / dxyz_gpu(b,2) + &
+           wz * (abs(qa_(IA_W)) + qa_(IA_A)) / dxyz_gpu(b,3)
+      ld = 2._R8P * dissipative_diffusivity(rho=qa_(IA_R), T=qa_(IA_T), t_wall=t_wall, gamma=gamma, cp=cp, mu0=mu0, k0=k0, eta=eta, &
+                                            tref=tref, omega_mu=omega_mu, omega_k=omega_k) *                      &
+           (wx / dxyz_gpu(b,1)**2 + wy / dxyz_gpu(b,2)**2 + wz / dxyz_gpu(b,3)**2)
+      lambda_max = max(lambda_max, lh + ld)
+      lambda_hyp = max(lambda_hyp, lh)
+      lambda_dif = max(lambda_dif, ld)
+      if (ld > 0._R8P) re_cell_min = min(re_cell_min, 2._R8P * lh / ld)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_lambda_max_dissipative_dev
 
    ! private procedures
    pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er, mu)

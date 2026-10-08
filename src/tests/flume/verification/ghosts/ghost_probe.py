@@ -13,7 +13,7 @@ coarse->fine fill are exact on a linear field, so every ghost cell has a known v
 - along an axis where it lies beyond a physical face of its realm, the boundary condition of that face acts on the
   value the ghost would hold without the face: `wall-inviscid` mirrors the coordinate about the face and negates the
   wall-normal momentum (and the wall-normal field on MHD); `wall-noslip` and `wall-isothermal` mirror it and reflect
-  the velocity about the wall velocity (the isothermal wall also sets the ghost temperature `2 T_w - T`);
+  the velocity about the wall velocity (the isothermal wall also sets the ghost temperature `T_w^2 / T`);
   `extrapolation` copies the first interior cell along the normal; `periodic` wraps the coordinate; `inflow` holds
   the inflow state. Beyond two physical faces the transforms compose in the backends' order (inflow first, else the
   first face in axis order acts on a donor valued the same way).
@@ -164,7 +164,7 @@ def noslip_ghost(q: np.ndarray, lower: list[str], d: int, realm: Realm, wall_vel
     p = (realm.gamma - 1.0) * (q[i_e] - 0.5 * q[i_r] * float(u @ u) - e_mag)
     rho = q[i_r]
     if wall_temperature is not None:
-        rho = p / (realm.gas * (2.0 * wall_temperature - p / (q[i_r] * realm.gas)))
+        rho = p / (realm.gas * (wall_temperature**2 / (p / (q[i_r] * realm.gas))))  # geometric mirror T_w^2 / T
     g = q.copy()
     if i_b:
         g[i_b[d]] = -q[i_b[d]]

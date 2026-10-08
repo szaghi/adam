@@ -17,6 +17,7 @@ the host copies are refreshed for output, restart and the coarse-fine seam fluxe
 |------|-------------|
 | `adam_flume_fnl.F90` | Entry point (program) |
 | `adam_flume_fnl_object.F90` | `flume_fnl_object`: device data, ghost update, residual, Runge-Kutta integration, reflux, output |
+| `adam_flume_fnl_dissipation_kernels.F90` | Device twins of the CPU dissipative face-flux kernels (issue #65) |
 | `adam_flume_fnl_kernels.F90` | Device kernels: face fluxes and flux difference (with the immersed-boundary variant), boundary conditions, time-step and conservation reductions, auxiliary fields, seam skin packing and reflux application |
 | `adam_flume_fnl_library.F90` | Barrel re-export of all FNL modules |
 

@@ -15,6 +15,7 @@ infrastructure of `common/`.
 |------|-------------|
 | `adam_flume_cpu.F90` | Entry point (program) |
 | `adam_flume_cpu_object.F90` | `flume_cpu_object`: ghost update and boundary conditions, WENO residual (with the immersed-boundary variant), Runge-Kutta integration, reflux accumulation and application, output |
+| `adam_flume_cpu_dissipation_kernels.F90` | Dissipative face fluxes of order 2 and 4 (issue #65), model-agnostic, added to the inviscid face fluxes before the seam accumulation |
 
 ## Build modes
 

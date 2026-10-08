@@ -112,9 +112,12 @@ so the mean of the ghost and its mirror cell is the wall velocity (no slip, no p
 
 - `wall-noslip` (adiabatic) mirrors the temperature, so $\rho_g = \rho_m$ and $\partial_n T = 0$ at the wall in the
   sense of the symmetric difference.
-- `wall-isothermal` sets the ghost temperature so that the mean is the wall temperature, $T_g = 2\,T_w - T_m$, and
-  the density from the mirrored pressure, $\rho_g = p_m / (R\,T_g)$, with $T = p/(\rho R)$. The ghost stays
-  admissible while $T_m < 2\,T_w$.
+- `wall-isothermal` sets the ghost temperature to the geometric mirror, $T_g = T_w^2 / T_m$, so the geometric mean
+  of the ghost and its mirror cell is the wall temperature, and the density from the mirrored pressure,
+  $\rho_g = p_m / (R\,T_g)$, with $T = p/(\rho R)$. The ghost is admissible for any admissible cell. Until #65 P2 the
+  mirror was linear, $T_g = 2\,T_w - T_m$, which is negative beside gas hotter than twice the wall: on Sod's right
+  state ($T = 0.0027$) against a wall at $T_w = 0.001$ the ghosts reached $\rho = -1.96$, silently, with no non-finite
+  value. For $T_m = T_w + \delta$ the two mirrors differ by $\delta^2/T_w$, so both are second-order at the wall.
 
 The total energy is rebuilt from the ghost state, $E_g = p_g/(\gamma-1) + \tfrac12\rho_g|\mathbf u_g|^2 + e_{mag}$, where
 the magnetic energy $e_{mag}$ (and $\psi^2/2$ under EGLM) is unchanged by the mirror. The field follows the
@@ -127,8 +130,10 @@ model-agnostic: the field components are those present in the state vector (none
 the model. The ghost probe GP checks it on every face and edge, moving and resting walls, Euler and MHD with EGLM
 ([verification](./verification#ghost-cells)).
 
-The walls are boundary conditions of the ideal solver too: they take effect on any run. Their physical test, a Couette
-flow against its exact profiles (VV-3), comes with the viscous fluxes in #65 P2.
+The walls are boundary conditions of the ideal solver too: they take effect on any run. Their physical test is the
+compressible Couette flow between an isothermal wall and a moving adiabatic one, against its exact profiles
+([VV-3](./verification#vv-3-compressible-couette-flow)): the moving-wall mirror is exact for its linear velocity and
+symmetric temperature, the isothermal mirror $T_w^2/T$ is second-order, so the run converges at order 2.
 
 ### `periodic`
 

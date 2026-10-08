@@ -20,7 +20,7 @@ use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11,
 ! ADAM singleton objects
 use :: adam_mpih_global,              only : mpih
 ! FLUME modules
-use :: adam_flume_bc_object,          only : flume_bc_object
+use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, flume_bc_object
 use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_ic_object,          only : flume_ic_object
@@ -90,6 +90,8 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: destroy_common        !< Free common data.
       procedure, pass(self) :: glm_lambda            !< Return the GLM bound of the local dt, c_h max sum_d 1/dx_d.
       procedure, pass(self) :: initialize            !< Initialize the common data.
+      procedure, pass(self) :: log_dt_limit          !< Log which limit, hyperbolic or diffusive, sets dt.
+      procedure, pass(self) :: wall_temperature_bound !< Return the hottest isothermal wall temperature of the dt bound.
       procedure, pass(self) :: null_freeze           !< Return the variable each null direction freezes.
       procedure, pass(self) :: output_factors        !< Return the output factors of written variables.
       procedure, pass(self) :: output_names          !< Return the names of every written variable.
@@ -610,6 +612,40 @@ contains
    endif
    endsubroutine report_divb
 
+   pure function wall_temperature_bound(self) result(t_wall)
+   !< Return the hottest isothermal wall temperature that the diffusive time step bound must cover (issue #65, P2): 0
+   !< without isothermal walls, and with constant laws (the coefficients then do not depend on the temperature).
+   class(flume_common_object), intent(in) :: self   !< The equation.
+   real(R8P)                              :: t_wall !< Hottest isothermal wall temperature, 0 if none.
+   real(R8P)                              :: tref   !< Reference temperature of the laws.
+   real(R8P)                              :: om(2)  !< Exponents of the laws.
+
+   t_wall = 0._R8P
+   call self%physics%dissipation%laws(tref=tref, omega_mu=om(1), omega_k=om(2))
+   if (all(om == 0._R8P)) return
+   if (any(self%bc%bc_type == BC_WALL_ISOTHERMAL)) &
+      t_wall = maxval(self%bc%wall_temperature, mask=self%bc%bc_type == BC_WALL_ISOTHERMAL)
+   endfunction wall_temperature_bound
+
+   subroutine log_dt_limit(self, lambda_hyp, lambda_dif, re_cell_min)
+   !< Log, once per run (rank 0, all ranks reduce), whether the time step is limited by the hyperbolic or by the diffusive
+   !< part of `dt = CFL / max(lambda_hyp + lambda_dif)` (issue #65, D-M4-3), with the minimum cell Reynolds number.
+   class(flume_common_object), intent(in) :: self        !< The equation.
+   real(R8P),                  intent(in) :: lambda_hyp  !< Maximum of the hyperbolic part of this rank.
+   real(R8P),                  intent(in) :: lambda_dif  !< Maximum of the diffusive part of this rank.
+   real(R8P),                  intent(in) :: re_cell_min !< Minimum cell Reynolds number of this rank.
+   real(R8P)                              :: g(3)        !< Reduced values: lambda_hyp, lambda_dif, -re_cell_min.
+   character(:), allocatable              :: regime      !< Dominant limit.
+
+   g = [lambda_hyp, lambda_dif, -re_cell_min]
+   call MPI_ALLREDUCE(MPI_IN_PLACE, g, 3, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   regime = 'hyperbolic' ; if (g(2) > g(1)) regime = 'diffusive'
+   if (mpih%myrank == 0) print '(A)', mpih%myrankstr//'dissipative dt limit (issue #65): max hyperbolic part '// &
+                                      trim(str(g(1)))//', max diffusive part '//trim(str(g(2)))//               &
+                                      ', minimum cell Reynolds number '//trim(str(-g(3)))//', dt is '//regime//  &
+                                      '-limited'
+   endsubroutine log_dt_limit
+
    subroutine report_glm_speed(self, speed_max)
    !< Check the GLM cleaning speed against the fastest wave (issue #41, section 3.5, D-9): `max(|u_d| + c_{f,d}) > c_h`
    !< is fatal with `[mhd].(glm_ch_check) = error`, otherwise a warning logged by rank 0 each time the speed exceeds the
@@ -1080,15 +1116,21 @@ contains
    endsubroutine check_positivity_limiter
 
    subroutine check_dissipation(self)
-   !< Refuse the dissipative terms whose kernels have not landed (issue #65): the coefficients are read and validated
-   !< (P1), the viscous and heat-conduction fluxes land in P2 (Euler) and P3 (MHD, with the resistive flux). Without
-   !< this check a coefficient would be silently ignored.
+   !< Refuse the dissipative terms where they are not computed (issue #65): the viscous and heat-conduction fluxes exist
+   !< for Euler (P2), the MHD ones (with the resistive flux) land in P3. Immersed solids are refused: their walls are
+   !< inviscid (the eikonal inversion mirrors the normal velocity only). The 4th-order fluxes read 3 ghost cells, the
+   !< 2nd-order ones 1. Without this check a coefficient would be silently ignored or a ghost read out of bounds.
    class(flume_common_object), intent(in) :: self !< The equation.
 
-   if (self%physics%dissipation%is_active) &
+   if (.not.self%physics%dissipation%is_active) return
+   if (self%physics%model /= MODEL_EULER) &
       call mpih%error_stop(msg=': the dissipative terms ([physics] viscosity, conductivity, resistivity or their '// &
-                               'numbers) are read but not yet computed: their kernels land in issue #65 P2 (Euler) '// &
-                               'and P3 (MHD); remove the keys or set them to 0')
+                               'numbers) are not yet computed with [physics].(physical_model)='//                 &
+                               self%physics%physical_model//': the MHD kernels land in issue #65 P3')
+   if (self%ib%solids_number > 0_I4P) &
+      call mpih%error_stop(msg=': the dissipative terms are not supported with immersed solids (inviscid walls)')
+   if (self%numerics%dissipative_order == 4_I4P .and. self%ngc < 3_I4P) &
+      call mpih%error_stop(msg=': [numerics].(dissipative_order)=4 needs [grid].(ngc) >= 3, got '//trim(str(self%ngc)))
    endsubroutine check_dissipation
 
    subroutine check_weno_scheme(self)

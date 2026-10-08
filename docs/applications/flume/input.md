@@ -425,9 +425,10 @@ verification DC can check every converted value exactly.
 
 Each term is given either as its coefficient or as the dimensionless number it stands for. In code units the
 references are 1, so a number is the reciprocal coefficient. Giving two keys of a term is fatal; giving none leaves the
-term off, so an input without these keys stays ideal and bitwise unchanged. The keys are read and validated now; the
-fluxes they drive land in P2 (viscosity and heat conduction) and P3 (resistivity). Until then any non-zero coefficient
-stops the run with *"are read but not yet computed"*, so no coefficient is ever dropped silently.
+term off, so an input without these keys stays ideal and bitwise unchanged. With `physical_model = euler` the viscosity
+and the conductivity drive the Navier–Stokes fluxes ([numerics](./numerics#dissipative-fluxes-navier-stokes)); the MHD
+kernels, and the resistivity with them, land in P3, and until then a coefficient with `mhd-ideal` stops the run with
+*"are not yet computed with [physics].(physical_model)=mhd-ideal"*, so no coefficient is ever dropped silently.
 
 | Key | Type | Accepted / invalid | Meaning |
 |-----|------|--------------------|---------|
@@ -439,12 +440,13 @@ stops the run with *"are read but not yet computed"*, so no coefficient is ever 
 | `magnetic_reynolds` | real | `> 0`; MHD only | $Rm$: $\eta = 1/Rm$. |
 | `lundquist` | real | `> 0`; MHD only; with `[reference]` it needs `velocity = alfvenic` | $S$: $\eta = 1/S$, the magnetic Reynolds number at the Alfvén speed. |
 | `viscosity_law` | string | `constant` (default), `power-law`; other → fatal; `power-law` needs a viscosity | Temperature law of the viscosity. |
-| `viscosity_exponent` | real | required by `power-law`, fatal without it | $\omega$ in $\mu(T) = \mu\,(T/T_\mathrm{ref})^\omega$. |
+| `viscosity_exponent` | real | `>= 0`; required by `power-law`, fatal without it | $\omega$ in $\mu(T) = \mu\,(T/T_\mathrm{ref})^\omega$ (non-negative: the diffusive time step bound evaluates the laws at the largest temperature a face can see). |
 | `reference_temperature` | real | `> 0`; required by `power-law`, fatal without it | $T_\mathrm{ref}$ (code temperature $p/(\rho R)$). |
 
 `[numerics] positivity_limiter = cell` is refused with any non-zero coefficient: the limiter's first-order backbone
 with a central dissipative flux is not admissible without the extension of Zhang (2017, *J. Comput. Phys.* 328), which
-is not implemented (D-M4-5).
+is not implemented (D-M4-5). A coefficient is also fatal with immersed solids (their walls are inviscid), and
+`dissipative_order = 4` with `[grid] ngc < 3`.
 
 ---
 
@@ -478,7 +480,7 @@ The section is not read for `euler`.
 | `reflux` | logical | yes | logical | Berger–Colella reflux at AMR coarse-fine faces (and inter-realm seams). `.false.` is a diagnostic only: the run is then not conservative across 2:1 faces. |
 | `positivity_limiter` | string | no (default `none`) | `none` or `cell`. Other → fatal. `cell` is fatal with `[mhd] divergence_control = glm`, a non-SSP `[runge_kutta] scheme`, immersed solids, multi-realm runs and any dissipative coefficient (issue #65, D-M4-5). | `cell`: the cell-based positivity limiter ([numerics](./numerics#positivity-limiter)): every face flux blended with the first-order Lax–Friedrichs backbone so that each stage keeps the density and the pressure positive; the limited faces are logged per stage. |
 
-| `dissipative_order` | int | no (default 4) | `2` or `4`. Other → fatal. | Order of the dissipative face fluxes (issue #65, D-M4-2). Read now and used by the dissipative kernels from P2 on; an ideal run ignores it. |
+| `dissipative_order` | int | no (default 4) | `2` or `4`. Other → fatal; `4` needs `[grid] ngc >= 3` (fatal otherwise). | Order of the dissipative face fluxes (issue #65, D-M4-2): `4` is the conservative 4th-order flux with the Shu–Osher correction, `2` the compact central one ([numerics](./numerics#dissipative-fluxes-navier-stokes)). An ideal run ignores it. |
 
 ---
 
@@ -500,7 +502,7 @@ What each `type` does:
 - `inflow`: prescribed state.
 - `wall-inviscid`: slip wall (mirror state with the normal momentum negated; for MHD the normal B is negated too).
 - `wall-noslip`: adiabatic no-slip wall (the velocity reflected about the wall velocity, the temperature mirrored).
-- `wall-isothermal`: isothermal no-slip wall (the velocity as above, the ghost temperature $2T_w - T$). See
+- `wall-isothermal`: isothermal no-slip wall (the velocity as above, the ghost temperature $T_w^2/T$, the geometric mirror). See
   [Boundary conditions](./boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls).
 - `periodic`: library periodicity, so true periodic neighbours across blocks and ranks.
 

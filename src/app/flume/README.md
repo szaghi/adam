@@ -21,9 +21,11 @@
 All models are inviscid with an ideal gas (`[physics] cp, cv`, J/(kg K)); ideal MHD is a perfectly conducting single
 fluid (ideal Ohm's law $\mathbf{E} + \mathbf{u} \times \mathbf{B} = 0$). `mhd-ideal` with immersed solids is refused.
 Dissipative effects (viscosity, thermal conduction, Ohmic resistivity) are milestone M4
-([#65](https://github.com/szaghi/adam/issues/65)): their coefficients (`[physics] viscosity` or `reynolds`,
-`conductivity` or `prandtl`, `resistivity` or `magnetic_reynolds`/`lundquist`, a power-law viscosity) are read and
-validated, but a non-zero one is refused until its fluxes land (P2 Euler, P3 MHD).
+([#65](https://github.com/szaghi/adam/issues/65)): each coefficient is given as itself or as its number (`[physics]
+viscosity` or `reynolds`, `conductivity` or `prandtl`, `resistivity` or `magnetic_reynolds`/`lundquist`, a power-law
+viscosity). With `euler` the viscosity and the conductivity make it compressible Navier–Stokes (4th-order conservative
+fluxes, or 2nd order, `[numerics] dissipative_order`; no-slip and isothermal walls; diffusive time-step limit) on both
+backends; the MHD models refuse the coefficients until P3.
 
 ## Implemented Capabilities
 

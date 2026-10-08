@@ -15,9 +15,11 @@ module adam_flume_bc_object
 !< `wall-inviscid` but reflect the whole velocity about the wall velocity, `u_g = 2 u_w - u` (`wall_u, wall_v, wall_w`,
 !< tangential, default 0; a normal component is fatal), so the mean of the two cells is the wall velocity. The pressure
 !< is mirrored. The adiabatic wall mirrors the temperature (and the density); the isothermal wall sets the ghost
-!< temperature `T_g = 2 wall_temperature - T`, so the mean is the wall temperature, and the density from the mirrored
-!< pressure, `rho_g = p / (R T_g)`: the ghost stays positive while `T < 2 wall_temperature`. The field follows the MHD
-!< wall rule of `wall-inviscid` (normal component odd), psi is even. Both are second-order at the wall.
+!< temperature to the geometric mirror `T_g = wall_temperature^2 / T`, so the geometric mean of the two cells is the wall
+!< temperature, and the density from the mirrored pressure, `rho_g = p / (R T_g)`. The geometric mirror is positive for
+!< any positive T; the linear one, `2 wall_temperature - T` (P1), gave a negative ghost density beside gas hotter than
+!< twice the wall (issue #65 P2). For `T = T_w + delta` the two differ by `delta^2 / T_w`, so both are second-order at
+!< the wall. The field follows the MHD wall rule of `wall-inviscid` (normal component odd), psi is even.
 
 ! ADAM classes, libraries, parameters
 use :: adam_parameters,           only : BC_PERIODIC, BC_SEAM, FEC_TO_DELTA
@@ -253,8 +255,9 @@ contains
    endsubroutine realm_edge_donor
    pure subroutine wall_noslip_ghost(nv, d, gamma, R, psi_energy, isothermal, wall_velocity, wall_temperature, q, qg)
    !< Ghost state of a no-slip wall (normal axis `d`) from its mirrored interior state `q`: the velocity reflected about
-   !< the wall velocity, `u_g = 2 u_w - u`; the pressure mirrored; the temperature mirrored (adiabatic) or set to
-   !< `2 T_w - T` (isothermal, the density then `p / (R T_g)`); the normal field odd, psi even.
+   !< the wall velocity, `u_g = 2 u_w - u`; the pressure mirrored; the temperature mirrored (adiabatic) or set to the
+   !< geometric mirror `T_w^2 / T` (isothermal, the density then `p / (R T_g)`, positive for any positive T); the normal
+   !< field odd, psi even.
    !<
    !< Model-agnostic: the field components are `IQ_BX..min(IQ_BZ, nv)` (none for Euler) and psi the slots beyond them;
    !< `psi_energy` (1 with EGLM, 0 otherwise) says whether the total energy holds `psi^2 / 2`.
@@ -290,7 +293,7 @@ contains
    enddo
    p = (gamma - 1._R8P) * (q(IQ_RE) - 0.5_R8P * q(IQ_R) * dot_product(u, u) - e_mag)
    rho_g = q(IQ_R)
-   if (isothermal) rho_g = p / (R * (2._R8P * wall_temperature - p / (q(IQ_R) * R)))
+   if (isothermal) rho_g = p / (R * (wall_temperature**2 / (p / (q(IQ_R) * R))))
    qg(IQ_R) = rho_g
    qg(IQ_RU:IQ_RW) = rho_g * ug
    qg(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * rho_g * dot_product(ug, ug) + e_mag

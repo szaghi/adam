@@ -48,6 +48,7 @@ use :: adam_flume_fnl_mhd_eglm_hll_kernels,     only : compute_riemann_face_flux
 use :: adam_flume_fnl_mhd_eglm_hlld_kernels,    only : &
                                                    compute_riemann_face_fluxes_mhd_eglm_hlld_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_dissipation_kernels, only : add_dissipative_fluxes_o2_dev, add_dissipative_fluxes_o4_dev
 use :: adam_flume_fnl_euler_kernels,   only : blend_inadmissible_ghosts_euler_dev=>blend_inadmissible_ghosts_dev,      &
                                               blend_positivity_fluxes_euler_dev=>blend_positivity_fluxes_dev,          &
                                               compute_backbone_fluxes_euler_host=>compute_backbone_fluxes_host,        &
@@ -57,6 +58,8 @@ use :: adam_flume_fnl_euler_kernels,   only : blend_inadmissible_ghosts_euler_de
                                               compute_positivity_factors_euler_dev=>compute_positivity_factors_dev,    &
                                               compute_face_fluxes_euler_dev=>compute_face_fluxes_dev,                  &
                                               compute_lambda_max_euler_dev=>compute_lambda_max_dev,                    &
+                                              compute_lambda_max_dissipative_euler_dev=>                               &
+                                                 compute_lambda_max_dissipative_dev,                                   &
                                               compute_q_aux_euler_dev=>compute_q_aux_dev,                              &
                                               count_nonfinite_euler_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_mhd_kernels,     only : apply_floors_mhd_dev=>apply_floors_dev,                           &
@@ -144,6 +147,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    contains
       ! public methods
       procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
+      procedure, pass(self) :: add_dissipative_fluxes_dev !< Add the dissipative face fluxes on the device (issue #65).
       procedure, pass(self) :: apply_floors            !< Apply the MHD positivity floors of a stage.
       procedure, pass(self) :: allocate_gpu            !< Allocate device data.
       procedure, pass(self) :: check_glm_ch            !< Check the GLM c_h against the fastest wave.
@@ -251,6 +255,41 @@ contains
       enddo
    enddo
    endsubroutine accumulate_seam_fluxes
+
+   subroutine add_dissipative_fluxes_dev(self)
+   !< Add the dissipative face fluxes of the active directions to the inviscid ones on the device (issue #65), from the
+   !< auxiliary variables of the stage: the kernel of the order is selected here, never inside the kernels.
+   class(flume_fnl_object), intent(inout) :: self                          !< The equation.
+   real(R8P)                              :: tref                          !< Reference temperature of the laws.
+   real(R8P)                              :: omega_mu, omega_k             !< Exponents of the laws.
+   procedure(add_dissipative_fluxes_o4_dev), pointer :: add_fluxes        !< Kernel of the order.
+
+   call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+   select case(self%numerics%dissipative_order)
+   case(2_I4P)
+      add_fluxes => add_dissipative_fluxes_o2_dev
+   case(4_I4P)
+      add_fluxes => add_dissipative_fluxes_o4_dev
+   case default
+      call mpih_fnl%error_stop(msg=': no dissipative kernels of order '//trim(str(self%numerics%dissipative_order)))
+   endselect
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                  &
+             mu0=>self%physics%dissipation%mu, k0=>self%physics%dissipation%k, is_null=>self%adam%grid%null_xyz, &
+             dxyz_gpu=>self%field_fnl%dxyz_gpu)
+   if (.not.is_null(1)) call add_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,            &
+                                        blocks_number=nb, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, &
+                                        dxyz_gpu=dxyz_gpu, is_null=is_null, q_aux_gpu=self%q_aux_gpu,                    &
+                                        fl_gpu=self%flx_f_gpu)
+   if (.not.is_null(2)) call add_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,            &
+                                        blocks_number=nb, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, &
+                                        dxyz_gpu=dxyz_gpu, is_null=is_null, q_aux_gpu=self%q_aux_gpu,                    &
+                                        fl_gpu=self%fly_f_gpu)
+   if (.not.is_null(3)) call add_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,            &
+                                        blocks_number=nb, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, &
+                                        dxyz_gpu=dxyz_gpu, is_null=is_null, q_aux_gpu=self%q_aux_gpu,                    &
+                                        fl_gpu=self%flz_f_gpu)
+   endassociate
+   endsubroutine add_dissipative_fluxes_dev
 
    subroutine apply_floors(self, q_gpu)
    !< Apply the MHD positivity floors to the interior of a stage state, before its ghost exchange (issue #41, 3.8).
@@ -1273,16 +1312,41 @@ contains
 
    subroutine compute_local_dt_forest(self, dt_local)
    !< Compute the local stability-limited time step on the device, `dt = CFL / max(sum_d (|u_d| + a) / dx_d)`; with GLM,
-   !< also `dt <= CFL / (c_h max sum_d 1 / dx_d)` (`glm_lambda`, host data, issue #41, section 3.5).
+   !< also `dt <= CFL / (c_h max sum_d 1 / dx_d)` (`glm_lambda`, host data, issue #41, section 3.5); with dissipative
+   !< terms the diffusive part `2 nu sum_d 1 / dx_d^2` joins the cell sum (issue #65, D-M4-3, as on the CPU).
    class(flume_fnl_object), intent(in)  :: self       !< The equation.
-   real(R8P),               intent(out) :: dt_local   !< Local stability-limited time step.
-   real(R8P)                            :: lambda_max !< Maximum of sum_d (|u_d| + a) / dx_d.
+   real(R8P),               intent(out) :: dt_local    !< Local stability-limited time step.
+   real(R8P)                            :: lambda_max  !< Maximum of sum_d (|u_d| + a) / dx_d (+ the diffusive part).
+   real(R8P)                            :: lambda_hyp  !< Maximum of the hyperbolic part (dissipative runs).
+   real(R8P)                            :: lambda_dif  !< Maximum of the diffusive part (dissipative runs).
+   real(R8P)                            :: re_cell_min !< Minimum cell Reynolds number (dissipative runs).
+   real(R8P)                            :: tref        !< Reference temperature of the laws.
+   real(R8P)                            :: omega_mu    !< Viscosity law exponent.
+   real(R8P)                            :: omega_k     !< Conductivity law exponent.
 
    select case(self%physics%model)
    case(MODEL_EULER)
-      call compute_lambda_max_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                                        gamma=self%physics%gamma, R=self%physics%R, dxyz_gpu=self%field_fnl%dxyz_gpu,       &
-                                        is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, lambda_max=lambda_max)
+      if (self%physics%dissipation%is_active) then
+         call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+         call compute_lambda_max_dissipative_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                 &
+                                                       blocks_number=self%blocks_number, gamma=self%physics%gamma,       &
+                                                       R=self%physics%R, cp=self%physics%cp,                             &
+                                                       mu0=self%physics%dissipation%mu,                                  &
+                                                       k0=self%physics%dissipation%k,                                    &
+                                                       eta=self%physics%dissipation%eta,                                 &
+                                                       t_wall=self%wall_temperature_bound(), tref=tref, omega_mu=omega_mu, &
+                                                       omega_k=omega_k, dxyz_gpu=self%field_fnl%dxyz_gpu,                &
+                                                       is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu,                &
+                                                       lambda_max=lambda_max, lambda_hyp=lambda_hyp,                     &
+                                                       lambda_dif=lambda_dif, re_cell_min=re_cell_min)
+         if (self%time%it == 0_I4P) call self%log_dt_limit(lambda_hyp=lambda_hyp, lambda_dif=lambda_dif, &
+                                                            re_cell_min=re_cell_min)
+      else
+         call compute_lambda_max_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                           blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                           dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
+                                           q_gpu=self%q_gpu, lambda_max=lambda_max)
+      endif
    case(MODEL_MHD)
       call compute_lambda_max_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                       gamma=self%physics%gamma, R=self%physics%R, dxyz_gpu=self%field_fnl%dxyz_gpu,       &
@@ -1658,6 +1722,7 @@ contains
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
+   if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes_dev
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
                                                                                              flux_register=flux_register)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
@@ -1806,6 +1871,7 @@ contains
          print '(A)', mpih_fnl%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
+   if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes_dev
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
                                                                                              flux_register=flux_register)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FLUME verification DC (issue #65, P1): the input contract of the dissipative terms and the no-slip walls.
+# FLUME verification DC (issue #65, P1, P2): the input contract of the dissipative terms and the no-slip walls.
 #
 # Why: every coefficient of M4 is given either as a coefficient or as its dimensionless number (issue #49, N4), the
 # positivity limiter is refused with any of them (D-M4-5), the no-slip walls take a tangential wall velocity and the
@@ -7,11 +7,11 @@
 # with a coefficient silently dropped. make_contract.py lists the cases; for each:
 #   refuse          the run stops with the expected message;
 #   log             the run logs the coefficients its keys imply (mu = 1/Re, k = mu cp/Pr, eta = 1/Rm), exactly, then
-#                   stops at the P1 guard (the kernels land in P2 and P3);
+#                   completes and logs its diffusive dt limit (Euler, P2) or stops at the P3 guard (MHD);
 #   ideal           zero coefficients and dissipative_order = 2 leave the run bit for bit equal to the base run;
 #   convert         the case dimensionalised by ../scaling/scaling.py ([reference] with powers of two) logs every
 #                   dimensional key converted back exactly (scaling.py check-log: coefficients, temperatures, wall
-#                   velocity), then stops at the guard;
+#                   velocity), then completes (Euler) or stops at the guard (MHD);
 #   convert-refuse  the dimensionalised case is refused (lundquist without the Alfvenic preset).
 # Base inputs: the regression sod-x (Euler) and uniform-amr-mhd (MHD) inputs.
 #
@@ -42,10 +42,18 @@ SCALING="$CASE_DIR/../scaling/scaling.py"
 REGRESSION="$REPO_ROOT/src/tests/flume/regression"
 TAG="$(basename "$EXE")-np$NP"
 FAILED=0
-GUARD="are read but not yet computed"
+GUARD_MHD="are not yet computed with [physics].(physical_model)=mhd-ideal"
+DT_LOG="dissipative dt limit (issue #65)"
 
 base_of() { [[ $1 == euler ]] && echo "$REGRESSION/sod-x/input.ini" || echo "$REGRESSION/uniform-amr-mhd/input.ini" ; }
 run() { (cd "$1" && mpirun -np "$NP" "$EXE" input.ini < /dev/null > log.txt 2>&1) ; } # mpirun reads stdin
+runs_through() { # runs_through <work> <model>: Euler completes and logs its dt limit, MHD stops at the P3 guard
+   if [[ $2 == euler ]]; then
+      run "$1" && grep -aqF -- "$DT_LOG" "$1/log.txt"
+   else
+      ! run "$1" && grep -aqF -- "$GUARD_MHD" "$1/log.txt"
+   fi
+}
 verdict() { # verdict <name> <ok: 0 pass> <note>
    if [[ $2 -eq 0 ]]; then
       printf '   %-26s PASS\n' "$1"
@@ -86,8 +94,7 @@ while IFS=$'\t' read -r name kind model expected; do
          grep -aqF -- "$expected" "$w/log.txt" || ok=1
          verdict "$name" "$ok" "expected the refusal '$expected', see $w/log.txt" ;;
       log)
-         run "$w" && ok=1
-         grep -aqF -- "$GUARD" "$w/log.txt" || ok=1
+         runs_through "$w" "$model" || ok=1
          "$VENV_PY" "$TOOL" --check-log "$w/log.txt" "$base" "$name" || ok=1
          verdict "$name" "$ok" "see $w/log.txt" ;;
       ideal)
@@ -103,11 +110,11 @@ while IFS=$'\t' read -r name kind model expected; do
       convert|convert-refuse)
          mv "$w/input.ini" "$w/base.ini"
          "$VENV_PY" "$SCALING" dimensionalize "$w/base.ini" "$w/input.ini" --j 1 --k -1 --m 1 > /dev/null
-         run "$w" && ok=1
          if [[ $kind == convert ]]; then
-            grep -aqF -- "$GUARD" "$w/log.txt" || ok=1
+            runs_through "$w" "$model" || ok=1
             "$VENV_PY" "$SCALING" check-log "$w/base.ini" "$w/log.txt" | sed 's/^/   /' || ok=1
          else
+            run "$w" && ok=1
             grep -aqF -- "$expected" "$w/log.txt" || ok=1
          fi
          verdict "$name" "$ok" "see $w/log.txt" ;;
