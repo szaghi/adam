@@ -28,8 +28,9 @@
 #        refined (2:1, octree; the refined coupling needs ratio 2 along every axis), against the single realm:
 #        fields within FOREST_TOL (the sine is evaluated from each realm's block origins, one ulp apart at step 0).
 #   vv8  (P4) accuracy across 2:1 seams: the diagonal shear (mu) and Ohmic (eta, mhd-none) waves on the refined
-#        quadtree, order >= SEAM_ORDER_MIN: a 2:1 seam of point values caps the order at 2 (issue #21), so the
-#        composite error is second order and its ratio to the uniform runs grows with N. Without reflux the Ohmic
+#        quadtree, order >= SEAM_ORDER_MIN: with the mean restriction and the Berger-Colella reflux of point-value
+#        fluxes the composite error is second order (each caps it at 2, issue #68 F1; not the #21 bound, which covers
+#        restriction-compatible prolongations only), so its ratio to the uniform runs grows with N. Without reflux the Ohmic
 #        ladder falls to first order (<= SEAM_NOREFLUX_MAX): the reflux carries the dissipative flux.
 #
 #   agree (P5, runs nothing) every run of the legs above on the CPU against the same run on FNL, cell by cell on the

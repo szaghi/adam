@@ -300,8 +300,9 @@ are inviscid. A null direction freezes the momentum normal to it
 shear layer or a Couette flow needs its velocity axis active, if thin.
 
 **Across seams.** The dissipative fluxes enter the AMR reflux and the inter-realm register with the inviscid ones, so a
-2:1 face conserves to round-off (VV-7). A 2:1 face is second order, for them as for the inviscid fluxes (the point-value
-seam of issue #21); without the reflux the dissipative flux at the face is first order
+2:1 face conserves to round-off (VV-7). A 2:1 face is second order, for them as for the inviscid fluxes: the mean
+restriction of the coarse ghosts and the reflux of point-value fluxes each cap the order at 2 (issue #68 F1); without
+the reflux the dissipative flux at the face is first order
 ([VV-8](./verification#vv-8-accuracy-across-2-1-seams)).
 
 ## Time integration

@@ -687,6 +687,14 @@ $3.01\cdot10^{-6}$ / $6.62\cdot10^{-7}$ / $1.49\cdot10^{-7}$ at 32 / 64 / 128 ce
 linear isothermal mirror of P1 the errors were 18% lower, at the same orders: the geometric mirror, adopted because the
 linear one made negative ghost densities beside hot gas, differs from it by $O(\Delta x^2)$.)
 
+The fields show where that second order comes from. Velocity and temperature are uniform along the periodic $x$, and
+the profiles lie on the exact ones (the linear $u$, the viscous-heating parabola of $T$). The error enters at the
+isothermal wall, whose geometric mirror is second order, and diffuses into the channel: at $t = 0.2$ its front has
+reached about $y = 0.5$, and beyond it the solution is exact to round-off at 128 cells. The moving adiabatic wall adds
+nothing, its mirror being exact for the linear $u$ and the symmetric $T$.
+
+![VV-3: the Couette channel, its fields, the profiles against the exact ones and where the error lives](/flume/couette.png)
+
 ### VV-4: Becker's viscous shock
 
 **Why.** The strongest nonlinear viscous flux of the suite: a shock resolved by the viscosity, with the energy flux
@@ -859,11 +867,14 @@ not legs):
 | Ohmic, no reflux | 48 / 96 / 192 | $2.37\cdot10^{-9}$ / $1.18\cdot10^{-9}$ / $5.82\cdot10^{-10}$ | +1.00, +1.02 |
 
 The composite grid is second order, against fourth on a uniform grid. The rows without coefficients say where that
-comes from. The shear wave is second order without viscosity too: its seam error is the inviscid one, the point-value
-2:1 seam whose prolongation and restriction do not invert each other and cap the order at 2
-([issue #21](https://github.com/szaghi/adam/issues/21)). A static field has no inviscid flux at first order, so the
-Ohmic composite at $\eta = 0$ stays at round-off, and the Ohmic composite error is the dissipative flux crossing the
-seam: second order with reflux, first without. The plan in #65 asked for the seam error "within a stated factor of the
+comes from. The shear wave is second order without viscosity too: its seam error is the inviscid one. With the mean
+restriction (a coarse ghost is the mean of the fine point values under it) and the Berger–Colella reflux of
+point-value fluxes (a conservative but O(H²)-inconsistent coarse flux), the composite error is second order
+([issue #68](https://github.com/szaghi/adam/issues/68) F1: each of the two caps the order at 2 on its own; the #21 bound
+on restriction-compatible prolongations does not apply to the tricubic fill). A static field has no inviscid flux at
+first order, so the Ohmic composite at $\eta = 0$ stays at round-off, and the Ohmic composite error is the dissipative
+flux crossing the seam: second order with reflux, first without (the gradient of mean-restricted ghosts is an O(1)
+error, which the reflux replaces by the fine flux). The plan in #65 asked for the seam error "within a stated factor of the
 uniform fine run"; between a second-order seam and a fourth-order interior that factor grows with $N$, so the leg
 asserts the order instead.
 

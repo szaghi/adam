@@ -828,13 +828,105 @@ def fig_viscous_fields(out: Path, runs: Path) -> None:  # noqa: ARG001
     plt.close(fig)
 
 
+def fig_couette(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """VV-3 in 2-D: the Couette channel (u and T fields, profiles against the exact ones) and where its error lives."""
+    sys.path.insert(0, str(HERE / "viscous"))
+    import profiles  # noqa: PLC0415
+
+    vdir = HERE / "viscous"
+    c = profiles.COUETTE
+    k = c["mu"] * profiles.GAMMA / (profiles.GAMMA - 1.0) / c["prandtl"]
+
+    def exact(y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return c["U"] * y / c["H"], c["Tw"] + c["mu"] * c["U"] ** 2 / (k * c["H"]) * (y - y**2 / (2.0 * c["H"]))
+
+    def channel(n: int) -> list[dict]:
+        work = vdir / f"{TAG}-couette-o4-n{n}"
+        bl = first_plane(blocks(work, int(read_ini(work / "input.ini")["grid"]["ngc"]), ("r", "ru", "rE")))
+        for b in bl:
+            f = {key: v[:, :, 0] for key, v in b["f"].items()}
+            u = f["ru"] / f["r"]
+            ny = u.shape[1]
+            y = np.broadcast_to(b["lo"][1] + (np.arange(ny) + 0.5) * b["d"][1], u.shape)
+            ue, te = exact(y)
+            b["u"], b["T"] = u / c["U"], (profiles.GAMMA - 1.0) * (f["rE"] - 0.5 * f["r"] * u**2) / f["r"] / c["Tw"]
+            b["eu"], b["eT"], b["y"] = np.abs(b["u"] - ue / c["U"]), np.abs(b["T"] - te / c["Tw"]), y
+        return bl
+
+    def log_map(ax, bl: list[dict], key: str, label: str, title: str) -> None:  # noqa: ANN001
+        hi = max(float(b[key].max()) for b in bl)
+        norm = mpl.colors.LogNorm(vmin=hi * 1.0e-4, vmax=hi)
+        im = None
+        for b in bl:
+            nx, ny = b[key].shape
+            xe = b["lo"][0] + np.arange(nx + 1) * b["d"][0]
+            ye = b["lo"][1] + np.arange(ny + 1) * b["d"][1]
+            im = ax.pcolormesh(xe, ye, np.maximum(b[key], hi * 1.0e-4).T, cmap="viridis", norm=norm, shading="flat")
+            ax.add_patch(Rectangle((xe[0], ye[0]), xe[-1] - xe[0], ye[-1] - ye[0], fill=False, lw=0.3, ec="w"))
+        fig.colorbar(im, ax=ax, label=label, shrink=0.85)
+        ax.set_title(title, fontsize=9)
+
+    fig, axs = plt.subplots(2, 3, figsize=(15.5, 9.5), constrained_layout=True)
+    bl = channel(64)
+    for ax, key, label, cmap in ((axs[0, 0], "u", "$u/U$", "viridis"), (axs[0, 1], "T", "$T/T_w$", "magma")):
+        im = field_map(ax, bl, lambda b, key=key: b[key], cmap=cmap, outline=True)
+        fig.colorbar(im, ax=ax, label=label, shrink=0.85)
+        ax.set_title(f"{label}, 64 cells across the channel, t = 0.2", fontsize=9)
+    log_map(axs[1, 0], bl, "eu", "$|u - u_e|/U$", "pointwise error of $u$ (64 cells)")
+    log_map(axs[1, 1], bl, "eT", "$|T - T_e|/T_w$", "pointwise error of $T$ (64 cells)")
+    for ax in (axs[0, 0], axs[0, 1], axs[1, 0], axs[1, 1]):
+        ax.set_aspect("equal")
+        ax.set_xlabel("x (periodic)")
+        ax.set_ylabel("y")
+        ax.axhline(0.0, color="c", lw=3)
+        ax.axhline(1.0, color="orange", lw=3)
+    axs[0, 0].text(0.5, 0.03, "isothermal wall at rest", ha="center", color="c", fontsize=8, transform=axs[0, 0].transAxes)
+    axs[0, 0].text(0.5, 0.93, "adiabatic wall moving at U", ha="center", color="orange", fontsize=8,
+                   transform=axs[0, 0].transAxes)
+    # profiles at 32 cells against the exact solution, and the x-averaged temperature error at every resolution
+    yy = np.linspace(0.0, c["H"], 201)
+    ue, te = exact(yy)
+    ax = axs[0, 2]
+    b32 = channel(32)
+    ys = np.concatenate([b["y"][0] for b in b32 if b["lo"][0] < 1.0e-12])
+    us = np.concatenate([b["u"][0] for b in b32 if b["lo"][0] < 1.0e-12])
+    ts = np.concatenate([b["T"][0] for b in b32 if b["lo"][0] < 1.0e-12])
+    ax.plot(ue / c["U"], yy, "C0-", lw=1, label="$u/U$ exact")
+    ax.plot(us, ys, "C0o", ms=3, mfc="none", label="$u/U$, 32 cells")
+    ax2 = ax.twiny()
+    ax2.plot(te / c["Tw"], yy, "C3-", lw=1, label="$T/T_w$ exact")
+    ax2.plot(ts, ys, "C3s", ms=3, mfc="none", label="$T/T_w$, 32 cells")
+    ax.set_xlabel("$u/U$", color="C0")
+    ax2.set_xlabel("$T/T_w$", color="C3")
+    ax.set_ylabel("y")
+    ax.legend(loc="upper left", fontsize=7)
+    ax2.legend(loc="lower right", fontsize=7)
+    ax = axs[1, 2]
+    for n, fmt in ((32, "o-"), (64, "s-"), (128, "^-")):
+        rows: dict[float, list[float]] = {}
+        for b in channel(n):
+            for y, e in zip(b["y"][0], b["eT"].mean(axis=0), strict=True):
+                rows.setdefault(round(float(y), 12), []).append(float(e))
+        y = np.array(sorted(rows))
+        ax.semilogy(y, [np.mean(rows[v]) for v in y], fmt, ms=3, mfc="none", label=f"{n} cells")
+    ax.set_xlabel("y")
+    ax.set_ylabel(r"$|T - T_e|/T_w$, averaged along x")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend(fontsize=7)
+    ax.set_title("the error enters at the isothermal wall (2nd-order mirror) and diffuses in;\n"
+                 "the moving adiabatic wall's mirror is exact", fontsize=9)
+    fig.suptitle("VV-3: compressible Couette flow, $\\mu$ = 0.01, Pr = 0.75, order-4 fluxes (CPU, 2 ranks)")
+    fig.savefig(out / "couette.png", dpi=DPI)
+    plt.close(fig)
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
            "conservation": fig_conservation,
            "orszag-tang": fig_orszag_tang,
            "rotor": fig_rotor, "field-loop": fig_field_loop, "mhd-riemann": fig_mhd_riemann, "glm-pulse": fig_glm_pulse,
            "blast": fig_blast, "near-vacuum": fig_vacuum, "eglm-energy": fig_eglm_energy, "order": fig_order,
-           "viscous": fig_viscous, "viscous-fields": fig_viscous_fields}
+           "viscous": fig_viscous, "viscous-fields": fig_viscous_fields, "couette": fig_couette}
 
 
 def main() -> int:
