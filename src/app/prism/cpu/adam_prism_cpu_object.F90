@@ -281,7 +281,9 @@ contains
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)        ; self%integrate => integrate_blanesmoan
       case(NUM_SCHEME_TIME_CFM)                ; self%integrate => integrate_cfm
-      case(NUM_SCHEME_TIME_LEAPFROG)           ; self%integrate => integrate_leapfrog
+      case(NUM_SCHEME_TIME_LEAPFROG)
+         ! self%leapfrog is never initialized (adam_realm_object initialize, call commented out): q_old unallocated
+         call mpih%error_stop(msg=': leapfrog time integration is not functional (leapfrog object never initialized)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%rk%scheme)
          case(RK_1, RK_2, RK_3)                ; self%integrate => integrate_rk_ls
@@ -289,33 +291,33 @@ contains
          case(RK_YOSHIDA)                      ; self%integrate => integrate_rk_yoshida
          endselect
       endselect
-   elseif (is_pic_model(self%physics%physical_model)) then !Metterei qualche error stop sulle combinazioni non valide
+   elseif (is_pic_model(self%physics%physical_model)) then
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
-         select case(self%pic%scheme_time)
-         case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-            self%integrate => integrate_leapfrog_pic
-         case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-            !self%integrate =>
-         endselect
+         ! integrate_leapfrog_pic relies on self%leapfrog, which is never initialized (adam_realm_object initialize,
+         ! call commented out): fail here instead of running on unallocated leapfrog storage
+         call mpih%error_stop(msg=': PIC leapfrog time integration is not functional (leapfrog object never initialized)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-            self%integrate => integrate_leapfrog_pic
+            call mpih%error_stop(msg=': PIC leapfrog time integration is not functional (leapfrog object never initialized)')
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-         select case(self%rk_pic%scheme)
-         case(RK_1, RK_2, RK_3)
-            !self%integrate => integrate_rk_ls_pic
-         case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
-            if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
-               self%integrate => integrate_rk_ssp_pic_charge_conserving
-            else
-               self%integrate => integrate_rk_ssp_pic
-            endif
-         case(RK_YOSHIDA)
-            !self%integrate => integrate_rk_yoshida_pic
+            select case(self%rk_pic%scheme)
+            case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+               if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+                  self%integrate => integrate_rk_ssp_pic_charge_conserving
+               else
+                  self%integrate => integrate_rk_ssp_pic
+               endif
+            case default
+               ! RK_1/2/3 and RK_YOSHIDA have no PIC integrator: self%integrate would stay null
+               call mpih%error_stop(msg=': PIC RK scheme not implemented (use SSP RK22, RK33 or RK54)')
+            endselect
+         case default
+            call mpih%error_stop(msg=': PIC time integration combination not implemented')
          endselect
-         endselect
+      case default
+         call mpih%error_stop(msg=': PIC time integration combination not implemented')
       endselect
    endif
 
