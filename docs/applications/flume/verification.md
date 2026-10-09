@@ -993,10 +993,11 @@ Build and run with `fobis build --mode test-flume-<name>-gnu` (`-fnl-nvf --varse
 
 ## Regression suite
 
-`src/tests/flume/regression/` holds 28 goldened cases (Sod along x/y/z, AMR, multi-realm (mirror seams, lined up or not, and 2:1 refined seams), immersed boundary, the MHD
+`src/tests/flume/regression/` holds 33 goldened cases (Sod along x/y/z, AMR, multi-realm (mirror seams, lined up or not, and 2:1 refined seams), immersed boundary, the MHD
 cases RJ2a, Brio–Wu, GLM pulse, Orszag–Tang, rotor, field loop, rotated shock tube, uniform AMR, and the M3 cases: Sod
 with HLLC and RJ2a with HLLD on `weno-riemann`, Orszag–Tang with EGLM, the blast with the positivity limiter in 2-D and
 in 3-D, the only 3-D flow case of the suite, and, issue #50, the blast with the limiter across two 2:1 seams through
-its centre): `run.sh cpu` runs in
+its centre; and the M4 dissipative cases, issue #65: the diagonal shear wave, Couette flow, Becker's shock, the
+visco-resistive Alfvén wave and the same Alfvén wave across 2:1 seams): `run.sh cpu` runs in
 CI, `run-fnl-local.sh` on a GPU workstation, and `run-omp-bitwise.sh` checks that the OpenMP build reproduces the serial
 one bit for bit.

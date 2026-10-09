@@ -5,7 +5,8 @@ the PRISM design, every type defined here is aggregated into `flume_common_objec
 The pointwise libraries (`*_library.F90`) are `pure`, take explicit-size arguments and are tagged `!$acc routine seq` +
 `!$omp declare target`, so the CPU loops and the GPU kernels call the same source.
 
-> **Status: development** (milestones M1 Euler and M2 ideal MHD complete; M3, issue #47, in progress).
+> **Status: development** (milestones M1 Euler, M2 ideal MHD, M3 Riemann scheme / EGLM / limiter and M4 dissipative
+> terms complete; runtime AMR, M5, planned).
 
 ## Modules
 

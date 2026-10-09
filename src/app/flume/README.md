@@ -18,10 +18,10 @@
 | Ideal MHD, EGLM cleaning | `mhd-ideal` | `eglm` | as GLM, `nv = 9`, with $\psi^2/2$ in $E$ and the Derigs et al. (2018) nonconservative sources |
 | Ideal MHD, no control | `mhd-ideal` | `none` | the first 8 of the above, `nv = 8`: diagnostic use only (in multi-D the divergence error grows unchecked: the magnetised vortex reaches a negative pressure) |
 
-All models are inviscid with an ideal gas (`[physics] cp, cv`, J/(kg K)); ideal MHD is a perfectly conducting single
-fluid (ideal Ohm's law $\mathbf{E} + \mathbf{u} \times \mathbf{B} = 0$). `mhd-ideal` with immersed solids is refused.
-Dissipative effects (viscosity, thermal conduction, Ohmic resistivity) are milestone M4
-([#65](https://github.com/szaghi/adam/issues/65)): each coefficient is given as itself or as its number (`[physics]
+Every model uses an ideal gas (`[physics] cp, cv`, J/(kg K)) and is inviscid unless a dissipative coefficient is given;
+without resistivity MHD is a perfectly conducting single fluid (ideal Ohm's law $\mathbf{E} + \mathbf{u} \times
+\mathbf{B} = 0$). `mhd-ideal` with immersed solids is refused. Dissipative effects (viscosity, thermal conduction,
+Ohmic resistivity) are milestone M4 ([#65](https://github.com/szaghi/adam/issues/65), complete): each coefficient is given as itself or as its number (`[physics]
 viscosity` or `reynolds`, `conductivity` or `prandtl`, `resistivity` or `magnetic_reynolds`/`lundquist`, a power-law
 viscosity). The viscosity and the conductivity make each model compressible Navier–Stokes, the resistivity makes
 `mhd-ideal` resistive MHD (4th-order conservative fluxes, or 2nd order, `[numerics] dissipative_order`; no-slip and

@@ -53,6 +53,13 @@
 #   blast-amr-limiter        blast-limiter with the block [0.5, 0.75]^2 refined 2:1 (two seams across the blast centre),
 #                            100 steps: the limiter's per-stage seam flux synchronisation and the ghost positivity blend
 #                            (issue #50); per-backend goldens
+#   shear-viscous            VV-1 diagonal shear wave, 48^2, mu = 0.01, order 4, t = 0.05 (issue #65, M4-P6): the viscous
+#                            face kernels with their cross terms and the diffusive time-step limit
+#   couette                  VV-3 compressible Couette flow, isothermal and moving no-slip walls, t = 0.05 (M4-P6)
+#   becker-shock             VV-4 Becker's viscous shock, Mach 2, 64 cells, t = 0.01: nonlinear viscous and heat fluxes
+#   alfven-resistive         VV-5 visco-resistive Alfven wave at 45 degrees, MHD-GLM, mu and eta, 32^2, t = 0.05 (M4-P6)
+#   seam-viscous-amr         VV-7 Alfven wave A = 0.01, MHD-GLM with mu and eta, 48^2 with the centre refined 2:1, t = 0.02:
+#                            the dissipative fluxes through the reflux (M4-P6); per-backend goldens, as every M4 case
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 
