@@ -22,13 +22,17 @@
 #   rg5  (P2) immersed solid: the shock over the cylinder with the solid marker and a Loehner marker, a regrid every 5
 #        steps (make_regrid.py cylinder): the run completes with at least one regrid that changes the grid, the
 #        distance function recomputed on it, the state admissible (each regrid checks it) and finite.
+#   rg6  (P3) CPU and FNL agree: the rg3 conservative runs of both backends (run rg3 with each first) regrid at the
+#        same steps into the same grids (the regrid log lines equal, timing aside) and end with the same fields
+#        within AGREE_TOL (relative to each variable's largest magnitude). The FNL backend regrids by a host round
+#        trip, so the grid decisions are the host's in both; the fields differ only by the device arithmetic.
 #
-# On the FNL backend rg3 checks the refusal of runtime regridding (it lands in #74 P3); rg4 and rg5 are CPU only.
+# rg0 runs the library unit test (a host program) and rg6 compares the two backends: both run once, with any EXE.
 #
 # The P1 legs of rg0 also cover the conservative prolongation: the round trip exact and the integral unchanged on
 # every field, linear data reproduced, a steep front kept in the range of its data (no negative child).
 #
-# Usage: ./check.sh [--leg rg0|rg1|rg2|rg3|rg4|rg5 ...]
+# Usage: ./check.sh [--leg rg0|rg1|rg2|rg3|rg4|rg5|rg6 ...]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -46,12 +50,12 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 [[ ${#LEGS[@]} -eq 0 ]] && LEGS=(rg0 rg1 rg2 rg3 rg4 rg5)
+AGREE_TOL=1e-10
 TAG="$(basename "$EXE")"
 FAILED=0
 MAKE=(python3 -I "$CASE_DIR/make_regrid.py")
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 ORACLE="$REPO_ROOT/src/tests/flume/verification/conservation/conservation_oracle.py"
-IS_FNL=0 ; [[ "$TAG" == *fnl* ]] && IS_FNL=1
 
 run_case() { # run_case <work> [log]: run input.ini on 2 ranks, report a failure
    local work="$1" log="${2:-log.txt}"
@@ -132,13 +136,6 @@ for leg in "${LEGS[@]}"; do
             fi
          done ;;
       rg3)
-         if [[ $IS_FNL -eq 1 ]]; then
-            echo "-- rg3: runtime regridding refused on FNL (lands in #74 P3)"
-            work="$CASE_DIR/work-$TAG-vortex-refused" ; rm -rf "$work" ; mkdir -p "$work"
-            "${MAKE[@]}" vortex "$work/input.ini"
-            expect_refused "$work" "which the FNL backend does not do yet"
-            continue
-         fi
          for p in conservative linear; do
             echo "-- rg3: travelling vortex, regrid every 5 steps, $p prolongation"
             work="$CASE_DIR/work-$TAG-vortex-$p" ; rm -rf "$work" ; mkdir -p "$work"
@@ -155,7 +152,6 @@ for leg in "${LEGS[@]}"; do
          "$VENV_PY" "$ORACLE" --conserved "$CASE_DIR/work-$TAG-vortex-conservative" \
                               --leaky "$CASE_DIR/work-$TAG-vortex-linear" || FAILED=1 ;;
       rg4)
-         [[ $IS_FNL -eq 1 ]] && { echo "-- rg4: CPU only until #74 P3" ; continue ; }
          echo "-- rg4: restart across regrids, 30 steps vs 20 + restart + 10"
          a="$CASE_DIR/work-$TAG-restart-A" ; b="$CASE_DIR/work-$TAG-restart-B"
          rm -rf "$a" "$b" ; mkdir -p "$a" "$b"
@@ -177,7 +173,6 @@ for leg in "${LEGS[@]}"; do
             else echo "   ${f#./}: differs" ; FAILED=1 ; fi
          done ;;
       rg5)
-         [[ $IS_FNL -eq 1 ]] && { echo "-- rg5: CPU only until #74 P3" ; continue ; }
          echo "-- rg5: shock over the cylinder, solid + Loehner markers, regrid every 5 steps"
          work="$CASE_DIR/work-$TAG-cylinder" ; rm -rf "$work" ; mkdir -p "$work"
          "${MAKE[@]}" cylinder "$work/input.ini" --it-max 60
@@ -186,6 +181,21 @@ for leg in "${LEGS[@]}"; do
          regrids "$work/log.txt" | sed '$d'
          if [[ $nref -gt 0 ]]; then echo "   completes, $nref blocks refined, $nder families coarsened"
          else echo "   no regrid changed the grid" ; FAILED=1 ; fi ;;
+      rg6)
+         echo "-- rg6: CPU and FNL agree on the rg3 conservative run"
+         c="$CASE_DIR/work-adam_flume_cpu-vortex-conservative" ; f="$CASE_DIR/work-adam_flume_fnl-vortex-conservative"
+         if [[ ! -f "$c/log.txt" || ! -f "$f/log.txt" ]]; then
+            echo "   missing $c or $f: run rg3 with both executables first" ; FAILED=1 ; continue
+         fi
+         if diff <(grep -a "flume: regrid at" "$c/log.txt" | sed 's/, [^,]* s (host round trip)$//') \
+                 <(grep -a "flume: regrid at" "$f/log.txt" | sed 's/, [^,]* s (host round trip)$//') > /dev/null; then
+            echo "   same regrids: $(grep -ac 'flume: regrid at' "$c/log.txt") at the same steps into the same grids"
+         else
+            echo "   the regrids differ: compare the 'flume: regrid at' lines of $c/log.txt and $f/log.txt" ; FAILED=1
+         fi
+         grep -a "flume: regrid at" "$f/log.txt" | sed -n 's/.*sweeps, \(.*\) s (host round trip)$/\1/p' | \
+            awk '{t+=$1; if ($1>m) m=$1} END {if (NR) printf "   FNL host round trips: %d, %.3g s in all, %.3g s at most\n", NR, t, m}'
+         "$VENV_PY" "$ORACLE" --compare "$c" "$f" --tol "$AGREE_TOL" --ngc 3 || FAILED=1 ;;
       *) echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
 done

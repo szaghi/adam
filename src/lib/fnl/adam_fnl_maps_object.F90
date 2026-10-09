@@ -73,7 +73,10 @@ contains
    ! an unallocated allocatable as the non-optional assumed-shape
    ! `intent(in)` `src` of dev_assign_to_device is illegal Fortran. Guard
    ! every copy with allocated(): an empty CPU map leaves the GPU pointer
-   ! null, the correct device-side state for "nothing to exchange".
+   ! null, the correct device-side state for "nothing to exchange". A copy
+   ! after a runtime regrid (issue #74) frees and nullifies the device map of
+   ! a CPU map that is no longer allocated: the kernels size their loops from
+   ! the device arrays, and a stale map would replay the old grid's rows.
    ! Intra-realm seam ghost fill (issue #22 F3): flag-4 map rows (coarse->fine
    ! seam interpolation, metadata column included in the verbatim map copy) are
    ! handled on device by the flag-4 branches of adam_fnl_field_kernels; the
@@ -84,67 +87,109 @@ contains
       call dev_assign_to_device(dst=self%local_map_ghost_cell_gpu, src=maps%local_map_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy local_map_ghost_cell_gpu done ('// &
          trim(str(count(maps%local_map_ghost_cell(:,9) == 4_I8P)))//' seam flag-4 rows)')
-   else if (verbose_) then
-      call mpih_fnl%print_message('skip local_map_ghost_cell_gpu (CPU map not allocated)')
+   else
+      if (associated(self%local_map_ghost_cell_gpu)) then
+         call dev_free(self%local_map_ghost_cell_gpu, mydev)
+         nullify(self%local_map_ghost_cell_gpu)
+      endif
+      if (verbose_) call mpih_fnl%print_message('skip local_map_ghost_cell_gpu (CPU map not allocated)')
    endif
    if (allocated(maps%comm_map_send_ghost_cell)) then
       call dev_assign_to_device(dst=self%comm_map_send_ghost_cell_gpu, src=maps%comm_map_send_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy comm_map_send_ghost_cell done ('// &
          trim(str(count(maps%comm_map_send_ghost_cell(:,7) == 4_I8P)))//' seam flag-4 rows)')
-   else if (verbose_) then
-      call mpih_fnl%print_message('skip comm_map_send_ghost_cell_gpu (CPU map not allocated)')
+   else
+      if (associated(self%comm_map_send_ghost_cell_gpu)) then
+         call dev_free(self%comm_map_send_ghost_cell_gpu, mydev)
+         nullify(self%comm_map_send_ghost_cell_gpu)
+      endif
+      if (verbose_) call mpih_fnl%print_message('skip comm_map_send_ghost_cell_gpu (CPU map not allocated)')
    endif
    if (allocated(maps%comm_map_recv_ghost_cell)) then
       call dev_assign_to_device(dst=self%comm_map_recv_ghost_cell_gpu, src=maps%comm_map_recv_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy comm_map_recv_ghost_cell done')
-   else if (verbose_) then
-      call mpih_fnl%print_message('skip comm_map_recv_ghost_cell_gpu (CPU map not allocated)')
+   else
+      if (associated(self%comm_map_recv_ghost_cell_gpu)) then
+         call dev_free(self%comm_map_recv_ghost_cell_gpu, mydev)
+         nullify(self%comm_map_recv_ghost_cell_gpu)
+      endif
+      if (verbose_) call mpih_fnl%print_message('skip comm_map_recv_ghost_cell_gpu (CPU map not allocated)')
    endif
    if (allocated(maps%send_buffer_ghost)) then
       call dev_assign_to_device(dst=self%send_buffer_ghost_gpu, src=maps%send_buffer_ghost)
       if (verbose_) call mpih_fnl%print_message('copy send_buffer_ghost done')
-   else if (verbose_) then
-      call mpih_fnl%print_message('skip send_buffer_ghost_gpu (CPU map not allocated)')
+   else
+      if (associated(self%send_buffer_ghost_gpu)) then
+         call dev_free(self%send_buffer_ghost_gpu, mydev)
+         nullify(self%send_buffer_ghost_gpu)
+      endif
+      if (verbose_) call mpih_fnl%print_message('skip send_buffer_ghost_gpu (CPU map not allocated)')
    endif
    if (allocated(maps%recv_buffer_ghost)) then
       call dev_assign_to_device(dst=self%recv_buffer_ghost_gpu, src=maps%recv_buffer_ghost)
       if (verbose_) call mpih_fnl%print_message('copy recv_buffer_ghost done')
-   else if (verbose_) then
-      call mpih_fnl%print_message('skip recv_buffer_ghost_gpu (CPU map not allocated)')
+   else
+      if (associated(self%recv_buffer_ghost_gpu)) then
+         call dev_free(self%recv_buffer_ghost_gpu, mydev)
+         nullify(self%recv_buffer_ghost_gpu)
+      endif
+      if (verbose_) call mpih_fnl%print_message('skip recv_buffer_ghost_gpu (CPU map not allocated)')
    endif
    if (allocated(maps%local_map_bc_crown)) then
       call dev_assign_to_device(dst=self%local_map_bc_crown_gpu, src=maps%local_map_bc_crown)
       if (verbose_) call mpih_fnl%print_message('copy local_map_bc_crown done')
-   else if (verbose_) then
-      call mpih_fnl%print_message('skip local_map_bc_crown_gpu (CPU map not allocated)')
+   else
+      if (associated(self%local_map_bc_crown_gpu)) then
+         call dev_free(self%local_map_bc_crown_gpu, mydev)
+         nullify(self%local_map_bc_crown_gpu)
+      endif
+      if (verbose_) call mpih_fnl%print_message('skip local_map_bc_crown_gpu (CPU map not allocated)')
    endif
    ! Inter-realm seam ghost-fill — device-resident counterparts.
    if (allocated(maps%seam_local_map_ghost_cell)) then
       call dev_assign_to_device(dst=self%seam_local_map_ghost_cell_gpu, src=maps%seam_local_map_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy seam_local_map_ghost_cell done')
-   else if (verbose_) then
-      call mpih_fnl%print_message('skip seam_local_map_ghost_cell_gpu (CPU map not allocated)')
+   else
+      if (associated(self%seam_local_map_ghost_cell_gpu)) then
+         call dev_free(self%seam_local_map_ghost_cell_gpu, mydev)
+         nullify(self%seam_local_map_ghost_cell_gpu)
+      endif
+      if (verbose_) call mpih_fnl%print_message('skip seam_local_map_ghost_cell_gpu (CPU map not allocated)')
    endif
    if (allocated(maps%seam_local_send_buf)) then
       call dev_assign_to_device(dst=self%seam_local_send_buf_gpu, src=maps%seam_local_send_buf)
       if (verbose_) call mpih_fnl%print_message('copy seam_local_send_buf done')
-   else if (verbose_) then
-      call mpih_fnl%print_message('skip seam_local_send_buf_gpu (CPU map not allocated)')
+   else
+      if (associated(self%seam_local_send_buf_gpu)) then
+         call dev_free(self%seam_local_send_buf_gpu, mydev)
+         nullify(self%seam_local_send_buf_gpu)
+      endif
+      if (verbose_) call mpih_fnl%print_message('skip seam_local_send_buf_gpu (CPU map not allocated)')
    endif
    if (allocated(maps%seam_local_recv_buf)) then
       call dev_assign_to_device(dst=self%seam_local_recv_buf_gpu, src=maps%seam_local_recv_buf)
       if (verbose_) call mpih_fnl%print_message('copy seam_local_recv_buf done')
-   else if (verbose_) then
-      call mpih_fnl%print_message('skip seam_local_recv_buf_gpu (CPU map not allocated)')
+   else
+      if (associated(self%seam_local_recv_buf_gpu)) then
+         call dev_free(self%seam_local_recv_buf_gpu, mydev)
+         nullify(self%seam_local_recv_buf_gpu)
+      endif
+      if (verbose_) call mpih_fnl%print_message('skip seam_local_recv_buf_gpu (CPU map not allocated)')
    endif
    ! Cross-rank seam rows (issue #40): allocated only on ranks that have cross-rank seam rows.
    if (allocated(maps%seam_mpi_send_cell)) then
       call dev_assign_to_device(dst=self%seam_mpi_send_cell_gpu, src=maps%seam_mpi_send_cell)
       if (verbose_) call mpih_fnl%print_message('copy seam_mpi_send_cell done')
+   elseif (associated(self%seam_mpi_send_cell_gpu)) then
+      call dev_free(self%seam_mpi_send_cell_gpu, mydev)
+      nullify(self%seam_mpi_send_cell_gpu)
    endif
    if (allocated(maps%seam_mpi_recv_cell)) then
       call dev_assign_to_device(dst=self%seam_mpi_recv_cell_gpu, src=maps%seam_mpi_recv_cell)
       if (verbose_) call mpih_fnl%print_message('copy seam_mpi_recv_cell done')
+   elseif (associated(self%seam_mpi_recv_cell_gpu)) then
+      call dev_free(self%seam_mpi_recv_cell_gpu, mydev)
+      nullify(self%seam_mpi_recv_cell_gpu)
    endif
    if (verbose_) call mpih_fnl%print_message('maps_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu

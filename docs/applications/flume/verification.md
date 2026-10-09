@@ -924,13 +924,12 @@ cd src/tests/flume/verification/viscous
 ## Runtime regridding (M5, in progress)
 
 Milestone M5 ([#74](https://github.com/szaghi/adam/issues/74)) regrids during the time loop. `[amr] frequency = 0`, the
-value of every input so far, keeps the AMR of the initial condition only; `n > 0` regrids every `n` steps (on the CPU;
-the FNL backend refuses it until #74 P3). The library already holds a complete regrid step (`adam_object%amr_update`: the tree adapts with
+value of every input so far, keeps the AMR of the initial condition only; `n > 0` regrids every `n` steps. The library already holds a complete regrid step (`adam_object%amr_update`: the tree adapts with
 2:1 balance, the interior data is prolonged or restricted, the blocks are redistributed, the maps rebuilt); P0 tests it
 on its own and puts the hooks in place. P1 adds the conservative prolongation FLUME regrids with
 (`[amr] regrid_prolongation`, default `conservative`). P2 regrids FLUME on the CPU: the markers combined, the Löhner
 estimator, the solids' distance function and the flux register rebuilt, restarts across regrids
-([numerics](./numerics#adaptive-mesh-refinement)).
+([numerics](./numerics#adaptive-mesh-refinement)). P3 regrids the FNL backend by a host round trip.
 
 ### RG: the regrid round trip and the input contract
 
@@ -1003,7 +1002,14 @@ grid. These legs regrid for real, on cases where the grid keeps changing.
   a regrid every 5 steps, 60 steps: the run completes with a regrid that changes the grid, each regrid checking the
   new state (density and pressure positive). Its accuracy against the initial-AMR and uniform runs is #74 P4 (AV-7).
 
-**Results** (CPU, np 2):
+- rg6, CPU against FNL: the rg3 conservative runs of the two backends regrid at the same steps into the same grids (the
+  regrid log lines equal) and end with the same fields within $10^{-10}$, relative to each variable's largest
+  magnitude. The FNL backend regrids on the host, so the grid decisions are the same code on both; this leg checks
+  that the device state reaches the host and comes back intact.
+
+rg3, rg4 and rg5 run on both backends.
+
+**Results** (np 2, the same on CPU and FNL except where noted):
 
 | Leg | Regrids that changed the grid | Blocks refined / families coarsened | Measured |
 |---|---|---|---|
@@ -1011,6 +1017,11 @@ grid. These legs regrid for real, on cases where the grid keeps changing.
 | rg3 `linear` | 7 | 14 / 6 | drift $2.6\cdot10^{-5}$ (ρ), $2.2\cdot10^{-4}$ (ρu) |
 | rg4 | 3 (steps 5, 20, 25) | — | 40 blocks bitwise, histories identical |
 | rg5 | 1 (176 → 344 blocks) | 24 / 0 | completes, admissible |
+| rg6 | 10, the same on both | 20 / 4 | fields within $7.0\cdot10^{-14}$; FNL round trips 2.3 to 3.1 s each |
+
+On FNL the conservative rg3 run drifts by at most $2.6\cdot10^{-16}$, the same round-off as the CPU. Its round trips cost
+2.3–3.1 s each on a grid of at most 52 blocks: the copies move the whole device state, sized by the block capacity
+(17195 blocks per rank here), not the blocks in use ([#75](https://github.com/szaghi/adam/issues/75)).
 
 The two rg3 runs regrid differently: the linear prolongation changes the data the Löhner estimator reads, so the grids
 part after the first regrid. The integrals still separate the two by eleven orders of magnitude.

@@ -341,13 +341,19 @@ interpolation, the reflux and the limiter's seam synchronisation work per axis (
 inject a truncation-level $\nabla\cdot\mathbf{B}$ that GLM transports and damps; the div(B) history reports it
 (`seam_max_divb`).
 
-**Runtime regridding** ([#74](https://github.com/szaghi/adam/issues/74); CPU, the FNL backend follows). With `[amr]
+**Runtime regridding** ([#74](https://github.com/szaghi/adam/issues/74)). With `[amr]
 frequency = n > 0`, after every $n$-th step and before its output, the realm regrids: up to `iters` sweeps, each one
 refreshing the ghost cells, combining the markers into one set of flags (a block is refined when any marker asks for it,
 coarsened only when all agree, never below the base level), and calling the library regrid (2:1 balance, prolongation,
 restriction, redistribution, maps). The distance function of the immersed solids is recomputed on the new grid, the new
 state is checked (density and pressure positive, fatal otherwise, with the cell), and the forest rebuilds the 2:1 flux
 register, so the reflux follows seams that appear and disappear. The time step stays global (no subcycling). The
+FNL backend regrids by a host round trip: each sweep refreshes the ghosts on the device, copies the state to the host,
+marks and regrids there with the same code, and copies the state, the block coordinates, the maps and the distance
+function back (a map the new grid no longer has is freed on the device); its log line adds the wall time. The copies
+move the whole device state, sized by the block capacity, not only the blocks in use: on the development box (two
+ranks, 17195 blocks of capacity each) a regrid costs about 2.5 s whatever the grid; bounding the copies to the blocks
+in use is [#75](https://github.com/szaghi/adam/issues/75). The
 **Löhner marker** (Löhner 1987, mode 4) is the scale-free second-derivative estimator
 
 $$
