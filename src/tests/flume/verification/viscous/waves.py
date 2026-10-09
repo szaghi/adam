@@ -579,6 +579,59 @@ def conserve(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def run_input(work: Path) -> Path:
+    """Return the input of a run: input.ini, or the first realm's input of a forest (`<name>-r1.ini`)."""
+    return work / "input.ini" if (work / "input.ini").exists() else next(iter(sorted(work.glob("*-r1.ini"))))
+
+
+def last_state(work: Path) -> dict[tuple, dict[str, np.ndarray]]:
+    """Return the interior state of every block of the last checkpoint of a run (every realm of a forest), keyed by the
+    block origin (rank-independent)."""
+    ngc = int(read_ini(run_input(work))["grid"]["ngc"])
+    files = [f for f in sorted(work.glob("*-proc*.h5")) if "restart" not in f.name]
+    last = max(int(f.name.split("-")[-2]) for f in files)
+    out: dict[tuple, dict[str, np.ndarray]] = {}
+    for path in (f for f in files if int(f.name.split("-")[-2]) == last):
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({key.rsplit("-", 1)[0] for key in h5 if key.endswith("-origin")}):
+                key = tuple(np.round(h5[f"{blk}-origin"][()], 12))
+                out[key] = {v: h5[f"{blk}-{v}"][()][ngc:-ngc, ngc:-ngc, ngc:-ngc] for v in
+                            ("r", "ru", "rv", "rw", "rE", "bx", "by", "bz", "psi") if f"{blk}-{v}" in h5}
+    return out
+
+
+def agree(args: argparse.Namespace) -> int:
+    """P5: one run on two backends (or builds), cell by cell on the last checkpoint. Each difference is divided by the
+    physical scale of its variable, not by its own maximum: density and energy by their maximum, the momentum by
+    rho0 a0 (a wave at rest carries momentum far below the round-off of the state: O(A^2) in an Ohmic wave), the
+    field by its maximum (it is the signal), psi by c_h max|B|."""
+    a, b = last_state(args.a), last_state(args.b)
+    if set(a) != set(b):
+        print(f"{args.a.name}: the two runs hold different blocks ({len(a)} vs {len(b)})  FAIL")
+        return 1
+    ini = read_ini(run_input(args.a))
+    reg = ini["initial_conditions_region_1"]
+    rho0, p0, gamma = float(reg["r"]), float(reg["p"]), float(ini["physics"]["gamma"])
+    names = sorted(next(iter(a.values())))
+    peak = {v: max(float(np.abs(blk[v]).max()) for blk in a.values()) for v in names}
+    bmax = max((peak[v] for v in ("bx", "by", "bz") if v in peak), default=0.0)
+    scale = {}
+    for v in names:
+        if v in ("ru", "rv", "rw"):
+            scale[v] = max(peak[v], rho0 * math.sqrt(gamma * p0 / rho0))
+        elif v == "psi":
+            scale[v] = float(ini["mhd"]["glm_ch"]) * bmax
+        else:
+            scale[v] = peak[v]
+    rel = {v: max(float(np.abs(a[k][v] - b[k][v]).max()) for k in a) / scale[v] if scale[v] > 0.0 else 0.0
+           for v in names}
+    worst = max(rel, key=rel.get)
+    ok = rel[worst] <= args.tol
+    print(f"{args.a.name.split('-np', 1)[1].split('-', 1)[1]:32s} {len(a):5d} blocks  max {rel[worst]:.2e} ({worst})  "
+          f"{'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Dispatch the subcommand."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -622,12 +675,16 @@ def main() -> int:
     pc.add_argument("--ideal", type=Path, default=None, help="the leaky run without dissipative coefficients")
     pc.add_argument("--max-drift", type=float, default=1.0e-13)
     pc.add_argument("--min-drift", type=float, default=1.0e-10)
+    pa = sub.add_parser("agree", help="P5: the same run on two backends, cell by cell")
+    pa.add_argument("a", type=Path)
+    pa.add_argument("b", type=Path)
+    pa.add_argument("--tol", type=float, default=1.0e-10)
     po = sub.add_parser("oracle", help="judge one or more runs")
     po.add_argument("work", type=Path, nargs="+")
     po.add_argument("--order-min", type=float, default=None)
     po.add_argument("--order-max", type=float, default=None, help="upper bound (a negative control's degraded order)")
     args = parser.parse_args()
-    return {"make": make, "oracle": oracle, "budget": budget, "conserve": conserve, "split": split}[args.command](args)
+    return {"make": make, "oracle": oracle, "budget": budget, "conserve": conserve, "split": split, "agree": agree}[args.command](args)
 
 
 if __name__ == "__main__":

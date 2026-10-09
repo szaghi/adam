@@ -874,6 +874,42 @@ instead, being the inviscid seam error that the flow carries and the viscosity s
 
 ![VV-1 and VV-8 in 2-D: the shear wave and its error on a uniform grid; the shear and Ohmic errors with the centre refined 2:1](/flume/viscous-fields.png)
 
+### CPU and FNL agree run by run
+
+**Why.** The legs above pass on both backends, but a pass bounds an error norm, and two backends can pass with
+different fields. Every dissipative kernel exists twice, as a CPU loop and an FNL device kernel (OpenACC, or OpenMP
+offload), so the same run on both must give the same state up to the round-off of the operation order.
+
+**Check** (`viscous/check.sh --leg agree`, after every leg has run on both executables; `waves.py agree`): each run on
+the CPU against the same run on FNL, cell by cell on the last checkpoint, blocks matched by their origin. Each
+difference is divided by the physical scale of its variable, not by its own maximum: density and energy by their
+maximum, the momentum by $\rho_0 a_0$ (an Ohmic wave at rest carries momentum of $O(A^2)$, far below the round-off of
+the state), the field by its maximum, $\psi$ by $c_h \max|\mathbf B|$. Bound: $10^{-10}$.
+
+**Results** (one clean build of each backend, 2 ranks; 72 runs, every resolution of every ladder, the $-A$ twins, the
+ideal twins and both sides of each forest):
+
+| Leg | Runs | Largest difference |
+|---|---|---|
+| VV-1 shear | 12 | $2.7\cdot10^{-14}$ |
+| VV-2 acoustic | 6 | $4.9\cdot10^{-15}$ |
+| VV-3 Couette | 3 | $1.4\cdot10^{-13}$ |
+| VV-4 Becker | 6 | $4.3\cdot10^{-13}$ |
+| VV-5 Ohmic, Alfvén, acoustic on MHD | 18 | $4.7\cdot10^{-14}$ |
+| VV-6 Ohmic budget | 4 | $5.3\cdot10^{-15}$ |
+| VV-7 conservation | 6 | $9.3\cdot10^{-15}$ |
+| VV-7 forests | 8 | $3.4\cdot10^{-14}$ |
+| VV-8 seams | 9 | $8.4\cdot10^{-14}$ |
+
+The largest differences sit in the Becker shock, the steepest gradients of the suite, at $4\cdot10^{-13}$ of the
+momentum scale: no run differs by more than a few hundred units of round-off. The DC contract passes on both backends as
+well.
+
+```bash
+cd src/tests/flume/verification/viscous
+./check.sh && FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh && ./check.sh --leg agree
+```
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths

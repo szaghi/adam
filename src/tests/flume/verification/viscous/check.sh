@@ -32,7 +32,11 @@
 #        composite error is second order and its ratio to the uniform runs grows with N. Without reflux the Ohmic
 #        ladder falls to first order (<= SEAM_NOREFLUX_MAX): the reflux carries the dissipative flux.
 #
-# Usage: ./check.sh [--np N] [--leg vv1|vv2|vv3|vv4|vv5|vv6|vv7|vv8 ...]
+#   agree (P5, runs nothing) every run of the legs above on the CPU against the same run on FNL, cell by cell on the
+#        last checkpoint, each difference over the physical scale of its variable (waves.py agree): <= AGREE_TOL.
+#        Needs the work directories of both executables (run the legs with each first); not in the default set.
+#
+# Usage: ./check.sh [--np N] [--leg vv1|vv2|vv3|vv4|vv5|vv6|vv7|vv8|agree ...]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -51,6 +55,7 @@ MIN_DRIFT="1.0e-10"
 FOREST_TOL="1.0e-10"
 SEAM_ORDER_MIN="1.8"
 SEAM_NOREFLUX_MAX="1.3"
+AGREE_TOL="1.0e-10"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -199,6 +204,17 @@ for leg in "${LEGS[@]}"; do
                 --eta 0.01 "${seam[@]}"
          LADDER_ORDER_MAX="$SEAM_NOREFLUX_MAX" ladder waves.py seam-ohmic-o4-noreflux 0 "24 48 96" --model mhd-none \
                 --mode magnetic --mu 0.0 --eta 0.01 "${seam[@]}" --reflux false ;;
+      agree)
+         echo "-- agree: every work-adam_flume_cpu-np$NP-* run against its work-adam_flume_fnl-np$NP-* twin"
+         pairs=0
+         for c in "$CASE_DIR"/work-adam_flume_cpu-np"$NP"-*; do
+            f="${c/adam_flume_cpu/adam_flume_fnl}"
+            [[ -d $f ]] || continue
+            pairs=$((pairs + 1))
+            if ! "$VENV_PY" "$CASE_DIR/waves.py" agree "$c" "$f" --tol "$AGREE_TOL" | sed 's/^/   /'; then FAILED=1 ; fi
+         done
+         if [[ $pairs -eq 0 ]]; then echo "   no CPU/FNL pair of work directories: run the legs on both first" ; FAILED=1
+         else echo "   $pairs pairs compared"; fi ;;
       *) echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
 done
