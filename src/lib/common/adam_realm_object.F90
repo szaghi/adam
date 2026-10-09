@@ -161,6 +161,8 @@ type :: realm_object
       procedure, pass(self) :: end_stage_forest                  !< End the stage: residuals + assignment (multi-realm path).
       procedure, pass(self) :: close_step_forest                 !< Per-step epilogue (multi-realm path).
       procedure, pass(self) :: post_step_forest                  !< Invoked by forest%post_step per realm per timestep.
+      procedure, pass(self) :: runtime_amr_forest                !< Whether this realm regrids during the run (#74).
+      procedure, pass(self) :: regrid_forest                     !< Invoked by forest%regrid per realm per timestep (#74).
       procedure, pass(self) :: is_done_forest                    !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
       procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize; forest calls it ONCE after all.
@@ -813,6 +815,32 @@ contains
    ! Default: nothing to do — host-side seam maps are already in place.
    if (.false. .and. associated(self%ngc)) continue
    endsubroutine after_topology_build_forest
+
+   function runtime_amr_forest(self) result(yes)
+   !< Return whether this realm regrids during the time loop (issue #74, runtime AMR).
+   !<
+   !< The forest asks it at initialisation to refuse what it does not support yet (a multi-realm forest with a realm
+   !< that regrids: the inter-realm seam rows and registers are built once). Default: no runtime regridding, the
+   !< behaviour of every app before #74; an app that regrids overrides it.
+   class(realm_object), intent(in) :: self !< The realm.
+   logical                         :: yes  !< True if the realm regrids during the run.
+
+   yes = .false.
+   if (.false. .and. associated(self%ngc)) continue
+   endfunction runtime_amr_forest
+
+   subroutine regrid_forest(self, regridded)
+   !< Regrid this realm if its cadence asks for it now (issue #74, runtime AMR).
+   !<
+   !< Invoked by `forest%regrid` once per realm after `post_step_forest`, on committed `q` (no stage active). The realm
+   !< marks its blocks, calls `adam%amr_update` and refreshes its grid-dependent state; `regridded` tells the forest
+   !< whether the tree changed, so it rebuilds what it owns (the flux register). Default: never regrid.
+   class(realm_object), intent(inout) :: self      !< The realm.
+   logical,             intent(out)   :: regridded !< True if the tree changed.
+
+   regridded = .false.
+   if (.false. .and. associated(self%ngc)) continue
+   endsubroutine regrid_forest
 
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
    !< Apply the Berger-Colella reflux correction to THIS realm's stage-`stage`

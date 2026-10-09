@@ -53,6 +53,8 @@ Schema summary:
 |                                  | `coupling`                  | no  | `mirror` (default; same cell size, pass-through copy) or `refined` (a 2:1 resolution jump, issue #52). `periodic` and `interpolate` are reserved and refused at initialization. |
 |                                  | `coupling_cadence`          | no  | `end_of_step` (default, α) or `stage_coincident` (β). |
 
+**Runtime regridding** ([issue #74](https://github.com/szaghi/adam/issues/74)). After the per-step diagnostics the time loop calls `forest%regrid`: every realm's `regrid_forest` hook may regrid it (default: never), and when a tree changed the forest rebuilds the intra-realm 2:1 faces of the flux register (the fused single-realm fast path is chosen per step from the register, so a run that gains or loses 2:1 faces switches path). A realm that regrids (`runtime_amr_forest`) is refused on a multi-realm forest at initialisation: the inter-realm seam rows, crown overrides and register faces are built once.
+
 Each realm's INI is a complete per-app input file. Sections like `[grid]`, `[numerics]`, `[physics]`, `[runge_kutta]` are populated as usual; the manifest contributes only the inter-realm topology.
 
 ### Seams across ranks (issue #40)

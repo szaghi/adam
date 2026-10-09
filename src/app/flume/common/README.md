@@ -6,7 +6,7 @@ The pointwise libraries (`*_library.F90`) are `pure`, take explicit-size argumen
 `!$omp declare target`, so the CPU loops and the GPU kernels call the same source.
 
 > **Status: development** (milestones M1 Euler, M2 ideal MHD, M3 Riemann scheme / EGLM / limiter and M4 dissipative
-> terms complete; runtime AMR, M5, planned).
+> terms complete; runtime AMR, M5, issue #74, in progress).
 
 ## Modules
 

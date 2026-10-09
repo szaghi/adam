@@ -24,7 +24,7 @@ def refine_box(ini: configparser.ConfigParser, box: list[float], ratio: int = 8)
     if ratio not in (4, 8):
         raise ValueError(f"refine_box: ratio must be 4 or 8, not {ratio}")
     level = int(ini["amr"]["max_level"]) + 1
-    ini["amr"].update({"max_level": str(level), "ratio": str(ratio), "markers_number": "1", "frequency": "999999"})
+    ini["amr"].update({"max_level": str(level), "ratio": str(ratio), "markers_number": "1", "frequency": "0"})
     ini["amr_marker_1"] = {"mode": "1", "geo_type": "primitive-box", "delta_type": "max", "delta_fine": "0.0",
                            "delta_coarse": "0.0", "box_xmin": repr(box[0]), "box_ymin": repr(box[1]),
                            "box_zmin": repr(-1.0e30), "box_xmax": repr(box[2]), "box_ymax": repr(box[3]),

@@ -129,25 +129,35 @@ contains
    endsubroutine blocks_reorder
 
    subroutine check_blocks_number(self)
-   !< Check if blocks number is groving too much.
+   !< Check that every rank can store its blocks after the tree adaptation, before the field adapts.
+   !<
+   !< A refined parent's children take block indices on the parent's rank (`tree%refine`: `last_block_index + 1`, ...),
+   !< before any redistribution, and `field%adapt` writes them at those indices in arrays of `nb` blocks per rank. The
+   !< bound is therefore per rank: the largest block index among this rank's own nodes must not exceed `nb`. (Before
+   !< issue #74 the check took the largest index over every node of the replicated tree, other ranks' included, against
+   !< `procs_number * nb`: one rank refining many of its blocks could overflow its arrays undetected.) The decision is
+   !< reduced over the ranks, so all of them stop together.
    class(adam_object), intent(inout) :: self             !< ADAM.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
    type(tree_iterator_object)        :: iter             !< Tree traversal cursor (re-entrant).
-   integer(I8P)                      :: max_nb           !< Maximum number of blocks desidered.
+   integer(I8P)                      :: max_nb           !< Largest block index among this rank's nodes.
+   integer(I8P)                      :: max_nb_all       !< Largest over the ranks.
+   integer(I4P)                      :: ierr             !< MPI error status.
    character(len=1), parameter       :: NL=new_line('a') !< New line character.
 
    max_nb = 0
    iter%b = 1_I4P ; iter%p => null()
    do while(self%tree%loop(iter, node_ptr=node_ptr))
-      max_nb = max(max_nb, node_ptr%block_index)
+      if (node_ptr%myrank == mpih%myrank) max_nb = max(max_nb, node_ptr%block_index)
    enddo
-   if (max_nb > mpih%procs_number*self%field%nb) then
-      call mpih%abort(error_code=-101, msg='ERROR: the number of new blocks after AMR is greater than Nb'//NL//&
-                                           'max blocks numer available [Nb]: '//trim(str(self%field%nb))//NL// &
-                                           'blocks numer required after AMR: '//trim(str(max_nb)))
+   call MPI_ALLREDUCE(max_nb, max_nb_all, 1, MPI_INTEGER8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   if (max_nb_all > self%field%nb) then
+      call mpih%abort(error_code=-101, msg='ERROR: after the AMR update a rank needs more blocks than it can store'//NL//&
+                                           'blocks per rank available [Nb]: '//trim(str(self%field%nb))//NL//       &
+                                           'blocks needed on the fullest rank: '//trim(str(max_nb_all))//NL//       &
+                                           '(new blocks are placed on their parent''s rank before the redistribution)')
    endif
-   call mpih%print_message('maximum number of blocks created after AMR update: '//&
-                           str(max_nb)//'/'//str(mpih%procs_number*self%field%nb))
+   call mpih%print_message('largest blocks number per rank after AMR update: '//str(max_nb_all)//'/'//str(self%field%nb))
    endsubroutine check_blocks_number
 
    subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)

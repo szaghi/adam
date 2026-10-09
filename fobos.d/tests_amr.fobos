@@ -5,6 +5,7 @@ modes = test-amr-geo-box-gnu                          test-amr-geo-box-gnu-debug
         test-periodic-ghost-gnu                        test-periodic-ghost-gnu-debug
         test-tree-closest-block-gnu                    test-tree-closest-block-gnu-debug
         test-quadtree-seam-ghost-gnu                   test-quadtree-seam-ghost-gnu-debug
+        test-amr-regrid-roundtrip-gnu                  test-amr-regrid-roundtrip-gnu-debug
         test-quadtree-seam-ghost-fnl-nvf
         test-seam-interpolation-fnl-nvf
         test-seam-interpolation-fnl-omp-amd
@@ -78,6 +79,16 @@ target   = test_quadtree_seam_ghost.F90
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = test_quadtree_seam_ghost.F90
+
+[test-amr-regrid-roundtrip-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_amr_regrid_roundtrip.F90
+
+[test-amr-regrid-roundtrip-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_amr_regrid_roundtrip.F90
 
 [test-quadtree-seam-ghost-fnl-nvf]
 template = template-nvf

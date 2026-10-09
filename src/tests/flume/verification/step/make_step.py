@@ -97,7 +97,7 @@ def realm_ini(name: str, tree: str, cells: int, refine: bool, time_max: str, it_
         "emax_z = 1.0", "null_x = .false.", "null_y = .false.", "null_z = .true.",
         "[amr]", f"max_level      = {levels + (1 if refined else 0)}", f"ratio          = {4 if tree == 'quad' else 8}",
         f"iu_ref_levels  = {levels}", "i_prune        = 0", "j_prune        = 0", "k_prune        = 0",
-        "l_prune        = -1", "frequency      = 999999", "iters          = 1",
+        "l_prune        = -1", "frequency      = 0", "iters          = 1",
         f"markers_number = {1 if refined else 0}",
     ]
     if refined:

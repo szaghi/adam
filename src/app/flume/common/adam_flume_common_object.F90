@@ -79,6 +79,7 @@ type, extends(realm_object) :: flume_common_object
    contains
       ! AMR methods
       procedure, pass(self) :: amr_update       !< Do AMR update (initialization-time only).
+      procedure, pass(self) :: runtime_amr_forest !< Whether this realm regrids during the run (issue #74).
       procedure, pass(self) :: mark_by_geometry !< Mark blocks to be refined by a primitive geometric box.
       procedure, pass(self) :: mark_by_gradient !< Mark blocks by the gradient of a conservative or auxiliary variable.
       procedure, pass(self) :: mark_by_solid    !< Mark blocks crossed by the surface of an immersed solid.
@@ -111,6 +112,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: block_spacing    !< Return the spacing of a block by a delta criterion.
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_dissipation     !< Refuse the dissipative terms not implemented yet.
+      procedure, pass(self), private :: check_runtime_amr     !< Check [amr] frequency (issue #74).
       procedure, pass(self), private :: check_positivity_limiter !< Refuse the limiter where it cannot work.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
       procedure, pass(self), private :: check_weno_scheme     !< Refuse the centred WENO schemes.
@@ -511,6 +513,7 @@ contains
    call self%initialize_riemann_scheme
    call self%check_positivity_limiter
    call self%check_dissipation
+   call self%check_runtime_amr
    call self%check_ngc_number
    call self%allocate_common
    call self%io_initialize
@@ -1128,6 +1131,30 @@ contains
    if (self%numerics%dissipative_order == 4_I4P .and. self%ngc < 3_I4P) &
       call mpih%error_stop(msg=': [numerics].(dissipative_order)=4 needs [grid].(ngc) >= 3, got '//trim(str(self%ngc)))
    endsubroutine check_dissipation
+
+   subroutine check_runtime_amr(self)
+   !< Check `[amr] frequency`, the runtime regrid cadence (issue #74, M5): 0 disables runtime regridding (the AMR of the
+   !< initial condition only, as before M5), n > 0 regrids every n steps.
+   !<
+   !< Runtime regridding lands phase by phase in #74; until FLUME regrids (P2), n > 0 is refused rather than ignored. A
+   !< negative value is an input error.
+   class(flume_common_object), intent(in) :: self !< The equation.
+
+   if (self%amr%frequency < 0_I4P) &
+      call mpih%error_stop(msg=': [amr].(frequency) must be 0 (no runtime regridding) or positive (regrid every n '// &
+                               'steps), got '//trim(str(self%amr%frequency)))
+   if (self%amr%frequency > 0_I4P) &
+      call mpih%error_stop(msg=': [amr].(frequency)='//trim(str(self%amr%frequency, .true.))//' asks for runtime '// &
+                               'regridding, which is not implemented yet (issue #74, lands in M5-P2); set frequency = 0')
+   endsubroutine check_runtime_amr
+
+   function runtime_amr_forest(self) result(yes)
+   !< Return whether this realm regrids during the run: `[amr] frequency > 0` (issue #74).
+   class(flume_common_object), intent(in) :: self !< The equation.
+   logical                                :: yes  !< True if the realm regrids during the run.
+
+   yes = self%amr%frequency > 0_I4P
+   endfunction runtime_amr_forest
 
    subroutine check_weno_scheme(self)
    !< Refuse the centred WENO schemes: the flux splitting calls the upwind primitive only, so a `weno-c-*` scheme would

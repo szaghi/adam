@@ -921,6 +921,37 @@ cd src/tests/flume/verification/viscous
 ./check.sh && FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh && ./check.sh --leg agree
 ```
 
+## Runtime regridding (M5, in progress)
+
+Milestone M5 ([#74](https://github.com/szaghi/adam/issues/74)) regrids during the time loop. `[amr] frequency = 0`, the
+value of every input so far, keeps the AMR of the initial condition only; `n > 0` regrids every `n` steps and is refused
+until #74 P2 lands it. The library already holds a complete regrid step (`adam_object%amr_update`: the tree adapts with
+2:1 balance, the interior data is prolonged or restricted, the blocks are redistributed, the maps rebuilt); P0 tests it
+on its own and puts the hooks in place.
+
+### RG: the regrid round trip and the input contract
+
+**Why.** Until M5 nothing ran `amr_update` after initialisation and no test ever derefined. A regrid must keep the
+bookkeeping consistent over the ranks (the redistribution moves blocks) and transfer the data exactly where it can.
+
+**Legs** (`regrid/check.sh`):
+
+- rg0, `tests/amr/test_amr_regrid_roundtrip` on 1, 2 and 3 ranks: a realm refined uniformly to level 1 holds a field
+  in every cell, ghosts included (a perfect ghost fill, so the transfers are tested alone); the block at the origin is
+  refined, then its children derefined. A linear field is exact after both steps; the leaves and the blocks summed over
+  the ranks agree (octree 8 → 15 → 8, quadtree 4 → 7 → 4).
+- rg1, the `frequency` contract on the sod-x input: 0 runs, a negative value is fatal, `n > 0` is refused with its
+  message.
+
+**Results** (CPU): every leg passes on 1, 2 and 3 ranks, with the same numbers. On a quadratic field the library
+prolongation (tensor linear, weights 1/4 and 3/4) misses the children's values by $2.6\cdot10^{-4}$ of the field scale
+and the round trip does not return the parent ($3.4\cdot10^{-4}$): it is second order and not conservative, which is
+why P1 adds a conservative limited prolongation for FLUME (D-M5-2).
+
+P0 also fixes the capacity check of a regrid: the new blocks take indices on their parent's rank before the
+redistribution, so the bound is per rank (`nb`), not the former `procs_number · nb` over every node of the replicated
+tree, which let one rank overflow its arrays undetected.
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths

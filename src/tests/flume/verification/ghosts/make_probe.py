@@ -56,7 +56,7 @@ def realm_ini(name: str, extent: tuple[float, ...], cells: int, levels: int, rat
         f"emax_x = {extent[1]!r}", f"emax_y = {extent[3]!r}", f"emax_z = {extent[5]!r}",
         "null_x = .false.", "null_y = .false.", f"null_z = {'.true.' if null_z else '.false.'}",
         "[amr]", f"max_level = {levels + (1 if box else 0)}", f"ratio = {ratio}", f"iu_ref_levels = {levels}",
-        "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", "frequency = 999999", "iters = 1",
+        "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", "frequency = 0", "iters = 1",
         f"markers_number = {1 if box else 0}",
     ]
     if box:

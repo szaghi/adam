@@ -75,7 +75,7 @@ i_prune        = 0
 j_prune        = 0
 k_prune        = 0
 l_prune        = -1
-frequency      = 999999
+frequency      = 0
 iters          = 1
 markers_number = 0
 

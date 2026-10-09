@@ -28,7 +28,7 @@ Riemann-solver scheme (`weno-riemann`, Euler and MHD), the energy-consistent EGL
 limiter, and M4 ([#65](https://github.com/szaghi/adam/issues/65)) the dissipative terms: compressible Navier–Stokes
 (viscosity and heat conduction, 4th-order conservative fluxes, no-slip walls) for every model and Ohmic resistivity for
 MHD, on both backends, conservative across AMR seams and realms (second order at a 2:1 seam, as the inviscid fluxes).
-Runtime AMR (M5) is planned.
+Runtime AMR, M5 ([#74](https://github.com/szaghi/adam/issues/74)), is in progress.
 
 ## Quick start
 
