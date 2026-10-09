@@ -341,6 +341,16 @@ interpolation, the reflux and the limiter's seam synchronisation work per axis (
 inject a truncation-level $\nabla\cdot\mathbf{B}$ that GLM transports and damps; the div(B) history reports it
 (`seam_max_divb`).
 
+**Regridding transfers** (runtime AMR, [#74](https://github.com/szaghi/adam/issues/74), in progress). When a block is
+derefined, the parent takes the mean of its children. When one is refined, `[amr] regrid_prolongation` chooses how the
+children are filled. FLUME's default is `conservative`: each child is the parent plus monotonized-central slopes
+(van Leer 1977) times a quarter of a cell, one per refined axis, scaled by the largest $\phi \le 1$ that keeps every
+child within the parent's and its face neighbours' range (Barth & Jespersen 1989). The children average to the parent,
+so a regrid changes no conserved integral and a refine followed by a derefine returns the state exactly; a positive
+variable stays positive; linear data are reproduced. The library's `linear` prolongation (tensor interpolation, weights
+1/4 and 3/4) is second order too but not conservative ([RG](./verification#rg-the-regrid-round-trip-and-the-input-contract)).
+Both read the parent's first ghost layer.
+
 ## Immersed boundary (Euler)
 
 Static rigid solids (`[solids]`, `[solid_N]`, e.g. `definition = analytical_circle`) are imposed as inviscid walls:
@@ -373,6 +383,8 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`)
 
 ## References
 
+- Barth T. J., Jespersen D. C. (1989), The design and application of upwind schemes on unstructured meshes,
+  AIAA paper 89-0366.
 - Batten P. et al. (1997), On the choice of wavespeeds for the HLLC Riemann solver, *SIAM J. Sci. Comput.* 18, 1553–1570.
 - Berger M. J., Colella P. (1989), Local adaptive mesh refinement for shock hydrodynamics, *J. Comput. Phys.* 82, 64–84.
 - Chen Y., Tóth G., Gombosi T. I. (2016), A fifth-order finite difference scheme for hyperbolic equations on
@@ -392,6 +404,8 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`)
   *Shock Waves* 4, 25–34.
 - Tóth G., Roe P. L. (2002), Divergence- and curl-preserving prolongation and restriction formulas,
   *J. Comput. Phys.* 180, 736–750.
+- van Leer B. (1977), Towards the ultimate conservative difference scheme. IV. A new approach to numerical
+  convection, *J. Comput. Phys.* 23, 276–299.
 - Wu K. (2018), doi:10.1137/18M1168017; Wu K., Shu C.-W. (2018), doi:10.1137/18M1168042: positivity of the first-order
   and high-order schemes for ideal MHD with the Godunov–Powell source.
 - Xu Z. (2014), Parametrized maximum principle preserving flux limiters for high order schemes solving hyperbolic

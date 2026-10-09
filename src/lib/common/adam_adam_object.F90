@@ -59,30 +59,34 @@ endtype adam_object
 
 contains
    ! public methods
-   subroutine adapt(self, q)
+   subroutine adapt(self, q, prolongation)
    !< Adapt tree/field accordingly to refine/derefine necessity.
-   class(adam_object), intent(inout) :: self  !< ADAM.
-   real(R8P),          intent(inout) :: q(1:,         &
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
-                                          1:) !< Field cell centered variables.
-   type(refinement_plan_object)      :: plan  !< Refinement plan produced by tree, consumed by field.
+   class(adam_object), intent(inout)        :: self         !< ADAM.
+   real(R8P),          intent(inout)        :: q(1:,         &
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1:)          !< Field cell centered variables.
+   integer(I4P),       intent(in), optional :: prolongation !< Prolongation kind, AMR_PROLONGATION_* (default linear).
+   type(refinement_plan_object)             :: plan         !< Refinement plan produced by tree, consumed by field.
 
    call self%tree%adapt(grid=self%grid, plan=plan)
 
    call self%check_blocks_number
 
-   call self%field%adapt(grid=self%grid, plan=plan, q=q)
+   call self%field%adapt(grid=self%grid, plan=plan, q=q, prolongation=prolongation)
    endsubroutine adapt
 
-   subroutine amr_update(self, q, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed)
+   subroutine amr_update(self, q, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed, &
+                         prolongation)
    !< Update AMR status.
    !<
    !< Note: AMR update can be safely called only *after* update_ghost has been called for *q* variables, otherwise
    !< refine is not well done.
    !< Note: only if the AMR is UNIFORM and GLOBALLY made by tree, i.e. using mark_all_nodes, the mpi_redistribute can be avoided,
    !< otherwise mpi_gather_refinement_nedeed is not safe (having wrong nodes number counters).
+   !< Note: `prolongation` selects how refined blocks are filled (`field_object%adapt`): AMR_PROLONGATION_LINEAR
+   !< (default) or AMR_PROLONGATION_CONSERVATIVE (issue #74).
    class(adam_object), intent(inout)         :: self                 !< ADAM.
    real(R8P),          intent(inout)         :: q(1:,              &
                                                   1-self%grid%ngc:,&
@@ -94,6 +98,7 @@ contains
    logical,            intent(in),  optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
    logical,            intent(in),  optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
    logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
+   integer(I4P),       intent(in),  optional :: prolongation         !< Prolongation kind, AMR_PROLONGATION_*.
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
    call mpih%print_message('adam_object%amr_update start')
@@ -102,7 +107,7 @@ contains
 
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
 
-   call self%adapt(q=q)
+   call self%adapt(q=q, prolongation=prolongation)
 
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)

@@ -927,26 +927,60 @@ Milestone M5 ([#74](https://github.com/szaghi/adam/issues/74)) regrids during th
 value of every input so far, keeps the AMR of the initial condition only; `n > 0` regrids every `n` steps and is refused
 until #74 P2 lands it. The library already holds a complete regrid step (`adam_object%amr_update`: the tree adapts with
 2:1 balance, the interior data is prolonged or restricted, the blocks are redistributed, the maps rebuilt); P0 tests it
-on its own and puts the hooks in place.
+on its own and puts the hooks in place. P1 adds the conservative prolongation FLUME regrids with
+(`[amr] regrid_prolongation`, default `conservative`).
 
 ### RG: the regrid round trip and the input contract
 
 **Why.** Until M5 nothing ran `amr_update` after initialisation and no test ever derefined. A regrid must keep the
 bookkeeping consistent over the ranks (the redistribution moves blocks) and transfer the data exactly where it can.
 
+**The conservative prolongation.** Each parent cell is split along the refined axes into children set, variable by
+variable, to
+
+$$
+q_c = q + \phi \sum_d \frac{\sigma_d\, s_d}{4}, \qquad \sigma_d = \pm 1,
+$$
+
+with $s_d$ the monotonized-central slope of the parent along axis $d$ (in parent-cell units, from its two face
+neighbours) and $\phi \in [0, 1]$ the largest factor that keeps every child in the range of the parent and its face
+neighbours (Barth and Jespersen 1989). The offsets cancel over the children, so their mean is the parent: the mean
+restriction undoes the prolongation exactly and $\sum q\,\Delta V$ does not change. The MC limit bounds each axis on
+its own, not the sum over the axes a corner child takes; $\phi$ closes that gap. Linear data keep $\phi = 1$ and are
+reproduced exactly.
+
 **Legs** (`regrid/check.sh`):
 
 - rg0, `tests/amr/test_amr_regrid_roundtrip` on 1, 2 and 3 ranks: a realm refined uniformly to level 1 holds a field
   in every cell, ghosts included (a perfect ghost fill, so the transfers are tested alone); the block at the origin is
-  refined, then its children derefined. A linear field is exact after both steps; the leaves and the blocks summed over
-  the ranks agree (octree 8 → 15 → 8, quadtree 4 → 7 → 4).
+  refined, then its children derefined, with each prolongation. Fields: linear, quadratic, and a steep front from 1 to
+  0.01 (a tanh half a coarse cell wide, across $x+y+z=0.45$ on the octree, $x+y=0.3$ on the quadtree). Asserted: the
+  leaves and the blocks summed over the ranks agree (octree 8 → 15 → 8, quadtree 4 → 7 → 4); a linear field exact
+  after the refine; with `conservative`, the round trip returns the initial state and $\sum q\,\Delta V$ is unchanged
+  after the refine and after the round trip, on every field, and the front stays in $(0.01, 1)$; with `linear`, the
+  quadratic field drifts (the negative control).
 - rg1, the `frequency` contract on the sod-x input: 0 runs, a negative value is fatal, `n > 0` is refused with its
   message.
+- rg2, the `regrid_prolongation` contract on sod-x: absent resolves to `conservative`, `linear` and `conservative` are
+  taken as given, any other value is fatal.
 
-**Results** (CPU): every leg passes on 1, 2 and 3 ranks, with the same numbers. On a quadratic field the library
-prolongation (tensor linear, weights 1/4 and 3/4) misses the children's values by $2.6\cdot10^{-4}$ of the field scale
-and the round trip does not return the parent ($3.4\cdot10^{-4}$): it is second order and not conservative, which is
-why P1 adds a conservative limited prolongation for FLUME (D-M5-2).
+**Results** (CPU): every leg passes on 1, 2 and 3 ranks, with the same numbers.
+
+| Field | Tree | `linear`: drift of $\sum q\,\Delta V$ | `linear`: round trip | `conservative`: drift | `conservative`: round trip |
+|---|---|---|---|---|---|
+| quadratic | octree | $1.3\cdot10^{-4}$ | $3.4\cdot10^{-4}$ | 0 | $4\cdot10^{-17}$ |
+| quadratic | quadtree | $2.7\cdot10^{-4}$ | $3.4\cdot10^{-4}$ | 0 | $2\cdot10^{-17}$ |
+| front | octree | $2.6\cdot10^{-2}$ | $1.8\cdot10^{-1}$ | $4.8\cdot10^{-15}$ | $1\cdot10^{-16}$ |
+| front | quadtree | $1.8\cdot10^{-2}$ | $1.3\cdot10^{-1}$ | $2.6\cdot10^{-16}$ | $1\cdot10^{-16}$ |
+
+Drift is relative to the initial integral, after the refine; round trip is the largest $|q - f|$ over the field scale
+after refine then derefine. The `linear` prolongation is second order (a quadratic field's children miss by
+$2.6\cdot10^{-4}$ of the scale, the conservative one's by $1.1\cdot10^{-4}$) but changes the integral at every
+refine. The bound scaling is load-bearing: with $\phi = 1$ forced (a mutation run), an octree child of the front
+reaches $-0.094$, below zero, and the leg fails; on the quadtree the MC limit alone suffices for this front.
+
+The register rebuild after a regrid (`forest%regrid`, P0) is exercised by the first FLUME runs that regrid (P2):
+the library test has no forest.
 
 P0 also fixes the capacity check of a regrid: the new blocks take indices on their parent's rank before the
 redistribution, so the bound is per rank (`nb`), not the former `procs_number · nb` over every node of the replicated

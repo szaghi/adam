@@ -2,6 +2,8 @@
 module adam_amr_object
 !< ADAM, AMR markers class definition, CPU backend.
 
+! ADAM classes, libraries, parameters
+use :: adam_parameters, only : AMR_PROLONGATION_LINEAR, AMR_PROLONGATION_CONSERVATIVE
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
@@ -13,6 +15,7 @@ implicit none
 private
 public :: amr_object
 public :: amr_marker_object
+public :: prolongation_name
 public :: AMR_GEO
 public :: AMR_GRAD
 public :: AMR_TV
@@ -61,6 +64,8 @@ type :: amr_object
    integer(I4P)                         :: iters=5_I4P          !< AMR updates iterations number.
    integer(I4P)                         :: frequency=100_I4P    !< AMR update time step frequency.
    integer(I4P)                         :: markers_number=0_I4P !< AMR number of markers.
+   integer(I4P)                         :: regrid_prolongation=AMR_PROLONGATION_LINEAR !< Refined blocks filling.
+   logical                              :: regrid_prolongation_given=.false. !< `regrid_prolongation` set by the input.
    type(amr_marker_object), allocatable :: markers(:)           !< AMR array of marker objects.
    contains
       ! public methods
@@ -81,6 +86,7 @@ contains
    desc =       mpih%myrankstr//'amr main data'                                    //NL
    desc = desc//mpih%myrankstr//'  iters:          '//trim(str(self%iters         ))//NL
    desc = desc//mpih%myrankstr//'  frequency:      '//trim(str(self%frequency     ))//NL
+   desc = desc//mpih%myrankstr//'  prolongation:   '//prolongation_name(self%regrid_prolongation)//NL
    desc = desc//mpih%myrankstr//'  markers number: '//trim(str(self%markers_number))
    if (self%markers_number>0) then
    do m=1, self%markers_number
@@ -124,6 +130,19 @@ contains
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iters)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='markers_number', val=self%markers_number, error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(markers_number)')
+   ! optional: how a refined block's children are filled; an app may choose its own default when it is absent
+   buff_c = ''
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regrid_prolongation', val=buff_c, error=error)
+   self%regrid_prolongation_given = error == 0
+   if (self%regrid_prolongation_given) then
+      select case(trim(adjustl(buff_c)))
+      case('linear')       ; self%regrid_prolongation = AMR_PROLONGATION_LINEAR
+      case('conservative') ; self%regrid_prolongation = AMR_PROLONGATION_CONSERVATIVE
+      case default
+         call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(regrid_prolongation) "'//trim(adjustl(buff_c))//&
+                                  '" (expected: linear | conservative)')
+      endselect
+   endif
 
    allocate(self%markers(self%markers_number))
    do i_marker=1, self%markers_number
@@ -190,4 +209,17 @@ contains
       endselect
    enddo
    endsubroutine load_from_file
+
+   ! non TBP
+   pure function prolongation_name(prolongation) result(name)
+   !< Return the input spelling of a prolongation kind.
+   integer(I4P), intent(in)  :: prolongation !< Prolongation kind, AMR_PROLONGATION_*.
+   character(:), allocatable :: name         !< Its input spelling.
+
+   select case(prolongation)
+   case(AMR_PROLONGATION_LINEAR)       ; name = 'linear'
+   case(AMR_PROLONGATION_CONSERVATIVE) ; name = 'conservative'
+   case default                        ; name = 'unknown'
+   endselect
+   endfunction prolongation_name
 endmodule adam_amr_object

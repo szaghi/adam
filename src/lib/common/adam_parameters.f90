@@ -12,6 +12,8 @@ public :: BC_SEAM
 public :: TO_BE_REFINED,   &
           TO_BE_DEREFINED, &
           TO_NOT_TOUCH
+public :: AMR_PROLONGATION_LINEAR, &
+          AMR_PROLONGATION_CONSERVATIVE
 public :: FEC_1_6_ARRAY
 public :: FEC_TO_DELTA
 public :: DELTA_TO_FEC
@@ -31,6 +33,9 @@ integer(I4P), parameter :: BC_SEAM = -2_I4P !< Flag for cells on an inter-realm 
 integer(I4P), parameter :: TO_BE_REFINED=1_I4P    !< Flag for node/block to be refined.
 integer(I4P), parameter :: TO_BE_DEREFINED=-1_I4P !< Flag for node/block to be derefined.
 integer(I4P), parameter :: TO_NOT_TOUCH=0_I4P     !< Flag for node/block to be untouched.
+
+integer(I4P), parameter :: AMR_PROLONGATION_LINEAR=1_I4P       !< Refine by tensor linear interpolation (not conservative).
+integer(I4P), parameter :: AMR_PROLONGATION_CONSERVATIVE=2_I4P !< Refine by limited linear slopes, children's mean = parent.
 
 integer(I4P), parameter :: FEC_1_6_ARRAY(26) = [1, & ! 1
                                                 2, & ! 2

@@ -155,22 +155,50 @@ type :: field_object
       procedure, pass(self), private :: refine1D           !< Refine blocks, 1D.
       procedure, pass(self), private :: refine2D           !< Refine blocks, 2D.
       procedure, pass(self), private :: refine3D           !< Refine blocks, 3D.
+      procedure, pass(self), private :: refine_conservative !< Refine blocks, conservative limited prolongation.
       procedure, pass(self), private :: update_coordinates !< Update coordinates using the updated data in maps.
 endtype field_object
 
 contains
    ! public methods
-   subroutine adapt(self, grid, plan, q)
+   subroutine adapt(self, grid, plan, q, prolongation)
    !< Adapt field accordingly to refine/derefine necessity.
-   class(field_object),           intent(inout) :: self !< The field.
-   type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
-   type(refinement_plan_object),  intent(in)    :: plan !< Refinement plan produced by tree%adapt.
-   real(R8P),                     intent(inout) :: q(1:,          &
-                                                     1-grid%ngc:, &
-                                                     1-grid%ngc:, &
-                                                     1-grid%ngc:, &
-                                                     1:)          !< Field cell centered variables.
+   !<
+   !< `prolongation` selects how a refined block's children are filled: `AMR_PROLONGATION_LINEAR` (default, tensor
+   !< linear interpolation, not conservative) or `AMR_PROLONGATION_CONSERVATIVE` (limited linear slopes whose children
+   !< average to the parent, issue #74 D-M5-2). Derefinement is the mean of the children in both cases.
+   class(field_object),           intent(inout)        :: self         !< The field.
+   type(grid_object),             intent(in)           :: grid         !< Grid (sibling realm component, threaded in).
+   type(refinement_plan_object),  intent(in)           :: plan         !< Refinement plan produced by tree%adapt.
+   real(R8P),                     intent(inout)        :: q(1:,          &
+                                                            1-grid%ngc:, &
+                                                            1-grid%ngc:, &
+                                                            1-grid%ngc:, &
+                                                            1:)          !< Field cell centered variables.
+   integer(I4P),                  intent(in), optional :: prolongation !< Prolongation kind, AMR_PROLONGATION_*.
+   integer(I4P)                                        :: prolongation_ !< Prolongation kind, local variable.
 
+   prolongation_ = AMR_PROLONGATION_LINEAR ; if (present(prolongation)) prolongation_ = prolongation
+   select case(prolongation_)
+   case(AMR_PROLONGATION_LINEAR)
+   case(AMR_PROLONGATION_CONSERVATIVE)
+      call self%refine_conservative(grid=grid, ratio=plan%ratio, block_to_refine=plan%block_to_refine, &
+                                    block_refined=plan%block_refined, q=q)
+      select case(plan%ratio)
+      case(2_I4P)
+         call self%derefine1D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, &
+                              block_derefined=plan%block_derefined, q=q)
+      case(4_I4P)
+         call self%derefine2D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, &
+                              block_derefined=plan%block_derefined, q=q)
+      case(8_I4P)
+         call self%derefine3D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, &
+                              block_derefined=plan%block_derefined, q=q)
+      endselect
+      return
+   case default
+      call mpih%error_stop(msg='field_object%adapt: unknown prolongation kind '//trim(str(prolongation_, .true.)))
+   endselect
    select case(plan%ratio)
    case(2_I4P)
       call self%refine1D(grid=grid,   ratio=plan%ratio, block_to_refine=plan%block_to_refine,     & 
@@ -1532,6 +1560,115 @@ contains
    endassociate
    endsubroutine refine3D
 
+   subroutine refine_conservative(self, grid, ratio, block_to_refine, block_refined, q)
+   !< Refine blocks by a conservative limited linear prolongation (issue #74, D-M5-2).
+   !<
+   !< Each parent cell is split along the refined axes (ratio 2: i; 4: i, j; 8: i, j, k) into children set, variable by
+   !< variable, to `q + phi * sum_d sigma_d * s_d / 4`: `s_d` is the monotonized-central (MC) slope of the parent along
+   !< axis d, in parent-cell units, from its two face neighbours (the first ghost layer included), and `sigma_d = -1, +1`
+   !< the side of the child. The offsets cancel over the children, so their mean is the parent: the mean restriction of
+   !< `derefine*D` undoes this prolongation, and the discrete integral sum(q dV) is unchanged, to round-off. `phi` in
+   !< [0, 1] scales the slopes so that no child leaves the range of the parent and its face neighbours (Barth and
+   !< Jespersen 1989): the MC limit alone bounds each axis, not the sum over the axes, which a corner child takes. A
+   !< variable that is positive on the parent and its neighbours stays positive. Linear data are reproduced exactly: the
+   !< MC slope of linear data is its centred difference, and a corner child moves by at most 3/4 of the largest
+   !< neighbour difference, so `phi = 1`. Like the linear prolongation, it reads the parent's first ghost layer, which
+   !< the caller must have refreshed.
+   !<
+   !< Note: blocks number is not updated: mpi redistribute does it.
+   class(field_object),       intent(inout) :: self                 !< The field.
+   type(grid_object),         intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio, 2, 4 or 8.
+   integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of blocks to be refined.
+   integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
+   real(R8P),                 intent(inout) :: q(1:,          &
+                                                 1-grid%ngc:, &
+                                                 1-grid%ngc:, &
+                                                 1-grid%ngc:, &
+                                                 1:)            !< Field cell centered variables.
+   integer(I4P), parameter                  :: E(3,3) = reshape([1,0,0, 0,1,0, 0,0,1], [3,3]) !< Unit steps per axis.
+   real(R8P)                                :: slope(size(q, dim=1),3) !< Limited slopes per axis, parent-cell units.
+   real(R8P)                                :: q_min(size(q, dim=1))   !< Minimum over the parent and its neighbours.
+   real(R8P)                                :: q_max(size(q, dim=1))   !< Maximum over the parent and its neighbours.
+   real(R8P)                                :: span(size(q, dim=1))    !< Largest child offset before scaling.
+   real(R8P)                                :: phi(size(q, dim=1))     !< Slope scaling, in [0, 1].
+   integer(I4P)                             :: nd                   !< Number of refined axes.
+   integer(I4P)                             :: n(3)                 !< Cells per axis.
+   integer(I4P)                             :: o(3)                 !< Child octant per axis, 0 or 1.
+   integer(I4P)                             :: lo(3), hi(3)         !< Parent cells covered by a child.
+   integer(I4P)                             :: s_hi(3)              !< Highest sub-cell per axis, 1 refined, 0 not.
+   integer(I4P)                             :: c(3), cm(3), cp(3)   !< Parent cell and its face neighbours.
+   integer(I4P)                             :: f(3)                 !< First child cell of the parent cell.
+   integer(I4P)                             :: b, ib, ic, ic_local  !< Counters.
+   integer(I4P)                             :: i, j, k, d           !< Counters.
+   integer(I4P)                             :: si, sj, sk           !< Sub-cell counters.
+
+   nd = 1_I4P ; if (ratio == 4_I4P) nd = 2_I4P ; if (ratio == 8_I4P) nd = 3_I4P
+   n = [grid%ni, grid%nj, grid%nk]
+   s_hi = 0_I4P ; s_hi(1:nd) = 1_I4P
+   associate(q_work=>self%q_work)
+   if (allocated(block_to_refine)) then
+      do b=1, size(block_to_refine, dim=2)
+         if (mpih%myrank /= block_to_refine(2,b)) cycle
+         ib = block_to_refine(1,b)
+
+         q_work(:,:,:,:,ib) = q(:,:,:,:,ib)
+
+         do ic_local=1, ratio
+            ic = block_refined(2,(b-1)*ratio+ic_local)
+            self%code(ic) = block_refined(1,(b-1)*ratio+ic_local)
+            o = 0_I4P
+            lo = 1_I4P ; hi = n
+            do d=1, nd
+               o(d) = mod((ic_local - 1) / 2**(d - 1), 2)
+               lo(d) = 1 + n(d) / 2 * o(d)
+               hi(d) = n(d) / 2 + n(d) / 2 * o(d)
+            enddo
+            do k=lo(3), hi(3)
+               do j=lo(2), hi(2)
+                  do i=lo(1), hi(1)
+                     c = [i, j, k]
+                     q_min = q_work(:,i,j,k,ib)
+                     q_max = q_min
+                     slope = 0._R8P
+                     do d=1, nd
+                        cm = c - E(:,d)
+                        cp = c + E(:,d)
+                        slope(:,d) = mc_slope(dm=q_work(:,i,j,k,ib) - q_work(:,cm(1),cm(2),cm(3),ib), &
+                                              dp=q_work(:,cp(1),cp(2),cp(3),ib) - q_work(:,i,j,k,ib))
+                        q_min = min(q_min, q_work(:,cm(1),cm(2),cm(3),ib), q_work(:,cp(1),cp(2),cp(3),ib))
+                        q_max = max(q_max, q_work(:,cm(1),cm(2),cm(3),ib), q_work(:,cp(1),cp(2),cp(3),ib))
+                     enddo
+                     span = 0.25_R8P * sum(abs(slope), dim=2)
+                     phi = 1._R8P
+                     where (span > 0._R8P) phi = min(1._R8P, (q_max - q_work(:,i,j,k,ib)) / span, &
+                                                             (q_work(:,i,j,k,ib) - q_min) / span)
+                     do d=1, nd
+                        slope(:,d) = phi * slope(:,d)
+                     enddo
+                     f = c
+                     do d=1, nd
+                        f(d) = mod(c(d) - 1, n(d) / 2) * 2 + 1
+                     enddo
+                     do sk=0, s_hi(3)
+                        do sj=0, s_hi(2)
+                           do si=0, s_hi(1)
+                              q(:,f(1)+si,f(2)+sj,f(3)+sk,ic) = q_work(:,i,j,k,ib) + 0.25_R8P *  &
+                                                                ((2*si - 1) * slope(:,1) + &
+                                                                 (2*sj - 1) * slope(:,2) + &
+                                                                 (2*sk - 1) * slope(:,3))
+                           enddo
+                        enddo
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   endif
+   endassociate
+   endsubroutine refine_conservative
+
    subroutine update_coordinates(self, maps, tree)
    !< Update coordinates using the updated data in maps (that in turn is updated by tree).
    class(field_object), intent(inout) :: self !< The field.
@@ -1540,4 +1677,21 @@ contains
 
    if (self%blocks_number>0) call maps%get_block_layout(tree=tree, coordinates=self%coordinates(:, 1:self%blocks_number))
    endsubroutine update_coordinates
+
+   ! non TBP
+   elemental function mc_slope(dm, dp) result(slope)
+   !< Monotonized-central limited slope (van Leer 1977) from the backward and forward differences.
+   !<
+   !< Zero at an extremum (the differences disagree in sign), else the smallest of the centred difference and twice
+   !< each one-sided difference, with their common sign.
+   real(R8P), intent(in) :: dm    !< Backward difference, q(i) - q(i-1).
+   real(R8P), intent(in) :: dp    !< Forward difference, q(i+1) - q(i).
+   real(R8P)             :: slope !< Limited slope.
+
+   if (dm * dp <= 0._R8P) then
+      slope = 0._R8P
+   else
+      slope = sign(min(0.5_R8P * abs(dm + dp), 2._R8P * abs(dm), 2._R8P * abs(dp)), dm)
+   endif
+   endfunction mc_slope
 endmodule adam_field_object

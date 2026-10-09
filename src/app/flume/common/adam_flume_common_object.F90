@@ -10,11 +10,12 @@ module adam_flume_common_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
-                                             AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD
+                                             AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD, &
+                                             prolongation_name
 use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
                                              SEAM_KIND_INTER_REALM
-use :: adam_parameters,               only : TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
+use :: adam_parameters,               only : AMR_PROLONGATION_CONSERVATIVE, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,             only : realm_object
 use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
@@ -112,7 +113,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: block_spacing    !< Return the spacing of a block by a delta criterion.
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_dissipation     !< Refuse the dissipative terms not implemented yet.
-      procedure, pass(self), private :: check_runtime_amr     !< Check [amr] frequency (issue #74).
+      procedure, pass(self), private :: check_runtime_amr     !< Check [amr] frequency, default the prolongation (#74).
       procedure, pass(self), private :: check_positivity_limiter !< Refuse the limiter where it cannot work.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
       procedure, pass(self), private :: check_weno_scheme     !< Refuse the centred WENO schemes.
@@ -1138,8 +1139,13 @@ contains
    !<
    !< Runtime regridding lands phase by phase in #74; until FLUME regrids (P2), n > 0 is refused rather than ignored. A
    !< negative value is an input error.
-   class(flume_common_object), intent(in) :: self !< The equation.
+   !<
+   !< `[amr] regrid_prolongation` defaults to `conservative` in FLUME (owner decision D-M5-2): a regrid then keeps the
+   !< conserved integrals; the library default, `linear`, is kept only when the input asks for it.
+   class(flume_common_object), intent(inout) :: self !< The equation.
 
+   if (.not.self%amr%regrid_prolongation_given) self%amr%regrid_prolongation = AMR_PROLONGATION_CONSERVATIVE
+   if (mpih%myrank == 0) print '(A)', 'flume: [amr] regrid_prolongation = '//prolongation_name(self%amr%regrid_prolongation)
    if (self%amr%frequency < 0_I4P) &
       call mpih%error_stop(msg=': [amr].(frequency) must be 0 (no runtime regridding) or positive (regrid every n '// &
                                'steps), got '//trim(str(self%amr%frequency)))
