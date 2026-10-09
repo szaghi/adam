@@ -19,6 +19,7 @@ public :: prolongation_name
 public :: AMR_GEO
 public :: AMR_GRAD
 public :: AMR_TV
+public :: AMR_LOHNER
 public :: AMR_GEO_SOLID
 public :: AMR_GEO_PRIMITIVE_BOX
 public :: AMR_GEO_STL
@@ -34,6 +35,7 @@ character(len=3), parameter :: INI_SECTION_NAME="amr" !< INI (config) file secti
 integer(I4P), parameter :: AMR_GEO               = 1_I4P   !< Geometrical marker.
 integer(I4P), parameter :: AMR_GRAD              = 2_I4P   !< Field gradient marker.
 integer(I4P), parameter :: AMR_TV                = 3_I4P   !< Field total variation marker.
+integer(I4P), parameter :: AMR_LOHNER            = 4_I4P   !< Loehner normalized second derivative marker (issue #74).
 integer(I4P), parameter :: AMR_GEO_SOLID         = 101_I4P !< AMR_GEO geometry kind: solid/IB index (legacy default).
 integer(I4P), parameter :: AMR_GEO_PRIMITIVE_BOX = 102_I4P !< AMR_GEO geometry kind: primitive axis-aligned box.
 integer(I4P), parameter :: AMR_GEO_STL           = 103_I4P !< AMR_GEO geometry kind: STL surface file.
@@ -57,6 +59,10 @@ type :: amr_marker_object
    real(R8P)                 :: box_emax(3)=0._R8P     !< Primitive box maximum corner (AMR_GEO + AMR_GEO_PRIMITIVE_BOX).
    integer(I4P)              :: target_level=1_I4P     !< Refine blocks below this level (AMR_GEO + AMR_GEO_PRIMITIVE_BOX).
    character(:), allocatable :: stl_filename           !< STL surface file (AMR_GEO + AMR_GEO_STL).
+   real(R8P)                 :: refine_tol=0.8_R8P     !< Refine above this estimator value (AMR_LOHNER).
+   real(R8P)                 :: derefine_tol=0.2_R8P   !< Derefine below this estimator value (AMR_LOHNER).
+   real(R8P)                 :: epsilon=0.01_R8P       !< Noise filter of the estimator (AMR_LOHNER).
+   integer(I4P)              :: buffer=1_I4P           !< Ghost layers the estimator reads (AMR_LOHNER).
 endtype amr_marker_object
 
 type :: amr_object
@@ -206,6 +212,30 @@ contains
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
          call file_parameters%get(section_name=sname, option_name='tol', val=self%markers(i_marker)%tol, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(tol)')
+      case(AMR_LOHNER)
+         ! Loehner (1987) normalized second derivative, E in [0, 1]: refine above refine_tol, derefine below
+         ! derefine_tol, keep between (the hysteresis band); epsilon filters small ripples; buffer is the number of ghost
+         ! layers the estimator reads, so a feature at a neighbour's edge marks this block too
+         call file_parameters%get(section_name=sname, option_name='field', val=self%markers(i_marker)%field, error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
+         call file_parameters%get(section_name=sname, option_name='var', val=self%markers(i_marker)%ivar, error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
+         call file_parameters%get(section_name=sname, option_name='refine_tol', val=self%markers(i_marker)%refine_tol, &
+                                  error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(refine_tol)')
+         call file_parameters%get(section_name=sname, option_name='derefine_tol', &
+                                  val=self%markers(i_marker)%derefine_tol, error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(derefine_tol)')
+         ! optional, defaults kept when absent
+         call file_parameters%get(section_name=sname, option_name='epsilon', val=self%markers(i_marker)%epsilon, error=error)
+         call file_parameters%get(section_name=sname, option_name='buffer', val=self%markers(i_marker)%buffer, error=error)
+         associate(m=>self%markers(i_marker))
+         if (.not.(0._R8P <= m%derefine_tol .and. m%derefine_tol < m%refine_tol .and. m%refine_tol <= 1._R8P)) &
+            call mpih%error_stop(msg=': ['//sname//'] needs 0 <= derefine_tol < refine_tol <= 1, got '// &
+                                     trim(str(m%derefine_tol))//' and '//trim(str(m%refine_tol)))
+         if (m%epsilon < 0._R8P) call mpih%error_stop(msg=': ['//sname//'].(epsilon) must be >= 0')
+         if (m%buffer < 0_I4P) call mpih%error_stop(msg=': ['//sname//'].(buffer) must be >= 0')
+         endassociate
       endselect
    enddo
    endsubroutine load_from_file

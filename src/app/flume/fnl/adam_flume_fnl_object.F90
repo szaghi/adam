@@ -1551,6 +1551,10 @@ contains
    integer(I4P)                                     :: i             !< Counter.
 
    call self%initialize_flume(filename=filename, realms_number=realms_number)
+   if (self%amr%frequency > 0_I4P) &
+      call mpih_fnl%error_stop(msg=': [amr].(frequency)='//trim(str(self%amr%frequency, .true.))//' asks for runtime '// &
+                                   'regridding, which the FNL backend does not do yet (issue #74, lands in M5-P3); '// &
+                                   'set frequency = 0 or run the CPU backend')
    if (self%io%restart) then
       call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
       call self%load_restart_files(t=self%time%it, time=self%time%time)

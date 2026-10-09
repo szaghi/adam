@@ -149,6 +149,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: is_done_forest               !< Return true if the realm is done.
       procedure, pass(self) :: open_step_forest             !< Open a step (staged path).
       procedure, pass(self) :: post_step_forest             !< Post-step IO and diagnostics.
+      procedure, pass(self) :: regrid_forest                !< Regrid on the [amr] frequency cadence (issue #74).
       procedure, pass(self) :: stages_per_step_forest       !< Return the integrator stages per step.
 endtype flume_cpu_object
 
@@ -1517,7 +1518,7 @@ contains
    logical,                 intent(in),    optional         :: do_save_state     !< Unused: cadence is internal.
    logical,                 intent(in),    optional         :: do_save_residuals !< Unused: cadence is internal.
    logical,                 intent(in),    optional         :: do_save_restart   !< Unused: cadence is internal.
-   logical,                 intent(in),    optional         :: do_amr            !< Unused: AMR is init-time only.
+   logical,                 intent(in),    optional         :: do_amr            !< Unused: the forest regrids (regrid_forest).
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
    call self%check_nonfinite
@@ -1525,6 +1526,54 @@ contains
    call self%compute_divb_history(realm=realm)
    call self%save_simulation_data(realm=realm)
    endsubroutine post_step_forest
+
+   subroutine regrid_forest(self, regridded)
+   !< Regrid the realm on the cadence of `[amr] frequency` (issue #74, M5-P2); the forest calls it after every step,
+   !< before `post_step`, on the committed state.
+   !<
+   !< On a regrid step, up to `[amr] iters` sweeps, each: the ghost cells refreshed (the markers and the prolongation
+   !< read them), the markers combined into one set of flags (`mark_runtime`), the library regrid
+   !< (`adam_object%amr_update`: 2:1 balance, prolongation by `[amr] regrid_prolongation`, mean restriction,
+   !< redistribution, maps), and on a changed grid the solids' distance function recomputed (the solid marker of the
+   !< next sweep and the immersed boundary read it); a sweep that changes nothing ends the regrid. The new state is then
+   !< checked (`check_regridded_state`) and its ghosts and auxiliary variables refreshed. `regridded` tells the forest
+   !< to rebuild the 2:1 flux register; the grid is replicated, so every rank returns the same value.
+   class(flume_cpu_object), intent(inout) :: self            !< The equation.
+   logical,                 intent(out)   :: regridded       !< True if the grid changed.
+   logical                                :: is_grid_changed !< The sweep changed the grid.
+   integer(I4P)                           :: blocks(2)       !< Blocks over the ranks, before and after.
+   integer(I4P)                           :: sweeps          !< Sweeps that changed the grid.
+   integer(I4P)                           :: refined         !< Blocks refined over the sweeps (replicated tree).
+   integer(I4P)                           :: coarsened       !< Families of children merged into their parent.
+   integer(I4P)                           :: i               !< Counter.
+
+   regridded = .false.
+   if (.not.self%is_regrid_step()) return
+   blocks(1) = self%blocks_number
+   sweeps = 0_I4P ; refined = 0_I4P ; coarsened = 0_I4P
+   do i=1, self%amr%iters
+      call self%update_ghost(q=self%q)
+      call self%mark_runtime
+      call self%adam%amr_update(q=self%q, is_marked_by_field=.true., do_blocks_reorder=.false.,      &
+                                is_grid_changed=is_grid_changed, prolongation=self%amr%regrid_prolongation)
+      if (.not.is_grid_changed) exit
+      sweeps = sweeps + 1_I4P
+      refined   = refined   + int(size(self%adam%tree%node_to_refine,   dim=1), I4P)
+      coarsened = coarsened + int(size(self%adam%tree%node_to_derefine, dim=1), I4P) / self%adam%tree%ratio
+      call self%compute_phi
+   enddo
+   regridded = sweeps > 0_I4P
+   if (.not.regridded) return
+   blocks(2) = self%blocks_number
+   call MPI_ALLREDUCE(MPI_IN_PLACE, blocks, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call self%update_ghost(q=self%q)
+   call self%check_regridded_state
+   call self%compute_q_aux(q=self%q)
+   if (mpih%myrank == 0) print '(A)', 'flume: regrid at step '//trim(str(self%time%it, .true.))//': blocks '// &
+                                      trim(str(blocks(1), .true.))//' -> '//trim(str(blocks(2), .true.))//', '//  &
+                                      trim(str(refined, .true.))//' refined, '//trim(str(coarsened, .true.))//     &
+                                      ' coarsened, '//trim(str(sweeps, .true.))//' sweeps'
+   endsubroutine regrid_forest
 
    function stages_per_step_forest(self) result(K)
    !< Return the integrator stages per step: only SSP schemes are stage-splittable (staged path).

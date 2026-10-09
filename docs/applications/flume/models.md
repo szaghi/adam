@@ -116,7 +116,8 @@ constant cleaning speed $c_h$ and is damped at the rate
 $$\frac{c_h^2}{c_p^2} = \alpha\,\frac{c_h}{L},$$
 
 with `glm_alpha` $= \alpha$ and `glm_damping_length` $= L$ (a length, or `min-cell` for the minimum cell spacing of the
-realm, as Mignone & Tzeferacos 2010). $\psi$ is **not** part of the energy (mixed GLM); the damping source is applied to
+realm, as Mignone & Tzeferacos 2010; with runtime regridding the spacing of the finest level allowed, so that the damping
+rate does not change with the grid). $\psi$ is **not** part of the energy (mixed GLM); the damping source is applied to
 $\psi$ only. $c_h$ (`glm_ch`) is constant and uniform, and it bounds the time step (below). `glm_ch_check` warns or stops
 when the fastest wave $|u_n| + c_f$ outruns it.
 

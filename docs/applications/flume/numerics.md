@@ -341,7 +341,25 @@ interpolation, the reflux and the limiter's seam synchronisation work per axis (
 inject a truncation-level $\nabla\cdot\mathbf{B}$ that GLM transports and damps; the div(B) history reports it
 (`seam_max_divb`).
 
-**Regridding transfers** (runtime AMR, [#74](https://github.com/szaghi/adam/issues/74), in progress). When a block is
+**Runtime regridding** ([#74](https://github.com/szaghi/adam/issues/74); CPU, the FNL backend follows). With `[amr]
+frequency = n > 0`, after every $n$-th step and before its output, the realm regrids: up to `iters` sweeps, each one
+refreshing the ghost cells, combining the markers into one set of flags (a block is refined when any marker asks for it,
+coarsened only when all agree, never below the base level), and calling the library regrid (2:1 balance, prolongation,
+restriction, redistribution, maps). The distance function of the immersed solids is recomputed on the new grid, the new
+state is checked (density and pressure positive, fatal otherwise, with the cell), and the forest rebuilds the 2:1 flux
+register, so the reflux follows seams that appear and disappear. The time step stays global (no subcycling). The
+**Löhner marker** (Löhner 1987, mode 4) is the scale-free second-derivative estimator
+
+$$
+E = \sqrt{\frac{\sum_d \left(u_{+} - 2u + u_{-}\right)^2}{\sum_d \left(|u_{+} - u| + |u - u_{-}| +
+\epsilon\,(|u_{+}| + 2|u| + |u_{-}|)\right)^2}} \in [0, 1],
+$$
+
+in the dimension-sum form of FLASH and PLUTO ($u_\pm$ the neighbours along $d$): about 0 where the variable is smooth
+on the grid, about 1 at a jump. A block takes the largest $E$ over its cells and `buffer` ghost layers; it is refined
+above `refine_tol`, coarsened below `derefine_tol`, kept between.
+
+**Regridding transfers**. When a block is
 derefined, the parent takes the mean of its children. When one is refined, `[amr] regrid_prolongation` chooses how the
 children are filled. FLUME's default is `conservative`: each child is the parent plus monotonized-central slopes
 (van Leer 1977) times a quarter of a cell, one per refined axis, scaled by the largest $\phi \le 1$ that keeps every
@@ -397,6 +415,8 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`)
   conservation laws, *J. Comput. Phys.* 448, 110724.
 - Jiang G.-S., Shu C.-W. (1996), Efficient implementation of weighted ENO schemes, *J. Comput. Phys.* 126, 202–228.
 - Becker R. (1922), Stoßwelle und Detonation, *Z. Phys.* 8, 321–362.
+- Löhner R. (1987), An adaptive finite element scheme for transient problems in CFD, *Comput. Methods Appl. Mech.
+  Engrg.* 61, 323–338.
 - Miyoshi T., Kusano K. (2005), A multi-state HLL approximate Riemann solver for ideal MHD, *J. Comput. Phys.* 208, 315–344.
 - Shu C.-W., Osher S. (1989), Efficient implementation of essentially non-oscillatory shock-capturing schemes II,
   *J. Comput. Phys.* 83, 32–78.

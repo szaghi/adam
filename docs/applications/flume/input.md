@@ -124,9 +124,9 @@ Read in three places: the grid reads `ratio`, the tree reads the refinement shap
 | `max_level` | int | **no check** | declared 12, **not applied** | Refinements beyond it are silently cancelled. | yes | Maximum refinement level. |
 | `iu_ref_levels` | int | **no check** | declared -1, **not applied** | `<= 0`: none | yes | Uniform refinement levels applied at initialisation, before the initial conditions. |
 | `i_prune`, `j_prune`, `k_prune`, `l_prune` | int | **no check** | declared -1, **not applied** | See the notes below the table. | partly | Pruning of a "simple initial forest". FLUME never calls `prune`, but the values still enter the neighbour/boundary detection. |
-| `frequency` | int | yes | 100 | `>= 0` | yes | Runtime regrid cadence ([#74](https://github.com/szaghi/adam/issues/74)). `0`: no runtime regridding, the AMR of the initial condition only (every FLUME input sets it). `n > 0`: regrid every `n` steps; refused until #74 P2 lands it, and on a multi-realm forest. Negative: fatal. |
-| `iters` | int | yes | 5 | any | yes | Maximum marker sweeps per AMR update (it stops early when the grid is stable). |
-| `regrid_prolongation` | string | no | `conservative` | `linear`, `conservative` | yes | How a refined block's children are filled from the parent ([#74](https://github.com/szaghi/adam/issues/74)). `conservative` (the FLUME default): limited linear slopes whose children average to the parent, so a regrid keeps the conserved integrals and a positive variable positive. `linear`: the library's tensor linear interpolation (the library default, kept by the other apps), not conservative. Any other value is fatal. Derefinement is always the mean of the children. Used by runtime regridding (#74 P2); the AMR of the initial condition is unchanged. |
+| `frequency` | int | yes | 100 | `>= 0` | yes | Runtime regrid cadence ([#74](https://github.com/szaghi/adam/issues/74)). `0`: no runtime regridding, the AMR of the initial condition only. `n > 0`: after every `n`-th step the markers are combined and the grid regridded (up to `iters` sweeps); fatal without markers, on a multi-realm forest, and on the FNL backend until #74 P3. Negative: fatal. |
+| `iters` | int | yes | 5 | any | yes | Maximum marker sweeps per AMR update, at initialisation and at each runtime regrid (it stops early when the grid is stable); a sweep refines or coarsens one level. |
+| `regrid_prolongation` | string | no | `conservative` | `linear`, `conservative` | yes | How a refined block's children are filled from the parent ([#74](https://github.com/szaghi/adam/issues/74)). `conservative` (the FLUME default): limited linear slopes whose children average to the parent, so a regrid keeps the conserved integrals and a positive variable positive. `linear`: the library's tensor linear interpolation (the library default, kept by the other apps), not conservative. Any other value is fatal. Derefinement is always the mean of the children. Used by the runtime regrids; the initial AMR is unaffected (the initial condition is set again on the final grid). |
 | `markers_number` | int | yes | 0 | `>= 0` | yes | Number of `[amr_marker_N]` sections. With markers and `max_level > iu_ref_levels` (2:1 refinement possible), every refined non-null axis (x, y; z too on an octree) needs an even block cell count `ni`/`nj`/`nk`: an odd one is fatal at initialisation (issue #39; it used to give NaN silently). The same axes need at least `2 ngc` cells (6 with WENO5): a thinner block made the coarse ghosts read stale fine ghosts, silently; fatal at initialisation (issue #66). |
 | `seam_ghost_fill` | string | no | `tricubic` | `injection`, `restriction-compatible`, `tricubic`. Any other value is fatal. | yes | Coarse-to-fine ghost fill at 2:1 AMR seams. |
 
@@ -151,9 +151,11 @@ all seven tree keys.**
 
 Keys that are read but unused by FLUME's handling of a mode must still be present when marked `yes`.
 
+**Runtime regrids** (`[amr] frequency > 0`, [#74](https://github.com/szaghi/adam/issues/74)): the markers are combined into one set of flags. Each marker votes per block, refine, keep or coarsen; a block is refined when any marker asks for it, coarsened only when every marker agrees, and kept otherwise. No block is coarsened below the base level `iu_ref_levels`. As a vote, the box marker asks to refine inside the box below `target_level`, to keep inside at it, and to coarsen elsewhere. The Löhner marker (mode 4) reads ghost cells, which the initial AMR does not fill: it acts at the runtime regrids only, and the initial AMR, with the markers applied one after the other as before, skips it.
+
 | Key | Type | Req. | Accepted / invalid | Used | Meaning |
 |-----|------|------|--------------------|------|---------|
-| `mode` | int | yes | `1` = geometric (`AMR_GEO`), `2` = gradient (`AMR_GRAD`), `3` = total variation (`AMR_TV`). FLUME supports 1 and 2. `3` or any other value → fatal "mode ... is not supported by FLUME" at the first AMR pass. An unknown mode reads no further keys. | yes | Marker kind. |
+| `mode` | int | yes | `1` = geometric (`AMR_GEO`), `2` = gradient (`AMR_GRAD`), `3` = total variation (`AMR_TV`), `4` = Löhner (`AMR_LOHNER`). FLUME supports 1, 2 and 4 (4 at runtime regrids only, see below). `3` or any other value → fatal "mode ... is not supported by FLUME" at the first AMR pass. An unknown mode reads no further keys. | yes | Marker kind. |
 | `delta_type` | string | yes (all modes) | `x`, `y`, `z`, `max` (max over active directions). Other → fatal at marking. | modes 1 (solid) and 2 | Which block spacing is compared with `delta_fine`/`delta_coarse`. |
 | `delta_fine` | real | yes (all modes) | no check | modes 1 (solid) and 2 | Admissible spacing where the criterion fires. |
 | `delta_coarse` | real | yes (all modes) | no check | modes 1 (solid) and 2 | Admissible spacing elsewhere. A block is derefined when twice its spacing is still `<=` this. |
@@ -162,9 +164,12 @@ Keys that are read but unused by FLUME's handling of a mode must still be presen
 | `box_xmin`, `box_ymin`, `box_zmin`, `box_xmax`, `box_ymax`, `box_zmax` | real | mode 1 + `primitive-box` | no check | yes | Box: blocks whose centroid lies inside it are refined. |
 | `target_level` | int | mode 1 + `primitive-box` | no check (capped by `max_level`) | yes | Refine the in-box blocks until they reach this level. The marker is additive and never derefines. |
 | `stl_filename` | string | mode 1 + `stl` | — | no (`stl` is fatal in FLUME) | STL surface. |
-| `field` | int | modes 2, 3 | `1` = conservative `q`, `2` = auxiliary `q_aux`. Other → fatal at marking. | mode 2 | Array holding the marker variable. |
-| `var` | int | modes 2, 3 | 1..nv (field 1) or 1..nv_aux (field 2), otherwise fatal | mode 2 | Variable index (see the table below). |
+| `field` | int | modes 2, 3, 4 | `1` = conservative `q`, `2` = auxiliary `q_aux`. Other → fatal at marking. | modes 2, 4 | Array holding the marker variable. |
+| `var` | int | modes 2, 3, 4 | 1..nv (field 1) or 1..nv_aux (field 2), otherwise fatal | modes 2, 4 | Variable index (see the table below). |
 | `tol` | real | modes 2, 3 | no check | mode 2 | Gradient-magnitude threshold: `max\|grad var\| > tol` gives `delta_fine`. |
+| `refine_tol`, `derefine_tol` | real | mode 4 | `0 <= derefine_tol < refine_tol <= 1`, otherwise fatal | yes | Löhner estimator thresholds: a block whose largest estimator exceeds `refine_tol` is refined, one below `derefine_tol` coarsened, one between kept (hysteresis). |
+| `epsilon` | real | no (mode 4) | `>= 0`, default 0.01 | yes | Noise filter of the estimator: ripples smaller than about `epsilon` times the variable do not mark. |
+| `buffer` | int | no (mode 4) | `0..ngc-1`, default 1 | yes | Ghost layers the estimator reads, so a feature at a neighbour's edge marks the block too. |
 
 Variable indices for the gradient marker:
 
@@ -459,7 +464,7 @@ The section is not read for `euler`.
 | `divergence_control` | string | yes | `glm` (nv = 9, psi added), `eglm` (nv = 9, psi also in the energy; the `glm_*` keys apply) or `none` (nv = 8). Other → fatal. | div(B) control. |
 | `glm_ch` | real | `glm`, `eglm` | `> 0`, otherwise fatal | Constant cleaning speed `c_h`. It also bounds the time step (`c_h * sum 1/dx`). |
 | `glm_alpha` | real | `glm`, `eglm` | `>= 0`, otherwise fatal | Damping parameter: `c_h^2/c_p^2 = glm_alpha * c_h / L`. |
-| `glm_damping_length` | real or `min-cell` | `glm`, `eglm` | A positive real, or the literal `min-cell` (the minimum cell spacing over the active directions, MPI-reduced). A non-number or a value `<= 0` is fatal. | Damping length `L`. |
+| `glm_damping_length` | real or `min-cell` | `glm`, `eglm` | A positive real, or the literal `min-cell` (the minimum cell spacing over the active directions, MPI-reduced; with runtime regridding, `[amr] frequency > 0`, the spacing of the finest level `max_level` allows, fixed for the run). A non-number or a value `<= 0` is fatal. | Damping length `L`. |
 | `glm_ch_check` | string | `glm`, `eglm` | `warning` or `error`. Other → fatal. Without GLM it is forced to `warning` and not read. | What happens when `max(\|u\|+c_f) > glm_ch`: warn (logged each time a new maximum appears) or stop. |
 | `divb_tol` | real | yes | `>= 0`, otherwise fatal. `0` disables the monitor. | Monitor: `max\|div B\| > divb_tol` warns or stops. |
 | `divb_error` | logical | yes | logical | `.true.`: exceeding `divb_tol` is fatal. |

@@ -11,7 +11,7 @@ module adam_flume_common_object
 ! ADAM classes, libraries, parameters
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
                                              AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD, &
-                                             prolongation_name
+                                             AMR_LOHNER, prolongation_name
 use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
                                              SEAM_KIND_INTER_REALM
@@ -84,6 +84,10 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: mark_by_geometry !< Mark blocks to be refined by a primitive geometric box.
       procedure, pass(self) :: mark_by_gradient !< Mark blocks by the gradient of a conservative or auxiliary variable.
       procedure, pass(self) :: mark_by_solid    !< Mark blocks crossed by the surface of an immersed solid.
+      procedure, pass(self) :: mark_by_lohner   !< Mark blocks by the Loehner estimator of a variable (issue #74).
+      procedure, pass(self) :: mark_runtime     !< Combine the markers into the flags of a runtime regrid (issue #74).
+      procedure, pass(self) :: check_regridded_state !< Stop on an inadmissible state after a regrid (issue #74).
+      procedure, pass(self) :: is_regrid_step   !< Whether the step just closed is a runtime regrid step (issue #74).
       ! public methods
       procedure, pass(self) :: accumulate_seam_skin  !< Route one weighted seam face skin to the forest's flux register.
       procedure, pass(self) :: allocate_common       !< Allocate common data.
@@ -126,7 +130,9 @@ endtype flume_common_object
 contains
    ! AMR methods
    subroutine amr_update(self)
-   !< Do AMR update: `amr%iters` sweeps over the markers until the grid stabilizes (initialization-time only).
+   !< Do AMR update: `amr%iters` sweeps over the markers until the grid stabilizes (initialization-time only). The
+   !< Loehner marker is skipped: it reads ghost cells, which the initial AMR does not fill; it acts at the runtime
+   !< regrids (`mark_runtime`, issue #74).
    class(flume_common_object), intent(inout) :: self                !< The equation.
    logical                                   :: is_grid_changed     !< Flag to check grid changes for each marker.
    logical                                   :: is_grid_changed_all !< Flag to check grid changes for each iter.
@@ -158,6 +164,9 @@ contains
             call self%mark_by_gradient(field=amr_marker%field, ivar=amr_marker%ivar, tol=amr_marker%tol,           &
                                        delta_type=amr_marker%delta_type, delta_fine=amr_marker%delta_fine, &
                                        delta_coarse=amr_marker%delta_coarse)
+         case(AMR_LOHNER)
+            ! runtime regrids only (mark_runtime): the estimator reads ghost cells, not filled during the initial AMR
+            cycle
          case default
             call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
          endselect
@@ -305,6 +314,197 @@ contains
                                                                     delta=delta)
    enddo
    endsubroutine mark_by_solid
+
+   subroutine mark_by_lohner(self, field, ivar, refine_tol, derefine_tol, epsilon, buffer)
+   !< Mark blocks by the Loehner (1987) estimator of a conservative (`field = 1`) or auxiliary (`field = 2`) variable
+   !< (issue #74, D-M5-8).
+   !<
+   !< The dimension-sum form of FLASH and PLUTO: on a cell, `E = sqrt(sum_d N_d^2 / sum_d D_d^2)` over the active
+   !< directions, `N_d = |u_+ - 2 u + u_-|` and `D_d = |u_+ - u| + |u - u_-| + epsilon (|u_+| + 2 |u| + |u_-|)`, with
+   !< `u_+-` the neighbours along `d`. `E` lies in [0, 1], independent of the scale of `u` and of the cell size: about 0
+   !< where `u` is smooth on the grid, about 1 at a jump; `epsilon` keeps small ripples from triggering. A block takes the
+   !< largest `E` over its interior cells and `buffer` ghost layers (a feature at a neighbour's edge marks this block
+   !< too): refined above `refine_tol`, derefined below `derefine_tol`, untouched between (the hysteresis band keeps
+   !< a block near the threshold from flipping at every regrid). The caller refreshes the ghost cells of `q`.
+   class(flume_common_object), intent(inout) :: self         !< The equation.
+   integer(I4P),               intent(in)    :: field        !< Marker field: 1 conservative, 2 auxiliary variables.
+   integer(I4P),               intent(in)    :: ivar         !< Variable index in the marker field.
+   real(R8P),                  intent(in)    :: refine_tol   !< Refine above this estimator value.
+   real(R8P),                  intent(in)    :: derefine_tol !< Derefine below this estimator value.
+   real(R8P),                  intent(in)    :: epsilon      !< Noise filter.
+   integer(I4P),               intent(in)    :: buffer       !< Ghost layers the estimator reads.
+   real(R8P)                                 :: u(-1:1,3)    !< The cell and its neighbours along each direction.
+   real(R8P)                                 :: num, den     !< Numerator and denominator sums.
+   real(R8P)                                 :: e_max        !< Largest estimator of a block.
+   integer(I4P)                              :: lo(3), hi(3) !< Cells the estimator visits.
+   integer(I4P)                              :: e(3,3)       !< Unit steps of the active directions (0 rows if null).
+   integer(I4P)                              :: b, i, j, k, d, s !< Counters.
+
+   if ((field == 1_I4P .and. (ivar < 1_I4P .or. ivar > self%physics%nv))     .or. &
+       (field == 2_I4P .and. (ivar < 1_I4P .or. ivar > self%physics%nv_aux)) .or. (field < 1_I4P .or. field > 2_I4P)) &
+      call mpih%error_stop(msg=': AMR Loehner marker: invalid field '//trim(str(field))//' / ivar '//trim(str(ivar)))
+   if (field == 2_I4P) call self%compute_q_aux_host
+   e = 0_I4P
+   lo = 1_I4P ; hi = [self%ni, self%nj, self%nk]
+   do d=1, 3
+      if (self%adam%grid%null_xyz(d) .or. hi(d) == 1_I4P) cycle
+      e(d,d) = 1_I4P
+      lo(d) = 1_I4P - buffer ; hi(d) = hi(d) + buffer
+   enddo
+   associate(refinements_needed=>self%adam%field%refinements_needed)
+   refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
+   do b=1, self%blocks_number
+      e_max = 0._R8P
+      do k=lo(3), hi(3)
+         do j=lo(2), hi(2)
+            do i=lo(1), hi(1)
+               num = 0._R8P ; den = 0._R8P
+               do d=1, 3
+                  if (e(d,d) == 0_I4P) cycle
+                  do s=-1, 1
+                     if (field == 1_I4P) then
+                        u(s,d) = self%q(ivar, i+s*e(1,d), j+s*e(2,d), k+s*e(3,d), b)
+                     else
+                        u(s,d) = self%q_aux(ivar, i+s*e(1,d), j+s*e(2,d), k+s*e(3,d), b)
+                     endif
+                  enddo
+                  num = num + (u(1,d) - 2._R8P * u(0,d) + u(-1,d))**2
+                  den = den + (abs(u(1,d) - u(0,d)) + abs(u(0,d) - u(-1,d)) + &
+                               epsilon * (abs(u(1,d)) + 2._R8P * abs(u(0,d)) + abs(u(-1,d))))**2
+               enddo
+               if (den > 0._R8P) e_max = max(e_max, sqrt(num / den))
+            enddo
+         enddo
+      enddo
+      if (e_max > refine_tol) then
+         refinements_needed(b) = TO_BE_REFINED
+      elseif (e_max < derefine_tol) then
+         refinements_needed(b) = TO_BE_DEREFINED
+      endif
+   enddo
+   endassociate
+   endsubroutine mark_by_lohner
+
+   subroutine mark_runtime(self)
+   !< Combine the markers into the flags of a runtime regrid (issue #74, D-M5-8).
+   !<
+   !< Each marker votes per block: refine, keep (untouched) or derefine. A block is refined when any marker asks for it,
+   !< derefined only when every marker agrees, untouched otherwise; a block at the base level (`iu_ref_levels`, the
+   !< uniform level of the initial grid) is never derefined. The geometric box votes refine inside the box below its
+   !< target level, keep inside at the target level, derefine elsewhere (outside the box, or inside above the target):
+   !< as a vote it must not pin the grid outside its box, as it would if "untouched" vetoed the other markers there.
+   !< The initial AMR (`amr_update`) is unchanged: there the markers act one after the other. The caller refreshes the
+   !< ghost cells of `q` (the Loehner marker and the solid marker read them).
+   class(flume_common_object), intent(inout) :: self         !< The equation.
+   logical, allocatable                      :: refine(:)    !< Some marker asks to refine the block.
+   logical, allocatable                      :: derefine(:)  !< Every marker so far agrees to derefine the block.
+   real(R8P)                                 :: centroid(3)  !< Block centroid.
+   integer(I4P)                              :: base_level   !< Level below which no block derefines.
+   integer(I4P)                              :: i_marker, b  !< Counters.
+   type(amr_marker_object)                   :: amr_marker   !< Current AMR marker.
+
+   allocate(refine(self%blocks_number), derefine(self%blocks_number))
+   refine = .false. ; derefine = .true.
+   base_level = max(0_I4P, self%adam%tree%iu_ref_levels)
+   associate(field=>self%adam%field, tree=>self%adam%tree)
+   field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
+   do i_marker=1, self%amr%markers_number
+      amr_marker = self%amr%markers(i_marker)
+      select case(amr_marker%mode)
+      case(AMR_GEO)
+         select case(amr_marker%geo_type)
+         case(AMR_GEO_PRIMITIVE_BOX)
+            do b=1, self%blocks_number
+               centroid = 0.5_R8P * (field%emin(:,b) + field%emax(:,b))
+               if (all(centroid >= amr_marker%box_emin) .and. all(centroid <= amr_marker%box_emax)) then
+                  if (tree%level(field%code(b)) < amr_marker%target_level) then
+                     field%refinements_needed(b) = TO_BE_REFINED
+                  elseif (tree%level(field%code(b)) == amr_marker%target_level) then
+                     field%refinements_needed(b) = TO_NOT_TOUCH
+                  else
+                     field%refinements_needed(b) = TO_BE_DEREFINED
+                  endif
+               else
+                  field%refinements_needed(b) = TO_BE_DEREFINED
+               endif
+            enddo
+         case(AMR_GEO_SOLID)
+            call self%mark_by_solid(solid=amr_marker%solid, delta_type=amr_marker%delta_type, &
+                                    delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
+         case default
+            call mpih%error_stop(msg=': AMR marker geo_type '//trim(str(amr_marker%geo_type))// &
+                                     ' is not supported by FLUME runtime regridding')
+         endselect
+      case(AMR_GRAD)
+         call self%mark_by_gradient(field=amr_marker%field, ivar=amr_marker%ivar, tol=amr_marker%tol,           &
+                                    delta_type=amr_marker%delta_type, delta_fine=amr_marker%delta_fine, &
+                                    delta_coarse=amr_marker%delta_coarse)
+      case(AMR_LOHNER)
+         call self%mark_by_lohner(field=amr_marker%field, ivar=amr_marker%ivar, refine_tol=amr_marker%refine_tol, &
+                                  derefine_tol=amr_marker%derefine_tol, epsilon=amr_marker%epsilon,             &
+                                  buffer=amr_marker%buffer)
+      case default
+         call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
+      endselect
+      refine   = refine   .or.  field%refinements_needed(1:self%blocks_number) == TO_BE_REFINED
+      derefine = derefine .and. field%refinements_needed(1:self%blocks_number) == TO_BE_DEREFINED
+   enddo
+   do b=1, self%blocks_number
+      if (refine(b)) then
+         field%refinements_needed(b) = TO_BE_REFINED
+      elseif (derefine(b) .and. tree%level(field%code(b)) > base_level) then
+         field%refinements_needed(b) = TO_BE_DEREFINED
+      else
+         field%refinements_needed(b) = TO_NOT_TOUCH
+      endif
+   enddo
+   endassociate
+   endsubroutine mark_runtime
+
+   subroutine check_regridded_state(self)
+   !< Stop on an inadmissible state after a runtime regrid (issue #74): density or pressure not positive on an interior
+   !< cell. The conservative prolongation keeps every conserved variable in the range of its stencil, so the density
+   !< stays positive, but the pressure is a nonlinear function of the conserved variables and a child of a cell next to
+   !< a strong jump can lose it; the run is stopped here, at its cause, rather than later at a non-finite flux.
+   class(flume_common_object), intent(inout) :: self    !< The equation.
+   integer(I8P)                              :: n       !< Inadmissible cells number.
+   integer(I4P)                              :: b, i, j, k !< Counters.
+   real(R8P)                                 :: where_(4) !< First inadmissible cell of this rank: x, y, z, rank.
+
+   call self%compute_q_aux_host
+   n = 0_I8P
+   where_ = [0._R8P, 0._R8P, 0._R8P, -1._R8P]
+   do b=1, self%blocks_number
+      do k=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               if (.not.(self%q_aux(1,i,j,k,b) > 0._R8P .and. self%q_aux(5,i,j,k,b) > 0._R8P)) then
+                  if (n == 0_I8P) where_ = [self%adam%field%x_cell(i,b), self%adam%field%y_cell(j,b), &
+                                            self%adam%field%z_cell(k,b), real(mpih%myrank, R8P)]
+                  n = n + 1_I8P
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+   if (n > 0_I8P) print '(A)', mpih%myrankstr//'regrid: '//trim(str(n))//' inadmissible cells (rho or p <= 0), the '// &
+                               'first at x = '//trim(str(where_(1)))//', y = '//trim(str(where_(2)))//', z = '//     &
+                               trim(str(where_(3)))
+   call MPI_ALLREDUCE(MPI_IN_PLACE, n, 1, MPI_INTEGER8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (n > 0_I8P) call mpih%error_stop(msg=': the state after the regrid has '//trim(str(n))//' inadmissible cells '// &
+                                           '(rho or p <= 0; see the rank messages above)')
+   endsubroutine check_regridded_state
+
+   function is_regrid_step(self) result(yes)
+   !< Return whether the step just closed is a runtime regrid step: `[amr] frequency > 0` and the step count a multiple
+   !< of it (issue #74). The step count is restored by a restart, so a restarted run regrids on the same steps.
+   class(flume_common_object), intent(in) :: self !< The equation.
+   logical                                :: yes  !< True on a regrid step.
+
+   yes = .false.
+   if (self%amr%frequency <= 0_I4P .or. self%time%it <= 0_I4P) return
+   yes = mod(self%time%it, self%amr%frequency) == 0_I4P
+   endfunction is_regrid_step
 
    ! public methods
    subroutine accumulate_seam_skin(self, flux_register, b, fec, weight, skin)
@@ -840,7 +1040,9 @@ contains
 
    subroutine set_glm_damping(self)
    !< Set the GLM damping once the grid exists (issue #41, section 3.5): the minimum cell spacing of the realm over the
-   !< active directions (MPI-reduced) is the `min-cell` damping length. A no-op without GLM.
+   !< active directions (MPI-reduced) is the `min-cell` damping length. With runtime regridding (`[amr] frequency > 0`,
+   !< issue #74) it is the spacing of the finest level allowed (`[amr] max_level`), fixed for the run whatever the grid
+   !< holds. A no-op without GLM.
    class(flume_common_object), intent(inout) :: self     !< The equation.
    real(R8P)                                 :: min_cell !< Minimum cell spacing.
    integer(I4P)                              :: b, d     !< Counters.
@@ -849,7 +1051,15 @@ contains
    min_cell = huge(1._R8P)
    do b=1, self%blocks_number
       do d=1, 3
-         if (.not.self%adam%grid%null_xyz(d)) min_cell = min(min_cell, self%adam%field%dxyz(d,b))
+         if (self%adam%grid%null_xyz(d)) cycle
+         if (self%amr%frequency > 0_I4P) then
+            ! runtime regridding: the spacing of this block at the finest level allowed, so the length does not follow
+            ! the grid (D-M5-9: a damping rate that changed at every regrid would change the scheme with the grid)
+            min_cell = min(min_cell, self%adam%field%dxyz(d,b) / &
+                                     2._R8P**(self%adam%tree%max_level - self%adam%tree%level(self%adam%field%code(b))))
+         else
+            min_cell = min(min_cell, self%adam%field%dxyz(d,b))
+         endif
       enddo
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, min_cell, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
@@ -1135,23 +1345,32 @@ contains
 
    subroutine check_runtime_amr(self)
    !< Check `[amr] frequency`, the runtime regrid cadence (issue #74, M5): 0 disables runtime regridding (the AMR of the
-   !< initial condition only, as before M5), n > 0 regrids every n steps.
-   !<
-   !< Runtime regridding lands phase by phase in #74; until FLUME regrids (P2), n > 0 is refused rather than ignored. A
-   !< negative value is an input error.
+   !< initial condition only, as before M5), n > 0 regrids every n steps with the markers of `[amr_marker_N]`
+   !< (`mark_runtime`). A negative value is an input error, and so are runtime regridding without markers, a Loehner
+   !< marker reading more ghost layers than the stencil has (`buffer <= ngc - 1`) and an STL geometry marker.
    !<
    !< `[amr] regrid_prolongation` defaults to `conservative` in FLUME (owner decision D-M5-2): a regrid then keeps the
    !< conserved integrals; the library default, `linear`, is kept only when the input asks for it.
-   class(flume_common_object), intent(inout) :: self !< The equation.
+   class(flume_common_object), intent(inout) :: self     !< The equation.
+   integer(I4P)                              :: i_marker !< Counter.
 
    if (.not.self%amr%regrid_prolongation_given) self%amr%regrid_prolongation = AMR_PROLONGATION_CONSERVATIVE
    if (mpih%myrank == 0) print '(A)', 'flume: [amr] regrid_prolongation = '//prolongation_name(self%amr%regrid_prolongation)
    if (self%amr%frequency < 0_I4P) &
       call mpih%error_stop(msg=': [amr].(frequency) must be 0 (no runtime regridding) or positive (regrid every n '// &
                                'steps), got '//trim(str(self%amr%frequency)))
-   if (self%amr%frequency > 0_I4P) &
+   do i_marker=1, self%amr%markers_number
+      associate(m=>self%amr%markers(i_marker))
+      if (m%mode == AMR_LOHNER .and. m%buffer > self%adam%grid%ngc - 1_I4P) &
+         call mpih%error_stop(msg=': [amr_marker_'//trim(str(i_marker, .true.))//'].(buffer)='//trim(str(m%buffer, .true.))//&
+                                  ' exceeds [grid].(ngc) - 1 = '//trim(str(self%adam%grid%ngc - 1_I4P, .true.))//         &
+                                  ' (the estimator reads one cell beyond the buffer)')
+      endassociate
+   enddo
+   if (self%amr%frequency == 0_I4P) return
+   if (self%amr%markers_number == 0_I4P) &
       call mpih%error_stop(msg=': [amr].(frequency)='//trim(str(self%amr%frequency, .true.))//' asks for runtime '// &
-                               'regridding, which is not implemented yet (issue #74, lands in M5-P2); set frequency = 0')
+                               'regridding, but [amr].(markers_number) = 0: nothing would mark a block')
    endsubroutine check_runtime_amr
 
    function runtime_amr_forest(self) result(yes)

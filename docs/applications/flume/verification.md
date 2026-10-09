@@ -924,11 +924,13 @@ cd src/tests/flume/verification/viscous
 ## Runtime regridding (M5, in progress)
 
 Milestone M5 ([#74](https://github.com/szaghi/adam/issues/74)) regrids during the time loop. `[amr] frequency = 0`, the
-value of every input so far, keeps the AMR of the initial condition only; `n > 0` regrids every `n` steps and is refused
-until #74 P2 lands it. The library already holds a complete regrid step (`adam_object%amr_update`: the tree adapts with
+value of every input so far, keeps the AMR of the initial condition only; `n > 0` regrids every `n` steps (on the CPU;
+the FNL backend refuses it until #74 P3). The library already holds a complete regrid step (`adam_object%amr_update`: the tree adapts with
 2:1 balance, the interior data is prolonged or restricted, the blocks are redistributed, the maps rebuilt); P0 tests it
 on its own and puts the hooks in place. P1 adds the conservative prolongation FLUME regrids with
-(`[amr] regrid_prolongation`, default `conservative`).
+(`[amr] regrid_prolongation`, default `conservative`). P2 regrids FLUME on the CPU: the markers combined, the Löhner
+estimator, the solids' distance function and the flux register rebuilt, restarts across regrids
+([numerics](./numerics#adaptive-mesh-refinement)).
 
 ### RG: the regrid round trip and the input contract
 
@@ -959,8 +961,8 @@ reproduced exactly.
   after the refine; with `conservative`, the round trip returns the initial state and $\sum q\,\Delta V$ is unchanged
   after the refine and after the round trip, on every field, and the front stays in $(0.01, 1)$; with `linear`, the
   quadratic field drifts (the negative control).
-- rg1, the `frequency` contract on the sod-x input: 0 runs, a negative value is fatal, `n > 0` is refused with its
-  message.
+- rg1, the `frequency` contract on the sod-x input: 0 runs, a negative value is fatal, `n > 0` without markers is
+  fatal, each with its message.
 - rg2, the `regrid_prolongation` contract on sod-x: absent resolves to `conservative`, `linear` and `conservative` are
   taken as given, any other value is fatal.
 
@@ -979,8 +981,39 @@ $2.6\cdot10^{-4}$ of the scale, the conservative one's by $1.1\cdot10^{-4}$) but
 refine. The bound scaling is load-bearing: with $\phi = 1$ forced (a mutation run), an octree child of the front
 reaches $-0.094$, below zero, and the leg fails; on the quadtree the MC limit alone suffices for this front.
 
-The register rebuild after a regrid (`forest%regrid`, P0) is exercised by the first FLUME runs that regrid (P2):
-the library test has no forest.
+### RG: runtime regrids in FLUME
+
+**Why.** A regrid during the run must not change what the scheme conserves, must leave the run reproducible across a
+restart, and must keep every grid-dependent piece (the flux register, the solids' distance function) in step with the
+grid. These legs regrid for real, on cases where the grid keeps changing.
+
+**Legs** (`regrid/check.sh`, inputs from `regrid/make_regrid.py`):
+
+- rg3, conservation through regrids: the isentropic vortex of V2 travelling across a periodic quadtree (base level 1,
+  `max_level` 3, 8×8 cells per block), a Löhner marker on the density (`refine_tol` 0.3, `derefine_tol` 0.1, buffer 2),
+  a regrid every 5 steps, reflux on, 200 steps. Asserted: the grid refines and coarsens during the run; with the
+  conservative prolongation the five volume integrals stay constant within $10^{-13}$; with the linear one they drift
+  above $10^{-10}$ (the negative control). Nothing crosses the periodic boundary, so a drift can only come from a
+  regrid or a seam: the leg covers the prolongation, the restriction, the redistribution and the flux register rebuilt
+  at every regrid, with seams that appear and disappear.
+- rg4, restart across regrids: 30 steps against 20 steps, a restart and 10 more, the restart saved at step 20, a regrid
+  step that changes the grid (asserted). The last fields bitwise and the histories identical. The forest regrids before
+  the per-step output, so the restart holds the grid the next step runs on; saved before the regrid, it would not.
+- rg5, immersed solid: the shock over the cylinder (V6) with the solid marker and a Löhner marker (`refine_tol` 0.6),
+  a regrid every 5 steps, 60 steps: the run completes with a regrid that changes the grid, each regrid checking the
+  new state (density and pressure positive). Its accuracy against the initial-AMR and uniform runs is #74 P4 (AV-7).
+
+**Results** (CPU, np 2):
+
+| Leg | Regrids that changed the grid | Blocks refined / families coarsened | Measured |
+|---|---|---|---|
+| rg3 `conservative` | 10 | 20 / 4 | drift $2.2\cdot10^{-16}$ (ρ), $1.3\cdot10^{-16}$ (ρE) |
+| rg3 `linear` | 7 | 14 / 6 | drift $2.6\cdot10^{-5}$ (ρ), $2.2\cdot10^{-4}$ (ρu) |
+| rg4 | 3 (steps 5, 20, 25) | — | 40 blocks bitwise, histories identical |
+| rg5 | 1 (176 → 344 blocks) | 24 / 0 | completes, admissible |
+
+The two rg3 runs regrid differently: the linear prolongation changes the data the Löhner estimator reads, so the grids
+part after the first regrid. The integrals still separate the two by eleven orders of magnitude.
 
 P0 also fixes the capacity check of a regrid: the new blocks take indices on their parent's rank before the
 redistribution, so the bound is per rank (`nb`), not the former `procs_number · nb` over every node of the replicated

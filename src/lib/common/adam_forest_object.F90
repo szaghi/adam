@@ -464,7 +464,10 @@ contains
    subroutine regrid(self, realm)
    !< Let every realm regrid if its cadence asks for it now, then rebuild what the forest owns (issue #74, M5).
    !<
-   !< Runs after `post_step`, on committed `q` (no stage active). A realm that regrids changes its tree, so the
+   !< Runs after the step closes and before `post_step`, on committed `q` (no stage active): the fields, histories and
+   !< restart files `post_step` saves then describe the grid the next step runs on, so a run restarted at a regrid step
+   !< continues exactly as the uninterrupted one (saved before the regrid, the restart held the old grid and the
+   !< restarted run diverged from the regrid step on). A realm that regrids changes its tree, so the
    !< intra-realm 2:1 faces of the flux register (and the per-block register index the positivity seam sync and the
    !< div(B) seam band read) describe the old grid: the register is rebuilt from the new trees. Runtime regridding is
    !< single-realm (refused on a multi-realm forest at initialisation, `check_runtime_amr`), so no inter-realm seam row
@@ -505,8 +508,8 @@ contains
       if (self%timing) self%wtime(2) = self%wtime(2) - MPI_Wtime()
       call self%evolve_one_step(realm=realm)
       if (self%timing) self%wtime(2) = self%wtime(2) + MPI_Wtime()
-      call self%post_step(realm=realm)
       call self%regrid(realm=realm)
+      call self%post_step(realm=realm)
       call self%is_done(realm=realm, done=done)
       if (done) exit
    enddo
@@ -535,8 +538,8 @@ contains
       if (self%timing) self%wtime(2) = self%wtime(2) - MPI_Wtime()
       call self%evolve_one_step(realm=realm)
       if (self%timing) self%wtime(2) = self%wtime(2) + MPI_Wtime()
-      call self%post_step(realm=realm)
       call self%regrid(realm=realm)
+      call self%post_step(realm=realm)
       call self%is_done(realm=realm, done=done)
       if (done) exit
    enddo
