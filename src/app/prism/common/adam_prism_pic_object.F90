@@ -43,7 +43,8 @@ public :: DIRECT_CURRENT_CONSERVING_SOLVER
 public :: CONSERVING_CURRENT_WEIGHTING_MODEL
 public :: effective_gaussian_weight
 public :: bspline_weight
-public :: quartic_closed_weights
+public :: bspline_closed_weights
+public :: set_bspline_stencil
 !public :: CIC_charge_weighting
 !public :: NGP_charge_weighting
 !public :: TSC_charge_weighting
@@ -840,9 +841,10 @@ contains
    integer(I4P)                           :: k_min, k_max
    real(R8P)                              :: dx, dy, dz
    real(R8P)                              :: wx, wy, wz, weight
-   real(R8P)                              :: wx_quartic(5), wy_quartic(5), wz_quartic(5)
+   integer(I4P)                           :: i_lo, j_lo, k_lo
+   real(R8P)                              :: wx_closed(7), wy_closed(7), wz_closed(7)
    real(R8P)                              :: charge_density
-   logical                                :: close_quartic
+   logical                                :: closed
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
 
@@ -872,16 +874,22 @@ contains
          k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
       endif
 
-      close_quartic = order == 4_I4P .and. .not.self%filter_deposition
-      if (close_quartic) then
-         close_quartic = i_p-2 >= lbound(x_cell,1) .and. i_p+2 <= ubound(x_cell,1) .and. &
-                         j_p-2 >= lbound(y_cell,1) .and. j_p+2 <= ubound(y_cell,1) .and. &
-                         k_p-2 >= lbound(z_cell,1) .and. k_p+2 <= ubound(z_cell,1)
+      ! Unfiltered shapes: close each 1D stencil to sum exactly 1 (bspline_closed_weights); the Esirkepov current is built
+      ! from the same closed weights, so rho and the current stay consistent.
+      closed = .not.self%filter_deposition
+      if (closed) then
+         closed = i_min >= lbound(x_cell,1) .and. i_max <= ubound(x_cell,1) .and. &
+                  j_min >= lbound(y_cell,1) .and. j_max <= ubound(y_cell,1) .and. &
+                  k_min >= lbound(z_cell,1) .and. k_max <= ubound(z_cell,1)
       endif
-      if (close_quartic) then
-         call quartic_closed_weights(q_pic(1,n),x_cell(i_p-2:i_p+2,b_p),dx,wx_quartic)
-         call quartic_closed_weights(q_pic(2,n),y_cell(j_p-2:j_p+2,b_p),dy,wy_quartic)
-         call quartic_closed_weights(q_pic(3,n),z_cell(k_p-2:k_p+2,b_p),dz,wz_quartic)
+      if (closed) then
+         i_lo = i_min ; j_lo = j_min ; k_lo = k_min
+         call bspline_closed_weights(order=order,x_p=q_pic(1,n),x_cell=x_cell(i_min:i_max,b_p),dx=dx, &
+                                     w=wx_closed(1:i_max-i_min+1))
+         call bspline_closed_weights(order=order,x_p=q_pic(2,n),x_cell=y_cell(j_min:j_max,b_p),dx=dy, &
+                                     w=wy_closed(1:j_max-j_min+1))
+         call bspline_closed_weights(order=order,x_p=q_pic(3,n),x_cell=z_cell(k_min:k_max,b_p),dx=dz, &
+                                     w=wz_closed(1:k_max-k_min+1))
       endif
 
       i_min = max(i_min, lbound(q,dim=2)) ; i_max = min(i_max, ubound(q,dim=2))
@@ -889,22 +897,22 @@ contains
       k_min = max(k_min, lbound(q,dim=4)) ; k_max = min(k_max, ubound(q,dim=4))
 
       do k = k_min, k_max
-         if (close_quartic) then
-            wz = wz_quartic(k-k_p+3)
+         if (closed) then
+            wz = wz_closed(k-k_lo+1)
          else
             wz = effective_bspline_weight(order=order, r=(q_pic(3,n) - z_cell(k,b_p)) / dz, &
                                           filter=self%filter_deposition)
          endif
          do j = j_min, j_max
-            if (close_quartic) then
-               wy = wy_quartic(j-j_p+3)
+            if (closed) then
+               wy = wy_closed(j-j_lo+1)
             else
                wy = effective_bspline_weight(order=order, r=(q_pic(2,n) - y_cell(j,b_p)) / dy, &
                                              filter=self%filter_deposition)
             endif
             do i = i_min, i_max
-               if (close_quartic) then
-                  wx = wx_quartic(i-i_p+3)
+               if (closed) then
+                  wx = wx_closed(i-i_lo+1)
                else
                   wx = effective_bspline_weight(order=order, r=(q_pic(1,n) - x_cell(i,b_p)) / dx, &
                                                 filter=self%filter_deposition)
@@ -919,24 +927,33 @@ contains
    endassociate
    endsubroutine bspline_charge_weighting
 
-   pure subroutine quartic_closed_weights(x_p, x_cell, dx, w)
-   !< Close the five unfiltered quartic weights by changing only the largest one.
+   pure subroutine bspline_closed_weights(order, x_p, x_cell, dx, w, pu_error)
+   !< Close the unfiltered B-spline weights of one stencil to sum to 1 by changing only the largest one.
+   !< The raw sum misses 1 by the roundoff of the cell-center spacing (x_cell is not exactly equispaced in floating point).
+   !< That residual depends on the stencil: for a C0 shape (CIC) it jumps when the stencil changes, so the Esirkepov line
+   !< sums no longer vanish and a spurious current runs to the domain boundary. Closing every stencil removes it.
    implicit none
-   real(R8P), intent(in)  :: x_p, x_cell(1:5), dx
-   real(R8P), intent(out) :: w(1:5)
-   real(R8P)              :: sum_other
-   integer(I4P)           :: i, largest
+   integer(I4P), intent(in)            :: order     !< B-spline order (0=NGP ... 6=sextic).
+   real(R8P),    intent(in)            :: x_p       !< Particle coordinate.
+   real(R8P),    intent(in)            :: x_cell(1:) !< Cell centers of the stencil.
+   real(R8P),    intent(in)            :: dx        !< Cell size.
+   real(R8P),    intent(out)           :: w(1:)     !< Closed weights of the stencil.
+   real(R8P),    intent(out), optional :: pu_error  !< |raw sum - 1| before the closure.
+   real(R8P)                           :: sum_other
+   integer(I4P)                        :: i, largest, n
 
-   do i=1,5
-      w(i) = bspline_weight(order=4_I4P,r=(x_p-x_cell(i))/dx)
+   n = size(x_cell)
+   do i=1,n
+      w(i) = bspline_weight(order=order,r=(x_p-x_cell(i))/dx)
    enddo
-   largest = maxloc(w,dim=1)
+   largest = maxloc(w(1:n),dim=1)
    sum_other = 0._R8P
-   do i=1,5
+   do i=1,n
       if (i /= largest) sum_other = sum_other + w(i)
    enddo
+   if (present(pu_error)) pu_error = abs(sum_other + w(largest) - 1._R8P)
    w(largest) = 1._R8P - sum_other
-   endsubroutine quartic_closed_weights
+   endsubroutine bspline_closed_weights
 
    subroutine Gaussian_charge_weighting(self, field, grid, q, q_PIC, nv)
    !< Gaussian weighting of particle charge density to the grid.

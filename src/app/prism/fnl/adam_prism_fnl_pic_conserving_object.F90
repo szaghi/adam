@@ -69,8 +69,10 @@ integer(I4P), parameter :: ERR_BOUNDARY = 4_I4P !< Particle shape touches the do
 integer(I4P), parameter :: ERR_FILTER   = 5_I4P !< Esirkepov-modified P filter support reaches the domain boundary.
 integer(I4P), parameter :: ERR_SPAN     = 6_I4P !< Trajectory support wider than MAX_SPAN (FNL-only limit).
 integer(I4P), parameter :: ERR_GAUSS    = 7_I4P !< Empty Gaussian deposition support.
+integer(I4P), parameter :: ERR_PU       = 8_I4P !< B-spline weights do not sum to one on the deposition stencil.
 
 real(R8P), parameter :: TAU_TAIL = 1.e-11_R8P !< Relative tail threshold of the particle current cleanup (CPU twin).
+real(R8P), parameter :: TAU_PU   = 1.e-10_R8P !< Max |raw B-spline weight sum - 1| before the closure (CPU twin).
 
 type :: prism_fnl_pic_conserving_object
    !< Charge-conserving PIC current, device state and kernels.
@@ -151,6 +153,7 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self), private :: build_virtual_geometry  !< Virtual block of the whole domain.
       procedure, pass(self), private :: scatter_current         !< Real q(J) = virtual J, ghosts included.
       procedure, pass(self), private :: impose_virtual_ghosts   !< Odd/zero current ghosts of the virtual block.
+      procedure, pass(self), private :: check_source_support    !< Particle source inside its trajectory support box.
 endtype prism_fnl_pic_conserving_object
 
 contains
@@ -619,10 +622,10 @@ contains
                case(3) ; xc(m) = vz_gpu(lo(d)+m-1)
                endselect
             enddo
-            call shape_weights_dev(shp=shp, modified=modified, filter=filter_esk, sigma=sigma, cutoff_limit=cutoff_limit, &
+            call shape_weights_dev(shp=shp, filter=filter_esk, sigma=sigma, cutoff_limit=cutoff_limit, &
                                    radius=rad, x=xr(d), ic=cr(d)-lo(d)+1_I4P, span=rr(d), dx=dxyz(d), xc=xc, &
                                    w=wref(:,d), perr=perr)
-            call shape_weights_dev(shp=shp, modified=modified, filter=filter_esk, sigma=sigma, cutoff_limit=cutoff_limit, &
+            call shape_weights_dev(shp=shp, filter=filter_esk, sigma=sigma, cutoff_limit=cutoff_limit, &
                                    radius=rad, x=xt(d), ic=ct(d)-lo(d)+1_I4P, span=rr(d), dx=dxyz(d), xc=xc, &
                                    w=wto(:,d), perr=perr)
          enddo
@@ -971,7 +974,7 @@ contains
    real(R8P), pointer                                    :: line(:), qw(:), wb(:,:,:,:)
    real(R8P)                                             :: res, flux, hdx, sol
    integer(I4P)                                          :: dir, axis_a, axis_b, n, n1, n2, nl, nbl, b, t1, t2, lid
-   integer(I4P)                                          :: m, t, f, i, j, k, var, qfirst, nq
+   integer(I4P)                                          :: m, t, f, i, j, k, var, qfirst, nq, last
 
    call zero_current(self=self, q=q, var_jx=var_jx)
    nbl = self%blocks_number ; qfirst = self%qfirst ; nq = self%nq
@@ -987,25 +990,36 @@ contains
       call filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=axis_b)
       nl  = nbl*n1*n2
       var = var_jx + dir - 1_I4P
-      ! face prefix sums, one thread per line
+      ! face prefix sums, one thread per line. Exact closure: the line sum of the source vanishes analytically (zero-flux
+      ! closure, supports kept off the boundary), so the faces past the last nonzero source cell carry zero flux; their
+      ! roundoff residual (still reported in residual_max) would otherwise run to the domain boundary as a constant current.
+      ! CPU twin: modified_current_line.
       res = 0._R8P
       !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(wb,line) &
-      !$acc& firstprivate(dir,n,n1,nl,dt,hdx) private(lid,flux,m,i,j,k) reduction(max:res)
+      !$acc& firstprivate(dir,n,n1,nl,dt,hdx) private(lid,flux,m,i,j,k,last) reduction(max:res)
       !$omp OMPLOOP collapse(3) DEVICEPTR(wb,line) &
-      !$omp& firstprivate(dir,n,n1,nl,dt,hdx) private(lid,flux,m,i,j,k) reduction(max:res)
+      !$omp& firstprivate(dir,n,n1,nl,dt,hdx) private(lid,flux,m,i,j,k,last) reduction(max:res)
       do t2=1, n2
       do t1=1, n1
       do b=1, nbl
          lid = b + nbl*((t1-1) + n1*(t2-1))
          flux = 0._R8P
          line(lid) = flux
+         last = 0
          !$acc loop seq
          do m=1, n
             call line_cell(dir, m, t1, t2, i, j, k)
             flux = flux - hdx*wb(b,i,j,k)/dt
             line(lid+nl*m) = flux
+            if (wb(b,i,j,k) /= 0._R8P) last = m
          enddo
          res = max(res, abs(flux))
+         if (last > 0) then
+            !$acc loop seq
+            do m=last, n
+               line(lid+nl*m) = 0._R8P
+            enddo
+         endif
       enddo
       enddo
       enddo
@@ -1103,6 +1117,12 @@ contains
       endif
 
       call particle_support(particle=particle, block=block, slo=slo, shi=shi)
+      ! the box and the source must come from the same trajectory end points
+      if (single) then
+         call self%check_source_support(h=mixed_source, slo=slo, shi=shi, particle=particle)
+      else
+         call self%check_source_support(h=self%src_stage_gpu(:,:,:,:,:,stage_count), slo=slo, shi=shi, particle=particle)
+      endif
       do dir=1, 3
          lo(:,dir) = slo - p_max
          hi(:,dir) = shi - p_min
@@ -1192,8 +1212,8 @@ contains
       !< Virtual-block cell box spanned by the particle shape over its reference and stage positions (min/max reductions).
       integer(I4P), intent(in)  :: particle
       integer(I4P), intent(out) :: block, slo(3), shi(3)
-      real(R8P)                 :: x(3), e1, e2, e3, d1, d2, d3
-      integer(I4P)              :: tt, c(3), cr(3), rx, ni, nj, nk, ierr
+      real(R8P)                 :: e1, e2, e3, d1, d2, d3
+      integer(I4P)              :: tt, c1, c2, c3, r1, r2, r3, rx, ni, nj, nk, ierr
       integer(I4P)              :: lo1, lo2, lo3, hi1, hi2, hi3
       ni = self%ni ; nj = self%nj ; nk = self%nk
       e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
@@ -1202,28 +1222,29 @@ contains
       lo1 = huge(1_I4P) ; lo2 = huge(1_I4P) ; lo3 = huge(1_I4P)
       hi1 = -huge(1_I4P) ; hi2 = -huge(1_I4P) ; hi3 = -huge(1_I4P)
       ierr = 0_I4P
+      ! Scalars only: with -fast, nvfortran 25.11 miscompiles a private x(3) overwritten twice in the iteration (first
+      ! with q_ref, then with q_hist): the second store is lost and every stage target read as q_ref, so the box missed the
+      ! stage targets (NGP/TSC tail errors at the first face crossing). Correct at -O0, on the host and without -acc.
       !$acc parallel loop independent gang vector DEVICEVAR(q_ref,q_hist) &
-      !$acc& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3) private(x,c,cr) &
+      !$acc& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3) private(c1,c2,c3,r1,r2,r3) &
       !$acc& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3,ierr)
       !$omp OMPLOOP DEVICEPTR(q_ref,q_hist) &
-      !$omp& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3) private(x,c,cr) &
+      !$omp& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3) private(c1,c2,c3,r1,r2,r3) &
       !$omp& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3,ierr)
       do tt=1, stage_count
-         x(1) = q_ref(particle,1) ; x(2) = q_ref(particle,2) ; x(3) = q_ref(particle,3)
-         cr(1) = ceiling((x(1) - e1) / d1, kind=I4P)
-         cr(2) = ceiling((x(2) - e2) / d2, kind=I4P)
-         cr(3) = ceiling((x(3) - e3) / d3, kind=I4P)
-         x(1) = q_hist(particle,1,tt) ; x(2) = q_hist(particle,2,tt) ; x(3) = q_hist(particle,3,tt)
-         c(1) = ceiling((x(1) - e1) / d1, kind=I4P)
-         c(2) = ceiling((x(2) - e2) / d2, kind=I4P)
-         c(3) = ceiling((x(3) - e3) / d3, kind=I4P)
-         if (cr(1) < 1_I4P .or. cr(1) > ni .or. cr(2) < 1_I4P .or. cr(2) > nj .or. cr(3) < 1_I4P .or. cr(3) > nk .or. &
-             c(1)  < 1_I4P .or. c(1)  > ni .or. c(2)  < 1_I4P .or. c(2)  > nj .or. c(3)  < 1_I4P .or. c(3)  > nk) then
+         r1 = ceiling((q_ref(particle,1) - e1) / d1, kind=I4P)
+         r2 = ceiling((q_ref(particle,2) - e2) / d2, kind=I4P)
+         r3 = ceiling((q_ref(particle,3) - e3) / d3, kind=I4P)
+         c1 = ceiling((q_hist(particle,1,tt) - e1) / d1, kind=I4P)
+         c2 = ceiling((q_hist(particle,2,tt) - e2) / d2, kind=I4P)
+         c3 = ceiling((q_hist(particle,3,tt) - e3) / d3, kind=I4P)
+         if (r1 < 1_I4P .or. r1 > ni .or. r2 < 1_I4P .or. r2 > nj .or. r3 < 1_I4P .or. r3 > nk .or. &
+             c1 < 1_I4P .or. c1 > ni .or. c2 < 1_I4P .or. c2 > nj .or. c3 < 1_I4P .or. c3 > nk) then
             ierr = max(ierr, ERR_OUTSIDE)
          else
-            lo1 = min(lo1, cr(1)-rx, c(1)-rx) ; hi1 = max(hi1, cr(1)+rx, c(1)+rx)
-            lo2 = min(lo2, cr(2)-rx, c(2)-rx) ; hi2 = max(hi2, cr(2)+rx, c(2)+rx)
-            lo3 = min(lo3, cr(3)-rx, c(3)-rx) ; hi3 = max(hi3, cr(3)+rx, c(3)+rx)
+            lo1 = min(lo1, r1-rx, c1-rx) ; hi1 = max(hi1, r1+rx, c1+rx)
+            lo2 = min(lo2, r2-rx, c2-rx) ; hi2 = max(hi2, r2+rx, c2+rx)
+            lo3 = min(lo3, r3-rx, c3-rx) ; hi3 = max(hi3, r3+rx, c3+rx)
          endif
       enddo
       if (ierr == ERR_OUTSIDE) call mpih%error_stop(msg=': PIC particle outside the domain in Esirkepov current cleanup')
@@ -1565,6 +1586,50 @@ contains
    enddo
    endsubroutine impose_virtual_ghosts
 
+   subroutine check_source_support(self, h, slo, shi, particle)
+   !< Stop if the directional source of one particle has nonzero cells outside the support box built from its trajectory
+   !< end points. Box and source must describe the same trajectory; a mismatch would otherwise surface downstream as a
+   !< misleading "current outside theoretical support" tail error. CPU twin: the same check in
+   !< solve_modified_current_with_cleanup.
+   class(prism_fnl_pic_conserving_object), intent(in) :: self              !< Conserving current object.
+   real(R8P),                              intent(in) :: h(1:,1:,1:,1:,1:) !< Particle source [1,NX,NY,NZ,3].
+   integer(I4P),                           intent(in) :: slo(3)            !< Support box, lower cell.
+   integer(I4P),                           intent(in) :: shi(3)            !< Support box, upper cell.
+   integer(I4P),                           intent(in) :: particle          !< Particle index (report only).
+   integer(I4P)                                       :: b, i, j, k, d, ni, nj, nk, nbl
+   integer(I4P)                                       :: e1, e2, e3, f1, f2, f3
+
+   ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number
+   e1 = huge(1_I4P) ; e2 = huge(1_I4P) ; e3 = huge(1_I4P)
+   f1 = -huge(1_I4P) ; f2 = -huge(1_I4P) ; f3 = -huge(1_I4P)
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(h) reduction(min:e1,e2,e3) reduction(max:f1,f2,f3)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(h) reduction(min:e1,e2,e3) reduction(max:f1,f2,f3)
+   do d=1, 3
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, nbl
+      if (h(b,i,j,k,d) /= 0._R8P) then
+         e1 = min(e1,i) ; e2 = min(e2,j) ; e3 = min(e3,k)
+         f1 = max(f1,i) ; f2 = max(f2,j) ; f3 = max(f3,k)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   if (e1 > f1) return ! empty source
+   if (e1 < slo(1) .or. e2 < slo(2) .or. e3 < slo(3) .or. f1 > shi(1) .or. f2 > shi(2) .or. f3 > shi(3)) then
+      write(*,'(a)') 'ERROR: particle source outside the support box of its trajectory end points'
+      write(*,'(a,i0)') 'particle = ',particle
+      write(*,'(a,3(1x,i0))') 'source_lo = ',e1,e2,e3
+      write(*,'(a,3(1x,i0))') 'source_hi = ',f1,f2,f3
+      write(*,'(a,3(1x,i0))') 'box_lo    = ',slo
+      write(*,'(a,3(1x,i0))') 'box_hi    = ',shi
+      call mpih%error_stop(msg=': particle source outside its trajectory support box in Esirkepov current cleanup')
+   endif
+   endsubroutine check_source_support
+
    ! private kernels
    subroutine zero_h(self, h)
    !< h = 0 over the interior directional source.
@@ -1663,13 +1728,12 @@ contains
    endselect
    endsubroutine line_cell
 
-   pure subroutine shape_weights_dev(shp, modified, filter, sigma, cutoff_limit, radius, x, ic, span, dx, xc, w, perr)
+   pure subroutine shape_weights_dev(shp, filter, sigma, cutoff_limit, radius, x, ic, span, dx, xc, w, perr)
    !< 1D Esirkepov weights of one endpoint on the trajectory box. CPU twins: compute_esirkepov_gaussian_shape_1d,
-   !< quartic_closed_weights (esirkepov-modified quartic), esirkepov_shape_weight_1d.
+   !< closed_shape_1d (unfiltered B-splines, closed weights of bspline_closed_weights), esirkepov_shape_weight_1d.
    !$acc routine seq
    !$omp declare target
    integer(I4P), intent(in)    :: shp          !< Shape.
-   logical,      intent(in)    :: modified     !< Esirkepov-modified solver.
    logical,      intent(in)    :: filter       !< Binomial filter on the Esirkepov shape.
    real(R8P),    intent(in)    :: sigma        !< Gaussian width.
    real(R8P),    intent(in)    :: cutoff_limit !< Gaussian cutoff.
@@ -1681,8 +1745,8 @@ contains
    real(R8P),    intent(in)    :: xc(MAX_SPAN) !< Cell centers of the box.
    real(R8P),    intent(out)   :: w(MAX_SPAN)  !< Weights on the box.
    integer(I4P), intent(inout) :: perr         !< Error code.
-   real(R8P)                   :: weight_sum, shift, other
-   integer(I4P)                :: m, largest
+   real(R8P)                   :: weight_sum, shift, pu_error, xs(7), ws(7)
+   integer(I4P)                :: m, smin, smax, ns
 
    do m=1, MAX_SPAN
       w(m) = 0._R8P
@@ -1703,19 +1767,20 @@ contains
             w(m) = w(m) / weight_sum
          enddo
       endif
-   elseif (shp == SHAPE_QUARTIC .and. modified) then
-      do m=ic-2, ic+2
-         w(m) = bspline_weight_dev(order=4_I4P, r=(x-xc(m))/dx)
+   elseif (.not. filter) then
+      ! Unfiltered B-spline (SHAPE_* = order): closed weights on the deposition stencil, the same ones as the rho deposit.
+      ! The stencil lies inside the box (box radius >= stencil half-width).
+      call set_bspline_stencil_dev(order=shp, x_p=x, x_c=xc(ic), i_p=ic, i_min=smin, i_max=smax)
+      ns = smax - smin + 1_I4P
+      do m=1, ns
+         xs(m) = xc(smin+m-1)
       enddo
-      largest = ic-2
-      do m=ic-1, ic+2
-         if (w(m) > w(largest)) largest = m
+      call bspline_closed_weights_dev(order=shp, x_p=x, x_cell=xs, n=ns, dx=dx, w=ws, pu_error=pu_error)
+      do m=1, ns
+         w(smin+m-1) = ws(m)
       enddo
-      other = 0._R8P
-      do m=ic-2, ic+2
-         if (m /= largest) other = other + w(m)
-      enddo
-      w(largest) = 1._R8P - other
+      ! NGP is discontinuous: a raw weight of 0 on the owning cell (ceiling/x_cell tie) is closed to 1, not an error
+      if (shp > SHAPE_NGP .and. pu_error > TAU_PU) perr = max(perr, ERR_PU)
    else
       do m=1, span
          w(m) = esirkepov_shape_weight_dev(shp=shp, filter=filter, x=x, xc=xc(m), dx=dx)
@@ -1807,39 +1872,6 @@ contains
    endselect
    endfunction particle_shape_weight_dev
 
-   pure function bspline_weight_dev(order, r) result(weight)
-   !< Centered cardinal B-spline weight (orders 4 and 6 used here). Same expressions as prism_pic_object%bspline_weight.
-   !$acc routine seq
-   !$omp declare target
-   integer(I4P), intent(in) :: order
-   real(R8P),    intent(in) :: r
-   real(R8P)                :: weight
-   real(R8P)                :: a
-
-   a = abs(r)
-   weight = 0._R8P
-   select case(order)
-   case(4_I4P)
-      if (a <= 0.5_R8P) then
-         weight = ((2.5_R8P - a)**4 - 5.0_R8P * (1.5_R8P - a)**4 + 10.0_R8P * (0.5_R8P - a)**4) / 24.0_R8P
-      elseif (a <= 1.5_R8P) then
-         weight = ((2.5_R8P - a)**4 - 5.0_R8P * (1.5_R8P - a)**4) / 24.0_R8P
-      elseif (a <= 2.5_R8P) then
-         weight = (2.5_R8P - a)**4 / 24.0_R8P
-      endif
-   case(6_I4P)
-      if (a <= 0.5_R8P) then
-         weight = ((3.5_R8P - a)**6 - 7.0_R8P * (2.5_R8P - a)**6 + 21.0_R8P * (1.5_R8P - a)**6 &
-                  - 35.0_R8P * (0.5_R8P - a)**6) / 720.0_R8P
-      elseif (a <= 1.5_R8P) then
-         weight = ((3.5_R8P - a)**6 - 7.0_R8P * (2.5_R8P - a)**6 + 21.0_R8P * (1.5_R8P - a)**6) / 720.0_R8P
-      elseif (a <= 2.5_R8P) then
-         weight = ((3.5_R8P - a)**6 - 7.0_R8P * (2.5_R8P - a)**6) / 720.0_R8P
-      elseif (a <= 3.5_R8P) then
-         weight = (3.5_R8P - a)**6 / 720.0_R8P
-      endif
-   endselect
-   endfunction bspline_weight_dev
 
    pure function effective_gaussian_weight_dev(r, shift, cutoff_limit, filter) result(weight)
    !< Optionally binomial-filtered 1D Gaussian weight. Same expressions as prism_pic_object%effective_gaussian_weight.
@@ -1898,6 +1930,7 @@ contains
    case(ERR_SPAN)     ; call mpih%error_stop(msg=': esirkepov trajectory support exceeds the FNL limit MAX_SPAN='// &
                                                  trim(str(MAX_SPAN,.true.))//' cells')
    case(ERR_GAUSS)    ; call mpih%error_stop(msg=': empty Gaussian deposition support in Esirkepov current')
+   case(ERR_PU)       ; call mpih%error_stop(msg=': esirkepov B-spline weights do not sum to one on the deposition stencil')
    endselect
    endsubroutine check_particle_error
 

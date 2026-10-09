@@ -4689,12 +4689,25 @@ contains
    integer(I4P)                           :: rx, ry, rz, i0, i1, j0, j1, k0, k1, i, j, k
    real(R8P)                              :: a0, a1, da, b0, b1, db, c0, c1, dc, charge_density
    real(R8P), allocatable                 :: wx(:,:), wy(:,:), wz(:,:)
-   logical                                :: gaussian, quartic
+   real(R8P), parameter                   :: tau_pu = 1.e-10_R8P !< Max |raw weight sum - 1| before the closure.
+   integer(I4P)                           :: order
+   logical                                :: gaussian, closed
 
    gaussian = trim(self%pic%particle_weighting_model) == 'Gaussian'
-   quartic = trim(self%pic%particle_weighting_model) == 'quartic' .and. &
-             trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER
-   if (gaussian .or. quartic) then
+   ! Unfiltered B-spline shapes use closed weights (bspline_closed_weights), the same ones the charge deposit uses.
+   select case(trim(self%pic%particle_weighting_model))
+   case('NGP')     ; order = 0_I4P
+   case('CIC')     ; order = 1_I4P
+   case('TSC')     ; order = 2_I4P
+   case('cubic')   ; order = 3_I4P
+   case('quartic') ; order = 4_I4P
+   case('quintic') ; order = 5_I4P
+   case('sextic')  ; order = 6_I4P
+   case default    ; order = -1_I4P
+   endselect
+   closed = order >= 0_I4P .and. .not.(self%pic%filter_deposition .and. &
+            trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER)
+   if (gaussian .or. closed) then
       if (gaussian .and. (self%pic%sigma <= 0._R8P .or. self%pic%cutoff_sigma <= 0._R8P .or. &
           self%pic%gaussian_support_cells < 0_I4P)) &
          call mpih%error_stop(msg=': invalid Gaussian width, cutoff or support in Esirkepov current')
@@ -4752,24 +4765,24 @@ contains
          call compute_esirkepov_gaussian_shape_1d(self=self, x=q_to(3,p), x_cell=self%adam%field%z_cell(1:self%nk,b), &
                                                    dx=self%adam%field%dxyz(3,b), ip=kt, radius=rz, &
                                                    lo=k0, hi=k1, w=wz(k0:k1,2))
-      elseif (quartic) then
+      elseif (closed) then
          wx = 0._R8P ; wy = 0._R8P ; wz = 0._R8P
-         call quartic_closed_weights(q_ref(1,p),self%adam%field%x_cell(ip-2:ip+2,b), &
-                                     self%adam%field%dxyz(1,b),wx(ip-2:ip+2,1))
-         call quartic_closed_weights(q_to(1,p),self%adam%field%x_cell(it-2:it+2,b), &
-                                     self%adam%field%dxyz(1,b),wx(it-2:it+2,2))
-         call quartic_closed_weights(q_ref(2,p),self%adam%field%y_cell(jp-2:jp+2,b), &
-                                     self%adam%field%dxyz(2,b),wy(jp-2:jp+2,1))
-         call quartic_closed_weights(q_to(2,p),self%adam%field%y_cell(jt-2:jt+2,b), &
-                                     self%adam%field%dxyz(2,b),wy(jt-2:jt+2,2))
-         call quartic_closed_weights(q_ref(3,p),self%adam%field%z_cell(kp-2:kp+2,b), &
-                                     self%adam%field%dxyz(3,b),wz(kp-2:kp+2,1))
-         call quartic_closed_weights(q_to(3,p),self%adam%field%z_cell(kt-2:kt+2,b), &
-                                     self%adam%field%dxyz(3,b),wz(kt-2:kt+2,2))
+         call closed_shape_1d(x=q_ref(1,p), x_cell=self%adam%field%x_cell(:,b), ic=ip, dx=self%adam%field%dxyz(1,b), &
+                              w=wx(:,1))
+         call closed_shape_1d(x=q_to(1,p),  x_cell=self%adam%field%x_cell(:,b), ic=it, dx=self%adam%field%dxyz(1,b), &
+                              w=wx(:,2))
+         call closed_shape_1d(x=q_ref(2,p), x_cell=self%adam%field%y_cell(:,b), ic=jp, dx=self%adam%field%dxyz(2,b), &
+                              w=wy(:,1))
+         call closed_shape_1d(x=q_to(2,p),  x_cell=self%adam%field%y_cell(:,b), ic=jt, dx=self%adam%field%dxyz(2,b), &
+                              w=wy(:,2))
+         call closed_shape_1d(x=q_ref(3,p), x_cell=self%adam%field%z_cell(:,b), ic=kp, dx=self%adam%field%dxyz(3,b), &
+                              w=wz(:,1))
+         call closed_shape_1d(x=q_to(3,p),  x_cell=self%adam%field%z_cell(:,b), ic=kt, dx=self%adam%field%dxyz(3,b), &
+                              w=wz(:,2))
       endif
       charge_density = q_ref(7,p) / product(self%adam%field%dxyz(:,b))
       do k=k0,k1
-         if (gaussian .or. quartic) then
+         if (gaussian .or. closed) then
             c0 = wz(k,1) ; c1 = wz(k,2)
          else
             call esirkepov_shape_weight_1d(self=self, x=q_ref(3,p), xc=self%adam%field%z_cell(k,b), &
@@ -4779,7 +4792,7 @@ contains
          endif
          dc = c1-c0
          do j=j0,j1
-            if (gaussian .or. quartic) then
+            if (gaussian .or. closed) then
                b0 = wy(j,1) ; b1 = wy(j,2)
             else
                call esirkepov_shape_weight_1d(self=self, x=q_ref(2,p), xc=self%adam%field%y_cell(j,b), &
@@ -4789,7 +4802,7 @@ contains
             endif
             db = b1-b0
             do i=i0,i1
-               if (gaussian .or. quartic) then
+               if (gaussian .or. closed) then
                   a0 = wx(i,1) ; a1 = wx(i,2)
                else
                   call esirkepov_shape_weight_1d(self=self, x=q_ref(1,p), xc=self%adam%field%x_cell(i,b), &
@@ -4805,6 +4818,21 @@ contains
          enddo
       enddo
    enddo
+   contains
+      subroutine closed_shape_1d(x, x_cell, ic, dx, w)
+      !< Closed B-spline weights of one endpoint on its deposition stencil (zero elsewhere).
+      real(R8P),    intent(in)    :: x, x_cell(1-self%ngc:), dx
+      integer(I4P), intent(in)    :: ic
+      real(R8P),    intent(inout) :: w(1:)
+      real(R8P)                   :: pu_error
+      integer(I4P)                :: smin, smax
+
+      call set_bspline_stencil(order=order, x_p=x, x_c=x_cell(ic), i_p=ic, i_min=smin, i_max=smax)
+      call bspline_closed_weights(order=order, x_p=x, x_cell=x_cell(smin:smax), dx=dx, w=w(smin:smax), pu_error=pu_error)
+      ! NGP is discontinuous: a raw weight of 0 on the owning cell (tie between ceiling and x_cell) is closed to 1, not an error
+      if (order > 0_I4P .and. pu_error > tau_pu) &
+         call mpih%error_stop(msg=': esirkepov B-spline weights do not sum to one on the deposition stencil')
+      endsubroutine closed_shape_1d
    endsubroutine compute_pic_esirkepov_displacement
 
 
@@ -5353,9 +5381,20 @@ contains
    integer(I4P),            intent(in)    :: dir,b,n,qfirst,nq
    real(R8P),               intent(out)   :: sol(1:)
    real(R8P)                              :: flux(0:n)
-   integer(I4P)                           :: i,t,f
+   integer(I4P)                           :: i,t,f,last
 
    call build_esirkepov_face_line(self=self,source=source,dir=dir,b=b,n=n,flux=flux)
+   ! Exact closure: the line sum of the source vanishes analytically (zero-flux closure, supports kept off the boundary),
+   ! so the face flux past the last nonzero source cell is zero. Its roundoff residual (recorded as the current solver
+   ! residual) would otherwise run to the domain boundary as a constant spurious current.
+   last = 0
+   do i=n,1,-1
+      if (source(i) /= 0._R8P) then
+         last = i
+         exit
+      endif
+   enddo
+   if (last > 0) flux(last:n) = 0._R8P
    sol = 0._R8P
    do i=1,n
       do t=0,nq-1
@@ -5477,6 +5516,9 @@ contains
          support_lo = min(support_lo,cell-[rx,ry,rz])
          support_hi = max(support_hi,cell+[rx,ry,rz])
       enddo
+      ! the box and the source must come from the same trajectory end points (FNL twin: check_source_support)
+      call check_source_support(source=source_stage(:,:,:,:,:,slot_count), b=b, particle=particle, &
+                                lo=support_lo, hi=support_hi)
 
       q_particle = 0._R8P
       call solve_pic_charge_conserving_current_modified(self=self,q=q_particle, &
@@ -5488,6 +5530,35 @@ contains
          q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) + &
          q_particle(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
    enddo
+   contains
+      subroutine check_source_support(source, b, particle, lo, hi)
+      !< Stop if the particle source has nonzero cells outside the support box of its trajectory end points; a mismatch
+      !< would otherwise surface as a misleading tail error.
+      real(R8P),    intent(in) :: source(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+      integer(I4P), intent(in) :: b, particle, lo(3), hi(3)
+      integer(I4P)             :: e(3), f(3), i, j, k
+
+      e = huge(1_I4P) ; f = -huge(1_I4P)
+      do k=1,self%nk
+         do j=1,self%nj
+            do i=1,self%ni
+               if (any(source(:,i,j,k,b) /= 0._R8P)) then
+                  e = min(e,[i,j,k]) ; f = max(f,[i,j,k])
+               endif
+            enddo
+         enddo
+      enddo
+      if (e(1) > f(1)) return ! empty source
+      if (any(e < lo) .or. any(f > hi)) then
+         write(*,'(a)') 'ERROR: particle source outside the support box of its trajectory end points'
+         write(*,'(a,i0)') 'particle = ',particle
+         write(*,'(a,3(1x,i0))') 'source_lo = ',e
+         write(*,'(a,3(1x,i0))') 'source_hi = ',f
+         write(*,'(a,3(1x,i0))') 'box_lo    = ',lo
+         write(*,'(a,3(1x,i0))') 'box_hi    = ',hi
+         call mpih%error_stop(msg=': particle source outside its trajectory support box in Esirkepov current cleanup')
+      endif
+      endsubroutine check_source_support
    endsubroutine solve_modified_current_with_cleanup
 
    subroutine cleanup_modified_particle_current(self, q_particle, particle, block, shape_lo, shape_hi)

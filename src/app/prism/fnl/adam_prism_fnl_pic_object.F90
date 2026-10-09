@@ -18,6 +18,9 @@ use :: penf
 implicit none
 private
 public :: prism_fnl_pic_object
+public :: bspline_weight_dev
+public :: set_bspline_stencil_dev
+public :: bspline_closed_weights_dev
 
 integer(I4P), parameter :: PIC_VARIABLES_NUMBER   = 8_I4P
 integer(I4P), parameter :: PIC_FIELDS_NUMBER      = 6_I4P
@@ -813,9 +816,9 @@ contains
    integer(I4P)                               :: i_min, i_max, j_min, j_max, k_min, k_max
    real(R8P)                                  :: dx, dy, dz, charge_density
    real(R8P)                                  :: wx, wy, wz, weight
-   real(R8P)                                  :: xc5(5), wx5(5), wy5(5), wz5(5)
-   integer(I4P)                               :: m
-   logical                                    :: close_quartic
+   real(R8P)                                  :: xcx(7), xcy(7), xcz(7), wx7(7), wy7(7), wz7(7), pu_error
+   integer(I4P)                               :: m, i_lo, j_lo, k_lo
+   logical                                    :: closed
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
@@ -843,10 +846,10 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)&
-   !$acc& private(close_quartic, xc5, wx5, wy5, wz5, m)
+   !$acc& private(closed, xcx, xcy, xcz, wx7, wy7, wz7, pu_error, m, i_lo, j_lo, k_lo)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)&
-   !$omp& private(close_quartic, xc5, wx5, wy5, wz5, m)
+   !$omp& private(closed, xcx, xcy, xcz, wx7, wy7, wz7, pu_error, m, i_lo, j_lo, k_lo)
    do n = 1, self%particle_number
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
@@ -875,28 +878,34 @@ contains
          k_min = k_min - 1_I4P ; k_max = k_max + 1_I4P
       endif
 
-      ! Unfiltered quartic: close the five weights to sum exactly 1 (CPU twin: quartic_closed_weights in
-      ! bspline_charge_weighting). Esirkepov-modified builds its current from the same closed weights, so rho must match.
-      close_quartic = order == 4_I4P .and. .not.self%filter_deposition
-      if (close_quartic) close_quartic = i_p-2 >= 1-ngc .and. i_p+2 <= ni+ngc .and. &
-                                         j_p-2 >= 1-ngc .and. j_p+2 <= nj+ngc .and. &
-                                         k_p-2 >= 1-ngc .and. k_p+2 <= nk+ngc
-      if (close_quartic) then
+      ! Unfiltered shapes: close each 1D stencil to sum exactly 1 (CPU twin: bspline_closed_weights in
+      ! bspline_charge_weighting). The Esirkepov current is built from the same closed weights, so rho must match.
+      closed = .not.self%filter_deposition
+      if (closed) closed = i_min >= 1-ngc .and. i_max <= ni+ngc .and. &
+                           j_min >= 1-ngc .and. j_max <= nj+ngc .and. &
+                           k_min >= 1-ngc .and. k_max <= nk+ngc
+      if (closed) then
+         ! one stencil array per direction: nvfortran 25.11 -fast can lose a second store into a reused private array
+         ! (see particle_support in adam_prism_fnl_pic_conserving_object)
+         i_lo = i_min ; j_lo = j_min ; k_lo = k_min
          !$acc loop seq
-         do m = 1, 5
-            xc5(m) = x_cell_gpu(block_p,i_p-3+m+ngc)
+         do m = 1, i_max-i_min+1
+            xcx(m) = x_cell_gpu(block_p,i_min-1+m+ngc)
          enddo
-         call quartic_closed_weights_dev(x_p=q_pic_gpu(n,1), x_cell=xc5, dx=dx, w=wx5)
+         call bspline_closed_weights_dev(order=order, x_p=q_pic_gpu(n,1), x_cell=xcx, n=i_max-i_min+1, dx=dx, w=wx7, &
+                                         pu_error=pu_error)
          !$acc loop seq
-         do m = 1, 5
-            xc5(m) = y_cell_gpu(block_p,j_p-3+m+ngc)
+         do m = 1, j_max-j_min+1
+            xcy(m) = y_cell_gpu(block_p,j_min-1+m+ngc)
          enddo
-         call quartic_closed_weights_dev(x_p=q_pic_gpu(n,2), x_cell=xc5, dx=dy, w=wy5)
+         call bspline_closed_weights_dev(order=order, x_p=q_pic_gpu(n,2), x_cell=xcy, n=j_max-j_min+1, dx=dy, w=wy7, &
+                                         pu_error=pu_error)
          !$acc loop seq
-         do m = 1, 5
-            xc5(m) = z_cell_gpu(block_p,k_p-3+m+ngc)
+         do m = 1, k_max-k_min+1
+            xcz(m) = z_cell_gpu(block_p,k_min-1+m+ngc)
          enddo
-         call quartic_closed_weights_dev(x_p=q_pic_gpu(n,3), x_cell=xc5, dx=dz, w=wz5)
+         call bspline_closed_weights_dev(order=order, x_p=q_pic_gpu(n,3), x_cell=xcz, n=k_max-k_min+1, dx=dz, w=wz7, &
+                                         pu_error=pu_error)
       endif
 
       i_min = max(i_min, 1-ngc) ; i_max = min(i_max, ni+ngc)
@@ -905,24 +914,24 @@ contains
 
       !$acc loop seq
       do k = k_min, k_max
-         if (close_quartic) then
-            wz = wz5(k-k_p+3)
+         if (closed) then
+            wz = wz7(k-k_lo+1)
          else
             wz = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,3) - z_cell_gpu(block_p,k+ngc)) / dz, &
                                               filter=self%filter_deposition)
          endif
          !$acc loop seq
          do j = j_min, j_max
-            if (close_quartic) then
-               wy = wy5(j-j_p+3)
+            if (closed) then
+               wy = wy7(j-j_lo+1)
             else
                wy = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,2) - y_cell_gpu(block_p,j+ngc)) / dy, &
                                                  filter=self%filter_deposition)
             endif
             !$acc loop seq
             do i = i_min, i_max
-               if (close_quartic) then
-                  wx = wx5(i-i_p+3)
+               if (closed) then
+                  wx = wx7(i-i_lo+1)
                else
                   wx = effective_bspline_weight_dev(order=order, r=(q_pic_gpu(n,1) - x_cell_gpu(block_p,i+ngc)) / dx, &
                                                     filter=self%filter_deposition)
@@ -1573,29 +1582,39 @@ contains
    enddo
    endsubroutine gather_gaussian_fields_dev
 
-   pure subroutine quartic_closed_weights_dev(x_p, x_cell, dx, w)
-   !< Close the five unfiltered quartic weights by changing only the largest one. CPU twin: quartic_closed_weights.
+   pure subroutine bspline_closed_weights_dev(order, x_p, x_cell, n, dx, w, pu_error)
+   !< Close the n (<=7) unfiltered B-spline weights of one stencil to sum to 1 by changing only the largest one.
+   !< CPU twin: bspline_closed_weights (same evaluation and summation order).
    !$acc routine seq
    !$omp declare target
    implicit none
-   real(R8P), intent(in)  :: x_p, x_cell(5), dx
-   real(R8P), intent(out) :: w(5)
-   real(R8P)              :: sum_other
-   integer(I4P)           :: i, largest
+   integer(I4P), intent(in)  :: order     !< B-spline order (0=NGP ... 6=sextic).
+   real(R8P),    intent(in)  :: x_p       !< Particle coordinate.
+   real(R8P),    intent(in)  :: x_cell(7) !< Cell centers of the stencil (1:n used).
+   integer(I4P), intent(in)  :: n         !< Stencil cells.
+   real(R8P),    intent(in)  :: dx        !< Cell size.
+   real(R8P),    intent(out) :: w(7)      !< Closed weights (1:n set, the rest 0).
+   real(R8P),    intent(out) :: pu_error  !< |raw sum - 1| before the closure.
+   real(R8P)                 :: sum_other
+   integer(I4P)              :: i, largest
 
-   do i=1,5
-      w(i) = bspline_weight_dev(order=4_I4P,r=(x_p-x_cell(i))/dx)
+   do i=1,7
+      w(i) = 0._R8P
+   enddo
+   do i=1,n
+      w(i) = bspline_weight_dev(order=order,r=(x_p-x_cell(i))/dx)
    enddo
    largest = 1
-   do i=2,5
+   do i=2,n
       if (w(i) > w(largest)) largest = i
    enddo
    sum_other = 0._R8P
-   do i=1,5
+   do i=1,n
       if (i /= largest) sum_other = sum_other + w(i)
    enddo
+   pu_error = abs(sum_other + w(largest) - 1._R8P)
    w(largest) = 1._R8P - sum_other
-   endsubroutine quartic_closed_weights_dev
+   endsubroutine bspline_closed_weights_dev
 
    pure subroutine set_bspline_stencil_dev(order, x_p, x_c, i_p, i_min, i_max)
    !< Compute the one-dimensional B-spline stencil.
