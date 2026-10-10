@@ -131,8 +131,9 @@ contains
    ! AMR methods
    subroutine amr_update(self)
    !< Do AMR update: `amr%iters` sweeps over the markers until the grid stabilizes (initialization-time only). The
-   !< Loehner marker is skipped: it reads ghost cells, which the initial AMR does not fill; it acts at the runtime
-   !< regrids (`mark_runtime`, issue #74).
+   !< gradient marker reads the ghosts of the internal block faces, refreshed on the host before it (issue #76); the
+   !< Loehner marker is skipped: it also reads the ghosts of the physical faces, whose boundary conditions only the
+   !< backends apply; it acts at the runtime regrids (`mark_runtime`, issue #74).
    class(flume_common_object), intent(inout) :: self                !< The equation.
    logical                                   :: is_grid_changed     !< Flag to check grid changes for each marker.
    logical                                   :: is_grid_changed_all !< Flag to check grid changes for each iter.
@@ -161,11 +162,18 @@ contains
                call mpih%error_stop(msg=': unknown AMR marker geo_type '//trim(str(amr_marker%geo_type)))
             endselect
          case(AMR_GRAD)
+            ! the marker reads the ghosts across internal block faces (issue #76): the IC sets the interior only, so the
+            ! host ghosts are refreshed first (local copies and MPI exchange; the physical faces are not read); without a
+            ! uniform refinement (iu_ref_levels = 0) no ghost map is built before the first initial AMR update
+            if (.not.allocated(self%adam%maps%local_map_ghost_cell)) call self%adam%make_comm_local_maps_ghost_bc
+            call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q)
+            call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%q)
             call self%mark_by_gradient(field=amr_marker%field, ivar=amr_marker%ivar, tol=amr_marker%tol,           &
                                        delta_type=amr_marker%delta_type, delta_fine=amr_marker%delta_fine, &
                                        delta_coarse=amr_marker%delta_coarse)
          case(AMR_LOHNER)
-            ! runtime regrids only (mark_runtime): the estimator reads ghost cells, not filled during the initial AMR
+            ! runtime regrids only (mark_runtime): the estimator also reads the ghosts of the physical faces, which the
+            ! host cannot fill here (the boundary conditions are the backends')
             cycle
          case default
             call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
@@ -215,9 +223,12 @@ contains
    !< CHASE semantics: the admissible cell spacing of a block is `delta_fine` where `max |grad var| > tol`, else
    !< `delta_coarse`; a block coarser than admissible is refined, a block whose parent (spacing doubled) would still be
    !< admissible is derefined, any other block is left untouched. The spacing of a block is chosen by `delta_type`
-   !< (`x`, `y`, `z` or `max`). The gradient uses the interior cells only (centred differences, one-sided at the block
-   !< edges), so the marker does not depend on the ghost cells: it runs on the host state before any ghost exchange,
-   !< for both backends (AMR is initialization-time only).
+   !< (`x`, `y`, `z` or `max`). The gradient is centred, across the block faces too: a jump lying on an internal face
+   !< (between two blocks, or periodic) is seen by the cells on both sides of it (issue #76: with interior-only
+   !< differences each block saw a constant state up to the face, and Sod on [0, 1], its jump on a block face at every
+   !< level, was never refined there). It is one-sided at the faces on the realm boundary (physical or seam), whose
+   !< ghosts it never reads. The caller refreshes the ghosts of the internal faces: the initial AMR on the host
+   !< (`amr_update`), the runtime regrids with the backend's full ghost update (`regrid_forest`).
    class(flume_common_object), intent(inout) :: self         !< The equation.
    integer(I4P),               intent(in)    :: field        !< Marker field: 1 conservative, 2 auxiliary variables.
    integer(I4P),               intent(in)    :: ivar         !< Variable index in the marker field.
@@ -225,12 +236,13 @@ contains
    character(*),               intent(in)    :: delta_type   !< Block spacing criterion: x, y, z, max.
    real(R8P),                  intent(in)    :: delta_fine   !< Admissible spacing where the gradient exceeds tol.
    real(R8P),                  intent(in)    :: delta_coarse !< Admissible spacing elsewhere.
-   real(R8P), allocatable                    :: var(:,:,:)   !< Marker variable of one block, interior cells.
+   real(R8P), allocatable                    :: var(:,:,:)   !< Marker variable of one block, one ghost layer.
    real(R8P)                                 :: grad(3)      !< Gradient of one cell.
    real(R8P)                                 :: grad_max     !< Maximum gradient magnitude of one block.
    real(R8P)                                 :: dc           !< Block spacing.
    real(R8P)                                 :: delta        !< Admissible spacing.
-   integer(I4P)                              :: b, i, j, k   !< Counters.
+   logical                                   :: open_(2,3)   !< The minus/plus face of each direction is internal.
+   integer(I4P)                              :: b, i, j, k, d !< Counters.
 
    if ((field == 1_I4P .and. (ivar < 1_I4P .or. ivar > self%physics%nv))     .or. &
        (field == 2_I4P .and. (ivar < 1_I4P .or. ivar > self%physics%nv_aux)) .or. (field < 1_I4P .or. field > 2_I4P)) &
@@ -238,12 +250,17 @@ contains
    self%adam%field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
    if (field == 2_I4P) call self%compute_q_aux_host
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, dxyz=>self%adam%field%dxyz, is_null=>self%adam%grid%null_xyz, &
+             emin=>self%adam%field%emin, emax=>self%adam%field%emax, grid=>self%adam%grid,                       &
              refinements_needed=>self%adam%field%refinements_needed)
-   allocate(var(ni,nj,nk))
+   allocate(var(0:ni+1,0:nj+1,0:nk+1))
    do b=1, self%blocks_number
-      do k=1, nk
-         do j=1, nj
-            do i=1, ni
+      do d=1, 3
+         open_(1,d) = grid%is_ijk_periodic(d) .or. emin(d,b) > grid%domain_emin(d) + 0.5_R8P * dxyz(d,b)
+         open_(2,d) = grid%is_ijk_periodic(d) .or. emax(d,b) < grid%domain_emax(d) - 0.5_R8P * dxyz(d,b)
+      enddo
+      do k=0, nk+1
+         do j=0, nj+1
+            do i=0, ni+1
                if (field == 1_I4P) then
                   var(i,j,k) = self%q(ivar,i,j,k,b)
                else
@@ -257,9 +274,9 @@ contains
          do j=1, nj
             do i=1, ni
                grad = 0._R8P
-               if (.not.is_null(1) .and. ni > 1) grad(1) = interior_derivative(var(:,j,k), i, dxyz(1,b))
-               if (.not.is_null(2) .and. nj > 1) grad(2) = interior_derivative(var(i,:,k), j, dxyz(2,b))
-               if (.not.is_null(3) .and. nk > 1) grad(3) = interior_derivative(var(i,j,:), k, dxyz(3,b))
+               if (.not.is_null(1) .and. ni > 1) grad(1) = line_derivative(var(:,j,k), i, dxyz(1,b), open_(:,1))
+               if (.not.is_null(2) .and. nj > 1) grad(2) = line_derivative(var(i,:,k), j, dxyz(2,b), open_(:,2))
+               if (.not.is_null(3) .and. nk > 1) grad(3) = line_derivative(var(i,j,:), k, dxyz(3,b), open_(:,3))
                grad_max = max(grad_max, norm2(grad))
             enddo
          enddo
@@ -270,21 +287,24 @@ contains
    enddo
    endassociate
    contains
-      pure function interior_derivative(v, n, ds) result(dv)
-      !< Return the derivative of a line of interior cells at cell `n`: centred, one-sided at the ends.
-      real(R8P),    intent(in) :: v(:) !< Line of interior values.
-      integer(I4P), intent(in) :: n    !< Cell index.
-      real(R8P),    intent(in) :: ds   !< Cell spacing.
-      real(R8P)                :: dv   !< Derivative.
+      pure function line_derivative(v, n, ds, is_open) result(dv)
+      !< Return the derivative of a line at interior cell `n`: centred, one-sided at an end whose face is closed.
+      real(R8P),    intent(in) :: v(0:)       !< Line of values, one ghost cell at each end.
+      integer(I4P), intent(in) :: n           !< Cell index, 1 to size(v) - 2.
+      real(R8P),    intent(in) :: ds          !< Cell spacing.
+      logical,      intent(in) :: is_open(2)  !< The minus/plus end face is internal (its ghost is valid).
+      real(R8P)                :: dv          !< Derivative.
+      integer(I4P)             :: m           !< Last interior cell.
 
-      if (n == 1) then
+      m = size(v) - 2
+      if (n == 1 .and. .not.is_open(1)) then
          dv = (v(2) - v(1)) / ds
-      elseif (n == size(v)) then
-         dv = (v(n) - v(n-1)) / ds
+      elseif (n == m .and. .not.is_open(2)) then
+         dv = (v(m) - v(m-1)) / ds
       else
          dv = 0.5_R8P * (v(n+1) - v(n-1)) / ds
       endif
-      endfunction interior_derivative
+      endfunction line_derivative
    endsubroutine mark_by_gradient
 
    subroutine mark_by_solid(self, solid, delta_type, delta_fine, delta_coarse)

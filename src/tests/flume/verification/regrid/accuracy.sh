@@ -8,9 +8,9 @@
 # make_regrid.py, checks by av_oracle.py (reusing the V1, V2, V6 and MV-9 oracles):
 #   av2  isentropic vortex (V2), base N = 32 tracked to N = 128 (gradient marker on rho, tol 0.05), a regrid every 5
 #        steps, t = 0.2: L1(rho) <= 1.5x the uniform N = 128 run and <= 1/8 of the uniform N = 32 run;
-#   av3a Sod (V1) on a quadtree with y null, base 48 cells tracked to 192 (gradient OR Loehner on rho), on [0, 1.2] so
-#        that the jump at 0.5 is not a block face (issue #76): L1(rho) <= 1.3x the uniform 192-cell run, the contact
-#        and the shock on finest cells at t = 0.2, the null copies within 1e-12;
+#   av3a Sod (V1) on a quadtree with y null, base 48 cells tracked to 192 (gradient OR Loehner on rho), on [0, 1],
+#        the jump at 0.5 on a block face at every level (issue #76): L1(rho) <= 1.3x the uniform 192-cell run, the
+#        contact and the shock on finest cells at t = 0.2, the null copies within 1e-12;
 #   av3b Balsara-Spicer MHD blast (the blast-limiter golden: EGLM, positivity limiter), base N = 64 tracked to N = 128
 #        (gradient OR Loehner on p): the outer shock radius on the four half-axes within 2 finest cells of the uniform
 #        N = 128 run, rho conserved to 1e-13, rhoE and B drifting at most 1.1x the uniform run (the scheme itself does

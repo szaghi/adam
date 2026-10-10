@@ -181,9 +181,9 @@ def sod_av(args: argparse.Namespace) -> str:
         ("restart_basename", "sod-av-restart"),
     ):
         text = setkey(text, key, value)
-    # the domain [0, length]: with the default 1.2 the initial jump at x = 0.5 is not a block face at any level (the
-    # faces are multiples of 0.3 / 2^(level - 2)); on [0, 1] it is one at every level, and the gradient marker, which
-    # reads interior cells only, cannot see it to refine the initial grid
+    # the domain [0, length]: on the default [0, 1] the initial jump at x = 0.5 is a block face at every level, the case
+    # of issue #76 (the gradient marker, which then read interior cells only, could not see it to refine the initial
+    # grid); with 1.2 it is a face at no level (the faces are multiples of 0.3 / 2^(level - 2))
     text = re.sub(r"(?m)^(emax_x\s*=).*$", rf"\g<1> {args.length}", text, count=1)
     head, sep, tail = text.partition("[initial_conditions_region_2]")
     text = head + sep + re.sub(r"(?m)^(emax_x\s*=).*$", rf"\g<1> {args.length}", tail, count=1)
@@ -319,7 +319,7 @@ def main() -> None:
     parser.add_argument("--refine", default="0.3")
     parser.add_argument("--derefine", default="0.1")
     parser.add_argument("--tol", default="0.5", help="gradient marker tolerance (vortex-av)")
-    parser.add_argument("--length", type=float, default=1.2, help="domain length along x (sod-av)")
+    parser.add_argument("--length", type=float, default=1.0, help="domain length along x (sod-av)")
     parser.add_argument("--cells", type=int, default=32, help="cells along x at the base level (loop-av)")
     parser.add_argument("--eglm", action="store_true", help="EGLM cleaning instead of GLM (loop-av)")
     parser.add_argument("--uniform", action="store_true", help="uniform at the finest level (cylinder-av)")

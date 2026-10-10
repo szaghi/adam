@@ -166,7 +166,7 @@ Keys that are read but unused by FLUME's handling of a mode must still be presen
 | `stl_filename` | string | mode 1 + `stl` | — | no (`stl` is fatal in FLUME) | STL surface. |
 | `field` | int | modes 2, 3, 4 | `1` = conservative `q`, `2` = auxiliary `q_aux`. Other → fatal at marking. | modes 2, 4 | Array holding the marker variable. |
 | `var` | int | modes 2, 3, 4 | 1..nv (field 1) or 1..nv_aux (field 2), otherwise fatal | modes 2, 4 | Variable index (see the table below). |
-| `tol` | real | modes 2, 3 | no check | mode 2 | Gradient-magnitude threshold: `max\|grad var\| > tol` gives `delta_fine`. |
+| `tol` | real | modes 2, 3 | no check | mode 2 | Gradient-magnitude threshold: `max\|grad var\| > tol` gives `delta_fine`. The gradient is centred, across the faces between blocks too (a jump lying on a block face is seen, [#76](https://github.com/szaghi/adam/issues/76)), one-sided at the domain boundary. |
 | `refine_tol`, `derefine_tol` | real | mode 4 | `0 <= derefine_tol < refine_tol <= 1`, otherwise fatal | yes | Löhner estimator thresholds: a block whose largest estimator exceeds `refine_tol` is refined, one below `derefine_tol` coarsened, one between kept (hysteresis). |
 | `epsilon` | real | no (mode 4) | `>= 0`, default 0.01 | yes | Noise filter of the estimator: ripples smaller than about `epsilon` times the variable do not mark. |
 | `floor` | real | no (mode 4) | `>= 0`, default 0 | yes | Absolute noise filter: variations of the variable well below `floor` do not mark. Needed on a variable that vanishes in quiet regions (the field outside a magnetic loop), where `epsilon`, relative to the variable, filters nothing and round-off noise reads as a jump; a fraction of the feature's jump is a fair value. |
@@ -238,8 +238,7 @@ How the pieces combine, and what to expect:
   ([verification](./verification#av-accuracy-of-runtime-amr)). On the FNL backend each regrid is a host round trip
   whose cost scales with the block capacity, 2.5 to 10 s per regrid on the development box
   ([#75](https://github.com/szaghi/adam/issues/75)).
-- **Limits.** Single-realm runs only (a multi-realm forest with `frequency > 0` is refused); the initial gradient marker
-  cannot see a jump lying on a block face ([#76](https://github.com/szaghi/adam/issues/76)); with EGLM the 2:1 seams
+- **Limits.** Single-realm runs only (a multi-realm forest with `frequency > 0` is refused); with EGLM the 2:1 seams
   raise the divergence error B_z well above its uniform-grid level ([#78](https://github.com/szaghi/adam/issues/78)).
 - **Restart.** A run restarted from any step regrids on the same steps and continues bitwise (the regrid happens before
   the step's output and restart files).
