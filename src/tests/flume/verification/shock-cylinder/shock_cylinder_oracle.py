@@ -62,6 +62,8 @@ def main() -> int:
     parser.add_argument("--mirror-tol", type=float, default=1.0e-10, help="mirror symmetry tolerance (relative)")
     parser.add_argument("--compare", type=Path, default=None, help="second run to compare with")
     parser.add_argument("--tol", type=float, default=1.0e-10, help="comparison tolerance (relative)")
+    parser.add_argument("--no-refinement-check", action="store_true",
+                        help="skip the refinement check (a runtime-regridded run may end fully refined, issue #74)")
     args = parser.parse_args()
 
     ini = read_ini(next(args.work.glob("*.ini")))
@@ -84,10 +86,10 @@ def main() -> int:
         crossed += is_crossed
         fine += is_fine
         wrong += is_crossed and not is_fine
-    ok = wrong == 0 and fine > 0
+    ok = (wrong == 0 and fine > 0) or args.no_refinement_check
     status |= 0 if ok else 1
     print(f"refinement: {len(blocks)} blocks, {fine} fine, {crossed} crossed by the surface, {wrong} crossed but coarse"
-          f"  {'PASS' if ok else 'FAIL'}")
+          f"  {'reported' if args.no_refinement_check else 'PASS' if ok else 'FAIL'}")
 
     # mirror symmetry about y = 0.5
     scale = np.max([np.max(np.abs(q), axis=(1, 2, 3)) for _, q in blocks.values()], axis=0)

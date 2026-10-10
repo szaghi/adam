@@ -1030,6 +1030,74 @@ P0 also fixes the capacity check of a regrid: the new blocks take indices on the
 redistribution, so the bound is per rank (`nb`), not the former `procs_number · nb` over every node of the replicated
 tree, which let one rank overflow its arrays undetected.
 
+### AV: accuracy of runtime AMR
+
+**Why.** RG proves the regrid machinery. AV asks what a user of runtime AMR wants: is a run whose grid follows the
+solution about as accurate as the uniform run at its finest level, with fewer cells, and does a regrid keep what the
+scheme guarantees? Each case compares a tracked run (a regrid every 5 steps) with uniform runs, against bounds fixed in
+the #74 P4 plan before any run. Five bounds turned out to rest on false premises, all pre-existing properties of the
+scheme, of a marker or of the backends that runtime AMR merely exposed; they were reported and replaced, each with its
+issue, never moved to fit a number.
+
+**Legs** (`regrid/accuracy.sh`, inputs from `regrid/make_regrid.py`, checks by `regrid/av_oracle.py` on top of the V1,
+V2, V6 and MV-9 oracles):
+
+| Leg | Case | Asserted |
+|---|---|---|
+| av2 | isentropic vortex (V2), N = 32 tracked to 128, gradient marker on ρ (tol 0.05), t = 0.2 | L1(ρ) ≤ 1.5× uniform-128 and ≤ 1/8 of uniform-32 |
+| av3a | Sod (V1), quadtree with y null, 48 cells tracked to 192 (gradient OR Löhner on ρ), on [0, 1.2] | L1(ρ) ≤ 1.3× uniform-192; contact and shock on finest cells; null copies within 1e-12 |
+| av3b | Balsara–Spicer MHD blast (EGLM, positivity limiter), N = 64 tracked to 128 (gradient OR Löhner on p) | outer shock radius on the four half-axes within 2 finest cells of uniform-128; ρ conserved to 1e-13; ρE and B drift ≤ 1.1× uniform-128's; every regrid admissible |
+| av4 | field loop (MV-9), GLM and EGLM, N = 64 tracked to 128 (gradient on B_x OR Löhner on B_x, B_y, floor 1e-4), t = 1 | E_B(T)/E_B(0) ≥ uniform-128's − 0.5 %; ⟨\|B_z\|⟩/A0 ≤ 1.2× (GLM; EGLM reported); final max\|div B\| ≤ 2×; div B at each regrid reported |
+| av6 | the av2 tracked vortex on 1, 2, 3 ranks (1, 2 on FNL) | the same regrids; fields within 1e-13 |
+| av7 | shock over the cylinder (V6) to t = 0.25, solid OR Löhner on ρ | bow-shock stand-off within 2 finest cells of uniform at V6's finest level; mirror symmetry 1e-10; positivity (the init-AMR V6 run's stand-off reported) |
+| av8 | CPU against FNL on the tracked runs of av2, av3a, av3b, av4, av7 | the same regrids; per field, the tracked CPU–FNL difference ≤ 2× the uniform-fine runs' (or ≤ 1e-10) |
+
+**Results** (np 2; CPU numbers, FNL the same within the av8 agreement):
+
+| Leg | Tracked run | Reference | Measured | Regrids | Cost (tracked / uniform-fine) |
+|---|---|---|---|---|---|
+| av2 | L1(ρ) 1.126e-5 | uniform-128 8.43e-6; uniform-32 1.91e-3 | 1.34× fine, 0.006× coarse | 4 | 28 blocks / 64; 58 s / 65 s |
+| av3a | L1(ρ) 4.1031e-3 | uniform-192 4.1029e-3 | 1.00003×; contact and shock on finest cells | 7 | 156 cells / 192; 28 s / 28 s |
+| av3b | shock radius 0.4219–0.4375 | uniform-128 0.4297 | 1 finest cell on each half-axis; ρ drift 5.6e-16, ρE 5.33e-5 against 5.35e-5 | 3 | ends fully refined; 115 s / 122 s |
+| av4 GLM | E_B 0.943937, ⟨\|B_z\|⟩ 5.75e-4, div B 2.56e-4 | 0.943953, 6.86e-4, 2.76e-4 | ⟨\|B_z\|⟩ 0.84×, div B 0.93×; at the regrids max \|div B\| changes by ×0.94–1.05 | 78 | 40–46 blocks / 64; 237 s / 244 s |
+| av4 EGLM | E_B 0.943769, ⟨\|B_z\|⟩ 2.37e-5, div B 2.58e-4 | 0.943774, 2.72e-6, 2.72e-4 | ⟨\|B_z\|⟩ 8.7× (reported, #78), div B 0.95× | 82 | 242 s / 250 s |
+| av6 | np 2 and 3 against np 1 (FNL: np 2, two GPUs) | — | the same 4 regrids, fields bitwise on both backends | 4 | 97 / 55 / 48 s |
+| av7 | stand-off 0.12000 | uniform at V6's finest level 0.12000 (init-AMR V6: 0.12195) | 0 finest cells; mirror symmetry 6.5e-12 | 7 | ends fully refined; 315 s / 389 s |
+| av8 | FNL against CPU, the six tracked runs | the same pair of uniform-fine runs | the same regrids in every case; Euler: CPU and FNL agree to round-off on both runs (tracked 5.5e-14 to 6.9e-12); MHD: the tracked difference is 0.5–1.7× the uniform one, per field (see below) | — | FNL tracked: av4 556 s, av7 1055 s (round trips, #75) |
+
+The savings are modest on these cases, and the reason is visible: the tracked vortex and loop hold half the blocks of
+the uniform runs, but the time step is set by the finest cells either way (no subcycling, D-M5-3) and the regrids, the
+2:1 seams and the reflux cost their share, so the wall time drops by 3 to 19 % (av7 the most); the blast and the
+cylinder end fully refined, their waves filling the box by the final time. The accuracy is within the stated factor of
+the uniform-fine run in every case, and equal to it where the refined region covers the whole feature (av3a, av7).
+
+**What runtime AMR exposed** (each reported before its bound changed):
+
+- **A jump on a block face is invisible to the gradient marker** at initialisation (it reads interior cells only):
+  Sod's jump at 0.5 is a face at every level on [0, 1], the initial grid stayed coarse, and the error of the first
+  coarse steps persisted, 2.57× uniform-fine whatever the Löhner threshold. On [0, 1.2] the jump is off every face and
+  the tracked run matches uniform-fine ([#76](https://github.com/szaghi/adam/issues/76)).
+- **The Löhner estimator needs an absolute floor** on a variable that vanishes in quiet regions: outside the field loop
+  B is GLM residue (~10⁻⁶), the relative filter `epsilon` filters nothing, and the estimator read E ≈ 0.98 everywhere,
+  refining the whole box. The `floor` key (default 0, the FLASH/PLUTO form) fixes it
+  ([numerics](./numerics#adaptive-mesh-refinement)).
+- **The MHD blast breaks point symmetry on a uniform grid** (0.2 relative at N = 128 from an exactly symmetric initial
+  condition), and does not conserve ρE and B (it drifts 5e-5 on the uniform grid too): the planned symmetry bound was
+  dropped and the conservation bound limited to ρ, with ρE and B bounded against the uniform drift
+  ([#77](https://github.com/szaghi/adam/issues/77)).
+- **EGLM loses its B_z advantage across 2:1 seams**: ⟨|B_z|⟩/A0 is 2.7e-6 on the uniform grid, 2.4e-5 tracked and
+  1.9e-4 on a static AMR grid with no regrid at all, so the seams, not the regrid, raise it; the tracked run, whose
+  seams follow the loop, is 8× better than the static one. The EGLM bound on it is reported only
+  ([#78](https://github.com/szaghi/adam/issues/78)).
+- **On MHD the two backends do not agree to round-off**, with no regrid involved: on the uniform field loop the fluid
+  variables agree to 1e-13 but B only to ~1e-6 ([#79](https://github.com/szaghi/adam/issues/79)), and the uniform
+  blast differs at O(0.1) ([#77](https://github.com/szaghi/adam/issues/77)). The planned av8 bound (1e-10 on every
+  case) tested that, not the regrid; av8 now bounds the tracked CPU–FNL difference by the uniform one, case by case.
+- Across 2:1 seams the copies along a null direction differ by ~1e-13, on a static grid too: round-off of the seam
+  ghost fill; av3a bounds it at 1e-12.
+
+![Runtime regridding: tracked vortex and field loop with their blocks](/flume/regrid.png)
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths

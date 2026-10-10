@@ -315,14 +315,17 @@ contains
    enddo
    endsubroutine mark_by_solid
 
-   subroutine mark_by_lohner(self, field, ivar, refine_tol, derefine_tol, epsilon, buffer)
+   subroutine mark_by_lohner(self, field, ivar, refine_tol, derefine_tol, epsilon, floor, buffer)
    !< Mark blocks by the Loehner (1987) estimator of a conservative (`field = 1`) or auxiliary (`field = 2`) variable
    !< (issue #74, D-M5-8).
    !<
    !< The dimension-sum form of FLASH and PLUTO: on a cell, `E = sqrt(sum_d N_d^2 / sum_d D_d^2)` over the active
-   !< directions, `N_d = |u_+ - 2 u + u_-|` and `D_d = |u_+ - u| + |u - u_-| + epsilon (|u_+| + 2 |u| + |u_-|)`, with
-   !< `u_+-` the neighbours along `d`. `E` lies in [0, 1], independent of the scale of `u` and of the cell size: about 0
-   !< where `u` is smooth on the grid, about 1 at a jump; `epsilon` keeps small ripples from triggering. A block takes the
+   !< directions, `N_d = |u_+ - 2 u + u_-|` and `D_d = |u_+ - u| + |u - u_-| + epsilon (|u_+| + 2 |u| + |u_-|) + floor`,
+   !< with `u_+-` the neighbours along `d`. `E` lies in [0, 1], independent of the scale of `u` and of the cell size:
+   !< about 0 where `u` is smooth on the grid, about 1 at a jump; `epsilon` keeps ripples small relative to `u` from
+   !< triggering. On a variable that vanishes in quiet regions (the field outside a magnetic loop) that filter filters
+   !< nothing: round-off noise is all there is, and it reads `E ~ 1`; `floor`, an absolute variation (default 0, the
+   !< FLASH/PLUTO form), turns the variations well below it into noise (#74 P4). A block takes the
    !< largest `E` over its interior cells and `buffer` ghost layers (a feature at a neighbour's edge marks this block
    !< too): refined above `refine_tol`, derefined below `derefine_tol`, untouched between (the hysteresis band keeps
    !< a block near the threshold from flipping at every regrid). The caller refreshes the ghost cells of `q`.
@@ -331,7 +334,8 @@ contains
    integer(I4P),               intent(in)    :: ivar         !< Variable index in the marker field.
    real(R8P),                  intent(in)    :: refine_tol   !< Refine above this estimator value.
    real(R8P),                  intent(in)    :: derefine_tol !< Derefine below this estimator value.
-   real(R8P),                  intent(in)    :: epsilon      !< Noise filter.
+   real(R8P),                  intent(in)    :: epsilon      !< Noise filter, relative to the variable.
+   real(R8P),                  intent(in)    :: floor        !< Noise filter, absolute variation.
    integer(I4P),               intent(in)    :: buffer       !< Ghost layers the estimator reads.
    real(R8P)                                 :: u(-1:1,3)    !< The cell and its neighbours along each direction.
    real(R8P)                                 :: num, den     !< Numerator and denominator sums.
@@ -370,7 +374,7 @@ contains
                   enddo
                   num = num + (u(1,d) - 2._R8P * u(0,d) + u(-1,d))**2
                   den = den + (abs(u(1,d) - u(0,d)) + abs(u(0,d) - u(-1,d)) + &
-                               epsilon * (abs(u(1,d)) + 2._R8P * abs(u(0,d)) + abs(u(-1,d))))**2
+                               epsilon * (abs(u(1,d)) + 2._R8P * abs(u(0,d)) + abs(u(-1,d))) + floor)**2
                enddo
                if (den > 0._R8P) e_max = max(e_max, sqrt(num / den))
             enddo
@@ -442,7 +446,7 @@ contains
       case(AMR_LOHNER)
          call self%mark_by_lohner(field=amr_marker%field, ivar=amr_marker%ivar, refine_tol=amr_marker%refine_tol, &
                                   derefine_tol=amr_marker%derefine_tol, epsilon=amr_marker%epsilon,             &
-                                  buffer=amr_marker%buffer)
+                                  floor=amr_marker%floor, buffer=amr_marker%buffer)
       case default
          call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
       endselect

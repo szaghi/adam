@@ -358,11 +358,14 @@ in use is [#75](https://github.com/szaghi/adam/issues/75). The
 
 $$
 E = \sqrt{\frac{\sum_d \left(u_{+} - 2u + u_{-}\right)^2}{\sum_d \left(|u_{+} - u| + |u - u_{-}| +
-\epsilon\,(|u_{+}| + 2|u| + |u_{-}|)\right)^2}} \in [0, 1],
+\epsilon\,(|u_{+}| + 2|u| + |u_{-}|) + \delta\right)^2}} \in [0, 1],
 $$
 
 in the dimension-sum form of FLASH and PLUTO ($u_\pm$ the neighbours along $d$): about 0 where the variable is smooth
-on the grid, about 1 at a jump. A block takes the largest $E$ over its cells and `buffer` ghost layers; it is refined
+on the grid, about 1 at a jump. The `epsilon` term filters ripples small relative to the variable; on a variable that
+vanishes in quiet regions it filters nothing, and round-off noise reads $E \approx 1$ (the GLM residue of
+$|\mathbf{B}| \sim 10^{-6}$ outside a field loop refined the whole box). The absolute `floor` $\delta$ (default 0, the
+FLASH/PLUTO form) makes the variations well below it noise. A block takes the largest $E$ over its cells and `buffer` ghost layers; it is refined
 above `refine_tol`, coarsened below `derefine_tol`, kept between.
 
 **Regridding transfers**. When a block is

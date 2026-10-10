@@ -920,13 +920,53 @@ def fig_couette(out: Path, runs: Path) -> None:  # noqa: ARG001
     plt.close(fig)
 
 
+def fig_regrid(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """AV (#74 P4): runtime regridding. The tracked vortex (base N = 32, finest N = 128) at t = 0.2 with its blocks and
+    its pointwise density error against the exact solution, and the tracked field loop (GLM, N = 64 to 128) at t = 1
+    with its blocks: the refined blocks follow the vortex core and the loop edge."""
+    sys.path.insert(0, str(HERE / "vortex"))
+    import vortex_oracle  # noqa: PLC0415
+
+    vortex = HERE / "regrid" / "work-adam_flume_cpu-av2-tracked"
+    loop = HERE / "regrid" / "work-adam_flume_cpu-av4-glm-tracked"
+    ini_v, ini_l = read_ini(vortex / "vortex-av.ini"), read_ini(loop / "field-loop.ini")
+    bl_v = first_plane(blocks(vortex, int(ini_v["grid"]["ngc"]), EULER))
+    bl_l = first_plane(blocks(loop, int(ini_l["grid"]["ngc"]), MHD))
+    oracle_ini = vortex_oracle.read_ini(vortex / "vortex-av.ini")
+
+    def error(b: dict) -> np.ndarray:
+        r = b["f"]["r"][:, :, 0]
+        xc = b["lo"][0] + (np.arange(r.shape[0]) + 0.5) * b["d"][0]
+        yc = b["lo"][1] + (np.arange(r.shape[1]) + 0.5) * b["d"][1]
+        xx, yy = np.meshgrid(xc, yc, indexing="ij")
+        return np.log10(np.abs(r - vortex_oracle.exact_density(xx, yy, oracle_ini)) + 1e-12)
+
+    fig, axs = plt.subplots(1, 3, figsize=(17, 4.8), constrained_layout=True)
+    im = field_map(axs[0], bl_v, lambda b: b["f"]["r"][:, :, 0], outline=True)
+    fig.colorbar(im, ax=axs[0], label=r"$\rho$", shrink=0.85)
+    axs[0].set_title(f"tracked vortex, t = 0.2: density, {len(bl_v)} blocks (uniform 128: 64)")
+    im = field_map(axs[1], bl_v, error, cmap="magma", outline=True)
+    fig.colorbar(im, ax=axs[1], label=r"$\log_{10}|\rho - \rho_{exact}|$", shrink=0.85)
+    axs[1].set_title("its pointwise density error")
+    im = field_map(axs[2], bl_l, lambda b: plane(b, gamma_of(ini_l), "pb"), outline=True)
+    fig.colorbar(im, ax=axs[2], label=r"$|B|^2/2$", shrink=0.85)
+    axs[2].set_title(f"tracked field loop (GLM), t = 1: {len(bl_l)} blocks (uniform 128: 64)")
+    for ax in axs:
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+    fig.suptitle("Runtime regridding: the refined blocks follow the vortex and the loop edge (regrid every 5 steps)")
+    fig.savefig(out / "regrid.png", dpi=DPI)
+    plt.close(fig)
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
            "conservation": fig_conservation,
            "orszag-tang": fig_orszag_tang,
            "rotor": fig_rotor, "field-loop": fig_field_loop, "mhd-riemann": fig_mhd_riemann, "glm-pulse": fig_glm_pulse,
            "blast": fig_blast, "near-vacuum": fig_vacuum, "eglm-energy": fig_eglm_energy, "order": fig_order,
-           "viscous": fig_viscous, "viscous-fields": fig_viscous_fields, "couette": fig_couette}
+           "viscous": fig_viscous, "viscous-fields": fig_viscous_fields, "couette": fig_couette,
+           "regrid": fig_regrid}
 
 
 def main() -> int:

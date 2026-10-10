@@ -62,6 +62,7 @@ type :: amr_marker_object
    real(R8P)                 :: refine_tol=0.8_R8P     !< Refine above this estimator value (AMR_LOHNER).
    real(R8P)                 :: derefine_tol=0.2_R8P   !< Derefine below this estimator value (AMR_LOHNER).
    real(R8P)                 :: epsilon=0.01_R8P       !< Noise filter of the estimator (AMR_LOHNER).
+   real(R8P)                 :: floor=0._R8P           !< Absolute variation counted as noise (AMR_LOHNER).
    integer(I4P)              :: buffer=1_I4P           !< Ghost layers the estimator reads (AMR_LOHNER).
 endtype amr_marker_object
 
@@ -214,8 +215,10 @@ contains
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(tol)')
       case(AMR_LOHNER)
          ! Loehner (1987) normalized second derivative, E in [0, 1]: refine above refine_tol, derefine below
-         ! derefine_tol, keep between (the hysteresis band); epsilon filters small ripples; buffer is the number of ghost
-         ! layers the estimator reads, so a feature at a neighbour's edge marks this block too
+         ! derefine_tol, keep between (the hysteresis band); epsilon filters small ripples relative to the variable,
+         ! floor (absolute, default 0) the variations of a variable that vanishes in quiet regions (issue #74 P4: the
+         ! relative filter alone reads E ~ 1 on round-off noise); buffer is the number of ghost layers the estimator
+         ! reads, so a feature at a neighbour's edge marks this block too
          call file_parameters%get(section_name=sname, option_name='field', val=self%markers(i_marker)%field, error=error)
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
          call file_parameters%get(section_name=sname, option_name='var', val=self%markers(i_marker)%ivar, error=error)
@@ -229,11 +232,13 @@ contains
          ! optional, defaults kept when absent
          call file_parameters%get(section_name=sname, option_name='epsilon', val=self%markers(i_marker)%epsilon, error=error)
          call file_parameters%get(section_name=sname, option_name='buffer', val=self%markers(i_marker)%buffer, error=error)
+         call file_parameters%get(section_name=sname, option_name='floor', val=self%markers(i_marker)%floor, error=error)
          associate(m=>self%markers(i_marker))
          if (.not.(0._R8P <= m%derefine_tol .and. m%derefine_tol < m%refine_tol .and. m%refine_tol <= 1._R8P)) &
             call mpih%error_stop(msg=': ['//sname//'] needs 0 <= derefine_tol < refine_tol <= 1, got '// &
                                      trim(str(m%derefine_tol))//' and '//trim(str(m%refine_tol)))
          if (m%epsilon < 0._R8P) call mpih%error_stop(msg=': ['//sname//'].(epsilon) must be >= 0')
+         if (m%floor < 0._R8P) call mpih%error_stop(msg=': ['//sname//'].(floor) must be >= 0')
          if (m%buffer < 0_I4P) call mpih%error_stop(msg=': ['//sname//'].(buffer) must be >= 0')
          endassociate
       endselect

@@ -169,6 +169,7 @@ Keys that are read but unused by FLUME's handling of a mode must still be presen
 | `tol` | real | modes 2, 3 | no check | mode 2 | Gradient-magnitude threshold: `max\|grad var\| > tol` gives `delta_fine`. |
 | `refine_tol`, `derefine_tol` | real | mode 4 | `0 <= derefine_tol < refine_tol <= 1`, otherwise fatal | yes | Löhner estimator thresholds: a block whose largest estimator exceeds `refine_tol` is refined, one below `derefine_tol` coarsened, one between kept (hysteresis). |
 | `epsilon` | real | no (mode 4) | `>= 0`, default 0.01 | yes | Noise filter of the estimator: ripples smaller than about `epsilon` times the variable do not mark. |
+| `floor` | real | no (mode 4) | `>= 0`, default 0 | yes | Absolute noise filter: variations of the variable well below `floor` do not mark. Needed on a variable that vanishes in quiet regions (the field outside a magnetic loop), where `epsilon`, relative to the variable, filters nothing and round-off noise reads as a jump; a fraction of the feature's jump is a fair value. |
 | `buffer` | int | no (mode 4) | `0..ngc-1`, default 1 | yes | Ghost layers the estimator reads, so a feature at a neighbour's edge marks the block too. |
 
 Variable indices for the gradient marker:
