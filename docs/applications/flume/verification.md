@@ -346,7 +346,10 @@ A weak magnetic loop (plasma $\beta \approx 10^6$) is advected across the period
 $\partial B_z/\partial t = w\,\nabla\cdot\mathbf{B}$, so the generated $\langle|B_z|\rangle$ measures the divergence error; the oracle
 requires it at the GLM level and decreasing under refinement, and bounds the decay of the magnetic energy
 (`mhd/field-loop/check.sh`, MV-9). The `--amr` variant crosses 2:1 seams: the seam div(B) peaks at the first step (the
-initial loop edge) and GLM removes it.
+initial loop edge) and GLM removes it. `--agree` compares the CPU and FNL runs of the ladder field by field, B relative
+to the loop amplitude, within $10^{-10}$: the backends agree to round-off on B as on the fluid
+([#79](https://github.com/szaghi/adam/issues/79): they differed by ~10⁻⁶ until the eigenvector normalisation was made
+cancellation-free, see [numerics](./numerics#scheme-space-weno-flux-splitting)).
 
 ![Field loop](/flume/field-loop.png)
 
@@ -1089,10 +1092,11 @@ the uniform-fine run in every case, and equal to it where the refined region cov
   1.9e-4 on a static AMR grid with no regrid at all, so the seams, not the regrid, raise it; the tracked run, whose
   seams follow the loop, is 8× better than the static one. The EGLM bound on it is reported only
   ([#78](https://github.com/szaghi/adam/issues/78)).
-- **On MHD the two backends do not agree to round-off**, with no regrid involved: on the uniform field loop the fluid
-  variables agree to 1e-13 but B only to ~1e-6 ([#79](https://github.com/szaghi/adam/issues/79)), and the uniform
-  blast differs at O(0.1) ([#77](https://github.com/szaghi/adam/issues/77)). The planned av8 bound (1e-10 on every
-  case) tested that, not the regrid; av8 now bounds the tracked CPU–FNL difference by the uniform one, case by case.
+- **On MHD the two backends did not agree to round-off**, with no regrid involved: on the uniform field loop the fluid
+  variables agreed to 1e-13 but B only to ~1e-6, a cancellation in the eigenvector normalisation since fixed
+  ([#79](https://github.com/szaghi/adam/issues/79), MV-9 `--agree`), and the uniform blast differs at O(0.1)
+  ([#77](https://github.com/szaghi/adam/issues/77)). The planned av8 bound (1e-10 on every case) tested that, not the
+  regrid; av8 bounds the tracked CPU–FNL difference by the uniform one, case by case.
 - Across 2:1 seams the copies along a null direction differ by ~1e-13, on a static grid too: round-off of the seam
   ghost fill; av3a bounds it at 1e-12.
 
@@ -1171,7 +1175,7 @@ disagreed, and the field-loop case was not bitwise.
 | Test | What it pins |
 |---|---|
 | `test_flume_euler_library` (+ `_fnl`) | Euler eigensystem, flux, Roe average, split consistency; RS(q, q) = f(q) for LLF/HLL/HLLC, HLLC exact on a contact, positive first-order updates; the `si` descaler of planar and static states within $10^8$ of the largest (host); device = host |
-| `test_flume_mhd_library` (+ `_fnl`) | MHD, GLM and EGLM eigensystems (including degenerate states), fluxes, auxiliary variables, cyclic invariance; the `si` descaler of planar, field-free and static states within $10^8$ of the largest (host); device = host |
+| `test_flume_mhd_library` (+ `_fnl`) | MHD, GLM and EGLM eigensystems (including degenerate states), fluxes, auxiliary variables, cyclic invariance; the `si` descaler of planar, field-free and static states within $10^8$ of the largest; $\alpha_f$, $\alpha_s$ to full relative accuracy at high and low β with $\mathbf{B}$ near the normal, against quadruple precision ([#79](https://github.com/szaghi/adam/issues/79)) (host); device = host |
 | `test_flume_mhd_riemann` (+ `_fnl`) | MHD LLF/HLL/HLLD without cleaning, with GLM and with EGLM: consistency, HLLD exact on contact, tangential and rotational discontinuities, cyclic invariance bitwise, positive updates, EGLM = GLM bitwise at $\psi = 0$; device = host |
 | `test_flume_positivity` | PV-0, the limiter on random admissible states with perturbed fluxes (Euler, MHD, EGLM): every limited update positive and above the relative floor, the limiter needed and acting; a NaN or infinite high-order flux replaced by the backbone flux; inadmissible face ghosts blended above the floors, every other value untouched; a cell with a 2:1 seam face (mean donor-state backbone) admissible for any seam factor up to its own, and not without the limiter |
 | `test_flume_weno_interpolation` (+ `_fnl`) | WENO interpolation tables: exactness, convergence, device = host for both weights (`js`, `si`); the reconstruction tables unchanged; the `si` weights scale-covariant bitwise on the device |

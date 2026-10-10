@@ -20,7 +20,12 @@
 # peak (measured 0.033, 0.011; the peak is the initial-data error of the loop edge at step 1, GLM removes it; the
 # collocated PRISM seam runs away instead, issue #29). About 28 min on the CPU (the N = 64 AMR run takes 23).
 #
-# Usage: ./check.sh [--np N] [--amr] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+# --agree runs nothing: it compares the last checkpoints of the CPU and FNL runs of the ladder (run the check with each
+# executable first, same --np/--amr/--numerics) field by field, relative to A0 on B, within AGREE_TOL (issue #79: the
+# backends differed by ~1e-6 on B before the slow-wave normalisation of the eigenvectors was made cancellation-free;
+# measured after it ~1e-14 at step 4).
+#
+# Usage: ./check.sh [--np N] [--amr] [--agree] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
 #
 # --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c). The specs
 # hlld:primitive and hlld:characteristic (6th, weno) assert the bounds measured on them (CPU, M3-P3c) on the uniform
@@ -46,13 +51,16 @@ LADDER_AMR=(32 64)
 BZ_MAX_AMR=(2.277e-03 1.118e-03)   # CPU baseline (M2-P7b) plus 2 %
 ENERGY_MIN_AMR=(0.80066 0.89888)   # CPU baseline (M2-P7b) minus 0.2 %
 SEAM_DECAY="0.1"
+AGREE=0
+AGREE_TOL="1.0e-10"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)  NP="$2" ; shift 2 ;;
       --amr) AMR=1 ; shift ;;
+      --agree) AGREE=1 ; shift ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
-      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --numerics SPEC)" >&2 ; exit 2 ;;
+      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --agree, --numerics SPEC)" >&2 ; exit 2 ;;
    esac
 done
 if [[ ! -x "$EXE" ]]; then
@@ -68,6 +76,21 @@ if [[ $AMR -eq 1 ]]; then
    TAG="$TAG-amr" ; LEG=", right half refined 2:1"
    LADDER=("${LADDER_AMR[@]}") ; BZ_MAX=("${BZ_MAX_AMR[@]}") ; ENERGY_MIN=("${ENERGY_MIN_AMR[@]}")
    MAKE_OPTS=(--time-max 1.0 --refine-box 0.0 -0.5 1.0 0.5)
+fi
+
+if [[ $AGREE -eq 1 ]]; then
+   SUFFIX="${TAG#$(basename "$EXE")}"
+   echo ">> MV-9 field loop, CPU against FNL, N = ${LADDER[*]}$LEG (np $NP)"
+   cpus=() ; fnls=()
+   for n in "${LADDER[@]}"; do
+      cpus+=("$CASE_DIR/work-adam_flume_cpu$SUFFIX-n$n") ; fnls+=("$CASE_DIR/work-adam_flume_fnl$SUFFIX-n$n")
+   done
+   if "$VENV_PY" "$CASE_DIR/field_loop_oracle.py" "${cpus[@]}" --agree-with "${fnls[@]}" --agree-tol "$AGREE_TOL"; then
+      echo "MV-9 AGREE PASSED ($SUFFIX)"
+      exit 0
+   fi
+   echo "MV-9 AGREE FAILED ($SUFFIX)"
+   exit 1
 fi
 
 echo ">> MV-9 field loop, N = ${LADDER[*]}$LEG ($(basename "$EXE"), np $NP)"
@@ -102,7 +125,11 @@ if [[ $AMR -eq 1 ]]; then
       "$VENV_PY" "$CASE_DIR/../seam_divb_oracle.py" "$w" --decay-max "$SEAM_DECAY" || STATUS=1
    done
 fi
-for w in "${works[@]}"; do find "$w" -name '*.h5' -delete; done
+for w in "${works[@]}"; do # keep the first and the last checkpoints (--agree)
+   steps=$(find "$w" -name '*-proc*.h5' ! -name '*restart*' | sed -E 's/.*-([0-9]+)-proc[0-9]+\.h5$/\1/' | sort -u)
+   first=$(head -1 <<< "$steps") ; last=$(tail -1 <<< "$steps")
+   find "$w" -name '*.h5' ! -name "*-$first-proc*" ! -name "*-$last-proc*" -delete
+done
 
 if [[ $STATUS -eq 0 ]]; then
    echo "MV-9 PASSED ($TAG)"

@@ -28,7 +28,9 @@ program test_flume_mhd_library
 !< 10. the WENO descaler `mu` of the split (issue #49, `check_descaler`): on a planar state (`w = B_z = 0`), a planar
 !<    state without field and a state at rest, every field of every variant has a descaler within `MU_RATIO_MAX` of
 !<    the largest, in every direction. The Alfven rows of a planar state touch only `rho w` and `B_z`, which vanish:
-!<    a descaler built on `|q_v|` is round-off there, and the scale-invariant weights then amplify round-off (MV-7).
+!<    a descaler built on `|q_v|` is round-off there, and the scale-invariant weights then amplify round-off (MV-7);
+!< 11. the relative accuracy of the fast and slow normalisations `alpha_f`, `alpha_s` at high and low beta with the
+!<    field near the normal, against a quadruple-precision reference (issue #79, `check_alpha`).
 
 use :: adam_flume_mhd_library, only : EPS_BT, mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary,   &
                                       mhd_eglm_eigenvectors, mhd_eglm_face_split_fluxes, mhd_eglm_flux,            &
@@ -44,7 +46,7 @@ use :: penf,                   only : I4P, R8P, str
 implicit none
 
 integer(I4P), parameter :: N=5000_I4P           !< Random states number.
-integer(I4P), parameter :: NC=10_I4P            !< Checks number.
+integer(I4P), parameter :: NC=11_I4P            !< Checks number.
 real(R8P),    parameter :: GAMMA=5._R8P/3._R8P  !< Specific heats ratio.
 real(R8P),    parameter :: R=1._R8P             !< Gas constant.
 real(R8P),    parameter :: TOL_EXACT=1.e-11_R8P !< Tolerance of the exact identities (relative).
@@ -68,7 +70,8 @@ check_name = ['L R = I (8x8, 9x9)                              ', &
               'uniform stencil split -> physical flux          ', &
               'degenerate states (checks 1-3 at degeneracies)  ', &
               'EGLM: eigenvectors, flux, conversion, split     ', &
-              'WENO descaler of planar and static states       ']
+              'WENO descaler of planar and static states       ', &
+              'alpha_f, alpha_s relative accuracy (issue #79)  ']
 err = 0._R8P
 call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
@@ -95,6 +98,7 @@ do n_=1, N
 enddo
 call check_degenerate(e=err(8))
 call check_descaler(e=err(10))
+call check_alpha(e=err(11))
 
 test_passed = .true.
 do c=1, NC
@@ -385,6 +389,47 @@ contains
    enddo
    print '(A)', 'descaler of planar and static states: largest ratio '//trim(str(e))
    endsubroutine check_descaler
+
+   subroutine check_alpha(e)
+   !< Check 11 (issue #79): the relative accuracy of the fast and slow normalisations `alpha_f = er(rho, 1)`,
+   !< `alpha_s = er(rho, 3)` against the textbook formulas evaluated in quadruple precision, at high and low beta with
+   !< the field from 0.5 to 1e-6 rad off the normal. There one of `c_f^2 - a^2`, `a^2 - c_s^2` is a difference of O(a^2)
+   !< speeds much smaller than them: subtracted in double precision it left alpha with an absolute error of
+   !< ~eps^(1/2) (relative error up to 1), which the characteristic WENO turned into a ~1e-7 relative CPU/FNL difference of
+   !< B (compiler round-off in, different B out).
+   real(R8P), intent(inout)  :: e                          !< Maximum relative error.
+   integer,   parameter      :: QP=selected_real_kind(33)  !< Quadruple precision of the reference.
+   real(R8P)                 :: p(8)                       !< Primitive state.
+   real(R8P)                 :: q8(NV_MHD), q9(NV_MHD_GLM) !< Conservative variables.
+   real(R8P)                 :: qa(NV_AUX_MHD)             !< Auxiliary variables.
+   real(R8P)                 :: el(NV_MHD,NV_MHD)          !< Left eigenvectors.
+   real(R8P)                 :: er(NV_MHD,NV_MHD)          !< Right eigenvectors.
+   real(R8P)                 :: bm, th                     !< Field magnitude, angle off the normal.
+   real(QP)                  :: asq, vax, ct2, tdif, c     !< Reference squared speeds, c = c_f^2 - c_s^2.
+   real(QP)                  :: cfsq, cssq, alf, als       !< Reference fast, slow speeds and normalisations.
+   integer(I4P)              :: m, n                       !< Counters.
+
+   do m=1, 2
+      bm = merge(1.e-3_R8P, 10._R8P, m == 1)
+      do n=0, 6
+         th = merge(0.5_R8P, 10._R8P**(-n), n == 0)
+         p = [1._R8P, 0._R8P, 0._R8P, 0._R8P, 1._R8P, bm * cos(th), bm * sin(th), 0._R8P]
+         call state(prim=p, psi=0._R8P, q8=q8, q9=q9, qa=qa)
+         call mhd_eigenvectors(gamma=GAMMA, d=1, qa=qa, el=el, er=er)
+         asq  = real(GAMMA, QP) * real(p(5), QP) / real(p(1), QP)
+         vax  = real(p(6), QP)**2 / real(p(1), QP)
+         ct2  = real(p(7), QP)**2 / real(p(1), QP)
+         tdif = vax + ct2 - asq
+         c    = sqrt(tdif**2 + 4._QP * asq * ct2)
+         cfsq = 0.5_QP * (vax + ct2 + asq + c)
+         cssq = asq * vax / cfsq
+         alf  = sqrt((asq - cssq) / c)
+         als  = sqrt((cfsq - asq) / c)
+         e = max(e, real(abs(er(IQ_R,1) - alf) / alf, R8P), real(abs(er(IQ_R,3) - als) / als, R8P))
+      enddo
+   enddo
+   print '(A)', 'alpha_f, alpha_s at high and low beta, field near the normal: largest relative error '//trim(str(e))
+   endsubroutine check_alpha
 
    subroutine check_degenerate(e)
    !< Checks 1-3 at the degenerate states, and across the transverse-field threshold (one ulp either side).

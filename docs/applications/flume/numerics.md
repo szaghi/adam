@@ -103,7 +103,14 @@ At each face $i+1/2$ of direction $d$, over the stencil of cells $i-S+1 \ldots i
    projected back, $\hat{\mathbf{F}} = \sum_k \mathbf{r}_k (\hat g_k^+ + \hat g_k^-)$.
 
 For MHD the characteristic decomposition is block-diagonal: the 7×7 wave core plus the $(B_n, \psi)$ pair with speeds
-$\mp c_h$ (without cleaning the $B_n$ row has speed 0 and its face flux is exactly zero).
+$\mp c_h$ (without cleaning the $B_n$ row has speed 0 and its face flux is exactly zero). The core is the Roe–Balsara
+set in the normalisation of Stone et al. (2008, appendix B), with $\alpha_f^2 = (a^2 - c_s^2)/(c_f^2 - c_s^2)$ and
+$\alpha_s^2 = (c_f^2 - a^2)/(c_f^2 - c_s^2)$. At high β with $\mathbf{B}$ near the face normal one of the two numerators
+is a difference of $O(a^2)$ speeds far smaller than them, so FLUME evaluates the smaller one without subtracting,
+$2a^2c_t^2/\big((c_f^2 - c_s^2) \pm (v_{A,n}^2 + c_t^2 - a^2)\big)$ with $c_t^2 = B_t^2/\rho$, and the other as its
+complement. Subtracted directly, the normalisation carried an absolute error of $\sim\varepsilon^{1/2}$ that the
+characteristic WENO turned into a $10^{-6}$ difference of $\mathbf{B}$ between compilers
+([#79](https://github.com/szaghi/adam/issues/79)).
 
 ## `scheme_space = weno-riemann`: interpolation, Riemann flux and correction
 

@@ -28,8 +28,8 @@
 #   av8  CPU against FNL: the tracked runs of av2, av3a, av3b, av4 and av7 of both backends (run the legs with each
 #        executable first) regrid alike, and per field their CPU-FNL difference is at most 2x the CPU-FNL difference
 #        of the uniform-fine runs (or below 1e-10): the regrid adds no divergence between the backends. A fixed
-#        tolerance would not test the regrid: on MHD the backends differ without any regrid (B by ~1e-6 on the field
-#        loop, the blast at O(1), issues #77 and #79), on Euler they agree to round-off.
+#        tolerance would not test the regrid: on MHD the backends may differ without any regrid (the blast at O(1),
+#        issue #77; B differed by ~1e-6 on the field loop until issue #79), on Euler they agree to round-off.
 #
 # Usage: ./accuracy.sh [--leg av2|av3a|av3b|av4|av6|av7|av8 ...]
 #

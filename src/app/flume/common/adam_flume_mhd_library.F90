@@ -710,7 +710,8 @@ contains
    !<
    !< Degeneracies (named thresholds, issue #41, section 3.3): a transverse field below `EPS_BT` of the field (or of
    !< `sqrt(rho) a`) takes the direction `(beta_t1, beta_t2) = (1, 0)`; a fast-slow separation `c_f^2 - c_s^2` below
-   !< `EPS_FS c_f^2` (triple umbilic) takes `(alpha_f, alpha_s) = (1, 0)`; `alpha_f`, `alpha_s` are clamped to [0, 1].
+   !< `EPS_FS c_f^2` (triple umbilic) takes `(alpha_f, alpha_s) = (1, 0)`; `alpha_f`, `alpha_s` are clamped to [0, 1] and
+   !< computed without cancellation (issue #79).
    real(R8P),    intent(in)  :: gamma          !< Specific heats ratio.
    integer(I4P), intent(in)  :: d              !< Direction, 1=x, 2=y, 3=z.
    real(R8P),    intent(in)  :: qa(NV_AUX_MHD) !< Auxiliary variables.
@@ -726,6 +727,8 @@ contains
    real(R8P)                 :: asq, a         !< Squared sound speed and the speed.
    real(R8P)                 :: ct2, tsum      !< Squared transverse Alfven speed, sum of the squared speeds.
    real(R8P)                 :: tdif, cf2_cs2  !< Difference of the squared speeds, c_f^2 - c_s^2.
+   real(R8P)                 :: asq_m_cssq     !< a^2 - c_s^2, cancellation-free.
+   real(R8P)                 :: cfsq_m_asq     !< c_f^2 - a^2, cancellation-free.
    real(R8P)                 :: cfsq, cf       !< Squared fast speed and the speed.
    real(R8P)                 :: cssq, cs       !< Squared slow speed and the speed.
    real(R8P)                 :: bet2, bet3     !< Transverse field direction.
@@ -791,19 +794,23 @@ contains
       bet3 = b3 / bt
    endif
    vbet = v2 * bet2 + v3 * bet3
-   ! fast and slow normalisation
-   if (cfsq - cssq <= EPS_FS * cfsq) then
-      alf = 1._R8P
-      als = 0._R8P
-   elseif (asq - cssq <= 0._R8P) then
-      alf = 0._R8P
-      als = 1._R8P
-   elseif (cfsq - asq <= 0._R8P) then
+   ! fast and slow normalisation, alpha_f^2 = (a^2 - c_s^2) / (c_f^2 - c_s^2), alpha_s^2 = (c_f^2 - a^2) / (c_f^2 - c_s^2),
+   ! with c_f^2 - c_s^2 = cf2_cs2, a^2 - c_s^2 = (cf2_cs2 - tdif) / 2, c_f^2 - a^2 = (cf2_cs2 + tdif) / 2: the difference
+   ! that cancels (the smaller one) is rationalised to 2 a^2 c_t^2 / (cf2_cs2 +- tdif), so both keep full relative accuracy
+   ! (issue #79: subtracting O(a^2) speeds left alpha_s with an absolute error of ~eps^(1/2) at high beta)
+   if (cf2_cs2 <= EPS_FS * cfsq) then
       alf = 1._R8P
       als = 0._R8P
    else
-      alf = min(1._R8P, sqrt((asq - cssq) / (cfsq - cssq)))
-      als = min(1._R8P, sqrt((cfsq - asq) / (cfsq - cssq)))
+      if (tdif >= 0._R8P) then
+         asq_m_cssq = 2._R8P * asq * ct2 / (cf2_cs2 + tdif)
+         cfsq_m_asq = cf2_cs2 - asq_m_cssq
+      else
+         cfsq_m_asq = 2._R8P * asq * ct2 / (cf2_cs2 - tdif)
+         asq_m_cssq = cf2_cs2 - cfsq_m_asq
+      endif
+      alf = min(1._R8P, sqrt(asq_m_cssq / cf2_cs2))
+      als = min(1._R8P, sqrt(cfsq_m_asq / cf2_cs2))
    endif
    sqrtd  = sqrt(rho)
    isqrtd = 1._R8P / sqrtd

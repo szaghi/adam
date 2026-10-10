@@ -6,9 +6,15 @@ relative to the loop amplitude A0, measures the accumulated divergence error: it
 under refinement (--bz-order-min on the finest pair, a positive rate). The magnetic energy E_B = sum |B|^2 / 2 of the
 last checkpoint over the first measures the numerical dissipation of the loop: at least --energy-min.
 
+--agree-with compares instead the last checkpoints of each run with the matching run of another backend (issue #79):
+per field, the largest difference relative to the field's scale (A0 for B) at most --agree-tol. The backends evaluate
+the same kernels, so they agree to round-off; before #79 a cancellation in the slow-wave normalisation of the MHD
+eigenvectors amplified their round-off to ~1e-6 on B.
+
 Usage:
     field_loop_oracle.py <work> [<work> ...] [--bz-max E [E ...]] [--bz-order-min P] [--energy-min R [R ...]]
                          [--ngc N]
+    field_loop_oracle.py <work> [<work> ...] --agree-with <work> [<work> ...] [--agree-tol T]
 """
 
 from __future__ import annotations
@@ -49,6 +55,21 @@ def measures(work: Path, ngc: int) -> tuple[float, float]:
     return bz, energy[1] / energy[0]
 
 
+def disagreement(work: Path, other: Path, ngc: int) -> np.ndarray:
+    """Return, per field of NAMES, the largest |work - other| of the last checkpoints relative to the field's scale: the
+    loop amplitude A0 for the magnetic field (B_z is ~1e-6 A0, its own scale would magnify round-off), the field's
+    largest magnitude in ``work`` otherwise."""
+    a, b = profile(work, "last", ngc), profile(other, "last", ngc)
+    if a.keys() != b.keys():
+        sys.exit(f"field_loop_oracle: {work.name} and {other.name} hold different cells")
+    keys = sorted(a)
+    qa, qb = np.array([a[k] for k in keys]), np.array([b[k] for k in keys])
+    scale = np.max(np.abs(qa), axis=0)
+    scale[[IBX, IBY, IBZ]] = amplitude(work)
+    scale = np.where(scale > 0.0, scale, 1.0)
+    return np.max(np.abs(qa - qb), axis=0) / scale
+
+
 def bound(values: list[float] | None, n: int) -> float | None:
     """Return the n-th bound of a per-run list (one value applies to every run)."""
     if values is None:
@@ -64,7 +85,21 @@ def main() -> int:
     parser.add_argument("--bz-order-min", type=float, default=None, help="minimum refinement rate of <|B_z|>")
     parser.add_argument("--energy-min", type=float, nargs="+", default=None, help="bound of E_B(T) / E_B(0)")
     parser.add_argument("--ngc", type=int, default=3)
+    parser.add_argument("--agree-with", type=Path, nargs="+", default=None,
+                        help="runs of the other backend, one per run: compare the last checkpoints (issue #79)")
+    parser.add_argument("--agree-tol", type=float, default=1.0e-10, help="bound of the relative disagreement")
     args = parser.parse_args()
+    if args.agree_with is not None:
+        if len(args.agree_with) != len(args.work):
+            sys.exit("field_loop_oracle: --agree-with takes one run per run")
+        ok = True
+        for w, o in zip(args.work, args.agree_with, strict=True):
+            d = disagreement(w, o, args.ngc)
+            good = float(d.max()) <= args.agree_tol
+            ok &= good
+            print(f"{w.name} vs {o.name}: " + " ".join(f"{n} {x:.2e}" for n, x in zip(NAMES, d, strict=True)))
+            print(f"   largest {d.max():.3e} {'<=' if good else '>'} {args.agree_tol:.1e}: {'PASS' if good else 'FAIL'}")
+        return 0 if ok else 1
     for name in ("bz_max", "energy_min"):
         values = getattr(args, name)
         if values is not None and len(values) not in (1, len(args.work)):
