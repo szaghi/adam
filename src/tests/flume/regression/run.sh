@@ -60,6 +60,11 @@
 #   alfven-resistive         VV-5 visco-resistive Alfven wave at 45 degrees, MHD-GLM, mu and eta, 32^2, t = 0.05 (M4-P6)
 #   seam-viscous-amr         VV-7 Alfven wave A = 0.01, MHD-GLM with mu and eta, 48^2 with the centre refined 2:1, t = 0.02:
 #                            the dissipative fluxes through the reflux (M4-P6); per-backend goldens, as every M4 case
+#   vortex-regrid            runtime AMR (issue #74, M5-P5): the vortex on a periodic quadtree, levels 1-3, a Loehner
+#                            marker, a regrid every 5 steps, 100 steps, 6 regrids: marking, conservative prolongation,
+#                            restriction, redistribution and the flux register rebuilt at each regrid; per-backend goldens
+#   field-loop-regrid        runtime AMR on MHD: the GLM field loop tracked from 64x32 to 128x64 (gradient OR Loehner
+#                            with floor), 150 steps, 10 regrids; per-backend goldens
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 

@@ -22,13 +22,15 @@ OpenACC), and it supersedes the deprecated CHASE.
 | Output | XDMF + HDF5 checkpoints (ParaView), restart, slices, residual, conservation and div(B) histories | [Input reference](./input#io) |
 | Verification | Exact solutions, convergence orders, symmetry and conservation oracles on both backends | [Verification gallery](./verification) |
 
-**Status.** Milestones M1 to M4 are complete: M1 Euler ([#35](https://github.com/szaghi/adam/issues/35)), M2 ideal MHD
+**Status.** Milestones M1 to M5 are complete: M1 Euler ([#35](https://github.com/szaghi/adam/issues/35)), M2 ideal MHD
 with GLM ([#41](https://github.com/szaghi/adam/issues/41)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) the
 Riemann-solver scheme (`weno-riemann`, Euler and MHD), the energy-consistent EGLM cleaning and a positivity-preserving
 limiter, and M4 ([#65](https://github.com/szaghi/adam/issues/65)) the dissipative terms: compressible Navier–Stokes
 (viscosity and heat conduction, 4th-order conservative fluxes, no-slip walls) for every model and Ohmic resistivity for
 MHD, on both backends, conservative across AMR seams and realms (second order at a 2:1 seam, as the inviscid fluxes).
-Runtime AMR, M5 ([#74](https://github.com/szaghi/adam/issues/74)), is in progress: both backends regrid during the run (`[amr] frequency`).
+M5 ([#74](https://github.com/szaghi/adam/issues/74)) runtime AMR: both backends regrid during the run (`[amr] frequency`), with
+a conservative limited prolongation, combined markers (gradient, Löhner, box, solid) and restarts across regrids
+([setting it up](./input#setting-up-runtime-amr)).
 
 ## Quick start
 

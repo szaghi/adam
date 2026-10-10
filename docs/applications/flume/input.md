@@ -188,6 +188,64 @@ Variable indices for the gradient marker:
 | 10 | — | `By` (MHD) |
 | 11 | — | `Bz` (MHD) |
 
+### Setting up runtime AMR
+
+Runtime AMR ([#74](https://github.com/szaghi/adam/issues/74)) regrids during the run, on both backends. A minimal setup
+tracks a feature from a base level to a finest level (the spacings below are for a unit box with 16 cells per block):
+
+```ini
+[amr]
+max_level      = 3          ; finest level
+iu_ref_levels  = 1          ; base level: no block is ever coarsened below it
+frequency      = 5          ; regrid after every 5th step
+iters          = 2          ; up to 2 sweeps per regrid (a sweep moves a block by one level)
+markers_number = 2
+; regrid_prolongation = conservative   (the FLUME default; the refined children average to the parent)
+
+[amr_marker_1]               ; refines the initial grid too (Loehner does not act at initialisation)
+mode         = 2             ; gradient
+delta_type   = max
+delta_fine   = 0.0079        ; ~1 % above the finest spacing: the blocks where the gradient fires reach it
+delta_coarse = 0.0316        ; ~1 % above the base spacing
+field        = 1
+var          = 1             ; density
+tol          = 0.05
+
+[amr_marker_2]
+mode         = 4             ; Loehner: scale-free, ~0 where smooth, ~1 at a jump
+delta_type   = max           ; read but unused by mode 4
+delta_fine   = 0.0
+delta_coarse = 0.0
+field        = 1
+var          = 1
+refine_tol   = 0.5           ; refine above
+derefine_tol = 0.2           ; coarsen below (keep between: the hysteresis band)
+buffer       = 2             ; ghost layers read: a feature at a neighbour's edge marks the block
+; floor      = 1e-4          ; needed when the variable vanishes in quiet regions (e.g. B outside a loop)
+```
+
+How the pieces combine, and what to expect:
+
+- **Markers vote.** A block is refined when any marker asks for it and coarsened only when all agree; the box marker
+  votes to coarsen outside its box. Use a gradient (or solid, or box) marker to shape the initial grid and Loehner to
+  follow the solution: without an initial marker the first `frequency` steps run on the base grid, and their error
+  persists.
+- **Thresholds.** Loehner's `refine_tol` around 0.5 follows shocks and contacts; smooth structures (a vortex, a
+  rarefaction) score low and may stay coarse, so mark them with a gradient marker. On a variable that is zero in quiet
+  regions set `floor` to a fraction of the feature's jump, or round-off noise marks the whole grid.
+- **Cost.** The time step is global (no subcycling), so a run regridding to level L advances at the step of level L
+  everywhere; the savings come from the cells, and on the verification cases the wall time dropped by 3–19 %
+  ([verification](./verification#av-accuracy-of-runtime-amr)). On the FNL backend each regrid is a host round trip
+  whose cost scales with the block capacity, 2.5 to 10 s per regrid on the development box
+  ([#75](https://github.com/szaghi/adam/issues/75)).
+- **Limits.** Single-realm runs only (a multi-realm forest with `frequency > 0` is refused); the initial gradient marker
+  cannot see a jump lying on a block face ([#76](https://github.com/szaghi/adam/issues/76)); with EGLM the 2:1 seams
+  raise the divergence error B_z well above its uniform-grid level ([#78](https://github.com/szaghi/adam/issues/78)).
+- **Restart.** A run restarted from any step regrids on the same steps and continues bitwise (the regrid happens before
+  the step's output and restart files).
+- **Log.** Each regrid prints `flume: regrid at step N: blocks a -> b, R refined, C coarsened, S sweeps` (plus its wall
+  time on FNL); a state with non-positive density or pressure after a regrid stops the run with its location.
+
 ---
 
 ## [field]
