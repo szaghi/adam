@@ -470,10 +470,14 @@ contains
    !< coincide: no offset, no averaging along it (a 2x1 mean, two fine blocks per
    !< face). Both ratios default to 2 (the octree).
    !<
-   !< Conservative averaging (the 0.25 factor) is the correct face-FLUX restriction:
-   !< the coarse-face flux per unit area equals the mean of the fine-face fluxes
-   !< per unit area covering it (Berger-Colella 1989 §4; Olivares 2019 Eq. 26-27),
-   !< so `F_coarse - F_fine_sum` telescopes to round-off for a consistent scheme.
+   !< Conservative averaging (the 0.25 factor) is the face-FLUX restriction of
+   !< Berger-Colella 1989 §4 and Olivares 2019 Eq. 26-27: the coarse-face flux per
+   !< unit area is replaced by the mean of the fine-face fluxes covering it, so the
+   !< composite update telescopes to round-off (conservation) for any scheme. For
+   !< cell averages (FV) that mean is also a consistent coarse flux. For point-value
+   !< finite differences it is not: the coarse and fine numerical fluxes approximate
+   !< different grid-dependent functions, and the mean of the fine ones is an O(H^2)
+   !< flux error, which caps the composite solution at second order (issue #68 F1, C3).
    real(R8P),    intent(in)           :: fine_face(:,:,:) !< Fine face flux (nv, inner_n, outer_n).
    integer(I4P), intent(in)           :: inner_n, outer_n !< Coarse-face tangential cell counts.
    integer(I4P), intent(in)           :: ioff, joff       !< Quadrant offset along (inner, outer) ∈ {0,1}.

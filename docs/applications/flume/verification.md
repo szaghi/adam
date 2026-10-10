@@ -1104,6 +1104,51 @@ the uniform-fine run in every case, and equal to it where the refined region cov
 
 ![Runtime regridding: tracked vortex and field loop with their blocks](/flume/regrid.png)
 
+## Seam accuracy and divergence (M6)
+
+Milestone M6 ([issue #68](https://github.com/szaghi/adam/issues/68)) measures, and then lifts, the accuracy cap of the
+static 2:1 seams. Phase A adds the instruments; the transfer operators and the reflux policy change only behind new
+keys, whose defaults keep today's behaviour.
+
+### AO: order across static 2:1 seams
+
+**Why.** Every smooth order test (V2, MV-5 to MV-7) runs on a uniform grid; VV-8 measures a seam with dissipative
+waves. No test measured the inviscid order of a smooth feature crossing a seam, where the #68 audit (F1) predicts that
+the mean restriction of the coarse ghosts and the Berger–Colella reflux of point-value fluxes each cap the order at 2.
+
+**Cases** (`verification/amr-order/`). A vortex starts centred on the corner of a refined quadrant, so its core
+straddles an x seam, a y seam and their corner, and the free stream $(1, 1)$ carries it into the fine quadrant:
+- `euler`: the V2 isentropic vortex on $[0, 1]^2$, quadrant $[0.5, 1]^2$ refined, $t = 0.1$, CFL 0.4 (V2's 0.1 gives
+  the same errors to five digits);
+- `mhd`: the MV-7 magnetised vortex on $[-7, 7]^2$, GLM, quadrant $[0, 7]^2$ refined, $t = 0.5$;
+- both on a quadtree, base $N$ = 64 / 128 / 256, each with a uniform control (no refined quadrant). An octree leg,
+  `euler-octree`, runs on request: it refines along the null z too, at about 16 times the cost.
+
+**Oracle** (`amr_order_oracle.py`). Each cell is compared with the exact convected vortex (the density for Euler; the
+eight conservative variables for MHD, combined as MV-7 does). The error is split into the **seam band**, the cells
+within `ngc` of their own spacing from the boundary of the refined quadrant (periodic images included), and the
+**interior**. Bounds: the finest refined errors at most the CPU baseline plus 2 %, so that an improvement passes and a
+degradation fails; the uniform control at L1 order $\ge 4.7$.
+
+**Results** (CPU and FNL identical to every printed digit, 2 ranks; orders of the finest pair, N = 128 → 256):
+
+| Leg | Refined L1 at N = 256 | Uniform L1 at N = 256 | L1 order: all / band / interior | L∞ order | Uniform L1 order |
+|---|---|---|---|---|---|
+| euler | $4.05\cdot10^{-6}$ | $8.38\cdot10^{-8}$ | 2.01 / 1.71 / 1.91 | 1.46 | 5.79 |
+| mhd | $1.83\cdot10^{-6}$ | $2.62\cdot10^{-8}$ | 2.07 / 1.85 / 1.92 | 1.89 | 5.34 |
+
+Three findings:
+- **The seams cap the whole solution at second order, not only the band.** The error made at a seam is carried into
+  the interior by the flow, so every region a feature reaches after crossing a seam is second order. The plan's
+  expectation of "design order in the interior" holds only for regions the flow does not reach from a seam.
+- **On this smooth flow the refinement makes the solution worse.** At N = 256 the refined composite error is 48 times
+  (Euler) and 70 times (MHD) the error of the uniform run at the coarse spacing, which reaches design order.
+- **Euler's L∞ order is 1.46,** below the 2 of the 1-D prototype in #68 (Appendix A). The vortex crosses the seam
+  corner, where the two seam directions meet; the 2-D prototype of Phase B will check whether the corner explains it.
+
+Phases C (high-order restriction), D (quintic prolongation) and E (reflux policy) are measured against these
+baselines.
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths
