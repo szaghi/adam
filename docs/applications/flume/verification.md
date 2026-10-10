@@ -1020,11 +1020,12 @@ rg3, rg4 and rg5 run on both backends.
 | rg3 `linear` | 7 | 14 / 6 | drift $2.6\cdot10^{-5}$ (ρ), $2.2\cdot10^{-4}$ (ρu) |
 | rg4 | 3 (steps 5, 20, 25) | — | 40 blocks bitwise, histories identical |
 | rg5 | 1 (176 → 344 blocks) | 24 / 0 | completes, admissible |
-| rg6 | 10, the same on both | 20 / 4 | fields within $7.0\cdot10^{-14}$; FNL round trips 2.3 to 3.1 s each |
+| rg6 | 10, the same on both | 20 / 4 | fields within $7.0\cdot10^{-14}$; FNL round trips 0.015 to 0.029 s each (2.3 to 3.1 s before #75) |
 
 On FNL the conservative rg3 run drifts by at most $2.6\cdot10^{-16}$, the same round-off as the CPU. Its round trips cost
-2.3–3.1 s each on a grid of at most 52 blocks: the copies move the whole device state, sized by the block capacity
-(17195 blocks per rank here), not the blocks in use ([#75](https://github.com/szaghi/adam/issues/75)).
+0.015–0.031 s each on a grid of at most 52 blocks: the copies move the blocks in use, packed on the device. They moved
+the whole device state, sized by the block capacity (17195 blocks per rank here), and cost 2.3–3.1 s each until
+[#75](https://github.com/szaghi/adam/issues/75).
 
 The two rg3 runs regrid differently: the linear prolongation changes the data the Löhner estimator reads, so the grids
 part after the first regrid. The integrals still separate the two by eleven orders of magnitude.
@@ -1066,7 +1067,7 @@ V2, V6 and MV-9 oracles):
 | av4 EGLM | E_B 0.943769, ⟨\|B_z\|⟩ 2.37e-5, div B 2.58e-4 | 0.943774, 2.72e-6, 2.72e-4 | ⟨\|B_z\|⟩ 8.7× (reported, #78), div B 0.95× | 82 | 242 s / 250 s |
 | av6 | np 2 and 3 against np 1 (FNL: np 2, two GPUs) | — | the same 4 regrids, fields bitwise on both backends | 4 | 97 / 55 / 48 s |
 | av7 | stand-off 0.12000 | uniform at V6's finest level 0.12000 (init-AMR V6: 0.12195) | 0 finest cells; mirror symmetry 6.5e-12 | 7 | ends fully refined; 315 s / 389 s |
-| av8 | FNL against CPU, the six tracked runs | the same pair of uniform-fine runs | the same regrids in every case; Euler: round-off on both runs (tracked 5.7e-14 to 6.9e-12); field loop: 1.4e-11 GLM, 3.0e-10 EGLM (relative to each field's scale, B_z ~1e-6; ~1e-6 before #79); blast: O(1) as on the uniform run (#77); every tracked difference at most 1× the uniform one but av3a's (1.8e-13, round-off) | — | FNL tracked: av4 550 s, av7 1051 s (round trips, #75) |
+| av8 | FNL against CPU, the six tracked runs | the same pair of uniform-fine runs | the same regrids in every case; Euler: round-off on both runs (tracked 5.7e-14 to 6.9e-12); field loop: 1.4e-11 GLM, 3.0e-10 EGLM (relative to each field's scale, B_z ~1e-6; ~1e-6 before #79); blast: O(1) as on the uniform run (#77); every tracked difference at most 1× the uniform one but av3a's (1.8e-13, round-off) | — | FNL tracked: av4 60 s (550 s before the bounded copies of #75), av7 973 s |
 
 The savings are modest on these cases, and the reason is visible: the tracked vortex and loop hold half the blocks of
 the uniform runs, but the time step is set by the finest cells either way (no subcycling, D-M5-3) and the regrids, the

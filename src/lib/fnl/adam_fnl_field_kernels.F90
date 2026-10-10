@@ -16,7 +16,9 @@ implicit none
 private
 public :: compute_q_gradient_dev
 public :: compute_normL2_residuals_dev
+public :: pack_blocks_transposed_dev
 public :: pack_seam_rows_dev
+public :: unpack_blocks_transposed_dev
 public :: unpack_seam_rows_dev
 public :: populate_send_buffer_ghost_gpu_dev
 public :: receive_recv_buffer_ghost_gpu_dev
@@ -24,6 +26,61 @@ public :: update_ghost_local_gpu_dev
 public :: reduce_ghost_local_gpu_dev
 
 contains
+   subroutine pack_blocks_transposed_dev(blocks_number, ni, nj, nk, ngc, nv, a_gpu, buf_gpu)
+   !< Pack blocks `1:blocks_number` of the device field `a_gpu(b, i, j, k, v)`, ghost cells included, into `buf_gpu` in
+   !< the host layout `(v, i, j, k, b)` (issue #75): `buf_gpu` is then one contiguous copy of the host slab
+   !< `a(:, :, :, :, 1:blocks_number)`, so a host round trip moves the blocks in use, not the block capacity `nb` (the
+   !< leading device index is the block, so the blocks in use are a strided section of `a_gpu`).
+   integer(I4P), intent(in)    :: blocks_number                       !< Blocks to pack.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                     !< Block dimensions, ghost cells number.
+   integer(I4P), intent(in)    :: nv                                  !< Variables number.
+   real(R8P),    intent(in)    :: a_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field (b, i, j, k, v).
+   real(R8P),    intent(inout) :: buf_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Packed blocks (v, i, j, k, b).
+   integer(I4P)                :: b, i, j, k, v                       !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(a_gpu,buf_gpu) &
+   !$acc& firstprivate(blocks_number,ni,nj,nk,ngc,nv)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(a_gpu,buf_gpu) firstprivate(blocks_number,ni,nj,nk,ngc,nv)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do v=1, nv
+      buf_gpu(v,i,j,k,b) = a_gpu(b,i,j,k,v)
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine pack_blocks_transposed_dev
+
+   subroutine unpack_blocks_transposed_dev(blocks_number, ni, nj, nk, ngc, nv, buf_gpu, a_gpu)
+   !< Unpack `buf_gpu`, blocks `1:blocks_number` in the host layout `(v, i, j, k, b)`, into the device field
+   !< `a_gpu(b, i, j, k, v)`, ghost cells included: the inverse of `pack_blocks_transposed_dev` (issue #75); the blocks
+   !< beyond `blocks_number` are untouched.
+   integer(I4P), intent(in)    :: blocks_number                       !< Blocks to unpack.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                     !< Block dimensions, ghost cells number.
+   integer(I4P), intent(in)    :: nv                                  !< Variables number.
+   real(R8P),    intent(in)    :: buf_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Packed blocks (v, i, j, k, b).
+   real(R8P),    intent(inout) :: a_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field (b, i, j, k, v).
+   integer(I4P)                :: b, i, j, k, v                       !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(buf_gpu,a_gpu) &
+   !$acc& firstprivate(blocks_number,ni,nj,nk,ngc,nv)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(buf_gpu,a_gpu) firstprivate(blocks_number,ni,nj,nk,ngc,nv)
+   do v=1, nv
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do b=1, blocks_number
+      a_gpu(b,i,j,k,v) = buf_gpu(v,i,j,k,b)
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine unpack_blocks_transposed_dev
+
    subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu)
    !< Pack the ghost values of the seam send rows `[rank, b, i, j, k, kind, meta]` `row_start..row_start+row_count-1`
    !< from `q_gpu` into `buf_gpu`, `nv` values per row in row order (issues #40, #52), the device twin of

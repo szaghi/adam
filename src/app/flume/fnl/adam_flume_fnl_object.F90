@@ -20,7 +20,8 @@ use :: adam_realm_object,         only : realm_object
 use :: adam_seam_exchange,        only : seam_fill_all
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM FNL classes, libraries
-use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev, pack_seam_rows_dev, unpack_seam_rows_dev
+use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev, pack_blocks_transposed_dev, pack_seam_rows_dev, &
+                                         unpack_blocks_transposed_dev, unpack_seam_rows_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
 use :: adam_fnl_ib_object,        only : ib_fnl_object
 use :: adam_fnl_rk_object,        only : rk_fnl_object
@@ -567,32 +568,57 @@ contains
    endselect
    endsubroutine compute_q_aux
 
-   subroutine copy_cpu_gpu(self, verbose)
+   subroutine copy_cpu_gpu(self, verbose, bounded)
    !< Copy state and topology (coordinates, maps) from host to device.
-   class(flume_fnl_object), intent(inout)        :: self    !< The equation.
-   logical,                 intent(in), optional :: verbose !< Trigger verbose output.
+   !<
+   !< `bounded` (the runtime regrid, issue #75) copies the state of the blocks in use only: the device blocks beyond
+   !< `blocks_number` hold nothing the scheme reads. Otherwise the whole block capacity `nb` is copied (initialization:
+   !< it also gives the unused device blocks finite values).
+   class(flume_fnl_object), intent(inout)        :: self     !< The equation.
+   logical,                 intent(in), optional :: verbose  !< Trigger verbose output.
+   logical,                 intent(in), optional :: bounded  !< Copy the blocks in use only.
+   logical                                       :: bounded_ !< Copy the blocks in use only, local variable.
 
-   call dev_memcpy_to_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q_gpu, src=self%q, buf=self%buf_5D_R8P)
+   bounded_ = .false. ; if (present(bounded)) bounded_ = bounded
+   if (bounded_) then
+      call copy_blocks_transposed(blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                  nv=self%nv, a=self%q, a_gpu=self%q_gpu, to_device=.true.)
+   else
+      call dev_memcpy_to_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q_gpu, src=self%q, buf=self%buf_5D_R8P)
+   endif
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self)
-   !< Copy state and residuals from device to host.
+   !< Copy state and residuals from device to host, the blocks in use only (issue #75: the outputs, the restart files
+   !< and the non-finite report read nothing beyond `blocks_number`).
    class(flume_fnl_object), intent(inout) :: self !< The equation.
 
-   call dev_memcpy_from_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q, src=self%q_gpu, buf=self%buf_5D_R8P)
-   call dev_memcpy_from_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%dq, src=self%dq_gpu, buf=self%buf_5D_R8P)
+   call copy_blocks_transposed(blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                               nv=self%nv, a=self%q, a_gpu=self%q_gpu, to_device=.false.)
+   call copy_blocks_transposed(blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                               nv=self%nv, a=self%dq, a_gpu=self%dq_gpu, to_device=.false.)
    endsubroutine copy_gpu_cpu
 
-   subroutine copy_phi_gpu(self)
+   subroutine copy_phi_gpu(self, bounded)
    !< Copy the immersed solids distance function (computed on the host, the solids are static) to the device, transposed
    !< from `(s, i, j, k, b)` to `(b, i, j, k, s)`; the staging buffer has the extent of the device array (issue #31).
-   class(flume_fnl_object), intent(inout) :: self           !< The equation.
-   real(R8P), allocatable                 :: buf(:,:,:,:,:) !< Transposed staging buffer.
-   integer(I4P)                           :: db(2,5)        !< Device bounds.
-   integer(I4P)                           :: hb(2,5)        !< Host bounds.
+   !< `bounded` (the runtime regrid, issue #75) copies the blocks in use only.
+   class(flume_fnl_object), intent(inout)        :: self           !< The equation.
+   logical,                 intent(in), optional :: bounded        !< Copy the blocks in use only.
+   real(R8P), allocatable                        :: buf(:,:,:,:,:) !< Transposed staging buffer.
+   integer(I4P)                                  :: db(2,5)        !< Device bounds.
+   integer(I4P)                                  :: hb(2,5)        !< Host bounds.
 
    if (self%ib%solids_number == 0_I4P) return
+   if (present(bounded)) then
+      if (bounded) then
+         call copy_blocks_transposed(blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk,      &
+                                     ngc=self%ngc, nv=self%ib%solids_number+1, a=self%ib%phi,                  &
+                                     a_gpu=self%ib_fnl%phi_gpu, to_device=.true.)
+         return
+      endif
+   endif
    associate(ns=>self%ib%solids_number+1, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
    db(1,:) = [1 , 1-ngc , 1-ngc , 1-ngc , 1 ]
    db(2,:) = [nb, ni+ngc, nj+ngc, nk+ngc, ns]
@@ -1635,7 +1661,8 @@ contains
    !< state, the block coordinates, the maps (a map the new grid no longer has is freed on the device, issue #74 G6) and
    !< the distance function back to the device. Then, as on the CPU, the new state is checked and its ghosts and
    !< auxiliary variables refreshed. The device arrays are sized by the block capacity `nb`, so nothing is
-   !< reallocated. The wall time of the regrid (largest over the ranks) is logged with it. `regridded` tells the forest
+   !< reallocated; the state and distance function copies move the blocks in use only, packed and transposed on the
+   !< device (issue #75: the whole capacity cost 2.3-3.1 s per regrid on the development box, whatever the grid). The wall time of the regrid (largest over the ranks) is logged with it. `regridded` tells the forest
    !< to rebuild the 2:1 flux register (host side); the grid is replicated, so every rank returns the same value.
    class(flume_fnl_object), intent(inout) :: self            !< The equation.
    logical,                 intent(out)   :: regridded       !< True if the grid changed.
@@ -1654,7 +1681,8 @@ contains
    sweeps = 0_I4P ; refined = 0_I4P ; coarsened = 0_I4P
    do i=1, self%amr%iters
       call self%update_ghost(q_gpu=self%q_gpu)
-      call dev_memcpy_from_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q, src=self%q_gpu, buf=self%buf_5D_R8P)
+      call copy_blocks_transposed(blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                  nv=self%nv, a=self%q, a_gpu=self%q_gpu, to_device=.false.)
       call self%mark_runtime
       call self%adam%amr_update(q=self%q, is_marked_by_field=.true., do_blocks_reorder=.false.,      &
                                 is_grid_changed=is_grid_changed, prolongation=self%amr%regrid_prolongation)
@@ -1663,8 +1691,8 @@ contains
       refined   = refined   + int(size(self%adam%tree%node_to_refine,   dim=1), I4P)
       coarsened = coarsened + int(size(self%adam%tree%node_to_derefine, dim=1), I4P) / self%adam%tree%ratio
       call self%compute_phi
-      call self%copy_cpu_gpu
-      call self%copy_phi_gpu
+      call self%copy_cpu_gpu(bounded=.true.)
+      call self%copy_phi_gpu(bounded=.true.)
    enddo
    regridded = sweeps > 0_I4P
    if (.not.regridded) return
@@ -1698,6 +1726,37 @@ contains
    endfunction stages_per_step_forest
 
    ! private procedures
+   subroutine copy_blocks_transposed(blocks_number, ni, nj, nk, ngc, nv, a, a_gpu, to_device)
+   !< Copy blocks `1:blocks_number` of a field between the host `a(v, i, j, k, b)` and the device `a_gpu(b, i, j, k, v)`,
+   !< ghost cells included (issue #75). The blocks in use are a strided section of `a_gpu` (the block is its leading
+   !< index) but a contiguous slab of `a`: a device kernel packs (or unpacks) them, transposed, into a scratch buffer
+   !< of the slab's shape, moved by one contiguous copy. The buffer has the extent of the slab, the host side is the
+   !< slab itself: no staging buffer of another extent (issue #31). A rank without blocks copies nothing.
+   integer(I4P), intent(in)                     :: blocks_number                   !< Blocks to copy.
+   integer(I4P), intent(in)                     :: ni, nj, nk, ngc                 !< Block dimensions, ghosts.
+   integer(I4P), intent(in)                     :: nv                              !< Variables number.
+   real(R8P),    intent(inout), target, contiguous :: a(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Host field (v, i, j, k, b).
+   real(R8P),    intent(in),    pointer         :: a_gpu(:,:,:,:,:)                !< Device field (b, i, j, k, v).
+   logical,      intent(in)                     :: to_device                       !< Host to device, else back.
+   real(R8P),    pointer                        :: buf_gpu(:,:,:,:,:)              !< Device packed blocks.
+   integer(I4P)                                 :: ierr                            !< Error status.
+
+   if (blocks_number < 1_I4P) return
+   call dev_alloc(fptr_dev=buf_gpu, lbounds=[1, 1-ngc, 1-ngc, 1-ngc, 1], &
+                  ubounds=[nv, ni+ngc, nj+ngc, nk+ngc, blocks_number], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in copy_blocks_transposed')
+   if (to_device) then
+      call dev_memcpy_to_device(dst=buf_gpu, src=a(:,:,:,:,1:blocks_number))
+      call unpack_blocks_transposed_dev(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                        buf_gpu=buf_gpu, a_gpu=a_gpu)
+   else
+      call pack_blocks_transposed_dev(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                      a_gpu=a_gpu, buf_gpu=buf_gpu)
+      call dev_memcpy_from_device(dst=a(:,:,:,:,1:blocks_number), src=buf_gpu)
+   endif
+   call dev_free(buf_gpu, mydev)
+   endsubroutine copy_blocks_transposed
+
    subroutine compute_residuals_weno_dev(self, q_gpu, dq_gpu, s, flux_register)
    !< Compute the residuals with the WENO space operator on the device: ghost update, auxiliary variables, face fluxes
    !< of the active directions, flux difference.

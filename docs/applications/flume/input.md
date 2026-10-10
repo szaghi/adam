@@ -236,7 +236,7 @@ How the pieces combine, and what to expect:
 - **Cost.** The time step is global (no subcycling), so a run regridding to level L advances at the step of level L
   everywhere; the savings come from the cells, and on the verification cases the wall time dropped by 3–19 %
   ([verification](./verification#av-accuracy-of-runtime-amr)). On the FNL backend each regrid is a host round trip
-  whose cost scales with the block capacity, 2.5 to 10 s per regrid on the development box
+  whose copies scale with the blocks in use, about 0.02 s per regrid on a 50-block grid on the development box
   ([#75](https://github.com/szaghi/adam/issues/75)).
 - **Limits.** Single-realm runs only (a multi-realm forest with `frequency > 0` is refused); with EGLM the 2:1 seams
   raise the divergence error B_z well above its uniform-grid level ([#78](https://github.com/szaghi/adam/issues/78)).

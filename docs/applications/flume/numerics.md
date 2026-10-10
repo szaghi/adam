@@ -357,10 +357,11 @@ state is checked (density and pressure positive, fatal otherwise, with the cell)
 register, so the reflux follows seams that appear and disappear. The time step stays global (no subcycling). The
 FNL backend regrids by a host round trip: each sweep refreshes the ghosts on the device, copies the state to the host,
 marks and regrids there with the same code, and copies the state, the block coordinates, the maps and the distance
-function back (a map the new grid no longer has is freed on the device); its log line adds the wall time. The copies
-move the whole device state, sized by the block capacity, not only the blocks in use: on the development box (two
-ranks, 17195 blocks of capacity each) a regrid costs about 2.5 s whatever the grid; bounding the copies to the blocks
-in use is [#75](https://github.com/szaghi/adam/issues/75). The
+function back (a map the new grid no longer has is freed on the device); its log line adds the wall time. The state
+and distance-function copies move the blocks in use only: the device array leads with the block index, so a kernel
+packs those blocks, transposed to the host layout, into a scratch buffer that one contiguous copy moves
+([#75](https://github.com/szaghi/adam/issues/75); copying the whole capacity cost about 2.5 s per regrid on the
+development box, two ranks of 17195 blocks, whatever the grid, against 0.02 s now on a 52-block grid). The
 **Löhner marker** (Löhner 1987, mode 4) is the scale-free second-derivative estimator
 
 $$
