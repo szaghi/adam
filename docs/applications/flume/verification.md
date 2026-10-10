@@ -1149,6 +1149,48 @@ Three findings:
 Phases C (high-order restriction), D (quintic prolongation) and E (reflux policy) are measured against these
 baselines.
 
+### AD: the divergence the cleaning acts on, across seams
+
+**Why.** Every div(B) column above is the centred divergence of the cell values, which is not the divergence GLM and
+EGLM act on (#68 F4). `[diagnostics] divb_flux` adds D_flux, the divergence of the interface normal field read from
+the scheme's own $\psi$ face fluxes, the coarse 2:1 faces taking the fine fluxes; its signed integral over a periodic
+composite domain is round-off (measured: $\le 10^{-17}$ every step on the refined MHD vortex, against
+$4\cdot10^{-7}$ without the fine fluxes), and CPU and FNL agree to $10^{-11}$ relative.
+
+**Cases** (`verification/amr-divb/`). `cpaw`: the source-free CPAW of MV-6 under GLM, inclined, its two middle block
+columns refined (two x seams the wave crosses all the time), 10 periods, refined and uniform N = 64 / 128 (and 256 on
+request). `loop`: the field loop of MV-9 under GLM and EGLM, refined N = 64 against uniform N = 128, $t = 1$
+([#78](https://github.com/szaghi/adam/issues/78)).
+
+**Oracle** (`amr_divb_oracle.py`). `cpaw`: the seam D_flux floor (median over the second half), its growth (the mean
+over the last quarter over that of the second quarter) at most 1.5, and the floor's order at least 1. `loop`: a report.
+
+**Results** (FNL, 2 ranks):
+
+| N | Seam D_flux floor | Growth | Uniform floor | Seam / uniform |
+|---|---|---|---|---|
+| 64 | $5.39\cdot10^{-4}$ | 0.95 | $9.97\cdot10^{-6}$ | 54 |
+| 128 | $5.43\cdot10^{-5}$ | 0.72 | $4.57\cdot10^{-7}$ | 119 |
+| 256 | $2.12\cdot10^{-5}$ | 0.80 | $6.74\cdot10^{-9}$ | 3146 |
+
+| Field loop, $t = 1$ | D_flux (seam, refined) | D_flux (max, uniform) | ⟨\|B_z\|⟩/A0 refined | uniform |
+|---|---|---|---|---|
+| GLM | $2.35\cdot10^{-4}$ | $2.03\cdot10^{-4}$ | $1.10\cdot10^{-3}$ | $6.86\cdot10^{-4}$ |
+| EGLM | $2.45\cdot10^{-4}$ | $2.05\cdot10^{-4}$ | $1.91\cdot10^{-4}$ | $2.72\cdot10^{-6}$ |
+
+Findings:
+- **GLM keeps the seam divergence bounded.** Over 10 periods of a source-free flow the seam D_flux has no secular growth
+  at any resolution: the upwinded $(B_n, \psi)$ pair of FLUME bounds what PRISM's centred GLM lets run away
+  ([#29](https://github.com/szaghi/adam/issues/29); #68 F3).
+- **The seam floor converges at first order** (orders +3.31 then +1.36: the first pair is pre-asymptotic), the O(H)
+  divergence of the O(H²) flux inconsistency of a 2:1 face (#68 F1), while the uniform floor converges at 4 to 6: the
+  seams are the divergence error of a refined run, 3146 times the uniform level at N = 256.
+- **#78 is not a divergence difference.** GLM and EGLM leave the same D_flux, refined and uniform; EGLM's 250-fold
+  smaller B_z on a uniform grid comes from its source term, whose centred divergence cancels the B_z the flux generates.
+  At a seam that centred divergence reads the second-order restricted ghosts, the cancellation fails, and B_z rises 70
+  times (reproduced here to the printed digits of #78). The fix is in Phase G3: a source divergence consistent with the
+  face fluxes at the seams.
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths

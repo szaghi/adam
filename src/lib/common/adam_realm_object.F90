@@ -133,6 +133,10 @@ type :: realm_object
    !< `close_step_forest` default clears it; overrides chain via base call
    !< or duplicate the assignment.
    integer(I4P) :: stage_active = 0_I4P
+   !< A copy of the forest's flux register (its faces and lookup, the accumulators unused), refreshed by the forest each
+   !< time it builds the register (init, regrid). A realm can accumulate one residual evaluation's seam fluxes into it
+   !< for a diagnostic without touching the forest's step accumulators (FLUME's D_flux, issue #68 A2).
+   type(flux_register_object) :: flux_register_copy
    !< Procedure pointer TBPs for FDV operators (set at initialization by backend).
    procedure(compute_block_total_variation_interface), pass(self),pointer :: compute_block_total_variation=>null()!< Compute TV.
    procedure(compute_curl_interface),                  pass(self),pointer :: compute_curl                 =>null()!< Compute curl.

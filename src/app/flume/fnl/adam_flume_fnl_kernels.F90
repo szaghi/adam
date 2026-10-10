@@ -26,6 +26,8 @@ implicit none
 private
 public :: apply_reflux_face_dev
 public :: compute_flux_difference_dev
+public :: compute_dflux_norms_dev
+public :: copy_state_dev
 public :: compute_flux_difference_ib_dev
 public :: compute_rk_ssp_residual_dev
 public :: fill_seam_copy_dev
@@ -64,6 +66,100 @@ contains
       enddo
    enddo
    endsubroutine apply_reflux_face_dev
+
+   subroutine copy_state_dev(ni, nj, nk, ngc, nv, blocks_number, src_gpu, dst_gpu)
+   !< Copy blocks `1:blocks_number` of a device field, ghost cells included, into another (e.g. an idle RK stage buffer:
+   !< the D_flux diagnostic evaluates the residual on a copy of the committed state, issue #68 A2).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                     !< Grid dimensions.
+   integer(I4P), intent(in)    :: nv                                  !< Variables number.
+   integer(I4P), intent(in)    :: blocks_number                       !< Blocks to copy.
+   real(R8P),    intent(in)    :: src_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Source field.
+   real(R8P),    intent(inout) :: dst_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Destination field.
+   integer(I4P)                :: b, i, j, k, v                       !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(src_gpu,dst_gpu) &
+   !$acc& firstprivate(ni,nj,nk,ngc,nv,blocks_number)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(src_gpu,dst_gpu) firstprivate(ni,nj,nk,ngc,nv,blocks_number)
+   do v=1, nv
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do b=1, blocks_number
+      dst_gpu(b,i,j,k,v) = src_gpu(b,i,j,k,v)
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine copy_state_dev
+
+   subroutine compute_dflux_norms_dev(ni, nj, nk, ngc, blocks_number, band, ipsi, ibx, scale, dxyz_gpu, is_null,     &
+                                      seam_gpu, flx_gpu, fly_gpu, flz_gpu, corr_gpu, q_gpu, dflux_max, dflux_l1,      &
+                                      dflux_seam_max, h_dflux_max, b_max)
+   !< Compute the D_flux norms (issue #68 A2), the device twin of the CPU `compute_dflux_norms` loop: D_flux of a cell is
+   !< the divergence of the psi face fluxes minus the reflux correction `corr` of the coarse seam skin cells, over the
+   !< psi flux per unit B_n (`scale`, c_h^2 or c_h); the norms are its maximum, its integral, its seam-local maximum (as
+   !< `compute_divb_norms_dev`), the maximum of `h |D_flux|` (h the smallest active spacing of the block) and `max|B|`.
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   integer(I4P), intent(in)  :: band                              !< Seam-local band width, in cells.
+   integer(I4P), intent(in)  :: ipsi, ibx                         !< Indexes of psi and of B_x (B_y, B_z follow).
+   real(R8P),    intent(in)  :: scale                             !< psi flux per unit B_n.
+   real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   integer(I4P), intent(in)  :: seam_gpu(1:,1:)                   !< Seam faces flags [nb, 6] (0: not a seam face).
+   real(R8P),    intent(in)  :: flx_gpu(1:,0:,1:,1:,1:)           !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, nv].
+   real(R8P),    intent(in)  :: fly_gpu(1:,1:,0:,1:,1:)           !< Y-face fluxes [nb, 1:ni, 0:nj, 1:nk, nv].
+   real(R8P),    intent(in)  :: flz_gpu(1:,1:,1:,0:,1:)           !< Z-face fluxes [nb, 1:ni, 1:nj, 0:nk, nv].
+   real(R8P),    intent(in)  :: corr_gpu(1:,1:,1:,1:)             !< Reflux correction [blocks_number, ni, nj, nk].
+   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: dflux_max                         !< Maximum of |D_flux|.
+   real(R8P),    intent(out) :: dflux_l1                          !< Sum of |D_flux| dV.
+   real(R8P),    intent(out) :: dflux_seam_max                    !< Maximum of |D_flux| over the seam-local cells.
+   real(R8P),    intent(out) :: h_dflux_max                       !< Maximum of h |D_flux|.
+   real(R8P),    intent(out) :: b_max                             !< Maximum of |B|.
+   real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
+   real(R8P)                 :: div                               !< psi flux divergence of one cell.
+   real(R8P)                 :: dflux                             !< |D_flux| of one cell.
+   real(R8P)                 :: h                                 !< Smallest active spacing of the block.
+   logical                   :: is_seam                           !< Seam-local cell.
+   integer(I4P)              :: b, i, j, k                        !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   dflux_max = 0._R8P ; dflux_l1 = 0._R8P ; dflux_seam_max = 0._R8P ; h_dflux_max = 0._R8P ; b_max = 0._R8P
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,seam_gpu,flx_gpu,fly_gpu,flz_gpu,corr_gpu,q_gpu)&
+   !$acc& firstprivate(ni,nj,nk,blocks_number,band,ipsi,ibx,scale,wx,wy,wz) private(div,dflux,h,is_seam) &
+   !$acc& reduction(max:dflux_max,dflux_seam_max,h_dflux_max,b_max) reduction(+:dflux_l1)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,seam_gpu,flx_gpu,fly_gpu,flz_gpu,corr_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,band,ipsi,ibx,scale,wx,wy,wz) private(div,dflux,h,is_seam) &
+   !$omp& reduction(max:dflux_max,dflux_seam_max,h_dflux_max,b_max) reduction(+:dflux_l1)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      div = wx * (flx_gpu(b,i,j,k,ipsi) - flx_gpu(b,i-1,j,k,ipsi)) / dxyz_gpu(b,1) + &
+            wy * (fly_gpu(b,i,j,k,ipsi) - fly_gpu(b,i,j-1,k,ipsi)) / dxyz_gpu(b,2) + &
+            wz * (flz_gpu(b,i,j,k,ipsi) - flz_gpu(b,i,j,k-1,ipsi)) / dxyz_gpu(b,3)
+      dflux = abs(div - corr_gpu(b,i,j,k)) / scale
+      h = huge(1._R8P)
+      if (wx > 0._R8P) h = min(h, dxyz_gpu(b,1))
+      if (wy > 0._R8P) h = min(h, dxyz_gpu(b,2))
+      if (wz > 0._R8P) h = min(h, dxyz_gpu(b,3))
+      dflux_max = max(dflux_max, dflux)
+      dflux_l1  = dflux_l1 + dflux * dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
+      is_seam = (seam_gpu(b,1) /= 0_I4P .and. i <= band) .or. (seam_gpu(b,2) /= 0_I4P .and. i > ni - band) .or. &
+                (seam_gpu(b,3) /= 0_I4P .and. j <= band) .or. (seam_gpu(b,4) /= 0_I4P .and. j > nj - band) .or. &
+                (seam_gpu(b,5) /= 0_I4P .and. k <= band) .or. (seam_gpu(b,6) /= 0_I4P .and. k > nk - band)
+      if (is_seam) dflux_seam_max = max(dflux_seam_max, dflux)
+      h_dflux_max = max(h_dflux_max, h * dflux)
+      b_max = max(b_max, sqrt(q_gpu(b,i,j,k,ibx)**2 + q_gpu(b,i,j,k,ibx+1)**2 + q_gpu(b,i,j,k,ibx+2)**2))
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_dflux_norms_dev
 
    subroutine compute_flux_difference_dev(nv, ni, nj, nk, ngc, blocks_number, is_null, freeze, dxyz_gpu, flx_f_gpu,    &
                                           fly_f_gpu, flz_f_gpu, dq_gpu)

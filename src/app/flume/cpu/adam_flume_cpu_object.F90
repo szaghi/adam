@@ -9,7 +9,7 @@ module adam_flume_cpu_object
 !< physical model, never inside a loop (issue #41, section 4).
 
 ! ADAM classes, libraries, parameters
-use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object
+use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object
@@ -18,6 +18,7 @@ use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22,
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
+use :: adam_flume_parameters,          only : IQ_BX, IQ_BY, IQ_BZ, IQ_PSI
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, ib_cut_spacing,             &
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
                                               BC_EXTRAPOLATION,                                                        &
@@ -121,6 +122,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: check_glm_ch            !< Check the GLM c_h against the fastest wave.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
+      procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
@@ -181,17 +183,21 @@ endinterface
 
 contains
    ! public methods
-   subroutine accumulate_seam_fluxes(self, s, flux_register)
+   subroutine accumulate_seam_fluxes(self, s, flux_register, weight)
    !< Accumulate the seam face fluxes of stage `s`, weighted by its SSP coefficient, into the forest's flux register.
    !<
    !< Every stage contributes (issue #35, P5): the register holds `sum_s beta_s F_s`, the flux of the committed step.
-   class(flume_cpu_object),     intent(inout) :: self          !< The equation.
-   integer(I4P),                intent(in)    :: s             !< Runge-Kutta stage.
-   class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register.
-   real(R8P), allocatable                     :: skin(:,:)     !< Face skin (nv, inner_n*outer_n).
-   integer(I4P)                               :: b, fec        !< Block, face counters.
-   integer(I4P)                               :: i, j, k, c    !< Cell counters.
+   !< `weight` replaces the SSP coefficient (the D_flux diagnostic accumulates one evaluation with weight 1, #68 A2).
+   class(flume_cpu_object),     intent(inout)        :: self          !< The equation.
+   integer(I4P),                intent(in)           :: s             !< Runge-Kutta stage.
+   class(flux_register_object), intent(inout)        :: flux_register !< Forest's flux register.
+   real(R8P),                   intent(in), optional :: weight        !< Weight replacing beta(s).
+   real(R8P), allocatable                            :: skin(:,:)     !< Face skin (nv, inner_n*outer_n).
+   real(R8P)                                         :: w             !< Accumulation weight.
+   integer(I4P)                                      :: b, fec        !< Block, face counters.
+   integer(I4P)                                      :: i, j, k, c    !< Cell counters.
 
+   w = self%rk%beta(s) ; if (present(weight)) w = weight
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv=>self%nv)
    do b=1, self%blocks_number
       do fec=1, 6
@@ -224,7 +230,7 @@ contains
                enddo
             enddo
          endselect
-         call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%rk%beta(s), skin=skin)
+         call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=w, skin=skin)
       enddo
    enddo
    endassociate
@@ -458,7 +464,7 @@ contains
    !< from the peers (`update_ghost` does not fill them, issue #31): the stencils of the seam-local cells read them.
    class(flume_cpu_object), intent(inout)                   :: self     !< The equation.
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms.
-   real(R8P)                                                :: norms(3) !< Norms of this rank.
+   real(R8P)                                                :: norms(8) !< Norms of this rank (4-8: D_flux, #68 A2).
 
    if (self%physics%model == MODEL_EULER) return
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
@@ -487,8 +493,95 @@ contains
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
    endassociate
-   call self%report_divb(norms=norms)
+   if (self%diagnostics%divb_flux) then
+      call self%compute_dflux_norms(norms=norms(4:8))
+      call self%report_divb(norms=norms)
+   else
+      call self%report_divb(norms=norms(1:3))
+   endif
    endsubroutine compute_divb_history
+
+   subroutine compute_dflux_norms(self, norms)
+   !< Compute the D_flux norms of the committed state (issue #68 A2): `max|D_flux|`, `sum |D_flux| dV`, the seam-local
+   !< maximum, `max h|D_flux|` (h the smallest active spacing of the block) and `max|B|`.
+   !<
+   !< D_flux is the divergence the cleaning acts on: that of the interface normal field `B_n = F_psi / s` of the scheme's
+   !< own psi face fluxes (`s = c_h^2` with GLM, `c_h` with EGLM), not the centred divergence of the cell values. One
+   !< residual evaluation of the committed state gives the face fluxes: the state is copied into the idle first RK
+   !< stage buffer (the residual applies the floors and the immersed-boundary extrapolation to its argument) and the
+   !< residual goes into the second. Its seam face fluxes are accumulated, with weight 1, into the realm's copy of the
+   !< forest's flux register and completed across the ranks; at the coarse side of an intra-realm 2:1 seam the coarse
+   !< face flux is then replaced by the fine one, as the reflux does at the end of the step, so the sum of D_flux dV
+   !< over a composite region is the flux of B_n through its boundary. An inter-realm seam keeps each side's own flux
+   !< (its fine side belongs to another realm, whose residual is not evaluated here). The caller has refreshed the
+   !< ghost cells of `q`.
+   class(flume_cpu_object), intent(inout) :: self                    !< The equation.
+   real(R8P),               intent(out)   :: norms(5)                !< The five norms of this rank.
+   real(R8P), allocatable                 :: corr(:,:,:,:)           !< Reflux correction of the psi flux divergence.
+   real(R8P)                              :: scale                   !< psi flux per unit B_n (c_h^2 or c_h).
+   real(R8P)                              :: w(3)                    !< Direction weights: 1 active, 0 null.
+   real(R8P)                              :: div                     !< psi flux divergence of one cell.
+   real(R8P)                              :: dflux                   !< |D_flux| of one cell.
+   real(R8P)                              :: h                       !< Smallest active spacing of a block.
+   logical                                :: is_seam                 !< Seam-local cell.
+   integer(I4P)                           :: f, c, axis, sgn         !< Register face, skin cell, face axis and side.
+   integer(I4P)                           :: b, i, j, k              !< Counters.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%blocks_number, dxyz=>self%adam%field%dxyz, &
+             is_null=>self%adam%grid%null_xyz, reg=>self%flux_register_copy, band=>self%ngc)
+   self%rk%q_rk(:,:,:,:,1:nb,1) = self%q(:,:,:,:,1:nb)
+   call reg%reset
+   call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,1), dq=self%rk%q_rk(:,:,:,:,:,2), flux_register=reg)
+   if (self%numerics%reflux .and. reg%nfaces > 0_I4P) then
+      call self%accumulate_seam_fluxes(s=1_I4P, flux_register=reg, weight=1._R8P)
+      call reg%reduce_fine_sums
+   endif
+   allocate(corr(ni,nj,nk,nb))
+   corr = 0._R8P
+   if (self%numerics%reflux .and. allocated(reg%face)) then
+      do f=1, reg%nfaces
+         associate(face=>reg%face(f))
+         if (face%seam_kind /= SEAM_KIND_INTRA_REALM_AMR) cycle
+         if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
+         if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
+         call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
+         do c=1, face%nface_cells
+            call seam_skin_cell(axis=axis, sgn=sgn, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
+            corr(i,j,k,face%coarse_block) = corr(i,j,k,face%coarse_block) + real(sgn, R8P) / dxyz(axis,face%coarse_block) &
+                                            * (face%F_coarse(IQ_PSI,c,1) - face%F_fine_sum(IQ_PSI,c,1))
+         enddo
+         endassociate
+      enddo
+   endif
+   scale = merge(self%physics%mhd%glm_ch**2, self%physics%mhd%glm_ch, self%physics%model == MODEL_MHD_GLM)
+   w = merge(0._R8P, 1._R8P, is_null)
+   norms = 0._R8P
+   do b=1, nb
+      h = minval(dxyz(:,b), mask=.not.is_null)
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               div = w(1) * (self%flx_f(IQ_PSI,i,j,k,b) - self%flx_f(IQ_PSI,i-1,j,k,b)) / dxyz(1,b) + &
+                     w(2) * (self%fly_f(IQ_PSI,i,j,k,b) - self%fly_f(IQ_PSI,i,j-1,k,b)) / dxyz(2,b) + &
+                     w(3) * (self%flz_f(IQ_PSI,i,j,k,b) - self%flz_f(IQ_PSI,i,j,k-1,b)) / dxyz(3,b)
+               dflux = abs(div - corr(i,j,k,b)) / scale
+               norms(1) = max(norms(1), dflux)
+               norms(2) = norms(2) + dflux * dxyz(1,b) * dxyz(2,b) * dxyz(3,b)
+               is_seam = (self%divb_seam(b,1) /= 0_I4P .and. i <= band) .or.                                         &
+                         (self%divb_seam(b,2) /= 0_I4P .and. i > ni - band) .or.                                    &
+                         (self%divb_seam(b,3) /= 0_I4P .and. j <= band) .or.                                         &
+                         (self%divb_seam(b,4) /= 0_I4P .and. j > nj - band) .or.                                    &
+                         (self%divb_seam(b,5) /= 0_I4P .and. k <= band) .or.                                         &
+                         (self%divb_seam(b,6) /= 0_I4P .and. k > nk - band)
+               if (is_seam) norms(3) = max(norms(3), dflux)
+               norms(4) = max(norms(4), h * dflux)
+               norms(5) = max(norms(5), norm2(self%q(IQ_BX:IQ_BZ,i,j,k,b)))
+            enddo
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine compute_dflux_norms
 
    subroutine compute_q_aux(self, q)
    !< Compute the auxiliary variables on every cell, ghost cells included.

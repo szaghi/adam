@@ -118,6 +118,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_dissipation     !< Refuse the dissipative terms not implemented yet.
       procedure, pass(self), private :: check_runtime_amr     !< Check [amr] frequency, default the prolongation (#74).
+      procedure, pass(self), private :: check_divb_flux       !< Check [diagnostics] divb_flux (#68 A2).
       procedure, pass(self), private :: check_positivity_limiter !< Refuse the limiter where it cannot work.
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
       procedure, pass(self), private :: check_weno_scheme     !< Refuse the centred WENO schemes.
@@ -739,6 +740,7 @@ contains
    call self%check_positivity_limiter
    call self%check_dissipation
    call self%check_runtime_amr
+   call self%check_divb_flux
    call self%check_ngc_number
    call self%allocate_common
    call self%io_initialize
@@ -816,17 +818,29 @@ contains
    !< D-10): `max|div B| > [mhd].(divb_tol)` (> 0) is fatal with `divb_error`, otherwise a warning logged by rank 0 each
    !< time the maximum exceeds the largest one reported so far.
    class(flume_common_object), intent(inout) :: self     !< The equation.
-   real(R8P),                  intent(in)    :: norms(3) !< max|div B|, sum |div B| dV, seam-local max|div B| (rank).
-   real(R8P)                                 :: g(3)     !< Global norms.
+   real(R8P),                  intent(in)    :: norms(:) !< This rank's max|div B|, sum |div B| dV, seam-local
+                                                         !< max|div B|; with divb_flux (issue #68 A2) then max|D_flux|,
+                                                         !< sum |D_flux| dV, seam-local max|D_flux|, max h|D_flux|, max|B|.
+   real(R8P)                                 :: g(8)     !< Global norms.
+   real(R8P), allocatable                    :: row(:)   !< History row, output units.
 
-   g = norms
+   g = 0._R8P
+   g(1:size(norms)) = norms
    call MPI_ALLREDUCE(MPI_IN_PLACE, g(1), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, g(2), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, g(3), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
-   call self%diagnostics%save_divb_row(it=self%time%it, time=self%time%time*self%units%time_output(),          &
-                                       norms=[g(1)*self%units%variable_output('divb'),                         &
-                                              g(2)*self%units%variable_output('bmag')*self%units%length_output()**2, &
-                                              g(3)*self%units%variable_output('divb')])
+   row = [g(1)*self%units%variable_output('divb'), g(2)*self%units%variable_output('bmag')*self%units%length_output()**2,&
+          g(3)*self%units%variable_output('divb')]
+   if (size(norms) == 8) then
+      call MPI_ALLREDUCE(MPI_IN_PLACE, g(4), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, g(5), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, g(6:8), 3, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+      ! the scale-free column: max h|D_flux| over max|B| (both in code units, so the ratio needs no conversion)
+      row = [row, g(4)*self%units%variable_output('divb'),                                                    &
+             g(5)*self%units%variable_output('bmag')*self%units%length_output()**2,                           &
+             g(6)*self%units%variable_output('divb'), merge(g(7)/g(8), 0._R8P, g(8) > 0._R8P)]
+   endif
+   call self%diagnostics%save_divb_row(it=self%time%it, time=self%time%time*self%units%time_output(), norms=row)
    if (.not.(self%physics%mhd%divb_tol > 0._R8P .and. g(1) > self%physics%mhd%divb_tol)) return
    if (self%physics%mhd%divb_error) &
       call mpih%error_stop(msg=': max|div B| = '//trim(str(g(1)))//' > [mhd].(divb_tol) = '//             &
@@ -1396,6 +1410,21 @@ contains
       call mpih%error_stop(msg=': [amr].(frequency)='//trim(str(self%amr%frequency, .true.))//' asks for runtime '// &
                                'regridding, but [amr].(markers_number) = 0: nothing would mark a block')
    endsubroutine check_runtime_amr
+
+   subroutine check_divb_flux(self)
+   !< Check `[diagnostics] divb_flux` (issue #68 A2): D_flux is the divergence of the interface field the cleaning acts
+   !< on, read from the psi face fluxes, so it needs GLM or EGLM; its residual evaluation runs on the idle RK stage
+   !< buffers (the committed state copied into the first, the residual into the second), so it needs two stages.
+   class(flume_common_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%diagnostics%divb_flux) return
+   if (self%physics%model /= MODEL_MHD_GLM .and. self%physics%model /= MODEL_MHD_EGLM) &
+      call mpih%error_stop(msg=': [diagnostics].(divb_flux) needs [mhd].(divergence_control) = glm or eglm: D_flux '// &
+                               'is read from the psi face fluxes')
+   if (self%rk%nrk < 2_I4P) &
+      call mpih%error_stop(msg=': [diagnostics].(divb_flux) needs a Runge-Kutta scheme of at least two stages (its '// &
+                               'residual evaluation runs on the idle stage buffers)')
+   endsubroutine check_divb_flux
 
    function runtime_amr_forest(self) result(yes)
    !< Return whether this realm regrids during the run: `[amr] frequency > 0` (issue #74).

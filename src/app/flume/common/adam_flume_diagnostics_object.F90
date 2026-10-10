@@ -5,8 +5,12 @@ module adam_flume_diagnostics_object
 !< Writes one row per save step to `<output_basename>-conservation_history.dat`: iteration, time and the volume
 !< integral of every conservative variable. MHD runs also write, on the same cadence,
 !< `<output_basename>-divb_history.dat`: iteration, time, `max|div B|`, `sum |div B| dV` and the maximum over the
-!< seam-local cells (issue #41, D-10, section 9). Rows are written as they come, nothing is accumulated in memory. The
-!< values are computed (and MPI-reduced) by the backends; only rank 0 writes.
+!< seam-local cells (issue #41, D-10, section 9). With `divb_flux` (GLM and EGLM, issue #68 A2) four columns follow:
+!< the D_flux norms (`max`, `sum dV`, seam-local `max`) and `max(h |D_flux|) / max|B|`, where D_flux is the divergence the
+!< cleaning acts on, that of the interface normal field `B_n = F_psi / s` of the scheme's own psi face fluxes (`s =
+!< c_h^2` GLM, `c_h` EGLM), the coarse faces of the 2:1 seams taking the fine fluxes (the reflux). Rows are written as
+!< they come, nothing is accumulated in memory. The values are computed (and MPI-reduced) by the backends; only rank 0
+!< writes.
 
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
@@ -25,6 +29,7 @@ type :: flume_diagnostics_object
    !< FLUME diagnostics class definition: conservation history.
    integer(I4P) :: conservation_history_save=0_I4P !< Conservation history save cadence (<= 0: disabled).
    logical      :: ghost_poison=.false.            !< Poison the ghosts before each field write (verification, #65).
+   logical      :: divb_flux=.false.               !< Add the D_flux columns to the div(B) history (issue #68 A2).
    integer(I4P) :: conservation_unit=0_I4P         !< Conservation history file unit.
    integer(I4P) :: divb_unit=0_I4P                 !< div(B) history file unit (MHD only).
    contains
@@ -64,7 +69,8 @@ contains
    character(len=:), allocatable               :: desc !< Description.
 
    desc = mpih%myrankstr//'Diagnostics main data'//new_line('a')// &
-          mpih%myrankstr//'  conservation_history_save: '//trim(str(self%conservation_history_save))
+          mpih%myrankstr//'  conservation_history_save: '//trim(str(self%conservation_history_save))//new_line('a')// &
+          mpih%myrankstr//'  divb_flux: '//trim(str(self%divb_flux))
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -93,6 +99,10 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ghost_poison', val=self%ghost_poison, &
                             error=error)
    if (error > 0) self%ghost_poison = .false.
+   ! optional (default .false.): the D_flux columns of the div(B) history (issue #68 A2); each history row then costs one
+   ! residual evaluation of the committed state (about one RK stage)
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divb_flux', val=self%divb_flux, error=error)
+   if (error > 0) self%divb_flux = .false.
    endsubroutine load_from_file
 
    subroutine open_file(self, output_basename, q_name, is_restart, with_divb)
@@ -112,7 +122,9 @@ contains
               status='unknown', position='append', action='write')
       else
          open(newunit=self%divb_unit, file=trim(output_basename)//'-divb_history.dat', status='replace', action='write')
-         write(self%divb_unit, '(A)') 'VARIABLES="it" "time" "max_divb" "l1_divb" "seam_max_divb"'
+         header = 'VARIABLES="it" "time" "max_divb" "l1_divb" "seam_max_divb"'
+         if (self%divb_flux) header = header//' "max_dflux" "l1_dflux" "seam_max_dflux" "max_h_dflux_over_bmax"'
+         write(self%divb_unit, '(A)') header
       endif
    endif
    if (is_restart) then
@@ -146,7 +158,8 @@ contains
    class(flume_diagnostics_object), intent(in) :: self     !< Diagnostics.
    integer(I4P),                    intent(in) :: it       !< Time iteration.
    real(R8P),                       intent(in) :: time     !< Time.
-   real(R8P),                       intent(in) :: norms(3) !< max|div B|, sum |div B| dV, seam-local max|div B|.
+   real(R8P),                       intent(in) :: norms(:) !< max|div B|, sum |div B| dV, seam-local max|div B|, and
+                                                            !< with divb_flux the four D_flux columns.
 
    if (mpih%myrank /= 0 .or. self%divb_unit == 0_I4P) return
    write(self%divb_unit, '(I10,*(1X,ES24.16E3))') it, time, norms

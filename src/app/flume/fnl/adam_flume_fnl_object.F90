@@ -13,7 +13,8 @@ module adam_flume_fnl_object
 !< section 3.4); the per-face physics is the shared `adam_flume_euler_library`, so only the kernels are FNL-specific.
 
 ! ADAM classes, libraries, parameters
-use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object
+use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object, SEAM_KIND_INTRA_REALM_AMR
+use :: adam_flume_parameters,     only : IQ_BX, IQ_PSI
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_SEAM
 use :: adam_realm_object,         only : realm_object
@@ -106,7 +107,7 @@ use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_
                                               compute_q_aux_mhd_glm_dev=>compute_q_aux_dev,                           &
                                               compute_speed_max_mhd_glm_dev=>compute_speed_max_dev,                   &
                                               count_nonfinite_mhd_glm_dev=>count_nonfinite_dev
-use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev,                                                   &
+use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev, compute_dflux_norms_dev, copy_state_dev,          &
                                               compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
                                               gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skin_dev,     &
@@ -158,6 +159,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: check_glm_ch            !< Check the GLM c_h against the fastest wave.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
+      procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
@@ -224,20 +226,23 @@ endinterface
 
 contains
    ! public methods
-   subroutine accumulate_seam_fluxes(self, s, flux_register)
+   subroutine accumulate_seam_fluxes(self, s, flux_register, weight)
    !< Accumulate the seam face fluxes of stage `s`, weighted by its SSP coefficient, into the forest's flux register.
    !<
    !< The register is host-side: each seam face skin is packed on the device and copied to the host (a few KB per face
    !< and stage), then routed by the shared `accumulate_seam_skin`, as on the CPU.
-   class(flume_fnl_object),     intent(inout) :: self          !< The equation.
-   integer(I4P),                intent(in)    :: s             !< Runge-Kutta stage.
-   class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register.
+   class(flume_fnl_object),     intent(inout)        :: self          !< The equation.
+   integer(I4P),                intent(in)           :: s             !< Runge-Kutta stage.
+   class(flux_register_object), intent(inout)        :: flux_register !< Forest's flux register.
+   real(R8P),                   intent(in), optional :: weight        !< Weight replacing beta(s) (D_flux, #68 A2).
+   real(R8P)                                         :: w             !< Accumulation weight.
    real(R8P), pointer                         :: skin_gpu(:,:) !< Device face skin (nv, cells).
    real(R8P), allocatable                     :: skin(:,:)     !< Host face skin (nv, cells).
    integer(I4P)                               :: b, fec        !< Block, face counters.
    integer(I4P)                               :: cells         !< Skin cells number.
    integer(I4P)                               :: ierr          !< Error status.
 
+   w = self%rk%beta(s) ; if (present(weight)) w = weight
    do b=1, self%blocks_number
       do fec=1, 6
          if (self%adam%maps%inter_realm_face_register_index(b, fec) == 0_I4P) cycle
@@ -256,7 +261,7 @@ contains
          allocate(skin(self%nv,cells))
          call dev_memcpy_from_device(dst=skin, src=skin_gpu)
          call dev_free(skin_gpu, mydev)
-         call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%rk%beta(s), skin=skin)
+         call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=w, skin=skin)
          deallocate(skin)
       enddo
    enddo
@@ -498,7 +503,7 @@ contains
    !< have registered the seams yet.
    class(flume_fnl_object), intent(inout)                   :: self     !< The equation.
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms.
-   real(R8P)                                                :: norms(3) !< Norms of this rank.
+   real(R8P)                                                :: norms(8) !< Norms of this rank (4-8: D_flux, #68 A2).
 
    if (self%physics%model == MODEL_EULER) return
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
@@ -536,8 +541,73 @@ contains
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
    endassociate
-   call self%report_divb(norms=norms)
+   if (self%diagnostics%divb_flux) then
+      call self%compute_dflux_norms(norms=norms(4:8))
+      call self%report_divb(norms=norms)
+   else
+      call self%report_divb(norms=norms(1:3))
+   endif
    endsubroutine compute_divb_history
+
+   subroutine compute_dflux_norms(self, norms)
+   !< Compute the D_flux norms of the committed state (issue #68 A2), the device twin of the CPU procedure: the
+   !< committed state is copied into the idle first RK stage buffer and its residual evaluated into the second, the
+   !< seam face fluxes accumulated with weight 1 into the realm's copy of the forest's flux register (host side) and
+   !< completed across the ranks; the reflux correction of the coarse skin cells of the intra-realm 2:1 faces this rank
+   !< owns is built on the host over the blocks in use and copied to the device, where `compute_dflux_norms_dev` reduces
+   !< the norms. The caller has refreshed the ghost cells of `q_gpu` and copied the seam faces flags to the device.
+   class(flume_fnl_object), intent(inout) :: self                    !< The equation.
+   real(R8P),               intent(out)   :: norms(5)                !< The five norms of this rank.
+   real(R8P), allocatable                 :: corr(:,:,:,:)           !< Reflux correction, host [nb_used, ni, nj, nk].
+   real(R8P), pointer                     :: corr_gpu(:,:,:,:)       !< Reflux correction, device.
+   real(R8P)                              :: scale                   !< psi flux per unit B_n (c_h^2 or c_h).
+   integer(I4P)                           :: f, c, axis, sgn         !< Register face, skin cell, face axis and side.
+   integer(I4P)                           :: i, j, k                 !< Skin cell indexes.
+   integer(I4P)                           :: ierr                    !< Error status.
+
+   norms = 0._R8P
+   if (self%blocks_number < 1_I4P) return
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%blocks_number, reg=>self%flux_register_copy)
+   call copy_state_dev(ni=ni, nj=nj, nk=nk, ngc=self%ngc, nv=self%nv, blocks_number=nb, src_gpu=self%q_gpu, &
+                       dst_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,1))
+   call reg%reset
+   call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,1), dq_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,2), &
+                                   flux_register=reg)
+   if (self%numerics%reflux .and. reg%nfaces > 0_I4P) then
+      call self%accumulate_seam_fluxes(s=1_I4P, flux_register=reg, weight=1._R8P)
+      call reg%reduce_fine_sums
+   endif
+   allocate(corr(nb,ni,nj,nk))
+   corr = 0._R8P
+   if (self%numerics%reflux .and. allocated(reg%face)) then
+      do f=1, reg%nfaces
+         associate(face=>reg%face(f))
+         if (face%seam_kind /= SEAM_KIND_INTRA_REALM_AMR) cycle
+         if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+         if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
+         call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
+         do c=1, face%nface_cells
+            call seam_skin_cell(axis=axis, sgn=sgn, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
+            corr(face%coarse_block,i,j,k) = corr(face%coarse_block,i,j,k) +                                       &
+                                            real(sgn, R8P) / self%adam%field%dxyz(axis,face%coarse_block) *       &
+                                            (face%F_coarse(IQ_PSI,c,1) - face%F_fine_sum(IQ_PSI,c,1))
+         enddo
+         endassociate
+      enddo
+   endif
+   call dev_alloc(fptr_dev=corr_gpu, lbounds=[1,1,1,1], ubounds=[nb,ni,nj,nk], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate corr_gpu in compute_dflux_norms')
+   call dev_memcpy_to_device(dst=corr_gpu, src=corr)
+   scale = merge(self%physics%mhd%glm_ch**2, self%physics%mhd%glm_ch, self%physics%model == MODEL_MHD_GLM)
+   call compute_dflux_norms_dev(ni=ni, nj=nj, nk=nk, ngc=self%ngc, blocks_number=nb, band=self%ngc, ipsi=IQ_PSI,     &
+                                ibx=IQ_BX, scale=scale, dxyz_gpu=self%field_fnl%dxyz_gpu,                          &
+                                is_null=self%adam%grid%null_xyz, seam_gpu=self%divb_seam_gpu, flx_gpu=self%flx_f_gpu,  &
+                                fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, corr_gpu=corr_gpu, q_gpu=self%q_gpu,   &
+                                dflux_max=norms(1), dflux_l1=norms(2), dflux_seam_max=norms(3), h_dflux_max=norms(4), &
+                                b_max=norms(5))
+   call dev_free(corr_gpu, mydev)
+   endassociate
+   endsubroutine compute_dflux_norms
 
    subroutine compute_q_aux(self, q_gpu)
    !< Compute the auxiliary variables on the device, ghost cells included.
@@ -1662,8 +1732,9 @@ contains
    !< the distance function back to the device. Then, as on the CPU, the new state is checked and its ghosts and
    !< auxiliary variables refreshed. The device arrays are sized by the block capacity `nb`, so nothing is
    !< reallocated; the state and distance function copies move the blocks in use only, packed and transposed on the
-   !< device (issue #75: the whole capacity cost 2.3-3.1 s per regrid on the development box, whatever the grid). The wall time of the regrid (largest over the ranks) is logged with it. `regridded` tells the forest
-   !< to rebuild the 2:1 flux register (host side); the grid is replicated, so every rank returns the same value.
+   !< device (issue #75: the whole capacity cost 2.3-3.1 s per regrid on the development box, whatever the grid). The
+   !< wall time of the regrid (largest over the ranks) is logged with it. `regridded` tells the forest to rebuild the 2:1
+   !< flux register (host side); the grid is replicated, so every rank returns the same value.
    class(flume_fnl_object), intent(inout) :: self            !< The equation.
    logical,                 intent(out)   :: regridded       !< True if the grid changed.
    logical                                :: is_grid_changed !< The sweep changed the grid.

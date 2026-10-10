@@ -81,6 +81,7 @@ type :: forest_object
       procedure, pass(self), private :: register_intra_realm_amr_seams !< Register intra-realm AMR coarse-fine faces in the flux
          !< register.
       procedure, pass(self), private :: apply_reflux_corrections        !< Apply Berger-Colella reflux to coarse-side.
+      procedure, pass(self), private :: share_flux_register             !< Copy the register into every realm (#68 A2).
       procedure, pass(self), private :: start_timing                    !< Arm the timing report (issue #53).
       procedure, pass(self), private :: report_timing                   !< Print the timing report (issue #53).
 endtype forest_object
@@ -119,6 +120,7 @@ contains
    ! initialization (sizing it to the intra-realm AMR face count, or to zero when
    ! the realm has no coarse-fine jumps). Issue #13 §7.5 M2.
    call self%register_intra_realm_amr_seams(realm=realm)
+   call self%share_flux_register(realm=realm)
    endsubroutine initialize
 
    subroutine initialize_from_manifest(self, realm, manifest)
@@ -486,7 +488,10 @@ contains
       any_regridded = any_regridded .or. regridded
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, any_regridded, 1, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, ierr)
-   if (any_regridded) call self%register_intra_realm_amr_seams(realm=realm)
+   if (any_regridded) then
+      call self%register_intra_realm_amr_seams(realm=realm)
+      call self%share_flux_register(realm=realm)
+   endif
    endsubroutine regrid
 
    subroutine simulate(self, realm, filename)
@@ -695,6 +700,7 @@ contains
    if (.not. allocated(manifest%face_pairs)) then
       ! No inter-realm topology: the flux register holds the intra-realm AMR faces only.
       call self%register_intra_realm_amr_seams(realm=realm)
+      call self%share_flux_register(realm=realm)
       return
    endif
 
@@ -746,6 +752,7 @@ contains
    call self%register_intra_realm_amr_seams(realm=realm, extra_faces=count_inter_realm_seam_faces(realm, manifest), &
                                             nfaces_intra=n_intra)
    call register_inter_realm_seams(realm=realm, manifest=manifest, flux_register=self%flux_register, first_cursor=n_intra)
+   call self%share_flux_register(realm=realm)
    ! Build the seam ghost rows of every realm (issue #40): from the replicated trees, every rank enumerates every seam
    ! ghost of every realm in one canonical order and keeps the rows it takes part in: local rows (ghost and peer cell on
    ! this rank, `seam_local_map_ghost_cell`), receive rows (ghost here, cell on another rank, `seam_mpi_recv_cell`) and
@@ -2159,4 +2166,19 @@ contains
                                                   flux_register=self%flux_register)
    enddo
    endsubroutine apply_reflux_corrections
+
+   subroutine share_flux_register(self, realm)
+   !< Copy the flux register into every realm (`realm_object%flux_register_copy`), after each build (init, regrid,
+   !< manifest): the faces, their ownership and their accumulators (zeroed), so that a realm can accumulate one residual
+   !< evaluation's seam fluxes for a diagnostic without touching the forest's step accumulators (issue #68 A2). The
+   !< register is replicated (the same faces on every rank, issue #40), and so is the copy.
+   class(forest_object), intent(inout) :: self     !< The forest.
+   class(realm_object),  intent(inout) :: realm(:) !< Realms.
+   integer(I4P)                        :: is       !< Realm counter.
+
+   do is = 1_I4P, int(size(realm), I4P)
+      realm(is)%flux_register_copy = self%flux_register
+      call realm(is)%flux_register_copy%reset
+   enddo
+   endsubroutine share_flux_register
 endmodule adam_forest_object
