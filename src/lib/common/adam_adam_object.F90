@@ -6,7 +6,8 @@ module adam_adam_object
 use :: adam_field_object,               only : field_object
 use :: adam_grid_object,                only : grid_object
 use :: adam_maps_object,                only : maps_object
-use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC
+use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC, &
+                                               SEAM_RESTRICT_MEAN, SEAM_RESTRICT_LAGRANGE6
 use :: adam_refinement_plan_object,     only : refinement_plan_object
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
@@ -275,6 +276,24 @@ contains
    endif
    if (verbose_) call mpih%print_message('seam ghost fill regime: '//trim(str(self%maps%seam_ghost_fill))// &
                                          ' (0=injection, 1=restriction-compatible, 2=tricubic)')
+   ! Fine->coarse seam ghost restriction (issue #68 C1): optional `[amr] seam_restriction` key, read here for the same
+   ! reason, before any ghost-map build. Absent key: the mean (today's behaviour, bitwise); unknown value: hard error.
+   call file_parameters%get(section_name='amr', option_name='seam_restriction', val=buff, error=error)
+   if (error > 0) then
+      self%maps%seam_restriction = SEAM_RESTRICT_MEAN
+   else
+      select case(trim(adjustl(buff)))
+      case('mean')
+         self%maps%seam_restriction = SEAM_RESTRICT_MEAN
+      case('lagrange6')
+         self%maps%seam_restriction = SEAM_RESTRICT_LAGRANGE6
+      case default
+         call mpih%error_stop(msg=': unknown [amr].(seam_restriction) value "'//trim(adjustl(buff))// &
+                                  '" — expected mean|lagrange6')
+      endselect
+   endif
+   if (verbose_) call mpih%print_message('seam restriction regime: '//trim(str(self%maps%seam_restriction))// &
+                                         ' (0=mean, 1=lagrange6)')
    call self%field%initialize(grid=self%grid, maps=self%maps, tree=self%tree, &
                               file_parameters=file_parameters,&
                               nb=nb,                          &

@@ -42,7 +42,7 @@ use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_R
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_seam_exchange,        only : seam_fill, SEAM_ROW_COPY, SEAM_ROW_INTERPOLATE, SEAM_ROW_RESTRICT
 use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, seam_tricubic_centered_pos, &
-                                               seam_compatible_centered_pos
+                                               seam_compatible_centered_pos, SEAM_RESTRICT_MEAN
 use :: adam_globals,              only : mpih
 use :: mpi
 use :: penf
@@ -1282,6 +1282,9 @@ contains
                               'ni, nj, nk) in both realms')
       if (r_c%adam%maps%seam_ghost_fill /= r_f%adam%maps%seam_ghost_fill)                                             &
          call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_ghost_fill in both realms')
+      ! the inter-realm restriction rows (pack_seam_rows) are the mean only until #68 C2
+      if (r_c%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN .or. r_f%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN) &
+         call mpih%error_stop(msg=pfx//'coupling = refined supports only [amr] seam_restriction = mean (issue #68 C2)')
       ! a coarse ghost is the mean of 2x2x2 fine cells: even fine block cell counts keep them in one fine block
       if (any(mod([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk], 2_I4P) /= 0_I4P))                        &
          call mpih%error_stop(msg=pfx//'coupling = refined needs even block cell counts (ni, nj, nk) in the fine realm')

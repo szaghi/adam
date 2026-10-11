@@ -12,7 +12,9 @@ use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 use :: adam_seam_interpolation_library, only : SEAM_SUB_COINCIDENT, seam_meta_pack, seam_shift_anchor_pos, &
                                                seam_tricubic_centered_pos, seam_compatible_centered_pos, &
-                                               SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC
+                                               SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC, &
+                                               SEAM_RESTRICT_MEAN, SEAM_RESTRICT_LAGRANGE6, seam_restriction_code, &
+                                               seam_restriction_meta_pack
 ! third party modules
 use :: penf
 ! sdk modules
@@ -98,6 +100,14 @@ type :: maps_object
                                                          !< `[amr] seam_ghost_fill` INI key by `adam_object%initialize`
                                                          !< BEFORE any ghost-map build; default injection so that map builds
                                                          !< predating the parse (or tests bypassing it) keep legacy behavior.
+   integer(I4P) :: seam_restriction = SEAM_RESTRICT_MEAN !< Fine->coarse seam ghost restriction (issue #68 C1): the mean
+                                                         !< (meta 0 on the restriction rows) or the 6-point Lagrange
+                                                         !< (per-direction codes packed in the meta column, see
+                                                         !< `restriction_meta`). Set from `[amr] seam_restriction` by
+                                                         !< `adam_object%initialize` before any ghost-map build.
+   integer(I4P) :: seam_restriction_fallbacks = 0_I4P    !< Restriction rows whose fine pair is not inside the donor block
+                                                         !< (they keep the mean, meta 0), counted by the last ghost-map
+                                                         !< build (local rows, plus one per variable of the MPI send rows).
    integer(I4P) :: refine_ratio(3) = 2_I4P !< Refinement ratio per axis of a 2:1 seam: 2, or 1 along an axis the tree does not
                                            !< refine (z of a quadtree, y and z of a binary tree, issue #46). Set from the tree.
    ! local maps
@@ -311,6 +321,7 @@ type :: maps_object
       procedure, pass(self), private :: make_comm_map_send_ghost_cell  !< Make communication send map of ghost cells in cell order.
       procedure, pass(self), private :: make_local_map_ghost_cell      !< Make local map of ghost cells in cell order.
       procedure, pass(self), private :: populate_comm_local_maps_ghost !< Populate communication/local maps of ghost cells.
+      procedure, pass(self), private :: restriction_meta               !< Return the meta of a fine->coarse restriction row.
 endtype maps_object
 
 contains
@@ -596,9 +607,13 @@ contains
    call mpih%print_message('maps_object%make_comm_local_maps_ghost start')
    call self%alloc_comm_local_maps_ghost(tree=tree, grid=grid, nv=nv)
    call self%populate_comm_local_maps_ghost(tree=tree, grid=grid)
+   self%seam_restriction_fallbacks = 0_I4P
    call self%make_local_map_ghost_cell(nijk=[grid%ni, grid%nj, grid%nk], ngc=grid%ngc)
    call self%make_comm_map_recv_ghost_cell(nv=nv, nijk=[grid%ni, grid%nj, grid%nk], ngc=grid%ngc)
    call self%make_comm_map_send_ghost_cell(nv=nv, nijk=[grid%ni, grid%nj, grid%nk], ngc=grid%ngc)
+   if (self%seam_restriction == SEAM_RESTRICT_LAGRANGE6) &
+      call mpih%print_message('maps_object: lagrange6 restriction, '//trim(str(self%seam_restriction_fallbacks))// &
+                              ' rows keep the mean (fine pair outside the donor block)')
    call mpih%print_message('maps_object%make_comm_local_maps_ghost finish')
    endsubroutine make_comm_local_maps_ghost
 
@@ -1224,8 +1239,9 @@ contains
                         self%comm_map_send_ghost_cell(c, 1:4) = [b_send,iii,jjj,kkk]
                         self%comm_map_send_ghost_cell(c,  5 ) = v
                         self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
-                        self%comm_map_send_ghost_cell(c,  7 ) = 8 ! the mean of the r(1) r(2) r(3) finer cells
-                        self%comm_map_send_ghost_cell(c,  8 ) = 0
+                        self%comm_map_send_ghost_cell(c,  7 ) = 8 ! the restriction of the r(1) r(2) r(3) finer cells
+                        self%comm_map_send_ghost_cell(c,  8 ) = self%restriction_meta(first=[iii, jjj, kkk], &
+                                                                                       nijk=nijk, r=r)
                         send_ctr = send_ctr + 1
                         c = c + 1
                      enddo
@@ -1358,8 +1374,8 @@ contains
                      self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
                      self%local_map_ghost_cell(c,3:5) = [iii, jjj, kkk]
                      self%local_map_ghost_cell(c,6:8) = [i, j, k]
-                     self%local_map_ghost_cell(c, 9 ) = 8 ! the mean of the r(1) r(2) r(3) finer cells
-                     self%local_map_ghost_cell(c, 10) = 0
+                     self%local_map_ghost_cell(c, 9 ) = 8 ! the restriction of the r(1) r(2) r(3) finer cells
+                     self%local_map_ghost_cell(c, 10) = self%restriction_meta(first=[iii, jjj, kkk], nijk=nijk, r=r)
                      c = c + 1
                   enddo
                enddo
@@ -1415,6 +1431,34 @@ contains
       call dedupe_last_writer(map=self%local_map_ghost_cell, cb=2, ci=6, cj=7, ck=8, stride=1, ngc=ngc)
    endif
    endsubroutine make_local_map_ghost_cell
+
+   function restriction_meta(self, first, nijk, r) result(meta)
+   !< Return the meta column of a fine->coarse restriction row (issue #68 C1): 0 under the mean; under the 6-point
+   !< Lagrange the packed per-direction codes of `seam_restriction_code` (the footprint shifted inside the donor block),
+   !< or 0, the mean, for a row whose fine pair is not inside the donor block (counted in `seam_restriction_fallbacks`).
+   !< The restriction rows are told from the other kinds by their flag column (8), never by the meta.
+   class(maps_object), intent(inout) :: self      !< The maps.
+   integer(I4P),       intent(in)    :: first(1:3) !< First fine cell of the restricted pair per direction (donor index).
+   integer(I4P),       intent(in)    :: nijk(1:3)  !< Block interior cell counts [ni,nj,nk].
+   integer(I4P),       intent(in)    :: r(1:3)     !< Refinement ratio per direction.
+   integer(I8P)                      :: meta       !< Row meta.
+   integer(I4P)                      :: code(1:3)  !< Restriction code per direction.
+   integer(I4P)                      :: d          !< Direction counter.
+
+   meta = 0_I8P
+   if (self%seam_restriction /= SEAM_RESTRICT_LAGRANGE6) return
+   if (any(nijk < 6_I4P .and. r == 2_I4P)) &
+      call mpih%error_stop(msg=': [amr] seam_restriction = lagrange6 needs ni,nj,nk >= 6 along the refined axes '// &
+                               '(the 6-point footprint must fit the donor block, issue #68 B3)')
+   do d=1, 3
+      code(d) = seam_restriction_code(first=first(d), n_cells=nijk(d), ratio=r(d))
+   enddo
+   if (any(code < 0_I4P)) then
+      self%seam_restriction_fallbacks = self%seam_restriction_fallbacks + 1_I4P
+      return
+   endif
+   meta = int(seam_restriction_meta_pack(code), I8P)
+   endfunction restriction_meta
 
    function ijk_mmd(self, grid, fec, neighbor_bc_fec) result(ijk_min_max_delta)
    !< Return IJK min/max/delta.

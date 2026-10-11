@@ -27,7 +27,9 @@ use adam_seam_interpolation_library, only : SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, 
                                             seam_interpolate_tricubic, seam_interpolate_compatible, &
                                             seam_interpolate_quadratic, &
                                             seam_tricubic_centered_pos, seam_compatible_centered_pos, &
-                                            seam_shift_anchor_pos, seam_meta_pack, seam_meta_unpack
+                                            seam_shift_anchor_pos, seam_meta_pack, seam_meta_unpack, &
+                                            SEAM_W_LAGRANGE6, SEAM_RESTRICT_IDENTITY, seam_restriction_code, &
+                                            seam_restriction_meta_pack, seam_restriction_meta_unpack
 use penf, only : I4P, R8P
 
 implicit none
@@ -263,6 +265,112 @@ shift_clamp: block
       test_passed = .false.
    endif
 endblock shift_clamp
+
+restriction_lagrange6: block
+   ! #68 C1: the 6-point restriction to the coarse centre, which sits midway between the fine pair (first, first + 1),
+   ! the nodes first - code .. first - code + 5 (shift-inward), code 5 the identity of an unrefined direction
+   real(R8P)    :: x(1:6, 0:5), got, want, d(1:6), wt, scale
+   integer(I4P) :: c(1:3), a, b, e, m1, m2, m3, cx, cy, cz, meta, code(1:3), f, n
+   logical      :: ok
+   real(R8P)    :: rnd(1:6)
+
+   ! node positions in fine units, the coarse centre at 0 (the fine pair at -1/2, +1/2)
+   do cx=0, 4
+      do m1=1, 6
+         x(m1,cx) = -0.5_R8P - real(cx, R8P) + real(m1 - 1, R8P)
+      enddo
+   enddo
+   x(:,SEAM_RESTRICT_IDENTITY) = 0._R8P ! the identity reads the cell itself (node 1), at the coarse centre
+
+   ! 1. exactness: every monomial x^a y^b z^c, a, b, c <= 5, for every code triple (identity included), restricts to its
+   !    value at the coarse centre (1 for the constant, 0 otherwise; the identity direction carries degree 0 only)
+   ok = .true.
+   do cz=0, 5 ; do cy=0, 5 ; do cx=0, 5
+      c = [cx, cy, cz]
+      do e=0, 5 ; do b=0, 5 ; do a=0, 5
+         if (c(1) == SEAM_RESTRICT_IDENTITY .and. a > 0) cycle
+         if (c(2) == SEAM_RESTRICT_IDENTITY .and. b > 0) cycle
+         if (c(3) == SEAM_RESTRICT_IDENTITY .and. e > 0) cycle
+         got = 0._R8P
+         scale = 0._R8P
+         do m3=1, 6 ; do m2=1, 6 ; do m1=1, 6
+            wt = SEAM_W_LAGRANGE6(m1,c(1)) * SEAM_W_LAGRANGE6(m2,c(2)) * SEAM_W_LAGRANGE6(m3,c(3))
+            if (wt /= 0._R8P) then
+               got = got + wt * x(m1,c(1))**a * x(m2,c(2))**b * x(m3,c(3))**e
+               scale = scale + abs(wt * x(m1,c(1))**a * x(m2,c(2))**b * x(m3,c(3))**e)
+            endif
+         enddo ; enddo ; enddo
+         want = merge(1._R8P, 0._R8P, a + b + e == 0)
+         ! relative to the sum of |terms|: x^15 of half-integers up to 11/2 exceeds 53 bits, so the 3-D sum rounds
+         if (abs(got - want) > 1.e-14_R8P * scale) ok = .false.
+      enddo ; enddo ; enddo
+   enddo ; enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: 6-point restriction exact on per-direction degree <= 5, every shift and identity code'
+   else
+      write(*,'(A)') 'FAIL: 6-point restriction not exact on a degree <= 5 monomial'
+      test_passed = .false.
+   endif
+
+   ! 2. symmetry: the weights of code o are those of code 4 - o reversed (exactly), so on random data the mirrored
+   !    footprint restricts to the same value
+   ok = .true.
+   do cx=0, 4
+      if (any(SEAM_W_LAGRANGE6(:,cx) /= SEAM_W_LAGRANGE6(6:1:-1,4-cx))) ok = .false.
+      if (abs(sum(SEAM_W_LAGRANGE6(:,cx)) - 1._R8P) > 0._R8P) ok = .false. ! partition of unity, exact (k/256)
+   enddo
+   call random_seed()
+   do n=1, 100
+      call random_number(rnd)
+      d = rnd
+      do cx=0, 4
+         got  = sum(SEAM_W_LAGRANGE6(:,cx) * d)
+         want = sum(SEAM_W_LAGRANGE6(:,4-cx) * d(6:1:-1))
+         if (abs(got - want) > tol_exact) ok = .false.
+      enddo
+   enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: 6-point restriction weights mirror-symmetric (exact) and a partition of unity'
+   else
+      write(*,'(A)') 'FAIL: 6-point restriction weights not mirror-symmetric or not a partition of unity'
+      test_passed = .false.
+   endif
+
+   ! 3. meta round trip on all 216 code triples, never 0 (0 is the rows that keep the mean)
+   ok = .true.
+   do cz=0, 5 ; do cy=0, 5 ; do cx=0, 5
+      meta = seam_restriction_meta_pack([cx, cy, cz])
+      call seam_restriction_meta_unpack(meta=meta, code=code)
+      if (meta == 0 .or. any(code /= [cx, cy, cz])) ok = .false.
+   enddo ; enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: restriction meta pack/unpack round trip, 0 never packed'
+   else
+      write(*,'(A)') 'FAIL: restriction meta pack/unpack'
+      test_passed = .false.
+   endif
+
+   ! 4. the codes: identity on an unrefined direction, -1 outside the donor block, shift-inward inside it (the footprint
+   !    first - code .. first - code + 5 always within 1..n, centred, code 2, when it fits)
+   ok = .true.
+   if (seam_restriction_code(first=1, n_cells=4, ratio=1) /= SEAM_RESTRICT_IDENTITY) ok = .false.
+   do n=6, 12
+      if (seam_restriction_code(first=0, n_cells=n, ratio=2) /= -1) ok = .false.
+      if (seam_restriction_code(first=n, n_cells=n, ratio=2) /= -1) ok = .false.
+      do f=1, n - 1
+         cx = seam_restriction_code(first=f, n_cells=n, ratio=2)
+         if (cx < 0 .or. cx > 4) ok = .false.
+         if (f - cx < 1 .or. f - cx + 5 > n) ok = .false.
+         if (f - 2 >= 1 .and. f + 3 <= n .and. cx /= 2) ok = .false.
+      enddo
+   enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: restriction codes keep the footprint inside the donor block, centred when it fits'
+   else
+      write(*,'(A)') 'FAIL: restriction codes'
+      test_passed = .false.
+   endif
+endblock restriction_lagrange6
 
 if (test_passed) then
    write(*,'(A)') 'TEST PASSED: seam interpolation weight tables'

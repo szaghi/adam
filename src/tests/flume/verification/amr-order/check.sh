@@ -23,8 +23,14 @@
 #   mhd           the MV-7 magnetised vortex, quadtree, GLM, t = 0.5, CFL 0.4; the 8 conservative variables
 #   euler-octree  the euler leg on an octree (null z, nk = 4), N = 64/128 only (not in the default set: an octree
 #                 refines along the null z too, about 16x the cost of the quadtree for the same 2-D data)
+#   euler-l6      the euler leg with [amr] seam_restriction = lagrange6 and the reflux off (#68 C1). Measured (CPU,
+#                 N = 128 -> 256): L1 order all 5.33, Linf 5.53; at N = 256 L1 8.55e-8, Linf 6.36e-6, the error of the
+#                 uniform coarse run (8.38e-8, 5.34e-6) and 47x below the euler leg: with the 6-point restriction and
+#                 without the reflux the seams stop costing accuracy at these resolutions (the tricubic prolongation's
+#                 O(h^4) has not shown yet). Asserted: orders L1 >= 4.8, Linf >= 4.5, and the errors at most the CPU
+#                 baseline plus 2 %. CPU only until #68 C2 (FNL refuses the key). About 10 min on the CPU.
 #
-# Usage: ./check.sh [--np N] [--leg euler|mhd|euler-octree ...] [--keep]
+# Usage: ./check.sh [--np N] [--leg euler|mhd|euler-octree|euler-l6 ...] [--keep]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -45,7 +51,7 @@ while [[ $# -gt 0 ]]; do
       *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --leg L, --keep)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(euler mhd)
+[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(euler mhd euler-l6)
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -53,10 +59,14 @@ fi
 TAG="$(basename "$EXE")-np$NP"
 FAILED=0
 ORDER_UNIFORM_MIN="4.7"
+ORDER_L6=(all:l1:4.8 all:linf:4.5)                                  # euler-l6 (C1): measured 5.33 / 5.53
+MAX_EULER_L6=(all:l1:8.720e-08 band:l1:2.663e-07 all:linf:6.492e-06)  # euler-l6: CPU baseline (C1) plus 2 %
 # CPU baseline (M6-A1) plus 2 %, the finest refined run (N = 256): region:norm:max
 MAX_EULER=(all:l1:4.129e-06 band:l1:1.607e-05 all:linf:4.772e-04)
 MAX_MHD=(all:l1:1.871e-06 band:l1:8.102e-06 all:linf:1.295e-04)
 NO_BOUNDS=()                                                         # euler-octree: a measurement
+LEG_OPTS=()                                                          # extra make_amr_order options of the refined runs
+ORDER_ASSERTS=()                                                     # finest-pair order lower bounds, refined runs
 
 run() { # run <work> <case> <cells> [make_amr_order options]: write the input, run it, report the wall time
    local work=$1 case=$2 cells=$3 ; shift 3
@@ -75,13 +85,16 @@ ladder() { # ladder <leg> <case> <box> <ratio> <bounds-array-name> <cells...>: t
    local -n bounds=$1 ; shift
    local refined=() uniform=()
    for n in "$@"; do
-      run "$CASE_DIR/work-$TAG-$leg-n$n" "$case" "$n" --ratio "$ratio" && refined+=("$CASE_DIR/work-$TAG-$leg-n$n")
+      run "$CASE_DIR/work-$TAG-$leg-n$n" "$case" "$n" --ratio "$ratio" "${LEG_OPTS[@]}" && \
+         refined+=("$CASE_DIR/work-$TAG-$leg-n$n")
       run "$CASE_DIR/work-$TAG-$leg-uniform-n$n" "$case" "$n" --ratio "$ratio" --uniform && \
          uniform+=("$CASE_DIR/work-$TAG-$leg-uniform-n$n")
    done
    echo "   refined ($leg):"
    # shellcheck disable=SC2086
    local maxima=() ; [[ ${#bounds[@]} -gt 0 ]] && maxima=(--max "${bounds[@]}")
+   # one --assert with every bound: the oracle's option takes a list, and a repeated one keeps only the last
+   [[ ${#ORDER_ASSERTS[@]} -gt 0 ]] && maxima+=(--assert "${ORDER_ASSERTS[@]}")
    # shellcheck disable=SC2086
    "$VENV_PY" "$CASE_DIR/amr_order_oracle.py" "$case" "${refined[@]}" --box $box "${maxima[@]}" || FAILED=1
    echo "   uniform control ($leg):"
@@ -100,6 +113,14 @@ for leg in "${LEGS[@]}"; do
                     ladder mhd mhd "0.0 0.0 7.0 7.0" 4 MAX_MHD 64 128 256 ;;
       euler-octree) echo "-- euler-octree: V2 vortex on an octree, quadrant [0.5, 1]^2 refined"
                     ladder euler-octree euler "0.5 0.5 1.0 1.0" 8 NO_BOUNDS 64 128 ;;
+      euler-l6)     if [[ "$(basename "$EXE")" == *fnl* ]]; then
+                       echo "-- euler-l6: skipped on FNL (seam_restriction = lagrange6 is CPU only until #68 C2)"
+                       continue
+                    fi
+                    echo "-- euler-l6: the euler leg, [amr] seam_restriction = lagrange6, reflux off (#68 C1)"
+                    LEG_OPTS=(--seam-restriction lagrange6 --no-reflux) ; ORDER_ASSERTS=("${ORDER_L6[@]}")
+                    ladder euler-l6 euler "0.5 0.5 1.0 1.0" 4 MAX_EULER_L6 64 128 256
+                    LEG_OPTS=() ; ORDER_ASSERTS=() ;;
       *)            echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
 done

@@ -54,6 +54,8 @@ public :: seam_tricubic_centered_pos, seam_compatible_centered_pos
 public :: seam_interpolate_tricubic, seam_interpolate_compatible, seam_interpolate_quadratic
 public :: seam_shift_anchor_pos, seam_meta_pack, seam_meta_unpack
 public :: SEAM_SUB_COINCIDENT
+public :: SEAM_RESTRICT_MEAN, SEAM_RESTRICT_LAGRANGE6, SEAM_W_LAGRANGE6, SEAM_RESTRICT_IDENTITY
+public :: seam_restriction_code, seam_restriction_meta_pack, seam_restriction_meta_unpack
 
 integer(I4P), parameter :: SEAM_FILL_INJECTION  = 0_I4P !< Regime: 0th-order injection (legacy behavior).
 integer(I4P), parameter :: SEAM_FILL_COMPATIBLE = 1_I4P !< Regime: restriction-compatible fill, q=2 (diagnostic arm).
@@ -107,6 +109,24 @@ real(R8P), parameter :: SEAM_W_QUADRATIC(1:3,1:3) = reshape([ &
    [3,3]) / 32._R8P
    !< 1D centered quadratic weights (node 1:3 at offsets -1..1, sub 1:2): the G3
    !< safety valve, exact for per-direction degree <= 2 (q = 3). Centered only.
+
+! Fine->coarse restriction of the coarse seam ghosts (issue #68 P1/C1): `[amr] seam_restriction`.
+integer(I4P), parameter :: SEAM_RESTRICT_MEAN      = 0_I4P !< Regime: the mean of the r(1) r(2) r(3) fine cells, q = 2.
+integer(I4P), parameter :: SEAM_RESTRICT_LAGRANGE6 = 1_I4P !< Regime: tensor 6-point Lagrange at the coarse centre, q = 6.
+integer(I4P), parameter :: SEAM_RESTRICT_IDENTITY  = 5_I4P !< Per-direction code of an unrefined direction (issue #46).
+
+real(R8P), parameter :: SEAM_W_LAGRANGE6(1:6,0:5) = reshape([ &
+    63._R8P,  315._R8P, -210._R8P,  126._R8P,  -45._R8P,    7._R8P,  & ! code 0: the coarse centre between nodes 1, 2
+    -7._R8P,  105._R8P,  210._R8P,  -70._R8P,   21._R8P,   -3._R8P,  & ! code 1: between nodes 2, 3
+     3._R8P,  -25._R8P,  150._R8P,  150._R8P,  -25._R8P,    3._R8P,  & ! code 2: between nodes 3, 4 (centred)
+    -3._R8P,   21._R8P,  -70._R8P,  210._R8P,  105._R8P,   -7._R8P,  & ! code 3: between nodes 4, 5
+     7._R8P,  -45._R8P,  126._R8P, -210._R8P,  315._R8P,   63._R8P,  & ! code 4: between nodes 5, 6
+   256._R8P,    0._R8P,    0._R8P,    0._R8P,    0._R8P,    0._R8P], & ! code 5: identity (unrefined direction)
+   [6,6]) / 256._R8P
+   !< 1D weights of the 6-point Lagrange restriction to the coarse centre, which sits midway between the two fine cells
+   !< it covers (`first`, `first + 1`): the 6 nodes are fine cells `first - code .. first - code + 5`, shifted inside
+   !< the donor block at its edge (code /= 2, the shift-inward footprint of #68 B3), exact for per-direction degree
+   !< <= 5. Integer/2^8 rationals (computed with exact fractions): exact in binary floating point.
 
 contains
    pure function seam_tricubic_centered_pos(sub) result(p)
@@ -268,4 +288,48 @@ contains
       enddo
    enddo
    endfunction seam_interpolate_quadratic
+
+   pure function seam_restriction_code(first, n_cells, ratio) result(code)
+   !< Return the per-direction code of the 6-point restriction (issue #68 C1): the position of the fine pair
+   !< (`first`, `first + 1`) in the 6-node footprint, the footprint kept inside the donor block's cells 1..n_cells
+   !< (shift-inward); `SEAM_RESTRICT_IDENTITY` on an unrefined direction (ratio 1); -1 when the fine pair is not inside
+   !< the donor block (the caller keeps the mean there).
+   integer(I4P), intent(in) :: first   !< First of the two fine cells covered by the coarse cell (donor index).
+   integer(I4P), intent(in) :: n_cells !< Donor block cells in this direction (at least 6 on a refined one).
+   integer(I4P), intent(in) :: ratio   !< Refinement ratio in this direction (1 or 2).
+   integer(I4P)             :: code    !< Restriction code (0..4, SEAM_RESTRICT_IDENTITY, or -1).
+   !$acc routine seq
+   !$omp declare target
+
+   if (ratio == 1_I4P) then
+      code = SEAM_RESTRICT_IDENTITY
+   elseif (first < 1_I4P .or. first + 1_I4P > n_cells) then
+      code = -1_I4P
+   else
+      code = first - min(max(first - 2_I4P, 1_I4P), n_cells - 5_I4P)
+   endif
+   endfunction seam_restriction_code
+
+   pure function seam_restriction_meta_pack(code) result(meta)
+   !< Pack the per-direction restriction codes (0..5) into one integer, 1 + code(1) + 6 code(2) + 36 code(3) (1..216):
+   !< 0 is left free for the rows that keep the mean (the map's meta default), so (0, 0, 0) is not mistaken for it.
+   integer(I4P), intent(in) :: code(1:3) !< Restriction code per direction.
+   integer(I4P)             :: meta      !< Packed metadata.
+   !$acc routine seq
+   !$omp declare target
+
+   meta = 1_I4P + code(1) + 6_I4P * code(2) + 36_I4P * code(3)
+   endfunction seam_restriction_meta_pack
+
+   pure subroutine seam_restriction_meta_unpack(meta, code)
+   !< Unpack the per-direction restriction codes (inverse of `seam_restriction_meta_pack`).
+   integer(I4P), intent(in)  :: meta      !< Packed metadata.
+   integer(I4P), intent(out) :: code(1:3) !< Restriction code per direction.
+   !$acc routine seq
+   !$omp declare target
+
+   code(1) = mod(meta - 1_I4P, 6_I4P)
+   code(2) = mod((meta - 1_I4P) / 6_I4P, 6_I4P)
+   code(3) = (meta - 1_I4P) / 36_I4P
+   endsubroutine seam_restriction_meta_unpack
 endmodule adam_seam_interpolation_library

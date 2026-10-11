@@ -1149,6 +1149,23 @@ Three findings:
 Phases C (high-order restriction), D (quintic prolongation) and E (reflux policy) are measured against these
 baselines.
 
+**C1: the 6-point restriction** (`[amr] seam_restriction = lagrange6`, [#68](https://github.com/szaghi/adam/issues/68)
+C1). The coarse seam ghosts take the tensor 6-point Lagrange interpolation of the fine cells to the coarse centre (exact
+1D weights $k/256$, the footprint shifted inside the donor block at its edge, as B3 recommends) instead of the mean. The
+leg `euler-l6` runs the euler ladder with it and the reflux off (CPU; the FNL kernels follow in C2):
+
+| N = 256 | L1 all | L∞ all | Orders 128 → 256, L1 / L∞ |
+|---|---|---|---|
+| euler (mean, reflux on, today) | $4.05\cdot10^{-6}$ | – | 2.01 / 1.46 |
+| euler-l6 (lagrange6, reflux off) | $8.55\cdot10^{-8}$ | $6.36\cdot10^{-6}$ | **5.33 / 5.53** |
+| uniform at the coarse spacing | $8.38\cdot10^{-8}$ | $5.34\cdot10^{-6}$ | 5.79 / 7.38 |
+
+With the 6-point restriction and without the reflux the refined composite error equals the uniform coarse run's, 47
+times below today's: at these resolutions the restriction was the seam error, and the tricubic prolongation's $O(h^4)$
+term has not shown yet. With the reflux on, the restriction changes nothing (band L∞ order 1.43 against 1.46 at N =
+64 → 128): the reflux caps the order at 2 by itself, as B1 predicts. No restriction row fell back to the mean (every
+fine pair lies inside its donor block). Reaching this with the reflux kept at the shocks is Phase E's job.
+
 ### AD: the divergence the cleaning acts on, across seams
 
 **Why.** Every div(B) column above is the centred divergence of the cell values, which is not the divergence GLM and

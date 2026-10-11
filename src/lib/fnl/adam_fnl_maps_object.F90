@@ -4,7 +4,7 @@ module adam_fnl_maps_object
 
 ! ADAM objects
 use :: adam_maps_object,              only : maps_object
-use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION
+use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION, SEAM_RESTRICT_MEAN
 ! ADAM FNL singleton objects
 use :: adam_fnl_mpih_global, only : mpih_fnl
 ! third party modules
@@ -83,6 +83,9 @@ contains
    ! active regime is mirrored here for the kernel callers.
    self%seam_ghost_fill = maps%seam_ghost_fill
    self%refine_ratio    = maps%refine_ratio
+   ! the device restriction kernels are the mean only until #68 C2
+   if (maps%seam_restriction /= SEAM_RESTRICT_MEAN) &
+      call mpih_fnl%error_stop(msg=': [amr] seam_restriction = lagrange6 is not available on FNL yet (issue #68 C2)')
    if (allocated(maps%local_map_ghost_cell)) then
       call dev_assign_to_device(dst=self%local_map_ghost_cell_gpu, src=maps%local_map_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy local_map_ghost_cell_gpu done ('// &
