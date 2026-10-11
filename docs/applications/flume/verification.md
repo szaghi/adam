@@ -1191,6 +1191,63 @@ Findings:
   times (reproduced here to the printed digits of #78). The fix is in Phase G3: a source divergence consistent with the
   face fluxes at the seams.
 
+### AS: a shock crossing a static 2:1 face
+
+**Why.** The committed shock-across-a-seam checks (the multirealm legs, the `sod-amr` goldens) compare FLUME runs with
+each other, so an error common to all of them passes. AS compares with the exact solution.
+
+**Cases** (`verification/amr-shock/`). Sod (V1) and RJ2a (MV-4, no divergence control) on the V1 grid, four blocks
+along x, with one 2:1 face at $x = 0.75$; the right shock (RJ2a: the fast shock) crosses it at $t = 0.143$ (0.110) and
+is past it at $t = 0.2$. Two sides: `c2f` refines $x > 0.75$ (the shock goes from coarse to fine), `f2c` refines
+$x < 0.75$ (fine to coarse). Base $N$ = 200 (Sod) and 256 (RJ2a), with uniform controls at $N$ and $2N$; `--long`
+adds the refined runs at $2N$. The octree refines the null y and z too, so the refined RJ2a runs cost 5 to 14 minutes
+on FNL: run that leg there.
+
+**Oracle** (`amr_shock_oracle.py`). At $t = 0.2$ the face sits in the constant state behind the shock, the plateau,
+so every deviation there is error with a known reference:
+- mass: the relative defect of the mass integral against the initial mass plus $t$ times the net inflow at the ends;
+- shock: the mass-equivalent shock position (the step holding the mass of the cells within $W = 0.03$ of the exact
+  shock) minus the exact one, in local cells;
+- plateau: between the left wave (Sod: the contact; RJ2a: the rotational discontinuity) and the shock, $W$ away from
+  both: $\max|q - q_2| / |q_1 - q_2|$ for $\rho$, $u_n$ and $p$, and $\max|s/s_2 - 1|$ of $s = p/\rho^\gamma$;
+- band: the same over the cells within `ngc` of their own spacing from the face.
+
+$W$ is a length, the same for every run: a margin in cells of the run would let the contact, wider in cells on the
+fine controls, into their plateau. Bounds: mass $\le 10^{-8}$ (on RJ2a at N = 256 the uniform run itself leaves
+$3\cdot10^{-10}$: numerical precursors of the left fast rarefaction reach the extrapolated end), $|$shock$| \le 0.5$
+cells, every plateau and band metric at most the baseline plus 10 %.
+
+**Results** (2 ranks; Sod: CPU and FNL agree to every printed digit; RJ2a: FNL). Plateau maxima of the refined run
+and, in brackets, of its uniform control at the spacing of the side that holds the shock:
+
+| Case | Shock (cells) | $\rho$ | $u_n$ | $p$ | $s$ |
+|---|---|---|---|---|---|
+| Sod c2f, N = 200 | 0.16 (0.17) | $2.5\cdot10^{-2}$ ($1.3\cdot10^{-4}$) | $4.5\cdot10^{-3}$ ($1.7\cdot10^{-5}$) | $6.9\cdot10^{-3}$ ($2.4\cdot10^{-5}$) | $1.8\cdot10^{-2}$ ($9.4\cdot10^{-5}$) |
+| Sod c2f, N = 400 | 0.16 (0.17) | $2.4\cdot10^{-2}$ ($1.3\cdot10^{-4}$) | $4.7\cdot10^{-3}$ ($1.2\cdot10^{-6}$) | $7.2\cdot10^{-3}$ ($1.5\cdot10^{-6}$) | $1.7\cdot10^{-2}$ ($9.4\cdot10^{-5}$) |
+| Sod f2c, N = 200 | 0.18 (0.17) | $1.6\cdot10^{-2}$ ($9.5\cdot10^{-4}$) | $6.7\cdot10^{-3}$ ($1.1\cdot10^{-4}$) | $1.0\cdot10^{-2}$ ($1.2\cdot10^{-4}$) | $1.2\cdot10^{-2}$ ($7.1\cdot10^{-4}$) |
+| Sod f2c, N = 400 | 0.18 (0.17) | $1.5\cdot10^{-2}$ ($1.3\cdot10^{-4}$) | $6.6\cdot10^{-3}$ ($1.7\cdot10^{-5}$) | $1.0\cdot10^{-2}$ ($2.4\cdot10^{-5}$) | $1.1\cdot10^{-2}$ ($9.4\cdot10^{-5}$) |
+| RJ2a c2f, N = 256 | 0.11 (0.11) | $1.4\cdot10^{-2}$ ($1.9\cdot10^{-4}$) | $8.1\cdot10^{-4}$ ($8.7\cdot10^{-5}$) | $6.2\cdot10^{-3}$ ($7.4\cdot10^{-5}$) | $5.9\cdot10^{-3}$ ($5.2\cdot10^{-5}$) |
+| RJ2a f2c, N = 256 | 0.11 (0.11) | $1.9\cdot10^{-2}$ ($2.1\cdot10^{-4}$) | $9.1\cdot10^{-4}$ ($2.1\cdot10^{-4}$) | $6.5\cdot10^{-3}$ ($2.0\cdot10^{-4}$) | $7.6\cdot10^{-3}$ ($5.8\cdot10^{-5}$) |
+
+With the reflux turned off (`make_amr_shock.py --no-reflux`, a measurement only): mass defect $1.2$ to
+$2.2\cdot10^{-4}$ (Sod) and $0.9$ to $1.5\cdot10^{-4}$ (RJ2a), against at most $3\cdot10^{-10}$ with it; the shock
+off by 0.2 to 0.35 cells; the plateau maxima at most 30 % larger than with the reflux.
+
+Findings:
+- **The reflux does what it is for.** Mass is exact (to the floor the uniform RJ2a run shares), and the shock lands
+  where the uniform run puts it. Without the reflux the mass drifts by $10^{-4}$ and the shock moves by a fraction of a
+  cell.
+- **A shock crossing a 2:1 face leaves an O(1) error behind it.** The plateau carries a density and entropy defect of
+  0.6 to 2.5 % of the shock jump and acoustic waves of 0.08 to 1 % in velocity and pressure: 4 to 4800 times the
+  uniform level. This error **does not converge**: from N = 200 to 400 the maxima stay the same while the uniform
+  level falls up to 14 times; only the width of the defect shrinks (the mean entropy error halves).
+- **It is not the reflux.** Without the reflux the plateau defect changes by at most 30 %. Its source is the
+  coarse-fine transfer of a discontinuity, the mean restriction and the prolongation of the ghosts, which Phases C
+  and D replace; AS is their shock baseline (D2's "no worse than tricubic").
+- **The entropy defect leaves the face.** It moves with the flow, $u_2 t$ downstream of the face by $t = 0.2$, so the
+  band entropy maxima are 100 to 1900 times below the plateau ones; the acoustic maxima of Sod c2f still sit at the
+  face.
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths

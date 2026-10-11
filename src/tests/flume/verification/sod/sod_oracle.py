@@ -43,18 +43,12 @@ def read_ini(path: Path) -> configparser.ConfigParser:
     return ini
 
 
-def exact_riemann_density(x: np.ndarray, t: float, x0: float, gamma: float,
-                          left: tuple[float, float, float], right: tuple[float, float, float]) -> np.ndarray:
-    """Return the exact density of a 1-D Riemann problem at time `t` (Toro, chapter 4).
+def star_state(gamma: float, left: tuple[float, float, float],
+               right: tuple[float, float, float]) -> tuple[float, float]:
+    """Return the pressure and the velocity of the star region of a 1-D Riemann problem (Toro, section 4.3).
 
     Parameters
     ----------
-    x : np.ndarray
-        Sampling abscissae.
-    t : float
-        Time.
-    x0 : float
-        Initial discontinuity position.
     gamma : float
         Specific heats ratio.
     left, right : tuple[float, float, float]
@@ -62,8 +56,8 @@ def exact_riemann_density(x: np.ndarray, t: float, x0: float, gamma: float,
 
     Returns
     -------
-    np.ndarray
-        Exact density at `x`.
+    tuple[float, float]
+        Star pressure and star velocity.
     """
     rl, ul, pl = left
     rr, ur, pr = right
@@ -90,7 +84,35 @@ def exact_riemann_density(x: np.ndarray, t: float, x0: float, gamma: float,
         p = p_new
     fl, _ = f_k(p, rl, pl, al)
     fr, _ = f_k(p, rr, pr, ar)
-    u = 0.5 * (ul + ur) + 0.5 * (fr - fl)
+    return p, 0.5 * (ul + ur) + 0.5 * (fr - fl)
+
+
+def exact_riemann_density(x: np.ndarray, t: float, x0: float, gamma: float,
+                          left: tuple[float, float, float], right: tuple[float, float, float]) -> np.ndarray:
+    """Return the exact density of a 1-D Riemann problem at time `t` (Toro, chapter 4).
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Sampling abscissae.
+    t : float
+        Time.
+    x0 : float
+        Initial discontinuity position.
+    gamma : float
+        Specific heats ratio.
+    left, right : tuple[float, float, float]
+        Primitive states (density, velocity, pressure).
+
+    Returns
+    -------
+    np.ndarray
+        Exact density at `x`.
+    """
+    rl, ul, pl = left
+    rr, ur, pr = right
+    al, ar = math.sqrt(gamma * pl / rl), math.sqrt(gamma * pr / rr)
+    p, u = star_state(gamma, left, right)
     g1, g2 = (gamma - 1.0) / (gamma + 1.0), (gamma - 1.0) / (2.0 * gamma)
 
     rho = np.empty_like(x)
