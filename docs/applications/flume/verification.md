@@ -1344,6 +1344,76 @@ Findings:
 `check.sh` (1 minute; `--long` for N = 256) asserts lower bounds only: the uniform control at 4.8, lag6-quintic-off at
 4.7 (L1 and L∞), lag6-cubic-off at 3.7 (L∞).
 
+### B2: a sensor-gated reflux, the go/no-go for Phase E
+
+**Why.** B1 recovers order 5 only without the reflux, and A3 showed that a shock needs it. Phase E would apply the
+reflux only where a WENO sensor flags the face (`reflux = troubled`); D-M6-4 builds it only if a prototype shows the
+order recovered with the shock positions intact.
+
+**Model** (`proto2d.py b2`). The B1 composite grid with WENO5-JS (Lax–Friedrichs splitting, the weights of
+`adam_weno_object`: $\epsilon = 10^{-6}$, exponent 3) and the policies `always` (today), `never` and `troubled`: a
+coarse box face takes the mean of its fine fluxes only where the sensor $r = \min_k w_k/d_k$ of the coarse face or of
+either fine face is below $\tau = 0.2$. Arms: today's mean/cubic/always, and lag6/quintic under each policy. Legs:
+- `smooth`: the B1 advection; orders, and the share of seam-face evaluations the sensor flags;
+- `c2f`, `f2c`: Burgers pulses, $u = 1$ on $[0, 0.15]$ and on $[0.45, 0.6]$, whose shocks cross $x = 0.25$ (coarse to
+  fine, $t = 0.2$) and $x = 0.75$ (fine to coarse, $t = 0.3$), run to $t = 0.5$ and 0.6, the rarefaction catching the
+  shock on the way;
+- `weak`: a $10^{-3}$ pulse riding on $u = 1$, crossing $x = 0.25$. Its smoothness indicators sit near $\epsilon$, so
+  the JS sensor misses it: the missed-detection control.
+
+The pulses start from exact cell averages, so the discrete mass is the exact one (sampling the step at the centres
+offsets it by up to a cell, which made the first version of the shock metric erratic). Against the exact solution: the
+mass defect over the pulse's own mass, and the mass-equivalent shock position of every row, in local cells.
+
+**Results.** Smooth leg, orders of N = 64 → 128:
+
+| Arm | L1 | L∞ | L∞ corner / edge | Faces flagged |
+|---|---|---|---|---|
+| uniform | 5.01 | 4.95 | – | – |
+| mean, cubic, always (today) | 3.03 | 2.22 | 2.22 / 2.05 | – |
+| lag6, quintic, always | 2.96 | 2.10 | 2.10 / 1.96 | – |
+| lag6, quintic, troubled | **5.01** | **4.95** | 5.10 / 5.02 | 0 % |
+| lag6, quintic, never | 5.01 | 4.95 | 5.10 / 5.02 | – |
+
+Shock legs (lag6/quintic; mean shock position in local cells, mass defect over the pulse's mass, the uniform control
+in brackets):
+
+| Case, N | always | troubled | never | Faces flagged |
+|---|---|---|---|---|
+| c2f, 64 | −0.53, $0$ | −0.53, $5.0\cdot10^{-5}$ | −1.12, $1.8\cdot10^{-2}$ | 15 % |
+| c2f, 128 (−0.30) | −0.50, $2\cdot10^{-16}$ | −0.50, $3.6\cdot10^{-5}$ | −1.07, $8.6\cdot10^{-3}$ | 8 % |
+| f2c, 64 | −0.25, $2\cdot10^{-16}$ | −0.25, $6.5\cdot10^{-5}$ | +0.05, $1.7\cdot10^{-2}$ | 15 % |
+| f2c, 128 (−0.37) | −0.25, $4\cdot10^{-16}$ | −0.25, $6.9\cdot10^{-6}$ | +0.06, $8.4\cdot10^{-3}$ | 7 % |
+| weak, 64 (+0.02) | −0.003, $10^{-12}$ | −0.014, $3.9\cdot10^{-4}$ | −0.014, $3.9\cdot10^{-4}$ | 0 % |
+| weak, 128 (+0.01) | −0.015, $10^{-12}$ | −0.022, $3.2\cdot10^{-5}$ | −0.022, $3.2\cdot10^{-5}$ | 0 % |
+
+`check.sh` asserts: the smooth L1 and L∞ orders of `troubled` at least 4.7; on c2f and f2c, `troubled` within 0.05
+cells of `always` and its mass defect at most $10^{-3}$, while `never`'s is at least $10^{-3}$ (the negative control:
+the metrics see a missing reflux).
+
+Findings:
+- **`troubled` recovers the order.** On the smooth leg the sensor flags no seam face, so `troubled` is `never`: order
+  5 in L1 and L∞, as the uniform control, against about 2 with the reflux always on.
+- **`troubled` keeps the shock where `always` puts it.** The two differ by at most 0.003 cells; `never` moves the shock
+  by 0.3 to 0.6 cells and loses $10^{-2}$ of the pulse's mass. The reflux at the flagged faces (7 to 15 % of the
+  seam-face evaluations) is what holds the shock.
+- **`troubled` is near-conservative, not conservative.** Its mass defect, $7\cdot10^{-6}$ to $6.5\cdot10^{-5}$ of the
+  pulse, comes from the unflagged smooth faces (the rarefaction crossing the seam) and from the steps before the shock
+  reaches the sensor's stencil; it is two to three orders below `never`'s.
+- **A missed detection is a small error here.** The weak shock is never flagged, so `troubled` runs as `never`: its
+  shock moves by 0.007 to 0.011 cells against `always` and it loses $3\cdot10^{-5}$ to $4\cdot10^{-4}$ of its own
+  mass. What the JS sensor misses is what the reflux matters least for, but not nothing.
+- **The corners are again not the L∞ cause.** Under the nonlinear weights corner and edge maxima still converge at the
+  same rate; A1's Euler L∞ order 1.46 is not reproduced by a scalar model, and stays open for the system (the
+  characteristic projection).
+
+**Verdict (D-M6-4): go for Phase E**, with three conditions on record. The order is recovered only together with the
+high-order transfers of Phases C and D: with today's mean restriction the order stays at 2 whatever the reflux does
+(B1). The policy is
+near-conservative ($10^{-5}$ of the shocked mass), not exact. And A4 measured 5 % false positives on the Euler vortex
+with the sensor read on primitive variables, where this scalar model flags none; E must measure its own false-positive
+rate, since each flagged smooth face brings the order cap back.
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths

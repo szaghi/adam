@@ -23,9 +23,23 @@ stencils near the box read restricted values (FLUME's coarse ghosts). Arms:
   reflux       on: a coarse face on the box boundary takes the mean of the two fine face fluxes it covers (the 2-D
                register); off: each grid keeps its own flux.
 
+B2 (the go/no-go of #68 E, D-M6-4): the same composite grid with WENO5-JS (Lax-Friedrichs splitting, the weights of
+adam_weno_object) and a third reflux policy, troubled: a coarse box face takes the mean of its fine fluxes only where
+the WENO sensor r = min_k w_k / d_k of the coarse face or of either fine face is below tau (0.2, the weno-riemann
+threshold). Arms: today's mean/cubic/always, and lag6/quintic under always, troubled and never. Legs:
+  smooth  the B1 advection: orders, and the share of seam faces the sensor flags (false positives);
+  c2f     a Burgers pulse (u = 1 on [0, 0.15]) whose shock crosses x = 0.25 coarse to fine;
+  f2c     a pulse on [0.45, 0.6] whose shock crosses x = 0.75 fine to coarse;
+  weak    a 1e-3 pulse riding on u = 1 (crossing x = 0.25): its smoothness indicators are near zeps, so the JS sensor
+          misses it, the missed-detection control.
+The pulses start from exact cell averages (the discrete mass is the exact one) and are measured against the exact
+solution: the mass defect over the pulse's mass, and the mass-equivalent shock position of every row, in local cells.
+
 Usage:
     proto2d.py b1 [--cells 32 64 128] [--velocity 1 1] [--assert ARM:NORM:MIN ...]
+    proto2d.py b2 [--cells 32 64 128] [--shock-cells 64 128] [--leg smooth|c2f|f2c|weak ...] [--tau 0.2] [--check]
     --assert lag6-quintic-off:linf:4.5 fails unless that arm's finest-pair order of that norm is at least MIN
+    --check asserts the B2 criteria (see b2)
 """
 
 from __future__ import annotations
@@ -59,13 +73,64 @@ def face_flux(p: np.ndarray, axis: int) -> np.ndarray:
     return np.moveaxis(f, 0, axis)
 
 
-class Composite:
-    """A periodic coarse grid with the box refined 2:1, and the transfer operators of one arm."""
+def weno5(a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray,
+          e: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return the WENO5-JS value at i + 1/2 from the cells i-2 .. i+2 and its sensor r = min_k w_k / d_k.
 
-    def __init__(self, n: int, restriction: str, prolongation: str, reflux: bool, refined: bool = True) -> None:
+    The weights are those of adam_weno_object: zeps = 1e-6, exponent 3 (weno_weights_exponent(S = 3)), the
+    Jiang-Shu smoothness indicators (its table expands to them)."""
+    is0 = 13.0 / 12.0 * (a - 2.0 * b + c) ** 2 + 0.25 * (a - 4.0 * b + 3.0 * c) ** 2
+    is1 = 13.0 / 12.0 * (b - 2.0 * c + d) ** 2 + 0.25 * (b - d) ** 2
+    is2 = 13.0 / 12.0 * (c - 2.0 * d + e) ** 2 + 0.25 * (3.0 * c - 4.0 * d + e) ** 2
+    lin = (0.1, 0.6, 0.3)
+    alpha = [lin[k] / (1.0e-6 + s) ** 3 for k, s in enumerate((is0, is1, is2))]
+    tot = alpha[0] + alpha[1] + alpha[2]
+    w = [al / tot for al in alpha]
+    value = (w[0] * (2.0 * a - 7.0 * b + 11.0 * c) + w[1] * (-b + 5.0 * c + 2.0 * d)
+             + w[2] * (2.0 * c + 5.0 * d - e)) / 6.0
+    return value, np.minimum.reduce([w[k] / lin[k] for k in range(3)])
+
+
+def weno_flux(p: np.ndarray, axis: int, f, alpha: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return the WENO5-JS Lax-Friedrichs face fluxes of the flux function f (padded array, n + 1 faces) and their
+    sensor, the minimum of the two split reconstructions."""
+    p = np.moveaxis(p, axis, 0)
+    n = p.shape[0] - 2 * G
+    fp, fm = 0.5 * (f(p) + alpha * p), 0.5 * (f(p) - alpha * p)
+    s = [slice(k, k + n + 1) for k in range(6)]  # face j between padded cells j + 2 and j + 3
+    plus, rp = weno5(fp[s[0]], fp[s[1]], fp[s[2]], fp[s[3]], fp[s[4]])
+    minus, rm = weno5(fm[s[5]], fm[s[4]], fm[s[3]], fm[s[2]], fm[s[1]])
+    return np.moveaxis(plus + minus, 0, axis), np.moveaxis(np.minimum(rp, rm), 0, axis)
+
+
+class Law:
+    """A scalar conservation law u_t + f(u)_x + g(u)_y = 0 and the Lax-Friedrichs speeds of its splitting."""
+
+    def __init__(self, kind: str, vel: tuple[float, float] = (1.0, 1.0), umax: float = 1.0) -> None:
+        self.kind = kind
+        if kind == "advect":
+            self.fx, self.fy = (lambda u: vel[0] * u), (lambda u: vel[1] * u)
+            self.ax, self.ay = abs(vel[0]), abs(vel[1])
+        else:  # burgers along x: f = u^2 / 2, g = 0 (the data vary along x only)
+            self.fx, self.fy = (lambda u: 0.5 * u * u), (lambda u: 0.0 * u)
+            self.ax, self.ay = umax, 0.0
+        self.speed = max(self.ax, self.ay)
+
+
+class Composite:
+    """A periodic coarse grid with the box refined 2:1, and the transfer operators of one arm.
+
+    reflux: True or "always" (every coarse box face takes the mean of its two fine fluxes), False or "never", or
+    "troubled" (only where the sensor of the coarse face or of either fine face is below tau; scheme weno only)."""
+
+    def __init__(self, n: int, restriction: str, prolongation: str, reflux: bool | str, refined: bool = True,
+                 scheme: str = "linear", law: Law | None = None, tau: float = 0.2) -> None:
         self.n, self.H = n, 1.0 / n
         self.h = self.H / 2.0
-        self.refined, self.reflux = refined, reflux
+        self.refined = refined
+        self.policy = {True: "always", False: "never"}.get(reflux, reflux)
+        self.scheme, self.law, self.tau = scheme, law, tau
+        self.trouble = [0, 0]  # troubled and total coarse box faces met by the policy
         self.xc = (np.arange(n) + 0.5) * self.H
         self.i0, self.i1 = round(BOX[0] * n), round(BOX[1] * n)  # covered coarse cells i0 .. i1 - 1 (both axes)
         self.nf = 2 * (self.i1 - self.i0)
@@ -124,25 +189,41 @@ class Composite:
         p[gi, gj] = np.einsum("gab,ga,gb->g", block, self.p_wts[gi], self.p_wts[gj])
         return p
 
+    def fluxes(self, p: np.ndarray, vel: tuple[float, float]) -> tuple[np.ndarray, ...]:
+        """Return the x and y face fluxes of a padded array and their sensors (None for the linear scheme)."""
+        px, py = p[:, G:-G], p[G:-G, :]
+        if self.scheme == "linear":
+            return vel[0] * face_flux(px, 0), vel[1] * face_flux(py, 1), None, None
+        fx, rx = weno_flux(px, 0, self.law.fx, self.law.ax)
+        fy, ry = weno_flux(py, 1, self.law.fy, self.law.ay)
+        return fx, fy, rx, ry
+
     def rhs(self, uc: np.ndarray, uf: np.ndarray, vel: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
         """Return the time derivatives of the coarse (covered cells: zero) and fine grids."""
         if self.refined:
             uc = uc.copy()
             self.restrict(uc, uf)
-        pc = np.pad(uc, G, mode="wrap")
-        fcx = vel[0] * face_flux(pc[:, G:-G], 0)  # (n + 1, n)
-        fcy = vel[1] * face_flux(pc[G:-G, :], 1)  # (n, n + 1)
+        fcx, fcy, rcx, rcy = self.fluxes(np.pad(uc, G, mode="wrap"), vel)  # (n + 1, n), (n, n + 1)
         if not self.refined:
             return -(np.diff(fcx, axis=0) + np.diff(fcy, axis=1)) / self.H, np.zeros_like(uf)
-        pf = self.pad_fine(uc, uf)
-        ffx = vel[0] * face_flux(pf[:, G:-G], 0)  # (nf + 1, nf)
-        ffy = vel[1] * face_flux(pf[G:-G, :], 1)
-        if self.reflux:  # each coarse face on the box boundary takes the mean of its two fine faces
+        ffx, ffy, rfx, rfy = self.fluxes(self.pad_fine(uc, uf), vel)  # (nf + 1, nf), (nf, nf + 1)
+        if self.policy != "never":  # a coarse face on the box boundary takes the mean of its two fine faces
             s = slice(self.i0, self.i1)
-            fcx[self.i0, s] = 0.5 * (ffx[0, 0::2] + ffx[0, 1::2])
-            fcx[self.i1, s] = 0.5 * (ffx[-1, 0::2] + ffx[-1, 1::2])
-            fcy[s, self.i0] = 0.5 * (ffy[0::2, 0] + ffy[1::2, 0])
-            fcy[s, self.i1] = 0.5 * (ffy[0::2, -1] + ffy[1::2, -1])
+            faces = ((fcx, rcx, (self.i0, s), ffx, rfx, (0, slice(None))),
+                     (fcx, rcx, (self.i1, s), ffx, rfx, (-1, slice(None))),
+                     (fcy, rcy, (s, self.i0), ffy, rfy, (slice(None), 0)),
+                     (fcy, rcy, (s, self.i1), ffy, rfy, (slice(None), -1)))
+            for fc, rc, cidx, ff, rf, fidx in faces:
+                fine = ff[fidx]
+                mean = 0.5 * (fine[0::2] + fine[1::2])
+                if self.policy == "always":
+                    fc[cidx] = mean
+                    continue
+                rfine = rf[fidx]
+                bad = (rc[cidx] < self.tau) | (rfine[0::2] < self.tau) | (rfine[1::2] < self.tau)
+                fc[cidx] = np.where(bad, mean, fc[cidx])
+                self.trouble[0] += int(bad.sum())
+                self.trouble[1] += bad.size
         dc = -(np.diff(fcx, axis=0) + np.diff(fcy, axis=1)) / self.H
         dc[self.i0:self.i1, self.i0:self.i1] = 0.0
         return dc, -(np.diff(ffx, axis=0) + np.diff(ffy, axis=1)) / self.h
@@ -160,22 +241,13 @@ def exact(x: np.ndarray, y: np.ndarray, t: float, vel: tuple[float, float]) -> n
     return np.sin(2.0 * np.pi * (x - vel[0] * t)) * np.sin(2.0 * np.pi * (y - vel[1] * t))
 
 
-def run(n: int, arm: tuple[str, str, bool] | None, vel: tuple[float, float], t_end: float = 1.0) -> dict[str, float]:
-    """Advance one arm (None: the uniform coarse control) to t_end; return its error norms and its mass drift."""
-    grid = Composite(n, *(arm or ("mean", "cubic", False)), refined=arm is not None)
-    X, Y = np.meshgrid(grid.xc, grid.xc, indexing="ij")
-    XF, YF = np.meshgrid(grid.xf, grid.xf, indexing="ij")
-    uc, uf = exact(X, Y, 0.0, vel), exact(XF, YF, 0.0, vel)
-    live = ~grid.covered()
-    h = grid.h if arm is not None else grid.H
-    dt = 0.4 * h * (64.0 * h) ** 0.25 / max(vel)
+def advance(grid: Composite, uc: np.ndarray, uf: np.ndarray, vel: tuple[float, float], speed: float,
+            t_end: float, refined: bool) -> tuple[np.ndarray, np.ndarray]:
+    """Advance both grids to t_end with classical RK4, dt = 0.4 h (64 h)^(1/4) / speed (Appendix A)."""
+    h = grid.h if refined else grid.H
+    dt = 0.4 * h * (64.0 * h) ** 0.25 / speed
     steps = math.ceil(t_end / dt)
     dt = t_end / steps
-
-    def mass(uc: np.ndarray, uf: np.ndarray) -> float:
-        return float(np.sum(uc[live]) * grid.H**2 + (np.sum(uf) * grid.h**2 if arm is not None else 0.0))
-
-    m0 = mass(uc, uf)
     for _ in range(steps):
         k1 = grid.rhs(uc, uf, vel)
         k2 = grid.rhs(uc + 0.5 * dt * k1[0], uf + 0.5 * dt * k1[1], vel)
@@ -183,6 +255,24 @@ def run(n: int, arm: tuple[str, str, bool] | None, vel: tuple[float, float], t_e
         k4 = grid.rhs(uc + dt * k3[0], uf + dt * k3[1], vel)
         uc = uc + dt / 6.0 * (k1[0] + 2.0 * k2[0] + 2.0 * k3[0] + k4[0])
         uf = uf + dt / 6.0 * (k1[1] + 2.0 * k2[1] + 2.0 * k3[1] + k4[1])
+    return uc, uf
+
+
+def run(n: int, arm: tuple[str, str, bool | str] | None, vel: tuple[float, float], t_end: float = 1.0,
+        scheme: str = "linear", tau: float = 0.2) -> dict[str, float]:
+    """Advance one arm (None: the uniform coarse control) to t_end; return its error norms and its mass drift."""
+    grid = Composite(n, *(arm or ("mean", "cubic", False)), refined=arm is not None, scheme=scheme,
+                     law=Law("advect", vel), tau=tau)
+    X, Y = np.meshgrid(grid.xc, grid.xc, indexing="ij")
+    XF, YF = np.meshgrid(grid.xf, grid.xf, indexing="ij")
+    uc, uf = exact(X, Y, 0.0, vel), exact(XF, YF, 0.0, vel)
+    live = ~grid.covered()
+
+    def mass(uc: np.ndarray, uf: np.ndarray) -> float:
+        return float(np.sum(uc[live]) * grid.H**2 + (np.sum(uf) * grid.h**2 if arm is not None else 0.0))
+
+    m0 = mass(uc, uf)
+    uc, uf = advance(grid, uc, uf, vel, max(vel), t_end, arm is not None)
     ec = np.abs(uc - exact(X, Y, t_end, vel))[live]
     xs, ys, hs = X[live], Y[live], np.full(ec.size, grid.H)
     err = ec
@@ -191,7 +281,8 @@ def run(n: int, arm: tuple[str, str, bool] | None, vel: tuple[float, float], t_e
         err = np.concatenate([ec, ef])
         xs, ys = np.concatenate([xs, XF.ravel()]), np.concatenate([ys, YF.ravel()])
         hs = np.concatenate([hs, np.full(ef.size, grid.h)])
-    out = {"l1": float(np.sum(err * hs**2)), "linf": float(err.max()), "mass": mass(uc, uf) - m0}
+    out = {"l1": float(np.sum(err * hs**2)), "linf": float(err.max()), "mass": mass(uc, uf) - m0,
+           "trouble": grid.trouble[0] / grid.trouble[1] if grid.trouble[1] else float("nan")}
     # where the error lives: per region, its maximum; the corner region is within 3 coarse cells of a box corner (both
     # axes), the edge region within 3 coarse cells of a box edge otherwise, the interior the rest
     dx = np.minimum(np.abs(xs - BOX[0]), np.abs(xs - BOX[1]))
@@ -237,6 +328,141 @@ def b1(cells: list[int], vel: tuple[float, float], asserts: list[str]) -> int:
     return status
 
 
+B2_SMOOTH = {"mean-cubic-always": ("mean", "cubic", "always"), "lag6-quintic-always": ("lag6", "quintic", "always"),
+             "lag6-quintic-troubled": ("lag6", "quintic", "troubled"),
+             "lag6-quintic-never": ("lag6", "quintic", "never")}
+# Burgers pulses u = ub + amp on [x0, x0 + w] (ub elsewhere), y-independent; the shock (the pulse's right edge) crosses
+# a box face: c2f x = 0.25 at t = 0.2 (the rarefaction catches it at t = 0.3); f2c x = 0.75 at t = 0.3; weak a jump
+# of 1e-3 riding on u = 1, crossing x = 0.25 at t = 0.1, whose smoothness indicators are near zeps: the sensor's blind
+# spot (the missed-detection case)
+PULSES = {"c2f": {"ub": 0.0, "amp": 1.0, "x0": 0.0, "w": 0.15, "t_end": 0.5},
+          "f2c": {"ub": 0.0, "amp": 1.0, "x0": 0.45, "w": 0.15, "t_end": 0.6},
+          "weak": {"ub": 1.0, "amp": 1.0e-3, "x0": 0.0, "w": 0.15, "t_end": 0.5}}
+
+
+def pulse(x: np.ndarray, t: float, ub: float, amp: float, x0: float, w: float, **_: float) -> np.ndarray:
+    """Return the exact Burgers solution of the pulse at time t: in xi = x - ub t and tau = amp t, the unit pulse on
+    [x0, x0 + w] (a rarefaction from x0, a shock at x0 + w + tau/2, which the rarefaction catches at tau = 2w, after
+    which the shock sits at x0 + sqrt(2 w tau))."""
+    xi, tau = x - ub * t, amp * t
+    if tau == 0.0:
+        v = ((xi >= x0) & (xi < x0 + w)).astype(float)
+    elif tau <= 2.0 * w:
+        v = np.where((xi >= x0) & (xi < x0 + tau), (xi - x0) / tau, 0.0)
+        v = np.where((xi >= x0 + tau) & (xi < x0 + w + 0.5 * tau), 1.0, v)
+    else:
+        v = np.where((xi >= x0) & (xi < x0 + math.sqrt(2.0 * w * tau)), (xi - x0) / tau, 0.0)
+    return ub + amp * v
+
+
+def pulse_average(x: np.ndarray, h: float, ub: float, amp: float, x0: float, w: float, **_: float) -> np.ndarray:
+    """Return the cell averages of the initial pulse: the discrete mass is then the exact one, so a shock position read
+    from the mass in a window measures the scheme, not where the initial step falls among the cell centres."""
+    overlap = np.clip(np.minimum(x + 0.5 * h, x0 + w) - np.maximum(x - 0.5 * h, x0), 0.0, None)
+    return ub + amp * overlap / h
+
+
+def shock_at(t: float, ub: float, amp: float, x0: float, w: float, **_: float) -> tuple[float, float]:
+    """Return the exact shock position and jump of the pulse at time t."""
+    tau = amp * t
+    if tau <= 2.0 * w:
+        return x0 + w + 0.5 * tau + ub * t, amp
+    xs = x0 + math.sqrt(2.0 * w * tau)
+    return xs + ub * t, amp * (xs - x0) / tau
+
+
+def run_shock(n: int, arm: tuple[str, str, str] | None, case: str, tau: float = 0.2) -> dict[str, float]:
+    """Advance a Burgers pulse on one arm; return the mass defect, the shock position errors and the troubled share.
+
+    The shock position of a row is mass-equivalent: the cells within W = 6 H of the exact shock hold the exact
+    integral plus jump * dx, so dx = (sum u h - integral of the exact u) / jump, in cells of the spacing that holds the
+    exact shock in that row."""
+    pp = PULSES[case]
+    law = Law("burgers", umax=pp["ub"] + pp["amp"])
+    grid = Composite(n, *(arm or ("mean", "cubic", "never")), refined=arm is not None, scheme="weno", law=law,
+                     tau=tau)
+    X, _ = np.meshgrid(grid.xc, grid.xc, indexing="ij")
+    XF, _ = np.meshgrid(grid.xf, grid.xf, indexing="ij")
+    uc, uf = pulse_average(X, grid.H, **pp), pulse_average(XF, grid.h, **pp)
+    live = ~grid.covered()
+
+    def mass(uc: np.ndarray, uf: np.ndarray) -> float:
+        return float(np.sum(uc[live]) * grid.H**2 + (np.sum(uf) * grid.h**2 if arm is not None else 0.0))
+
+    m0 = mass(uc, uf)
+    uc, uf = advance(grid, uc, uf, (1.0, 1.0), law.speed, pp["t_end"], arm is not None)
+    xs, jump = shock_at(pp["t_end"], **pp)
+    width = 6.0 * grid.H
+    errors = []
+    rows = [(None, j) for j in range(grid.n)]
+    if arm is not None:  # the rows inside the box's y span are fine rows: coarse cells outside, fine cells inside
+        rows = [(None, j) for j in range(grid.n) if not grid.i0 <= j < grid.i1] + [(k, None) for k in range(grid.nf)]
+    for k, j in rows:
+        if k is None:
+            x, u, h = grid.xc, uc[:, j], np.full(grid.n, grid.H)
+        else:
+            out = (grid.xc < BOX[0]) | (grid.xc > BOX[1])
+            jc = grid.i0 + k // 2
+            x = np.concatenate([grid.xc[out], grid.xf])
+            u = np.concatenate([uc[out, jc], uf[:, k]])
+            h = np.concatenate([np.full(out.sum(), grid.H), np.full(grid.nf, grid.h)])
+        win = np.abs(x - xs) <= width
+        a, b = float(np.min(x[win] - 0.5 * h[win])), float(np.max(x[win] + 0.5 * h[win]))
+        sample = np.linspace(a, b, 400001)
+        exact_int = float(np.trapezoid(pulse(sample, pp["t_end"], **pp), sample))
+        local = h[np.argmin(np.abs(x - xs))]
+        errors.append((float(np.sum(u[win] * h[win])) - exact_int) / jump / local)
+    errors = np.array(errors)
+    # the mass defect relative to the pulse's own mass (amp w), not to the total, which the weak case's u = 1 dominates
+    return {"mass": (mass(uc, uf) - m0) / (pp["amp"] * pp["w"]), "shock_max": float(np.max(np.abs(errors))),
+            "shock_mean": float(np.mean(errors)),
+            "trouble": grid.trouble[0] / grid.trouble[1] if grid.trouble[1] else float("nan")}
+
+
+def b2(cells: list[int], shock_cells: list[int], vel: tuple[float, float], legs: list[str], tau: float,
+       check: bool) -> int:
+    """Run the B2 tables (smooth order, shock crossings); return the exit status.
+
+    With check: the smooth order of troubled (and of the uniform control) at least 4.7 in L1 and Linf; on the strong
+    shocks (c2f, f2c) troubled within 0.05 cells (mean shock position) of always and its mass defect at most 1e-3 of
+    the pulse mass, while never's is at least 1e-3 (the negative control: the metrics see a missing reflux)."""
+    status = 0
+
+    def verdict(ok: bool, what: str) -> None:
+        nonlocal status
+        status |= 0 if ok else 1
+        print(f"  {'PASS' if ok else 'FAIL'} {what}")
+
+    if "smooth" in legs:
+        print(f"B2 smooth: WENO5-JS, u_t + {vel[0]} u_x + {vel[1]} u_y = 0, box {BOX} refined 2:1, t = 1, "
+              f"N = {cells}, tau = {tau}")
+        names = " ".join(f"{n:>13s}" for n in NORMS)
+        print(f"{'arm':24s} {'L1 (finest)':>11s} {'mass':>9s} {'troubled':>9s} | finest-pair orders: {names}")
+        for name, arm in [("uniform", None), *B2_SMOOTH.items()]:
+            res = [run(n, arm, vel, scheme="weno", tau=tau) for n in cells]
+            orders = {k: math.log2(res[-2][k] / res[-1][k]) for k in NORMS if not math.isnan(res[-1][k])}
+            all_orders = " ".join(f"{orders.get(k, float('nan')):13.2f}" for k in NORMS)
+            print(f"{name:24s} {res[-1]['l1']:11.3e} {res[-1]['mass']:9.1e} {res[-1]['trouble']:9.3f} | {'':20s}"
+                  f"{all_orders}", flush=True)
+            if check and name in ("uniform", "lag6-quintic-troubled"):
+                verdict(min(orders["l1"], orders["linf"]) >= 4.7, f"{name}: L1 and Linf orders at least 4.7")
+    for case in (c for c in PULSES if c in legs):
+        print(f"B2 shock {case}: Burgers pulse {PULSES[case]}, WENO5-JS, tau = {tau}; shock position error in local "
+              "cells (max |.| and mean over the rows), mass defect relative")
+        for n in shock_cells:
+            res = {}
+            for name, arm in [("uniform", None), *B2_SMOOTH.items()]:
+                r = res[name] = run_shock(n, arm, case, tau=tau)
+                print(f"  N = {n:4d} {name:24s} mass {r['mass']:10.2e}  shock max {r['shock_max']:7.3f}  mean "
+                      f"{r['shock_mean']:7.3f}  troubled {r['trouble']:6.3f}", flush=True)
+            if check and case != "weak":
+                t, a, v = res["lag6-quintic-troubled"], res["lag6-quintic-always"], res["lag6-quintic-never"]
+                verdict(abs(t["shock_mean"] - a["shock_mean"]) <= 0.05, "troubled places the shock as always (0.05)")
+                verdict(abs(t["mass"]) <= 1.0e-3, "troubled mass defect at most 1e-3 of the pulse")
+                verdict(abs(v["mass"]) >= 1.0e-3, "never's mass defect at least 1e-3 (negative control)")
+    return status
+
+
 def main() -> int:
     """Dispatch the subcommand."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -245,7 +471,17 @@ def main() -> int:
     p.add_argument("--cells", type=int, nargs="+", default=[32, 64, 128])
     p.add_argument("--velocity", type=float, nargs=2, default=[1.0, 1.0])
     p.add_argument("--assert", dest="asserts", action="append", default=[], metavar="ARM:NORM:MIN")
+    q = sub.add_parser("b2")
+    q.add_argument("--cells", type=int, nargs="+", default=[32, 64, 128])
+    q.add_argument("--shock-cells", type=int, nargs="+", default=[64, 128])
+    q.add_argument("--velocity", type=float, nargs=2, default=[1.0, 1.0])
+    q.add_argument("--leg", dest="legs", action="append", default=[], choices=("smooth", *PULSES))
+    q.add_argument("--tau", type=float, default=0.2)
+    q.add_argument("--check", action="store_true", help="assert the B2 go/no-go criteria")
     args = parser.parse_args()
+    if args.cmd == "b2":
+        return b2(args.cells, args.shock_cells, tuple(args.velocity), args.legs or ["smooth", *PULSES], args.tau,
+                  args.check)
     return b1(args.cells, tuple(args.velocity), args.asserts)
 
 
