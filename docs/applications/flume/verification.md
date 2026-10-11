@@ -1297,6 +1297,53 @@ Findings:
   seam's second-order error adds kinks. For `reflux = troubled` a false positive keeps the reflux, the conservative
   choice: the cost is the order on those faces, which Phase B2 measures. The threshold is not tuned here.
 
+### B1: the 2:1 caps in a 2-D prototype
+
+**Why.** #68 Appendix A measured in 1-D that the mean restriction and the reflux of point-value fluxes each cap the
+order at 2, and that a 6-point restriction with a quintic prolongation and no reflux recovers order 5. A 1-D model has
+no tangential direction: no tangential averaging in the register, no tangential footprint of the prolongation, no seam
+corners. Phase B repeats the measurement in 2-D, in NumPy, without ADAM runs.
+
+**Model** (`verification/amr-proto/proto2d.py b1`). $u_t + u_x + u_y = 0$ on the periodic unit square, initial
+$\sin 2\pi x \sin 2\pi y$, one period. Conservative finite differences of point values with the 5th-order linear upwind
+flux (the WENO5 optimal weights), RK4 with $\Delta t \propto h^{5/4}$ so that the spatial error dominates. The box
+$[0.25, 0.75]^2$ is refined 2:1; the coarse cells it covers hold the restriction of the fine ones, as FLUME's coarse
+ghosts do. Arms:
+- restriction: `mean` (the 2×2 mean, FLUME's) or `lag6` (6×6 tensor Lagrange, shifted inside the box at its edge);
+- prolongation: `cubic` (FLUME's tricubic) or `quintic`, from coarse cells outside the box only (shifted away from the
+  box along the normal axis, as FLUME's donor-block footprint);
+- reflux: on (a coarse box face takes the mean of its two fine fluxes) or off.
+
+The maximum error is also split by region: within 3 coarse cells of a box corner, of a box edge, or neither.
+
+**Results** (orders of N = 128 → 256; mass drift after one period at N = 256):
+
+| Arm | L1 | L∞ | L∞ corner / edge / interior | Mass drift |
+|---|---|---|---|---|
+| uniform (coarse) | 5.01 | 5.01 | – / – / 5.01 | $5\cdot10^{-18}$ |
+| mean, cubic, on (today) | 2.85 | 1.93 | 1.93 / 1.97 / 1.97 | $1\cdot10^{-18}$ |
+| mean, cubic, off | 2.01 | 1.95 | 1.95 / 1.97 / 1.97 | $5\cdot10^{-8}$ |
+| lag6, cubic, on | 2.85 | 1.93 | 1.93 / 1.97 / 1.95 | $2\cdot10^{-18}$ |
+| lag6, cubic, off | 3.98 | 4.01 | 4.01 / 3.96 / 3.95 | $1.3\cdot10^{-9}$ |
+| lag6, quintic, on | 2.85 | 1.93 | 1.93 / 1.95 / 1.96 | $6\cdot10^{-19}$ |
+| lag6, quintic, off | **4.99** | **4.99** | 4.99 / 4.98 / 4.98 | $9.1\cdot10^{-11}$ |
+| mean, quintic, off | 2.02 | 1.93 | 1.93 / 1.98 / 1.97 | $7\cdot10^{-8}$ |
+
+Findings:
+- **The 1-D findings hold in 2-D.** The mean restriction caps the order at 2 whatever the prolongation; the reflux caps
+  it at 2 whatever the transfers (its tangential mean of point fluxes included). The 6-point restriction with the
+  quintic prolongation and no reflux recovers order 5 in L1 and L∞, with the tangential footprint and the corners
+  present; with the cubic prolongation, order 4.
+- **Without the reflux, the mass drift converges at the scheme's order** when the transfers are high-order
+  ($9\cdot10^{-11}$ at N = 256, against $5\cdot10^{-8}$ with the mean restriction).
+- **The corners hold the maximum error, not a lower order.** In every arm the maximum sits within 3 cells of a box
+  corner, but the corner, edge and interior maxima converge at the same rate. In this linear model the corners do not
+  explain the L∞ order 1.46 of A1's Euler vortex; what the model lacks is the nonlinear WENO weights and the
+  characteristic projection (#68 F6), which B2's nonlinear prototype brings in.
+
+`check.sh` (1 minute; `--long` for N = 256) asserts lower bounds only: the uniform control at 4.8, lag6-quintic-off at
+4.7 (L1 and L∞), lag6-cubic-off at 3.7 (L∞).
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths
