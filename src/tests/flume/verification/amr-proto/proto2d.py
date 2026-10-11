@@ -35,10 +35,15 @@ threshold). Arms: today's mean/cubic/always, and lag6/quintic under always, trou
 The pulses start from exact cell averages (the discrete mass is the exact one) and are measured against the exact
 solution: the mass defect over the pulse's mass, and the mass-equivalent shock position of every row, in local cells.
 
+B3: the footprint of the 6-point restriction where its stencil meets a fine block edge. The fine box is split into
+blocks of B fine cells per axis; lag6 (shift-inward) keeps its stencil inside the donor block (B >= 6), lag6c
+(centred two-pass) reads the fine ghosts, filled first. Linear scheme, reflux off, both prolongations.
+
 Usage:
     proto2d.py b1 [--cells 32 64 128] [--velocity 1 1] [--assert ARM:NORM:MIN ...]
     proto2d.py b2 [--cells 32 64 128] [--shock-cells 64 128] [--leg smooth|c2f|f2c|weak ...] [--tau 0.2] [--check]
     --assert lag6-quintic-off:linf:4.5 fails unless that arm's finest-pair order of that norm is at least MIN
+    proto2d.py b3 [--cells 48 96 192] [--blocks 4 6 8 16 0] [--assert ARM:NORM:MIN ...]
     --check asserts the B2 criteria (see b2)
 """
 
@@ -124,7 +129,7 @@ class Composite:
     "troubled" (only where the sensor of the coarse face or of either fine face is below tau; scheme weno only)."""
 
     def __init__(self, n: int, restriction: str, prolongation: str, reflux: bool | str, refined: bool = True,
-                 scheme: str = "linear", law: Law | None = None, tau: float = 0.2) -> None:
+                 scheme: str = "linear", law: Law | None = None, tau: float = 0.2, block: int = 0) -> None:
         self.n, self.H = n, 1.0 / n
         self.h = self.H / 2.0
         self.refined = refined
@@ -135,22 +140,37 @@ class Composite:
         self.i0, self.i1 = round(BOX[0] * n), round(BOX[1] * n)  # covered coarse cells i0 .. i1 - 1 (both axes)
         self.nf = 2 * (self.i1 - self.i0)
         self.xf = BOX[0] + (np.arange(self.nf) + 0.5) * self.h
+        self.block = block or self.nf  # fine cells per fine block and axis (B3); the whole box by default
+        if self.nf % self.block:
+            raise ValueError(f"the {self.nf} fine cells per axis are not a multiple of the block size {self.block}")
         if refined:
             self._restriction_stencils(restriction)
             self._prolongation_stencils(4 if prolongation == "cubic" else 6)
 
     def _restriction_stencils(self, kind: str) -> None:
-        """Per covered coarse index (one axis): the fine indices and weights (the 2-D operator is their tensor)."""
+        """Per covered coarse index (one axis): the indices into the PADDED fine array and the weights (the 2-D operator
+        is their tensor). mean: the two fine cells; lag6: 6 points shifted inside the donor fine block (block cells per
+        axis, at least 6); lag6c: 6 centred points, reading the fine ghosts at the box edge (the two-pass footprint:
+        the fine ghosts are filled first, the prolongation reading only coarse cells outside the box)."""
         idx, wts = [], []
+        xp = BOX[0] + (np.arange(-G, self.nf + G) + 0.5) * self.h  # centres of the padded fine array
         for i in range(self.i0, self.i1):
             k = 2 * (i - self.i0)  # the fine cells k, k + 1 hold the coarse cell i
             if kind == "mean":
-                idx.append([k, k + 1])
-                wts.append([0.5, 0.5])
+                j = [k, k + 1]
+                w = [0.5, 0.5]
             else:
-                j0 = min(max(k - 2, 0), self.nf - 6)
-                idx.append(list(range(j0, j0 + 6)))
-                wts.append(list(lagrange(self.xf[j0:j0 + 6], self.xc[i])))
+                if kind == "lag6c":
+                    j0 = k - 2
+                else:
+                    if self.block < 6:
+                        raise ValueError(f"lag6 (shift-inward) needs 6 fine cells per block, not {self.block}")
+                    first = (k // self.block) * self.block
+                    j0 = min(max(k - 2, first), first + self.block - 6)
+                j = list(range(j0, j0 + 6))
+                w = list(lagrange(xp[np.array(j) + G], self.xc[i]))
+            idx.append([jj + G for jj in j])
+            wts.append(w)
         self.r_idx, self.r_wts = np.array(idx), np.array(wts)
 
     def _axis_stencil(self, x: float, npts: int) -> tuple[np.ndarray, np.ndarray]:
@@ -175,9 +195,9 @@ class Composite:
         pad[:G, :], pad[-G:, :], pad[:, :G], pad[:, -G:] = True, True, True, True
         self.ghost = np.nonzero(pad)
 
-    def restrict(self, uc: np.ndarray, uf: np.ndarray) -> None:
-        """Overwrite the covered coarse cells with the restriction of the fine ones."""
-        block = uf[self.r_idx[:, None, :, None], self.r_idx[None, :, None, :]]  # (I, J, a, b)
+    def restrict(self, uc: np.ndarray, pf: np.ndarray) -> None:
+        """Overwrite the covered coarse cells with the restriction of the (padded) fine ones."""
+        block = pf[self.r_idx[:, None, :, None], self.r_idx[None, :, None, :]]  # (I, J, a, b)
         uc[self.i0:self.i1, self.i0:self.i1] = np.einsum("ijab,ia,jb->ij", block, self.r_wts, self.r_wts)
 
     def pad_fine(self, uc: np.ndarray, uf: np.ndarray) -> np.ndarray:
@@ -200,13 +220,14 @@ class Composite:
 
     def rhs(self, uc: np.ndarray, uf: np.ndarray, vel: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
         """Return the time derivatives of the coarse (covered cells: zero) and fine grids."""
-        if self.refined:
-            uc = uc.copy()
-            self.restrict(uc, uf)
+        if self.refined:  # the fine ghosts first (the prolongation reads only coarse cells outside the box), then the
+            uc = uc.copy()  # restriction, which may read them (lag6c)
+            pf = self.pad_fine(uc, uf)
+            self.restrict(uc, pf)
         fcx, fcy, rcx, rcy = self.fluxes(np.pad(uc, G, mode="wrap"), vel)  # (n + 1, n), (n, n + 1)
         if not self.refined:
             return -(np.diff(fcx, axis=0) + np.diff(fcy, axis=1)) / self.H, np.zeros_like(uf)
-        ffx, ffy, rfx, rfy = self.fluxes(self.pad_fine(uc, uf), vel)  # (nf + 1, nf), (nf, nf + 1)
+        ffx, ffy, rfx, rfy = self.fluxes(pf, vel)  # (nf + 1, nf), (nf, nf + 1)
         if self.policy != "never":  # a coarse face on the box boundary takes the mean of its two fine faces
             s = slice(self.i0, self.i1)
             faces = ((fcx, rcx, (self.i0, s), ffx, rfx, (0, slice(None))),
@@ -259,10 +280,10 @@ def advance(grid: Composite, uc: np.ndarray, uf: np.ndarray, vel: tuple[float, f
 
 
 def run(n: int, arm: tuple[str, str, bool | str] | None, vel: tuple[float, float], t_end: float = 1.0,
-        scheme: str = "linear", tau: float = 0.2) -> dict[str, float]:
+        scheme: str = "linear", tau: float = 0.2, block: int = 0) -> dict[str, float]:
     """Advance one arm (None: the uniform coarse control) to t_end; return its error norms and its mass drift."""
     grid = Composite(n, *(arm or ("mean", "cubic", False)), refined=arm is not None, scheme=scheme,
-                     law=Law("advect", vel), tau=tau)
+                     law=Law("advect", vel), tau=tau, block=block)
     X, Y = np.meshgrid(grid.xc, grid.xc, indexing="ij")
     XF, YF = np.meshgrid(grid.xf, grid.xf, indexing="ij")
     uc, uf = exact(X, Y, 0.0, vel), exact(XF, YF, 0.0, vel)
@@ -463,6 +484,38 @@ def b2(cells: list[int], shock_cells: list[int], vel: tuple[float, float], legs:
     return status
 
 
+def b3(cells: list[int], blocks: list[int], vel: tuple[float, float], asserts: list[str]) -> int:
+    """Run the B3 table: the 6-point restriction footprints against the fine block size; return the exit status.
+
+    lag6 shifts its stencil inside the donor fine block (it needs 6 fine cells per block and axis); lag6c is centred
+    and reads the fine ghosts (filled first: fine neighbours inside the box, the prolongation at its edge), at any
+    block size. Linear scheme, reflux off (the setting where the restriction's order shows), both prolongations."""
+    bounds = {}
+    for spec in asserts:
+        arm, norm, value = spec.split(":")
+        bounds[(arm, norm)] = float(value)
+    print(f"B3: restriction footprint, u_t + {vel[0]} u_x + {vel[1]} u_y = 0, box {BOX}, reflux off, N = {cells}")
+    print(f"{'arm':24s} {'L1 (finest)':>11s} {'Linf (finest)':>13s} | finest-pair orders: {'l1':>6s} {'linf':>6s}")
+    status = 0
+    for prol in ("cubic", "quintic"):
+        for kind, block in [*(("lag6", b) for b in blocks), ("lag6c", 0)]:
+            name = f"{kind}-b{block or 'box'}-{prol}" if kind == "lag6" else f"lag6c-{prol}"
+            try:
+                res = [run(n, (kind, prol, False), vel, block=block) for n in cells]
+            except ValueError as err:
+                print(f"{name:24s} infeasible: {err}")
+                continue
+            o1 = math.log2(res[-2]["l1"] / res[-1]["l1"])
+            oi = math.log2(res[-2]["linf"] / res[-1]["linf"])
+            print(f"{name:24s} {res[-1]['l1']:11.3e} {res[-1]['linf']:13.3e} | {'':20s}{o1:6.2f} {oi:6.2f}",
+                  flush=True)
+            for (a, k), b in bounds.items():
+                if a == name and {"l1": o1, "linf": oi}[k] < b:
+                    status = 1
+                    print(f"  FAIL {name}: {k} order {({'l1': o1, 'linf': oi})[k]:.2f} < {b}")
+    return status
+
+
 def main() -> int:
     """Dispatch the subcommand."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -478,7 +531,14 @@ def main() -> int:
     q.add_argument("--leg", dest="legs", action="append", default=[], choices=("smooth", *PULSES))
     q.add_argument("--tau", type=float, default=0.2)
     q.add_argument("--check", action="store_true", help="assert the B2 go/no-go criteria")
+    r3 = sub.add_parser("b3")
+    r3.add_argument("--cells", type=int, nargs="+", default=[48, 96, 192])
+    r3.add_argument("--blocks", type=int, nargs="+", default=[4, 6, 8, 16, 0], help="fine cells per block (0: box)")
+    r3.add_argument("--velocity", type=float, nargs=2, default=[1.0, 1.0])
+    r3.add_argument("--assert", dest="asserts", action="append", default=[], metavar="ARM:NORM:MIN")
     args = parser.parse_args()
+    if args.cmd == "b3":
+        return b3(args.cells, args.blocks, tuple(args.velocity), args.asserts)
     if args.cmd == "b2":
         return b2(args.cells, args.shock_cells, tuple(args.velocity), args.legs or ["smooth", *PULSES], args.tau,
                   args.check)

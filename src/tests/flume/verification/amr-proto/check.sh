@@ -11,6 +11,9 @@
 # at least 4.7; on the Burgers shocks crossing coarse to fine and fine to coarse, troubled within 0.05 cells of always
 # and its mass defect at most 1e-3 of the pulse, never's at least 1e-3 (the negative control). Shocks at N = 64
 # (--long: 64 and 128). Cost: about 3 min (--long: about 5 min).
+# B3: the 6-point restriction footprints against the fine block size (proto2d.py b3, reflux off): shift-inward at 6
+# fine cells per block and centred two-pass, each with the cubic (order 3.7) and quintic (order 4.7) prolongation;
+# shift-inward at 4 fine cells is reported infeasible. N = 24 / 48 / 96 (--long: 48 / 96 / 192). About 20 s.
 #
 # Usage: ./check.sh [--long]
 set -euo pipefail
@@ -20,9 +23,10 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 CELLS=(32 64 128)
 SHOCK_CELLS=(64)
+B3_CELLS=(24 48 96)
 while [[ $# -gt 0 ]]; do
    case "$1" in
-      --long) CELLS=(64 128 256) ; SHOCK_CELLS=(64 128) ; shift ;;
+      --long) CELLS=(64 128 256) ; SHOCK_CELLS=(64 128) ; B3_CELLS=(48 96 192) ; shift ;;
       *)      echo "check.sh: unknown argument '$1' (accepted: --long)" >&2 ; exit 2 ;;
    esac
 done
@@ -30,7 +34,10 @@ done
 if "$VENV_PY" "$CASE_DIR/proto2d.py" b1 --cells "${CELLS[@]}" \
       --assert uniform:linf:4.8 --assert lag6-quintic-off:l1:4.7 --assert lag6-quintic-off:linf:4.7 \
       --assert lag6-cubic-off:linf:3.7 && \
-   "$VENV_PY" "$CASE_DIR/proto2d.py" b2 --cells 32 64 128 --shock-cells "${SHOCK_CELLS[@]}" --check; then
+   "$VENV_PY" "$CASE_DIR/proto2d.py" b2 --cells 32 64 128 --shock-cells "${SHOCK_CELLS[@]}" --check && \
+   "$VENV_PY" "$CASE_DIR/proto2d.py" b3 --cells "${B3_CELLS[@]}" --blocks 4 6 8 0 \
+      --assert lag6-b6-quintic:linf:4.7 --assert lag6c-quintic:linf:4.7 --assert lag6-b6-cubic:linf:3.7 \
+      --assert lag6c-cubic:linf:3.7; then
    echo "PROTO PASSED"
 else
    echo "PROTO FAILED"

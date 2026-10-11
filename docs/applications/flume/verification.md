@@ -1414,6 +1414,47 @@ near-conservative ($10^{-5}$ of the shocked mass), not exact. And A4 measured 5 
 with the sensor read on primitive variables, where this scalar model flags none; E must measure its own false-positive
 rate, since each flagged smooth face brings the order cap back.
 
+### B3: the footprint of a high-order restriction
+
+**Why.** Phase C replaces the mean restriction with a 6-point one. Its stencil reaches 2 to 3 fine cells beyond the two
+cells of the coarse cell, so near the edge of a fine block it needs data the block does not hold. Either the stencil
+shifts inside the donor block (shift-inward: one-sided, at least 6 fine cells per block), or the fine block's ghosts
+are filled first and the stencil stays centred (two-pass: any block size, at the price of an ordering constraint).
+
+**Model** (`proto2d.py b3`). The B1 problem with the reflux off, where the restriction's order shows. The fine box is
+split into blocks of B fine cells per axis: `lag6` shifts inside its donor block, `lag6c` reads the fine ghosts (exact
+fine neighbours inside the box, the prolongation at its edge). B = 4, 6, 8, 16 and the whole box; both prolongations;
+N = 48 / 96 / 192 (so that 6, 8 and 16 divide the fine cells).
+
+**Results** (N = 192; orders of 96 → 192):
+
+| Footprint, prolongation | Block size | L1 | L∞ | Order L1 / L∞ |
+|---|---|---|---|---|
+| shift-inward, cubic | 6 / 8 / 16 / box | $9.2$ to $9.4\cdot10^{-8}$ | $3.7$ to $3.9\cdot10^{-7}$ | 3.98 / 4.00 |
+| two-pass, cubic | any | $2.4\cdot10^{-8}$ | $1.9\cdot10^{-7}$ | 4.14 / 4.03 |
+| shift-inward, quintic | 6 / 8 / 16 / box | $2.38\cdot10^{-9}$ | $7.83\cdot10^{-9}$ | 4.98 / 4.99 |
+| two-pass, quintic | any | $2.42\cdot10^{-9}$ | $7.85\cdot10^{-9}$ | 5.00 / 5.00 |
+| shift-inward | 4 | infeasible | | |
+
+Findings:
+- **The block size does not matter for shift-inward.** From 6 fine cells per block to the whole box the error changes
+  by at most 2.5 % in L1 and 5 % in L∞, at the same order.
+- **With the quintic prolongation the two footprints are equivalent** (within 1.5 %), both at order 5.
+- **With today's cubic prolongation, two-pass is 4 times more accurate in L1** (2 times in L∞), at the same order 4:
+  the one-sided shift has a larger error constant than the centred stencil reading 4th-order ghosts.
+- **What each costs in FLUME.** `update_ghost_local` fills copies, coarse-to-fine interpolations and fine-to-coarse
+  restrictions in one pass, in map order, the restriction reading only the donor block's interior cells. Shift-inward
+  keeps that single pass and needs 6 fine cells per refined axis, which the #66 guard already requires
+  ($n \ge 2\,n_{gc} = 6$). Two-pass needs the fine ghosts complete before any restriction: a second local pass and, on
+  several ranks, a second exchange round, because the sender must update its fine ghosts before it packs.
+
+**Recommendation for Phase C: shift-inward.** It fits the current ghost update and block guard, and with the quintic
+prolongation of Phase D it is as accurate as two-pass. Two-pass would buy a constant factor only while the cubic
+prolongation stays, at the cost of a second synchronisation per ghost update.
+
+`check.sh` asserts the L∞ orders of shift-inward (B = 6) and two-pass: 3.7 with the cubic prolongation, 4.7 with the
+quintic (N = 24 / 48 / 96, about 20 s).
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths
