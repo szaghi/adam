@@ -42,6 +42,10 @@
 # crosses ranks). Both must reproduce sod-x / sod-z bit for bit. Sod is 1-D, so these legs see the coverage of the
 # register faces, not where the overlaps land along the face: the MHD rotor of mhd/multirealm/check.sh (leg 5) does.
 #
+# Leg 6 (issue #68 C2): leg 4 (along x and z) with `[amr] seam_restriction = lagrange6` in every input: the coarse
+# ghosts of the refined seam take the fine owner's 6-point restriction, as the intra-realm 2:1 face does, so the unions
+# must still reproduce the single-realm runs bit for bit (the shock crosses the seam: a mean on either side differs).
+#
 # Usage: ./check.sh [--build] [--np N]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -168,4 +172,28 @@ bfiles=("$CASE_DIR/sod-2realm-blocks-z.ini" "$CASE_DIR/sod-2realm-blocks-z-r1.in
 multi="$CASE_DIR/work-$TAG-blocks-z"
 run "$multi" sod-2realm-blocks-z.ini "${bfiles[@]}"
 "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-z-single" --ngc 3 --tol 0
+echo "== leg 6: leg 4 with [amr] seam_restriction = lagrange6 (issue #68 C2)"
+# the refined seam's coarse ghosts take the 6-point restriction of the fine owner (the codes packed in the send rows'
+# meta), the intra-realm 2:1 face the same: the unions must still reproduce the single-realm runs bit for bit, which
+# they cannot if either restriction is the mean (the shock crosses the seam); the single run must log the regime
+l6_dir="$CASE_DIR/work-$TAG-l6-src" ; rm -rf "$l6_dir" ; mkdir -p "$l6_dir"
+for f in sod-amr.ini sod-amr-z.ini sod-amr-refined-r1.ini sod-amr-refined-r2.ini sod-amr-refined-z-r1.ini \
+         sod-amr-refined-z-r2.ini; do
+   # the octree refines the null axes too, so their 4-cell blocks would not fit the 6-point footprint (fatal): 8
+   sed -e 's/^\[amr\]/&\nseam_restriction = lagrange6/' -e 's/^\(n[ijk]\) *= *4 *$/\1 = 8/' \
+       "$CASE_DIR/$f" > "$l6_dir/$f"
+done
+for axis in x z; do
+   sfx="" ; [[ $axis == z ]] && sfx="-z"
+   single="$CASE_DIR/work-$TAG-l6-amr$sfx-single"
+   run "$single" "sod-amr$sfx.ini" "$l6_dir/sod-amr$sfx.ini"
+   if ! grep -aq 'lagrange6 restriction' "$single/log.txt"; then
+      echo "check.sh: the lagrange6 restriction is not active in $single/log.txt" >&2
+      exit 1
+   fi
+   multi="$CASE_DIR/work-$TAG-l6-refined$sfx"
+   run "$multi" "sod-amr-refined$sfx.ini" "$CASE_DIR/sod-amr-refined$sfx.ini" "$l6_dir/sod-amr-refined$sfx-r1.ini" \
+       "$l6_dir/sod-amr-refined$sfx-r2.ini"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+done
 echo "multi-realm verification PASSED ($TAG)"

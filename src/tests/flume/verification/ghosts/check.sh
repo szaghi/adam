@@ -19,8 +19,13 @@
 # edges (rows beyond two realm faces: wall + wall, wall + seam, inflow + wall, ...) held an inward diagonal copy, off by
 # up to 0.78; before P1 the extrapolation chains raced on FNL (block+extrapolation edges read NaN with the poison).
 #
+# --seam-restriction R writes `[amr] seam_restriction = R` into every input (#68 C2): the 6-point restriction is exact on
+# the linear field too, so the probe checks its codes and footprints in situ (a wrong code interpolates to another point
+# and misses the linear value). Measured with lagrange6 on box3d (octree 2:1), channel2d (quadtree) and refined3d
+# (inter-realm 2:1): CPU np 1-3 and FNL np 1-2 within 1.1e-15, every face and edge group.
+#
 # Usage: ./check.sh [--np "1 2 3"] [--cases "box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"]
-#        [--keep]
+#        [--keep] [--seam-restriction mean|lagrange6]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -32,13 +37,16 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NPS="1 2 3"
 CASES="box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"
 KEEP=0
+RESTRICTION=""
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NPS="$2" ; shift 2 ;;
       --cases) CASES="$2" ; shift 2 ;;
       --keep)  KEEP=1 ; shift ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --np \"N ...\", --cases \"...\", --keep)" >&2 ; exit 2 ;;
+      --seam-restriction) RESTRICTION="$2" ; shift 2 ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --np \"N ...\", --cases \"...\", --keep," \
+                    "--seam-restriction R)" >&2 ; exit 2 ;;
    esac
 done
 if [[ ! -x "$EXE" ]]; then
@@ -62,7 +70,10 @@ for np in $NPS; do
          walls3d-mhd) "$VENV_PY" "$CASE_DIR/make_probe.py" "$w" walls3d --model mhd ;;
          *)         "$VENV_PY" "$CASE_DIR/make_probe.py" "$w" "$case" ;;
       esac
-      echo ">> GP $case, np $np ($TAG)"
+      if [[ -n "$RESTRICTION" ]]; then
+         for f in "$w"/*.ini; do sed -i "s/^\[amr\]/&\nseam_restriction = $RESTRICTION/" "$f"; done
+      fi
+      echo ">> GP $case, np $np ($TAG${RESTRICTION:+, seam_restriction = $RESTRICTION})"
       if ! (cd "$w" && mpirun -np "$np" "$EXE" "$input" > log.txt 2>&1); then
          echo "check.sh: $case np $np failed, see $w/log.txt" >&2
          FAILED=1

@@ -87,6 +87,7 @@ implicit none
 private
 public :: field_object
 public :: interp_seam_ghost
+public :: restrict_seam_lagrange6
 
 character(len=5), parameter :: INI_SECTION_NAME="field" !< INI (config) file section name containing configs.
 

@@ -42,7 +42,8 @@ use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_R
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_seam_exchange,        only : seam_fill, SEAM_ROW_COPY, SEAM_ROW_INTERPOLATE, SEAM_ROW_RESTRICT
 use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, seam_tricubic_centered_pos, &
-                                               seam_compatible_centered_pos, SEAM_RESTRICT_MEAN
+                                               seam_compatible_centered_pos, SEAM_RESTRICT_LAGRANGE6, &
+                                               seam_restriction_code, seam_restriction_meta_pack
 use :: adam_globals,              only : mpih
 use :: mpi
 use :: penf
@@ -1282,9 +1283,12 @@ contains
                               'ni, nj, nk) in both realms')
       if (r_c%adam%maps%seam_ghost_fill /= r_f%adam%maps%seam_ghost_fill)                                             &
          call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_ghost_fill in both realms')
-      ! the inter-realm restriction rows (pack_seam_rows) are the mean only until #68 C2
-      if (r_c%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN .or. r_f%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN) &
-         call mpih%error_stop(msg=pfx//'coupling = refined supports only [amr] seam_restriction = mean (issue #68 C2)')
+      if (r_c%adam%maps%seam_restriction /= r_f%adam%maps%seam_restriction)                                           &
+         call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_restriction in both realms')
+      ! the 6-point restriction footprint must fit a fine block (issue #68 C2, as for the intra-realm rows)
+      if (r_f%adam%maps%seam_restriction == SEAM_RESTRICT_LAGRANGE6 .and.                                             &
+          any([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk] < 6_I4P))                                       &
+         call mpih%error_stop(msg=pfx//'[amr] seam_restriction = lagrange6 needs ni, nj, nk >= 6 in the fine realm')
       ! a coarse ghost is the mean of 2x2x2 fine cells: even fine block cell counts keep them in one fine block
       if (any(mod([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk], 2_I4P) /= 0_I4P))                        &
          call mpih%error_stop(msg=pfx//'coupling = refined needs even block cell counts (ni, nj, nk) in the fine realm')
@@ -1523,6 +1527,14 @@ contains
                   ijk_c = nint((xc - emin_c) / d_c + 0.5_R8P, I4P)
                   ok = all(ijk_c >= 1_I4P) .and. all(ijk_c + 1_I4P <= n_c) .and. &
                        all(abs(emin_c + (real(ijk_c, R8P) - 0.5_R8P) * d_c - xc) <= 1.0e-6_R8P * d_c)
+                  ! the 6-point restriction (#68 C2): the fine owner's codes, the footprint inside its block; the fine
+                  ! pair is inside it (checked above), so no row falls back to the mean (meta 0)
+                  if (ok .and. realm(ip)%adam%maps%seam_restriction == SEAM_RESTRICT_LAGRANGE6) then
+                     do d = 1_I4P, 3_I4P
+                        sub(d) = seam_restriction_code(first=ijk_c(d), n_cells=n_c(d), ratio=2_I4P)
+                     enddo
+                     meta = seam_restriction_meta_pack(sub)
+                  endif
                else
                   ok = .false.
                endif

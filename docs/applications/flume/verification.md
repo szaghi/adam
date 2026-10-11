@@ -132,7 +132,11 @@ its 2:1 face into a coarse and a fine realm glued by `coupling = refined`
 to coarse) with the formulas of the intra-realm AMR seams, and the 2:1 reflux register spans the two realms. The union
 is bitwise equal to the single-realm refined run (135168 cells, 216 steps) on 2, 3 and 4 ranks, CPU and FNL, and so is
 the same split along $z$, where every 2:1 seam row crosses ranks. The pair declared `mirror` is refused at
-initialization, and so is the positivity limiter on any multi-realm run. The MHD twin (`mhd/multirealm/check.sh` leg 4,
+initialization, and so is the positivity limiter on any multi-realm run. Leg 6
+([#68](https://github.com/szaghi/adam/issues/68) C2) repeats leg 4, along $x$ and $z$, with `[amr] seam_restriction =
+lagrange6` in every input (the null axes widened to 8 cells, which the 6-point footprint needs): the fine owner packs
+the 6-point codes in the restrict rows, and the unions stay bitwise equal to the single-realm runs, CPU and FNL. The
+MHD twin (`mhd/multirealm/check.sh` leg 4,
 RJ2a with GLM on the same cells) is bitwise on all nine fields over 349 steps; in 1-D $\psi$ stays at round-off, so it
 tests $\mathbf{B}$, not the cleaning, across the 2:1 seam. Leg 5 ([#51](https://github.com/szaghi/adam/issues/51))
 splits Sod, along $x$ and along $z$, into realms whose seam blocks do not line up (one realm on blocks twice as large,
@@ -1150,9 +1154,10 @@ Phases C (high-order restriction), D (quintic prolongation) and E (reflux policy
 baselines.
 
 **C1: the 6-point restriction** (`[amr] seam_restriction = lagrange6`, [#68](https://github.com/szaghi/adam/issues/68)
-C1). The coarse seam ghosts take the tensor 6-point Lagrange interpolation of the fine cells to the coarse centre (exact
-1D weights $k/256$, the footprint shifted inside the donor block at its edge, as B3 recommends) instead of the mean. The
-leg `euler-l6` runs the euler ladder with it and the reflux off (CPU; the FNL kernels follow in C2):
+C1, C2). The coarse seam ghosts take the tensor 6-point Lagrange interpolation of the fine cells to the coarse centre
+(exact 1D weights $k/256$, the footprint shifted inside the donor block at its edge, as B3 recommends) instead of the
+mean. The leg `euler-l6` runs the euler ladder with it and the reflux off; CPU and FNL (the device twin of C2) agree to
+every printed digit, and on the same run to $3\cdot10^{-14}$:
 
 | N = 256 | L1 all | L∞ all | Orders 128 → 256, L1 / L∞ |
 |---|---|---|---|
@@ -1164,7 +1169,10 @@ With the 6-point restriction and without the reflux the refined composite error 
 times below today's: at these resolutions the restriction was the seam error, and the tricubic prolongation's $O(h^4)$
 term has not shown yet. With the reflux on, the restriction changes nothing (band L∞ order 1.43 against 1.46 at N =
 64 → 128): the reflux caps the order at 2 by itself, as B1 predicts. No restriction row fell back to the mean (every
-fine pair lies inside its donor block). Reaching this with the reflux kept at the shocks is Phase E's job.
+fine pair lies inside its donor block). Reaching this with the reflux kept at the shocks is Phase E's job. On FNL the
+6-point restriction costs about 16 % of the wall time of this run (N = 256, reflux off: 56 s against 48 s with the mean,
+WSL, indicative only): the restriction rows read 36 cells instead of 4 on this quadtree, in the same kernels as the
+copies.
 
 ### AD: the divergence the cleaning acts on, across seams
 

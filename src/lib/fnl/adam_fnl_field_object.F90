@@ -261,6 +261,7 @@ contains
                                                    1:) !< Field component to be updated.
    call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%ngc,&
                                    seam_ghost_fill=self%maps%seam_ghost_fill,                         &
+                                   seam_restriction=self%maps%seam_restriction,                       &
                                    ri=self%maps%refine_ratio(1),                                      &
                                    rj=self%maps%refine_ratio(2),                                      &
                                    rk=self%maps%refine_ratio(3),q_gpu=q_gpu)
@@ -327,6 +328,7 @@ contains
 
    if (do_step(1)) then
       call populate_send_buffer_ghost_gpu_dev(ngc=ngc, seam_ghost_fill=self%maps%seam_ghost_fill,                  &
+                                              seam_restriction=self%maps%seam_restriction,                         &
                                               ri=self%maps%refine_ratio(1), rj=self%maps%refine_ratio(2),          &
                                               rk=self%maps%refine_ratio(3),                                        &
                                               comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &

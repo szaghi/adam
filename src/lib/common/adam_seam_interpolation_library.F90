@@ -55,7 +55,7 @@ public :: seam_interpolate_tricubic, seam_interpolate_compatible, seam_interpola
 public :: seam_shift_anchor_pos, seam_meta_pack, seam_meta_unpack
 public :: SEAM_SUB_COINCIDENT
 public :: SEAM_RESTRICT_MEAN, SEAM_RESTRICT_LAGRANGE6, SEAM_W_LAGRANGE6, SEAM_RESTRICT_IDENTITY
-public :: seam_restriction_code, seam_restriction_meta_pack, seam_restriction_meta_unpack
+public :: seam_restriction_code, seam_restriction_meta_pack, seam_restriction_meta_unpack, seam_restriction_weight
 
 integer(I4P), parameter :: SEAM_FILL_INJECTION  = 0_I4P !< Regime: 0th-order injection (legacy behavior).
 integer(I4P), parameter :: SEAM_FILL_COMPATIBLE = 1_I4P !< Regime: restriction-compatible fill, q=2 (diagnostic arm).
@@ -332,4 +332,16 @@ contains
    code(2) = mod((meta - 1_I4P) / 6_I4P, 6_I4P)
    code(3) = (meta - 1_I4P) / 36_I4P
    endsubroutine seam_restriction_meta_unpack
+
+   pure function seam_restriction_weight(node, code) result(w)
+   !< Return the 1D weight `SEAM_W_LAGRANGE6(node, code)` (issue #68 C2): the device kernels read the table through this
+   !< routine, inside the module that owns it, as they read the coarse->fine tables through the evaluators.
+   integer(I4P), intent(in) :: node !< Footprint node (1..6).
+   integer(I4P), intent(in) :: code !< Restriction code (0..5).
+   real(R8P)                :: w    !< Weight.
+   !$acc routine seq
+   !$omp declare target
+
+   w = SEAM_W_LAGRANGE6(node, code)
+   endfunction seam_restriction_weight
 endmodule adam_seam_interpolation_library

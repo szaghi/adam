@@ -28,7 +28,8 @@
 #                 uniform coarse run (8.38e-8, 5.34e-6) and 47x below the euler leg: with the 6-point restriction and
 #                 without the reflux the seams stop costing accuracy at these resolutions (the tricubic prolongation's
 #                 O(h^4) has not shown yet). Asserted: orders L1 >= 4.8, Linf >= 4.5, and the errors at most the CPU
-#                 baseline plus 2 %. CPU only until #68 C2 (FNL refuses the key). About 10 min on the CPU.
+#                 baseline plus 2 %. On FNL since #68 C2 (the device twin of the restriction). About 10 min on the
+#                 CPU, 2 on FNL.
 #
 # Usage: ./check.sh [--np N] [--leg euler|mhd|euler-octree|euler-l6 ...] [--keep]
 #
@@ -113,11 +114,7 @@ for leg in "${LEGS[@]}"; do
                     ladder mhd mhd "0.0 0.0 7.0 7.0" 4 MAX_MHD 64 128 256 ;;
       euler-octree) echo "-- euler-octree: V2 vortex on an octree, quadrant [0.5, 1]^2 refined"
                     ladder euler-octree euler "0.5 0.5 1.0 1.0" 8 NO_BOUNDS 64 128 ;;
-      euler-l6)     if [[ "$(basename "$EXE")" == *fnl* ]]; then
-                       echo "-- euler-l6: skipped on FNL (seam_restriction = lagrange6 is CPU only until #68 C2)"
-                       continue
-                    fi
-                    echo "-- euler-l6: the euler leg, [amr] seam_restriction = lagrange6, reflux off (#68 C1)"
+      euler-l6)     echo "-- euler-l6: the euler leg, [amr] seam_restriction = lagrange6, reflux off (#68 C1)"
                     LEG_OPTS=(--seam-restriction lagrange6 --no-reflux) ; ORDER_ASSERTS=("${ORDER_L6[@]}")
                     ladder euler-l6 euler "0.5 0.5 1.0 1.0" 4 MAX_EULER_L6 64 128 256
                     LEG_OPTS=() ; ORDER_ASSERTS=() ;;

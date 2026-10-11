@@ -7,7 +7,9 @@ module adam_fnl_field_kernels
 
 ! ADAM objects
 use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_INJECTION, seam_meta_unpack, &
-                                               seam_interpolate_compatible, seam_interpolate_tricubic
+                                               seam_interpolate_compatible, seam_interpolate_tricubic, &
+                                               SEAM_RESTRICT_LAGRANGE6, SEAM_RESTRICT_IDENTITY, &
+                                               seam_restriction_meta_unpack, seam_restriction_weight
 ! third party modules
 use :: fundal
 use :: penf, only : I8P, I4P, R8P
@@ -112,6 +114,10 @@ contains
       if (rows_gpu(row,6) == 4 .and. regime /= SEAM_FILL_INJECTION) then
          buf_gpu(nv*(c-1)+v) = interp_seam_ghost_gpu_dev(regime=regime, meta=rows_gpu(row,7), ngc=ngc, q_gpu=q_gpu, &
                                                          v=v, b_send=b, i_send=i, j_send=j, k_send=k)
+      elseif (rows_gpu(row,6) == 8 .and. rows_gpu(row,7) /= 0) then
+         ! 6-point Lagrange restriction (#68 C2): the fine owner packed its codes in the meta; 0 is the mean
+         buf_gpu(nv*(c-1)+v) = restrict_seam_lagrange6_gpu_dev(meta=rows_gpu(row,7), ngc=ngc, q_gpu=q_gpu, v=v, &
+                                                               b_send=b, i_send=i, j_send=j, k_send=k)
       elseif (rows_gpu(row,6) == 8) then
          total = 0._R8P
          !$acc loop seq
@@ -212,14 +218,15 @@ contains
    enddo
    endsubroutine compute_normL2_residuals_dev
 
-   subroutine populate_send_buffer_ghost_gpu_dev(ngc, seam_ghost_fill, ri, rj, rk, comm_map_send_ghost_cell_gpu, &
-                                                 send_buffer_ghost_gpu, q_gpu)
+   subroutine populate_send_buffer_ghost_gpu_dev(ngc, seam_ghost_fill, seam_restriction, ri, rj, rk,              &
+                                                 comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu)
    !< Polulate send buffer ghost GPU.
    !<
    !< A fine->coarse row averages the `ri*rj*rk` fine cells of its coarse ghost: 2 per refined axis, 1 on an axis the
    !< tree never refines (quadtree z, issue #46).
    integer(I4P),          intent(in)    :: ngc                                    !< Ghost cells number.
    integer(I4P),          intent(in)    :: seam_ghost_fill                        !< Seam ghost-fill regime (flag-4 rows).
+   integer(I4P),          intent(in)    :: seam_restriction                       !< Seam restriction regime (flag-8 rows).
    integer(I4P),          intent(in)    :: ri, rj, rk                             !< Per-axis refinement factor.
    integer(I8P), pointer, intent(in)    :: comm_map_send_ghost_cell_gpu(:,:)      !< Comm map, cell information.
    real(R8P),    pointer, intent(inout) :: send_buffer_ghost_gpu(:)               !< Send buffer of ghost cells.
@@ -252,6 +259,11 @@ contains
                                                                       meta=int(comm_map_send_ghost_cell_gpu(sf,8), I4P), &
                                                                       ngc=ngc, q_gpu=q_gpu, v=v_send, b_send=b_send,   &
                                                                       i_send=i_send, j_send=j_send, k_send=k_send)
+         elseif (seam_restriction == SEAM_RESTRICT_LAGRANGE6 .and. comm_map_send_ghost_cell_gpu(sf,8) /= 0) then
+            ! fine->coarse restriction, 6-point Lagrange, pack-side (#68 C2); codes in column 8
+            send_buffer_ghost_gpu(c_recv) = restrict_seam_lagrange6_gpu_dev(                                          &
+                                               meta=int(comm_map_send_ghost_cell_gpu(sf,8), I4P), ngc=ngc, q_gpu=q_gpu, &
+                                               v=v_send, b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
          else
             send_buffer_ghost_gpu(c_recv) = 0._R8P
             do kc=0,rk-1 ; do jc=0,rj-1 ; do ic=0,ri-1
@@ -293,13 +305,14 @@ contains
    endif
    endsubroutine receive_recv_buffer_ghost_gpu_dev
 
-   subroutine update_ghost_local_gpu_dev(ngc, seam_ghost_fill, ri, rj, rk, l_map_ghost_cell_gpu, q_gpu)
+   subroutine update_ghost_local_gpu_dev(ngc, seam_ghost_fill, seam_restriction, ri, rj, rk, l_map_ghost_cell_gpu, q_gpu)
    !< Update (local) ghost cells.
    !<
    !< A fine->coarse row averages the `ri*rj*rk` fine cells of its coarse ghost: 2 per refined axis, 1 on an axis the
    !< tree never refines (quadtree z, issue #46).
    integer(I4P), intent(in)          :: ngc                       !< Ghost cells number.
    integer(I4P), intent(in)          :: seam_ghost_fill           !< Seam ghost-fill regime (flag-4 rows).
+   integer(I4P), intent(in)          :: seam_restriction          !< Seam restriction regime (flag-8 rows).
    integer(I4P), intent(in)          :: ri, rj, rk                !< Per-axis refinement factor.
    integer(I8P), intent(in), pointer :: l_map_ghost_cell_gpu(:,:) !< Local map of ghost cells.
    real(R8P),    intent(inout)       :: q_gpu(1:,    &
@@ -340,6 +353,11 @@ contains
                                                                              ngc=ngc, q_gpu=q_gpu, v=v,             &
                                                                              b_send=b_send, i_send=i_send,          &
                                                                              j_send=j_send, k_send=k_send)
+         elseif (seam_restriction == SEAM_RESTRICT_LAGRANGE6 .and. l_map_ghost_cell_gpu(mf,10) /= 0) then
+            ! fine->coarse restriction, 6-point Lagrange (#68 C2); codes in column 10
+            q_gpu(b_recv,i_recv,j_recv,k_recv,v) = restrict_seam_lagrange6_gpu_dev(                                  &
+                                                      meta=int(l_map_ghost_cell_gpu(mf,10), I4P), ngc=ngc, q_gpu=q_gpu, &
+                                                      v=v, b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
          else
             q_gpu(b_recv,i_recv,j_recv,k_recv,v) = 0._R8P
             do kc=0,rk-1 ; do jc=0,rj-1 ; do ic=0,ri-1
@@ -462,4 +480,48 @@ contains
       value_ = seam_interpolate_tricubic(footprint=fp4, sub=sub, anchor_pos=p4)
    endif
    endfunction interp_seam_ghost_gpu_dev
+
+   pure function restrict_seam_lagrange6_gpu_dev(meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send) result(value_)
+   !< Device twin of `field_object%restrict_seam_lagrange6` (issue #68 C2): the 6-point Lagrange restriction of one
+   !< (variable, coarse ghost) pair on the FNL layout `q_gpu(b,i,j,k,v)`, summed in the same order as the host (x
+   !< innermost, then y, then z). The footprint is shifted inside the donor block by the codes of `meta`, so it reads
+   !< REAL donor cells only and never a ghost cell another map row writes concurrently (the #22 race discipline).
+   !< Scalar locals only (no per-thread arrays): the codes, sizes and starts are unpacked into scalars.
+   integer(I4P), intent(in) :: meta             !< Packed restriction codes (seam_restriction_meta_pack).
+   integer(I4P), intent(in) :: ngc              !< Ghost cells number (bounds of q_gpu).
+   real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables, FNL layout (b,i,j,k,v).
+   integer(I4P), intent(in) :: v                !< Variable index.
+   integer(I4P), intent(in) :: b_send           !< Donor block index.
+   integer(I4P), intent(in) :: i_send           !< First fine cell of the restricted pair, i.
+   integer(I4P), intent(in) :: j_send           !< First fine cell of the restricted pair, j.
+   integer(I4P), intent(in) :: k_send           !< First fine cell of the restricted pair, k.
+   real(R8P)                :: value_           !< Restricted coarse-ghost value.
+   integer(I4P)             :: code(1:3)        !< Restriction code per direction.
+   integer(I4P)             :: ni, nj, nk       !< Footprint nodes per direction (6, or 1 unrefined).
+   integer(I4P)             :: si, sj, sk       !< First footprint cell per direction.
+   real(R8P)                :: sum_x, sum_y     !< Partial sums.
+   integer(I4P)             :: ii, jj, kk       !< Footprint counters.
+   !$acc routine seq
+   !$omp declare target
+
+   call seam_restriction_meta_unpack(meta=meta, code=code)
+   ni = 6_I4P ; si = i_send - code(1)
+   nj = 6_I4P ; sj = j_send - code(2)
+   nk = 6_I4P ; sk = k_send - code(3)
+   if (code(1) == SEAM_RESTRICT_IDENTITY) then ; ni = 1_I4P ; si = i_send ; endif
+   if (code(2) == SEAM_RESTRICT_IDENTITY) then ; nj = 1_I4P ; sj = j_send ; endif
+   if (code(3) == SEAM_RESTRICT_IDENTITY) then ; nk = 1_I4P ; sk = k_send ; endif
+   value_ = 0._R8P
+   do kk=1, nk
+      sum_y = 0._R8P
+      do jj=1, nj
+         sum_x = 0._R8P
+         do ii=1, ni
+            sum_x = sum_x + seam_restriction_weight(ii, code(1)) * q_gpu(b_send, si+ii-1, sj+jj-1, sk+kk-1, v)
+         enddo
+         sum_y = sum_y + seam_restriction_weight(jj, code(2)) * sum_x
+      enddo
+      value_ = value_ + seam_restriction_weight(kk, code(3)) * sum_y
+   enddo
+   endfunction restrict_seam_lagrange6_gpu_dev
 endmodule adam_fnl_field_kernels
