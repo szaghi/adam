@@ -12,10 +12,11 @@ Sides:
   c2f  the block x > 0.75 is refined: the shock passes from the coarse to the fine side;
   f2c  the blocks x < 0.75 are refined: the shock passes from the fine to the coarse side.
 --uniform writes the same case without refinement (the control; --cells 2N gives the control at the fine spacing).
---no-reflux turns the Berger-Colella reflux off (a measurement of what it buys, not a supported configuration).
+--no-reflux turns the Berger-Colella reflux off (a measurement of what it buys, not a supported configuration);
+--it-save K saves a checkpoint every K steps (default only the last; the A4 sensor logs of verification/amr-log).
 
 Usage:
-    make_amr_shock.py sod|rj2a <out.ini> --cells N [--side c2f|f2c] [--uniform] [--no-reflux]
+    make_amr_shock.py sod|rj2a <out.ini> --cells N [--side c2f|f2c] [--uniform] [--no-reflux] [--it-save K]
 """
 
 from __future__ import annotations
@@ -70,6 +71,7 @@ def main() -> None:
     parser.add_argument("--side", choices=tuple(BOXES), default="c2f", help="which side of x = 0.75 is refined")
     parser.add_argument("--uniform", action="store_true", help="no refinement (the control)")
     parser.add_argument("--no-reflux", action="store_true", help="turn the reflux off")
+    parser.add_argument("--it-save", type=int, default=1000000, help="checkpoint cadence in steps")
     args = parser.parse_args()
     ini = base_input(args.case, args.cells)
     if not args.uniform:
@@ -77,7 +79,7 @@ def main() -> None:
     if args.no_reflux:
         ini["numerics"]["reflux"] = ".false."
     ini["IO"]["output_basename"] = args.case
-    ini["IO"]["it_save"] = "1000000"
+    ini["IO"]["it_save"] = str(args.it_save)
     with args.out.open("w") as out:
         ini.write(out)
 

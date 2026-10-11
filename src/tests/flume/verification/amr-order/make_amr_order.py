@@ -17,10 +17,12 @@ Cases:
 Both: 4x4 base blocks, the quadrant refines four of them by one 2:1 level (mhd/amr_box.py, init-time primitive box,
 no regridding); --ratio 4 is a quadtree (null z, nk = 1), 8 an octree (nk = 4); --uniform writes the same case
 without the box (the uniform control at the coarse spacing).
+For the A4 logs (verification/amr-log): --time-max (default 0.1 euler, 0.5 mhd), --no-reflux (a measurement, not a
+supported configuration) and --it-save K (a checkpoint every K steps; default only the last).
 
 Usage:
-    make_amr_order.py euler <out.ini> --cells N [--ratio 4|8] [--uniform]
-    make_amr_order.py mhd <out.ini> --cells N [--ratio 4|8] [--uniform] [--time-max T]
+    make_amr_order.py euler|mhd <out.ini> --cells N [--ratio 4|8] [--uniform] [--time-max T] [--no-reflux]
+                                          [--it-save K]
 """
 
 from __future__ import annotations
@@ -57,6 +59,8 @@ def base_input(case: str, cells: int, time_max: float | None) -> configparser.Co
         ini = read(base)
         ini["IO"]["output_basename"] = "vortex"
         ini["time"]["CFL"] = "0.4"
+        if time_max is not None:
+            ini["time"]["time_max"] = repr(time_max)
         return ini
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "mhd-vortex.ini"
@@ -75,7 +79,9 @@ def main() -> None:
     parser.add_argument("--cells", type=int, required=True, help="base (coarse) cells per side")
     parser.add_argument("--ratio", type=int, default=4, choices=(4, 8), help="tree ratio: 4 quadtree, 8 octree")
     parser.add_argument("--uniform", action="store_true", help="no refined quadrant (the uniform control)")
-    parser.add_argument("--time-max", type=float, default=None, help="mhd only, default 0.5")
+    parser.add_argument("--time-max", type=float, default=None, help="default 0.1 (euler), 0.5 (mhd)")
+    parser.add_argument("--no-reflux", action="store_true", help="turn the reflux off")
+    parser.add_argument("--it-save", type=int, default=1000000, help="checkpoint cadence in steps")
     args = parser.parse_args()
     ini = base_input(args.case, args.cells, args.time_max)
     if args.uniform:
@@ -84,7 +90,9 @@ def main() -> None:
             ini["grid"]["nk"] = str(max(4, int(ini["grid"]["nk"])))
     else:
         refine_box(ini, BOXES[args.case], ratio=args.ratio)
-    ini["IO"]["it_save"] = "1000000"
+    if args.no_reflux:
+        ini["numerics"]["reflux"] = ".false."
+    ini["IO"]["it_save"] = str(args.it_save)
     with args.out.open("w") as out:
         ini.write(out)
 

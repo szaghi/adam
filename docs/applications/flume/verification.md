@@ -1248,6 +1248,55 @@ Findings:
   band entropy maxima are 100 to 1900 times below the plateau ones; the acoustic maxima of Sod c2f still sit at the
   face.
 
+### AL: integral drift and the WENO sensor near seams
+
+**Why.** The reflux policy of Phase E (`reflux = troubled`) would turn the reflux off at the seam faces that a WENO
+sensor judges smooth. Two quantities decide whether that is safe and where its threshold sits, and no check logged
+either: how the conserved integrals drift when the reflux is off, and what the sensor reads on the seam faces of a
+smooth flow (false positives) and of a shock crossing (detections).
+
+**Cases** (`verification/amr-log/`, logs only). `vortex`: the AO Euler vortex, quadtree, quadrant $[0.5, 1]^2$
+refined, N = 64, run to $t = 1$, one period of the free stream $(1, 1)$, so the vortex crosses every seam; the domain
+is periodic and every integral is conserved. `sod`: the AS Sod c2f, N = 200, $t = 0.2$; mass and energy are conserved.
+Each leg runs with the reflux on and off, with a checkpoint every 10 steps.
+
+**Logs** (`amr_log.py`):
+- drift: the relative drift of the integrals of the conservation history, its maximum, and its growth (the mean
+  $|$drift$|$ over the last quarter of the run over that of the second quarter: about 1 when bounded, $7/3$ for a
+  linear drift);
+- sensor: on every checkpoint, $r = \min_k w_k/d_k$ of the WENO-5 weights of every face, the minimum over $\rho$,
+  $u_n$, $p$ and over the two reconstructions beside the face (the weno-riemann sensor, read on primitive variables),
+  with the weights of `adam_weno_object` (Jiang–Shu, $\epsilon = 10^{-6}$, exponent 3), recomputed from the
+  checkpoints, whose ghosts are filled right before the save as the stencils read them. Per region (the seam band, the
+  interior): the minimum $r$ and the fraction of faces below $\tau = 0.2$.
+
+The default scheme weights its characteristic split fluxes, so the map is the sensor a seam policy would read, not a
+dump of the scheme's own weights. Asserted: with the reflux on, every integral drifts at most $10^{-13}$.
+
+**Results** (2 ranks):
+
+| Leg | Reflux on: max drift | Reflux off: max drift (mass, energy) | Reflux off: growth |
+|---|---|---|---|
+| vortex | $\le 4.5\cdot10^{-16}$ | $2.2\cdot10^{-5}$, $2.5\cdot10^{-5}$ (momentum $3.9$, $2.7\cdot10^{-5}$) | 1.4 to 7.7 |
+| sod | $\le 3.3\cdot10^{-16}$ | $1.2\cdot10^{-4}$, $2.4\cdot10^{-4}$ | a jump at the crossing |
+
+| Leg | Seam band: $r < \tau$, largest (mean) fraction | Interior: largest (mean) fraction |
+|---|---|---|
+| vortex | 0.110 (0.053) | 0.051 (0.020) |
+| sod | 1.000 (0.172) | 0.128 (0.078) |
+
+Findings:
+- **Without the reflux, a smooth flow's drift accumulates.** Every seam crossing adds to it: by one period the vortex
+  has lost about $2\cdot10^{-5}$ of its mass and energy, and the growth (1.4 to 7.7) says the drift is not bounded. A
+  shock adds $10^{-4}$ in one crossing. The reflux keeps both at round-off.
+- **The sensor detects the crossing shock.** In the Sod run the seam band reads $r = 1$ until the shock reaches it,
+  67 to 100 % of its faces are below $\tau$ while the shock crosses ($t = 0.126$ to 0.152), and 0 to 13 % after,
+  where the A3 defect sits.
+- **It also flags smooth seam faces.** On the vortex, up to 11 % of the band faces (mean 5 %) read $r < \tau$, 2.6
+  times the interior's mean fraction: the JS weights drop at the extrema of a smooth profile, and more so where the
+  seam's second-order error adds kinks. For `reflux = troubled` a false positive keeps the reflux, the conservative
+  choice: the cost is the order on those faces, which Phase B2 measures. The threshold is not tuned here.
+
 ## Scaling covariance
 
 Ideal Euler and MHD in FLUME's units carry no dimensionless number, so an input rescaled by powers of two (lengths
