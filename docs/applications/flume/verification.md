@@ -1273,6 +1273,32 @@ Findings:
   band entropy maxima are 100 to 1900 times below the plateau ones; the acoustic maxima of Sod c2f still sit at the
   face.
 
+**C3: the 6-point restriction at shocks** ([#68](https://github.com/szaghi/adam/issues/68) C3). `lagrange6` is linear
+and unlimited, so it could overshoot where a shock lies in its footprint. `make_amr_shock.py --seam-restriction R`
+reruns the AS cases under either restriction; the octree refines the null $y$ and $z$ too, so their 4-cell blocks are
+widened to 8, which the 6-point footprint needs (the `mean` run on the widened grid reproduces the AS baseline to every
+printed digit). FNL, 2 ranks:
+
+| Case | Plateau $\rho$ | Plateau $p$ | Plateau $s$ | Band $\rho$ | Band $p$ | Shock (cells) |
+|---|---|---|---|---|---|---|
+| Sod c2f, mean / lagrange6 | $2.463$ / $2.457\cdot10^{-2}$ | $6.936$ / $6.911\cdot10^{-3}$ | $1.792$ / $1.787\cdot10^{-2}$ | $6.352$ / $6.330\cdot10^{-3}$ | $6.936$ / $6.911\cdot10^{-3}$ | 0.158 / 0.158 |
+| Sod f2c, mean / lagrange6 | $1.576$ / $1.575\cdot10^{-2}$ | $1.018$ / $1.015\cdot10^{-2}$ | $1.180$ / $1.179\cdot10^{-2}$ | $3.481$ / $3.430\cdot10^{-3}$ | $3.718$ / $3.663\cdot10^{-3}$ | 0.177 / 0.177 |
+| RJ2a c2f, mean / lagrange6 | $1.413$ / $1.410\cdot10^{-2}$ | $6.220$ / $6.218\cdot10^{-3}$ | $5.906$ / $5.895\cdot10^{-3}$ | $1.005$ / $1.025\cdot10^{-4}$ | $1.402$ / $1.300\cdot10^{-4}$ | 0.109 / 0.109 |
+
+The PV-5 blast (the limited Balsara–Spicer blast across 2:1 seams, `nk` widened to 8) passes under both restrictions
+and both schemes: $t = 0.01$ reached, no inadmissible stage, no non-finite flux, mass and seam flux mismatch unchanged;
+the largest number of faces limited in a stage is 46336 against 48512 with the mean (split) and 17920 for both (HLLD).
+
+Findings:
+- **The 6-point restriction does not worsen a shock crossing.** Every plateau and band defect is within 2 % of the
+  mean's (the RJ2a band density 2 % above, the others equal or below), and the shock lands in the same place with the
+  mass exact. The defect behind a crossing shock (above) does not come from the restriction's order.
+- **It does not worsen positivity.** The limited blast passes as with the mean, with no more faces limited.
+- **On FNL it is slow on an octree.** The PV-5 runs take 2.4 to 2.5 times the wall time of the mean (4900 s against
+  1955 s, split; 4395 s against 1841 s, HLLD, with the same 433 steps; WSL, indicative only), against 16 % on the
+  quadtree AO case: a restricted ghost reads 216 fine cells, one after the other, in the loop that copies the other
+  ghosts. C3 makes the device restriction fast; the nonlinear `weno6` follows as an option, not as a fix.
+
 ### AL: integral drift and the WENO sensor near seams
 
 **Why.** The reflux policy of Phase E (`reflux = troubled`) would turn the reflux off at the seam faces that a WENO

@@ -14,9 +14,13 @@ Sides:
 --uniform writes the same case without refinement (the control; --cells 2N gives the control at the fine spacing).
 --no-reflux turns the Berger-Colella reflux off (a measurement of what it buys, not a supported configuration);
 --it-save K saves a checkpoint every K steps (default only the last; the A4 sensor logs of verification/amr-log).
+--seam-restriction R writes `[amr] seam_restriction = R` (#68 C3 measurement); the octree refines the null y and z
+too, so their 4-cell blocks are widened to 8 (the 6-point footprint needs 6), the same for both values of R so that
+a comparison runs on one grid (the 1-D solution is the same on every transverse copy).
 
 Usage:
     make_amr_shock.py sod|rj2a <out.ini> --cells N [--side c2f|f2c] [--uniform] [--no-reflux] [--it-save K]
+                      [--seam-restriction mean|lagrange6]
 """
 
 from __future__ import annotations
@@ -72,12 +76,19 @@ def main() -> None:
     parser.add_argument("--uniform", action="store_true", help="no refinement (the control)")
     parser.add_argument("--no-reflux", action="store_true", help="turn the reflux off")
     parser.add_argument("--it-save", type=int, default=1000000, help="checkpoint cadence in steps")
+    parser.add_argument("--seam-restriction", choices=("mean", "lagrange6"), default=None,
+                        help="[amr] seam_restriction, null axes widened to 8 cells (default: the key absent)")
     args = parser.parse_args()
     ini = base_input(args.case, args.cells)
     if not args.uniform:
         refine_box(ini, BOXES[args.side], ratio=8)
     if args.no_reflux:
         ini["numerics"]["reflux"] = ".false."
+    if args.seam_restriction is not None:
+        ini["amr"]["seam_restriction"] = args.seam_restriction
+        for axis in "jk":
+            if int(ini["grid"][f"n{axis}"]) == 4:
+                ini["grid"][f"n{axis}"] = "8"
     ini["IO"]["output_basename"] = args.case
     ini["IO"]["it_save"] = str(args.it_save)
     with args.out.open("w") as out:
