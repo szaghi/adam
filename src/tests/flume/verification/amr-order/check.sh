@@ -46,8 +46,14 @@
 #   euler-mp      the euler-q6 leg with [amr] seam_ghost_fill = quintic-mp (#68 D2). Measured (N = 128 -> 256): L1 order
 #                 all 6.10, Linf 6.33; at N = 256 L1 6.04e-8, Linf 4.77e-6: euler-q6's (the MP bound never clips the smooth
 #                 vortex). Asserted as euler-q6.
+#   euler-tq      the euler leg with lagrange6 + quintic and the reflux ON under [numerics] reflux_policy = troubled (#68
+#                 E2): the reflux corrects only the flagged seam face cells, none once the vortex is resolved (0 % at
+#                 N >= 128, 4 % at 64), so the high-order seam operators keep their order with a conservative-by-
+#                 default switch. Measured: equal to euler-q6 (L1 6.03e-8, orders 6.11 / 6.35), against 4.05e-6 and
+#                 order 2.01 with reflux_policy = always. Asserted as euler-q6.
 #
-# Usage: ./check.sh [--np N] [--leg euler|mhd|euler-octree|euler-l6|euler-w6|euler-q6|euler-ww|euler-mp ...] [--keep]
+# Usage: ./check.sh [--np N] [--leg euler|mhd|euler-octree|euler-l6|euler-w6|euler-q6|euler-ww|euler-mp|euler-tq ...]
+#        [--keep]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -68,7 +74,7 @@ while [[ $# -gt 0 ]]; do
       *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --leg L, --keep)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(euler mhd euler-l6 euler-w6 euler-q6 euler-ww euler-mp)
+[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(euler mhd euler-l6 euler-w6 euler-q6 euler-ww euler-mp euler-tq)
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -146,6 +152,11 @@ for leg in "${LEGS[@]}"; do
                     LEG_OPTS=(--seam-restriction lagrange6 --seam-ghost-fill quintic --no-reflux)
                     ORDER_ASSERTS=("${ORDER_Q6[@]}")
                     ladder euler-q6 euler "0.5 0.5 1.0 1.0" 4 MAX_EULER_Q6 64 128 256
+                    LEG_OPTS=() ; ORDER_ASSERTS=() ;;
+      euler-tq)     echo "-- euler-tq: the euler leg, lagrange6 + quintic, reflux on, reflux_policy = troubled (#68 E2)"
+                    LEG_OPTS=(--seam-restriction lagrange6 --seam-ghost-fill quintic --reflux-policy troubled)
+                    ORDER_ASSERTS=("${ORDER_Q6[@]}")
+                    ladder euler-tq euler "0.5 0.5 1.0 1.0" 4 MAX_EULER_Q6 64 128 256
                     LEG_OPTS=() ; ORDER_ASSERTS=() ;;
       euler-mp)     echo "-- euler-mp: the euler-q6 leg, [amr] seam_ghost_fill = quintic-mp (#68 D2)"
                     LEG_OPTS=(--seam-restriction lagrange6 --seam-ghost-fill quintic-mp --no-reflux)
