@@ -464,6 +464,9 @@ contains
          kind = KIND_SCALED ; dim = DIM_FIELD
       case('rho_wavenumber', 'gradient_x', 'gradient_y', 'gradient_z')
          kind = KIND_SCALED ; dim = DIM_INV_LENGTH
+         ! polynomial (issue #68 D1): g_d multiplies x_d^degree, dimension 1/L^degree; a verification probe, not
+         ! converted (fatal under a reference)
+         if (self%ic_type == 'polynomial' .and. option_name /= 'rho_wavenumber') kind = KIND_UNKNOWN
       case('wave_amplitude')
          ! cpaw: multiplies B_perp; linear wave: multiplies a Stone et al. 2008 right eigenvector, whose density
          ! component is dimensionless for the fast, slow and entropy waves, the momentum one for the Alfven wave

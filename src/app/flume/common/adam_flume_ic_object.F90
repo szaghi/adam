@@ -78,6 +78,12 @@ module adam_flume_ic_object
 !<   of a step-0 checkpoint can be checked against it (`verification/ghosts/ghost_probe.py`). The state is admissible
 !<   only while `1 + g . x > 0` over the domain; the probe runs no step.
 !<
+!< * `polynomial` (verification, issue #68 D1): `q = q_1 (1 + sum_d g_d x_d^n)`, `n = degree` (an integer >= 1; n = 1 is
+!<   `linear`). Per-direction degree n: exact under the same-level copy and the boundary conditions (copies of cells),
+!<   under the 2:1 restriction when it is exact on degree n (`lagrange6`: n <= 5; the mean: n = 1) and under the
+!<   coarse->fine fill likewise (`tricubic`: n <= 3, `quintic`: n <= 5), so `ghost_probe.py` checks the high-order
+!<   seam operators in situ. Not available under a non-dimensional reference.
+!<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
 
@@ -128,6 +134,7 @@ character(len=14), parameter :: LOOP_KEY(4)=['x0            ', 'y0            ',
 character(len=15), parameter :: IC_ROTATED_RIEMANN_STR="rotated-riemann" !< Rotated periodic Riemann problem.
 character(len=9),  parameter :: IC_SHU_OSHER_STR="shu-osher"             !< Shock-density wave interaction (Euler).
 character(len=6),  parameter :: IC_LINEAR_STR="linear"                   !< Linear field (verification of ghost fills).
+character(len=10), parameter :: IC_POLYNOMIAL_STR="polynomial"           !< Polynomial field (verification, #68 D1).
 character(len=9),  parameter :: IC_SINE_WAVE_STR="sine-wave"             !< Small sine wave on a uniform state (issue #65).
 character(len=5),  parameter :: SINE_MODE_SHEAR="shear"                  !< Sine wave: transverse velocity (shear) wave.
 character(len=8),  parameter :: SINE_MODE_ACOUSTIC="acoustic"            !< Sine wave: right-running acoustic wave.
@@ -188,6 +195,7 @@ type :: flume_ic_object
    integer(I4P)              :: shu_osher_axis=0_I4P !< Shu-Osher: axis, 1=x, 2=y, 3=z.
    real(R8P)                 :: shu_osher(3)=0._R8P  !< Shu-Osher: interface, density amplitude, density wavenumber.
    real(R8P)                 :: gradient(3)=0._R8P   !< Linear: relative gradient g, q = q_1 (1 + g . x).
+   integer(I4P)              :: degree=1_I4P         !< Polynomial: degree n, q = q_1 (1 + sum_d g_d x_d^n).
    character(:), allocatable :: sine_mode            !< Sine wave: shear or acoustic.
    real(R8P)                 :: couette(4)=0._R8P    !< Couette: fixed wall y, height, moving wall velocity, T_wall.
    real(R8P)                 :: couette_heat=0._R8P  !< Couette: mu U^2 / (k H), the temperature rise scale.
@@ -239,8 +247,8 @@ contains
    if (self%ic_type == IC_SHU_OSHER_STR) &
    desc = desc//NL//mpih%myrankstr//'  shu-osher:      axis '//trim(str(self%shu_osher_axis))//', '// &
                                     trim(str(self%shu_osher))
-   if (self%ic_type == IC_LINEAR_STR) &
-   desc = desc//NL//mpih%myrankstr//'  gradient:       '//trim(str(self%gradient))
+   if (self%ic_type == IC_LINEAR_STR .or. self%ic_type == IC_POLYNOMIAL_STR) &
+   desc = desc//NL//mpih%myrankstr//'  gradient:       '//trim(str(self%gradient))//', degree '//trim(str(self%degree))
    if (self%ic_type == IC_BECKER_STR) &
    desc = desc//NL//mpih%myrankstr//'  becker shock:   '//trim(str(self%becker))
    if (self%ic_type == IC_COUETTE_STR) &
@@ -468,13 +476,19 @@ contains
                                   val=self%shu_osher(k), error=error)
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(SHU_OSHER_KEY(k))//')')
       enddo
-   case(IC_LINEAR_STR)
+   case(IC_LINEAR_STR, IC_POLYNOMIAL_STR)
       self%regions_number = 1_I4P
       do k=1, 3
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(LINEAR_KEY(k)), &
                                   val=self%gradient(k), error=error)
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(LINEAR_KEY(k))//')')
       enddo
+      self%degree = 1_I4P
+      if (self%ic_type == IC_POLYNOMIAL_STR) then
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='degree', val=self%degree, error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(degree)')
+         if (self%degree < 1_I4P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(degree) must be >= 1')
+      endif
    case(IC_BECKER_STR)
       if (self%model /= MODEL_EULER) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_BECKER_STR//' requires '// &
@@ -546,7 +560,8 @@ contains
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
                                IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
                                IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR//', '// &
-                               IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_SINE_WAVE_STR//', '// &
+                               IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
+                               IC_SINE_WAVE_STR//', '// &
                                IC_COUETTE_STR//', '//IC_BECKER_STR)
    endselect
 
@@ -680,6 +695,18 @@ contains
                do i=1, field%ni
                   center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
                   q(:,i,j,k,b) = self%q_region(:,1) * (1._R8P + dot_product(self%gradient, center))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_POLYNOMIAL_STR)
+      ! every conservative variable of per-direction degree n, exact under copy and the high-order seam operators
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  q(:,i,j,k,b) = self%q_region(:,1) * (1._R8P + sum(self%gradient * center**self%degree))
                enddo
             enddo
          enddo

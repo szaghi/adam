@@ -722,6 +722,22 @@ w = 0.1
 p = 1.0
 ```
 
+## `polynomial`: a polynomial field (verification)
+
+The `linear` field raised to a per-direction degree $n$ = `degree` (an integer, at least 1; $n = 1$ is `linear`):
+
+$$
+\mathbf q(\mathbf x) = \mathbf q_1 \,\Big(1 + \sum_d g_d\, x_d^{\,n}\Big).
+$$
+
+The keys are those of `linear` plus `degree`, all required. The copies and every boundary condition still map it to
+a known value (they copy cells), but each seam operator reproduces it only up to its degree: the mean restriction and
+the restriction-compatible fill $n = 1$, the tricubic fill $n = 3$, the `lagrange6` restriction and the `quintic` fill
+$n = 5$ ([#68](https://github.com/szaghi/adam/issues/68) D1). GP with `--degree N` runs it, so the probe checks the
+high-order seam operators in situ: their footprints, shifts and every exchange path. $g_d$ has dimension $L^{-n}$, which
+the [`[reference]`](./input#reference-optional-dimensional-input) layer does not convert: a reference with `polynomial`
+is fatal.
+
 ## `sine-wave`: a small sine wave on a uniform state (verification)
 
 A sine of amplitude $A$ along the unit normal $\mathbf n = (\cos\theta, \sin\theta, 0)$ in the x-y plane, on the state

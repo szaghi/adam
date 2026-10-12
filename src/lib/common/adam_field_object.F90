@@ -71,7 +71,8 @@ use :: adam_grid_object, only : grid_object
 use :: adam_tree_object, only : tree_object
 use :: adam_maps_object, only : maps_object
 use :: adam_mpih_global, only : mpih
-use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, seam_meta_unpack, &
+use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_QUINTIC, SEAM_SUB_COINCIDENT, &
+                                               seam_meta_unpack, seam_interpolate_quintic, &
                                                seam_interpolate_tricubic, seam_interpolate_compatible, &
                                                SEAM_RESTRICT_MEAN, SEAM_RESTRICT_WENO6, SEAM_RESTRICT_IDENTITY, &
                                                SEAM_W_LAGRANGE6, seam_restriction_meta_unpack, seam_restriction_weno6
@@ -1004,7 +1005,7 @@ contains
    !< `(i_send,j_send,k_send)` of block `b_send` and compose the 1D weights of
    !< the active regime. The anchor and the shift-clamped positions in `meta`
    !< guarantee the footprint reads REAL donor cells only (G3).
-   integer(I4P), intent(in) :: regime          !< Active fill regime (SEAM_FILL_COMPATIBLE | SEAM_FILL_TRICUBIC).
+   integer(I4P), intent(in) :: regime          !< Active fill regime (SEAM_FILL_COMPATIBLE|TRICUBIC|QUINTIC).
    integer(I4P), intent(in) :: meta            !< Packed interpolation metadata (see seam_meta_pack).
    integer(I4P), intent(in) :: ngc             !< Ghost cells number (bounds of q).
    real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
@@ -1016,13 +1017,33 @@ contains
    real(R8P)                :: value_          !< Interpolated fine-ghost value.
    real(R8P)                :: fp4(1:4,1:4,1:4) !< Tricubic donor footprint.
    real(R8P)                :: fp3(1:3,1:3,1:3) !< Compatible donor footprint.
+   real(R8P)                :: fp6(1:6,1:6,1:6) !< Quintic donor footprint.
    integer(I4P)             :: sub(1:3)        !< Octant sub-position per direction.
    integer(I4P)             :: p4(1:3)         !< Tricubic anchor position per direction.
    integer(I4P)             :: p3(1:3)         !< Compatible anchor position per direction.
+   integer(I4P)             :: p6(1:3)         !< Quintic anchor position per direction.
+   integer(I4P)             :: lo(1:3), hi(1:3) !< Quintic footprint nodes gathered per direction.
    integer(I4P)             :: ii, jj, kk      !< Footprint counters.
 
-   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3)
-   if (regime == SEAM_FILL_COMPATIBLE) then
+   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
+   if (regime == SEAM_FILL_QUINTIC) then
+      ! issue #68 D1: an unrefined direction gathers the anchor only (the evaluator reads nothing else along it)
+      lo = 1_I4P
+      hi = 6_I4P
+      where (sub == SEAM_SUB_COINCIDENT)
+         lo = p6
+         hi = p6
+      endwhere
+      fp6 = 0._R8P
+      do kk=lo(3), hi(3)
+         do jj=lo(2), hi(2)
+            do ii=lo(1), hi(1)
+               fp6(ii,jj,kk) = q(v, i_send+ii-p6(1), j_send+jj-p6(2), k_send+kk-p6(3), b_send)
+            enddo
+         enddo
+      enddo
+      value_ = seam_interpolate_quintic(footprint=fp6, sub=sub, anchor_pos=p6)
+   elseif (regime == SEAM_FILL_COMPATIBLE) then
       do kk=1, 3
          do jj=1, 3
             do ii=1, 3

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Check every ghost cell of a FLUME step-0 checkpoint against the linear field it must hold (issue #65, P0).
 
+With `[initial_conditions] type = polynomial` (issue #68 D1) the field is `q_1 (1 + sum_d g_d x_d^n)`: every value
+below holds with `f(c)` that field, and the seam operators are exact only up to their degree (see check.sh --degree).
+
 The run uses `[initial_conditions] type = linear`, so every conservative variable is linear in space,
 `q(x) = q_1 (1 + g . x)`, and takes one step of negligible size (`CFL = 1e-30`, `it_max = 0`, `time_max = 0`: the
 field moves by ~1e-30 relative). The step-0 checkpoint cannot serve: it is written while each realm initialises, before
@@ -94,10 +97,15 @@ class Realm:
                 self.wall_velocity[(d, s)] = np.array([float(section.get(f"wall_{c}", "0.0")) for c in "uvw"])
                 self.wall_temperature[(d, s)] = float(section.get("wall_temperature", "0.0"))
         ic = ini["initial_conditions"]
-        if ic["type"].strip() != "linear":
-            sys.exit(f"ghost_probe: {ini_path} has [initial_conditions] type = {ic['type']}, not linear")
+        if ic["type"].strip() not in ("linear", "polynomial"):
+            sys.exit(f"ghost_probe: {ini_path} has [initial_conditions] type = {ic['type']}, not linear|polynomial")
         self.gradient = np.array([float(ic[f"gradient_{a}"]) for a in AXES])
+        self.degree = int(ic.get("degree", "1")) if ic["type"].strip() == "polynomial" else 1
         self.blocks = self.load(work)
+
+    def shape(self, c: np.ndarray) -> float:
+        """Return the field's shape factor at `c`: q(c) = q_1 shape(c) = q_1 (1 + sum_d g_d c_d^n)."""
+        return 1.0 + float(self.gradient @ c**self.degree)
 
     def load(self, work: Path) -> list[dict]:
         """Return the blocks of the last checkpoint: interior origin and upper corner, spacing, fields with ghosts."""
@@ -201,7 +209,7 @@ def expected_value(realm: Realm, centre: np.ndarray, blk: dict, q1: np.ndarray, 
         if not physical:
             if not any(((r.lo <= c) | r.null).all() and ((c <= r.hi) | r.null).all() for r in realms):
                 return None  # beyond seams into no realm: a re-entrant corner of the forest, no fluid value
-            return q1 * (1.0 + realm.gradient @ c)
+            return q1 * realm.shape(c)
         inflow = [f for f in physical if realm.bc[f] == "inflow"]
         d, s = (inflow or physical)[0]
         bc = realm.bc[(d, s)]
@@ -236,17 +244,18 @@ def probe(work: Path) -> dict[tuple[str, str], list]:
     realms = load_realms(work)
     lower = [v.lower() for v in realms[0].blocks[0]["names"]]
     gradient = realms[0].gradient
-    if any((r.gradient != gradient).any() for r in realms):
-        sys.exit("ghost_probe: the realms must share the gradient")
-    # q_1 from one interior cell per block, q = q_1 (1 + g . x)
+    degree = realms[0].degree
+    if any((r.gradient != gradient).any() or r.degree != degree for r in realms):
+        sys.exit("ghost_probe: the realms must share the gradient and the degree")
+    # q_1 from one interior cell per block, q = q_1 (1 + sum_d g_d x_d^n)
     samples = []
     for realm in realms:
         for blk in realm.blocks:
             g = realm.ngc
-            samples.append(blk["q"][:, g, g, g] / (1.0 + gradient @ (blk["lo"] + 0.5 * blk["dx"])))
+            samples.append(blk["q"][:, g, g, g] / realm.shape(blk["lo"] + 0.5 * blk["dx"]))
     q1 = np.median(np.array(samples), axis=0)
     extent = np.max([np.maximum(np.abs(r.lo), np.abs(r.hi)) for r in realms], axis=0)
-    scale = np.max(np.abs(q1)) * (1.0 + np.abs(gradient) @ extent)
+    scale = np.max(np.abs(q1)) * (1.0 + np.abs(gradient) @ extent**degree)
     sign_wall = np.ones((3, len(lower)))
     for d in range(3):
         for names in (MOMENTUM, FIELD):

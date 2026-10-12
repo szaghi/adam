@@ -7,6 +7,7 @@ module adam_fnl_field_kernels
 
 ! ADAM objects
 use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_INJECTION, seam_meta_unpack, &
+                                               SEAM_FILL_QUINTIC, SEAM_SUB_COINCIDENT, seam_quintic_weight, &
                                                seam_interpolate_compatible, seam_interpolate_tricubic, &
                                                SEAM_RESTRICT_MEAN, SEAM_RESTRICT_WENO6, SEAM_RESTRICT_IDENTITY, &
                                                seam_restriction_meta_unpack, seam_restriction_weight, &
@@ -445,7 +446,7 @@ contains
    !< nvfortran race shapes). The anchor and the shift-clamped positions in
    !< `meta` guarantee the footprint reads REAL donor cells only (G3), so the
    !< gather never sees ghost cells written concurrently by other map rows.
-   integer(I4P), intent(in) :: regime           !< Active fill regime (SEAM_FILL_COMPATIBLE | SEAM_FILL_TRICUBIC).
+   integer(I4P), intent(in) :: regime           !< Active fill regime (SEAM_FILL_COMPATIBLE|TRICUBIC|QUINTIC).
    integer(I4P), intent(in) :: meta             !< Packed interpolation metadata (see seam_meta_pack).
    integer(I4P), intent(in) :: ngc              !< Ghost cells number (bounds of q_gpu).
    real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables, FNL layout (b,i,j,k,v).
@@ -460,12 +461,35 @@ contains
    integer(I4P)             :: sub(1:3)         !< Octant sub-position per direction.
    integer(I4P)             :: p4(1:3)          !< Tricubic anchor position per direction.
    integer(I4P)             :: p3(1:3)          !< Compatible anchor position per direction.
+   integer(I4P)             :: p6(1:3)          !< Quintic anchor position per direction.
+   integer(I4P)             :: i0, i1, j0, j1, k0, k1 !< Quintic footprint nodes read per direction.
+   real(R8P)                :: sum_x, sum_y     !< Quintic partial sums.
    integer(I4P)             :: ii, jj, kk       !< Footprint counters.
    !$acc routine seq
    !$omp declare target
 
-   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3)
-   if (regime == SEAM_FILL_COMPATIBLE) then
+   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
+   if (regime == SEAM_FILL_QUINTIC) then
+      ! issue #68 D1: the tensor quintic summed direction by direction (x innermost) straight from q_gpu, the order of
+      ! the host's seam_interpolate_quintic, with no per-thread footprint; an unrefined direction reads the anchor only
+      i0 = 1_I4P ; i1 = 6_I4P ; j0 = 1_I4P ; j1 = 6_I4P ; k0 = 1_I4P ; k1 = 6_I4P
+      if (sub(1) == SEAM_SUB_COINCIDENT) then ; i0 = p6(1) ; i1 = p6(1) ; endif
+      if (sub(2) == SEAM_SUB_COINCIDENT) then ; j0 = p6(2) ; j1 = p6(2) ; endif
+      if (sub(3) == SEAM_SUB_COINCIDENT) then ; k0 = p6(3) ; k1 = p6(3) ; endif
+      value_ = 0._R8P
+      do kk=k0, k1
+         sum_y = 0._R8P
+         do jj=j0, j1
+            sum_x = 0._R8P
+            do ii=i0, i1
+               sum_x = sum_x + seam_quintic_weight(ii, sub(1), p6(1)) * &
+                               q_gpu(b_send, i_send+ii-p6(1), j_send+jj-p6(2), k_send+kk-p6(3), v)
+            enddo
+            sum_y = sum_y + seam_quintic_weight(jj, sub(2), p6(2)) * sum_x
+         enddo
+         value_ = value_ + seam_quintic_weight(kk, sub(3), p6(3)) * sum_y
+      enddo
+   elseif (regime == SEAM_FILL_COMPATIBLE) then
       do kk=1, 3
          do jj=1, 3
             do ii=1, 3

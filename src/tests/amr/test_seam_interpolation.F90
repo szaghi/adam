@@ -22,6 +22,8 @@ program test_seam_interpolation
 !<      q>2 are mutually exclusive for point values. This asserts the defect
 !<      EQUALS H^2/16: it is expected behavior, not a failure.
 !<   6. Quadratic safety set: exact on per-direction degree <= 2, centered.
+!<   6b. Quintic fill (issue #68 D1): exact on per-direction degree <= 5, all octants and 6^3 shift states; an unrefined
+!<      direction reads the anchor only.
 !<   7. The fine->coarse restrictions (issue #68): the 6-point Lagrange (C1) and the WENO with its troubled-cell
 !<      fallback to the mean (C3).
 
@@ -33,7 +35,9 @@ use adam_seam_interpolation_library, only : SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, 
                                             SEAM_W_LAGRANGE6, SEAM_RESTRICT_IDENTITY, seam_restriction_code, &
                                             seam_restriction_meta_pack, seam_restriction_meta_unpack, &
                                             SEAM_RESTRICT_LAGRANGE6, SEAM_RESTRICT_WENO6, &
-                                            seam_restriction_weno6_1d, seam_restriction_weno6
+                                            seam_restriction_weno6_1d, seam_restriction_weno6, &
+                                            seam_interpolate_quintic, seam_quintic_centered_pos, SEAM_SUB_COINCIDENT
+use, intrinsic :: ieee_arithmetic, only : ieee_value, ieee_quiet_nan
 use penf, only : I4P, R8P
 
 implicit none
@@ -129,6 +133,54 @@ compatible_linears: block
    endif
 endblock compatible_linears
 
+quintic_monomials: block
+   ! #68 D1: the 6-point coarse->fine fill, exact for per-direction degree <= 5 at every octant and shift state; along an
+   ! unrefined direction (sub = 3, eta = 0) only the anchor is read: the other nodes hold NaN and must not leak
+   real(R8P)    :: fp6(1:6,1:6,1:6)
+   real(R8P)    :: got, want, x, y, z, e(1:3)
+   integer(I4P) :: a, b, c, sx, sy, sz, px, py, pz, i, j, k
+   logical      :: ok
+
+   ok = .true.
+   do a=0,5 ; do b=0,5 ; do c=0,5
+      do sz=1,2 ; do sy=1,2 ; do sx=1,2
+         do pz=1,6 ; do py=1,6 ; do px=1,6
+            do k=1,6 ; do j=1,6 ; do i=1,6
+               x = real(i - px, R8P) ; y = real(j - py, R8P) ; z = real(k - pz, R8P)
+               fp6(i,j,k) = x**a * y**b * z**c
+            enddo ; enddo ; enddo
+            want = eta(sx)**a * eta(sy)**b * eta(sz)**c
+            got  = seam_interpolate_quintic(fp6, [sx,sy,sz], [px,py,pz])
+            ! relative to the largest footprint term: x^5 y^5 z^5 of offsets up to 5 rounds in the 3-D sum
+            if (abs(got - want) > tol_exact*max(1._R8P, maxval(abs(fp6)))) ok = .false.
+         enddo ; enddo ; enddo
+      enddo ; enddo ; enddo
+   enddo ; enddo ; enddo
+   ! a quadtree row (z unrefined): every z node but the anchor is NaN; degree <= 5 in x and y, degree 0 in z
+   do a=0,5 ; do b=0,5
+      do sy=1,2 ; do sx=1,2
+         do py=1,6 ; do px=1,6
+            pz = seam_quintic_centered_pos(SEAM_SUB_COINCIDENT)
+            fp6 = ieee_value(1._R8P, ieee_quiet_nan)
+            do j=1,6 ; do i=1,6
+               fp6(i,j,pz) = real(i - px, R8P)**a * real(j - py, R8P)**b
+            enddo ; enddo
+            e = [eta(sx), eta(sy), 0._R8P]
+            want = e(1)**a * e(2)**b
+            got  = seam_interpolate_quintic(fp6, [sx,sy,SEAM_SUB_COINCIDENT], [px,py,pz])
+            if (.not.(abs(got - want) <= tol_exact*max(1._R8P, 5._R8P**(a+b)))) ok = .false.
+         enddo ; enddo
+      enddo ; enddo
+   enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: quintic exact on all per-direction monomials deg <= 5, all octants and shift states (q=6), '// &
+                     'unrefined direction reads the anchor only'
+   else
+      write(*,'(A)') 'FAIL: quintic missed a degree <= 5 monomial or read a node of an unrefined direction'
+      test_passed = .false.
+   endif
+endblock quintic_monomials
+
 compatible_round_trip: block
    real(R8P)    :: fp3(1:3,1:3,1:3)
    real(R8P)    :: mean8, anchor
@@ -215,24 +267,27 @@ quadratic_safety: block
 endblock quadratic_safety
 
 metadata_round_trip: block
-   integer(I4P) :: sub(1:3), p4(1:3), p3(1:3)
-   integer(I4P) :: usub(1:3), up4(1:3), up3(1:3)
-   integer(I4P) :: s1, s2, s3, a1, a2, a3, b1, b2, b3, meta
+   integer(I4P) :: sub(1:3), p4(1:3), p3(1:3), p6(1:3)
+   integer(I4P) :: usub(1:3), up4(1:3), up3(1:3), up6(1:3)
+   integer(I4P) :: s1, s2, s3, a1, a2, a3, b1, b2, b3, c1, c2, c3, meta
    logical      :: ok
 
    ok = .true.
-   do s3=1,2 ; do s2=1,2 ; do s1=1,2
+   do s3=1,3 ; do s2=1,3 ; do s1=1,3 ! sub = 3: an unrefined direction (issue #46)
       do a3=1,4 ; do a2=1,4 ; do a1=1,4
          do b3=1,3 ; do b2=1,3 ; do b1=1,3
-            sub = [s1,s2,s3] ; p4 = [a1,a2,a3] ; p3 = [b1,b2,b3]
-            meta = seam_meta_pack(sub=sub, p4=p4, p3=p3)
-            call seam_meta_unpack(meta=meta, sub=usub, p4=up4, p3=up3)
-            if (any(usub /= sub) .or. any(up4 /= p4) .or. any(up3 /= p3)) ok = .false.
+            do c3=1,6,5 ; do c2=1,6,5 ; do c1=1,6 ! the p6 extremes per direction, every value along x
+               sub = [s1,s2,s3] ; p4 = [a1,a2,a3] ; p3 = [b1,b2,b3] ; p6 = [c1,c2,c3]
+               meta = seam_meta_pack(sub=sub, p4=p4, p3=p3, p6=p6)
+               call seam_meta_unpack(meta=meta, sub=usub, p4=up4, p3=up3, p6=up6)
+               if (any(usub /= sub) .or. any(up4 /= p4) .or. any(up3 /= p3) .or. any(up6 /= p6)) ok = .false.
+               if (meta < 0) ok = .false. ! 27 bits: never the sign bit
+            enddo ; enddo ; enddo
          enddo ; enddo ; enddo
       enddo ; enddo ; enddo
    enddo ; enddo ; enddo
    if (ok) then
-      write(*,'(A)') 'PASS: metadata pack/unpack round trip over all sub x p4 x p3 combinations'
+      write(*,'(A)') 'PASS: metadata pack/unpack round trip over all sub x p4 x p3 x p6 combinations'
    else
       write(*,'(A)') 'FAIL: metadata pack/unpack round trip corrupted a field'
       test_passed = .false.
@@ -244,7 +299,7 @@ shift_clamp: block
    logical      :: ok
 
    ok = .true.
-   do n=4,16,12 ! smallest legal block and the E0 block size
+   do n=4,16 ! every block size from the smallest legal one to the E0 size
       do a=1,n
          do sub=1,2
             ! tricubic footprint (4 nodes)
@@ -259,6 +314,14 @@ shift_clamp: block
             if (p < 1 .or. p > 3) ok = .false.
             if (a + 1 - p < 1 .or. a + 3 - p > n) ok = .false.
             if (a + 1 - pc >= 1 .and. a + 3 - pc <= n .and. p /= pc) ok = .false.
+            ! quintic footprint (6 nodes, #68 D1), on blocks of at least 6 cells
+            if (n >= 6) then
+               pc = seam_quintic_centered_pos(sub)
+               p  = seam_shift_anchor_pos(anchor=a, n_cells=n, p_centered=pc, footprint_n=6_I4P)
+               if (p < 1 .or. p > 6) ok = .false.
+               if (a + 1 - p < 1 .or. a + 6 - p > n) ok = .false.
+               if (a + 1 - pc >= 1 .and. a + 6 - pc <= n .and. p /= pc) ok = .false.
+            endif
          enddo
       enddo
    enddo

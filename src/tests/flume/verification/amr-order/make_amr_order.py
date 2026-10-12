@@ -19,11 +19,13 @@ no regridding); --ratio 4 is a quadtree (null z, nk = 1), 8 an octree (nk = 4); 
 without the box (the uniform control at the coarse spacing).
 For the A4 logs (verification/amr-log): --time-max (default 0.1 euler, 0.5 mhd), --no-reflux (a measurement, not a
 supported configuration) and --it-save K (a checkpoint every K steps; default only the last). --seam-restriction
-writes `[amr] seam_restriction` (#68 C1; default: the key absent, the mean).
+writes `[amr] seam_restriction` (#68 C1; default: the key absent, the mean), --seam-ghost-fill `[amr] seam_ghost_fill`
+(#68 D1; default: the key absent, tricubic).
 
 Usage:
     make_amr_order.py euler|mhd <out.ini> --cells N [--ratio 4|8] [--uniform] [--time-max T] [--no-reflux]
                                           [--it-save K] [--seam-restriction mean|lagrange6|weno6]
+                                          [--seam-ghost-fill tricubic|quintic]
 """
 
 from __future__ import annotations
@@ -85,6 +87,8 @@ def main() -> None:
     parser.add_argument("--it-save", type=int, default=1000000, help="checkpoint cadence in steps")
     parser.add_argument("--seam-restriction", choices=("mean", "lagrange6", "weno6"), default=None,
                         help="[amr] seam_restriction (default: the key absent, the mean)")
+    parser.add_argument("--seam-ghost-fill", choices=("tricubic", "quintic"), default=None,
+                        help="[amr] seam_ghost_fill (default: the key absent, tricubic)")
     args = parser.parse_args()
     ini = base_input(args.case, args.cells, args.time_max)
     if args.uniform:
@@ -97,6 +101,8 @@ def main() -> None:
         ini["numerics"]["reflux"] = ".false."
     if args.seam_restriction is not None:
         ini["amr"]["seam_restriction"] = args.seam_restriction
+    if args.seam_ghost_fill is not None:
+        ini["amr"]["seam_ghost_fill"] = args.seam_ghost_fill
     ini["IO"]["it_save"] = str(args.it_save)
     with args.out.open("w") as out:
         ini.write(out)

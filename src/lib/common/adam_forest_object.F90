@@ -42,6 +42,7 @@ use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_R
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
 use :: adam_seam_exchange,        only : seam_fill, SEAM_ROW_COPY, SEAM_ROW_INTERPOLATE, SEAM_ROW_RESTRICT
 use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, seam_tricubic_centered_pos, &
+                                               seam_quintic_centered_pos, SEAM_FILL_QUINTIC, &
                                                seam_compatible_centered_pos, SEAM_RESTRICT_MEAN, &
                                                seam_restriction_code, seam_restriction_meta_pack
 use :: adam_globals,              only : mpih
@@ -1283,6 +1284,10 @@ contains
                               'ni, nj, nk) in both realms')
       if (r_c%adam%maps%seam_ghost_fill /= r_f%adam%maps%seam_ghost_fill)                                             &
          call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_ghost_fill in both realms')
+      ! the 6-point coarse->fine footprint must fit a coarse block (issue #68 D1, as for the intra-realm rows)
+      if (r_c%adam%maps%seam_ghost_fill == SEAM_FILL_QUINTIC .and.                                                    &
+          any([r_c%adam%grid%ni, r_c%adam%grid%nj, r_c%adam%grid%nk] < 6_I4P))                                       &
+         call mpih%error_stop(msg=pfx//'[amr] seam_ghost_fill = quintic needs ni, nj, nk >= 6 in the coarse realm')
       if (r_c%adam%maps%seam_restriction /= r_f%adam%maps%seam_restriction)                                           &
          call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_restriction in both realms')
       ! the 6-point restriction footprint must fit a fine block (issue #68 C2, as for the intra-realm rows)
@@ -1463,7 +1468,7 @@ contains
    integer(I4P)                       :: n_c(3)                     !< Block cell counts of the cell realm.
    integer(I4P)                       :: kind                       !< Row kind (SEAM_ROW_*).
    integer(I4P)                       :: meta                       !< Packed interpolation metadata.
-   integer(I4P)                       :: sub(3), p4(3), p3(3)       !< Octant and anchor positions.
+   integer(I4P)                       :: sub(3), p4(3), p3(3), p6(3) !< Octant and anchor positions.
    integer(I4P)                       :: d                          !< Axis counter.
    logical                            :: ok                         !< Cell match.
 
@@ -1514,8 +1519,10 @@ contains
                                                       p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
                         p3(d) = seam_shift_anchor_pos(anchor=ijk_c(d), n_cells=n_c(d),                       &
                                                       p_centered=seam_compatible_centered_pos(sub(d)), footprint_n=3_I4P)
+                        p6(d) = seam_shift_anchor_pos(anchor=ijk_c(d), n_cells=n_c(d),                       &
+                                                      p_centered=seam_quintic_centered_pos(sub(d)), footprint_n=6_I4P)
                      enddo
-                     meta = seam_meta_pack(sub=sub, p4=p4, p3=p3)
+                     meta = seam_meta_pack(sub=sub, p4=p4, p3=p3, p6=p6)
                   endif
                elseif (all(abs(2._R8P * d_c - d_g) <= 1.0e-6_R8P * d_g)) then
                   ! coarse ghost, fine cells (issue #52): the mean of the 2x2x2 fine cells under the ghost, from the

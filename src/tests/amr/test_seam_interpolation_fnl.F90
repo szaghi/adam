@@ -190,23 +190,26 @@ contains
    integer(I4P) :: usub(1:3) !< Private sub-position (unpacked).
    integer(I4P) :: up4(1:3)  !< Private tricubic position (unpacked).
    integer(I4P) :: up3(1:3)  !< Private compatible position (unpacked).
+   integer(I4P) :: p6(1:3)   !< Private quintic position (in): p4 + 1 (#68 D1; the host test pins its round trip).
+   integer(I4P) :: up6(1:3)  !< Private quintic position (unpacked, not compared).
    integer(I4P) :: ic, d
 
    !$acc parallel loop independent gang vector                                     &
    !$acc& DEVICEVAR(sub_dev, p4_dev, p3_dev, meta_dev, osub_dev, op4_dev, op3_dev) &
-   !$acc& firstprivate(ncase) private(sub, p4, p3, usub, up4, up3)
+   !$acc& firstprivate(ncase) private(sub, p4, p3, p6, usub, up4, up3, up6)
    !$omp OMPLOOP &
    !$omp& DEVICEPTR(sub_dev, p4_dev, p3_dev, meta_dev, osub_dev, op4_dev, op3_dev) &
-   !$omp& firstprivate(ncase) private(sub, p4, p3, usub, up4, up3)
+   !$omp& firstprivate(ncase) private(sub, p4, p3, p6, usub, up4, up3, up6)
    do ic=1, ncase
       !$acc loop seq
       do d=1, 3
          sub(d) = sub_dev(d,ic)
          p4(d)  = p4_dev(d,ic)
          p3(d)  = p3_dev(d,ic)
+         p6(d)  = p4_dev(d,ic) + 1
       enddo
-      meta_dev(ic) = seam_meta_pack(sub=sub, p4=p4, p3=p3)
-      call seam_meta_unpack(meta=meta_dev(ic), sub=usub, p4=up4, p3=up3)
+      meta_dev(ic) = seam_meta_pack(sub=sub, p4=p4, p3=p3, p6=p6)
+      call seam_meta_unpack(meta=meta_dev(ic), sub=usub, p4=up4, p3=up3, p6=up6)
       !$acc loop seq
       do d=1, 3
          osub_dev(d,ic) = usub(d)
@@ -681,7 +684,7 @@ metadata_round_trip: block
    ok = .true.
    do ic=1, nc
       ! device pack must agree with host pack (same bit layout across compilation targets)
-      if (meta(ic) /= seam_meta_pack(sub=sub(:,ic), p4=p4(:,ic), p3=p3(:,ic))) ok = .false.
+      if (meta(ic) /= seam_meta_pack(sub=sub(:,ic), p4=p4(:,ic), p3=p3(:,ic), p6=p4(:,ic)+1)) ok = .false.
       ! device unpack must invert device pack
       if (any(osub(:,ic) /= sub(:,ic)) .or. any(op4(:,ic) /= p4(:,ic)) .or. any(op3(:,ic) /= p3(:,ic))) ok = .false.
    enddo

@@ -12,6 +12,7 @@ use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 use :: adam_seam_interpolation_library, only : SEAM_SUB_COINCIDENT, seam_meta_pack, seam_shift_anchor_pos, &
                                                seam_tricubic_centered_pos, seam_compatible_centered_pos, &
+                                               seam_quintic_centered_pos, SEAM_FILL_QUINTIC, &
                                                SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC, &
                                                SEAM_RESTRICT_MEAN, SEAM_RESTRICT_WENO6, seam_restriction_code, &
                                                seam_restriction_meta_pack
@@ -1079,6 +1080,7 @@ contains
    integer(I4P)                      :: sub(1:3)            !< Octant sub-position per direction.
    integer(I4P)                      :: p4(1:3)             !< Tricubic anchor position per direction.
    integer(I4P)                      :: p3(1:3)             !< Compatible anchor position per direction.
+   integer(I4P)                      :: p6(1:3)             !< Quintic anchor position per direction.
    integer(I4P)                      :: d, meta             !< Direction counter, packed metadata.
    integer(I4P)                      :: anchor(1:3)         !< Donor anchor cell per direction.
    integer(I4P)                      :: portion             !< Portion of fec updated (0=>whole fec).
@@ -1179,6 +1181,9 @@ contains
             if (any(nijk < 4_I4P .and. r == 2_I4P)) &
                call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 along the refined axes '// &
                                         '(coarse->fine footprint cannot fit the donor block)')
+            if (self%seam_ghost_fill == SEAM_FILL_QUINTIC .and. any(nijk < 6_I4P .and. r == 2_I4P)) &
+               call mpih%error_stop(msg=': [amr] seam_ghost_fill = quintic needs ni,nj,nk >= 6 along the refined axes '// &
+                                        '(the 6-point coarse->fine footprint must fit the donor block, issue #68 D1)')
             send_ctr = 1
             do k=kmin, kmax
                do j=jmin, jmax
@@ -1202,14 +1207,18 @@ contains
                               ! identity weight at the anchor: centred, the unread nodes stay within the ghost layers
                               p4(d) = 2_I4P
                               p3(d) = 2_I4P
+                              p6(d) = seam_quintic_centered_pos(sub(d)) ! only the anchor is read
                               cycle
                            endif
                            p4(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
                                                          p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
                            p3(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
                                                          p_centered=seam_compatible_centered_pos(sub(d)), footprint_n=3_I4P)
+                           ! in 1..6 for any block size; inside the block when the quintic guard (n >= 6) holds
+                           p6(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_quintic_centered_pos(sub(d)), footprint_n=6_I4P)
                         enddo
-                        meta = seam_meta_pack(sub=sub, p4=p4, p3=p3)
+                        meta = seam_meta_pack(sub=sub, p4=p4, p3=p3, p6=p6)
                         do v=1, nv
                            self%comm_map_send_ghost_cell(c, 1:4) = [b_send,i,j,k]
                            self%comm_map_send_ghost_cell(c,  5 ) = v
@@ -1276,6 +1285,7 @@ contains
    integer(I4P)                      :: sub(1:3)      !< Octant sub-position per direction.
    integer(I4P)                      :: p4(1:3)       !< Tricubic anchor position per direction.
    integer(I4P)                      :: p3(1:3)       !< Compatible anchor position per direction.
+   integer(I4P)                      :: p6(1:3)       !< Quintic anchor position per direction.
    integer(I4P)                      :: d             !< Direction counter.
    integer(I4P)                      :: anchor(1:3)   !< Donor anchor cell per direction.
    integer(I4P)                      :: portion       !< Portion of fec updated (0=>whole fec).
@@ -1386,6 +1396,9 @@ contains
             if (any(nijk < 4_I4P .and. r == 2_I4P)) &
                call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 along the refined axes '// &
                                         '(coarse->fine footprint cannot fit the donor block)')
+            if (self%seam_ghost_fill == SEAM_FILL_QUINTIC .and. any(nijk < 6_I4P .and. r == 2_I4P)) &
+               call mpih%error_stop(msg=': [amr] seam_ghost_fill = quintic needs ni,nj,nk >= 6 along the refined axes '// &
+                                        '(the 6-point coarse->fine footprint must fit the donor block, issue #68 D1)')
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
@@ -1404,12 +1417,16 @@ contains
                               ! identity weight at the anchor: centred, the unread nodes stay within the ghost layers
                               p4(d) = 2_I4P
                               p3(d) = 2_I4P
+                              p6(d) = seam_quintic_centered_pos(sub(d)) ! only the anchor is read
                               cycle
                            endif
                            p4(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
                                                          p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
                            p3(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
                                                          p_centered=seam_compatible_centered_pos(sub(d)), footprint_n=3_I4P)
+                           ! in 1..6 for any block size; inside the block when the quintic guard (n >= 6) holds
+                           p6(d) = seam_shift_anchor_pos(anchor=anchor(d), n_cells=nijk(d), &
+                                                         p_centered=seam_quintic_centered_pos(sub(d)), footprint_n=6_I4P)
                         enddo
                         self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
                         self%local_map_ghost_cell(c,3:5) = [i, j, k]
@@ -1419,7 +1436,7 @@ contains
                         else
                            self%local_map_ghost_cell(c, 9) = 4
                         endif
-                        self%local_map_ghost_cell(c, 10) = seam_meta_pack(sub=sub, p4=p4, p3=p3)
+                        self%local_map_ghost_cell(c, 10) = seam_meta_pack(sub=sub, p4=p4, p3=p3, p6=p6)
                         c = c + 1
                      enddo ; enddo ; enddo
                   enddo

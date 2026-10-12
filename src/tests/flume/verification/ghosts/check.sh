@@ -24,8 +24,16 @@
 # and misses the linear value). Measured with lagrange6 on box3d (octree 2:1), channel2d (quadtree) and refined3d
 # (inter-realm 2:1): CPU np 1-3 and FNL np 1-2 within 1.1e-15, every face and edge group.
 #
+# --seam-ghost-fill F writes `[amr] seam_ghost_fill = F` (#68 D1): the quintic coarse->fine fill is exact on the
+# linear field too, so the probe checks its 6-point anchor shifts in situ.
+#
+# --degree N (#68 D1) replaces the linear field by `[initial_conditions] type = polynomial`, q = q_1 (1 + sum_d g_d x_d^N):
+# the copies and the boundary conditions stay exact, the seam operators only up to their degree (the mean restriction
+# 1, tricubic 3, lagrange6 and quintic 5), so with N > 1 the probe checks the high-order operators' accuracy in situ
+# (N = 5: --seam-restriction lagrange6 --seam-ghost-fill quintic).
+#
 # Usage: ./check.sh [--np "1 2 3"] [--cases "box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"]
-#        [--keep] [--seam-restriction mean|lagrange6|weno6]
+#        [--keep] [--seam-restriction mean|lagrange6|weno6] [--seam-ghost-fill tricubic|quintic] [--degree N]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -38,6 +46,8 @@ NPS="1 2 3"
 CASES="box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"
 KEEP=0
 RESTRICTION=""
+FILL=""
+DEGREE=1
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -45,8 +55,10 @@ while [[ $# -gt 0 ]]; do
       --cases) CASES="$2" ; shift 2 ;;
       --keep)  KEEP=1 ; shift ;;
       --seam-restriction) RESTRICTION="$2" ; shift 2 ;;
+      --seam-ghost-fill) FILL="$2" ; shift 2 ;;
+      --degree) DEGREE="$2" ; shift 2 ;;
       *)       echo "check.sh: unknown argument '$1' (accepted: --np \"N ...\", --cases \"...\", --keep," \
-                    "--seam-restriction R)" >&2 ; exit 2 ;;
+                    "--seam-restriction R, --seam-ghost-fill F, --degree N)" >&2 ; exit 2 ;;
    esac
 done
 if [[ ! -x "$EXE" ]]; then
@@ -73,7 +85,13 @@ for np in $NPS; do
       if [[ -n "$RESTRICTION" ]]; then
          for f in "$w"/*.ini; do sed -i "s/^\[amr\]/&\nseam_restriction = $RESTRICTION/" "$f"; done
       fi
-      echo ">> GP $case, np $np ($TAG${RESTRICTION:+, seam_restriction = $RESTRICTION})"
+      if [[ -n "$FILL" ]]; then
+         for f in "$w"/*.ini; do sed -i "s/^\[amr\]/&\nseam_ghost_fill = $FILL/" "$f"; done
+      fi
+      if [[ $DEGREE -ne 1 ]]; then
+         for f in "$w"/*.ini; do sed -i "s/^type = linear$/type = polynomial\ndegree = $DEGREE/" "$f"; done
+      fi
+      echo ">> GP $case, np $np ($TAG${RESTRICTION:+, seam_restriction = $RESTRICTION}${FILL:+, seam_ghost_fill = $FILL}, degree $DEGREE)"
       if ! (cd "$w" && mpirun -np "$np" "$EXE" "$input" > log.txt 2>&1); then
          echo "check.sh: $case np $np failed, see $w/log.txt" >&2
          FAILED=1

@@ -577,6 +577,16 @@ infinite error. Its negative control is the defect it found (below).
 **Results.** Every case runs on 1, 2 and 3 ranks on the CPU, and on 1 and 2 ranks on FNL. Every face and edge group
 holds the linear field to round-off: at most $1.3\cdot10^{-15}$ of the field scale on the CPU, the same on FNL.
 
+**The polynomial probe** ([#68](https://github.com/szaghi/adam/issues/68) D1). `check.sh --degree N` starts from the
+[`polynomial`](./initial-conditions#polynomial-a-polynomial-field-verification) field
+$\mathbf q_1 (1 + \sum_d g_d x_d^N)$ instead. The copies and the boundary conditions still reproduce it, but each seam
+operator only up to its degree (the mean restriction 1, `tricubic` 3, `lagrange6` and `quintic` 5), so at $N > 1$ the
+probe checks the high-order operators in situ: their footprints, anchor shifts and every exchange path. With
+`--degree 5 --seam-restriction lagrange6 --seam-ghost-fill quintic` on `box3d`, `channel2d` and `refined3d` every face
+and edge group holds the field to $5.8\cdot10^{-15}$ (CPU 1–3 ranks, FNL 1–2). Negative controls, both required to
+fail: `tricubic` at degree 5 misses by $\sim10^{-5}$ and the mean restriction at degree 2 by $\sim4\cdot10^{-5}$ of the
+field scale, in the seam groups only.
+
 **What it found.** Before P0, a ghost beyond two realm faces held a copy of its inward diagonal cell. That covers wall
 plus wall at the step corner, wall plus seam where the step face meets the A–B seam, inflow plus wall, and the like.
 On the step forest those ghosts were off by up to 0.78 of the field scale: the wrong position, and the wrong sign of
@@ -1338,6 +1348,36 @@ Findings:
   crossing worse, so the default stays `mean` until Phase D/E evidence; `weno6` is the option for data with jumps
   inside the restriction footprint that these cases do not produce.
 - Multirealm leg 6 runs both regimes (bitwise unions), GP probes `weno6` on box3d, channel2d and refined3d.
+
+### D1: the quintic coarse-to-fine fill
+
+**Method** (`[amr] seam_ghost_fill = quintic`, [#68](https://github.com/szaghi/adam/issues/68) D1). The tensor 6-point
+Lagrange interpolation at the fine ghost's centre (1-D weights $k/8192$, exact in binary, `SEAM_W_QUINTIC`), the
+footprint shifted inside the coarse donor block at its edge as the tricubic one is (blocks of at least 6 cells along
+the refined axes); along an unrefined axis only the anchor is read. CPU, FNL (summed straight from the device field,
+no per-thread footprint) and the inter-realm rows; the anchor shifts travel in the fill meta (bits 18–26). The default
+stays `tricubic`.
+
+| Check (FNL, 2 ranks) | lagrange6 + tricubic | lagrange6 + quintic |
+|---|---|---|
+| AO euler, reflux off, N = 256: L1 all / band, Linf | $8.55\cdot10^{-8}$ / $2.61\cdot10^{-7}$, $6.36\cdot10^{-6}$ | $6.03\cdot10^{-8}$ / $1.74\cdot10^{-7}$, $4.78\cdot10^{-6}$ |
+| AO orders L1 / Linf (128 → 256) | 5.33 / 5.53 | 6.11 / 6.35 |
+| Sod c2f plateau $\rho$ / $p$, band $\rho$ | $2.457$ / $0.691$, $0.633\cdot10^{-2}$ | $2.631$ / $0.858$, $0.795\cdot10^{-2}$ |
+| Sod f2c plateau $\rho$ / $p$, band $\rho$ | $1.575$ / $1.015$, $0.343\cdot10^{-2}$ | $1.573$ / $0.985$, $0.338\cdot10^{-2}$ |
+| RJ2a c2f plateau $\rho$ / $p$, band $\rho$ | $1.410$ / $0.622$, $1.03\cdot10^{-4}$ | $2.297$ / $0.986$, $0.68\cdot10^{-4}$ |
+| PV-5 split / HLLD: most faces limited, inadmissible stages | 46336 / 17920, 0 | 45644 / 17920, 0 |
+
+(Plateau values in units of $10^{-2}$; band values absolute.) Findings:
+- **The smooth order reaches the scheme's.** With the reflux off, the 6-point restriction and the quintic fill, AO
+  euler is sixth order (6.11 / 6.35) and its error at N = 256 is below the uniform coarse run's ($8.38\cdot10^{-8}$):
+  the Phase D exit (L1 $\ge 4.7$, Linf $\ge 4.5$) holds, and the 2:1 seams no longer cost accuracy on this flow.
+- **Unlimited, it worsens a shock entering a finer region.** On the c2f crossings the plateau defect behind the
+  shock grows (Sod +7 % in $\rho$, +24 % in $p$; RJ2a +63 % / +59 %): the shock's coarse values reach the fine ghosts
+  through a 6-point stencil with larger overshoots than the 4-point one. f2c is unchanged, shock positions are the
+  same, mass is exact, and PV-5 passes with no inadmissible stage. The Phase D exit requires A3 no worse than
+  tricubic, which is D2's limited variants' job; until then `quintic` is an opt-in for smooth flows.
+- AO leg `euler-q6` asserts the order; GP checks the fill on a degree-5 field (above); multirealm leg 6 runs it across
+  a refined inter-realm seam, bitwise; np 1/2/3 bitwise on the CPU, np 1/2 on FNL, CPU vs FNL $2.7\cdot10^{-13}$.
 
 ### AL: integral drift and the WENO sensor near seams
 
