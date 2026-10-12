@@ -42,11 +42,11 @@
 # crosses ranks). Both must reproduce sod-x / sod-z bit for bit. Sod is 1-D, so these legs see the coverage of the
 # register faces, not where the overlaps land along the face: the MHD rotor of mhd/multirealm/check.sh (leg 5) does.
 #
-# Leg 6 (issue #68 C2, C3, D1): leg 4 (along x and z) with `[amr] seam_restriction = lagrange6`, then `weno6`, then
-# `[amr] seam_ghost_fill = quintic`, in every input: the coarse ghosts of the refined seam take the fine owner's 6-point
-# restriction, the fine ghosts the coarse owner's quintic fill, as the intra-realm 2:1 face does, so the unions must
-# still reproduce the single-realm runs bit for bit (the shock crosses the seam: another operator on either side
-# differs).
+# Leg 6 (issue #68 C2, C3, D1, D2): leg 4 (along x and z) with `[amr] seam_restriction = lagrange6`, then `weno6`,
+# then `[amr] seam_ghost_fill = quintic`, `weno6`, `quintic-mp`, in every input: the coarse ghosts of the refined seam take the
+# fine owner's 6-point restriction, the fine ghosts the coarse owner's 6-point fill, as the intra-realm 2:1 face does,
+# so the unions must still reproduce the single-realm runs bit for bit (the shock crosses the seam: another operator
+# on either side differs).
 #
 # Usage: ./check.sh [--build] [--np N]
 #
@@ -175,8 +175,10 @@ multi="$CASE_DIR/work-$TAG-blocks-z"
 run "$multi" sod-2realm-blocks-z.ini "${bfiles[@]}"
 "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-z-single" --ngc 3 --tol 0
 for cfg in "seam_restriction = lagrange6|lagrange6 *restriction" "seam_restriction = weno6|weno6 *restriction" \
-           "seam_ghost_fill = quintic|seam ghost fill regime: *+3"; do
-key="${cfg%%|*}" ; pat="${cfg#*|}" ; rs="${key##* }"
+           "seam_ghost_fill = quintic|seam ghost fill regime: *+3" \
+           "seam_ghost_fill = weno6|seam ghost fill regime: *+4" \
+           "seam_ghost_fill = quintic-mp|seam ghost fill regime: *+5"; do
+key="${cfg%%|*}" ; pat="${cfg#*|}" ; rs="${key%% *}-${key##* }" # e.g. seam_ghost_fill-weno6
 echo "== leg 6: leg 4 with [amr] $key (issue #68 C2, C3, D1)"
 # the refined seam's coarse ghosts take the 6-point restriction of the fine owner (the codes and the regime packed in
 # the send rows' meta), its fine ghosts the quintic fill of the coarse owner (the 6-point anchor shifts in the meta),

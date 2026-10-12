@@ -1285,9 +1285,10 @@ contains
       if (r_c%adam%maps%seam_ghost_fill /= r_f%adam%maps%seam_ghost_fill)                                             &
          call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_ghost_fill in both realms')
       ! the 6-point coarse->fine footprint must fit a coarse block (issue #68 D1, as for the intra-realm rows)
-      if (r_c%adam%maps%seam_ghost_fill == SEAM_FILL_QUINTIC .and.                                                    &
+      if (r_c%adam%maps%seam_ghost_fill >= SEAM_FILL_QUINTIC .and.                                                    &
           any([r_c%adam%grid%ni, r_c%adam%grid%nj, r_c%adam%grid%nk] < 6_I4P))                                       &
-         call mpih%error_stop(msg=pfx//'[amr] seam_ghost_fill = quintic needs ni, nj, nk >= 6 in the coarse realm')
+         call mpih%error_stop(msg=pfx//'[amr] seam_ghost_fill = quintic|weno6|quintic-mp needs ni, nj, nk >= 6 in '// &
+                              'the coarse realm')
       if (r_c%adam%maps%seam_restriction /= r_f%adam%maps%seam_restriction)                                           &
          call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_restriction in both realms')
       ! the 6-point restriction footprint must fit a fine block (issue #68 C2, as for the intra-realm rows)

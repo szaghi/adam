@@ -50,6 +50,8 @@ implicit none
 private
 public :: SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC, SEAM_FILL_QUINTIC
 public :: SEAM_W_QUINTIC, seam_quintic_centered_pos, seam_interpolate_quintic, seam_quintic_weight
+public :: SEAM_FILL_WENO6, seam_fill_weno6_1d, seam_interpolate_weno6
+public :: SEAM_FILL_QUINTIC_MP, seam_fill_quintic_mp_1d, seam_interpolate_quintic_mp
 public :: SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, SEAM_W_QUADRATIC
 public :: seam_tricubic_centered_pos, seam_compatible_centered_pos
 public :: seam_interpolate_tricubic, seam_interpolate_compatible, seam_interpolate_quadratic
@@ -63,6 +65,8 @@ integer(I4P), parameter :: SEAM_FILL_INJECTION  = 0_I4P !< Regime: 0th-order inj
 integer(I4P), parameter :: SEAM_FILL_COMPATIBLE = 1_I4P !< Regime: restriction-compatible fill, q=2 (diagnostic arm).
 integer(I4P), parameter :: SEAM_FILL_TRICUBIC   = 2_I4P !< Regime: plain tensor tricubic, q=4 (default candidate).
 integer(I4P), parameter :: SEAM_FILL_QUINTIC    = 3_I4P !< Regime: tensor 6-point quintic, q=6 (issue #68 D1).
+integer(I4P), parameter :: SEAM_FILL_WENO6      = 4_I4P !< Regime: WENO on the quintic footprint (issue #68 D2).
+integer(I4P), parameter :: SEAM_FILL_QUINTIC_MP = 5_I4P !< Regime: quintic clamped to an MP bound (issue #68 D2).
 integer(I4P), parameter :: SEAM_SUB_COINCIDENT  = 3_I4P !< Sub-position of an unrefined direction (eta = 0, issue #46).
 
 real(R8P), parameter :: SEAM_W_TRICUBIC(1:4,1:3,1:4) = reshape([ &
@@ -190,6 +194,39 @@ real(R8P), parameter :: SEAM_WENO6_JUMP_RATIO = 2._R8P
    !< difference up to O(h^3)); a candidate containing a jump is dropped, and with no candidate left the restriction
    !< falls back to the mean of the fine pair (the troubled-cell fallback).
 real(R8P), parameter :: SEAM_WENO6_EPS = 1.e-40_R8P !< Guard of the WENO-Z weights against 0/0 on constant data.
+
+! The WENO coarse->fine fill (issue #68 D2): the target, anchor node p + eta (eta = -+1/4), sits at t4/4 in node units,
+! t4 = 4 p -+ 1 (3..25, target index j = (t4 - 1)/2 = 1..12); its candidates are the sub-stencils containing the
+! interval m = clamp(floor(t4/4), 1, 5) (at the block edge, j = 1 or 12, the one candidate extrapolates a quarter cell,
+! the tricubic's own one-sided cubic).
+real(R8P), parameter :: SEAM_W_CUBIC_Q(1:4,1:8) = reshape([ &
+   195._R8P, -117._R8P,   65._R8P,  -15._R8P,  & ! r = 1: a quarter node spacing before node 1 (block edge)
+    77._R8P,   77._R8P,  -33._R8P,    7._R8P,  & ! r = 2: node 1 + 1/4
+    15._R8P,  135._R8P,  -27._R8P,    5._R8P,  & ! r = 3: node 1 + 3/4
+    -7._R8P,  105._R8P,   35._R8P,   -5._R8P,  & ! r = 4: node 2 + 1/4
+    -5._R8P,   35._R8P,  105._R8P,   -7._R8P,  & ! r = 5: node 2 + 3/4
+     5._R8P,  -27._R8P,  135._R8P,   15._R8P,  & ! r = 6: node 3 + 1/4
+     7._R8P,  -33._R8P,   77._R8P,   77._R8P,  & ! r = 7: node 3 + 3/4
+   -15._R8P,   65._R8P, -117._R8P,  195._R8P], & ! r = 8: node 4 + 1/4 (block edge)
+   [4,8]) / 128._R8P
+   !< Cubic Lagrange weights of a 4-point sub-stencil at its quarter positions (node 1:4, r = (t4 - 4 s + 3)/2 = 1:8).
+
+real(R8P), parameter :: SEAM_D_FILL_WENO6(1:3,1:12) = reshape([ &
+   320._R8P,   0._R8P,   0._R8P,  & ! j = 1, t = 3/4 (block edge): sub-stencil 1 only
+   320._R8P,   0._R8P,   0._R8P,  & ! j = 2, t = 5/4
+   320._R8P,   0._R8P,   0._R8P,  & ! j = 3, t = 7/4
+   220._R8P, 100._R8P,   0._R8P,  & ! j = 4, t = 9/4: sub-stencils 1, 2 -> 5-point Lagrange
+   180._R8P, 140._R8P,   0._R8P,  & ! j = 5, t = 11/4
+    77._R8P, 198._R8P,  45._R8P,  & ! j = 6, t = 13/4: sub-stencils 1, 2, 3 -> 6-point Lagrange (centred, eta = +1/4)
+    45._R8P, 198._R8P,  77._R8P,  & ! j = 7, t = 15/4: (centred, eta = -1/4)
+     0._R8P, 140._R8P, 180._R8P,  & ! j = 8, t = 17/4
+     0._R8P, 100._R8P, 220._R8P,  & ! j = 9, t = 19/4
+     0._R8P,   0._R8P, 320._R8P,  & ! j = 10, t = 21/4
+     0._R8P,   0._R8P, 320._R8P,  & ! j = 11, t = 23/4
+     0._R8P,   0._R8P, 320._R8P], & ! j = 12, t = 25/4 (block edge)
+   [3,12]) / 320._R8P
+   !< Linear weights of the fill's sub-stencils (sub-stencil 1:3, target 1:12), all positive (computed with exact
+   !< fractions); zero marks a sub-stencil that does not contain the target's interval.
 
 contains
    pure function seam_tricubic_centered_pos(sub) result(p)
@@ -468,37 +505,18 @@ contains
    code(3) = m / 36_I4P
    endsubroutine seam_restriction_meta_unpack
 
-   pure function seam_restriction_weno6_1d(u, code) result(value_)
-   !< Return the WENO restriction of 6 fine values `u` to the coarse centre between nodes code+1 and code+2 (#68 C3).
-   !< 1. Jumps: interval i (nodes i, i+1) is a jump when its undivided difference exceeds `SEAM_WENO6_JUMP_RATIO` times
-   !<    the larger of its neighbours' (at the footprint ends, the inner neighbour and its linear extrapolation).
-   !< 2. Candidates: the sub-stencils of `SEAM_D_WENO6(:,code)` free of jumps; none left (a jump inside the fine pair,
-   !<    or a block-edge stencil crossing one): the troubled-cell fallback, the mean of the fine pair.
-   !< 3. WENO-Z weights (Borges et al. 2008, p = 2) on the Jiang-Shu indicators of each cubic over its central
-   !<    interval, beta = c^2 + 13/12 a^2 + 781/720 t^2 (c, a, t its central first, mean second and third differences),
-   !<    with tau the highest undivided difference of the candidates' union squared, O(h^8..h^12) on smooth data, so the
-   !<    weights reach the linear ones fast enough to keep the design order at critical points.
-   !< `SEAM_RESTRICT_IDENTITY` (an unrefined direction) returns u(1).
-   real(R8P),    intent(in) :: u(1:6)   !< Fine values (footprint nodes).
-   integer(I4P), intent(in) :: code     !< Restriction code (0..4, or SEAM_RESTRICT_IDENTITY).
-   real(R8P)                :: value_   !< Restricted value.
-   real(R8P)                :: d(1:5)   !< Undivided first differences.
-   real(R8P)                :: w(1:6)   !< Work array of the highest difference.
-   real(R8P)                :: ref      !< Neighbours' difference.
-   real(R8P)                :: tau      !< WENO-Z global indicator.
-   real(R8P)                :: c, a, t  !< Central first, mean second and third differences of a sub-stencil.
-   real(R8P)                :: alpha    !< Unnormalised weight.
-   real(R8P)                :: asum     !< Sum of the unnormalised weights.
-   logical                  :: jump(1:5) !< Jump flag per interval.
-   integer(I4P)             :: i, m, s  !< Counters.
-   integer(I4P)             :: lo, hi   !< First and last candidate.
+   pure subroutine seam_weno6_jumps(u, jump)
+   !< Flag the jumps of 6 values (issue #68 C3): interval i (nodes i, i+1) is a jump when its undivided difference
+   !< exceeds `SEAM_WENO6_JUMP_RATIO` times the larger of its neighbours' (at the footprint ends, the inner neighbour
+   !< and its linear extrapolation). Smooth data never trips it once resolved.
+   real(R8P), intent(in)  :: u(1:6)    !< Values at the footprint nodes.
+   logical,   intent(out) :: jump(1:5) !< Jump flag per interval.
+   real(R8P)              :: d(1:5)    !< Undivided first differences.
+   real(R8P)              :: ref       !< Neighbours' difference.
+   integer(I4P)           :: i         !< Counter.
    !$acc routine seq
    !$omp declare target
 
-   if (code == SEAM_RESTRICT_IDENTITY) then
-      value_ = u(1)
-      return
-   endif
    do i=1, 5
       d(i) = u(i+1) - u(i)
    enddo
@@ -512,21 +530,50 @@ contains
       endif
       jump(i) = abs(d(i)) > SEAM_WENO6_JUMP_RATIO * ref
    enddo
+   endsubroutine seam_weno6_jumps
+
+   pure function seam_weno6_core(u, dlin, wsub, fallback) result(value_)
+   !< The WENO kernel shared by the restriction and the fill (issue #68 C3, D2): a convex combination of the cubic
+   !< interpolants of the candidate 4-point sub-stencils (sub-stencil s = nodes s..s+3 of the 6) at one target.
+   !< 1. Jumps: interval i (nodes i, i+1) is a jump when its undivided difference exceeds `SEAM_WENO6_JUMP_RATIO` times
+   !<    the larger of its neighbours' (at the footprint ends, the inner neighbour and its linear extrapolation).
+   !< 2. Candidates: the sub-stencils with a positive linear weight `dlin(s)` and free of jumps; none left: `fallback`
+   !<    (the troubled-cell value, chosen by the caller).
+   !< 3. WENO-Z weights (Borges et al. 2008, p = 2) on the Jiang-Shu indicators of each cubic over its central
+   !<    interval, beta = c^2 + 13/12 a^2 + 781/720 t^2 (c, a, t its central first, mean second and third differences),
+   !<    with tau the highest undivided difference of the candidates' union squared, O(h^8..h^12) on smooth data, so the
+   !<    weights reach the linear ones fast enough to keep the design order at critical points.
+   real(R8P), intent(in) :: u(1:6)        !< Values at the footprint nodes.
+   real(R8P), intent(in) :: dlin(1:3)     !< Linear weight per sub-stencil (0: not a candidate).
+   real(R8P), intent(in) :: wsub(1:4,1:3) !< Cubic weights of each candidate sub-stencil at the target.
+   real(R8P), intent(in) :: fallback      !< Value returned when no candidate is left.
+   real(R8P)             :: value_        !< WENO value.
+   real(R8P)             :: w(1:6)        !< Work array of the highest difference.
+   real(R8P)             :: tau           !< WENO-Z global indicator.
+   real(R8P)             :: c, a, t       !< Central first, mean second and third differences of a sub-stencil.
+   real(R8P)             :: alpha         !< Unnormalised weight.
+   real(R8P)             :: asum          !< Sum of the unnormalised weights.
+   logical               :: jump(1:5)     !< Jump flag per interval.
+   integer(I4P)          :: i, m, s       !< Counters.
+   integer(I4P)          :: lo, hi        !< First and last candidate.
+   !$acc routine seq
+   !$omp declare target
+
+   call seam_weno6_jumps(u=u, jump=jump)
    lo = 0_I4P
    hi = 0_I4P
    do s=1, 3 ! the candidates are contiguous: a sub-stencil between two jump-free ones is jump-free
-      if (SEAM_D_WENO6(s,code) > 0._R8P .and. .not.(jump(s) .or. jump(s+1) .or. jump(s+2))) then
+      if (dlin(s) > 0._R8P .and. .not.(jump(s) .or. jump(s+1) .or. jump(s+2))) then
          if (lo == 0_I4P) lo = s
          hi = s
       endif
    enddo
    if (lo == 0_I4P) then
-      value_ = 0.5_R8P * (u(code+1) + u(code+2)) ! troubled: the mean of the fine pair
+      value_ = fallback
       return
    endif
    if (lo == hi) then
-      value_ = SEAM_W_CUBIC_MID(1,code-lo+2) * u(lo  ) + SEAM_W_CUBIC_MID(2,code-lo+2) * u(lo+1) + &
-               SEAM_W_CUBIC_MID(3,code-lo+2) * u(lo+2) + SEAM_W_CUBIC_MID(4,code-lo+2) * u(lo+3)
+      value_ = wsub(1,lo) * u(lo) + wsub(2,lo) * u(lo+1) + wsub(3,lo) * u(lo+2) + wsub(4,lo) * u(lo+3)
       return
    endif
    do i=1, hi - lo + 4 ! nodes lo..hi+3
@@ -544,14 +591,161 @@ contains
       c = u(s+2) - u(s+1)
       a = 0.5_R8P * (u(s+3) - u(s+2) - u(s+1) + u(s))
       t = u(s+3) - 3._R8P * u(s+2) + 3._R8P * u(s+1) - u(s)
-      alpha = SEAM_D_WENO6(s,code) * (1._R8P + (tau / (c * c + 13._R8P / 12._R8P * a * a + &
-                                                       781._R8P / 720._R8P * t * t + SEAM_WENO6_EPS))**2)
-      value_ = value_ + alpha * (SEAM_W_CUBIC_MID(1,code-s+2) * u(s  ) + SEAM_W_CUBIC_MID(2,code-s+2) * u(s+1) + &
-                                 SEAM_W_CUBIC_MID(3,code-s+2) * u(s+2) + SEAM_W_CUBIC_MID(4,code-s+2) * u(s+3))
+      alpha = dlin(s) * (1._R8P + (tau / (c * c + 13._R8P / 12._R8P * a * a + &
+                                          781._R8P / 720._R8P * t * t + SEAM_WENO6_EPS))**2)
+      value_ = value_ + alpha * (wsub(1,s) * u(s) + wsub(2,s) * u(s+1) + wsub(3,s) * u(s+2) + wsub(4,s) * u(s+3))
       asum = asum + alpha
    enddo
    value_ = value_ / asum
+   endfunction seam_weno6_core
+
+   pure function seam_restriction_weno6_1d(u, code) result(value_)
+   !< Return the WENO restriction of 6 fine values `u` to the coarse centre between nodes code+1 and code+2 (#68 C3):
+   !< `seam_weno6_core` on the sub-stencils of `SEAM_D_WENO6(:,code)` with their midpoint cubics, the troubled-cell
+   !< fallback the mean of the fine pair. `SEAM_RESTRICT_IDENTITY` (an unrefined direction) returns u(1).
+   real(R8P),    intent(in) :: u(1:6)        !< Fine values (footprint nodes).
+   integer(I4P), intent(in) :: code          !< Restriction code (0..4, or SEAM_RESTRICT_IDENTITY).
+   real(R8P)                :: value_        !< Restricted value.
+   real(R8P)                :: wsub(1:4,1:3) !< Cubic weights of the candidates at the coarse centre.
+   integer(I4P)             :: s             !< Sub-stencil counter.
+   !$acc routine seq
+   !$omp declare target
+
+   if (code == SEAM_RESTRICT_IDENTITY) then
+      value_ = u(1)
+      return
+   endif
+   wsub = 0._R8P
+   do s=1, 3
+      if (SEAM_D_WENO6(s,code) > 0._R8P) wsub(:,s) = SEAM_W_CUBIC_MID(:,code-s+2)
+   enddo
+   value_ = seam_weno6_core(u=u, dlin=SEAM_D_WENO6(:,code), wsub=wsub, fallback=0.5_R8P * (u(code+1) + u(code+2)))
    endfunction seam_restriction_weno6_1d
+
+   pure function seam_fill_weno6_1d(u, sub, p) result(value_)
+   !< Return the WENO coarse->fine fill of 6 coarse values `u` at the fine ghost's centre, anchor node `p` + eta(sub)
+   !< (issue #68 D2): `seam_weno6_core` on the sub-stencils that contain the target's interval (none extrapolates but
+   !< at the block edge, where the one candidate is the tricubic's own one-sided cubic), linear weights
+   !< `SEAM_D_FILL_WENO6` reproducing the Lagrange interpolant of their union (order 6 at the centred anchor
+   !< positions, 5 one cell from the block edge, 4 at it); the troubled-cell fallback is the linear interpolation on
+   !< the target's interval clamped to its two values. An unrefined direction (sub = 3) returns u(p).
+   real(R8P),    intent(in) :: u(1:6)        !< Coarse values (footprint nodes).
+   integer(I4P), intent(in) :: sub           !< Octant sub-position (1 => eta=-1/4, 2 => eta=+1/4, 3 => unrefined).
+   integer(I4P), intent(in) :: p             !< Anchor position (1..6).
+   real(R8P)                :: value_        !< Fine-ghost value.
+   real(R8P)                :: wsub(1:4,1:3) !< Cubic weights of the candidates at the target.
+   real(R8P)                :: fallback      !< Clamped linear interpolation on the target's interval.
+   integer(I4P)             :: t4            !< Target position in quarter units of the node spacing (3..25).
+   integer(I4P)             :: j             !< Target index (1..12).
+   integer(I4P)             :: m             !< Interval holding the target (1..5, the block edge clamped).
+   integer(I4P)             :: s             !< Sub-stencil counter.
+   !$acc routine seq
+   !$omp declare target
+
+   if (sub == SEAM_SUB_COINCIDENT) then
+      value_ = u(p)
+      return
+   endif
+   t4 = 4_I4P * p + 2_I4P * sub - 3_I4P
+   j = (t4 - 1_I4P) / 2_I4P
+   m = min(max(t4 / 4_I4P, 1_I4P), 5_I4P)
+   wsub = 0._R8P
+   do s=1, 3
+      if (SEAM_D_FILL_WENO6(s,j) > 0._R8P) wsub(:,s) = SEAM_W_CUBIC_Q(:,(t4 - 4_I4P * s + 3_I4P) / 2_I4P)
+   enddo
+   fallback = u(m) + 0.25_R8P * real(t4 - 4_I4P * m, R8P) * (u(m+1) - u(m))
+   fallback = min(max(fallback, min(u(m), u(m+1))), max(u(m), u(m+1)))
+   value_ = seam_weno6_core(u=u, dlin=SEAM_D_FILL_WENO6(:,j), wsub=wsub, fallback=fallback)
+   endfunction seam_fill_weno6_1d
+
+   pure function seam_fill_quintic_mp_1d(u, sub, p) result(value_)
+   !< Return the monotonicity-preserving quintic coarse->fine fill of 6 coarse values `u` at the fine ghost's centre,
+   !< anchor node `p` + eta(sub) (issue #68 D2): the quintic of `SEAM_W_QUINTIC` clamped to a Suresh-Huynh (1997) MP
+   !< bound. The target lies at fraction th of the interval m (nodes m, m+1), linear value L = u(m) + th (u(m+1) - u(m));
+   !< dM is the M4 minmod of the two second differences around the interval (shifted inward at the block edge), zero
+   !< across a jump; the bound is [min(u(m), u(m+1), Q), max(...)] with Q = L + th (th - 1)/2 dM, widened by
+   !< |th (th - 1)/2 dM|: on smooth data it contains the quintic (which differs from Q at O(h^3)), across a jump it
+   !< collapses to the interval's values. At the block edge (the target a quarter cell outside the footprint, th < 0 or
+   !< > 1) L is clamped to the interval and the bound widened by the extrapolation's linear and curvature terms only when
+   !< the three edge-side intervals hold no jump (`seam_weno6_jumps`). An unrefined direction (sub = 3) returns u(p).
+   real(R8P),    intent(in) :: u(1:6)     !< Coarse values (footprint nodes).
+   integer(I4P), intent(in) :: sub        !< Octant sub-position (1 => eta=-1/4, 2 => eta=+1/4, 3 => unrefined).
+   integer(I4P), intent(in) :: p          !< Anchor position (1..6).
+   real(R8P)                :: value_     !< Fine-ghost value.
+   logical                  :: jump(1:5)  !< Jump flag per interval.
+   real(R8P)                :: th         !< Target fraction of its interval.
+   real(R8P)                :: c          !< Curvature coefficient th (th - 1)/2.
+   real(R8P)                :: dk, dk1    !< Second differences around the interval.
+   real(R8P)                :: dm         !< M4 minmod curvature.
+   real(R8P)                :: lin        !< Linear value on the interval.
+   real(R8P)                :: q          !< Curvature-corrected linear value.
+   real(R8P)                :: widen      !< Bound widening.
+   real(R8P)                :: d2e, d2i   !< Edge: the second differences at the edge-side and inner nodes.
+   real(R8P)                :: out        !< Edge: the extrapolation distance (in interval units).
+   real(R8P)                :: lo, hi     !< MP bound.
+   integer(I4P)             :: t4, m, k, n !< Target (quarter units), interval, curvature nodes, counter.
+   !$acc routine seq
+   !$omp declare target
+
+   if (sub == SEAM_SUB_COINCIDENT) then
+      value_ = u(p)
+      return
+   endif
+   value_ = 0._R8P
+   do n=1, 6
+      value_ = value_ + SEAM_W_QUINTIC(n,sub,p) * u(n)
+   enddo
+   t4 = 4_I4P * p + 2_I4P * sub - 3_I4P
+   m = min(max(t4 / 4_I4P, 1_I4P), 5_I4P)
+   th = 0.25_R8P * real(t4 - 4_I4P * m, R8P)
+   c = 0.5_R8P * th * (th - 1._R8P)
+   k = min(max(m, 2_I4P), 4_I4P)
+   dk  = u(k-1) - 2._R8P * u(k)   + u(k+1)
+   dk1 = u(k)   - 2._R8P * u(k+1) + u(k+2)
+   dm = seam_minmod4(4._R8P * dk - dk1, 4._R8P * dk1 - dk, dk, dk1)
+   lin = u(m) + th * (u(m+1) - u(m))
+   q = lin + c * dm
+   widen = abs(c * dm)
+   if (th < 0._R8P .or. th > 1._R8P) then ! the block edge
+      out = max(-th, th - 1._R8P)
+      lin = min(max(lin, min(u(m), u(m+1))), max(u(m), u(m+1)))
+      q = lin
+      call seam_weno6_jumps(u=u, jump=jump)
+      widen = 0._R8P
+      if (th < 0._R8P) then
+         if (.not.(jump(1) .or. jump(2) .or. jump(3))) then
+            d2e = dk ; d2i = dk1
+            widen = out * abs(u(m+1) - u(m)) + &
+                    (abs(c) + out) * max(abs(d2e), abs(seam_minmod4(d2e, d2i, d2e, d2i)))
+         endif
+      else
+         if (.not.(jump(3) .or. jump(4) .or. jump(5))) then
+            d2e = dk1 ; d2i = dk
+            widen = out * abs(u(m+1) - u(m)) + &
+                    (abs(c) + out) * max(abs(d2e), abs(seam_minmod4(d2e, d2i, d2e, d2i)))
+         endif
+      endif
+   endif
+   lo = min(u(m), u(m+1), q) - widen
+   hi = max(u(m), u(m+1), q) + widen
+   value_ = min(max(value_, lo), hi)
+   endfunction seam_fill_quintic_mp_1d
+
+   pure function seam_minmod4(a, b, c, d) result(mm)
+   !< Return the minmod of four values: the one of least magnitude if all share a sign, zero otherwise.
+   real(R8P), intent(in) :: a, b, c, d !< Values.
+   real(R8P)             :: mm         !< Minmod.
+   !$acc routine seq
+   !$omp declare target
+
+   if (a > 0._R8P .and. b > 0._R8P .and. c > 0._R8P .and. d > 0._R8P) then
+      mm = min(a, b, c, d)
+   elseif (a < 0._R8P .and. b < 0._R8P .and. c < 0._R8P .and. d < 0._R8P) then
+      mm = max(a, b, c, d)
+   else
+      mm = 0._R8P
+   endif
+   endfunction seam_minmod4
 
    pure function seam_restriction_weno6(code, u) result(value_)
    !< Return the WENO restriction of the fine footprint `u` (#68 C3), direction by direction: x on every (j, k) line,
@@ -580,6 +774,74 @@ contains
    enddo
    value_ = seam_restriction_weno6_1d(u=uz, code=code(3))
    endfunction seam_restriction_weno6
+
+   pure function seam_interpolate_weno6(footprint, sub, anchor_pos) result(value_)
+   !< WENO coarse->fine fill on a 6x6x6 coarse footprint (issue #68 D2), same index conventions as the quintic
+   !< evaluator, direction by direction: x on every (j, k) line, then y, then z (the order of the FNL twin). An
+   !< unrefined direction reads the anchor node only, so the other footprint entries along it are not referenced.
+   real(R8P),    intent(in) :: footprint(1:6,1:6,1:6) !< Coarse donor values.
+   integer(I4P), intent(in) :: sub(1:3)               !< Octant sub-position per direction (1|2|3).
+   integer(I4P), intent(in) :: anchor_pos(1:3)        !< Anchor position per direction (1..6).
+   real(R8P)                :: value_                 !< Interpolated fine-ghost value.
+   real(R8P)                :: uy(1:6)                !< A y line of x-filled values.
+   real(R8P)                :: uz(1:6)                !< The z line of xy-filled values.
+   integer(I4P)             :: lo(1:3), hi(1:3)       !< Footprint nodes read per direction.
+   integer(I4P)             :: i, j, k                !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   do i = 1, 3
+      lo(i) = 1_I4P
+      hi(i) = 6_I4P
+      if (sub(i) == SEAM_SUB_COINCIDENT) then
+         lo(i) = anchor_pos(i)
+         hi(i) = anchor_pos(i)
+      endif
+   enddo
+   uy = 0._R8P
+   uz = 0._R8P
+   do k = lo(3), hi(3)
+      do j = lo(2), hi(2)
+         uy(j) = seam_fill_weno6_1d(u=footprint(:,j,k), sub=sub(1), p=anchor_pos(1))
+      enddo
+      uz(k) = seam_fill_weno6_1d(u=uy, sub=sub(2), p=anchor_pos(2))
+   enddo
+   value_ = seam_fill_weno6_1d(u=uz, sub=sub(3), p=anchor_pos(3))
+   endfunction seam_interpolate_weno6
+
+   pure function seam_interpolate_quintic_mp(footprint, sub, anchor_pos) result(value_)
+   !< Monotonicity-preserving quintic coarse->fine fill on a 6x6x6 coarse footprint (issue #68 D2), direction by
+   !< direction (x on every (j, k) line, then y, then z: the order of the FNL twin); an unrefined direction reads the
+   !< anchor node only.
+   real(R8P),    intent(in) :: footprint(1:6,1:6,1:6) !< Coarse donor values.
+   integer(I4P), intent(in) :: sub(1:3)               !< Octant sub-position per direction (1|2|3).
+   integer(I4P), intent(in) :: anchor_pos(1:3)        !< Anchor position per direction (1..6).
+   real(R8P)                :: value_                 !< Interpolated fine-ghost value.
+   real(R8P)                :: uy(1:6)                !< A y line of x-filled values.
+   real(R8P)                :: uz(1:6)                !< The z line of xy-filled values.
+   integer(I4P)             :: lo(1:3), hi(1:3)       !< Footprint nodes read per direction.
+   integer(I4P)             :: i, j, k                !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   do i = 1, 3
+      lo(i) = 1_I4P
+      hi(i) = 6_I4P
+      if (sub(i) == SEAM_SUB_COINCIDENT) then
+         lo(i) = anchor_pos(i)
+         hi(i) = anchor_pos(i)
+      endif
+   enddo
+   uy = 0._R8P
+   uz = 0._R8P
+   do k = lo(3), hi(3)
+      do j = lo(2), hi(2)
+         uy(j) = seam_fill_quintic_mp_1d(u=footprint(:,j,k), sub=sub(1), p=anchor_pos(1))
+      enddo
+      uz(k) = seam_fill_quintic_mp_1d(u=uy, sub=sub(2), p=anchor_pos(2))
+   enddo
+   value_ = seam_fill_quintic_mp_1d(u=uz, sub=sub(3), p=anchor_pos(3))
+   endfunction seam_interpolate_quintic_mp
 
    pure function seam_restriction_weight(node, code) result(w)
    !< Return the 1D weight `SEAM_W_LAGRANGE6(node, code)` (issue #68 C2): the device kernels read the table through this

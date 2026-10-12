@@ -39,8 +39,15 @@
 #                 all 6.11, Linf 6.35; at N = 256 L1 6.03e-8, band L1 1.74e-7, Linf 4.78e-6: below the uniform coarse
 #                 run (8.38e-8, 5.34e-6) and 1.4x below euler-l6, the tricubic prolongation's error gone. Asserted:
 #                 orders >= 5.5 and the errors at most the baseline plus 2 %. CPU and FNL agree to every printed digit.
+#   euler-ww      the euler leg with the limited pair [amr] seam_restriction = weno6, seam_ghost_fill = weno6, reflux off
+#                 (#68 D2). Measured (N = 128 -> 256): L1 order all 5.32, Linf 5.50; at N = 256 L1 8.60e-8, Linf 6.61e-6:
+#                 the weno6 restriction's accuracy (the fill's 6-point WENO does not lose to the tricubic). Asserted as
+#                 euler-l6.
+#   euler-mp      the euler-q6 leg with [amr] seam_ghost_fill = quintic-mp (#68 D2). Measured (N = 128 -> 256): L1 order
+#                 all 6.10, Linf 6.33; at N = 256 L1 6.04e-8, Linf 4.77e-6: euler-q6's (the MP bound never clips the smooth
+#                 vortex). Asserted as euler-q6.
 #
-# Usage: ./check.sh [--np N] [--leg euler|mhd|euler-octree|euler-l6|euler-w6|euler-q6 ...] [--keep]
+# Usage: ./check.sh [--np N] [--leg euler|mhd|euler-octree|euler-l6|euler-w6|euler-q6|euler-ww|euler-mp ...] [--keep]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -61,7 +68,7 @@ while [[ $# -gt 0 ]]; do
       *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --leg L, --keep)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(euler mhd euler-l6 euler-w6 euler-q6)
+[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(euler mhd euler-l6 euler-w6 euler-q6 euler-ww euler-mp)
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -75,6 +82,10 @@ ORDER_W6=(all:l1:4.8 all:linf:4.5)                                  # euler-w6 (
 MAX_EULER_W6=(all:l1:8.596e-08 band:l1:2.308e-07 all:linf:6.517e-06)  # euler-w6: baseline (C3) plus 2 %
 ORDER_Q6=(all:l1:5.5 all:linf:5.5)                                  # euler-q6 (D1): measured 6.11 / 6.35
 MAX_EULER_Q6=(all:l1:6.148e-08 band:l1:1.774e-07 all:linf:4.873e-06)  # euler-q6: baseline (D1) plus 2 %
+ORDER_WW=(all:l1:4.8 all:linf:4.5)                                  # euler-ww (D2): measured 5.32 / 5.50
+ORDER_MP=(all:l1:5.5 all:linf:5.5)                                  # euler-mp (D2): measured 6.10 / 6.33
+MAX_EULER_MP=(all:l1:6.165e-08 band:l1:1.781e-07 all:linf:4.870e-06)  # euler-mp: baseline (D2) plus 2 %
+MAX_EULER_WW=(all:l1:8.769e-08 band:l1:2.343e-07 all:linf:6.745e-06)  # euler-ww: baseline (D2) plus 2 %
 # CPU baseline (M6-A1) plus 2 %, the finest refined run (N = 256): region:norm:max
 MAX_EULER=(all:l1:4.129e-06 band:l1:1.607e-05 all:linf:4.772e-04)
 MAX_MHD=(all:l1:1.871e-06 band:l1:8.102e-06 all:linf:1.295e-04)
@@ -135,6 +146,16 @@ for leg in "${LEGS[@]}"; do
                     LEG_OPTS=(--seam-restriction lagrange6 --seam-ghost-fill quintic --no-reflux)
                     ORDER_ASSERTS=("${ORDER_Q6[@]}")
                     ladder euler-q6 euler "0.5 0.5 1.0 1.0" 4 MAX_EULER_Q6 64 128 256
+                    LEG_OPTS=() ; ORDER_ASSERTS=() ;;
+      euler-mp)     echo "-- euler-mp: the euler-q6 leg, [amr] seam_ghost_fill = quintic-mp (#68 D2)"
+                    LEG_OPTS=(--seam-restriction lagrange6 --seam-ghost-fill quintic-mp --no-reflux)
+                    ORDER_ASSERTS=("${ORDER_MP[@]}")
+                    ladder euler-mp euler "0.5 0.5 1.0 1.0" 4 MAX_EULER_MP 64 128 256
+                    LEG_OPTS=() ; ORDER_ASSERTS=() ;;
+      euler-ww)     echo "-- euler-ww: the euler leg, [amr] seam_restriction = weno6, seam_ghost_fill = weno6 (#68 D2)"
+                    LEG_OPTS=(--seam-restriction weno6 --seam-ghost-fill weno6 --no-reflux)
+                    ORDER_ASSERTS=("${ORDER_WW[@]}")
+                    ladder euler-ww euler "0.5 0.5 1.0 1.0" 4 MAX_EULER_WW 64 128 256
                     LEG_OPTS=() ; ORDER_ASSERTS=() ;;
       euler-w6)     echo "-- euler-w6: the euler leg, [amr] seam_restriction = weno6, reflux off (#68 C3)"
                     LEG_OPTS=(--seam-restriction weno6 --no-reflux) ; ORDER_ASSERTS=("${ORDER_W6[@]}")

@@ -1379,6 +1379,44 @@ stays `tricubic`.
 - AO leg `euler-q6` asserts the order; GP checks the fill on a degree-5 field (above); multirealm leg 6 runs it across
   a refined inter-realm seam, bitwise; np 1/2/3 bitwise on the CPU, np 1/2 on FNL, CPU vs FNL $2.7\cdot10^{-13}$.
 
+### D2: limited coarse-to-fine fills, and what the shock-crossing defect is not
+
+**Methods** ([#68](https://github.com/szaghi/adam/issues/68) D2; both opt-in, the default stays `tricubic`):
+- `seam_ghost_fill = weno6`: per direction the WENO-Z combination of the cubics of the 4-point sub-stencils that
+  contain the ghost's interval (the C3 restriction's kernel, `seam_weno6_core`, now shared), linear weights reproducing
+  the Lagrange interpolant of their union (all positive), sub-stencils holding a jump dropped, the clamped linear
+  interpolation of the interval when none is left. Order 6 at the centred anchor positions, 5 one cell from the
+  donor block's edge, 4 at it.
+- `seam_ghost_fill = quintic-mp`: the D1 quintic clamped per direction to a Suresh–Huynh monotonicity-preserving bound
+  (the interval's values and the curvature-corrected linear value $L + \theta(\theta-1)/2\, d^{M4}$, widened by the
+  curvature term; at the block edge, where the target lies a quarter cell outside the footprint, the extrapolation is
+  allowed only when the edge-side intervals hold no jump). Order 6 at every target.
+
+**The diagnostic.** Neither limited fill brought the shock crossings of A3 to `tricubic`'s level, so every fill was run
+on the c2f crossings (FNL, 2 ranks, `lagrange6` restriction; plateau and band defects as in A3):
+
+| Fill (order) | Sod plateau $\rho$ | Sod band $\rho$ | Sod shock (cells) | RJ2a plateau $\rho$ | RJ2a band $\rho$ |
+|---|---|---|---|---|---|
+| `injection` (1) | $2.98\cdot10^{-2}$ | $7.91\cdot10^{-3}$ | 0.173 | $2.49\cdot10^{-2}$ | $2.16\cdot10^{-4}$ |
+| `restriction-compatible` (2) | $2.32\cdot10^{-2}$ | $5.31\cdot10^{-3}$ | 0.164 | $1.98\cdot10^{-2}$ | $1.28\cdot10^{-4}$ |
+| `tricubic` (4) | $2.46\cdot10^{-2}$ | $6.33\cdot10^{-3}$ | 0.158 | $1.41\cdot10^{-2}$ | $1.03\cdot10^{-4}$ |
+| `quintic` (6) | $2.63\cdot10^{-2}$ | $7.95\cdot10^{-3}$ | 0.159 | $2.30\cdot10^{-2}$ | $0.68\cdot10^{-4}$ |
+| `weno6` (6, limited) | $3.01\cdot10^{-2}$ | $7.75\cdot10^{-3}$ | 0.178 | $1.48\cdot10^{-2}$ | $1.52\cdot10^{-4}$ |
+| `quintic-mp` (6, limited) | $3.14\cdot10^{-2}$ | $8.82\cdot10^{-3}$ | 0.173 | $2.47\cdot10^{-2}$ | $6.25\cdot10^{-4}$ |
+
+Findings:
+- **The defect has no trend with the fill's order, and limiting makes it worse.** The best fill differs by case and
+  by metric (`restriction-compatible` on Sod, `tricubic` on the RJ2a plateau, `quintic` on its band), every fill
+  sits within roughly $\pm 30\,\%$ of `tricubic` but the limited ones, and the two limited fills are the worst on
+  Sod, their shock furthest off: the plateau defect behind a crossing shock is not an overshoot of the fill, so no
+  fill can be held to "no worse than `tricubic`". The best Sod result belongs to the one fill with exact $R \circ P =
+  I$: the defect points to the consistency of the fill with the restriction at the crossing, and to the reflux (A3:
+  reflux on/off moves it by up to 30 %), which is Phase E's ground, not the fill's order.
+- **On smooth flows both limited fills keep their order.** AO `euler-ww` (`weno6` restriction and fill, reflux off):
+  L1 orders 5.32 / 5.50, L1 $8.60\cdot10^{-8}$ at N = 256; `euler-mp` (`lagrange6` + `quintic-mp`): 6.10 / 6.33,
+  $6.04\cdot10^{-8}$, `euler-q6`'s (the bound never clips the vortex). PV-5 passes with no inadmissible stage under
+  both; GP holds a cubic field to round-off with either fill.
+
 ### AL: integral drift and the WENO sensor near seams
 
 **Why.** The reflux policy of Phase E (`reflux = troubled`) would turn the reflux off at the seam faces that a WENO

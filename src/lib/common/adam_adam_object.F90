@@ -7,7 +7,7 @@ use :: adam_field_object,               only : field_object
 use :: adam_grid_object,                only : grid_object
 use :: adam_maps_object,                only : maps_object
 use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC, &
-                                               SEAM_FILL_QUINTIC, &
+                                               SEAM_FILL_QUINTIC, SEAM_FILL_WENO6, SEAM_FILL_QUINTIC_MP, &
                                                SEAM_RESTRICT_MEAN, SEAM_RESTRICT_LAGRANGE6, SEAM_RESTRICT_WENO6
 use :: adam_refinement_plan_object,     only : refinement_plan_object
 use :: adam_tree_node_object
@@ -272,13 +272,17 @@ contains
          self%maps%seam_ghost_fill = SEAM_FILL_TRICUBIC
       case('quintic')
          self%maps%seam_ghost_fill = SEAM_FILL_QUINTIC
+      case('weno6')
+         self%maps%seam_ghost_fill = SEAM_FILL_WENO6
+      case('quintic-mp')
+         self%maps%seam_ghost_fill = SEAM_FILL_QUINTIC_MP
       case default
          call mpih%error_stop(msg=': unknown [amr].(seam_ghost_fill) value "'//trim(adjustl(buff))// &
-                                  '" — expected injection|restriction-compatible|tricubic|quintic')
+                                  '" — expected injection|restriction-compatible|tricubic|quintic|weno6|quintic-mp')
       endselect
    endif
    if (verbose_) call mpih%print_message('seam ghost fill regime: '//trim(str(self%maps%seam_ghost_fill))// &
-                                         ' (0=injection, 1=restriction-compatible, 2=tricubic, 3=quintic)')
+                                         ' (0=injection, 1=restriction-compatible, 2=tricubic, 3=quintic, 4=weno6, 5=quintic-mp)')
    ! Fine->coarse seam ghost restriction (issue #68 C1): optional `[amr] seam_restriction` key, read here for the same
    ! reason, before any ghost-map build. Absent key: the mean (today's behaviour, bitwise); unknown value: hard error.
    call file_parameters%get(section_name='amr', option_name='seam_restriction', val=buff, error=error)

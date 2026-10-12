@@ -26,6 +26,8 @@ program test_seam_interpolation
 !<      direction reads the anchor only.
 !<   7. The fine->coarse restrictions (issue #68): the 6-point Lagrange (C1) and the WENO with its troubled-cell
 !<      fallback to the mean (C3).
+!<   8. The WENO coarse->fine fill (issue #68 D2): exact on cubics, design orders, steps, the tensor sweep.
+!<   9. The MP quintic fill (issue #68 D2): order 6 on smooth data, exact on linears, bounded on steps.
 
 use adam_seam_interpolation_library, only : SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, SEAM_W_QUADRATIC, &
                                             seam_interpolate_tricubic, seam_interpolate_compatible, &
@@ -36,7 +38,9 @@ use adam_seam_interpolation_library, only : SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, 
                                             seam_restriction_meta_pack, seam_restriction_meta_unpack, &
                                             SEAM_RESTRICT_LAGRANGE6, SEAM_RESTRICT_WENO6, &
                                             seam_restriction_weno6_1d, seam_restriction_weno6, &
-                                            seam_interpolate_quintic, seam_quintic_centered_pos, SEAM_SUB_COINCIDENT
+                                            seam_interpolate_quintic, seam_quintic_centered_pos, SEAM_SUB_COINCIDENT, &
+                                            seam_fill_weno6_1d, seam_interpolate_weno6, &
+                                            seam_fill_quintic_mp_1d, seam_interpolate_quintic_mp
 use, intrinsic :: ieee_arithmetic, only : ieee_value, ieee_quiet_nan
 use penf, only : I4P, R8P
 
@@ -573,6 +577,195 @@ restriction_weno6: block
       test_passed = .false.
    endif
 endblock restriction_weno6
+
+fill_weno6: block
+   ! #68 D2: the WENO coarse->fine fill at the 12 targets p + eta (p = 1..6, eta = -+1/4) of a 6-node footprint
+   real(R8P)    :: u(1:6), x(1:6), got, want, err(1:2), h, x0, fp6(1:6,1:6,1:6), px(1:6), py(1:6), pz(1:6)
+   integer(I4P) :: p, sb, l, n, m, jmp, i, j, k
+   logical      :: ok
+   real(R8P), parameter :: eta_(1:2) = [-0.25_R8P, 0.25_R8P]
+
+   ! 1. cubic exactness (f = x^3 + 6 x + 1, no jump), every target, scale and offset invariant
+   ok = .true.
+   do p=1, 6 ; do sb=1, 2
+      do m=1, 6
+         x(m) = real(m - p, R8P) - eta_(sb) ! node coordinates, the target at 0
+      enddo
+      do l=-6, 5
+         u = 10._R8P**l * (x**3 + 6._R8P * x + 1._R8P) + 10._R8P**(-l)
+         got = seam_fill_weno6_1d(u=u, sub=sb, p=p)
+         want = 10._R8P**l + 10._R8P**(-l)
+         if (abs(got - want) > 1.e-13_R8P * (10._R8P**l * maxval(abs(x**3 + 6._R8P * x + 1._R8P)) + 10._R8P**(-l))) &
+            ok = .false.
+      enddo
+   enddo ; enddo
+   u = [7._R8P, -1._R8P, 3._R8P, 2._R8P, 5._R8P, 0._R8P]
+   if (seam_fill_weno6_1d(u=u, sub=SEAM_SUB_COINCIDENT, p=4) /= 2._R8P) ok = .false.
+   ! the tensor sweep on separable cubics, a quadtree row (z unrefined, its other nodes NaN) included
+   do p=1, 6 ; do sb=1, 2
+      do m=1, 6
+         x(m) = real(m - p, R8P) - eta_(sb)
+      enddo
+      px = x**3 + 6._R8P * x + 1._R8P
+      py = 2._R8P * x**3 + x + 3._R8P
+      pz = -x**3 - 4._R8P * x + 2._R8P
+      do k=1, 6 ; do j=1, 6 ; do i=1, 6
+         fp6(i,j,k) = px(i) * py(j) * pz(k)
+      enddo ; enddo ; enddo
+      got = seam_interpolate_weno6(fp6, [sb,sb,sb], [p,p,p])
+      if (abs(got - 6._R8P) > 1.e-12_R8P * maxval(abs(fp6))) ok = .false.
+      fp6 = ieee_value(1._R8P, ieee_quiet_nan)
+      do j=1, 6 ; do i=1, 6
+         fp6(i,j,3) = px(i) * py(j)
+      enddo ; enddo
+      got = seam_interpolate_weno6(fp6, [sb,sb,SEAM_SUB_COINCIDENT], [p,p,3])
+      if (.not.(abs(got - 3._R8P) <= 1.e-12_R8P * maxval(abs(fp6(:,:,3))))) ok = .false.
+   enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: WENO fill exact on cubics (1-D every target, scale-invariant; 3-D tensor, unrefined axis)'
+   else
+      write(*,'(A)') 'FAIL: WENO fill not exact on a cubic'
+      test_passed = .false.
+   endif
+
+   ! 2. design order on smooth data, h = 0.05 and 0.025: 6 at the centred anchor positions (p = 3 eta = +1/4, p = 4
+   !    eta = -1/4), 5 one cell from the block edge, 4 at it
+   ok = .true.
+   do p=1, 6 ; do sb=1, 2
+      do l=1, 2
+         h = 0.05_R8P / real(l, R8P)
+         err(l) = 0._R8P
+         do n=0, 100
+            x0 = real(n, R8P) / 100._R8P
+            do m=1, 6
+               x(m) = x0 + h * (real(m - p, R8P) - eta_(sb))
+            enddo
+            u = sin(2._R8P * acos(-1._R8P) * x) + 0.3_R8P * cos(6._R8P * x)
+            got = seam_fill_weno6_1d(u=u, sub=sb, p=p)
+            err(l) = max(err(l), abs(got - (sin(2._R8P * acos(-1._R8P) * x0) + 0.3_R8P * cos(6._R8P * x0))))
+         enddo
+      enddo
+      m = 4 * p + 2 * sb - 3 ! t4
+      want = 3.7_R8P
+      if (m >= 9 .and. m <= 19) want = 4.7_R8P
+      if (m == 13 .or. m == 15) want = 5.7_R8P
+      if (log(err(1) / err(2)) / log(2._R8P) < want) then
+         ok = .false.
+         write(*,'(A,2I2,A,F6.2)') '   p, sub', p, sb, ': order ', log(err(1) / err(2)) / log(2._R8P)
+      endif
+   enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: WENO fill design order on smooth data (6 centred, 5 and 4 towards the block edge)'
+   else
+      write(*,'(A)') 'FAIL: WENO fill below its design order on smooth data'
+      test_passed = .false.
+   endif
+
+   ! 3. steps (1e-3 / 1): the target takes the state of its own side of a jump outside its interval; a jump inside it
+   !    gives the clamped linear interpolation of the interval (between its two values)
+   ok = .true.
+   do p=1, 6 ; do sb=1, 2
+      do jmp=1, 5
+         do m=1, 6
+            u(m) = merge(1._R8P, 1.e-3_R8P, m > jmp)
+         enddo
+         got = seam_fill_weno6_1d(u=u, sub=sb, p=p)
+         m = min(max((4 * p + 2 * sb - 3) / 4, 1), 5) ! the target's interval
+         if (jmp == m) then
+            if (got < 1.e-3_R8P .or. got > 1._R8P) ok = .false.
+         elseif (jmp < m) then
+            if (abs(got - 1._R8P) > tol_exact) ok = .false.
+         else
+            if (abs(got - 1.e-3_R8P) > tol_exact) ok = .false.
+         endif
+      enddo
+   enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: WENO fill takes its own side of a jump, stays within the values of a jump in its interval'
+   else
+      write(*,'(A)') 'FAIL: WENO fill on a step'
+      test_passed = .false.
+   endif
+endblock fill_weno6
+
+fill_quintic_mp: block
+   ! #68 D2: the quintic fill clamped to a monotonicity-preserving bound, at the 12 targets p + eta of a 6-node footprint
+   real(R8P)    :: u(1:6), x(1:6), got, err(1:2), h, x0, fp6(1:6,1:6,1:6), lo, hi
+   integer(I4P) :: p, sb, l, n, m, jmp, i, j, k
+   logical      :: ok
+   real(R8P), parameter :: eta_(1:2) = [-0.25_R8P, 0.25_R8P]
+
+   ! 1. exact on linears (the bound holds the linear value), 1-D every target and the 3-D tensor with an unrefined axis
+   ok = .true.
+   do p=1, 6 ; do sb=1, 2
+      do m=1, 6
+         x(m) = real(m - p, R8P) - eta_(sb)
+      enddo
+      u = 3._R8P * x + 2._R8P
+      if (abs(seam_fill_quintic_mp_1d(u=u, sub=sb, p=p) - 2._R8P) > tol_exact * 20._R8P) ok = .false.
+      fp6 = ieee_value(1._R8P, ieee_quiet_nan)
+      do j=1, 6 ; do i=1, 6
+         fp6(i,j,3) = (3._R8P * x(i) + 2._R8P) * (x(j) + 1._R8P)
+      enddo ; enddo
+      got = seam_interpolate_quintic_mp(fp6, [sb,sb,SEAM_SUB_COINCIDENT], [p,p,3])
+      if (.not.(abs(got - 2._R8P) <= tol_exact * 200._R8P)) ok = .false.
+   enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: MP quintic fill exact on linears (1-D every target; 3-D tensor, unrefined axis)'
+   else
+      write(*,'(A)') 'FAIL: MP quintic fill not exact on a linear'
+      test_passed = .false.
+   endif
+
+   ! 2. order 6 on smooth data at every target (the bound never clips a resolved smooth field)
+   ok = .true.
+   do p=1, 6 ; do sb=1, 2
+      do l=1, 2
+         h = 0.05_R8P / real(l, R8P)
+         err(l) = 0._R8P
+         do n=0, 100
+            x0 = real(n, R8P) / 100._R8P
+            do m=1, 6
+               x(m) = x0 + h * (real(m - p, R8P) - eta_(sb))
+            enddo
+            u = sin(2._R8P * acos(-1._R8P) * x) + 0.3_R8P * cos(6._R8P * x)
+            got = seam_fill_quintic_mp_1d(u=u, sub=sb, p=p)
+            err(l) = max(err(l), abs(got - (sin(2._R8P * acos(-1._R8P) * x0) + 0.3_R8P * cos(6._R8P * x0))))
+         enddo
+      enddo
+      if (log(err(1) / err(2)) / log(2._R8P) < 5.7_R8P) then
+         ok = .false.
+         write(*,'(A,2I2,A,F6.2)') '   p, sub', p, sb, ': order ', log(err(1) / err(2)) / log(2._R8P)
+      endif
+   enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: MP quintic fill order 6 on smooth data at every target'
+   else
+      write(*,'(A)') 'FAIL: MP quintic fill below order 6 on smooth data'
+      test_passed = .false.
+   endif
+
+   ! 3. steps (1e-3 / 1, a density-like contrast): within the values of the target's interval (the clamped linear
+   !    side at the block edge), so never below the smaller state
+   ok = .true.
+   do p=1, 6 ; do sb=1, 2
+      do jmp=1, 5
+         do m=1, 6
+            u(m) = merge(1._R8P, 1.e-3_R8P, m > jmp)
+         enddo
+         got = seam_fill_quintic_mp_1d(u=u, sub=sb, p=p)
+         m = min(max((4 * p + 2 * sb - 3) / 4, 1), 5)
+         lo = min(u(m), u(m+1)) ; hi = max(u(m), u(m+1))
+         if (got < lo - tol_exact .or. got > hi + tol_exact) ok = .false.
+      enddo
+   enddo ; enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: MP quintic fill stays within the values of its interval on a step'
+   else
+      write(*,'(A)') 'FAIL: MP quintic fill overshoots on a step'
+      test_passed = .false.
+   endif
+endblock fill_quintic_mp
 
 if (test_passed) then
    write(*,'(A)') 'TEST PASSED: seam interpolation weight tables'

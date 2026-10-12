@@ -25,7 +25,7 @@ writes `[amr] seam_restriction` (#68 C1; default: the key absent, the mean), --s
 Usage:
     make_amr_order.py euler|mhd <out.ini> --cells N [--ratio 4|8] [--uniform] [--time-max T] [--no-reflux]
                                           [--it-save K] [--seam-restriction mean|lagrange6|weno6]
-                                          [--seam-ghost-fill tricubic|quintic]
+                                          [--seam-ghost-fill tricubic|quintic|weno6|quintic-mp]
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def main() -> None:
     parser.add_argument("--it-save", type=int, default=1000000, help="checkpoint cadence in steps")
     parser.add_argument("--seam-restriction", choices=("mean", "lagrange6", "weno6"), default=None,
                         help="[amr] seam_restriction (default: the key absent, the mean)")
-    parser.add_argument("--seam-ghost-fill", choices=("tricubic", "quintic"), default=None,
+    parser.add_argument("--seam-ghost-fill", choices=("tricubic", "quintic", "weno6", "quintic-mp"), default=None,
                         help="[amr] seam_ghost_fill (default: the key absent, tricubic)")
     args = parser.parse_args()
     ini = base_input(args.case, args.cells, args.time_max)

@@ -1181,8 +1181,9 @@ contains
             if (any(nijk < 4_I4P .and. r == 2_I4P)) &
                call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 along the refined axes '// &
                                         '(coarse->fine footprint cannot fit the donor block)')
-            if (self%seam_ghost_fill == SEAM_FILL_QUINTIC .and. any(nijk < 6_I4P .and. r == 2_I4P)) &
-               call mpih%error_stop(msg=': [amr] seam_ghost_fill = quintic needs ni,nj,nk >= 6 along the refined axes '// &
+            if (self%seam_ghost_fill >= SEAM_FILL_QUINTIC .and. any(nijk < 6_I4P .and. r == 2_I4P)) & ! 6-point fills
+               call mpih%error_stop(msg=': [amr] seam_ghost_fill = quintic|weno6|quintic-mp needs ni,nj,nk >= 6 along '// &
+                                        'the refined axes '// &
                                         '(the 6-point coarse->fine footprint must fit the donor block, issue #68 D1)')
             send_ctr = 1
             do k=kmin, kmax
@@ -1396,8 +1397,9 @@ contains
             if (any(nijk < 4_I4P .and. r == 2_I4P)) &
                call mpih%error_stop(msg=': seam ghost interpolation needs ni,nj,nk >= 4 along the refined axes '// &
                                         '(coarse->fine footprint cannot fit the donor block)')
-            if (self%seam_ghost_fill == SEAM_FILL_QUINTIC .and. any(nijk < 6_I4P .and. r == 2_I4P)) &
-               call mpih%error_stop(msg=': [amr] seam_ghost_fill = quintic needs ni,nj,nk >= 6 along the refined axes '// &
+            if (self%seam_ghost_fill >= SEAM_FILL_QUINTIC .and. any(nijk < 6_I4P .and. r == 2_I4P)) & ! 6-point fills
+               call mpih%error_stop(msg=': [amr] seam_ghost_fill = quintic|weno6|quintic-mp needs ni,nj,nk >= 6 along '// &
+                                        'the refined axes '// &
                                         '(the 6-point coarse->fine footprint must fit the donor block, issue #68 D1)')
             do k=kmin, kmax
                do j=jmin, jmax

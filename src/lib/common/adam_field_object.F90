@@ -72,6 +72,8 @@ use :: adam_tree_object, only : tree_object
 use :: adam_maps_object, only : maps_object
 use :: adam_mpih_global, only : mpih
 use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_QUINTIC, SEAM_SUB_COINCIDENT, &
+                                               SEAM_FILL_WENO6, seam_interpolate_weno6, &
+                                               SEAM_FILL_QUINTIC_MP, seam_interpolate_quintic_mp, &
                                                seam_meta_unpack, seam_interpolate_quintic, &
                                                seam_interpolate_tricubic, seam_interpolate_compatible, &
                                                SEAM_RESTRICT_MEAN, SEAM_RESTRICT_WENO6, SEAM_RESTRICT_IDENTITY, &
@@ -1005,7 +1007,7 @@ contains
    !< `(i_send,j_send,k_send)` of block `b_send` and compose the 1D weights of
    !< the active regime. The anchor and the shift-clamped positions in `meta`
    !< guarantee the footprint reads REAL donor cells only (G3).
-   integer(I4P), intent(in) :: regime          !< Active fill regime (SEAM_FILL_COMPATIBLE|TRICUBIC|QUINTIC).
+   integer(I4P), intent(in) :: regime          !< Active fill regime (SEAM_FILL_*).
    integer(I4P), intent(in) :: meta            !< Packed interpolation metadata (see seam_meta_pack).
    integer(I4P), intent(in) :: ngc             !< Ghost cells number (bounds of q).
    real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
@@ -1026,8 +1028,8 @@ contains
    integer(I4P)             :: ii, jj, kk      !< Footprint counters.
 
    call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
-   if (regime == SEAM_FILL_QUINTIC) then
-      ! issue #68 D1: an unrefined direction gathers the anchor only (the evaluator reads nothing else along it)
+   if (regime == SEAM_FILL_QUINTIC .or. regime == SEAM_FILL_WENO6 .or. regime == SEAM_FILL_QUINTIC_MP) then
+      ! issue #68 D1, D2: an unrefined direction gathers the anchor only (the evaluators read nothing else along it)
       lo = 1_I4P
       hi = 6_I4P
       where (sub == SEAM_SUB_COINCIDENT)
@@ -1042,7 +1044,13 @@ contains
             enddo
          enddo
       enddo
-      value_ = seam_interpolate_quintic(footprint=fp6, sub=sub, anchor_pos=p6)
+      if (regime == SEAM_FILL_WENO6) then
+         value_ = seam_interpolate_weno6(footprint=fp6, sub=sub, anchor_pos=p6)
+      elseif (regime == SEAM_FILL_QUINTIC_MP) then
+         value_ = seam_interpolate_quintic_mp(footprint=fp6, sub=sub, anchor_pos=p6)
+      else
+         value_ = seam_interpolate_quintic(footprint=fp6, sub=sub, anchor_pos=p6)
+      endif
    elseif (regime == SEAM_FILL_COMPATIBLE) then
       do kk=1, 3
          do jj=1, 3
