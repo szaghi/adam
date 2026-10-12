@@ -31,7 +31,8 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, seam_face_cells,             &
-                                              REFLUX_POLICY_TROUBLED,                                                   &
+                                              REFLUX_POLICY_TROUBLED, IA_R, IA_U, IA_P, FLUX_CORRECTION_SENSOR_TAU,     &
+                                              seam_weno5_sensor,                                                        &
                                               seam_fine_to_coarse, seam_skin_cell, seam_skin_index,                    &
                                               MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM,                                  &
                                               MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,                                &
@@ -154,6 +155,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    contains
       ! public methods
       procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
+      procedure, pass(self) :: flag_troubled_seam_cells !< Flag the troubled seam face cells of one stage (#68 E1).
       procedure, pass(self) :: add_dissipative_fluxes_dev !< Add the dissipative face fluxes on the device (issue #65).
       procedure, pass(self) :: apply_floors            !< Apply the MHD positivity floors of a stage.
       procedure, pass(self) :: allocate_gpu            !< Allocate device data.
@@ -267,6 +269,81 @@ contains
       enddo
    enddo
    endsubroutine accumulate_seam_fluxes
+
+   subroutine flag_troubled_seam_cells(self, flux_register)
+   !< Flag the troubled seam face cells of one stage for the reflux policy `troubled` (issue #68 E1b), the FNL twin of
+   !< the CPU flagging: the 6 cells across every owned register face cell (the coarse skin cell, two inside it, three
+   !< ghosts outside) are gathered from `q_aux_gpu` to the host (density, velocity, pressure), where the same
+   !< `seam_weno5_sensor` and the limiter's host seam factors (issue #50) flag them. Seam cells only: a small gather.
+   class(flume_fnl_object),     intent(inout) :: self          !< The equation.
+   class(flux_register_object), intent(inout) :: flux_register !< Forest's flux register.
+   integer(I4P), allocatable                  :: cell(:,:)     !< Gathered cells (i, j, k, b) [4, 6 n].
+   real(R8P),    allocatable                  :: qa(:,:)       !< Gathered auxiliary variables [IA_P, 6 n].
+   real(R8P)                                  :: v(1:6)        !< One variable across the face.
+   real(R8P)                                  :: r             !< Sensor.
+   integer(I4P)                               :: var(1:3)      !< Sensed auxiliary variables.
+   integer(I4P)                               :: f, c, n, iv, m !< Counters.
+   integer(I4P)                               :: axis, sgn     !< Face normal axis and side.
+   integer(I4P)                               :: e(1:3)        !< Outward unit step.
+   integer(I4P)                               :: i, j, k       !< Coarse skin cell.
+   logical                                    :: blended       !< The limiter's seam factors are available.
+
+   if (.not.allocated(flux_register%face)) return
+   m = 0_I4P
+   do f=1, flux_register%nfaces
+      associate(face=>flux_register%face(f))
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (allocated(face%troubled)) m = m + 6_I4P * face%nface_cells
+      endassociate
+   enddo
+   if (m == 0_I4P) return
+   allocate(cell(4,m), qa(IA_P,m))
+   m = 0_I4P
+   do f=1, flux_register%nfaces
+      associate(face=>flux_register%face(f))
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (.not.allocated(face%troubled)) cycle
+      call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
+      e = 0_I4P ; e(axis) = sgn
+      do c=1, face%nface_cells
+         call seam_skin_cell(axis=axis, sgn=sgn, ni=self%ni, nj=self%nj, nk=self%nk, c=c, i=i, j=j, k=k)
+         do n=1, 6 ! the skin cell is node 3, the first ghost node 4
+            m = m + 1_I4P
+            cell(:,m) = [i + (n-3)*e(1), j + (n-3)*e(2), k + (n-3)*e(3), face%coarse_block]
+         enddo
+      enddo
+      endassociate
+   enddo
+   call seam_gather_cells(cells=cell, nv=IA_P, ngc=self%ngc, a_gpu=self%q_aux_gpu, out=qa)
+   m = 0_I4P
+   do f=1, flux_register%nfaces
+      associate(face=>flux_register%face(f))
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (.not.allocated(face%troubled)) cycle
+      call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
+      var = [IA_R, IA_U + axis - 1_I4P, IA_P]
+      blended = .false.
+      if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL .and. allocated(self%seam%off) .and. &
+          allocated(self%seam%th)) then
+         if (f <= size(self%seam%off)) blended = self%seam%off(f) >= 0_I4P
+      endif
+      do c=1, face%nface_cells
+         if (.not.face%troubled(c)) then
+            if (blended) face%troubled(c) = self%seam%th(self%seam%off(f) + c) < 1._R8P
+         endif
+         if (.not.face%troubled(c)) then
+            r = 1._R8P
+            do iv=1, 3
+               v = qa(var(iv), m+1:m+6)
+               r = min(r, seam_weno5_sensor(v))
+            enddo
+            face%troubled(c) = r < FLUX_CORRECTION_SENSOR_TAU
+         endif
+         m = m + 6_I4P
+      enddo
+      endassociate
+   enddo
+   endsubroutine flag_troubled_seam_cells
 
    subroutine add_dissipative_fluxes_dev(self)
    !< Add the dissipative face fluxes of the active directions to the inviscid ones (issue #65), from the auxiliary
@@ -576,6 +653,7 @@ contains
                                    flux_register=reg)
    if (self%numerics%reflux .and. reg%nfaces > 0_I4P) then
       call self%accumulate_seam_fluxes(s=1_I4P, flux_register=reg, weight=1._R8P)
+      if (self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) call self%flag_troubled_seam_cells(flux_register=reg)
       call reg%reduce_fine_sums
    endif
    allocate(corr(nb,ni,nj,nk))
@@ -588,6 +666,9 @@ contains
          if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
          call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
          do c=1, face%nface_cells
+            if (self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) then
+               if (.not.face%troubled(c)) cycle ! the policy leaves this cell's flux mismatch in place (#68 E1)
+            endif
             call seam_skin_cell(axis=axis, sgn=sgn, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
             corr(face%coarse_block,i,j,k) = corr(face%coarse_block,i,j,k) +                                       &
                                             real(sgn, R8P) / self%adam%field%dxyz(axis,face%coarse_block) *       &
@@ -767,9 +848,6 @@ contains
    if (realms_number_ > 1_I4P .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call mpih_fnl%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported on multi-realm runs (the '// &
                                    'inter-realm seam faces carry no limiting factor)')
-   if (self%numerics%reflux .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
-      call mpih_fnl%error_stop(msg=': [numerics].(reflux_policy)=troubled is not yet available on the FNL backend '// &
-                                   '(issue #68 E1b); use the CPU backend or reflux_policy = always')
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
@@ -1381,12 +1459,18 @@ contains
    integer(I4P)                               :: f              !< Face counter.
    integer(I4P)                               :: axis, sgn      !< Face normal axis and side.
    integer(I4P)                               :: ierr           !< Error status.
+   integer(I4P)                               :: c              !< Face cell counter.
+   integer(I4P)                               :: nflag, ncell   !< Troubled and owned face cells (#68 E1).
+   logical                                    :: troubled_only  !< Reflux policy `troubled`.
 
    if (.not.self%numerics%reflux) return
    if (.not.flux_register%is_initialized_) return
    if (flux_register%nfaces == 0_I4P) return
    if (.not.allocated(flux_register%face)) return
    if (stage /= self%rk%nrk) return
+   troubled_only = self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED
+   nflag = 0_I4P
+   ncell = 0_I4P
    do f=1, flux_register%nfaces
       associate(face=>flux_register%face(f))
       if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
@@ -1395,6 +1479,16 @@ contains
       if (axis == 0_I4P) call mpih_fnl%error_stop(msg=': malformed coarse face code of register face '//trim(str(f)))
       allocate(delta(self%nv,face%nface_cells))
       delta = face%F_coarse(1:self%nv,:,1) - face%F_fine_sum(1:self%nv,:,1)
+      if (troubled_only) then ! reflux policy `troubled` (#68 E1): only the flagged cells are corrected
+         do c=1, face%nface_cells
+            ncell = ncell + 1_I4P
+            if (face%troubled(c)) then
+               nflag = nflag + 1_I4P
+            else
+               delta(:,c) = 0._R8P
+            endif
+         enddo
+      endif
       call dev_alloc(fptr_dev=delta_gpu, lbounds=[1,1], ubounds=[self%nv,face%nface_cells], ierr=ierr)
       if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate delta_gpu in apply_reflux_to_stage_forest')
       call dev_memcpy_to_device(dst=delta_gpu, src=delta)
@@ -1406,6 +1500,8 @@ contains
       deallocate(delta)
       endassociate
    enddo
+   if (troubled_only .and. ncell > 0_I4P) call mpih_fnl%print_message('reflux troubled: +'//trim(str(nflag, .true.))// &
+                                                                      ' of +'//trim(str(ncell, .true.))//' face cells')
    endsubroutine apply_reflux_to_stage_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -1956,6 +2052,8 @@ contains
                                                                                              flux_register=flux_register)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
+      if (flux_register%nfaces > 0_I4P .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
+         call self%flag_troubled_seam_cells(flux_register=flux_register)
    endif
    if (self%ib%solids_number > 0_I4P) then
       call compute_flux_difference_ib_dev(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,           &
@@ -2105,6 +2203,8 @@ contains
                                                                                              flux_register=flux_register)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
+      if (flux_register%nfaces > 0_I4P .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
+         call self%flag_troubled_seam_cells(flux_register=flux_register)
    endif
    if (self%ib%solids_number > 0_I4P) then
       call compute_flux_difference_ib_dev(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,           &
