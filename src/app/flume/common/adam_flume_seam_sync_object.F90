@@ -36,6 +36,7 @@ public :: flume_seam_sync_object
 public :: seam_face_cells
 public :: seam_fine_to_coarse
 public :: seam_skin_index
+public :: seam_weno5_sensor
 
 type :: flume_seam_sync_object
    !< Per-stage seam flux synchronisation data (host).
@@ -61,6 +62,46 @@ type :: flume_seam_sync_object
 endtype flume_seam_sync_object
 
 contains
+   pure function seam_weno5_sensor(v) result(r)
+   !< Return the WENO-5 sensor of the face between `v(3)` and `v(4)` (issue #68 E1): `r = min_k w_k / d_k` of the
+   !< right-interface reconstruction of cell 3 (`v(1:5)`) and of the left-interface one of cell 4 (`v(2:6)`), the
+   !< Jiang-Shu weights of `adam_weno_object` (zeps = 1e-6, exponent 3, its smoothness-indicator table): about 1 on
+   !< smooth data, near 0 where a stencil holds a discontinuity. The sensor of `verification/amr-log/amr_log.py` (A4)
+   !< and of the weno-riemann flux correction (#47), threshold `FLUX_CORRECTION_SENSOR_TAU`. Whole-array argument:
+   !< no array section crosses the device call boundary.
+   real(R8P), intent(in) :: v(1:6) !< One variable on the 6 cells across the face, in order.
+   real(R8P)             :: r      !< Sensor.
+   !$acc routine seq
+   !$omp declare target
+
+   r = min(seam_weno5_cell_ratio(v=v, c=3_I4P, d0=0.1_R8P, d1=0.6_R8P, d2=0.3_R8P), &
+           seam_weno5_cell_ratio(v=v, c=4_I4P, d0=0.3_R8P, d1=0.6_R8P, d2=0.1_R8P))
+   endfunction seam_weno5_sensor
+
+   pure function seam_weno5_cell_ratio(v, c, d0, d1, d2) result(r)
+   !< Return min_k w_k / d_k of the WENO-5 reconstruction of cell `c` of `v` with the linear weights `d0, d1, d2` of the
+   !< stencils (c-2..c), (c-1..c+1), (c..c+2) (`seam_weno5_sensor`).
+   real(R8P),    intent(in) :: v(1:6)     !< One variable on the 6 cells across the face.
+   integer(I4P), intent(in) :: c          !< Cell (3 or 4).
+   real(R8P),    intent(in) :: d0, d1, d2 !< Linear weights.
+   real(R8P)                :: r          !< Ratio.
+   real(R8P)                :: is0, is1, is2, a0, a1, a2, asum !< Smoothness indicators, weights.
+   !$acc routine seq
+   !$omp declare target
+
+   ! IS_s = sum_{a,b} C(s,a,b) v(c+s-a) v(c+s-b), the table of adam_weno_object (initialize_upwind_S3)
+   is0 = 10._R8P/3._R8P * v(c  )**2 - 31._R8P/3._R8P * v(c-1) * v(c  ) + 11._R8P/3._R8P * v(c-2) * v(c  ) + &
+         25._R8P/3._R8P * v(c-1)**2 - 19._R8P/3._R8P * v(c-2) * v(c-1) +  4._R8P/3._R8P * v(c-2)**2
+   is1 =  4._R8P/3._R8P * v(c+1)**2 - 13._R8P/3._R8P * v(c  ) * v(c+1) +  5._R8P/3._R8P * v(c-1) * v(c+1) + &
+         13._R8P/3._R8P * v(c  )**2 - 13._R8P/3._R8P * v(c-1) * v(c  ) +  4._R8P/3._R8P * v(c-1)**2
+   is2 =  4._R8P/3._R8P * v(c+2)**2 - 19._R8P/3._R8P * v(c+1) * v(c+2) + 11._R8P/3._R8P * v(c  ) * v(c+2) + &
+         25._R8P/3._R8P * v(c+1)**2 - 31._R8P/3._R8P * v(c  ) * v(c+1) + 10._R8P/3._R8P * v(c  )**2
+   a0 = d0 / (1.e-6_R8P + is0)**3
+   a1 = d1 / (1.e-6_R8P + is1)**3
+   a2 = d2 / (1.e-6_R8P + is2)**3
+   asum = a0 + a1 + a2
+   r = min(a0 / asum / d0, a1 / asum / d1, a2 / asum / d2)
+   endfunction seam_weno5_cell_ratio
    ! public methods
    function build(self, flux_register, register_index, blocks_number, ni, nj, nk, nv) result(active)
    !< Size the skins of the register's intra-realm AMR faces and the compact store of this rank's fine seam faces, and

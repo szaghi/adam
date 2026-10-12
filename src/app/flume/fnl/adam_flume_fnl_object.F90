@@ -31,6 +31,7 @@ use :: adam_fnl_weno_object,      only : weno_fnl_object
 use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, seam_face_cells,             &
+                                              REFLUX_POLICY_TROUBLED,                                                   &
                                               seam_fine_to_coarse, seam_skin_cell, seam_skin_index,                    &
                                               MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM,                                  &
                                               MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,                                &
@@ -766,6 +767,9 @@ contains
    if (realms_number_ > 1_I4P .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call mpih_fnl%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported on multi-realm runs (the '// &
                                    'inter-realm seam faces carry no limiting factor)')
+   if (self%numerics%reflux .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
+      call mpih_fnl%error_stop(msg=': [numerics].(reflux_policy)=troubled is not yet available on the FNL backend '// &
+                                   '(issue #68 E1b); use the CPU backend or reflux_policy = always')
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)

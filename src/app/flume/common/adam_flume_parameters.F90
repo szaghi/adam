@@ -67,6 +67,8 @@ public :: FLUX_CORRECTION_SENSOR_TAU
 public :: POSITIVITY_LIMITER_CELL
 public :: POSITIVITY_LIMITER_KAPPA
 public :: POSITIVITY_LIMITER_NONE
+public :: REFLUX_POLICY_ALWAYS
+public :: REFLUX_POLICY_TROUBLED
 public :: strip_control
 
 ! conservative variables
@@ -131,6 +133,9 @@ character(len=4),  parameter :: FLUX_CORRECTION_SENSOR_NONE="none"    !< [numeri
 real(R8P),         parameter :: FLUX_CORRECTION_SENSOR_TAU=0.2_R8P    !< Correction off at a face where the WENO weights
                                                                       !< ratio min_k w_k/d_k < TAU (issue #47, M3-P0).
 character(len=4),  parameter :: POSITIVITY_LIMITER_NONE="none"        !< [numerics].(positivity_limiter): off.
+character(len=6),  parameter :: REFLUX_POLICY_ALWAYS="always"          !< [numerics].(reflux_policy): every face cell.
+character(len=8),  parameter :: REFLUX_POLICY_TROUBLED="troubled"      !< [numerics].(reflux_policy): the face cells the
+                                                                       !< WENO sensor or the positivity limiter flags.
 character(len=4),  parameter :: POSITIVITY_LIMITER_CELL="cell"        !< [numerics].(positivity_limiter): cell-based
                                                                       !< parametrised flux limiter (issue #47, D-9).
 real(R8P),         parameter :: POSITIVITY_LIMITER_KAPPA=0.1_R8P      !< Floor of the limiter: rho, the internal

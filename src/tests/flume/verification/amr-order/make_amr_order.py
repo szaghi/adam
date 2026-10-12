@@ -26,6 +26,7 @@ Usage:
     make_amr_order.py euler|mhd <out.ini> --cells N [--ratio 4|8] [--uniform] [--time-max T] [--no-reflux]
                                           [--it-save K] [--seam-restriction mean|lagrange6|weno6]
                                           [--seam-ghost-fill tricubic|quintic|weno6|quintic-mp]
+                                          [--reflux-policy always|troubled]
 """
 
 from __future__ import annotations
@@ -89,6 +90,8 @@ def main() -> None:
                         help="[amr] seam_restriction (default: the key absent, the mean)")
     parser.add_argument("--seam-ghost-fill", choices=("tricubic", "quintic", "weno6", "quintic-mp"), default=None,
                         help="[amr] seam_ghost_fill (default: the key absent, tricubic)")
+    parser.add_argument("--reflux-policy", choices=("always", "troubled"), default=None,
+                        help="[numerics] reflux_policy (#68 E1; default: the key absent, always)")
     args = parser.parse_args()
     ini = base_input(args.case, args.cells, args.time_max)
     if args.uniform:
@@ -101,6 +104,8 @@ def main() -> None:
         ini["numerics"]["reflux"] = ".false."
     if args.seam_restriction is not None:
         ini["amr"]["seam_restriction"] = args.seam_restriction
+    if args.reflux_policy is not None:
+        ini["numerics"]["reflux_policy"] = args.reflux_policy
     if args.seam_ghost_fill is not None:
         ini["amr"]["seam_ghost_fill"] = args.seam_ghost_fill
     ini["IO"]["it_save"] = str(args.it_save)

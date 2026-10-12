@@ -22,7 +22,8 @@ use :: adam_flume_parameters, only : FLUX_CORRECTION_4TH, FLUX_CORRECTION_6TH, F
                                      FLUX_CORRECTION_SENSOR_NONE, FLUX_CORRECTION_SENSOR_TAU, FLUX_CORRECTION_SENSOR_WENO, &
                                      POSITIVITY_LIMITER_CELL, POSITIVITY_LIMITER_NONE, RECON_CHARACTERISTIC,               &
                                      RECON_CONSERVATIVE, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,         &
-                                     RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,                           &
+                                     RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO, REFLUX_POLICY_ALWAYS,     &
+                                     REFLUX_POLICY_TROUBLED,                                                         &
                                      SCHEME_SPACE_WENO_RIEMANN, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
@@ -43,6 +44,7 @@ type :: flume_numerics_object
    character(:), allocatable :: flux_correction          !< Face flux correction order (weno-riemann only).
    character(:), allocatable :: flux_correction_sensor   !< Face flux correction sensor (weno-riemann only).
    character(:), allocatable :: positivity_limiter       !< Positivity limiter: none or cell.
+   character(:), allocatable :: reflux_policy            !< Reflux policy (with reflux on): always or troubled (#68 E1).
    integer(I4P)              :: dissipative_order=4_I4P  !< Order of the dissipative face fluxes, 2 or 4 (issue #65).
    contains
       ! public methods
@@ -94,6 +96,7 @@ contains
    desc = desc//mpih%myrankstr//'  scheme_space:             '//self%scheme_space//NL
    desc = desc//mpih%myrankstr//'  reconstruction_variables: '//self%reconstruction_variables//NL
    desc = desc//mpih%myrankstr//'  reflux:                   '//trim(merge('.true. ', '.false.', self%reflux))
+   if (self%reflux) desc = desc//NL//mpih%myrankstr//'  reflux_policy:            '//self%reflux_policy
    desc = desc//NL//mpih%myrankstr//'  positivity_limiter:       '//self%positivity_limiter
    desc = desc//NL//mpih%myrankstr//'  dissipative_order:        '//trim(str(self%dissipative_order))
    if (self%scheme_space == SCHEME_SPACE_WENO_RIEMANN) then
@@ -160,6 +163,15 @@ contains
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux', val=self%reflux, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reflux)')
+   ! optional (default always, issue #68 E1): with `troubled` the reflux corrects only the seam face cells the WENO
+   ! sensor (FLUX_CORRECTION_SENSOR_TAU) or the positivity limiter flags in a stage of the step
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux_policy', val=buff, error=error)
+   if (error > 0) then
+      self%reflux_policy = REFLUX_POLICY_ALWAYS
+   else
+      call load_choice(key='reflux_policy', val=self%reflux_policy,                                           &
+                       accepted=[character(8) :: REFLUX_POLICY_ALWAYS, REFLUX_POLICY_TROUBLED])
+   endif
 
    ! optional (default none): an absent key keeps every pre-M3-P5 input valid
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='positivity_limiter', val=buff, error=error)

@@ -114,6 +114,9 @@ type :: flux_register_face_t
    integer(I4P) :: nface_cells  = 0_I4P  !< Coarse cells covered by this face (coarse-side count).
    real(R8P), allocatable :: F_coarse(:,:,:)         !< Coarse-side end-of-step flux: (nv, nface_cells, 1) under α.r1.
    real(R8P), allocatable :: F_fine_sum(:,:,:)       !< Fine-side end-of-step accumulator: (nv, nface_cells, 1) under α.r1.
+   logical,   allocatable :: troubled(:)             !< Face cells flagged troubled in any stage of the step (nface_cells),
+                                                     !< written by the coarse owner under a `troubled` reflux policy
+                                                     !< (issue #68 E1): the reflux corrects only these cells.
 endtype flux_register_face_t
 
 type :: flux_register_object
@@ -257,12 +260,15 @@ contains
    ! No allocation ↔ no fine-side blocks recorded for this face.
    if (allocated(slot%F_coarse  )) deallocate(slot%F_coarse  )
    if (allocated(slot%F_fine_sum)) deallocate(slot%F_fine_sum)
+   if (allocated(slot%troubled  )) deallocate(slot%troubled  )
    ! α.r1: third axis forced to 1 — see register_face docstring. The
    ! `n_stages` arg above is validated for API hygiene only.
    allocate(slot%F_coarse  (1:nv, 1:nface_cells, 1:1))
    allocate(slot%F_fine_sum(1:nv, 1:nface_cells, 1:1))
+   allocate(slot%troubled  (1:nface_cells))
    slot%F_coarse   = 0._R8P
    slot%F_fine_sum = 0._R8P
+   slot%troubled   = .false.
    end associate
    endsubroutine register_face
 
@@ -398,7 +404,7 @@ contains
    endsubroutine reduce_fine_sums
 
    subroutine reset(self)
-   !< Zero `F_coarse` and `F_fine_sum` on every registered face.
+   !< Zero `F_coarse` and `F_fine_sum`, and clear the troubled flags, on every registered face.
    !<
    !< Called by `forest_object%evolve_one_step` at top-of-step. After this
    !< call, every face's accumulators are zero; per-stage flux contributions
@@ -413,6 +419,7 @@ contains
    do i=1, self%nfaces
       if (allocated(self%face(i)%F_coarse))   self%face(i)%F_coarse   = 0._R8P
       if (allocated(self%face(i)%F_fine_sum)) self%face(i)%F_fine_sum = 0._R8P
+      if (allocated(self%face(i)%troubled  )) self%face(i)%troubled   = .false.
    enddo
    endsubroutine reset
 
@@ -426,6 +433,7 @@ contains
          if (allocated(self%face(i)%fine_block)) deallocate(self%face(i)%fine_block)
          if (allocated(self%face(i)%F_coarse  )) deallocate(self%face(i)%F_coarse  )
          if (allocated(self%face(i)%F_fine_sum)) deallocate(self%face(i)%F_fine_sum)
+         if (allocated(self%face(i)%troubled  )) deallocate(self%face(i)%troubled  )
       enddo
       deallocate(self%face)
    endif
