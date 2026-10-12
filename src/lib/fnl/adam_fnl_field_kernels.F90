@@ -331,7 +331,11 @@ contains
    integer(I4P)                      :: one_or_eight              !< Flag triggering 8 cells mean.
 
    if (.not.associated(l_map_ghost_cell_gpu)) return
-   !$acc parallel loop independent DEVICEVAR(l_map_ghost_cell_gpu, q_gpu)
+   ! collapse(2) (#68 C3b): without it nvfortran parallelised the variables only (9 threads) and ran the rows in sequence
+   ! ("loop carried dependence of q_gpu": the writes go through the map), which made this kernel 98 % of the FNL GPU
+   ! time of the PV-5 blast. The rows are independent: one row per receiver cell (dedupe_last_writer, #22 F1), and every
+   ! row reads real donor cells only, never a ghost another row writes (the #22 race discipline).
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(l_map_ghost_cell_gpu, q_gpu)
    !$omp OMPLOOP collapse(2) DEVICEPTR(l_map_ghost_cell_gpu, q_gpu)
    do v=1, size(q_gpu, dim=5)
       do mf=1, size(l_map_ghost_cell_gpu, dim=1)

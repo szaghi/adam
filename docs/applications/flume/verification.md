@@ -1297,7 +1297,16 @@ Findings:
 - **On FNL it is slow on an octree.** The PV-5 runs take 2.4 to 2.5 times the wall time of the mean (4900 s against
   1955 s, split; 4395 s against 1841 s, HLLD, with the same 433 steps; WSL, indicative only), against 16 % on the
   quadtree AO case: a restricted ghost reads 216 fine cells, one after the other, in the loop that copies the other
-  ghosts. C3 makes the device restriction fast; the nonlinear `weno6` follows as an option, not as a fix.
+  ghosts. The nonlinear `weno6` follows as an option, not as a fix.
+- **The cost was the ghost kernel, for every regime (C3b).** Profiled (Nsight Systems, 40 PV-5 steps, one rank), the
+  local ghost update was 98 % of the FNL GPU time even with the mean: 0.70 s per call. nvfortran parallelised its loop
+  over the variables only (9 threads) and ran the map rows in sequence (a "loop carried dependence" through the
+  indirect writes): the schedule [#27](https://github.com/szaghi/adam/issues/27) specifies the fix for, and that
+  [#53](https://github.com/szaghi/adam/issues/53) measured as the dominant FNL cost. With the two loops collapsed, as
+  the other map kernels are, the kernel takes 0.84 s over the 444 calls instead of 310 s (mean) and 1.39 s instead of
+  815 s (lagrange6), bitwise identical; the full PV-5 split run drops from 1955 s to 276 s (mean) and from 4900 s to
+  288 s (lagrange6, whose premium becomes 4 %, with 5 % more steps). WSL timings: #27 asks for the benchmark on a real
+  node.
 
 ### AL: integral drift and the WENO sensor near seams
 
