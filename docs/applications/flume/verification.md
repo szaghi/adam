@@ -1417,6 +1417,40 @@ Findings:
   $6.04\cdot10^{-8}$, `euler-q6`'s (the bound never clips the vortex). PV-5 passes with no inadmissible stage under
   both; GP holds a cubic field to round-off with either fill.
 
+### E0: the shock-crossing defect is a capturing error
+
+**Why.** A3 found an O(1), non-converging defect behind a shock that crosses a 2:1 seam; D2 showed that no
+coarse-to-fine fill reduces it and that limiting the fill makes it worse. E0
+([#68](https://github.com/szaghi/adam/issues/68)) asks whether it comes from the consistency of the fill with the
+restriction (only `restriction-compatible` with the `mean` restriction has $R \circ P = I$ exactly), from the reflux,
+or from neither.
+
+**Runs.** The AS c2f crossings (FNL, 2 ranks), every combination of fill (`restriction-compatible`, `tricubic`),
+restriction (`mean`, `lagrange6`) and reflux (on, off); Sod also at N = 400. Plateau density defect behind the shock:
+
+| Fill + restriction | Sod, reflux on | Sod, reflux off | RJ2a, reflux on | RJ2a, reflux off |
+|---|---|---|---|---|
+| compatible + mean ($R \circ P = I$) | $2.32\cdot10^{-2}$ | $1.82\cdot10^{-2}$ | $1.97\cdot10^{-2}$ | $1.83\cdot10^{-2}$ |
+| compatible + lagrange6 | $2.32\cdot10^{-2}$ | $1.85\cdot10^{-2}$ | $1.98\cdot10^{-2}$ | $1.84\cdot10^{-2}$ |
+| tricubic + mean | $2.46\cdot10^{-2}$ | $3.10\cdot10^{-2}$ | $1.41\cdot10^{-2}$ | $1.68\cdot10^{-2}$ |
+| tricubic + lagrange6 | $2.46\cdot10^{-2}$ | $3.17\cdot10^{-2}$ | $1.41\cdot10^{-2}$ | $1.68\cdot10^{-2}$ |
+
+Sod with the reflux on at N = 400: $2.35\cdot10^{-2}$ (tricubic) and $2.14\cdot10^{-2}$ (compatible), while the band
+defect next to the seam converges ($6.35\cdot10^{-3} \to 1.71\cdot10^{-3}$, order 1.9). With the reflux off the mass
+drifts ($10^{-5}$ to $10^{-4}$) and the shock lands 0.06 to 0.22 cells off.
+
+Findings:
+- **The restriction is irrelevant** (`mean` and `lagrange6` within 0.5 % in every case).
+- **Consistency does not control it**: the $R \circ P = I$ pair is best on Sod and worse than `tricubic` on RJ2a.
+- **The reflux does not cause it**: off, it moves the defect by up to 30 % either way and costs conservation.
+- **It does not converge**: N = 200 to 400 lowers it by 5 to 8 %.
+
+So it is not a seam-operator defect. The evidence points to the start-up error of a captured shock whose numerical
+structure, a few cells wide, is squeezed into finer cells (an interpretation, not measured directly): the transition emits a spurious wave (the plateau entropy defect is about 1.8 %)
+whose amplitude scales with the shock's strength, not with the spacing. The remedy is to keep shocks off the seams,
+refining ahead of them (a gradient or Löhner marker with a buffer and a short regrid frequency, M5), which
+[Numerics](./numerics#adaptive-mesh-refinement) now recommends; Phase E (the reflux policy) proceeds on its own merit.
+
 ### AL: integral drift and the WENO sensor near seams
 
 **Why.** The reflux policy of Phase E (`reflux = troubled`) would turn the reflux off at the seam faces that a WENO
