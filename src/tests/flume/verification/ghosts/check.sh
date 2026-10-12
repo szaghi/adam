@@ -25,7 +25,7 @@
 # (inter-realm 2:1): CPU np 1-3 and FNL np 1-2 within 1.1e-15, every face and edge group.
 #
 # Usage: ./check.sh [--np "1 2 3"] [--cases "box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"]
-#        [--keep] [--seam-restriction mean|lagrange6]
+#        [--keep] [--seam-restriction mean|lagrange6|weno6]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).

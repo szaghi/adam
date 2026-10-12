@@ -1308,6 +1308,37 @@ Findings:
   288 s (lagrange6, whose premium becomes 4 %, with 5 % more steps). WSL timings: #27 asks for the benchmark on a real
   node.
 
+**C3c: the WENO restriction** (`[amr] seam_restriction = weno6`, [#68](https://github.com/szaghi/adam/issues/68) C3).
+Per direction, the WENO-Z combination (Borges et al. 2008, $p = 2$) of the cubic interpolants of the 4-point
+sub-stencils of the 6 nodes that contain the coarse centre, with Jiang–Shu indicators and $\tau$ the highest undivided
+difference of the candidates' union. An interval whose difference exceeds twice its neighbours' is a jump; a sub-stencil
+holding one is dropped, and with none left (a jump inside the fine pair) the restriction is the mean of the pair, the
+troubled-cell fallback. No sub-stencil extrapolates (across a jump it would import the far side's state), so the design
+order is 6 centred, 5 one cell from the donor block's edge and 4 at it. Applied direction by direction (x, y, z) on CPU,
+FNL and the inter-realm rows; the regime travels in the row's meta (1..216 Lagrange, 217..432 WENO), so the
+inter-realm packers need no new argument. Unit test (`test_seam_interpolation`): exact on cubics at any scale and
+offset, design orders on smooth data, the fine pair's own state across a jump elsewhere and the mean of a jump inside
+the pair, mirror-symmetric on random data.
+
+| Check (FNL, 2 ranks) | mean | lagrange6 | weno6 |
+|---|---|---|---|
+| AO euler, reflux off, N = 256: L1 all / band, Linf | — | $8.55\cdot10^{-8}$ / $2.61\cdot10^{-7}$, $6.36\cdot10^{-6}$ | $8.43\cdot10^{-8}$ / $2.26\cdot10^{-7}$, $6.39\cdot10^{-6}$ |
+| AO orders L1 / Linf (128 → 256) | — | 5.33 / 5.53 | 5.34 / 5.53 |
+| Sod c2f plateau $\rho$, band $\rho$ | $2.463\cdot10^{-2}$, $6.352\cdot10^{-3}$ | $2.457\cdot10^{-2}$, $6.330\cdot10^{-3}$ | $2.464\cdot10^{-2}$, $6.365\cdot10^{-3}$ |
+| Sod f2c plateau $\rho$, band $\rho$ | $1.576\cdot10^{-2}$, $3.481\cdot10^{-3}$ | $1.575\cdot10^{-2}$, $3.430\cdot10^{-3}$ | $1.576\cdot10^{-2}$, $3.516\cdot10^{-3}$ |
+| RJ2a c2f plateau $\rho$, band $p$ | $1.413\cdot10^{-2}$, $1.402\cdot10^{-4}$ | $1.410\cdot10^{-2}$, $1.300\cdot10^{-4}$ | $1.414\cdot10^{-2}$, $1.360\cdot10^{-4}$ |
+| PV-5 split / HLLD: most faces limited in a stage | 48512 / 17920 | 46336 / 17920 | 48064 / 17920 |
+| PV-5 split wall (WSL, after C3b) | 276 s | 288 s | 278 s |
+
+Findings:
+- **On the smooth vortex `weno6` equals `lagrange6`** (the band L1 13 % lower): no jump is detected, and the
+  fourth-order rows at the donor block's edge do not show at these resolutions. AO leg `euler-w6` asserts it.
+- **At shocks it is as neutral as `lagrange6`**: shock positions identical, mass exact, every defect within 1.5 % of
+  the mean's; PV-5 passes under both schemes with no inadmissible stage. Neither 6-point restriction makes a shock
+  crossing worse, so the default stays `mean` until Phase D/E evidence; `weno6` is the option for data with jumps
+  inside the restriction footprint that these cases do not produce.
+- Multirealm leg 6 runs both regimes (bitwise unions), GP probes `weno6` on box3d, channel2d and refined3d.
+
 ### AL: integral drift and the WENO sensor near seams
 
 **Why.** The reflux policy of Phase E (`reflux = troubled`) would turn the reflux off at the seam faces that a WENO

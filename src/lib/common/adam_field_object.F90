@@ -73,8 +73,8 @@ use :: adam_maps_object, only : maps_object
 use :: adam_mpih_global, only : mpih
 use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, seam_meta_unpack, &
                                                seam_interpolate_tricubic, seam_interpolate_compatible, &
-                                               SEAM_RESTRICT_LAGRANGE6, SEAM_RESTRICT_IDENTITY, SEAM_W_LAGRANGE6, &
-                                               seam_restriction_meta_unpack
+                                               SEAM_RESTRICT_MEAN, SEAM_RESTRICT_WENO6, SEAM_RESTRICT_IDENTITY, &
+                                               SEAM_W_LAGRANGE6, seam_restriction_meta_unpack, seam_restriction_weno6
 ! third party modules
 use :: finer, only : file_ini
 use :: penf
@@ -87,7 +87,7 @@ implicit none
 private
 public :: field_object
 public :: interp_seam_ghost
-public :: restrict_seam_lagrange6
+public :: restrict_seam_high_order
 
 character(len=5), parameter :: INI_SECTION_NAME="field" !< INI (config) file section name containing configs.
 
@@ -931,11 +931,11 @@ contains
                                                                  ngc=grid%ngc, q=q, v=v,                        &
                                                                  i_send=i_send, j_send=j_send, k_send=k_send,   &
                                                                  b_send=b_send)
-         elseif (maps%seam_restriction == SEAM_RESTRICT_LAGRANGE6 .and. local_map_ghost_cell(mf,10) /= 0) then
-            ! fine->coarse restriction, 6-point Lagrange (issue #68 C1); per-direction codes in column 10
-            q(v,i_recv,j_recv,k_recv,b_recv) = restrict_seam_lagrange6(meta=int(local_map_ghost_cell(mf,10), I4P), &
-                                                                       ngc=grid%ngc, q=q, v=v, i_send=i_send,      &
-                                                                       j_send=j_send, k_send=k_send, b_send=b_send)
+         elseif (maps%seam_restriction /= SEAM_RESTRICT_MEAN .and. local_map_ghost_cell(mf,10) /= 0) then
+            ! fine->coarse restriction, 6-point Lagrange or WENO (issue #68 C1, C3); codes and regime in column 10
+            q(v,i_recv,j_recv,k_recv,b_recv) = restrict_seam_high_order(meta=int(local_map_ghost_cell(mf,10), I4P), &
+                                                                        ngc=grid%ngc, q=q, v=v, i_send=i_send,      &
+                                                                        j_send=j_send, k_send=k_send, b_send=b_send)
          else
             ! fine->coarse restriction: the mean of the r(1) r(2) r(3) finer cells
             q(v,i_recv,j_recv,k_recv,b_recv) = 0._R8P
@@ -1043,14 +1043,16 @@ contains
    endif
    endfunction interp_seam_ghost
 
-   pure function restrict_seam_lagrange6(meta, ngc, q, v, i_send, j_send, k_send, b_send) result(value_)
-   !< Evaluate the 6-point Lagrange restriction of one (variable, coarse ghost) pair (issue #68 C1): the tensor product
-   !< of the 1D weights `SEAM_W_LAGRANGE6` at the coarse centre, which sits midway between the fine cells `first` and
-   !< `first + 1` of each refined direction (`(i_send,j_send,k_send)` is the first fine cell of block `b_send`); the
-   !< footprint `first - code .. first - code + 5` is kept inside the donor block by the codes of `meta`
-   !< (`seam_restriction_code`). An unrefined direction (code `SEAM_RESTRICT_IDENTITY`) reads the cell itself only.
-   !< Summed direction by direction (x innermost), the same order as the FNL twin.
-   integer(I4P), intent(in) :: meta            !< Packed restriction codes (seam_restriction_meta_pack).
+   pure function restrict_seam_high_order(meta, ngc, q, v, i_send, j_send, k_send, b_send) result(value_)
+   !< Evaluate the high-order restriction of one (variable, coarse ghost) pair to the coarse centre, which sits midway
+   !< between the fine cells `first` and `first + 1` of each refined direction (`(i_send,j_send,k_send)` is the first
+   !< fine cell of block `b_send`); the footprint `first - code .. first - code + 5` is kept inside the donor block by
+   !< the codes of `meta` (`seam_restriction_code`), which also carries the regime (`seam_restriction_meta_pack`):
+   !< - 6-point Lagrange (issue #68 C1): the tensor product of the 1D weights `SEAM_W_LAGRANGE6`, summed direction by
+   !<   direction (x innermost), the same order as the FNL twin;
+   !< - WENO (issue #68 C3): `seam_restriction_weno6` on the gathered footprint.
+   !< An unrefined direction (code `SEAM_RESTRICT_IDENTITY`) reads the cell itself only.
+   integer(I4P), intent(in) :: meta            !< Packed restriction codes and regime (seam_restriction_meta_pack).
    integer(I4P), intent(in) :: ngc             !< Ghost cells number (bounds of q).
    real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
    integer(I4P), intent(in) :: v               !< Variable index.
@@ -1060,16 +1062,30 @@ contains
    integer(I4P), intent(in) :: b_send          !< Donor block index.
    real(R8P)                :: value_          !< Restricted coarse-ghost value.
    integer(I4P)             :: code(1:3)       !< Restriction code per direction.
+   integer(I4P)             :: regime          !< Restriction regime.
    integer(I4P)             :: n(1:3)          !< Footprint nodes per direction (6, or 1 unrefined).
    integer(I4P)             :: s(1:3)          !< First footprint cell per direction.
    real(R8P)                :: sum_x, sum_y    !< Partial sums.
+   real(R8P)                :: u(1:6,1:6,1:6)  !< Gathered footprint (WENO).
    integer(I4P)             :: ii, jj, kk      !< Footprint counters.
 
-   call seam_restriction_meta_unpack(meta=meta, code=code)
+   call seam_restriction_meta_unpack(meta=meta, code=code, regime=regime)
    n = 6_I4P
    where (code == SEAM_RESTRICT_IDENTITY) n = 1_I4P
    s = [i_send, j_send, k_send]
    where (code /= SEAM_RESTRICT_IDENTITY) s = s - code
+   if (regime == SEAM_RESTRICT_WENO6) then
+      u = 0._R8P
+      do kk=1, n(3)
+         do jj=1, n(2)
+            do ii=1, n(1)
+               u(ii,jj,kk) = q(v, s(1)+ii-1, s(2)+jj-1, s(3)+kk-1, b_send)
+            enddo
+         enddo
+      enddo
+      value_ = seam_restriction_weno6(code=code, u=u)
+      return
+   endif
    value_ = 0._R8P
    do kk=1, n(3)
       sum_y = 0._R8P
@@ -1082,7 +1098,7 @@ contains
       enddo
       value_ = value_ + SEAM_W_LAGRANGE6(kk,code(3)) * sum_y
    enddo
-   endfunction restrict_seam_lagrange6
+   endfunction restrict_seam_high_order
 
    subroutine update_ghost_mpi(self, grid, maps, q, step)
    !< Update ghost cells within other processes.
@@ -1145,11 +1161,11 @@ contains
                                                              ngc=ngc, q=q, v=v_send,                             &
                                                              i_send=i_send, j_send=j_send, k_send=k_send,        &
                                                              b_send=b_send)
-            elseif (maps%seam_restriction == SEAM_RESTRICT_LAGRANGE6 .and. maps%comm_map_send_ghost_cell(sf,8) /= 0) then
-               ! fine->coarse restriction, 6-point Lagrange, pack-side (issue #68 C1); codes in column 8
-               send_buffer_ghost(c_recv) = restrict_seam_lagrange6(meta=int(maps%comm_map_send_ghost_cell(sf,8), I4P), &
-                                                                   ngc=ngc, q=q, v=v_send, i_send=i_send,              &
-                                                                   j_send=j_send, k_send=k_send, b_send=b_send)
+            elseif (maps%seam_restriction /= SEAM_RESTRICT_MEAN .and. maps%comm_map_send_ghost_cell(sf,8) /= 0) then
+               ! fine->coarse restriction, 6-point Lagrange or WENO, pack-side (issue #68 C1, C3); meta in column 8
+               send_buffer_ghost(c_recv) = restrict_seam_high_order(meta=int(maps%comm_map_send_ghost_cell(sf,8), I4P), &
+                                                                    ngc=ngc, q=q, v=v_send, i_send=i_send,              &
+                                                                    j_send=j_send, k_send=k_send, b_send=b_send)
             else
                send_buffer_ghost(c_recv) = 0._R8P
                do kc=0,r(3)-1 ; do jc=0,r(2)-1 ; do ic=0,r(1)-1 ! the mean of the r(1) r(2) r(3) finer cells

@@ -23,7 +23,7 @@ module adam_seam_exchange
 !< (`unpack_seam_cells_forest`). Each rank calls it for the same pairs in the same order (the peer slots come from the
 !< manifest, not from the rows a rank holds); a rank with no rows of a pair returns at once, so the exchange is not
 !< collective, but a rank that skipped a pair it has rows for would leave its partners waiting.
-use :: adam_field_object, only : interp_seam_ghost, restrict_seam_lagrange6
+use :: adam_field_object, only : interp_seam_ghost, restrict_seam_high_order
 use :: adam_mpih_global,  only : mpih
 use :: adam_realm_object, only : realm_object
 use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION
@@ -173,7 +173,8 @@ contains
    !< the field `q` (the cells' owner active buffer), `nv` values per row in row order (issue #40, #52): a copy of the
    !< cell, the coarse->fine interpolant of `interp_seam_ghost` (the intra-realm fill; injection copies the anchor) or the
    !< restriction from the base cell: the mean of the 2x2x2 fine cells (summed in the intra-realm order, then scaled) when
-   !< the meta is 0, the 6-point Lagrange restriction of its packed codes otherwise (`[amr] seam_restriction`, #68 C2).
+   !< the meta is 0, otherwise the 6-point Lagrange or the WENO restriction of its packed codes and regime
+   !< (`[amr] seam_restriction`, #68 C2, C3).
    integer(I4P), intent(in)  :: rows(1:,1:)                     !< Send rows.
    integer(I4P), intent(in)  :: row_start                       !< First row.
    integer(I4P), intent(in)  :: row_count                       !< Number of rows.
@@ -202,10 +203,10 @@ contains
          enddo
       case(SEAM_ROW_RESTRICT)
          if (rows(row,7) /= 0_I4P) then
-            ! 6-point Lagrange restriction (#68 C2): the fine owner packed its codes in the meta; 0 is the mean
+            ! high-order restriction (#68 C2, C3): the fine owner packed its codes and regime in the meta; 0 is the mean
             do v=1_I4P, nv
-               buf(nv*(c-1)+v) = restrict_seam_lagrange6(meta=rows(row,7), ngc=ngc, q=q, v=v, &
-                                                         i_send=i, j_send=j, k_send=k, b_send=b)
+               buf(nv*(c-1)+v) = restrict_seam_high_order(meta=rows(row,7), ngc=ngc, q=q, v=v, &
+                                                          i_send=i, j_send=j, k_send=k, b_send=b)
             enddo
             cycle
          endif

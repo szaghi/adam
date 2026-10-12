@@ -20,7 +20,7 @@ a comparison runs on one grid (the 1-D solution is the same on every transverse 
 
 Usage:
     make_amr_shock.py sod|rj2a <out.ini> --cells N [--side c2f|f2c] [--uniform] [--no-reflux] [--it-save K]
-                      [--seam-restriction mean|lagrange6]
+                      [--seam-restriction mean|lagrange6|weno6]
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ def main() -> None:
     parser.add_argument("--uniform", action="store_true", help="no refinement (the control)")
     parser.add_argument("--no-reflux", action="store_true", help="turn the reflux off")
     parser.add_argument("--it-save", type=int, default=1000000, help="checkpoint cadence in steps")
-    parser.add_argument("--seam-restriction", choices=("mean", "lagrange6"), default=None,
+    parser.add_argument("--seam-restriction", choices=("mean", "lagrange6", "weno6"), default=None,
                         help="[amr] seam_restriction, null axes widened to 8 cells (default: the key absent)")
     args = parser.parse_args()
     ini = base_input(args.case, args.cells)

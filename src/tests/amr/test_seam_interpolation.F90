@@ -22,6 +22,8 @@ program test_seam_interpolation
 !<      q>2 are mutually exclusive for point values. This asserts the defect
 !<      EQUALS H^2/16: it is expected behavior, not a failure.
 !<   6. Quadratic safety set: exact on per-direction degree <= 2, centered.
+!<   7. The fine->coarse restrictions (issue #68): the 6-point Lagrange (C1) and the WENO with its troubled-cell
+!<      fallback to the mean (C3).
 
 use adam_seam_interpolation_library, only : SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, SEAM_W_QUADRATIC, &
                                             seam_interpolate_tricubic, seam_interpolate_compatible, &
@@ -29,7 +31,9 @@ use adam_seam_interpolation_library, only : SEAM_W_TRICUBIC, SEAM_W_COMPATIBLE, 
                                             seam_tricubic_centered_pos, seam_compatible_centered_pos, &
                                             seam_shift_anchor_pos, seam_meta_pack, seam_meta_unpack, &
                                             SEAM_W_LAGRANGE6, SEAM_RESTRICT_IDENTITY, seam_restriction_code, &
-                                            seam_restriction_meta_pack, seam_restriction_meta_unpack
+                                            seam_restriction_meta_pack, seam_restriction_meta_unpack, &
+                                            SEAM_RESTRICT_LAGRANGE6, SEAM_RESTRICT_WENO6, &
+                                            seam_restriction_weno6_1d, seam_restriction_weno6
 use penf, only : I4P, R8P
 
 implicit none
@@ -336,13 +340,15 @@ restriction_lagrange6: block
       test_passed = .false.
    endif
 
-   ! 3. meta round trip on all 216 code triples, never 0 (0 is the rows that keep the mean)
+   ! 3. meta round trip on all 216 code triples of both regimes, never 0 (0 is the rows that keep the mean)
    ok = .true.
-   do cz=0, 5 ; do cy=0, 5 ; do cx=0, 5
-      meta = seam_restriction_meta_pack([cx, cy, cz])
-      call seam_restriction_meta_unpack(meta=meta, code=code)
-      if (meta == 0 .or. any(code /= [cx, cy, cz])) ok = .false.
-   enddo ; enddo ; enddo
+   do f=SEAM_RESTRICT_LAGRANGE6, SEAM_RESTRICT_WENO6
+      do cz=0, 5 ; do cy=0, 5 ; do cx=0, 5
+         meta = seam_restriction_meta_pack(code=[cx, cy, cz], regime=f)
+         call seam_restriction_meta_unpack(meta=meta, code=code, regime=n)
+         if (meta == 0 .or. any(code /= [cx, cy, cz]) .or. n /= f) ok = .false.
+      enddo ; enddo ; enddo
+   enddo
    if (ok) then
       write(*,'(A)') 'PASS: restriction meta pack/unpack round trip, 0 never packed'
    else
@@ -371,6 +377,139 @@ restriction_lagrange6: block
       test_passed = .false.
    endif
 endblock restriction_lagrange6
+
+restriction_weno6: block
+   ! #68 C3: the WENO restriction, per direction a convex combination of the cubic interpolants of the jump-free 4-point
+   ! sub-stencils containing the coarse centre; no candidate left (a jump inside the fine pair) -> the mean of the pair
+   real(R8P)    :: u(1:6), x(1:6), got, want, err(1:2), h, x0, amp, off, rnd(1:6), cube(1:6,1:6,1:6)
+   real(R8P)    :: px(1:6), py(1:6), pz(1:6)
+   integer(I4P) :: code, m, l, n, jmp, i, j, k
+   logical      :: ok
+   real(R8P), parameter :: order_min(0:4) = [3.7_R8P, 4.7_R8P, 5.7_R8P, 4.7_R8P, 3.7_R8P] !< Design order - 0.3.
+
+   ! 1. cubic exactness, scale and offset invariant: f = x^3 + 6 x + 1 (no jump: f' > 0 and smooth), every code, under
+   !    amplitudes and offsets of 1e-6..1e5; the identity code returns the cell itself
+   ok = .true.
+   do code=0, 4
+      do m=1, 6
+         x(m) = -0.5_R8P - real(code, R8P) + real(m - 1, R8P)
+      enddo
+      do l=-6, 5, 1
+         amp = 10._R8P**l
+         off = 10._R8P**(-l)
+         u = amp * (x**3 + 6._R8P * x + 1._R8P) + off
+         got = seam_restriction_weno6_1d(u=u, code=code)
+         want = amp + off
+         if (abs(got - want) > 1.e-13_R8P * (amp * maxval(abs(x**3 + 6._R8P * x + 1._R8P)) + off)) ok = .false.
+      enddo
+   enddo
+   u = [7._R8P, -1._R8P, 3._R8P, 2._R8P, 5._R8P, 0._R8P]
+   if (seam_restriction_weno6_1d(u=u, code=SEAM_RESTRICT_IDENTITY) /= 7._R8P) ok = .false.
+   ! the tensor sweep, separable cubics p(x) q(y) r(z): exact (each line is a scaled cubic), identity axes included
+   do code=0, 4
+      do m=1, 6
+         x(m) = -0.5_R8P - real(code, R8P) + real(m - 1, R8P)
+      enddo
+      px = x**3 + 6._R8P * x + 1._R8P
+      py = 2._R8P * x**3 + x + 3._R8P
+      pz = -x**3 - 4._R8P * x + 2._R8P
+      do k=1, 6 ; do j=1, 6 ; do i=1, 6
+         cube(i,j,k) = px(i) * py(j) * pz(k)
+      enddo ; enddo ; enddo
+      got = seam_restriction_weno6(code=[code, code, code], u=cube)
+      if (abs(got - 6._R8P) > 1.e-12_R8P * maxval(abs(cube))) ok = .false.
+      got = seam_restriction_weno6(code=[code, SEAM_RESTRICT_IDENTITY, code], u=cube)
+      if (abs(got - 2._R8P * py(1)) > 1.e-12_R8P * maxval(abs(cube))) ok = .false.
+   enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: WENO restriction exact on cubics (1-D every code, scale-invariant; 3-D tensor, identity axes)'
+   else
+      write(*,'(A)') 'FAIL: WENO restriction not exact on a cubic'
+      test_passed = .false.
+   endif
+
+   ! 2. design order on smooth data, f = sin(2 pi x) + 0.3 cos(6 x), max error over 101 positions, h = 0.05 and 0.025:
+   !    6 centred (code 2), 5 one cell from the block edge (codes 1, 3), 4 at the edge (codes 0, 4)
+   ok = .true.
+   do code=0, 4
+      do l=1, 2
+         h = 0.05_R8P / real(l, R8P)
+         err(l) = 0._R8P
+         do n=0, 100
+            x0 = real(n, R8P) / 100._R8P
+            do m=1, 6
+               x(m) = x0 + h * (real(m - 1 - code, R8P) - 0.5_R8P)
+            enddo
+            u = sin(2._R8P * acos(-1._R8P) * x) + 0.3_R8P * cos(6._R8P * x)
+            got = seam_restriction_weno6_1d(u=u, code=code)
+            err(l) = max(err(l), abs(got - (sin(2._R8P * acos(-1._R8P) * x0) + 0.3_R8P * cos(6._R8P * x0))))
+         enddo
+      enddo
+      if (log(err(1) / err(2)) / log(2._R8P) < order_min(code)) then
+         ok = .false.
+         write(*,'(A,I2,A,F6.2)') '   code', code, ': order ', log(err(1) / err(2)) / log(2._R8P)
+      endif
+   enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: WENO restriction design order on smooth data (6 centred, 5 and 4 towards the block edge)'
+   else
+      write(*,'(A)') 'FAIL: WENO restriction below its design order on smooth data'
+      test_passed = .false.
+   endif
+
+   ! 3. steps: a jump in any interval but the fine pair's restricts to the fine pair's own state (exactly, up to the
+   !    weights' normalisation), a jump inside the fine pair to their mean (the troubled-cell fallback); also with a
+   !    density-like 1e-3 / 1 contrast. The tensor sweep troubled on every line returns the 8-cell mean.
+   ok = .true.
+   do code=0, 4
+      do jmp=1, 5
+         do m=1, 6
+            u(m) = merge(1._R8P, 1.e-3_R8P, m > jmp)
+         enddo
+         got = seam_restriction_weno6_1d(u=u, code=code)
+         if (jmp == code + 1) then
+            want = 0.5_R8P * (u(code+1) + u(code+2))
+         else
+            want = u(code+1)
+         endif
+         if (abs(got - want) > tol_exact) ok = .false.
+      enddo
+   enddo
+   px = [1._R8P, 1._R8P, 1._R8P, 2._R8P, 2._R8P, 2._R8P] ! a jump inside the centred (code 2) fine pair, nodes 3, 4
+   do k=1, 6 ; do j=1, 6 ; do i=1, 6
+      cube(i,j,k) = px(i) * px(j) * px(k)
+   enddo ; enddo ; enddo
+   if (abs(seam_restriction_weno6(code=[2, 2, 2], u=cube) - 1.5_R8P**3) > tol_exact) ok = .false.
+   if (ok) then
+      write(*,'(A)') 'PASS: WENO restriction takes the fine pair''s side of a jump, the mean of a jump inside the pair'
+   else
+      write(*,'(A)') 'FAIL: WENO restriction on a step'
+      test_passed = .false.
+   endif
+
+   ! 4. mirror symmetry on random data (jumps included): code o on u equals code 4 - o on u reversed; constants exact
+   ok = .true.
+   do n=1, 1000
+      call random_number(rnd)
+      if (mod(n, 2) == 0) rnd = rnd**8 ! sharper, jump-like data
+      do code=0, 4
+         got  = seam_restriction_weno6_1d(u=rnd, code=code)
+         u = rnd(6:1:-1)
+         want = seam_restriction_weno6_1d(u=u, code=4-code)
+         if (abs(got - want) > tol_exact) ok = .false.
+      enddo
+   enddo
+   do code=0, 4
+      u = 0.7_R8P
+      if (abs(seam_restriction_weno6_1d(u=u, code=code) - 0.7_R8P) > tol_exact) ok = .false.
+   enddo
+   if (ok) then
+      write(*,'(A)') 'PASS: WENO restriction mirror-symmetric on random data, exact on constants'
+   else
+      write(*,'(A)') 'FAIL: WENO restriction not mirror-symmetric or not exact on constants'
+      test_passed = .false.
+   endif
+endblock restriction_weno6
 
 if (test_passed) then
    write(*,'(A)') 'TEST PASSED: seam interpolation weight tables'

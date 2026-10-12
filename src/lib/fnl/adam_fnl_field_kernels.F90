@@ -8,8 +8,9 @@ module adam_fnl_field_kernels
 ! ADAM objects
 use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_INJECTION, seam_meta_unpack, &
                                                seam_interpolate_compatible, seam_interpolate_tricubic, &
-                                               SEAM_RESTRICT_LAGRANGE6, SEAM_RESTRICT_IDENTITY, &
-                                               seam_restriction_meta_unpack, seam_restriction_weight
+                                               SEAM_RESTRICT_MEAN, SEAM_RESTRICT_WENO6, SEAM_RESTRICT_IDENTITY, &
+                                               seam_restriction_meta_unpack, seam_restriction_weight, &
+                                               seam_restriction_weno6_1d
 ! third party modules
 use :: fundal
 use :: penf, only : I8P, I4P, R8P
@@ -115,9 +116,9 @@ contains
          buf_gpu(nv*(c-1)+v) = interp_seam_ghost_gpu_dev(regime=regime, meta=rows_gpu(row,7), ngc=ngc, q_gpu=q_gpu, &
                                                          v=v, b_send=b, i_send=i, j_send=j, k_send=k)
       elseif (rows_gpu(row,6) == 8 .and. rows_gpu(row,7) /= 0) then
-         ! 6-point Lagrange restriction (#68 C2): the fine owner packed its codes in the meta; 0 is the mean
-         buf_gpu(nv*(c-1)+v) = restrict_seam_lagrange6_gpu_dev(meta=rows_gpu(row,7), ngc=ngc, q_gpu=q_gpu, v=v, &
-                                                               b_send=b, i_send=i, j_send=j, k_send=k)
+         ! high-order restriction (#68 C2, C3): the fine owner packed its codes and regime in the meta; 0 is the mean
+         buf_gpu(nv*(c-1)+v) = restrict_seam_high_order_gpu_dev(meta=rows_gpu(row,7), ngc=ngc, q_gpu=q_gpu, v=v, &
+                                                                b_send=b, i_send=i, j_send=j, k_send=k)
       elseif (rows_gpu(row,6) == 8) then
          total = 0._R8P
          !$acc loop seq
@@ -259,9 +260,9 @@ contains
                                                                       meta=int(comm_map_send_ghost_cell_gpu(sf,8), I4P), &
                                                                       ngc=ngc, q_gpu=q_gpu, v=v_send, b_send=b_send,   &
                                                                       i_send=i_send, j_send=j_send, k_send=k_send)
-         elseif (seam_restriction == SEAM_RESTRICT_LAGRANGE6 .and. comm_map_send_ghost_cell_gpu(sf,8) /= 0) then
-            ! fine->coarse restriction, 6-point Lagrange, pack-side (#68 C2); codes in column 8
-            send_buffer_ghost_gpu(c_recv) = restrict_seam_lagrange6_gpu_dev(                                          &
+         elseif (seam_restriction /= SEAM_RESTRICT_MEAN .and. comm_map_send_ghost_cell_gpu(sf,8) /= 0) then
+            ! fine->coarse restriction, 6-point Lagrange or WENO, pack-side (#68 C2, C3); meta in column 8
+            send_buffer_ghost_gpu(c_recv) = restrict_seam_high_order_gpu_dev(                                         &
                                                meta=int(comm_map_send_ghost_cell_gpu(sf,8), I4P), ngc=ngc, q_gpu=q_gpu, &
                                                v=v_send, b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
          else
@@ -357,9 +358,9 @@ contains
                                                                              ngc=ngc, q_gpu=q_gpu, v=v,             &
                                                                              b_send=b_send, i_send=i_send,          &
                                                                              j_send=j_send, k_send=k_send)
-         elseif (seam_restriction == SEAM_RESTRICT_LAGRANGE6 .and. l_map_ghost_cell_gpu(mf,10) /= 0) then
-            ! fine->coarse restriction, 6-point Lagrange (#68 C2); codes in column 10
-            q_gpu(b_recv,i_recv,j_recv,k_recv,v) = restrict_seam_lagrange6_gpu_dev(                                  &
+         elseif (seam_restriction /= SEAM_RESTRICT_MEAN .and. l_map_ghost_cell_gpu(mf,10) /= 0) then
+            ! fine->coarse restriction, 6-point Lagrange or WENO (#68 C2, C3); meta in column 10
+            q_gpu(b_recv,i_recv,j_recv,k_recv,v) = restrict_seam_high_order_gpu_dev(                                 &
                                                       meta=int(l_map_ghost_cell_gpu(mf,10), I4P), ngc=ngc, q_gpu=q_gpu, &
                                                       v=v, b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
          else
@@ -485,13 +486,14 @@ contains
    endif
    endfunction interp_seam_ghost_gpu_dev
 
-   pure function restrict_seam_lagrange6_gpu_dev(meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send) result(value_)
-   !< Device twin of `field_object%restrict_seam_lagrange6` (issue #68 C2): the 6-point Lagrange restriction of one
-   !< (variable, coarse ghost) pair on the FNL layout `q_gpu(b,i,j,k,v)`, summed in the same order as the host (x
-   !< innermost, then y, then z). The footprint is shifted inside the donor block by the codes of `meta`, so it reads
-   !< REAL donor cells only and never a ghost cell another map row writes concurrently (the #22 race discipline).
-   !< Scalar locals only (no per-thread arrays): the codes, sizes and starts are unpacked into scalars.
-   integer(I4P), intent(in) :: meta             !< Packed restriction codes (seam_restriction_meta_pack).
+   pure function restrict_seam_high_order_gpu_dev(meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send) result(value_)
+   !< Device twin of `field_object%restrict_seam_high_order` (issue #68 C2, C3): the 6-point Lagrange or the WENO
+   !< restriction of one (variable, coarse ghost) pair on the FNL layout `q_gpu(b,i,j,k,v)`, in the same order as the
+   !< host (x innermost, then y, then z). The footprint is shifted inside the donor block by the codes of `meta`, so it
+   !< reads REAL donor cells only and never a ghost cell another map row writes concurrently (the #22 race discipline).
+   !< The Lagrange sums use scalar locals only; the WENO gathers one x line at a time (6 values) and calls
+   !< `seam_restriction_weno6_1d` line by line, the arithmetic of the host's `seam_restriction_weno6`.
+   integer(I4P), intent(in) :: meta             !< Packed restriction codes and regime (seam_restriction_meta_pack).
    integer(I4P), intent(in) :: ngc              !< Ghost cells number (bounds of q_gpu).
    real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables, FNL layout (b,i,j,k,v).
    integer(I4P), intent(in) :: v                !< Variable index.
@@ -501,20 +503,40 @@ contains
    integer(I4P), intent(in) :: k_send           !< First fine cell of the restricted pair, k.
    real(R8P)                :: value_           !< Restricted coarse-ghost value.
    integer(I4P)             :: code(1:3)        !< Restriction code per direction.
+   integer(I4P)             :: regime           !< Restriction regime.
    integer(I4P)             :: ni, nj, nk       !< Footprint nodes per direction (6, or 1 unrefined).
    integer(I4P)             :: si, sj, sk       !< First footprint cell per direction.
    real(R8P)                :: sum_x, sum_y     !< Partial sums.
+   real(R8P)                :: ux(1:6)          !< An x line of fine values (WENO).
+   real(R8P)                :: uy(1:6)          !< A y line of x-restricted values (WENO).
+   real(R8P)                :: uz(1:6)          !< The z line of xy-restricted values (WENO).
    integer(I4P)             :: ii, jj, kk       !< Footprint counters.
    !$acc routine seq
    !$omp declare target
 
-   call seam_restriction_meta_unpack(meta=meta, code=code)
+   call seam_restriction_meta_unpack(meta=meta, code=code, regime=regime)
    ni = 6_I4P ; si = i_send - code(1)
    nj = 6_I4P ; sj = j_send - code(2)
    nk = 6_I4P ; sk = k_send - code(3)
    if (code(1) == SEAM_RESTRICT_IDENTITY) then ; ni = 1_I4P ; si = i_send ; endif
    if (code(2) == SEAM_RESTRICT_IDENTITY) then ; nj = 1_I4P ; sj = j_send ; endif
    if (code(3) == SEAM_RESTRICT_IDENTITY) then ; nk = 1_I4P ; sk = k_send ; endif
+   if (regime == SEAM_RESTRICT_WENO6) then
+      ux = 0._R8P
+      uy = 0._R8P
+      uz = 0._R8P
+      do kk=1, nk
+         do jj=1, nj
+            do ii=1, ni
+               ux(ii) = q_gpu(b_send, si+ii-1, sj+jj-1, sk+kk-1, v)
+            enddo
+            uy(jj) = seam_restriction_weno6_1d(u=ux, code=code(1))
+         enddo
+         uz(kk) = seam_restriction_weno6_1d(u=uy, code=code(2))
+      enddo
+      value_ = seam_restriction_weno6_1d(u=uz, code=code(3))
+      return
+   endif
    value_ = 0._R8P
    do kk=1, nk
       sum_y = 0._R8P
@@ -527,5 +549,5 @@ contains
       enddo
       value_ = value_ + seam_restriction_weight(kk, code(3)) * sum_y
    enddo
-   endfunction restrict_seam_lagrange6_gpu_dev
+   endfunction restrict_seam_high_order_gpu_dev
 endmodule adam_fnl_field_kernels

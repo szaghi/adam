@@ -23,7 +23,7 @@ writes `[amr] seam_restriction` (#68 C1; default: the key absent, the mean).
 
 Usage:
     make_amr_order.py euler|mhd <out.ini> --cells N [--ratio 4|8] [--uniform] [--time-max T] [--no-reflux]
-                                          [--it-save K] [--seam-restriction mean|lagrange6]
+                                          [--it-save K] [--seam-restriction mean|lagrange6|weno6]
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def main() -> None:
     parser.add_argument("--time-max", type=float, default=None, help="default 0.1 (euler), 0.5 (mhd)")
     parser.add_argument("--no-reflux", action="store_true", help="turn the reflux off")
     parser.add_argument("--it-save", type=int, default=1000000, help="checkpoint cadence in steps")
-    parser.add_argument("--seam-restriction", choices=("mean", "lagrange6"), default=None,
+    parser.add_argument("--seam-restriction", choices=("mean", "lagrange6", "weno6"), default=None,
                         help="[amr] seam_restriction (default: the key absent, the mean)")
     args = parser.parse_args()
     ini = base_input(args.case, args.cells, args.time_max)

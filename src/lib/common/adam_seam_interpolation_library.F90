@@ -54,8 +54,9 @@ public :: seam_tricubic_centered_pos, seam_compatible_centered_pos
 public :: seam_interpolate_tricubic, seam_interpolate_compatible, seam_interpolate_quadratic
 public :: seam_shift_anchor_pos, seam_meta_pack, seam_meta_unpack
 public :: SEAM_SUB_COINCIDENT
-public :: SEAM_RESTRICT_MEAN, SEAM_RESTRICT_LAGRANGE6, SEAM_W_LAGRANGE6, SEAM_RESTRICT_IDENTITY
+public :: SEAM_RESTRICT_MEAN, SEAM_RESTRICT_LAGRANGE6, SEAM_RESTRICT_WENO6, SEAM_W_LAGRANGE6, SEAM_RESTRICT_IDENTITY
 public :: seam_restriction_code, seam_restriction_meta_pack, seam_restriction_meta_unpack, seam_restriction_weight
+public :: seam_restriction_weno6_1d, seam_restriction_weno6
 
 integer(I4P), parameter :: SEAM_FILL_INJECTION  = 0_I4P !< Regime: 0th-order injection (legacy behavior).
 integer(I4P), parameter :: SEAM_FILL_COMPATIBLE = 1_I4P !< Regime: restriction-compatible fill, q=2 (diagnostic arm).
@@ -113,6 +114,7 @@ real(R8P), parameter :: SEAM_W_QUADRATIC(1:3,1:3) = reshape([ &
 ! Fine->coarse restriction of the coarse seam ghosts (issue #68 P1/C1): `[amr] seam_restriction`.
 integer(I4P), parameter :: SEAM_RESTRICT_MEAN      = 0_I4P !< Regime: the mean of the r(1) r(2) r(3) fine cells, q = 2.
 integer(I4P), parameter :: SEAM_RESTRICT_LAGRANGE6 = 1_I4P !< Regime: tensor 6-point Lagrange at the coarse centre, q = 6.
+integer(I4P), parameter :: SEAM_RESTRICT_WENO6     = 2_I4P !< Regime: WENO over the 4-point sub-stencils, mean if troubled.
 integer(I4P), parameter :: SEAM_RESTRICT_IDENTITY  = 5_I4P !< Per-direction code of an unrefined direction (issue #46).
 
 real(R8P), parameter :: SEAM_W_LAGRANGE6(1:6,0:5) = reshape([ &
@@ -127,6 +129,35 @@ real(R8P), parameter :: SEAM_W_LAGRANGE6(1:6,0:5) = reshape([ &
    !< it covers (`first`, `first + 1`): the 6 nodes are fine cells `first - code .. first - code + 5`, shifted inside
    !< the donor block at its edge (code /= 2, the shift-inward footprint of #68 B3), exact for per-direction degree
    !< <= 5. Integer/2^8 rationals (computed with exact fractions): exact in binary floating point.
+
+! The WENO restriction (issue #68 C3): per direction a nonlinear convex combination of the cubic interpolants of the
+! 4-point sub-stencils of the 6 nodes (sub-stencil s = nodes s..s+3, s = 1..3) that contain the coarse centre, i.e. the
+! interval between nodes code+1 and code+2. Sub-stencils that would extrapolate are never used: across a jump they
+! import the far side's state. The linear weights reproduce the Lagrange interpolant of the candidates' union, so the
+! design order is 6 for code 2 (three candidates, the 6-point Lagrange of `SEAM_W_LAGRANGE6`), 5 for codes 1 and 3
+! (two candidates, the 5-point Lagrange) and 4 for codes 0 and 4 (one candidate, at a block edge).
+real(R8P), parameter :: SEAM_W_CUBIC_MID(1:4,1:3) = reshape([ &
+    5._R8P,  15._R8P,  -5._R8P,   1._R8P,  & ! the midpoint of the sub-stencil's interval 1 (nodes 1, 2)
+   -1._R8P,   9._R8P,   9._R8P,  -1._R8P,  & ! interval 2 (nodes 2, 3), centred
+    1._R8P,  -5._R8P,  15._R8P,   5._R8P], & ! interval 3 (nodes 3, 4)
+   [4,3]) / 16._R8P
+   !< Cubic Lagrange weights at the midpoint of each interval of a 4-point sub-stencil (node 1:4, interval 1:3).
+
+real(R8P), parameter :: SEAM_D_WENO6(1:3,0:4) = reshape([ &
+   16._R8P,   0._R8P,   0._R8P,  & ! code 0: sub-stencil 1 only
+   10._R8P,   6._R8P,   0._R8P,  & ! code 1: sub-stencils 1, 2 -> 5-point Lagrange on nodes 1..5
+    3._R8P,  10._R8P,   3._R8P,  & ! code 2: sub-stencils 1, 2, 3 -> 6-point Lagrange (centred)
+    0._R8P,   6._R8P,  10._R8P,  & ! code 3: sub-stencils 2, 3 -> 5-point Lagrange on nodes 2..6
+    0._R8P,   0._R8P,  16._R8P], & ! code 4: sub-stencil 3 only
+   [3,5]) / 16._R8P
+   !< Linear weights of the sub-stencils (sub-stencil 1:3, code 0:4); zero marks a sub-stencil that is not a candidate.
+
+real(R8P), parameter :: SEAM_WENO6_JUMP_RATIO = 2._R8P
+   !< Jump detector of the WENO restriction: an interval whose undivided difference exceeds this ratio times its
+   !< neighbours' is a jump. Smooth data never trips it once resolved (the neighbours average to the interval's
+   !< difference up to O(h^3)); a candidate containing a jump is dropped, and with no candidate left the restriction
+   !< falls back to the mean of the fine pair (the troubled-cell fallback).
+real(R8P), parameter :: SEAM_WENO6_EPS = 1.e-40_R8P !< Guard of the WENO-Z weights against 0/0 on constant data.
 
 contains
    pure function seam_tricubic_centered_pos(sub) result(p)
@@ -310,28 +341,148 @@ contains
    endif
    endfunction seam_restriction_code
 
-   pure function seam_restriction_meta_pack(code) result(meta)
-   !< Pack the per-direction restriction codes (0..5) into one integer, 1 + code(1) + 6 code(2) + 36 code(3) (1..216):
-   !< 0 is left free for the rows that keep the mean (the map's meta default), so (0, 0, 0) is not mistaken for it.
+   pure function seam_restriction_meta_pack(code, regime) result(meta)
+   !< Pack the per-direction restriction codes (0..5) and the regime into one integer,
+   !< 1 + code(1) + 6 code(2) + 36 code(3) + 216 (regime - SEAM_RESTRICT_LAGRANGE6): 1..216 under the 6-point Lagrange,
+   !< 217..432 under the WENO restriction (#68 C3), so the rows carry their regime to every evaluator (inter-realm
+   !< packers included); 0 is left free for the rows that keep the mean (the map's meta default).
    integer(I4P), intent(in) :: code(1:3) !< Restriction code per direction.
+   integer(I4P), intent(in) :: regime    !< Restriction regime (SEAM_RESTRICT_LAGRANGE6 or SEAM_RESTRICT_WENO6).
    integer(I4P)             :: meta      !< Packed metadata.
    !$acc routine seq
    !$omp declare target
 
-   meta = 1_I4P + code(1) + 6_I4P * code(2) + 36_I4P * code(3)
+   meta = 1_I4P + code(1) + 6_I4P * code(2) + 36_I4P * code(3) + 216_I4P * (regime - SEAM_RESTRICT_LAGRANGE6)
    endfunction seam_restriction_meta_pack
 
-   pure subroutine seam_restriction_meta_unpack(meta, code)
-   !< Unpack the per-direction restriction codes (inverse of `seam_restriction_meta_pack`).
-   integer(I4P), intent(in)  :: meta      !< Packed metadata.
+   pure subroutine seam_restriction_meta_unpack(meta, code, regime)
+   !< Unpack the per-direction restriction codes and the regime (inverse of `seam_restriction_meta_pack`).
+   integer(I4P), intent(in)  :: meta      !< Packed metadata (/= 0).
    integer(I4P), intent(out) :: code(1:3) !< Restriction code per direction.
+   integer(I4P), intent(out) :: regime    !< Restriction regime.
+   integer(I4P)              :: m         !< Codes part of the meta.
    !$acc routine seq
    !$omp declare target
 
-   code(1) = mod(meta - 1_I4P, 6_I4P)
-   code(2) = mod((meta - 1_I4P) / 6_I4P, 6_I4P)
-   code(3) = (meta - 1_I4P) / 36_I4P
+   regime  = SEAM_RESTRICT_LAGRANGE6 + (meta - 1_I4P) / 216_I4P
+   m       = mod(meta - 1_I4P, 216_I4P)
+   code(1) = mod(m, 6_I4P)
+   code(2) = mod(m / 6_I4P, 6_I4P)
+   code(3) = m / 36_I4P
    endsubroutine seam_restriction_meta_unpack
+
+   pure function seam_restriction_weno6_1d(u, code) result(value_)
+   !< Return the WENO restriction of 6 fine values `u` to the coarse centre between nodes code+1 and code+2 (#68 C3).
+   !< 1. Jumps: interval i (nodes i, i+1) is a jump when its undivided difference exceeds `SEAM_WENO6_JUMP_RATIO` times
+   !<    the larger of its neighbours' (at the footprint ends, the inner neighbour and its linear extrapolation).
+   !< 2. Candidates: the sub-stencils of `SEAM_D_WENO6(:,code)` free of jumps; none left (a jump inside the fine pair,
+   !<    or a block-edge stencil crossing one): the troubled-cell fallback, the mean of the fine pair.
+   !< 3. WENO-Z weights (Borges et al. 2008, p = 2) on the Jiang-Shu indicators of each cubic over its central
+   !<    interval, beta = c^2 + 13/12 a^2 + 781/720 t^2 (c, a, t its central first, mean second and third differences),
+   !<    with tau the highest undivided difference of the candidates' union squared, O(h^8..h^12) on smooth data, so the
+   !<    weights reach the linear ones fast enough to keep the design order at critical points.
+   !< `SEAM_RESTRICT_IDENTITY` (an unrefined direction) returns u(1).
+   real(R8P),    intent(in) :: u(1:6)   !< Fine values (footprint nodes).
+   integer(I4P), intent(in) :: code     !< Restriction code (0..4, or SEAM_RESTRICT_IDENTITY).
+   real(R8P)                :: value_   !< Restricted value.
+   real(R8P)                :: d(1:5)   !< Undivided first differences.
+   real(R8P)                :: w(1:6)   !< Work array of the highest difference.
+   real(R8P)                :: ref      !< Neighbours' difference.
+   real(R8P)                :: tau      !< WENO-Z global indicator.
+   real(R8P)                :: c, a, t  !< Central first, mean second and third differences of a sub-stencil.
+   real(R8P)                :: alpha    !< Unnormalised weight.
+   real(R8P)                :: asum     !< Sum of the unnormalised weights.
+   logical                  :: jump(1:5) !< Jump flag per interval.
+   integer(I4P)             :: i, m, s  !< Counters.
+   integer(I4P)             :: lo, hi   !< First and last candidate.
+   !$acc routine seq
+   !$omp declare target
+
+   if (code == SEAM_RESTRICT_IDENTITY) then
+      value_ = u(1)
+      return
+   endif
+   do i=1, 5
+      d(i) = u(i+1) - u(i)
+   enddo
+   do i=1, 5
+      if (i == 1) then
+         ref = max(abs(d(2)), abs(2._R8P * d(2) - d(3)))
+      elseif (i == 5) then
+         ref = max(abs(d(4)), abs(2._R8P * d(4) - d(3)))
+      else
+         ref = max(abs(d(i-1)), abs(d(i+1)))
+      endif
+      jump(i) = abs(d(i)) > SEAM_WENO6_JUMP_RATIO * ref
+   enddo
+   lo = 0_I4P
+   hi = 0_I4P
+   do s=1, 3 ! the candidates are contiguous: a sub-stencil between two jump-free ones is jump-free
+      if (SEAM_D_WENO6(s,code) > 0._R8P .and. .not.(jump(s) .or. jump(s+1) .or. jump(s+2))) then
+         if (lo == 0_I4P) lo = s
+         hi = s
+      endif
+   enddo
+   if (lo == 0_I4P) then
+      value_ = 0.5_R8P * (u(code+1) + u(code+2)) ! troubled: the mean of the fine pair
+      return
+   endif
+   if (lo == hi) then
+      value_ = SEAM_W_CUBIC_MID(1,code-lo+2) * u(lo  ) + SEAM_W_CUBIC_MID(2,code-lo+2) * u(lo+1) + &
+               SEAM_W_CUBIC_MID(3,code-lo+2) * u(lo+2) + SEAM_W_CUBIC_MID(4,code-lo+2) * u(lo+3)
+      return
+   endif
+   do i=1, hi - lo + 4 ! nodes lo..hi+3
+      w(i) = u(lo+i-1)
+   enddo
+   do m=1, hi - lo + 3
+      do i=1, hi - lo + 4 - m
+         w(i) = w(i+1) - w(i)
+      enddo
+   enddo
+   tau = w(1) * w(1)
+   value_ = 0._R8P
+   asum = 0._R8P
+   do s=lo, hi
+      c = u(s+2) - u(s+1)
+      a = 0.5_R8P * (u(s+3) - u(s+2) - u(s+1) + u(s))
+      t = u(s+3) - 3._R8P * u(s+2) + 3._R8P * u(s+1) - u(s)
+      alpha = SEAM_D_WENO6(s,code) * (1._R8P + (tau / (c * c + 13._R8P / 12._R8P * a * a + &
+                                                       781._R8P / 720._R8P * t * t + SEAM_WENO6_EPS))**2)
+      value_ = value_ + alpha * (SEAM_W_CUBIC_MID(1,code-s+2) * u(s  ) + SEAM_W_CUBIC_MID(2,code-s+2) * u(s+1) + &
+                                 SEAM_W_CUBIC_MID(3,code-s+2) * u(s+2) + SEAM_W_CUBIC_MID(4,code-s+2) * u(s+3))
+      asum = asum + alpha
+   enddo
+   value_ = value_ / asum
+   endfunction seam_restriction_weno6_1d
+
+   pure function seam_restriction_weno6(code, u) result(value_)
+   !< Return the WENO restriction of the fine footprint `u` (#68 C3), direction by direction: x on every (j, k) line,
+   !< then y, then z (the same order on every backend). An unrefined direction (code `SEAM_RESTRICT_IDENTITY`) reads
+   !< index 1 only, the other entries of `u` along it are not referenced. A troubled line falls back to the mean of its
+   !< fine pair, so a footprint troubled on every line returns the mean of the fine cells.
+   integer(I4P), intent(in) :: code(1:3)     !< Restriction code per direction.
+   real(R8P),    intent(in) :: u(1:6,1:6,1:6) !< Fine footprint (i, j, k).
+   real(R8P)                :: value_        !< Restricted value.
+   real(R8P)                :: uy(1:6)       !< A y line of x-restricted values.
+   real(R8P)                :: uz(1:6)       !< The z line of xy-restricted values.
+   integer(I4P)             :: n(1:3)        !< Footprint nodes per direction.
+   integer(I4P)             :: jj, kk        !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   n = 6_I4P
+   where (code == SEAM_RESTRICT_IDENTITY) n = 1_I4P
+   uy = 0._R8P
+   uz = 0._R8P
+   do kk=1, n(3)
+      do jj=1, n(2)
+         uy(jj) = seam_restriction_weno6_1d(u=u(:,jj,kk), code=code(1))
+      enddo
+      uz(kk) = seam_restriction_weno6_1d(u=uy, code=code(2))
+   enddo
+   value_ = seam_restriction_weno6_1d(u=uz, code=code(3))
+   endfunction seam_restriction_weno6
 
    pure function seam_restriction_weight(node, code) result(w)
    !< Return the 1D weight `SEAM_W_LAGRANGE6(node, code)` (issue #68 C2): the device kernels read the table through this
