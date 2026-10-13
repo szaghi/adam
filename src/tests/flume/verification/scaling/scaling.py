@@ -73,7 +73,7 @@ IC_KEYS = {"type": NONE, "amr_iterations": NONE, "regions_number": NONE, "axis":
            "wall_velocity": VELOCITY}
 MHD_KEYS = {"divergence_control": NONE, "divb_error": NONE, "glm_alpha": NONE, "glm_ch_check": NONE,
             "glm_ch": VELOCITY, "glm_damping_length": LENGTH, "rho_floor": DENSITY, "p_floor": PRESSURE,
-            "divb_tol": (-1, 1, 0.5)}
+            "divb_tol": NONE}  # the normalised D_flux, dimensionless (#68 G1)
 BOX_KEYS = {f"box_{x}{e}": LENGTH for x in "xyz" for e in ("min", "max")}
 NO_IC = ("orszag-tang",)
 # dimensions of the reference layer (dimensionalize), beyond the ones above
@@ -94,7 +94,7 @@ FULL_KEYS = {
                 "viscosity_exponent": NONE, "reference_temperature": VELOCITY2},
     "mhd": {"divergence_control": NONE, "glm_alpha": NONE, "glm_ch_check": NONE, "divb_error": NONE,
             "glm_ch": VELOCITY, "glm_damping_length": LENGTH, "rho_floor": DENSITY, "p_floor": PRESSURE,
-            "divb_tol": FIELD_PER_LENGTH},
+            "divb_tol": NONE},
     "IO": {**{key: NONE for key in ("output_basename", "it_save", "restart", "restart_basename", "restart_save",
                                     "residuals_save", "divergence_history_save", "save_memory_status",
                                     "save_residual_fields", "save_curl_fields", "save_divergence_fields",

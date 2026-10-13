@@ -60,7 +60,7 @@ type, extends(realm_object) :: flume_common_object
    logical                        :: save_auxiliary_fields=.false. !< Save the auxiliary variables with the fields.
    ! GLM and div(B) monitors
    real(R8P)                      :: glm_speed_reported=0._R8P !< Largest wave speed above c_h reported so far.
-   real(R8P)                      :: divb_reported=0._R8P      !< Largest max|div B| above divb_tol reported so far.
+   real(R8P)                      :: divb_reported=0._R8P      !< Largest monitored measure above divb_tol reported so far.
    integer(I4P),      allocatable :: divb_seam(:,:)            !< Seam faces flags of the div(B) history [nb, 6].
    ! fields data
    real(R8P),         allocatable :: q(:,:,:,:,:)        !< Conservative variables [nv, 1-ngc:ni+ngc, ..., nb].
@@ -815,14 +815,16 @@ contains
 
    subroutine report_divb(self, norms)
    !< Reduce the div(B) norms of this rank over all ranks, save the div(B) history row and apply the monitor (issue #41,
-   !< D-10): `max|div B| > [mhd].(divb_tol)` (> 0) is fatal with `divb_error`, otherwise a warning logged by rank 0 each
-   !< time the maximum exceeds the largest one reported so far.
+   !< D-10; on the normalised D_flux since issue #68 G1): `max h|D_flux| / max|B| > [mhd].(divb_tol)` (> 0) is fatal with
+   !< `divb_error`, otherwise a warning logged by rank 0 each time the measure exceeds the largest one reported so far.
+   !< The D_flux norms come with `[diagnostics] divb_flux`, which `divb_tol > 0` requires (`check_divb_flux`).
    class(flume_common_object), intent(inout) :: self     !< The equation.
    real(R8P),                  intent(in)    :: norms(:) !< This rank's max|div B|, sum |div B| dV, seam-local
                                                          !< max|div B|; with divb_flux (issue #68 A2) then max|D_flux|,
                                                          !< sum |D_flux| dV, seam-local max|D_flux|, max h|D_flux|, max|B|.
    real(R8P)                                 :: g(8)     !< Global norms.
    real(R8P), allocatable                    :: row(:)   !< History row, output units.
+   real(R8P)                                 :: measure  !< Monitored measure, max h|D_flux| / max|B|.
 
    g = 0._R8P
    g(1:size(norms)) = norms
@@ -841,14 +843,16 @@ contains
              g(6)*self%units%variable_output('divb'), merge(g(7)/g(8), 0._R8P, g(8) > 0._R8P)]
    endif
    call self%diagnostics%save_divb_row(it=self%time%it, time=self%time%time*self%units%time_output(), norms=row)
-   if (.not.(self%physics%mhd%divb_tol > 0._R8P .and. g(1) > self%physics%mhd%divb_tol)) return
+   if (.not.(self%physics%mhd%divb_tol > 0._R8P .and. size(norms) == 8)) return
+   measure = merge(g(7)/g(8), 0._R8P, g(8) > 0._R8P)
+   if (.not.(measure > self%physics%mhd%divb_tol)) return
    if (self%physics%mhd%divb_error) &
-      call mpih%error_stop(msg=': max|div B| = '//trim(str(g(1)))//' > [mhd].(divb_tol) = '//             &
+      call mpih%error_stop(msg=': max h|D_flux|/max|B| = '//trim(str(measure))//' > [mhd].(divb_tol) = '// &
                                trim(str(self%physics%mhd%divb_tol))//' at step '//trim(str(self%time%it))// &
                                ' ([mhd].(divb_error) = .true.)')
-   if (g(1) > self%divb_reported) then
-      self%divb_reported = g(1)
-      if (mpih%myrank == 0) print '(A)', mpih%myrankstr//'warning: max|div B| = '//trim(str(g(1)))//                &
+   if (measure > self%divb_reported) then
+      self%divb_reported = measure
+      if (mpih%myrank == 0) print '(A)', mpih%myrankstr//'warning: max h|D_flux|/max|B| = '//trim(str(measure))// &
                                          ' > [mhd].(divb_tol) = '//trim(str(self%physics%mhd%divb_tol))//' at step '// &
                                          trim(str(self%time%it))
    endif
@@ -1417,6 +1421,9 @@ contains
    !< buffers (the committed state copied into the first, the residual into the second), so it needs two stages.
    class(flume_common_object), intent(inout) :: self !< The equation.
 
+   if (self%physics%mhd%divb_tol > 0._R8P .and. .not.self%diagnostics%divb_flux) &
+      call mpih%error_stop(msg=': [mhd].(divb_tol) > 0 monitors the normalised D_flux, max h|D_flux|/max|B| (issue '// &
+                               '#68 G1): set [diagnostics].(divb_flux) = .true. (and divergence_control = glm or eglm)')
    if (.not.self%diagnostics%divb_flux) return
    if (self%physics%model /= MODEL_MHD_GLM .and. self%physics%model /= MODEL_MHD_EGLM) &
       call mpih%error_stop(msg=': [diagnostics].(divb_flux) needs [mhd].(divergence_control) = glm or eglm: D_flux '// &

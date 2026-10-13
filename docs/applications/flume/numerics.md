@@ -423,7 +423,8 @@ single-realm run (verification `multirealm/`).
 
 Checkpoints are XH5F files (one HDF5 file per rank plus an XDMF description readable by ParaView), written every
 `it_save` steps, with optional slices, residual and conservation histories, and restart files. MHD adds the div(B)
-history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`) and the `divb_tol` monitor.
+history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`, plus the D_flux columns with
+`[diagnostics] divb_flux`) and the `divb_tol` monitor, on the normalised D_flux `max h|D_flux| / max|B|` (#68 G1).
 
 ## References
 

@@ -304,7 +304,8 @@ The figure is the undamped case (`glm_alpha = 0`, periodic, 128 cells, $c_h = 2$
 
 `mhd/glm-pulse/check.sh` (MV-3) checks the $L_1$ error and the observed order with and without damping, the `min-cell`
 damping length, $c_h$ in the time step and the reflection of $\psi$ at walls. `mhd/divb-peak/check.sh` (MV-10) checks the
-decay of $\|\nabla\cdot\mathbf{B}\|_1$ from an initial peak of $\nabla\cdot\mathbf{B}$, on a uniform grid and across AMR seams.
+decay of $\|\nabla\cdot\mathbf{B}\|_1$ from an initial peak of $\nabla\cdot\mathbf{B}$, on a uniform grid and across AMR seams,
+and the `divb_tol` monitor on the normalised D_flux (warning, stop, and the refusal without `divb_flux`; #68 G1).
 
 ### Order of accuracy: linear waves, CPAW, magnetised vortex
 

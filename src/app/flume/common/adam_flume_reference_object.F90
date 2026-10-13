@@ -404,7 +404,7 @@ contains
       case('p_floor')
          kind = KIND_SCALED ; dim = DIM_PRESSURE
       case('divb_tol')
-         kind = KIND_SCALED ; dim = DIM_FIELD_PER_LENGTH
+         kind = KIND_NONE ! the normalised D_flux, max h|D_flux| / max|B|, is dimensionless (issue #68 G1)
       endselect
    case('IO')
       select case(option_name)

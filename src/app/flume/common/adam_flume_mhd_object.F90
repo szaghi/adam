@@ -8,8 +8,10 @@ module adam_flume_mhd_object
 !< `c_h^2 / c_p^2 = glm_alpha c_h / L`, `L = glm_damping_length`, a positive length or `min-cell` (the minimum cell
 !< spacing of the realm over the active directions, Mignone & Tzeferacos 2010; set by `set_glm_damping` once the grid
 !< exists, issue #41, section 3.5); `glm_ch_check` decides what happens when the fastest wave
-!< outruns `c_h` (`warning` or `error`). `divb_tol` arms the div(B) monitor (0 disables it) and `divb_error` makes an
-!< exceeded tolerance fatal. `rho_floor` and `p_floor` are the positivity floors (0 disables them).
+!< outruns `c_h` (`warning` or `error`). `divb_tol` arms the div(B) monitor (0 disables it) on the normalised D_flux
+!< `max h|D_flux| / max|B|`, dimensionless (issue #68 G1: the divergence of the interface field the cleaning acts on,
+!< bounded with an O(H) seam floor, A2; it needs `[diagnostics] divb_flux`), and `divb_error` makes an exceeded
+!< tolerance fatal. `rho_floor` and `p_floor` are the positivity floors (0 disables them).
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
@@ -38,7 +40,7 @@ type :: flume_mhd_object
    logical                   :: glm_damping_min_cell=.false. !< The damping length is the minimum cell spacing.
    real(R8P)                 :: glm_damping=0._R8P        !< Damping rate c_h^2 / c_p^2 (set by set_glm_damping).
    character(:), allocatable :: glm_ch_check              !< Action when the fastest wave outruns c_h.
-   real(R8P)                 :: divb_tol=0._R8P           !< div(B) monitor tolerance (0: disabled).
+   real(R8P)                 :: divb_tol=0._R8P           !< div(B) monitor tolerance on max h|D_flux|/max|B| (0: off).
    logical                   :: divb_error=.false.        !< Stop when the div(B) tolerance is exceeded.
    real(R8P)                 :: rho_floor=0._R8P          !< Density floor (0: disabled).
    real(R8P)                 :: p_floor=0._R8P            !< Pressure floor (0: disabled).

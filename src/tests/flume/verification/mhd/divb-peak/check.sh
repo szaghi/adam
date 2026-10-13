@@ -13,8 +13,9 @@
 #   2. AMR ([-0.5, 0.5]^2 refined once more, 8^2 cells per base block), GLM: L1 below DECAY_MAX_AMR of its initial
 #      value, int B conserved, psi bounded, the seam-local column zero at step 0, never above the global maximum,
 #      positive at the end;
-#   3. monitor, 5 steps without cleaning, divb_tol = 1 (initial max|div B| = 3.0): divb_error = .false. warns,
-#      divb_error = .true. stops the run with its message.
+#   3. monitor (#68 G1: on the normalised D_flux, max h|D_flux|/max|B|, which needs [diagnostics] divb_flux and GLM),
+#      5 steps with GLM, divb_tol = 0.01 (the peak starts near 0.2): divb_error = .false. warns, divb_error = .true.
+#      stops the run with its message, and divb_tol > 0 without divb_flux is refused at initialisation.
 # One run at a time; checkpoints deleted after use.
 #
 # Usage: ./check.sh [--np N]
@@ -80,20 +81,28 @@ WA="$(case_run amr --divergence-control glm --amr --cells-per-block 8)" || exit 
 "$VENV_PY" "$ORACLE" "$WA" --conserved "$CONSERVED_TOL" --psi-max "$PSI_MAX" --seam || FAILED=1
 for w in "$WG" "$WN" "$WA"; do find "$w" -name '*.h5' -delete; done
 
-echo ">> MV-10 divb_tol monitor, 5 steps without cleaning, divb_tol = 1"
-WW="$(case_run warn --divergence-control none --it-max 5 --divb-tol 1.0)" || exit 1
-n=$(grep -c 'warning: max|div B|' "$WW/log.txt" || true)
+echo ">> MV-10 divb_tol monitor on the normalised D_flux, 5 steps with GLM, divb_tol = 0.01"
+WW="$(case_run warn --divergence-control glm --it-max 5 --divb-tol 0.01 --divb-flux)" || exit 1
+n=$(grep -c 'warning: max h|D_flux|/max|B|' "$WW/log.txt" || true)
 if [[ "$n" -gt 0 ]]; then echo "   divb_error = .false.: $n warnings, the run completes  PASS"
 else echo "   divb_error = .false.: no warning in $WW/log.txt  FAIL" ; FAILED=1 ; fi
-WS="$(prepare stop --divergence-control none --it-max 5 --divb-tol 1.0 --divb-error)"
+WS="$(prepare stop --divergence-control glm --it-max 5 --divb-tol 0.01 --divb-error --divb-flux)"
 if (cd "$WS" && mpirun -np "$NP" "$EXE" divb-peak.ini > log.txt 2>&1); then
    echo "   divb_error = .true.: the run completed instead of stopping  FAIL" ; FAILED=1
-elif grep -aq 'max|div B| = .*divb_error' "$WS/log.txt"; then
-   echo "   divb_error = .true.: stops with: $(grep -a -m1 'max|div B|' "$WS/log.txt" | sed 's/^.*error stop : //' | cut -c1-90)  PASS"
+elif grep -aq 'max h|D_flux|/max|B| = .*divb_error' "$WS/log.txt"; then
+   echo "   divb_error = .true.: stops with: $(grep -a -m1 'max h|D_flux|' "$WS/log.txt" | sed 's/^.*error stop : //' | cut -c1-90)  PASS"
 else
    echo "   divb_error = .true.: the run failed without the expected message, see $WS/log.txt  FAIL" ; FAILED=1
 fi
-for w in "$WW" "$WS"; do find "$w" -name '*.h5' -delete; done
+WR="$(prepare refuse --divergence-control glm --it-max 5 --divb-tol 0.01)"
+if (cd "$WR" && mpirun -np "$NP" "$EXE" divb-peak.ini > log.txt 2>&1); then
+   echo "   divb_tol without divb_flux: the run started instead of being refused  FAIL" ; FAILED=1
+elif grep -aq 'divb_tol) > 0 monitors the normalised D_flux' "$WR/log.txt"; then
+   echo "   divb_tol without divb_flux: refused at initialisation  PASS"
+else
+   echo "   divb_tol without divb_flux: the run failed without the expected message, see $WR/log.txt  FAIL" ; FAILED=1
+fi
+for w in "$WW" "$WS" "$WR"; do find "$w" -name '*.h5' -delete; done
 
 if [[ $FAILED -eq 0 ]]; then
    echo "MV-10 PASSED ($TAG)"

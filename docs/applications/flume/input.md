@@ -525,7 +525,7 @@ The section is not read for `euler`.
 | `glm_alpha` | real | `glm`, `eglm` | `>= 0`, otherwise fatal | Damping parameter: `c_h^2/c_p^2 = glm_alpha * c_h / L`. |
 | `glm_damping_length` | real or `min-cell` | `glm`, `eglm` | A positive real, or the literal `min-cell` (the minimum cell spacing over the active directions, MPI-reduced; with runtime regridding, `[amr] frequency > 0`, the spacing of the finest level `max_level` allows, fixed for the run). A non-number or a value `<= 0` is fatal. | Damping length `L`. |
 | `glm_ch_check` | string | `glm`, `eglm` | `warning` or `error`. Other → fatal. Without GLM it is forced to `warning` and not read. | What happens when `max(\|u\|+c_f) > glm_ch`: warn (logged each time a new maximum appears) or stop. |
-| `divb_tol` | real | yes | `>= 0`, otherwise fatal. `0` disables the monitor. | Monitor: `max\|div B\| > divb_tol` warns or stops. |
+| `divb_tol` | real | yes | `>= 0`, otherwise fatal. `0` disables the monitor; `> 0` needs `[diagnostics] divb_flux = .true.` (hence GLM or EGLM), fatal otherwise. | Monitor on the normalised D_flux ([#68](https://github.com/szaghi/adam/issues/68) G1): `max h\|D_flux\| / max\|B\| > divb_tol` warns or stops. Dimensionless (no `[reference]` conversion): the divergence of the interface field the cleaning acts on, scaled by the spacing and the field, bounded on a resolved run with an O(H) seam floor (A2). |
 | `divb_error` | logical | yes | logical | `.true.`: exceeding `divb_tol` is fatal. |
 | `rho_floor` | real | yes | `>= 0`, otherwise fatal. `0` disables it. | Density positivity floor. |
 | `p_floor` | real | yes | `>= 0`, otherwise fatal. `0` disables it. | Pressure positivity floor. With **both** floors at 0, any non-positive density or pressure stops the run. |
@@ -983,8 +983,8 @@ target_level = 3
 - **Physics.** `cp/cv = 5/3`. `divergence_control = glm` gives `nv = 9` (`psi`); `[field] nv = 9` is ignored.
 - **Time step and cleaning speed.** `glm_ch = 4` enters the time step. `glm_ch_check = error` stops the run if a fast
   wave ever outruns `c_h`.
-- **Monitors and floors.** `divb_tol = 0` disables the div(B) monitor, but `-divb_history.dat` is still written every
-  step. Both floors are 0, so a non-positive density or pressure is fatal.
+- **Monitors and floors.** `divb_tol = 0` disables the div(B) monitor (on the normalised D_flux, which needs
+  `[diagnostics] divb_flux`), but `-divb_history.dat` is still written every step. Both floors are 0, so a non-positive density or pressure is fatal.
 - **Grid.** The base grid is `4 x 4` blocks (`iu_ref_levels = 2` on a quasi-2-D octree, with z null) of `8 x 8` cells,
   i.e. 32² cells. `ni` and `nj` are even, as `amr_iterations = 1` requires.
 - **Refinement.** `amr_iterations = 1` runs one pass of the single marker. The marker is `mode = 1` +

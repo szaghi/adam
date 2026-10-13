@@ -38,6 +38,7 @@ def main() -> None:
     parser.add_argument("--alpha", default="0.4", help="glm_alpha (damping length min-cell)")
     parser.add_argument("--divb-tol", default="0.0", help="[mhd].(divb_tol)")
     parser.add_argument("--divb-error", action="store_true", help="[mhd].(divb_error) = .true.")
+    parser.add_argument("--divb-flux", action="store_true", help="[diagnostics].(divb_flux) = .true. (#68 G1)")
     parser.add_argument("--save-aux", action="store_true", help="save the auxiliary and derived fields")
     parser.add_argument("--cells-per-block", default="16", help="ni = nj of a block (the AMR variant uses 8)")
     args = parser.parse_args()
@@ -65,6 +66,8 @@ def main() -> None:
     ini["IO"].update({"output_basename": "divb-peak", "it_save": "100000",
                       "save_auxiliary_fields": ".true." if args.save_aux else ".false."})
     ini["diagnostics"]["conservation_history_save"] = "1"
+    if args.divb_flux:
+        ini["diagnostics"]["divb_flux"] = ".true."
     with args.out.open("w") as out:
         ini.write(out)
 
