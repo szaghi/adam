@@ -1524,6 +1524,27 @@ Findings:
   compute the source's divergence from the same face values the fluxes use (D_flux); the entropy argument constrains
   the choice.
 
+### G2: the GLM damping length on a source-free seam test (study)
+
+**Why.** The GLM damping rate is $c_h^2/c_p^2 = \alpha\, c_h / L$ with `[mhd] glm_damping_length` $L$ a fixed
+length or `min-cell` (the finest spacing; with runtime AMR it is frozen at the spacing of `max_level`, D-M5-9). A
+`per-level` length, each level damping at its own spacing, does not exist; G2
+([#68](https://github.com/szaghi/adam/issues/68)) asks whether it would matter, bracketing it between the coarse and
+the finest spacings on A2's source-free CPAW (GLM, two $x$ seams, 10 periods, FNL, 2 ranks):
+
+| `glm_damping_length` | rate $c_h^2/c_p^2$ (N = 128) | seam D_flux floor N = 64 / 128 | × uniform (N = 128) | growth N = 128 |
+|---|---|---|---|---|
+| 1.0 (A2) | 0.36 | $5.39\cdot10^{-4}$ / $5.43\cdot10^{-5}$ | 119 | 0.72 |
+| coarse spacing $L_x/N$ | 20.6 | $6.96\cdot10^{-4}$ / $5.32\cdot10^{-5}$ | 116 | 1.02 |
+| `min-cell` (finest spacing) | 41.2 | $8.30\cdot10^{-4}$ / $1.07\cdot10^{-4}$ | 233 | 1.01 |
+
+Findings:
+- **Every length keeps the seam divergence bounded** (growth 0.72 to 1.02 over 10 periods).
+- **Strong damping raises the seam floor**: `min-cell` doubles it at N = 128 against the coarse spacing or the
+  domain-scale length; a per-level length (between the coarse and the finest spacings) would sit between them.
+- **The D-M5-9 freeze stays** (the plan's choice): its cost on this test is at most that factor 2 on the floor,
+  with the damping rate fixed through regrids. No `per-level` option is added.
+
 ### AL: integral drift and the WENO sensor near seams
 
 **Why.** The reflux policy of Phase E (`reflux = troubled`) would turn the reflux off at the seam faces that a WENO
