@@ -1363,6 +1363,7 @@ contains
    integer(I4P)                               :: f, c          !< Face, skin cell counters.
    integer(I4P)                               :: nflag, ncell  !< Troubled and owned face cells (#68 E1).
    logical                                    :: troubled_only !< Reflux policy `troubled`.
+   real(R8P)                                  :: delta(1:self%nv) !< Flux mismatch of one face cell.
    integer(I4P)                               :: axis, sgn     !< Face normal axis and side.
    integer(I4P)                               :: i, j, k       !< Coarse cell indexes.
 
@@ -1388,8 +1389,12 @@ contains
             nflag = nflag + 1_I4P
          endif
          call seam_skin_cell(axis=axis, sgn=sgn, ni=self%ni, nj=self%nj, nk=self%nk, c=c, i=i, j=j, k=k)
-         self%q(:,i,j,k,face%coarse_block) = self%q(:,i,j,k,face%coarse_block) + &
-                                             scale * (face%F_coarse(1:self%nv,c,1) - face%F_fine_sum(1:self%nv,c,1))
+         delta = face%F_coarse(1:self%nv,c,1) - face%F_fine_sum(1:self%nv,c,1)
+         ! EGLM (issue #68 G3b): B is not a conserved integral under the Derigs sources (-u div B), and refluxing it
+         ! breaks the cancellation of the B_z the flux divergence generates (#78: 70 times the uniform level, 3.3
+         ! without B in the reflux); rho, rho u, E and psi are refluxed
+         if (self%physics%model == MODEL_MHD_EGLM) delta(IQ_BX:IQ_BZ) = 0._R8P
+         self%q(:,i,j,k,face%coarse_block) = self%q(:,i,j,k,face%coarse_block) + scale * delta
       enddo
       endassociate
    enddo

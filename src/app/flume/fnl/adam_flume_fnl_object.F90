@@ -1479,6 +1479,9 @@ contains
       if (axis == 0_I4P) call mpih_fnl%error_stop(msg=': malformed coarse face code of register face '//trim(str(f)))
       allocate(delta(self%nv,face%nface_cells))
       delta = face%F_coarse(1:self%nv,:,1) - face%F_fine_sum(1:self%nv,:,1)
+      ! EGLM (issue #68 G3b): B is not a conserved integral under the Derigs sources, and refluxing it breaks the
+      ! cancellation of the flux-generated B_z (#78); rho, rho u, E and psi are refluxed
+      if (self%physics%model == MODEL_MHD_EGLM) delta(IQ_BX:IQ_BX+2,:) = 0._R8P
       if (troubled_only) then ! reflux policy `troubled` (#68 E1): only the flagged cells are corrected
          do c=1, face%nface_cells
             ncell = ncell + 1_I4P

@@ -1518,12 +1518,9 @@ Findings:
   generates. The reflux corrects a coarse skin cell's state by the flux mismatch $F_c - \sum F_f$ after the step,
   but the source that step used saw the coarse fluxes' divergence: the correction changes the discrete divergence the
   fluxes imply without the matching source term, so the cancellation fails exactly at the refluxed cells.
-- **Workaround today:** EGLM with `reflux_policy = troubled` keeps #78 at 3.4 times on smooth fields (the reflux is
+- **Workaround before G3b:** EGLM with `reflux_policy = troubled` keeps #78 at 3.4 times on smooth fields (the reflux is
   applied only where a shock or the limiter flags a face), at the conservation price measured in E2.
-- **The fix (G3b, to decide):** make the EGLM source consistent with the refluxed fluxes, e.g. add to the reflux
-  correction of a coarse skin cell the source change implied by the divergence change of the correction itself, or
-  compute the source's divergence from the same face values the fluxes use (D_flux); the entropy argument constrains
-  the choice.
+- **The fix:** G3b, below: the EGLM reflux leaves B alone (3.3 times).
 
 ### G2: the GLM damping length on a source-free seam test (study)
 
@@ -1545,6 +1542,48 @@ Findings:
   domain-scale length; a per-level length (between the coarse and the finest spacings) would sit between them.
 - **The D-M5-9 freeze stays** (the plan's choice): its cost on this test is at most that factor 2 on the floor,
   with the damping rate fixed through regrids. No `per-level` option is added.
+
+### G3b: the EGLM reflux leaves B alone
+
+**Why.** G3a showed that [#78](https://github.com/szaghi/adam/issues/78), EGLM's $\langle|B_z|\rangle$ 70 times its
+uniform level on a static 2:1 grid, is caused by the reflux. G3b ([#68](https://github.com/szaghi/adam/issues/68))
+looked for the fix.
+
+**A first attempt that failed: the source divergence from the face fluxes.** Computing the Derigs source's $\nabla\cdot
+\mathbf B$ from the $\psi$ face fluxes ($\sum_d (F_\psi(i+\tfrac12) - F_\psi(i-\tfrac12)) / (c_h \Delta x_d)$, the
+divergence of the interface field, with the matching source correction at the reflux) keeps the MV-5 orders (4.96 to
+4.97 on every wave) but raises EGLM's uniform $\langle|B_z|\rangle$ from $2.72\cdot10^{-6}$ to $1.28\cdot10^{-4}$ (47
+times; refined N = 64 $2.64\cdot10^{-4}$): EGLM's cancellation of the $B_z$ the flux splitting generates needs the
+centred derivative of the cell values, not the face divergence. The code was not kept.
+
+**The fix: no reflux of B under EGLM.** The field loop (refined N = 64, default seam operators, reflux on) with the
+reflux of B removed, the rest refluxed:
+
+| EGLM, reflux | $\langle\lvert B_z\rvert\rangle/A_0$ | × uniform |
+|---|---|---|
+| all components (before) | $1.91\cdot10^{-4}$ | 70 |
+| all but B (G3b) | $9.11\cdot10^{-6}$ | **3.3** |
+| all but B and $\psi$ | $9.31\cdot10^{-6}$ | 3.4 |
+| none | $9.31\cdot10^{-6}$ | 3.4 |
+
+Refluxing B is the whole of #78. Under EGLM the induction equation carries the Derigs source $-\mathbf u\,\nabla\cdot
+\mathbf B$, so $\int \mathbf B$ is not a conserved integral: refluxing B buys a conservation the model does not have
+and breaks the source/flux cancellation it is built on. Since G3b (owner decision, no key) the EGLM reflux corrects
+$\rho$, $\rho\mathbf u$, $E$ and $\psi$ and leaves B alone, on CPU and FNL; GLM is unchanged (it refluxes B, and its
+$\langle|B_z|\rangle$ does not depend on it, G3a).
+
+**Gate.** The FLUME regressions pass unchanged on CPU and FNL (35 of 35 each). The one case with EGLM across 2:1 seams,
+`blast-amr-limiter`, moves but stays inside its digest tolerance (rtol $10^{-6}$), so its golden is kept:
+- step 0 is identical, and $B_z$ (zero in 2D) does not move;
+- at step 100 seven of 26 digest rows differ (`r`, `ru`, `rv`, `rE`, `bx`, `by`, `psi`), the largest by
+  $2.4\cdot10^{-7}$ relative on CPU and $9.8\cdot10^{-8}$ on FNL;
+- the integrals drift exactly as in the golden: $\rho$ to round-off ($3\cdot10^{-16}$), the rest at the golden's
+  levels ($\rho\mathbf u$ $2.5\cdot10^{-4}$, $E$ $1.9\cdot10^{-2}$, B $4.5\cdot10^{-4}$, $\psi$ $1.3\cdot10^{-4}$, all
+  set by the blast's boundaries and EGLM's non-conservative sources, not by the reflux).
+
+The field loop on FNL confirms the table above: EGLM $9.11\cdot10^{-6}$, GLM $1.10\cdot10^{-3}$ (unchanged). MV-5
+under EGLM keeps its orders (4.96 to 4.97 on every wave), and the multirealm suite passes.
+
 
 ### AL: integral drift and the WENO sensor near seams
 
