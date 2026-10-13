@@ -1906,6 +1906,62 @@ The first run found two options the scaling tool had misclassified since N0: `rh
 (it is a density) and `loop_amplitude` as a vector potential (it is the field of the loop). The two independent tables
 disagreed, and the field-loop case was not bitwise.
 
+## Gravity (M7)
+
+External gravity lands in phases ([#73](https://github.com/szaghi/adam/issues/73), plan in the issue): G0 the inputs,
+G1 the force, G2 a well-balanced mode, G3 Rayleigh–Taylor. Self-gravity is M8
+([#81](https://github.com/szaghi/adam/issues/81)).
+
+### GV (G0): the stratified atmospheres and the `hydrostatic` boundary
+
+**Why.** Every later gravity test starts from a hydrostatic atmosphere closed by `hydrostatic` faces: G0 checks that
+the initial state and its ghosts are what the formulas say before any force acts on them.
+
+**Cases** (`gravity/check.sh`, inputs from `gravity/make_atmosphere.py`, checks by `gravity/atmosphere_oracle.py`):
+each runs one negligible step (CFL = 10⁻³⁰) with the ghosts poisoned, so the checkpoint holds the initial atmosphere
+and its ghosts filled in the order of a Runge–Kutta stage.
+
+| Case | Atmosphere | Gravity | Faces | Grid |
+|---|---|---|---|---|
+| iso2d | isothermal | (0, −1) | x periodic, y hydrostatic | quadtree, 4×4 blocks of 8² |
+| poly2d | polytropic, $G = 1.2$ | (0, −1) | as iso2d | as iso2d |
+| tilted2d | isothermal | (−0.6, −0.8) | every face hydrostatic | as iso2d, one block refined (2:1 seams) |
+| tilted3d | isothermal | (−0.48, −0.64, −0.6) | every face hydrostatic | octree, 4×4×4 blocks of 8³ |
+| iso2d-mhd | isothermal, EGLM, B = (0.5, 0.7, 0.2) | (0, −1) | as iso2d | as iso2d |
+| froude2d | isothermal | `froude = 1`, `axis = -y` | as iso2d | as iso2d |
+
+**Asserted** (relative, 10⁻¹³):
+- the interior cells against the analytic atmosphere;
+- every ghost beyond a `hydrostatic` face against the boundary rule. For the isothermal atmosphere the rule is the
+  analytic profile, so the realm edges and corners are checked too; for the polytropic one, the ghosts beyond one face.
+  The velocity in those ghosts must be zero and the field uniform;
+- the periodic ghosts against the analytic profile at the wrapped position.
+
+Boundary ghosts beside their own block (their donor along the normal is an interface or seam ghost, not exact on an
+exponential) are counted, not checked; the exchange is the ghost probe's job (GP).
+
+A **negative control** runs iso2d with `extrapolation` on the y faces and judges it as if they were `hydrostatic`: the
+oracle must reject it. **NV-5** runs `scaling/reference.sh --inputs` on iso2d, iso2d-mhd and froude2d: the gravity
+components convert as an acceleration ($u_0^2/L_0$), `froude` does not, and the dimensional run equals the base one bit
+for bit.
+
+Two uniform levels spread the blocks over the ranks (with one level every block stayed on rank 0, so an np 2 run
+decomposed nothing).
+
+**Results** (CPU and FNL, np 1 and 2, every case PASS):
+
+| Check | Cells (per run) | Max relative error |
+|---|---|---|
+| interior ρ, p | 1 024 (2-D), 32 768 (3-D) | 2.2·10⁻¹⁶ CPU, 6.7·10⁻¹⁶ FNL |
+| hydrostatic ghosts ρ, p | 192 (iso2d) to 22 104 (tilted3d, edges and corners) | 8.9·10⁻¹⁶ |
+| hydrostatic ghosts u, B | as above | velocity 0 to 10⁻³², field uniform |
+| negative control | 192 | 9.8·10⁻² (rejected, as it must be) |
+| NV-5 | iso2d, iso2d-mhd, froude2d | bitwise; conversions exact and complete |
+
+**Found on the way** (pre-existing, not gravity): on FNL an MHD run dies when a rank owns no blocks
+(`dev_assign_to_device: device memory not allocated`), with or without gravity and with the executable before G0; the
+Euler model and the CPU backend run. The G0 cases now give every rank blocks.
+
 ## Unit tests
 
 | Test | What it pins |

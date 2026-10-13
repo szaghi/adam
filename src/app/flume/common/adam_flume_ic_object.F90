@@ -86,6 +86,11 @@ module adam_flume_ic_object
 !<
 !< The primitive keys of a region follow the physical model: `r, u, v, w, p` (Euler), plus `bx, by, bz` (MHD; `psi` is
 !< zero). `isentropic-vortex` is Euler only (issue #41, section 3.7).
+!< * `isothermal-atmosphere`, `polytropic-atmosphere` (issue #73, M7-G0): the hydrostatic equilibrium of the constant
+!<   gravity `g` of `[gravity]` (required), with the state of region 1 at the origin (its velocity and field uniform):
+!<   isothermal, `rho = rho_1 exp(g . x / T_1)`, `p = rho T_1`, `T_1 = p_1 / rho_1`; polytropic, `p = p_1 (rho /
+!<   rho_1)^G` with `G = polytropic_gamma > 1`, `rho = rho_1 (1 + (G - 1) / G rho_1 / p_1 g . x)^(1 / (G - 1))`, fatal
+!<   where the bracket is not positive (the atmosphere's top lies inside the domain). Point values at the cell centres.
 
 ! ADAM classes, libraries, parameters
 use :: adam_field_object,         only : field_object
@@ -143,6 +148,8 @@ character(len=7),  parameter :: IC_COUETTE_STR="couette"                 !< Exac
 character(len=16), parameter :: COUETTE_KEY(4)=['wall_y0         ', 'height          ', &
                                                 'wall_velocity   ', 'wall_temperature'] !< Couette keys.
 character(len=12), parameter :: IC_BECKER_STR="becker-shock"             !< Becker's exact viscous shock (issue #65).
+character(len=21), parameter :: IC_ISOTHERMAL_ATM_STR="isothermal-atmosphere" !< Isothermal atmosphere (issue #73).
+character(len=21), parameter :: IC_POLYTROPIC_ATM_STR="polytropic-atmosphere" !< Polytropic atmosphere (issue #73).
 character(len=8),  parameter :: BECKER_KEY(2)=['mach    ', 'shock_x0']  !< Becker shock keys.
 character(len=10), parameter :: LINEAR_KEY(3)=['gradient_x', 'gradient_y', 'gradient_z'] !< Linear field gradient keys.
 character(len=14), parameter :: SHU_OSHER_KEY(3)=['interface     ', 'rho_amplitude ', &
@@ -203,6 +210,8 @@ type :: flume_ic_object
    real(R8P)                 :: becker(2)=0._R8P     !< Becker shock: upstream Mach number, shock position.
    real(R8P)                 :: becker_mu=0._R8P     !< Becker shock: viscosity.
    real(R8P)                 :: cp=0._R8P            !< Specific heat at constant pressure.
+   real(R8P)                 :: g(3)=0._R8P          !< Atmospheres: gravity.
+   real(R8P)                 :: polytropic_gamma=0._R8P !< Polytropic atmosphere: exponent G of p ~ rho^G.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -255,6 +264,9 @@ contains
    desc = desc//NL//mpih%myrankstr//'  couette:        '//trim(str(self%couette))
    if (self%ic_type == IC_SINE_WAVE_STR) &
    desc = desc//NL//mpih%myrankstr//'  sine wave:      '//self%sine_mode//', '//trim(str(self%wave_par))
+   if (self%ic_type == IC_ISOTHERMAL_ATM_STR .or. self%ic_type == IC_POLYTROPIC_ATM_STR) &
+   desc = desc//NL//mpih%myrankstr//'  atmosphere:     g '//trim(str(self%g))//', polytropic_gamma '// &
+                                    trim(str(self%polytropic_gamma))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -548,6 +560,19 @@ contains
       enddo
       if (.not.(self%wave_par(3) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
+   case(IC_ISOTHERMAL_ATM_STR, IC_POLYTROPIC_ATM_STR)
+      if (.not.physics%gravity%is_active) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//self%ic_type//' needs [gravity]')
+      self%regions_number = 1_I4P
+      self%g = physics%gravity%g
+      if (self%ic_type == IC_POLYTROPIC_ATM_STR) then
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='polytropic_gamma', &
+                                  val=self%polytropic_gamma, error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(polytropic_gamma)')
+         if (.not.(self%polytropic_gamma > 1._R8P)) &
+            call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(polytropic_gamma) must be > 1 (1 is the '// &
+                                     IC_ISOTHERMAL_ATM_STR//')')
+      endif
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -562,7 +587,8 @@ contains
                                IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR//', '// &
                                IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
                                IC_SINE_WAVE_STR//', '// &
-                               IC_COUETTE_STR//', '//IC_BECKER_STR)
+                               IC_COUETTE_STR//', '//IC_BECKER_STR//', '//IC_ISOTHERMAL_ATM_STR//', '// &
+                               IC_POLYTROPIC_ATM_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -632,6 +658,33 @@ contains
    integer(I4P)                          :: b, i, j, k, r !< Counters.
 
    select case(self%ic_type)
+   case(IC_ISOTHERMAL_ATM_STR, IC_POLYTROPIC_ATM_STR)
+      ! hydrostatic equilibrium of the constant gravity, region 1 at the origin (issue #73, M7-G0): isothermal,
+      ! rho = rho_1 exp(g . x / T_1); polytropic, rho = rho_1 (1 + (G - 1) / G rho_1 / p_1 g . x)^(1 / (G - 1))
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  prim = self%prim_1
+                  if (self%ic_type == IC_ISOTHERMAL_ATM_STR) then
+                     prim(1) = self%prim_1(1) * exp(dot_product(self%g, center) * self%prim_1(1) / self%prim_1(5))
+                     prim(5) = prim(1) * self%prim_1(5) / self%prim_1(1)
+                  else
+                     s_ = 1._R8P + (self%polytropic_gamma - 1._R8P) / self%polytropic_gamma * self%prim_1(1) / &
+                          self%prim_1(5) * dot_product(self%g, center)
+                     if (.not.(s_ > 0._R8P)) &
+                        call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] '//IC_POLYTROPIC_ATM_STR//' has no '// &
+                                                 'mass at ('//trim(str(center))//'): the top of the atmosphere '// &
+                                                 'lies inside the domain')
+                     prim(1) = self%prim_1(1) * s_**(1._R8P / (self%polytropic_gamma - 1._R8P))
+                     prim(5) = self%prim_1(5) * s_**(self%polytropic_gamma / (self%polytropic_gamma - 1._R8P))
+                  endif
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
    case(IC_BECKER_STR)
       do b=1, field%blocks_number
          do k=1, field%nk

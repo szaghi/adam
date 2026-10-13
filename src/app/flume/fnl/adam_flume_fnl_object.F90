@@ -1372,8 +1372,10 @@ contains
                                           R=self%physics%R, psi_energy=psi_energy,                                 &
                                           wall_velocity=self%bc%wall_velocity,                                     &
                                           wall_temperature=self%bc%wall_temperature,                               &
+                                          g=self%physics%gravity%g,                                                &
                                           local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu,       &
-                                          q_inflow_gpu=self%q_inflow_gpu, wall_sign_gpu=self%wall_sign_gpu, q_gpu=q_gpu)
+                                          q_inflow_gpu=self%q_inflow_gpu, wall_sign_gpu=self%wall_sign_gpu,        &
+                                          dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu)
       enddo
    enddo
    endsubroutine set_boundary_conditions

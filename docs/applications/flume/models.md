@@ -190,7 +190,9 @@ What the invariance does not remove:
   initial and boundary states; one reference speed can set only one of the flow, sound and Alfvén speeds to 1.
 - **The temperature needs $R$**, and later a reference temperature, once conduction, cooling or a temperature-dependent
   resistivity exist.
-- **Gravity is not free** (planned): an external field brings $g L_0/u_0^2$, self-gravity $G\rho_0 L_0^2/u_0^2$; the
+- **Gravity is not free**: an external field brings $g L_0/u_0^2 = 1/\mathrm{Fr}^2$ (`[gravity]`, milestone M7,
+  [#73](https://github.com/szaghi/adam/issues/73); its inputs land in M7-G0, the force in M7-G1), self-gravity
+  $G\rho_0 L_0^2/u_0^2$ (M8, [#81](https://github.com/szaghi/adam/issues/81)); the
   dissipative terms of M4 bring the Reynolds, Prandtl, magnetic Reynolds and Lundquist numbers, each accepted in
   place of its coefficient ([input](./input#dissipative-terms-issue-65-m4)).
 - **The discrete scheme must be scale-free too.** FLUME's is, apart from the classic WENO weights: their absolute

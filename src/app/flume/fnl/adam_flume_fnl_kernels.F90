@@ -18,7 +18,7 @@ use :: adam_parameters,           only : FEC_1_6_ARRAY, FEC_TO_DELTA
 ! FLUME modules
 use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
                                          BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, realm_edge_donor, realm_edge_face,           &
-                                         wall_noslip_ghost
+                                         wall_noslip_ghost, BC_HYDROSTATIC, hydrostatic_ghost
 ! third party modules
 use :: penf,                      only : I4P, I8P, R8P
 
@@ -522,8 +522,8 @@ contains
    endsubroutine scatter_seam_cells_dev
 
    subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, pass, face_kind, gamma, R, psi_energy, &
-                                          wall_velocity, wall_temperature, local_map_bc_crown_gpu,          &
-                                          q_inflow_gpu, wall_sign_gpu, q_gpu)
+                                          wall_velocity, wall_temperature, g, local_map_bc_crown_gpu,       &
+                                          q_inflow_gpu, wall_sign_gpu, dxyz_gpu, q_gpu)
    !< Set boundary conditions on one crown, for the rows beyond `pass` realm faces (see the CPU
    !< `set_boundary_conditions`): pass 1 the face rows (each face's kind, inward along its normal), pass 2 and 3 the
    !< rows beyond two or three realm faces (the kind of one physical face among them, `realm_edge_face`, on the donor
@@ -541,9 +541,11 @@ contains
    real(R8P),    intent(in)    :: psi_energy                        !< 1 if the total energy holds psi^2 / 2 (EGLM).
    real(R8P),    intent(in)    :: wall_velocity(3,6)                !< No-slip walls: wall velocity of each face.
    real(R8P),    intent(in)    :: wall_temperature(6)               !< Isothermal walls: wall temperature of each face.
+   real(R8P),    intent(in)    :: g(3)                              !< Hydrostatic faces: gravity (issue #73).
    integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Boundary crown map (row, field, crown).
    real(R8P),    intent(in)    :: q_inflow_gpu(1:,1:)               !< Conservative inflow state of each face [nv, 6].
    real(R8P),    intent(in)    :: wall_sign_gpu(1:,1:)              !< Wall mirror sign per variable and direction [nv, 3].
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                   !< Cell spacing of each block [nb, 3].
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
    integer(I4P)                :: b, c, i, j, k, v                  !< Counters.
    integer(I4P)                :: idelta, jdelta, kdelta            !< IJK inward step.
@@ -552,13 +554,17 @@ contains
    integer(I4P)                :: face                              !< Boundary face (1 to 6).
    integer(I4P)                :: iref, jref, kref                  !< Donor indexes.
    real(R8P)                   :: qd(9), qw(9)                      !< No-slip walls: donor and ghost states.
+   integer(I4P)                :: i1, j1, k1                        !< Hydrostatic: first interior cell on the normal.
+   integer(I4P)                :: dd(3)                             !< Hydrostatic: offset from that cell to the ghost.
+   real(R8P)                   :: q1(9), ws(9)                      !< Hydrostatic: its state, the wall signs.
 
-   !$acc parallel loop independent gang vector DEVICEVAR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature)     &
-   !$acc& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw)
-   !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature) &
-   !$omp& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw)
+   !$acc parallel loop independent gang vector &
+   !$acc& DEVICEVAR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g) &
+   !$acc& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws)
+   !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g) &
+   !$omp& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws)
    do c=1, size(local_map_bc_crown_gpu, dim=1)
       b = int(local_map_bc_crown_gpu(c,1,crown), I4P)
       fec = int(local_map_bc_crown_gpu(c,9,crown), I4P)
@@ -579,7 +585,8 @@ contains
             if (bc_type == BC_EXTRAPOLATION) &
                call realm_edge_donor(face=face, face_kind=BC_EXTRAPOLATION, ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
                                      iref=iref, jref=jref, kref=kref)
-            if (bc_type == BC_WALL_INVISCID .or. bc_type == BC_WALL_NOSLIP .or. bc_type == BC_WALL_ISOTHERMAL) then
+            if (bc_type == BC_WALL_INVISCID .or. bc_type == BC_WALL_NOSLIP .or. bc_type == BC_WALL_ISOTHERMAL .or. &
+                bc_type == BC_HYDROSTATIC) then
                select case(face)
                case(1)
                   iref = 1_I4P - i
@@ -629,6 +636,25 @@ contains
             call wall_noslip_ghost(nv=nv, d=(face+1)/2, gamma=gamma, R=R, psi_energy=psi_energy,                   &
                                    isothermal=bc_type == BC_WALL_ISOTHERMAL, wall_velocity=wall_velocity(:,face), &
                                    wall_temperature=wall_temperature(face), q=qd(1:nv), qg=qw(1:nv))
+            !$acc loop seq
+            do v=1, nv
+               q_gpu(b,i,j,k,v) = qw(v)
+            enddo
+         elseif (bc_type == BC_HYDROSTATIC) then
+            ! the mirror (iref, jref, kref) gives the velocity, the field and psi; the first interior cell along the
+            ! normal the density and the temperature (issue #73, M7-G0)
+            call realm_edge_donor(face=face, face_kind=BC_EXTRAPOLATION, ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
+                                  iref=i1, jref=j1, kref=k1)
+            !$acc loop seq
+            do v=1, nv
+               qd(v) = q_gpu(b,iref,jref,kref,v)
+               q1(v) = q_gpu(b,i1,j1,k1,v)
+               ws(v) = wall_sign_gpu(v,(face+1)/2)
+            enddo
+            dd = [i - i1, j - j1, k - k1]
+            call hydrostatic_ghost(nv=nv, gamma=gamma, psi_energy=psi_energy,                                    &
+                                   gs=g((face+1)/2) * real(dd((face+1)/2), R8P) * dxyz_gpu(b,(face+1)/2),     &
+                                   wall_sign=ws(1:nv), qm=qd(1:nv), q1=q1(1:nv), qg=qw(1:nv))
             !$acc loop seq
             do v=1, nv
                q_gpu(b,i,j,k,v) = qw(v)

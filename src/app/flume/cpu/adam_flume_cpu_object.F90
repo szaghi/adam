@@ -24,6 +24,7 @@ use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sy
                                               BC_EXTRAPOLATION,                                                        &
                                               BC_INFLOW, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP,          &
                                               realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
+                                              BC_HYDROSTATIC, hydrostatic_ghost,                                        &
                                               MODEL_EULER,                                                              &
                                               MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,        &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,                                 &
@@ -1202,6 +1203,7 @@ contains
    integer(I4P)                           :: fec                    !< Boundary fec (1 to 26).
    integer(I4P)                           :: face                   !< Boundary face (1 to 6).
    integer(I4P)                           :: iref, jref, kref       !< Donor indexes.
+   integer(I4P)                           :: i1, j1, k1             !< Hydrostatic: first interior cell on the normal.
    integer(I4P)                           :: pass                   !< Pass: realm faces the row lies beyond.
    integer(I4P)                           :: face_kind(6)           !< Kind of each realm face, BC_SEAM for a seam.
    real(R8P)                              :: psi_energy             !< 1 if the total energy holds psi^2 / 2 (EGLM).
@@ -1244,6 +1246,10 @@ contains
                                          wall_velocity=self%bc%wall_velocity(:,face),                                   &
                                          wall_temperature=self%bc%wall_temperature(face), q=q(:,iref,jref,kref,b),      &
                                          qg=q(:,i,j,k,b))
+               case(BC_HYDROSTATIC)
+                  call realm_edge_donor(face=face, face_kind=BC_EXTRAPOLATION, ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
+                                        iref=i1, jref=j1, kref=k1)
+                  call hydrostatic_ghost_cell
                case default ! BC_EXTRAPOLATION
                   q(:,i,j,k,b) = q(:,iref,jref,kref,b)
                endselect
@@ -1272,6 +1278,12 @@ contains
                                       wall_velocity=self%bc%wall_velocity(:,face),                                        &
                                       wall_temperature=self%bc%wall_temperature(face), q=q(:,iref,jref,kref,b),           &
                                       qg=q(:,i,j,k,b))
+            case(BC_HYDROSTATIC)
+               call compute_face_mirror_indexes(face=face, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k,                     &
+                                                idelta=idelta, jdelta=jdelta, kdelta=kdelta, i_d=iref, j_d=jref, k_d=kref)
+               call realm_edge_donor(face=face, face_kind=BC_EXTRAPOLATION, ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
+                                     iref=i1, jref=j1, kref=k1)
+               call hydrostatic_ghost_cell
             case(BC_SEAM)
                ! inter-realm seam face: filled by the forest (fill_seam_from_peer_forest), nothing to do here
             case default
@@ -1281,6 +1293,20 @@ contains
       enddo
    enddo
    endassociate
+   contains
+      subroutine hydrostatic_ghost_cell
+      !< Fill the ghost `(i, j, k)` of block `b` beyond `face` from its mirror `(iref, jref, kref)` and the first
+      !< interior cell `(i1, j1, k1)` along the normal (issue #73, M7-G0).
+      integer(I4P) :: d     !< Normal axis.
+      integer(I4P) :: dd(3) !< Index offset from the first interior cell to the ghost.
+
+      d = (face + 1_I4P) / 2_I4P
+      dd = [i - i1, j - j1, k - k1]
+      call hydrostatic_ghost(nv=self%nv, gamma=self%physics%gamma, psi_energy=psi_energy,                           &
+                             gs=self%physics%gravity%g(d) * real(dd(d), R8P) * self%adam%field%dxyz(d,b),         &
+                             wall_sign=self%bc%wall_sign(:,d), qm=q(:,iref,jref,kref,b), q1=q(:,i1,j1,k1,b),           &
+                             qg=q(:,i,j,k,b))
+      endsubroutine hydrostatic_ghost_cell
    endsubroutine set_boundary_conditions
 
    subroutine set_initial_conditions(self)

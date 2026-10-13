@@ -61,6 +61,7 @@ integer(I4P), parameter :: DIM_PSI_GLM(3)=[0_I4P, 2_I4P, 1_I4P]            !< GL
 integer(I4P), parameter :: DIM_FIELD_PER_LENGTH(3)=[-1_I4P, 1_I4P, 1_I4P]  !< div(B).
 integer(I4P), parameter :: DIM_VISCOSITY(3)=[1_I4P, 1_I4P, 2_I4P]         !< Dynamic viscosity, rho0 u0 L0.
 integer(I4P), parameter :: DIM_DIFFUSIVITY(3)=[1_I4P, 1_I4P, 0_I4P]       !< Diffusivity, u0 L0 (resistivity).
+integer(I4P), parameter :: DIM_ACCELERATION(3)=[-1_I4P, 2_I4P, 0_I4P]     !< Acceleration, u0^2 / L0 (gravity).
 ! option kinds
 integer(I4P), parameter :: KIND_NONE=0_I4P    !< Not converted.
 integer(I4P), parameter :: KIND_SCALED=1_I4P  !< Divided by the reference of its dimension.
@@ -393,6 +394,14 @@ contains
       case('reference_temperature')
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
       endselect
+   case('gravity')
+      ! issue #73: the acceleration converts, the Froude number (g L0 / u0^2 = 1 / Fr^2) and the names do not
+      select case(option_name)
+      case('froude', 'axis', 'equilibrium', 'potential')
+         kind = KIND_NONE
+      case('g_x', 'g_y', 'g_z')
+         kind = KIND_SCALED ; dim = DIM_ACCELERATION
+      endselect
    case('mhd')
       select case(option_name)
       case('divergence_control', 'glm_alpha', 'glm_ch_check', 'divb_error')
@@ -450,7 +459,7 @@ contains
    case('initial_conditions')
       select case(option_name)
       case('amr_iterations', 'type', 's', 'pulse_axis', 'wave', 'wave_angle', 'polarisation', 'axis', 'regions_number', &
-           'normal_x', 'normal_y', 'wave_mode', 'mach')
+           'normal_x', 'normal_y', 'wave_mode', 'mach', 'polytropic_gamma')
          kind = KIND_NONE
       case('x0', 'y0', 'radius', 'r0', 'r1', 'pulse_center', 'pulse_width', 'peak_x0', 'peak_y0', 'peak_radius', &
            'wavelength', 'loop_radius', 'interface_1', 'interface_2', 'period', 'interface_2_width', 'interface', &

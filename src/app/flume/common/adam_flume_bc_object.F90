@@ -20,6 +20,16 @@ module adam_flume_bc_object
 !< any positive T; the linear one, `2 wall_temperature - T` (P1), gave a negative ghost density beside gas hotter than
 !< twice the wall (issue #65 P2). For `T = T_w + delta` the two differ by `delta^2 / T_w`, so both are second-order at
 !< the wall. The field follows the MHD wall rule of `wall-inviscid` (normal component odd), psi is even.
+!<
+!< **Hydrostatic** (issue #73, M7-G0). `hydrostatic` closes a stratified atmosphere under the constant gravity of
+!< `[gravity]`: the ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior
+!< cell along the normal, `rho_g = rho_1 exp(g_d s / T_1)`, `p_g = rho_g T_1` (`T_1 = p_1 / rho_1`, `s` the signed
+!< distance from that cell to the ghost along the axis `d`), so an isothermal atmosphere has exact ghosts; the velocity
+!< is mirrored as at `wall-inviscid` (normal component odd, no mass flux), the field and psi are mirrored even (the
+!< field lines pass through the boundary, so a uniform field along or across gravity stays uniform; a reflecting wall
+!< is `wall-inviscid`). Without gravity along the normal it is a slip wall that copies the thermodynamic state of the
+!< first interior cell (Zingale et al. 2002, ApJS 143, 539: hydrostatic ghosts integrated at constant temperature,
+!< reflecting velocity).
 
 ! ADAM classes, libraries, parameters
 use :: adam_parameters,           only : BC_PERIODIC, BC_SEAM, FEC_TO_DELTA
@@ -41,6 +51,8 @@ public :: BC_INFLOW
 public :: BC_WALL_INVISCID
 public :: BC_WALL_NOSLIP
 public :: BC_WALL_ISOTHERMAL
+public :: BC_HYDROSTATIC
+public :: hydrostatic_ghost
 public :: wall_noslip_ghost
 public :: BC_PERIODIC
 public :: realm_edge_donor
@@ -51,6 +63,7 @@ integer(I4P), parameter :: BC_INFLOW        = 2_I4P !< Prescribed state.
 integer(I4P), parameter :: BC_WALL_INVISCID = 3_I4P !< Inviscid (slip) wall: mirror with normal momentum negated.
 integer(I4P), parameter :: BC_WALL_NOSLIP = 4_I4P   !< No-slip adiabatic wall: velocity reflected about the wall's.
 integer(I4P), parameter :: BC_WALL_ISOTHERMAL = 5_I4P !< No-slip isothermal wall: also the temperature set.
+integer(I4P), parameter :: BC_HYDROSTATIC = 6_I4P     !< Hydrostatic ghosts under gravity, mirrored velocity.
 
 character(len=13), parameter :: BC_EXTRAPOLATION_STR="extrapolation"          !< Accepted spelling of BC_EXTRAPOLATION.
 character(len=6),  parameter :: BC_INFLOW_STR="inflow"                        !< Accepted spelling of BC_INFLOW.
@@ -58,6 +71,7 @@ character(len=13), parameter :: BC_WALL_INVISCID_STR="wall-inviscid"          !<
 character(len=8),  parameter :: BC_PERIODIC_STR="periodic"                    !< Accepted spelling of BC_PERIODIC.
 character(len=11), parameter :: BC_WALL_NOSLIP_STR="wall-noslip"              !< Accepted spelling of BC_WALL_NOSLIP.
 character(len=15), parameter :: BC_WALL_ISOTHERMAL_STR="wall-isothermal"      !< Accepted spelling of BC_WALL_ISOTHERMAL.
+character(len=11), parameter :: BC_HYDROSTATIC_STR="hydrostatic"              !< Accepted spelling of BC_HYDROSTATIC.
 character(len=6),  parameter :: WALL_VELOCITY_KEY(3)=['wall_u', 'wall_v', 'wall_w'] !< Wall velocity keys.
 character(len=2),  parameter :: INFLOW_KEY(8)=['r ', 'u ', 'v ', 'w ', &
                                                'p ', 'bx', 'by', 'bz']       !< Inflow primitive state keys (MHD: all 8).
@@ -182,10 +196,13 @@ contains
          endif
       case(BC_PERIODIC_STR)
          self%bc_type(f) = BC_PERIODIC
+      case(BC_HYDROSTATIC_STR)
+         self%bc_type(f) = BC_HYDROSTATIC
       case default
          call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(type) "'//bc_str//'"; expected one of '// &
                                   BC_EXTRAPOLATION_STR//', '//BC_INFLOW_STR//', '//BC_WALL_INVISCID_STR//', '// &
-                                  BC_WALL_NOSLIP_STR//', '//BC_WALL_ISOTHERMAL_STR//', '//BC_PERIODIC_STR)
+                                  BC_WALL_NOSLIP_STR//', '//BC_WALL_ISOTHERMAL_STR//', '//BC_PERIODIC_STR//', '// &
+                                  BC_HYDROSTATIC_STR)
       endselect
    enddo
    do f=1, 5, 2
@@ -236,7 +253,7 @@ contains
    !$acc routine seq
    !$omp declare target
 
-   mirror = any(face_kind == [BC_WALL_INVISCID, BC_WALL_NOSLIP, BC_WALL_ISOTHERMAL])
+   mirror = any(face_kind == [BC_WALL_INVISCID, BC_WALL_NOSLIP, BC_WALL_ISOTHERMAL, BC_HYDROSTATIC])
    iref = i ; jref = j ; kref = k
    select case(face)
    case(1_I4P)
@@ -298,4 +315,47 @@ contains
    qg(IQ_RU:IQ_RW) = rho_g * ug
    qg(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * rho_g * dot_product(ug, ug) + e_mag
    endsubroutine wall_noslip_ghost
+
+   pure subroutine hydrostatic_ghost(nv, gamma, psi_energy, gs, wall_sign, qm, q1, qg)
+   !< Ghost state of a hydrostatic boundary (issue #73, M7-G0): the density and the pressure of the isothermal
+   !< hydrostatic equilibrium continued from the first interior cell `q1`, `rho_g = rho_1 exp(gs / T_1)`,
+   !< `p_g = rho_g T_1`, `T_1 = p_1 / rho_1`, `gs = g_d s` (the gravity along the normal times the signed distance from
+   !< `q1` to the ghost); the velocity of the mirrored cell `qm` times the wall signs (normal component odd), its field
+   !< and psi unchanged (even).
+   !<
+   !< Model-agnostic as `wall_noslip_ghost`: the field components are `IQ_BX..min(IQ_BZ, nv)` and psi the slots beyond.
+   integer(I4P), intent(in)  :: nv            !< Conservative variables number.
+   real(R8P),    intent(in)  :: gamma         !< Specific heats ratio.
+   real(R8P),    intent(in)  :: psi_energy    !< 1 if the total energy holds psi^2 / 2 (EGLM), else 0.
+   real(R8P),    intent(in)  :: gs            !< Gravity along the normal times the distance from `q1` to the ghost.
+   real(R8P),    intent(in)  :: wall_sign(nv) !< Wall mirror sign of each variable along the normal (momentum used).
+   real(R8P),    intent(in)  :: qm(nv)        !< Mirrored interior state.
+   real(R8P),    intent(in)  :: q1(nv)        !< First interior state along the normal.
+   real(R8P),    intent(out) :: qg(nv)        !< Ghost state.
+   real(R8P)                 :: u1(3), ug(3)  !< First interior and ghost velocity.
+   real(R8P)                 :: e1, eg        !< Magnetic (and EGLM psi) energy of the first interior cell and the ghost.
+   real(R8P)                 :: t1            !< Temperature (p / rho) of the first interior cell.
+   integer(I4P)              :: v             !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   u1 = q1(IQ_RU:IQ_RW) / q1(IQ_R)
+   ug = wall_sign(IQ_RU:IQ_RW) * qm(IQ_RU:IQ_RW) / qm(IQ_R)
+   e1 = 0._R8P
+   eg = 0._R8P
+   do v=IQ_BX, min(IQ_BZ, nv)
+      e1 = e1 + 0.5_R8P * q1(v) * q1(v)
+      qg(v) = qm(v)
+      eg = eg + 0.5_R8P * qg(v) * qg(v)
+   enddo
+   do v=IQ_BZ + 1_I4P, nv
+      e1 = e1 + psi_energy * 0.5_R8P * q1(v) * q1(v)
+      qg(v) = qm(v)
+      eg = eg + psi_energy * 0.5_R8P * qg(v) * qg(v)
+   enddo
+   t1 = (gamma - 1._R8P) * (q1(IQ_RE) - 0.5_R8P * q1(IQ_R) * dot_product(u1, u1) - e1) / q1(IQ_R)
+   qg(IQ_R) = q1(IQ_R) * exp(gs / t1)
+   qg(IQ_RU:IQ_RW) = qg(IQ_R) * ug
+   qg(IQ_RE) = qg(IQ_R) * t1 / (gamma - 1._R8P) + 0.5_R8P * qg(IQ_R) * dot_product(ug, ug) + eg
+   endsubroutine hydrostatic_ghost
 endmodule adam_flume_bc_object

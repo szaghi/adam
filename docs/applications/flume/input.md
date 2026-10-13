@@ -13,7 +13,7 @@ below; otherwise the file is itself a single-realm input.
 
 A realm input is read in this order: `[IO]` → `[reference]` (if present it converts the file to code units, then
 `[IO]` is read again) → `[numerics]` → `[physics]`
-(+ `[mhd]`) → `[runge_kutta].scheme` (memory budget) → `[grid]` → `[amr]` (tree, seam fill, markers) → `[solids]`
+(+ `[mhd]`, `[gravity]`) → `[runge_kutta].scheme` (memory budget) → `[grid]` → `[amr]` (tree, seam fill, markers) → `[solids]`
 → `[slices]` → `[runge_kutta]` → `[weno]` → `[linear-algebra]` → `[fdv]` → `[bc_*]` → `[time]` →
 `[initial_conditions]` → `[diagnostics]` → `[IO].save_auxiliary_fields`. After reading, FLUME applies
 cross-section checks (slices, WENO scheme, Riemann solver per model, ghost cells, even block cells for AMR).
@@ -471,6 +471,8 @@ replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 | `wall_temperature`, `reference_temperature` | $u_0^2 / R$ |
 | `reynolds`, `prandtl`, `magnetic_reynolds`, `viscosity_exponent` | — (dimensionless) |
 | `lundquist` | — (refused unless `velocity = alfvenic`) |
+| `[gravity]` `g_x`, `g_y`, `g_z` | $u_0^2 / L_0$ |
+| `[gravity]` `froude`; `[initial_conditions]` `polytropic_gamma` | — (dimensionless) |
 
 The conversion divides by the power-of-two reference first and applies $R$ last, a single rounding, so the
 verification DC can check every converted value exactly.
@@ -534,6 +536,25 @@ The section is not read for `euler`.
 
 ---
 
+## [gravity] (optional: external gravity)
+
+A constant acceleration $\mathbf g$ ([#73](https://github.com/szaghi/adam/issues/73), milestone M7). Without the
+section there is no gravity and nothing changes.
+
+| Key | Type | Req. | Accepted / invalid | Meaning |
+|-----|------|------|--------------------|---------|
+| `g_x`, `g_y`, `g_z` | real | one of the two forms | any; each optional (default 0) | The acceleration. Dimensional (length / time²) with [`[reference]`](#reference-optional-dimensional-input). |
+| `froude` | real | the other form, with `axis` | `> 0`, otherwise fatal | The number form: $g = 1/\mathrm{Fr}^2$ along `axis` ($g L_0/u_0^2$ in the reference units; not converted by `[reference]`). |
+| `axis` | string | with `froude` | `+x`, `-x`, `+y`, `-y`, `+z`, `-z`; other → fatal | The signed direction of $\mathbf g$. |
+| `equilibrium` | string | no (default `none`) | `none` only for now; any other value is fatal | The well-balanced mode (M7-G2). |
+| `potential` | string | no (default `uniform`) | `uniform` only; other → fatal | The kind of potential: a constant acceleration. |
+
+Giving `g_*` together with `froude` is fatal, as is a section with neither.
+
+**M7-G0 (current):** $\mathbf g$ sets the `isothermal-atmosphere` and `polytropic-atmosphere` initial conditions and
+the `hydrostatic` boundary condition. **The gravity force is not applied yet**: the momentum and energy sources land in
+M7-G1, and until then the log says so at initialisation.
+
 ## [numerics]
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
@@ -557,7 +578,7 @@ All six sections are required, even along null directions.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `type` | string | yes (every face) | `extrapolation`, `inflow`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `periodic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
+| `type` | string | yes (every face) | `extrapolation`, `inflow`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
 | `r`, `u`, `v`, `w`, `p` | real | `type = inflow` | no range check | Prescribed primitive inflow state. |
 | `bx`, `by`, `bz` | real | `type = inflow` **and** `mhd-ideal` | no range check | Prescribed inflow magnetic field. `psi` is set to 0. |
 | `wall_u`, `wall_v`, `wall_w` | real | no (default 0) with `wall-noslip`, `wall-isothermal` | the component normal to the face must be 0 (fatal) | Velocity of the wall (tangential): a moving lid, a Couette wall. |
@@ -572,6 +593,13 @@ What each `type` does:
 - `wall-isothermal`: isothermal no-slip wall (the velocity as above, the ghost temperature $T_w^2/T$, the geometric mirror). See
   [Boundary conditions](./boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls).
 - `periodic`: library periodicity, so true periodic neighbours across blocks and ranks.
+- `hydrostatic` ([#73](https://github.com/szaghi/adam/issues/73)): closes a stratified atmosphere under `[gravity]`.
+  The ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior cell along
+  the normal, $\rho_g = \rho_1 \exp(g_d s / T_1)$, $p_g = \rho_g T_1$ ($T_1 = p_1/\rho_1$, $s$ the signed distance
+  from that cell to the ghost), so an isothermal atmosphere has exact ghosts. The velocity is mirrored with its normal
+  component negated (no mass flux). The field and psi are mirrored **even**: field lines pass through the boundary, so
+  a uniform field along or across gravity stays uniform (a reflecting conductor is `wall-inviscid`). Without gravity
+  along the normal it is a slip wall that copies the thermodynamic state of the first interior cell.
 
 In a forest, a face glued to another realm by the manifest still needs a `type` here. The seam overrides the ghost
 fill.
@@ -607,6 +635,8 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `rotated-riemann` | any | 2 (states given in the **normal frame**: `u`, `bx` normal; `v`, `by` tangential) | `normal_x`, `normal_y` (not both 0), `interface_1`, `interface_2`, `period` (`> 0`), `interface_2_width` (`>= 0`). Requires `interface_1 < interface_2` and `interface_2 + interface_2_width < interface_1 + period`, fatal otherwise. |
 | `shu-osher` | **euler** | 2 | `axis` (string `x`/`y`/`z`), `interface`, `rho_amplitude`, `rho_wavenumber`. Requires `rho_amplitude < region_2 r`. Region 1 applies where `s <= interface`; region 2 applies elsewhere, with `r + rho_amplitude * sin(rho_wavenumber * s)`. |
 | `linear` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z` (inverse length). Every conservative variable is `q_1 (1 + g . x)`, `q_1` the state of region 1: the verification field of the ghost probe (issue #65 P0), not a flow. |
+| `isothermal-atmosphere` | any | 1 (the state at the origin; its velocity and field uniform) | No extra keys; needs `[gravity]` (fatal otherwise). $\rho = \rho_1 \exp(\mathbf g\cdot\mathbf x / T_1)$, $p = \rho T_1$, $T_1 = p_1/\rho_1$: the hydrostatic equilibrium of the constant gravity ([#73](https://github.com/szaghi/adam/issues/73)). |
+| `polytropic-atmosphere` | any | 1 (as above) | `polytropic_gamma` $G > 1$ (fatal otherwise); needs `[gravity]`. $p = p_1(\rho/\rho_1)^G$, $\rho = \rho_1 s^{1/(G-1)}$, $s = 1 + \frac{G-1}{G}\frac{\rho_1}{p_1}\mathbf g\cdot\mathbf x$; fatal where $s \le 0$ (the top of the atmosphere inside the domain). |
 | `polynomial` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z`, `degree` (an integer $n \ge 1$). Every conservative variable is `q_1 (1 + sum_d g_d x_d^n)`: the ghost probe's field for the high-order seam operators ([#68](https://github.com/szaghi/adam/issues/68) D1), not a flow. Fatal under a non-dimensional reference (`g_d` has dimension $L^{-n}$). |
 
 A model mismatch (for example `glm-pulse` with `euler`) is fatal. The complete formulas are in the module header.
