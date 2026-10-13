@@ -15,7 +15,18 @@
 # NV-5 (--reference): ../scaling/reference.sh --inputs on iso2d, iso2d-mhd and froude2d: the [gravity] components
 # convert as an acceleration (u0^2 / L0), froude does not, and the dimensional run equals the base one bit for bit.
 #
-# Usage: ./check.sh [--np "1 2"] [--cases "iso2d ..."] [--reference] [--keep]
+# M7-G1 (the force; np 2, skipped with --no-force):
+#   GV-1 freefall2d: rho u = rho g t and E = E_0 + rho g^2 t^2 / 2 to round-off (atmosphere_oracle.py freefall);
+#   GV-3 box2d, box2d-mhd: a closed box, mass and E + rho Phi conserved to round-off (atmosphere_oracle.py energy);
+#   limiter box2d-lim (p = 0.05, the limiter acting) and box2d-stiff (p = 1e-3, g dt ~ 4.5 c): the runs complete,
+#        the mass is conserved, E + rho Phi is reported (exact where the limiter does not act, option B);
+#   GV-2 iso2d run with the force to t = 0.5 at N = 32, 64, 128: the spurious max |u| / c reported, with its order
+#        (the unbalanced baseline of M7-G2);
+#   GV-6 (--scaling): box2d with the scale-invariant weights against its input rescaled by powers of two
+#        (../scaling/scaling.py rescale --j 2 --k -1 --m -2), bitwise (scaling.py compare);
+#   GV-7 (--agree TAG): box2d and box2d-mhd against the runs of the executable TAG (run that backend first, --keep).
+#
+# Usage: ./check.sh [--np "1 2"] [--cases "iso2d ..."] [--reference] [--no-force] [--scaling] [--agree TAG] [--keep]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -29,11 +40,17 @@ NPS="1 2"
 CASES="iso2d poly2d tilted2d tilted3d iso2d-mhd froude2d"
 REFERENCE=0
 KEEP=0
+FORCE=1
+SCALING=0
+AGREE=""
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)        NPS="$2" ; shift 2 ;;
       --cases)     CASES="$2" ; shift 2 ;;
       --reference) REFERENCE=1 ; shift ;;
+      --no-force)  FORCE=0 ; shift ;;
+      --scaling)   SCALING=1 ; shift ;;
+      --agree)     AGREE="$2" ; shift 2 ;;
       --keep)      KEEP=1 ; shift ;;
       *) echo "check.sh: unknown argument '$1' (accepted: --np, --cases, --reference, --keep)" >&2 ; exit 2 ;;
    esac
@@ -74,6 +91,54 @@ if run_case "$work" 1; then
    fi
 fi
 [[ $KEEP -eq 1 ]] || find "$work" -name '*.h5' -delete
+
+if [[ $FORCE -eq 1 ]]; then
+   for case in freefall2d box2d box2d-mhd box2d-lim box2d-stiff; do
+      work="$CASE_DIR/work-$TAG-np2-$case"
+      rm -rf "${work:?}" ; mkdir -p "$work"
+      python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" "$case"
+      echo "-- $case, np 2"
+      run_case "$work" 2 || continue
+      echo "   limiter: $(grep -a '^\[mpi-00000\]positivity limiter:' "$work/log.txt" | awk '{f+=$3; b+=$6} END{print f+0" faces limited, "b+0" inadmissible backbones"}')"
+      case $case in
+         freefall2d)          "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" freefall "$work" || FAILED=1 ;;
+         box2d|box2d-mhd)     "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" energy "$work" || FAILED=1 ;;
+         *)                   "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" energy "$work" --report-total || FAILED=1 ;;
+      esac
+      [[ $KEEP -eq 1 || -n "$AGREE" ]] || find "$work" -name '*.h5' -delete
+   done
+   echo "-- GV-2: iso2d at rest under the force to t = 0.5, N = 32, 64, 128 (reported)"
+   rest=()
+   for cells in 8 16 32; do
+      work="$CASE_DIR/work-$TAG-np2-rest-$cells"
+      rm -rf "${work:?}" ; mkdir -p "$work"
+      python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" iso2d --cells "$cells" --cfl 0.4 --time-max 0.5
+      sed -i 's/^it_save = .*/it_save = 100000/' "$work/input.ini"
+      run_case "$work" 2 && rest+=("$work")
+   done
+   "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${rest[@]}"
+   [[ $KEEP -eq 1 ]] || for w in "${rest[@]}"; do find "$w" -name '*.h5' -delete; done
+fi
+
+if [[ $SCALING -eq 1 ]]; then
+   echo "-- GV-6: box2d (scale-invariant weights) against its input rescaled by 2^2, 2^-1, 4^-2"
+   base="$CASE_DIR/work-$TAG-np2-scaling-base" ; scaled="$CASE_DIR/work-$TAG-np2-scaling-scaled"
+   rm -rf "${base:?}" "${scaled:?}" ; mkdir -p "$base" "$scaled"
+   python3 -I "$CASE_DIR/make_atmosphere.py" "$base/input.ini" box2d --weights si --steps 100
+   "$VENV_PY" "$CASE_DIR/../scaling/scaling.py" rescale "$base/input.ini" "$scaled/input.ini" --j 2 --k -1 --m -2
+   if run_case "$base" 2 && run_case "$scaled" 2; then
+      "$VENV_PY" "$CASE_DIR/../scaling/scaling.py" compare "$base" "$scaled" --j 2 --k -1 --m -2 --ngc 3 || FAILED=1
+   fi
+   [[ $KEEP -eq 1 ]] || find "$base" "$scaled" -name '*.h5' -delete
+fi
+
+if [[ -n "$AGREE" ]]; then
+   echo "-- GV-7: box2d, box2d-mhd against $AGREE"
+   for case in box2d box2d-mhd; do
+      "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" agree "$CASE_DIR/work-$TAG-np2-$case" "$CASE_DIR/work-$AGREE-np2-$case" \
+         || FAILED=1
+   done
+fi
 
 if [[ $REFERENCE -eq 1 ]]; then
    echo "-- NV-5: [reference] on iso2d, iso2d-mhd, froude2d"

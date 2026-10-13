@@ -18,7 +18,7 @@ use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22,
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_parameters,          only : IQ_BX, IQ_BY, IQ_BZ, IQ_PSI
+use :: adam_flume_parameters,          only : IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RW
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, ib_cut_spacing,             &
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
                                               BC_EXTRAPOLATION,                                                        &
@@ -754,21 +754,21 @@ contains
    if (seam) call self%seam_sync_fluxes(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
              ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
-             dxyz=>self%adam%field%dxyz)
+             dxyz=>self%adam%field%dxyz, g=>self%physics%gravity%g)
    select case(self%physics%model)
    case(MODEL_EULER)
       call compute_positivity_factors_euler(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,         &
-                                            damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, is_null=is_null, q=q,             &
+                                            damping=0._R8P, hs=hs, dt=dt, g=g, dxyz=dxyz, is_null=is_null, q=q,             &
                                             q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,          &
                                             lam=self%lam, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD)
       call compute_positivity_factors_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,           &
-                                          damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, is_null=is_null, q=q,               &
+                                          damping=0._R8P, hs=hs, dt=dt, g=g, dxyz=dxyz, is_null=is_null, q=q,               &
                                           q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,            &
                                           lam=self%lam, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD_EGLM)
       call compute_positivity_factors_mhd_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
-                                               damping=self%physics%mhd%glm_damping, hs=hs, dt=dt, dxyz=dxyz,          &
+                                               damping=self%physics%mhd%glm_damping, hs=hs, dt=dt, g=g, dxyz=dxyz,          &
                                                is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f,                 &
                                                fly=self%fly_f, flz=self%flz_f, lam=self%lam, bad=counts(1),            &
                                                nonfinite=counts(5))
@@ -1005,21 +1005,21 @@ contains
    endassociate
    if (n == 0) return
    associate(ngc=>self%ngc, gamma=>self%physics%gamma, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
-             dt=>self%time%dt, hs=>self%weno%S, dxyz=>self%adam%field%dxyz)
+             dt=>self%time%dt, hs=>self%weno%S, dxyz=>self%adam%field%dxyz, g=>self%physics%gravity%g)
    select case(self%physics%model)
    case(MODEL_EULER)
-      call compute_seam_positivity_factors_euler(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, &
+      call compute_seam_positivity_factors_euler(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g, dxyz=dxyz, &
                                                  is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
                                                  flz=self%flz_f, ncells=n, cell=cell, omask=omask, olo=olo, ohi=ohi,    &
                                                  lam=self%lam, dbad=db, dnonfinite=dn)
    case(MODEL_MHD)
-      call compute_seam_positivity_factors_mhd(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, dxyz=dxyz, &
+      call compute_seam_positivity_factors_mhd(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g, dxyz=dxyz, &
                                                is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
                                                flz=self%flz_f, ncells=n, cell=cell, omask=omask, olo=olo, ohi=ohi,    &
                                                lam=self%lam, dbad=db, dnonfinite=dn)
    case(MODEL_MHD_EGLM)
       call compute_seam_positivity_factors_mhd_eglm(ngc=ngc, gamma=gamma, ch=ch, damping=self%physics%mhd%glm_damping, &
-                                                    hs=hs, dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=self%q_aux,   &
+                                                    hs=hs, dt=dt, g=g, dxyz=dxyz, is_null=is_null, q=q, q_aux=self%q_aux,   &
                                                     flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, ncells=n,          &
                                                     cell=cell, omask=omask, olo=olo, ohi=ohi, lam=self%lam, dbad=db,   &
                                                     dnonfinite=dn)
@@ -1364,6 +1364,7 @@ contains
    self%time%dt = dt
    if ((self%time%it_max <= 0_I4P) .and. (self%time%time + dt > self%time%time_max)) &
       self%time%dt = self%time%time_max - self%time%time
+   call self%log_gravity_regime
    call self%integrate
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -1701,6 +1702,7 @@ contains
    self%time%dt = dt
    if ((self%time%it_max <= 0_I4P) .and. (self%time%time + dt > self%time%time_max)) &
       self%time%dt = self%time%time_max - self%time%time
+   call self%log_gravity_regime
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    endsubroutine open_step_forest
 
@@ -1869,6 +1871,60 @@ contains
    !$omp end parallel do
    endsubroutine compute_flux_difference
 
+   subroutine add_gravity_sources(ni, nj, nk, ngc, blocks_number, g, q, flx, fly, flz, dq)
+   !< Add the external gravity sources (issue #73, M7-G1): `rho g` to the momentum and, from the face mass fluxes the
+   !< continuity equation used, `1/2 sum_d g_d (F^rho_{d,i+1/2} + F^rho_{d,i-1/2})` to the energy (Mikami et al. 2008,
+   !< Mullen et al. 2021: with a static potential the total energy `E + rho Phi` is then conserved exactly, while the
+   !< cell-centred `rho u . g` is not). A component of g along a null direction is refused at initialisation.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                 !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                   !< Actual blocks number.
+   real(R8P),    intent(in)    :: g(3)                            !< Gravity.
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Conservative variables.
+   real(R8P),    intent(in)    :: flx(1:,0:,1:,1:,1:)             !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly(1:,1:,0:,1:,1:)             !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz(1:,1:,1:,0:,1:)             !< Z-face fluxes.
+   real(R8P),    intent(inout) :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Residuals.
+   integer(I4P)                :: b, i, j, k                      !< Counters.
+
+   !$omp parallel do collapse(4) default(firstprivate) shared(q, flx, fly, flz, dq)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               dq(IQ_RU:IQ_RW,i,j,k,b) = dq(IQ_RU:IQ_RW,i,j,k,b) + q(IQ_R,i,j,k,b) * g
+               dq(IQ_RE,i,j,k,b) = dq(IQ_RE,i,j,k,b) + 0.5_R8P * (g(1) * (flx(IQ_R,i,j,k,b) + flx(IQ_R,i-1,j,k,b)) + &
+                                                                  g(2) * (fly(IQ_R,i,j,k,b) + fly(IQ_R,i,j-1,k,b)) + &
+                                                                  g(3) * (flz(IQ_R,i,j,k,b) + flz(IQ_R,i,j,k-1,b)))
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine add_gravity_sources
+
+   subroutine add_gravity_limited_correction(ni, nj, nk, ngc, blocks_number, lam, dq)
+   !< Remove from the gravity energy source of each cell `(1 - Lambda) L` (issue #73, M7-G1, option B): `Lambda` and
+   !< `L` (`lam(1)`, `lam(2)`) from the positivity limiter, which gave the backbone the time-centred energy and limited
+   !< the face-form excess `L` by `Lambda`; where `Lambda = 1` nothing changes.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                 !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                   !< Actual blocks number.
+   real(R8P),    intent(in)    :: lam(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Cell factors (1) and gravity excess (2).
+   real(R8P),    intent(inout) :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Residuals.
+   integer(I4P)                :: b, i, j, k                      !< Counters.
+
+   !$omp parallel do collapse(4) default(firstprivate) shared(lam, dq)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               dq(IQ_RE,i,j,k,b) = dq(IQ_RE,i,j,k,b) - (1._R8P - lam(1,i,j,k,b)) * lam(2,i,j,k,b)
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine add_gravity_limited_correction
+
    subroutine poison_ghosts(ni, nj, nk, ngc, blocks_number, q)
    !< Set every ghost cell to a quiet NaN (verification instrument, `[diagnostics] ghost_poison`, issue #65).
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                 !< Grid dimensions.
@@ -2019,6 +2075,11 @@ contains
                                 freeze=self%null_freeze(),                                                           &
                                 dxyz=self%adam%field%dxyz, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq, &
                                 phi=self%ib%phi)
+   if (self%physics%gravity%is_active) call add_gravity_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,         &
+                                                                g=self%physics%gravity%g, q=q, flx=self%flx_f,       &
+                                                                fly=self%fly_f, flz=self%flz_f, dq=dq)
+   if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
+      call add_gravity_limited_correction(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam=self%lam, dq=dq)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
                                                                   damping=self%physics%mhd%glm_damping, q=q, dq=dq)
    if (self%physics%model == MODEL_MHD_EGLM) then
@@ -2153,6 +2214,11 @@ contains
                                 freeze=self%null_freeze(),                                                           &
                                 dxyz=self%adam%field%dxyz, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq, &
                                 phi=self%ib%phi)
+   if (self%physics%gravity%is_active) call add_gravity_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,         &
+                                                                g=self%physics%gravity%g, q=q, flx=self%flx_f,       &
+                                                                fly=self%fly_f, flz=self%flz_f, dq=dq)
+   if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
+      call add_gravity_limited_correction(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam=self%lam, dq=dq)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
                                                                   damping=self%physics%mhd%glm_damping, q=q, dq=dq)
    if (self%physics%model == MODEL_MHD_EGLM) then

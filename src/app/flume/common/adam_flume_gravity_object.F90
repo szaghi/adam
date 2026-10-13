@@ -14,9 +14,9 @@ module adam_flume_gravity_object
 !< and leaves `froude` as it is. `equilibrium` (the well-balanced mode, M7-G2) accepts only `none` and `potential` only
 !< `uniform` until their phases land: any other value is fatal, never ignored.
 !<
-!< Without the section there is no gravity (`is_active` false) and nothing changes. M7-G0 reads `g` for the atmosphere
-!< initial conditions and the `hydrostatic` boundary condition only; the momentum and energy sources land in M7-G1, and
-!< until then the description says that the force is not applied.
+!< Without the section there is no gravity (`is_active` false) and nothing changes. With it, `g` sets the atmosphere
+!< initial conditions and the `hydrostatic` boundary condition (M7-G0) and drives the momentum and energy sources
+!< (M7-G1): `rho g`, and the energy from the face mass fluxes, `1/2 sum_d g_d (F^rho_{d,i+1/2} + F^rho_{d,i-1/2})`.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
@@ -64,8 +64,7 @@ contains
    desc = mpih%myrankstr//'  gravity g:       '//trim(str(self%g))
    if (self%froude > 0._R8P) desc = desc//' (froude '//trim(str(self%froude))//')'
    desc = desc//NL//mpih%myrankstr//'  gravity:         equilibrium '//self%equilibrium//', potential '// &
-                    self%potential//NL//mpih%myrankstr//'  gravity source:  not applied yet (issue #73, M7-G1); g '// &
-                    'sets the atmosphere initial conditions and the hydrostatic boundary condition only'
+                    self%potential
    endfunction description
 
    subroutine load_from_file(self, file_parameters)

@@ -551,9 +551,19 @@ section there is no gravity and nothing changes.
 
 Giving `g_*` together with `froude` is fatal, as is a section with neither.
 
-**M7-G0 (current):** $\mathbf g$ sets the `isothermal-atmosphere` and `polytropic-atmosphere` initial conditions and
-the `hydrostatic` boundary condition. **The gravity force is not applied yet**: the momentum and energy sources land in
-M7-G1, and until then the log says so at initialisation.
+$\mathbf g$ sets the `isothermal-atmosphere` and `polytropic-atmosphere` initial conditions and the `hydrostatic`
+boundary condition (M7-G0), and drives the sources (M7-G1):
+
+- momentum $\rho\mathbf g$; energy from the face mass fluxes the continuity equation uses,
+  $\tfrac12\sum_d g_d\,(F^\rho_{d,i+1/2} + F^\rho_{d,i-1/2})$, so that with this static potential the total energy
+  $E + \rho\Phi$ ($\Phi = -\mathbf g\cdot\mathbf x$) is conserved exactly (Mikami et al. 2008, Mullen et al. 2021);
+- with `positivity_limiter = cell`, the limiter's first-order backbone takes the time-centred energy
+  $\rho\mathbf g\cdot(\mathbf u + \mathbf g\,\Delta t/2)$, which leaves its internal energy unchanged, and limits the rest
+  of the face form with the cell factor $\Lambda$: gravity never makes the backbone inadmissible (near vacuum, or with
+  $g\Delta t$ above the sound speed), and $E + \rho\Phi$ stays exact wherever the limiter does not act;
+- no time-step limit: the first step logs $|\mathbf g|\,\Delta t^2/(\mathrm{CFL}\,h_{\min})$, at least the velocity
+  gravity adds in a step over the fastest wave speed (near 1 or above, gravity is stiff);
+- refused (fatal) along a null direction and with immersed solids.
 
 ## [numerics]
 

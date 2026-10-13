@@ -111,6 +111,7 @@ use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_
                                               count_nonfinite_mhd_glm_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev, compute_dflux_norms_dev, copy_state_dev,          &
                                               compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
+                                              add_gravity_sources_dev, add_gravity_limited_correction_dev,             &
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
                                               gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skin_dev,     &
                                               scatter_seam_cells_dev, scatter_seam_faces_dev,                          &
@@ -915,23 +916,23 @@ contains
    di = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
              ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
-             dxyz_gpu=>self%field_fnl%dxyz_gpu)
+             dxyz_gpu=>self%field_fnl%dxyz_gpu, g=>self%physics%gravity%g)
    select case(self%physics%model)
    case(MODEL_EULER)
       call compute_positivity_factors_euler_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,    &
-                                                damping=0._R8P, hs=hs, dt=dt, dxyz_gpu=dxyz_gpu, is_null=is_null,      &
+                                                damping=0._R8P, hs=hs, dt=dt, g=g, dxyz_gpu=dxyz_gpu, is_null=is_null,      &
                                                 q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
                                                 fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, lam_gpu=self%lam_gpu,  &
                                                 bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD)
       call compute_positivity_factors_mhd_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
-                                              damping=0._R8P, hs=hs, dt=dt, dxyz_gpu=dxyz_gpu, is_null=is_null,        &
+                                              damping=0._R8P, hs=hs, dt=dt, g=g, dxyz_gpu=dxyz_gpu, is_null=is_null,        &
                                               q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,           &
                                               fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, lam_gpu=self%lam_gpu,    &
                                               bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD_EGLM)
       call compute_positivity_factors_mhd_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
-                                                   damping=self%physics%mhd%glm_damping, hs=hs, dt=dt,                 &
+                                                   damping=self%physics%mhd%glm_damping, hs=hs, dt=dt, g=g,                 &
                                                    dxyz_gpu=dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                    &
                                                    q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,                   &
                                                    fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu,                     &
@@ -1206,33 +1207,33 @@ contains
       endif
    enddo
    if (n > 0) then
-      allocate(qs(nv,2*self%weno%S+1,3,n), qa(self%physics%nv_aux,n), fh(nv,6*n), lam(1,n))
+      allocate(qs(nv,2*self%weno%S+1,3,n), qa(self%physics%nv_aux,n), fh(nv,6*n), lam(2,n))
       call seam_gather_stencils(cells=cell, nv=nv, ngc=self%ngc, s=self%weno%S, q_gpu=q_gpu, out=qs)
       call seam_gather_cells(cells=cell, nv=self%physics%nv_aux, ngc=self%ngc, a_gpu=self%q_aux_gpu, out=qa)
       call seam_gather_faces(faces=face, nv=nv, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
                              flz_f_gpu=self%flz_f_gpu, out=fh)
       associate(gamma=>self%physics%gamma, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
-                dt=>self%time%dt, hs=>self%weno%S)
+                dt=>self%time%dt, hs=>self%weno%S, g=>self%physics%gravity%g)
       select case(self%physics%model)
       case(MODEL_EULER)
-         call compute_seam_positivity_factors_euler_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, &
+         call compute_seam_positivity_factors_euler_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
                                                          ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
                                                          fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
-                                                         ohi=ohi, lam=lam(1,:), dbad=db, dnonfinite=dn)
+                                                         ohi=ohi, lam=lam(1,:), lsrc=lam(2,:), dbad=db, dnonfinite=dn)
       case(MODEL_MHD)
-         call compute_seam_positivity_factors_mhd_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, &
+         call compute_seam_positivity_factors_mhd_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
                                                        ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
                                                        fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
-                                                       ohi=ohi, lam=lam(1,:), dbad=db, dnonfinite=dn)
+                                                       ohi=ohi, lam=lam(1,:), lsrc=lam(2,:), dbad=db, dnonfinite=dn)
       case(MODEL_MHD_EGLM)
          call compute_seam_positivity_factors_mhd_eglm_host(ncells=n, hs=hs, gamma=gamma, ch=ch,                    &
-                                                            damping=self%physics%mhd%glm_damping, dt=dt, ds=ds,    &
+                                                            damping=self%physics%mhd%glm_damping, dt=dt, g=g, ds=ds,    &
                                                             is_null=is_null, qs=qs, qa=qa,                         &
                                                             fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,      &
-                                                            ohi=ohi, lam=lam(1,:), dbad=db, dnonfinite=dn)
+                                                            ohi=ohi, lam=lam(1,:), lsrc=lam(2,:), dbad=db, dnonfinite=dn)
       endselect
       endassociate
-      call seam_scatter_cells(cells=cell, nv=1_I4P, ngc=self%ngc, in=lam, a_gpu=self%lam_gpu)
+      call seam_scatter_cells(cells=cell, nv=2_I4P, ngc=self%ngc, in=lam, a_gpu=self%lam_gpu)
       dbad = dbad + db
       dnonfinite = dnonfinite + dn
    endif
@@ -1427,6 +1428,7 @@ contains
    self%time%dt = dt
    if ((self%time%it_max <= 0_I4P) .and. (self%time%time + dt > self%time%time_max)) &
       self%time%dt = self%time%time_max - self%time%time
+   call self%log_gravity_regime
    call self%integrate_dev
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -1803,6 +1805,7 @@ contains
    self%time%dt = dt
    if ((self%time%it_max <= 0_I4P) .and. (self%time%time + dt > self%time%time_max)) &
       self%time%dt = self%time%time_max - self%time%time
+   call self%log_gravity_regime
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    endsubroutine open_step_forest
 
@@ -2072,6 +2075,13 @@ contains
                                        flx_f_gpu=self%flx_f_gpu,                                                         &
                                        fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
    endif
+   if (self%physics%gravity%is_active) &
+      call add_gravity_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=self%physics%gravity%g, q_gpu=q_gpu, &
+                                   flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,          &
+                                   dq_gpu=dq_gpu)
+   if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
+      call add_gravity_limited_correction_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam_gpu=self%lam_gpu, &
+                                              dq_gpu=dq_gpu)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,      &
                                                                       damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, &
                                                                       dq_gpu=dq_gpu)
@@ -2223,6 +2233,13 @@ contains
                                        flx_f_gpu=self%flx_f_gpu,                                                         &
                                        fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
    endif
+   if (self%physics%gravity%is_active) &
+      call add_gravity_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=self%physics%gravity%g, q_gpu=q_gpu, &
+                                   flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,          &
+                                   dq_gpu=dq_gpu)
+   if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
+      call add_gravity_limited_correction_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam_gpu=self%lam_gpu, &
+                                              dq_gpu=dq_gpu)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,      &
                                                                       damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, &
                                                                       dq_gpu=dq_gpu)

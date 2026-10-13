@@ -97,6 +97,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: glm_lambda            !< Return the GLM bound of the local dt, c_h max sum_d 1/dx_d.
       procedure, pass(self) :: initialize            !< Initialize the common data.
       procedure, pass(self) :: log_dt_limit          !< Log which limit, hyperbolic or diffusive, sets dt.
+      procedure, pass(self) :: log_gravity_regime    !< Log the velocity gravity adds in a step (issue #73).
       procedure, pass(self) :: wall_temperature_bound !< Return the hottest isothermal wall temperature of the dt bound.
       procedure, pass(self) :: null_freeze           !< Return the variable each null direction freezes.
       procedure, pass(self) :: output_factors        !< Return the output factors of written variables.
@@ -120,6 +121,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: check_runtime_amr     !< Check [amr] frequency, default the prolongation (#74).
       procedure, pass(self), private :: check_divb_flux       !< Check [diagnostics] divb_flux (#68 A2).
       procedure, pass(self), private :: check_positivity_limiter !< Refuse the limiter where it cannot work.
+      procedure, pass(self), private :: check_gravity !< Refuse gravity where it is not defined (issue #73).
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
       procedure, pass(self), private :: check_weno_scheme     !< Refuse the centred WENO schemes.
       procedure, pass(self), private :: initialize_riemann_scheme !< Check and set up the weno-riemann scheme.
@@ -739,6 +741,7 @@ contains
    call self%initialize_riemann_scheme
    call self%check_positivity_limiter
    call self%check_dissipation
+   call self%check_gravity
    call self%check_runtime_amr
    call self%check_divb_flux
    call self%check_ngc_number
@@ -1370,6 +1373,47 @@ contains
                                'viscosity, conductivity, resistivity or their numbers): the limiter does not bound a '// &
                                'diffusive flux (issue #65, D-M4-5)')
    endsubroutine check_positivity_limiter
+
+   subroutine check_gravity(self)
+   !< Refuse the external gravity (issue #73, M7-G1) where its sources are not defined: a component along a null
+   !< direction (the energy source comes from the face mass fluxes, which a null direction does not have, so the
+   !< momentum would gain kinetic energy that the energy does not) and immersed solids (the flux difference there uses
+   !< the spacing cut by the surface, the energy source does not).
+   class(flume_common_object), intent(in) :: self !< The equation.
+   integer(I4P)                           :: d    !< Counter.
+
+   if (.not.self%physics%gravity%is_active) return
+   do d=1, 3
+      if (self%adam%grid%null_xyz(d) .and. self%physics%gravity%g(d) /= 0._R8P) &
+         call mpih%error_stop(msg=': [gravity] has a component along the null direction '//'xyz'(d:d)// &
+                                  ', where the energy source has no face (issue #73)')
+   enddo
+   if (self%ib%solids_number > 0_I4P) &
+      call mpih%error_stop(msg=': [gravity] is not supported with immersed solids yet (issue #73)')
+   endsubroutine check_gravity
+
+   subroutine log_gravity_regime(self)
+   !< Log once (rank 0, at the first step; every rank reduces) how stiff gravity is (issue #73, D-M7-6): `|g| dt` against
+   !< the signal speed bound `CFL h_min / dt` (`dt = CFL / lambda_max` and `lambda_max >= c_max / h_min`), so the ratio
+   !< `|g| dt^2 / (CFL h_min)` is at least the velocity gravity adds in a step over the fastest wave speed. No time step
+   !< limit is imposed: a ratio near 1 or above says gravity, not the waves, should set dt.
+   class(flume_common_object), intent(in) :: self  !< The equation.
+   real(R8P)                              :: h(1)  !< Smallest active spacing over the blocks and the ranks.
+   real(R8P)                              :: gnorm !< |g|.
+   integer(I4P)                           :: b     !< Counter.
+
+   if (.not.self%physics%gravity%is_active .or. self%time%it /= 1_I4P) return
+   h = huge(1._R8P)
+   do b=1, self%blocks_number
+      h(1) = min(h(1), minval(self%adam%field%dxyz(:,b), mask=.not.self%adam%grid%null_xyz))
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, h, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+   gnorm = norm2(self%physics%gravity%g)
+   if (mpih%myrank == 0) print '(A)', mpih%myrankstr//'gravity regime (issue #73): |g| '//trim(str(gnorm))// &
+                                      ', |g| dt '//trim(str(gnorm * self%time%dt))//', |g| dt^2 / (CFL h_min) '// &
+                                      trim(str(gnorm * self%time%dt**2 / (self%time%CFL * h(1))))//             &
+                                      ' (the velocity gravity adds in a step over the signal speed bound)'
+   endsubroutine log_gravity_regime
 
    subroutine check_dissipation(self)
    !< Refuse the dissipative terms where they are not computed (issue #65): immersed solids, whose walls are inviscid

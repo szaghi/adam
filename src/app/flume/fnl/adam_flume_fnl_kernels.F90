@@ -19,6 +19,7 @@ use :: adam_parameters,           only : FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
                                          BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, realm_edge_donor, realm_edge_face,           &
                                          wall_noslip_ghost, BC_HYDROSTATIC, hydrostatic_ghost
+use :: adam_flume_parameters,     only : IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
 ! third party modules
 use :: penf,                      only : I4P, I8P, R8P
 
@@ -26,6 +27,8 @@ implicit none
 private
 public :: apply_reflux_face_dev
 public :: compute_flux_difference_dev
+public :: add_gravity_sources_dev
+public :: add_gravity_limited_correction_dev
 public :: compute_dflux_norms_dev
 public :: copy_state_dev
 public :: compute_flux_difference_ib_dev
@@ -206,6 +209,64 @@ contains
    enddo
    enddo
    endsubroutine compute_flux_difference_dev
+
+   subroutine add_gravity_sources_dev(ni, nj, nk, ngc, blocks_number, g, q_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, dq_gpu)
+   !< Add the external gravity sources (issue #73, M7-G1; device twin of the CPU `add_gravity_sources`): `rho g` to the
+   !< momentum, `1/2 sum_d g_d (F^rho_{d,i+1/2} + F^rho_{d,i-1/2})` to the energy.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
+   real(R8P),    intent(in)    :: g(3)                               !< Gravity.
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Conservative variables.
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)          !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)          !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)          !< Z-face fluxes.
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
+   real(R8P)                   :: gx, gy, gz                         !< Gravity, scalar copies.
+   integer(I4P)                :: b, i, j, k                         !< Counters.
+
+   gx = g(1) ; gy = g(2) ; gz = g(3)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gx,gy,gz)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gx,gy,gz)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      dq_gpu(b,i,j,k,IQ_RU) = dq_gpu(b,i,j,k,IQ_RU) + q_gpu(b,i,j,k,IQ_R) * gx
+      dq_gpu(b,i,j,k,IQ_RV) = dq_gpu(b,i,j,k,IQ_RV) + q_gpu(b,i,j,k,IQ_R) * gy
+      dq_gpu(b,i,j,k,IQ_RW) = dq_gpu(b,i,j,k,IQ_RW) + q_gpu(b,i,j,k,IQ_R) * gz
+      dq_gpu(b,i,j,k,IQ_RE) = dq_gpu(b,i,j,k,IQ_RE) +                                      &
+                              0.5_R8P * (gx * (flx_f_gpu(b,i,j,k,IQ_R) + flx_f_gpu(b,i-1,j,k,IQ_R)) + &
+                                         gy * (fly_f_gpu(b,i,j,k,IQ_R) + fly_f_gpu(b,i,j-1,k,IQ_R)) + &
+                                         gz * (flz_f_gpu(b,i,j,k,IQ_R) + flz_f_gpu(b,i,j,k-1,IQ_R)))
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine add_gravity_sources_dev
+
+   subroutine add_gravity_limited_correction_dev(ni, nj, nk, ngc, blocks_number, lam_gpu, dq_gpu)
+   !< Remove `(1 - Lambda) L` from the gravity energy source (issue #73, M7-G1, option B; device twin of the CPU
+   !< `add_gravity_limited_correction`).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                     !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                       !< Actual blocks number.
+   real(R8P),    intent(in)    :: lam_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Cell factors (1) and gravity excess (2).
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Residuals.
+   integer(I4P)                :: b, i, j, k                          !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(lam_gpu,dq_gpu) firstprivate(ni,nj,nk,blocks_number)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(lam_gpu,dq_gpu) firstprivate(ni,nj,nk,blocks_number)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      dq_gpu(b,i,j,k,IQ_RE) = dq_gpu(b,i,j,k,IQ_RE) - (1._R8P - lam_gpu(b,i,j,k,1)) * lam_gpu(b,i,j,k,2)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine add_gravity_limited_correction_dev
 
    subroutine compute_flux_difference_ib_dev(nv, ni, nj, nk, ngc, blocks_number, is_null, freeze, dxyz_gpu, flx_f_gpu, &
                                              fly_f_gpu, flz_f_gpu, phi_gpu, dq_gpu)

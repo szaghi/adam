@@ -2,6 +2,10 @@
 """Oracle of the FLUME stratified atmospheres (issue #73, M7): the hydrostatic state and its ghost cells.
 
     atmosphere_oracle.py profile <work> [--tol T]
+    atmosphere_oracle.py freefall <work> [--tol T]
+    atmosphere_oracle.py energy <work> [--tol T] [--report-total]
+    atmosphere_oracle.py rest <work> [<work> ...]
+    atmosphere_oracle.py agree <workA> <workB> [--tol T]
 
 `profile` reads the last checkpoint of a run written by make_atmosphere.py (fields with their ghosts) and checks, with
 the constant gravity g and the region-1 state (rho_1, p_1 at the origin) of its input:
@@ -197,15 +201,154 @@ def profile(args: argparse.Namespace) -> int:
     return status
 
 
+def checkpoints(work: Path) -> dict[int, tuple[float, list[Path]]]:
+    """Every checkpoint of a run: step -> (time, its per-rank files)."""
+    basename = next(work.glob("*-residuals.dat")).name.removesuffix("-residuals.dat")
+    out: dict[int, tuple[float, list[Path]]] = {}
+    for f in sorted(work.glob(f"{basename}-*-proc*.h5")):
+        step = int(f.name.split("-")[-2])
+        if step not in out:
+            xdmf = (work / f"{basename}-{step:09d}.xdmf").read_text()
+            out[step] = (float(xdmf.split('Time Value="')[1].split('"')[0]), [])
+        out[step][1].append(f)
+    return out
+
+
+def interior(ini: configparser.ConfigParser, paths: list[Path]):
+    """Yield (centre, volume, conservative state) of every interior cell of one checkpoint."""
+    ngc = int(ini["grid"]["ngc"])
+    active = np.array([ini["grid"][f"null_{x}"].strip() != ".true." for x in "xyz"])
+    for path in paths:
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({k.rsplit("-", 1)[0] for k in h5}):
+                origin, dxyz = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                arr = {n: h5[f"{blk}-{n}"][()].transpose(2, 1, 0) for n in FIELDS if f"{blk}-{n}" in h5}
+                shape = arr["r"].shape
+                ks = range(ngc, shape[2] - ngc) if active[2] else [ngc if shape[2] > 2 * ngc else 0]
+                vol = float(np.prod(dxyz[active]))
+                for i in range(ngc, shape[0] - ngc):
+                    for j in range(ngc, shape[1] - ngc):
+                        for k in ks:
+                            c = origin + (np.array([i, j, k]) + 0.5) * dxyz
+                            yield c, vol, {n: float(a[i, j, k]) for n, a in arr.items()}
+
+
+def freefall(args: argparse.Namespace) -> int:
+    """GV-1: a uniform state in a periodic box falls freely, rho u = rho_1 g t, E = E_1 + rho_1 |g|^2 t^2 / 2, rho and p
+    unchanged, at every cell of the last checkpoint."""
+    ini = read_ini(args.work)
+    atm = Atmosphere(ini)
+    cps = checkpoints(args.work)
+    t, paths = cps[max(cps)]
+    e1 = atm.p1 / (atm.gamma - 1.0)
+    err = {"rho": 0.0, "rho u": 0.0, "E": 0.0}
+    for _, _, q in interior(ini, paths):
+        err["rho"] = max(err["rho"], abs(q["r"] / atm.rho1 - 1.0))
+        mom = np.array([q["ru"], q["rv"], q["rw"]])
+        err["rho u"] = max(err["rho u"], float(np.max(np.abs(mom - atm.rho1 * atm.g * t))) / (atm.rho1 * np.linalg.norm(atm.g) * t))
+        ee = e1 + 0.5 * atm.rho1 * float(np.dot(atm.g, atm.g)) * t * t
+        err["E"] = max(err["E"], abs(q["rE"] / ee - 1.0))
+    status = 0
+    for key, value in err.items():
+        ok = value <= args.tol
+        status |= 0 if ok else 1
+        print(f"   {key:>6} at t = {t:.6e}: max relative error {value:.2e}  {'PASS' if ok else 'FAIL'}")
+    print(f"{args.work.name}: {'PASS' if status == 0 else 'FAIL'} (tol {args.tol:g})")
+    return status
+
+
+def energy(args: argparse.Namespace) -> int:
+    """GV-3: in a closed box the mass and the total energy E + rho Phi (Phi = -g . x at the cell centres) are conserved,
+    at every checkpoint, while E itself exchanges with rho Phi."""
+    ini = read_ini(args.work)
+    atm = Atmosphere(ini)
+    rows = []
+    for step, (t, paths) in sorted(checkpoints(args.work).items()):
+        m = e = w = 0.0
+        for c, vol, q in interior(ini, paths):
+            m += q["r"] * vol
+            e += q["rE"] * vol
+            w += -q["r"] * float(np.dot(atm.g, c)) * vol
+        rows.append((step, t, m, e, w))
+    _, _, m0, e0, w0 = rows[0]
+    dm = max(abs(r[2] - m0) for r in rows) / abs(m0)
+    dt = max(abs(r[3] + r[4] - e0 - w0) for r in rows) / abs(e0 + w0)
+    de = max(abs(r[3] - e0) for r in rows) / abs(e0 + w0)
+    status = 0
+    for key, value, checked in (("mass", dm, True), ("E + rho Phi", dt, not args.report_total),
+                                ("E alone", de, False)):
+        ok = value <= args.tol
+        if checked:
+            status |= 0 if ok else 1
+        tag = ("PASS" if ok else "FAIL") if checked else "(reported)"
+        print(f"   {key:>11}: max relative drift over {len(rows)} checkpoints {value:.2e}  {tag}")
+    print(f"{args.work.name}: {'PASS' if status == 0 else 'FAIL'} (tol {args.tol:g})")
+    return status
+
+
+def rest(args: argparse.Namespace) -> int:
+    """GV-2 (report): the spurious velocity of an atmosphere at rest, max |u| / c over the interior at the last
+    checkpoint of each run, and its order between consecutive runs (the runs given coarse to fine, each twice as fine)."""
+    prev = None
+    for work in args.works:
+        ini = read_ini(work)
+        atm = Atmosphere(ini)
+        eglm = atm.mhd and ini["mhd"]["divergence_control"].split(";")[0].strip() == "eglm"
+        cps = checkpoints(work)
+        t, paths = cps[max(cps)]
+        mach = 0.0
+        for _, _, q in interior(ini, paths):
+            rho, u, p, _ = primitive(q, atm.gamma, atm.mhd, eglm)
+            mach = max(mach, float(np.linalg.norm(u)) / math.sqrt(atm.gamma * p / rho))
+        order = f", order {math.log2(prev / mach):+.2f}" if prev and mach > 0.0 else ""
+        print(f"   {work.name}: t = {t:.4f}, max |u| / c = {mach:.3e}{order}")
+        prev = mach
+    return 0
+
+
+def agree(args: argparse.Namespace) -> int:
+    """GV-7: two runs of the same input (CPU and FNL) at their last common checkpoint, per field max |a - b| over the
+    field's scale (a vector component: its vector's largest component)."""
+    ca, cb = checkpoints(args.a), checkpoints(args.b)
+    step = max(set(ca) & set(cb))
+    ini = read_ini(args.a)
+    fa = {(tuple(np.round(c, 12))): q for c, _, q in interior(ini, ca[step][1])}
+    fb = {(tuple(np.round(c, 12))): q for c, _, q in interior(ini, cb[step][1])}
+    worst = 0.0
+    group = {"ru": ("ru", "rv", "rw"), "rv": ("ru", "rv", "rw"), "rw": ("ru", "rv", "rw"),
+             "bx": ("bx", "by", "bz"), "by": ("bx", "by", "bz"), "bz": ("bx", "by", "bz")}
+    for name in FIELDS:
+        if name not in next(iter(fa.values())):
+            continue
+        # a vector component is scaled by its vector's largest component: a component that is zero by symmetry holds
+        # round-off only, and its own maximum would make the round-off difference of the backends look O(1)
+        scale = max(abs(q[m]) for q in fa.values() for m in group.get(name, (name,)) if m in q) or 1.0
+        diff = max(abs(fa[c][name] - fb[c][name]) for c in fa) / scale
+        worst = max(worst, diff)
+        print(f"   {name:>3}: max |a - b| / max |a| = {diff:.2e}")
+    ok = worst <= args.tol
+    print(f"{args.a.name} vs {args.b.name} at step {step}: {'PASS' if ok else 'FAIL'} (tol {args.tol:g})")
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Parse the command line and run the check."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="check", required=True)
-    p = sub.add_parser("profile")
-    p.add_argument("work", type=Path)
-    p.add_argument("--tol", type=float, default=1.0e-13)
+    for name, tol in (("profile", 1.0e-13), ("freefall", 1.0e-12), ("energy", 1.0e-12)):
+        p = sub.add_parser(name)
+        p.add_argument("work", type=Path)
+        p.add_argument("--tol", type=float, default=tol)
+        if name == "energy":
+            p.add_argument("--report-total", action="store_true", help="report E + rho Phi, do not assert it")
+    p = sub.add_parser("rest")
+    p.add_argument("works", type=Path, nargs="+")
+    p = sub.add_parser("agree")
+    p.add_argument("a", type=Path)
+    p.add_argument("b", type=Path)
+    p.add_argument("--tol", type=float, default=1.0e-10)
     args = parser.parse_args()
-    return profile(args)
+    return {"profile": profile, "freefall": freefall, "energy": energy, "rest": rest, "agree": agree}[args.check](args)
 
 
 if __name__ == "__main__":

@@ -1962,6 +1962,43 @@ decomposed nothing).
 (`dev_assign_to_device: device memory not allocated`), with or without gravity and with the executable before G0; the
 Euler model and the CPU backend run. The G0 cases now give every rank blocks.
 
+### GV (G1): the force
+
+**Why.** G1 adds the gravity sources, momentum $\rho\mathbf g$ and the energy from the face mass fluxes. Three
+properties must hold by construction and are checked to round-off: free fall is exact, a closed box conserves its mass
+and $E + \rho\Phi$, and the scaling covariance of #49 survives. The positivity limiter must keep the run alive where the
+gas falls toward vacuum.
+
+**Cases** (`gravity/check.sh`, np 2), a uniform $\rho = 1$, $p = 1$ at rest under $\mathbf g = (0, -1)$, CFL 0.4:
+
+| Leg | Case | Asserted |
+|---|---|---|
+| GV-1 | `freefall2d`: every face periodic, 50 steps | $\rho\mathbf u = \rho\mathbf g t$, $E = E_0 + \rho g^2 t^2/2$, $\rho$ unchanged, 10⁻¹² |
+| GV-3 | `box2d`: x periodic, y `wall-inviscid` (the gas falls and sloshes), 200 steps; `box2d-mhd` (EGLM, $B_x = 0.5$, limiter on) | mass and $E + \rho\Phi$ ($\Phi = -\mathbf g\cdot\mathbf x$) constant at every checkpoint, 10⁻¹²; $E$ alone reported |
+| limiter | `box2d-lim` ($p = 0.05$, 300 steps: the gas falls away from the lid toward vacuum); `box2d-stiff` ($p = 10^{-3}$, $g\Delta t \approx 4.5\,c$) | the runs complete, the mass is conserved; $E + \rho\Phi$ reported (exact only where the limiter does not act) |
+| GV-2 | `iso2d` with the force, t = 0.5, N = 32, 64, 128 | reported: the spurious $\max|\mathbf u|/c$ of the unbalanced scheme |
+| GV-6 | `box2d` with `weights = si` against its input rescaled by $2^2$, $2^{-1}$, $4^{-2}$ | bitwise |
+| GV-7 | `box2d`, `box2d-mhd` on FNL against CPU | $10^{-10}$ |
+
+**Results** (CPU; FNL the same, GV-7):
+
+| Leg | Measured |
+|---|---|
+| GV-1 | $\rho$ exact, $\rho\mathbf u$ 2.2·10⁻¹⁶, $E$ 5.6·10⁻¹⁶ |
+| GV-3 | `box2d`: mass 1.1·10⁻¹⁴, $E + \rho\Phi$ 1.3·10⁻¹⁴, while $E$ alone moves 3.8·10⁻²; `box2d-mhd`: 8.4·10⁻¹⁵, 7.5·10⁻¹⁵ ($E$ 1.8·10⁻²) |
+| limiter | `box2d-lim`: 74 304 faces limited, no inadmissible backbone, mass 1.0·10⁻¹⁴, $E + \rho\Phi$ 4.4·10⁻⁷; `box2d-stiff`: 324 424 faces limited, 32 inadmissible backbones, mass 1.2·10⁻¹⁴, $E + \rho\Phi$ 1.6·10⁻² |
+| GV-2 | $\max|\mathbf u|/c$ = 2.9·10⁻¹², 1.1·10⁻¹², 2.5·10⁻¹⁴ (scale height 1 on the unit box: a mild stratification) |
+| GV-6 | bitwise |
+| GV-7 | FNL against CPU: `box2d` ≤ 9.3·10⁻¹⁴, `box2d-mhd` ≤ 9.3·10⁻¹⁴ per field (a vector component scaled by its vector's largest: $\rho u$ is zero by symmetry, round-off only). FNL repeats every CPU number above to the last digit shown, but GV-2 at N = 128, 2.6·10⁻¹⁴ |
+
+**The limiter and gravity (owner decision: option B).** The first form put the face-form energy into the backbone. A
+cell beside a wall then gets half of the face form (the wall face carries no mass) while its momentum gains the whole
+$\rho\mathbf g\,\Delta t$: the stage takes about $\tfrac12\rho|\mathbf u||\mathbf g|\Delta t$ out of its internal energy,
+which near vacuum is negative. `box2d-lim` died at step 128 and `box2d-stiff` at step 1 (every backbone inadmissible),
+with and without the limiter. Option B gives the backbone the time-centred energy $\rho\mathbf g\cdot(\mathbf u +
+\mathbf g\Delta t/2)$, which leaves its internal energy unchanged, and limits the face-form excess with $\Lambda$; both
+cases then run (the stiff one's 32 inadmissible backbones come from the fluxes, not from gravity).
+
 ## Unit tests
 
 | Test | What it pins |

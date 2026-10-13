@@ -8,7 +8,7 @@
    ! * `cell_sources(hs, damping, ds, w, qsx, qsy, qsz, qac, s_lo, s_hi)`: the cell sources from the private stencils of
    !   the three directions (`qs*(:,m)`, `m = -hs ... hs`, gathered by the kernel) and the cell's auxiliary variables.
 
-   subroutine compute_positivity_factors_dev(ni, nj, nk, ngc, blocks_number, gamma, ch, damping, hs, dt, dxyz_gpu, &
+   subroutine compute_positivity_factors_dev(ni, nj, nk, ngc, blocks_number, gamma, ch, damping, hs, dt, g, dxyz_gpu, &
                                              is_null, q_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu, lam_gpu, bad, &
                                              nonfinite)
    !< Compute the cell factor `Lambda` of every interior cell into `lam_gpu(:,:,:,:,1)` and count the cells whose backbone
@@ -21,6 +21,7 @@
    real(R8P),    intent(in)    :: damping                                !< GLM damping rate (EGLM only).
    integer(I4P), intent(in)    :: hs                                     !< Half stencil of the sources, 1 <= hs <= S_MAX.
    real(R8P),    intent(in)    :: dt                                     !< Forward-Euler step of the stage.
+   real(R8P),    intent(in)    :: g(3)                                   !< Gravity (issue #73), zero without it.
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                        !< Blocks space steps [nb, 3].
    logical,      intent(in)    :: is_null(3)                             !< Null directions.
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Conservative variables (ghosts updated).
@@ -48,6 +49,7 @@
    real(R8P)                   :: rb, eb, er, ee                         !< Private backbone density, energy, floors.
    real(R8P)                   :: r1, e1, t, lc                          !< Private corner density, energy, factors.
    real(R8P)                   :: dtdx                                   !< Private dt / dx_d.
+   real(R8P)                   :: sl, cc                                 !< Private gravity backbone terms.
    integer(I4P)                :: nf                                     !< Private active faces.
    integer(I4P)                :: b, i, j, k, d, f, c, m, v              !< Counters.
 
@@ -55,12 +57,12 @@
    nonfinite = 0_I4P
    !$acc parallel loop independent gang vector collapse(4) reduction(+:bad,nonfinite)                                &
    !$acc& DEVICEVAR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,lam_gpu)                                         &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,is_null)                                         &
-   !$acc& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf)
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,g,is_null)                                       &
+   !$acc& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc)
    !$omp OMPLOOP collapse(4) reduction(+:bad,nonfinite) &
    !$omp& DEVICEPTR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,lam_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,is_null) &
-   !$omp& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf)
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,g,is_null) &
+   !$omp& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc)
    do k=1, nk
    do j=1, nj
    do i=1, ni
@@ -88,6 +90,7 @@
          qb(v) = qsx(v,0)
       enddo
       nf = 0
+      sl = 0._R8P
       !$acc loop seq
       do d=1, 3
          if (is_null(d)) cycle
@@ -114,6 +117,8 @@
             endselect
             qb(v) = qb(v) - dtdx * flo(v)
          enddo
+         dlt(IQ_RE,nf) = dlt(IQ_RE,nf) - 0.5_R8P * g(d) * ds(d) * dlt(IQ_R,nf)
+         sl = sl + 0.5_R8P * g(d) * flo(IQ_R)
          ! left face i-1/2
          select case(d)
          case(1)
@@ -136,13 +141,25 @@
             endselect
             qb(v) = qb(v) + dtdx * flo(v)
          enddo
+         dlt(IQ_RE,nf) = dlt(IQ_RE,nf) + 0.5_R8P * g(d) * ds(d) * dlt(IQ_R,nf)
+         sl = sl + 0.5_R8P * g(d) * flo(IQ_R)
       enddo
+      !$acc loop seq
+      do d=1, 3
+         qb(IQ_RU+d-1) = qb(IQ_RU+d-1) + dt * qsx(IQ_R,0) * g(d)
+      enddo
+      cc = g(1) * (qsx(IQ_RU,0) + 0.5_R8P * dt * qsx(IQ_R,0) * g(1)) + &
+           g(2) * (qsx(IQ_RV,0) + 0.5_R8P * dt * qsx(IQ_R,0) * g(2)) + &
+           g(3) * (qsx(IQ_RW,0) + 0.5_R8P * dt * qsx(IQ_R,0) * g(3))
+      qb(IQ_RE) = qb(IQ_RE) + dt * cc
       call cell_sources(hs=hs, damping=damping, ds=ds, w=w, qsx=qsx, qsy=qsy, qsz=qsz, qac=qac, s_lo=s_lo, s_hi=s_hi)
       !$acc loop seq
       do v=1, NV_K
          qb(v)   = qb(v) + dt * s_lo(v)
          dsrc(v) = dt * (s_hi(v) - s_lo(v))
       enddo
+      dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc)
+      lam_gpu(b,i,j,k,2) = sl - cc
       isnf = .false.
       !$acc loop seq
       do f=1, nf
@@ -248,7 +265,8 @@
    enddo
    endsubroutine blend_positivity_fluxes_dev
 
-   subroutine compute_seam_positivity_factors_host(ncells, hs, gamma, ch, damping, dt, ds, is_null, qs, qa, fh, omask, &
+   subroutine compute_seam_positivity_factors_host(ncells, hs, gamma, ch, damping, dt, g, ds, is_null, qs, qa, fh, &
+                                                   omask, lsrc, &
                                                    olo, ohi, lam, dbad, dnonfinite)
    !< Recompute on the host the factor of the cells beside a 2:1 seam with the seam faces' backbone and high-order
    !< fluxes overridden (issue #50, D1; the host twin of the CPU `compute_seam_positivity_factors`, fed by the device
@@ -261,6 +279,7 @@
    real(R8P),    intent(in)  :: ch                         !< GLM cleaning speed (EGLM only).
    real(R8P),    intent(in)  :: damping                    !< GLM damping rate (EGLM only).
    real(R8P),    intent(in)  :: dt                         !< Forward-Euler step of the stage.
+   real(R8P),    intent(in)  :: g(3)                       !< Gravity (issue #73), zero without it.
    real(R8P),    intent(in)  :: ds(1:,1:)                  !< Space steps of the cells' blocks [3, ncells].
    logical,      intent(in)  :: is_null(3)                 !< Null directions.
    real(R8P),    intent(in)  :: qs(1:,1:,1:,1:)            !< Axis stencils [nv, 2 hs + 1, 3, ncells].
@@ -270,6 +289,7 @@
    real(R8P),    intent(in)  :: olo(1:,1:,1:)              !< Override backbone fluxes [nv, 6, ncells].
    real(R8P),    intent(in)  :: ohi(1:,1:,1:)              !< Override high-order fluxes [nv, 6, ncells].
    real(R8P),    intent(out) :: lam(1:)                    !< Cell factors [ncells].
+   real(R8P),    intent(out) :: lsrc(1:)                   !< Gravity face-form excess L [ncells] (issue #73).
    integer(I4P), intent(out) :: dbad                       !< Change of the inadmissible backbones count.
    integer(I4P), intent(out) :: dnonfinite                 !< Change of the non-finite cells count.
    real(R8P)                 :: qsx(NV_K,-S_MAX:S_MAX)     !< Stencil along x.
@@ -284,6 +304,9 @@
    real(R8P)                 :: s_lo(NV_K), s_hi(NV_K)     !< Backbone and high-order sources.
    real(R8P)                 :: w(3)                       !< Direction weights.
    real(R8P)                 :: dtdx, sg, lc, lc0          !< dt / dx_d, face sign; factors with/without overrides.
+   real(R8P)                 :: cg                         !< Gravity energy per density increment of a face.
+   real(R8P)                 :: sl, sl0, cc                !< Gravity: face-form backbones, time-centred energy.
+   real(R8P)                 :: dsrc0(NV_K)                !< Source difference without overrides.
    integer(I4P)              :: nf, st, st0                !< Active faces; statuses with/without overrides.
    integer(I4P)              :: n, d, s, fec, l            !< Counters.
 
@@ -304,6 +327,8 @@
       qb = qc
       qb0 = qc
       nf = 0
+      sl = 0._R8P
+      sl0 = 0._R8P
       do d=1, 3
          if (is_null(d)) cycle
          dtdx = dt / ds(d,n)
@@ -326,22 +351,36 @@
             endif
             fhi = fh(1:NV_K,fec,n)
             nf = nf + 1
+            cg = merge(-0.5_R8P, 0.5_R8P, s == 1) * g(d) * ds(d,n)
             dlt0(:,nf) = sg * (fhi - flo)
             qb0 = qb0 + sg * flo
+            dlt0(IQ_RE,nf) = dlt0(IQ_RE,nf) + cg * dlt0(IQ_R,nf)
+            sl0 = sl0 + 0.5_R8P * g(d) * flo(IQ_R)
             if (omask(fec,n)) then
                flo = olo(1:NV_K,fec,n)
                fhi = ohi(1:NV_K,fec,n)
             endif
             dlt(:,nf) = sg * (fhi - flo)
             qb = qb + sg * flo
+            dlt(IQ_RE,nf) = dlt(IQ_RE,nf) + cg * dlt(IQ_R,nf)
+            sl = sl + 0.5_R8P * g(d) * flo(IQ_R)
          enddo
       enddo
+      qb(IQ_RU:IQ_RW) = qb(IQ_RU:IQ_RW) + dt * qc(IQ_R) * g
+      qb0(IQ_RU:IQ_RW) = qb0(IQ_RU:IQ_RW) + dt * qc(IQ_R) * g
+      cc = dot_product(g, qc(IQ_RU:IQ_RW) + 0.5_R8P * dt * qc(IQ_R) * g)
+      qb(IQ_RE) = qb(IQ_RE) + dt * cc
+      qb0(IQ_RE) = qb0(IQ_RE) + dt * cc
       call cell_sources(hs=hs, damping=damping, ds=ds(:,n), w=w, qsx=qsx, qsy=qsy, qsz=qsz, qac=qac, s_lo=s_lo, &
                         s_hi=s_hi)
       qb = qb + dt * s_lo
       qb0 = qb0 + dt * s_lo
       dsrc = dt * (s_hi - s_lo)
-      call positivity_cell_factor(nf=nf, qb=qb0, dlt=dlt0, dsrc=dsrc, lc=lc0, status=st0)
+      dsrc0 = dsrc
+      dsrc0(IQ_RE) = dsrc0(IQ_RE) + dt * (sl0 - cc)
+      dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc)
+      lsrc(n) = sl - cc
+      call positivity_cell_factor(nf=nf, qb=qb0, dlt=dlt0, dsrc=dsrc0, lc=lc0, status=st0)
       call positivity_cell_factor(nf=nf, qb=qb, dlt=dlt, dsrc=dsrc, lc=lc, status=st)
       dbad = dbad + merge(1_I4P, 0_I4P, st == 1_I4P) - merge(1_I4P, 0_I4P, st0 == 1_I4P)
       dnonfinite = dnonfinite + merge(1_I4P, 0_I4P, st == 2_I4P) - merge(1_I4P, 0_I4P, st0 == 2_I4P)
