@@ -105,7 +105,8 @@ FULL_KEYS = {
     "grid": {**{key: NONE for key in ("ni", "nj", "nk", "ngc", "null_x", "null_y", "null_z")}, **GRID_KEYS},
 }
 BC_SECTIONS = tuple(f"bc_{x}_{e}" for x in "xyz" for e in ("min", "max"))
-MARKER_NONE = ("mode", "delta_type", "geo_type", "solid", "target_level", "stl_filename", "field", "var")
+MARKER_NONE = ("mode", "delta_type", "geo_type", "solid", "target_level", "stl_filename", "field", "var",
+               "refine_tol", "derefine_tol", "epsilon", "buffer")  # Loehner: normalised estimator, relative filter
 SOLID_LENGTHS = tuple(f"{s}_center_{x}" for s in ("sphere", "circle", "rectangle") for x in "xyz") + \
     ("sphere_radius", "circle_radius", "rectangle_edge_1", "rectangle_edge_2")
 GEOMETRY = ("origin", "dxdydz", "time_iteration")
@@ -159,10 +160,11 @@ def rescale(args: argparse.Namespace) -> int:
         ini.write(f)
     return 0
 
-def marker_tol(ini: configparser.ConfigParser, section: str) -> tuple[float, float, float]:
-    """Dimension of the gradient tolerance of an AMR marker: the marked variable per length (NONE if unused)."""
+def marker_tol(ini: configparser.ConfigParser, section: str, key: str = "tol") -> tuple[float, float, float]:
+    """Dimension of a threshold of an AMR marker (NONE if unused): the gradient tolerance `tol` (mode 2) is the marked
+    variable per length, the Loehner absolute filter `floor` (mode 4, issue #74) the marked variable."""
     sec = ini[section]
-    if int(sec.get("mode", "0").split(";")[0]) != 2:
+    if int(sec.get("mode", "0").split(";")[0]) != {"tol": 2, "floor": 4}[key]:
         return NONE
     field, var = int(sec["field"].split(";")[0]), int(sec["var"].split(";")[0])
     glm = ini.get("mhd", "divergence_control", fallback="none").split(";")[0].strip() == "glm"
@@ -172,8 +174,8 @@ def marker_tol(ini: configparser.ConfigParser, section: str) -> tuple[float, flo
            10: FIELD, 11: FIELD}
     dim = (q if field == 1 else aux if field == 2 else {}).get(var)
     if dim is None:
-        raise SystemExit(f"scaling: [{section}] tol of field {field} var {var} is not classified")
-    return (dim[0] - 1, dim[1], dim[2])
+        raise SystemExit(f"scaling: [{section}] {key} of field {field} var {var} is not classified")
+    return (dim[0] - 1, dim[1], dim[2]) if key == "tol" else dim
 
 
 def classify(ini: configparser.ConfigParser, section: str, key: str) -> tuple[float, float, float]:
@@ -184,7 +186,7 @@ def classify(ini: configparser.ConfigParser, section: str, key: str) -> tuple[fl
         table = {**STATE_KEYS, **GRID_KEYS}
     elif section.startswith("amr_marker_"):
         table = {**{k: NONE for k in MARKER_NONE}, **{k: LENGTH for k in ("delta_fine", "delta_coarse")}, **BOX_KEYS,
-                 "tol": marker_tol(ini, section)}
+                 "tol": marker_tol(ini, section), "floor": marker_tol(ini, section, "floor")}
     elif section.startswith("solid_"):
         table = {**{k: NONE for k in ("name", "definition", "bc_type", "circle_axis", "rectangle_axis")},
                  **{k: LENGTH for k in SOLID_LENGTHS}}

@@ -451,8 +451,10 @@ written variable. The state, the restart files and the solver are unaffected.
 
 Any other key is fatal. With the section active **every** section and key of the file must be known to the layer:
 an unknown one is fatal, so no dimensional value can pass unconverted. Keys whose dimension depends on the context are
-resolved from it: `[amr_marker_N].tol` of a gradient marker takes the dimension of the marked variable per length (a
-marker on the temperature is refused), `[initial_conditions].wave_amplitude` that of the eigenvector it multiplies.
+resolved from it: `[amr_marker_N].tol` of a gradient marker takes the dimension of the marked variable per length,
+`floor` of a Löhner marker that of the marked variable (a marker on the temperature is refused; the Löhner
+`refine_tol`, `derefine_tol` and `epsilon` are dimensionless), `[initial_conditions].wave_amplitude` that of the
+eigenvector it multiplies.
 `type = orszag-tang` (a state hard-coded in code units) and multi-realm runs are refused. The log lists every
 converted key with its old and new value.
 

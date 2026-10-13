@@ -100,7 +100,7 @@ type :: flume_reference_object
       procedure, pass(self) :: variable_output !< Return the output factor of a written variable.
       ! private methods
       procedure, pass(self), private :: classify         !< Return the kind and dimension of an option.
-      procedure, pass(self), private :: classify_marker  !< Return the dimension of an AMR gradient tolerance.
+      procedure, pass(self), private :: classify_marker  !< Return the dimension of a marker threshold.
       procedure, pass(self), private :: convert_gas      !< Replace `cp`, `cv` by `gamma` (`R* = 1`).
       procedure, pass(self), private :: convert_options  !< Convert every dimensional option of the input.
       procedure, pass(self), private :: load_context     !< Load the context of the context-dependent options.
@@ -334,12 +334,14 @@ contains
    endif
    if (index(section_name, 'amr_marker_') == 1) then
       select case(option_name)
-      case('mode', 'delta_type', 'geo_type', 'solid', 'target_level', 'stl_filename', 'field', 'var')
+      case('mode', 'delta_type', 'geo_type', 'solid', 'target_level', 'stl_filename', 'field', 'var', &
+           'refine_tol', 'derefine_tol', 'epsilon', 'buffer') ! Loehner: a normalised estimator, a relative filter
          kind = KIND_NONE
       case('delta_fine', 'delta_coarse', 'box_xmin', 'box_ymin', 'box_zmin', 'box_xmax', 'box_ymax', 'box_zmax')
          kind = KIND_SCALED ; dim = DIM_LENGTH
-      case('tol')
-         call self%classify_marker(file_parameters=file_parameters, section_name=section_name, kind=kind, dim=dim)
+      case('tol', 'floor')
+         call self%classify_marker(file_parameters=file_parameters, section_name=section_name, option_name=option_name, &
+                                   kind=kind, dim=dim)
       endselect
       return
    endif
@@ -488,11 +490,13 @@ contains
    endselect
    endsubroutine classify
 
-   subroutine classify_marker(self, file_parameters, section_name, kind, dim)
-   !< Return the dimension of the gradient tolerance of an AMR marker: that of the marked variable per length.
+   subroutine classify_marker(self, file_parameters, section_name, option_name, kind, dim)
+   !< Return the dimension of a threshold of an AMR marker: the gradient tolerance `tol` (mode 2) takes that of the
+   !< marked variable per length, the Loehner absolute filter `floor` (mode 4, issue #74) that of the marked variable.
    class(flume_reference_object), intent(in)  :: self             !< Reference layer.
    type(file_ini),                intent(in)  :: file_parameters  !< Simulation parameters ini file handler.
    character(*),                  intent(in)  :: section_name     !< Marker section name.
+   character(*),                  intent(in)  :: option_name      !< `tol` or `floor`.
    integer(I4P),                  intent(out) :: kind             !< Option kind.
    integer(I4P),                  intent(out) :: dim(3)           !< Option dimension.
    integer(I4P)                               :: mode, field, var !< Marker mode, marked field and variable.
@@ -502,7 +506,8 @@ contains
    dim = DIM_NONE
    mode = 0_I4P
    call file_parameters%get(section_name=section_name, option_name='mode', val=mode, error=error)
-   if (mode /= 2_I4P) return ! the tolerance of a geometric marker is not used
+   if (option_name == 'tol' .and. mode /= 2_I4P) return ! a tolerance not used (geometric or Loehner marker)
+   if (option_name == 'floor' .and. mode /= 4_I4P) return ! a floor not used (not a Loehner marker)
    kind = KIND_SCALED
    field = 0_I4P ; var = 0_I4P
    call file_parameters%get(section_name=section_name, option_name='field', val=field, error=error)
@@ -542,7 +547,7 @@ contains
    case default
       kind = KIND_UNKNOWN
    endselect
-   if (kind == KIND_SCALED) dim = dim - DIM_LENGTH
+   if (kind == KIND_SCALED .and. option_name == 'tol') dim = dim - DIM_LENGTH
    endsubroutine classify_marker
 
    subroutine convert_gas(self, file_parameters)
