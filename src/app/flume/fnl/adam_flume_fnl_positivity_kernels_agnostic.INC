@@ -9,8 +9,8 @@
    !   the three directions (`qs*(:,m)`, `m = -hs ... hs`, gathered by the kernel) and the cell's auxiliary variables.
 
    subroutine compute_positivity_factors_dev(ni, nj, nk, ngc, blocks_number, gamma, ch, damping, hs, dt, g, dxyz_gpu, &
-                                             is_null, q_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu, lam_gpu, bad, &
-                                             nonfinite)
+                                             is_null, q_gpu, q_aux_gpu, flx_gpu, fly_gpu, flz_gpu, gc_gpu, lam_gpu, &
+                                             bad, nonfinite)
    !< Compute the cell factor `Lambda` of every interior cell into `lam_gpu(:,:,:,:,1)` and count the cells whose backbone
    !< is not admissible and those with a non-finite high-order face flux (device twin of the CPU
    !< `compute_positivity_factors`).
@@ -29,6 +29,7 @@
    real(R8P),    intent(in)    :: flx_gpu(1:,0:,1:,1:,1:)                !< X-face high-order fluxes.
    real(R8P),    intent(in)    :: fly_gpu(1:,1:,0:,1:,1:)                !< Y-face high-order fluxes.
    real(R8P),    intent(in)    :: flz_gpu(1:,1:,1:,0:,1:)                !< Z-face high-order fluxes.
+   real(R8P),    intent(in)    :: gc_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Gravity energy correction (zero without it).
    real(R8P),    intent(inout) :: lam_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Cell factors (component 1).
    integer(I4P), intent(out)   :: bad                                    !< Cells with an inadmissible backbone.
    integer(I4P), intent(out)   :: nonfinite                              !< Cells with a non-finite high-order face flux.
@@ -56,11 +57,11 @@
    bad = 0_I4P
    nonfinite = 0_I4P
    !$acc parallel loop independent gang vector collapse(4) reduction(+:bad,nonfinite)                                &
-   !$acc& DEVICEVAR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,lam_gpu)                                         &
+   !$acc& DEVICEVAR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,gc_gpu,lam_gpu)                                  &
    !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,g,is_null)                                       &
    !$acc& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc)
    !$omp OMPLOOP collapse(4) reduction(+:bad,nonfinite) &
-   !$omp& DEVICEPTR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,lam_gpu) &
+   !$omp& DEVICEPTR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,gc_gpu,lam_gpu) &
    !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,g,is_null) &
    !$omp& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc)
    do k=1, nk
@@ -158,8 +159,8 @@
          qb(v)   = qb(v) + dt * s_lo(v)
          dsrc(v) = dt * (s_hi(v) - s_lo(v))
       enddo
-      dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc)
-      lam_gpu(b,i,j,k,2) = sl - cc
+      dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc + gc_gpu(b,i,j,k,1))
+      lam_gpu(b,i,j,k,2) = sl - cc + gc_gpu(b,i,j,k,1)
       isnf = .false.
       !$acc loop seq
       do f=1, nf
@@ -266,7 +267,7 @@
    endsubroutine blend_positivity_fluxes_dev
 
    subroutine compute_seam_positivity_factors_host(ncells, hs, gamma, ch, damping, dt, g, ds, is_null, qs, qa, fh, &
-                                                   omask, lsrc, &
+                                                   omask, gcs, lsrc, &
                                                    olo, ohi, lam, dbad, dnonfinite)
    !< Recompute on the host the factor of the cells beside a 2:1 seam with the seam faces' backbone and high-order
    !< fluxes overridden (issue #50, D1; the host twin of the CPU `compute_seam_positivity_factors`, fed by the device
@@ -286,6 +287,7 @@
    real(R8P),    intent(in)  :: qa(1:,1:)                  !< Auxiliary variables [nv_aux, ncells].
    real(R8P),    intent(in)  :: fh(1:,1:,1:)               !< High-order face fluxes [nv, 6, ncells].
    logical,      intent(in)  :: omask(1:,1:)               !< Overridden faces [6, ncells].
+   real(R8P),    intent(in)  :: gcs(1:)                    !< Gravity energy correction [ncells] (M7-G2a).
    real(R8P),    intent(in)  :: olo(1:,1:,1:)              !< Override backbone fluxes [nv, 6, ncells].
    real(R8P),    intent(in)  :: ohi(1:,1:,1:)              !< Override high-order fluxes [nv, 6, ncells].
    real(R8P),    intent(out) :: lam(1:)                    !< Cell factors [ncells].
@@ -377,9 +379,9 @@
       qb0 = qb0 + dt * s_lo
       dsrc = dt * (s_hi - s_lo)
       dsrc0 = dsrc
-      dsrc0(IQ_RE) = dsrc0(IQ_RE) + dt * (sl0 - cc)
-      dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc)
-      lsrc(n) = sl - cc
+      dsrc0(IQ_RE) = dsrc0(IQ_RE) + dt * (sl0 - cc + gcs(n))
+      dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc + gcs(n))
+      lsrc(n) = sl - cc + gcs(n)
       call positivity_cell_factor(nf=nf, qb=qb0, dlt=dlt0, dsrc=dsrc0, lc=lc0, status=st0)
       call positivity_cell_factor(nf=nf, qb=qb, dlt=dlt, dsrc=dsrc, lc=lc, status=st)
       dbad = dbad + merge(1_I4P, 0_I4P, st == 1_I4P) - merge(1_I4P, 0_I4P, st0 == 1_I4P)

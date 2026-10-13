@@ -1974,7 +1974,7 @@ gas falls toward vacuum.
 | Leg | Case | Asserted |
 |---|---|---|
 | GV-1 | `freefall2d`: every face periodic, 50 steps | $\rho\mathbf u = \rho\mathbf g t$, $E = E_0 + \rho g^2 t^2/2$, $\rho$ unchanged, 10⁻¹² |
-| GV-3 | `box2d`: x periodic, y `wall-inviscid` (the gas falls and sloshes), 200 steps; `box2d-mhd` (EGLM, $B_x = 0.5$, limiter on) | mass and $E + \rho\Phi$ ($\Phi = -\mathbf g\cdot\mathbf x$) constant at every checkpoint, 10⁻¹²; $E$ alone reported |
+| GV-3 | `box2d`: x periodic, y `wall-inviscid` (the gas falls and sloshes), 200 steps; `box2d-mhd` (EGLM, $B_x = 0.5$, limiter on) | mass and the total energy constant at every checkpoint, 10⁻¹²: $E + \rho\Phi$ ($\Phi = -\mathbf g\cdot\mathbf x$) in G1, $W$ (its wall-row term added) since G2a; $E$ alone reported |
 | limiter | `box2d-lim` ($p = 0.05$, 300 steps: the gas falls away from the lid toward vacuum); `box2d-stiff` ($p = 10^{-3}$, $g\Delta t \approx 4.5\,c$) | the runs complete, the mass is conserved; $E + \rho\Phi$ reported (exact only where the limiter does not act) |
 | GV-2 | `iso2d` with the force, t = 0.5, N = 32, 64, 128 | reported: the spurious $\max|\mathbf u|/c$ of the unbalanced scheme |
 | GV-6 | `box2d` with `weights = si` against its input rescaled by $2^2$, $2^{-1}$, $4^{-2}$ | bitwise |
@@ -1998,6 +1998,51 @@ which near vacuum is negative. `box2d-lim` died at step 128 and `box2d-stiff` at
 with and without the limiter. Option B gives the backbone the time-centred energy $\rho\mathbf g\cdot(\mathbf u +
 \mathbf g\Delta t/2)$, which leaves its internal energy unchanged, and limits the face-form excess with $\Lambda$; both
 cases then run (the stiff one's 32 inadmissible backbones come from the fluxes, not from gravity).
+
+### GV (G2a): the order of the energy source
+
+**Why.** The fluxes of a finite-difference scheme are point values of the primitive function $h$ of $\rho\mathbf u$
+($\rho u = \frac1{\Delta x}\int h$ over the cell), not of $\rho\mathbf u$. G1's energy source
+$\tfrac12 g(F^\rho_{i-1/2} + F^\rho_{i+1/2})$ is then $g\rho u_i + O(\Delta x^2)$, and it took the whole scheme to
+second order on any smooth flow under gravity: none of the G1 legs measured an order (free fall is uniform, the
+conservation legs are exact at any order). G2a adds the correction
+$\tfrac1{24} g(-F^\rho_{i-3/2} + F^\rho_{i-1/2} + F^\rho_{i+1/2} - F^\rho_{i+3/2})$, the cell value of $h$ to fourth
+order; each face's weights still sum to one over the cells, so $E + \rho\Phi$ stays conserved exactly with periodic
+boundaries and across block interfaces. At a reflecting wall the correction of the wall cell reads the face beyond
+it: the mirrored ghosts give $F_{-1} = -F_1$ and $F_0 = 0$, and the wall row's mass balance $F_1 = -\Delta x\,
+d\rho_1/dt$ turns the left-over $g\Delta x(F_1 - F_{-1})/24$ into $d/dt(-g\Delta x\rho_1 V/12)$. The exactly conserved
+total energy is then $W = \sum(E + \rho\Phi)V + \sum_{\text{lower wall}} g_n\Delta x_n\rho V/12 - \sum_{\text{upper
+wall}} g_n\Delta x_n\rho V/12$, an $O(\Delta x^2)$ wall term away from the plain sum (owner decision: W is the
+invariant; dropping the correction flux at walls would keep the plain sum but cost the wall cells an $O(\Delta x)$
+energy source error). GV-3 asserts W and reports the plain sum. The faces
+$i \pm 3/2$ of the block-end cells lie beyond the block: two edge kernels (one per face family, `weno` and
+`weno-riemann`) compute them from the ghosts, which takes one more ghost layer (`ngc >= S + 1`, fatal otherwise). With
+the positivity limiter the correction is a high-order cell source, scaled by $\Lambda$ with the rest of the face form.
+
+**Case** `wave2d` (`gravity/check.sh`, np 2): every face periodic, $\rho = 1 + 0.2\sin(2\pi(x + y))$ at
+$\mathbf u_0 = (1, 0.5)$, $p = 1$, under $\mathbf g = (-0.6, -0.8)$, the `sine-wave` initial condition's `entropy` mode.
+The density wave falls freely and exactly: advected by $\mathbf u_0 t + \mathbf g t^2/2$, $\mathbf u = \mathbf u_0 +
+\mathbf g t$, $p$ uniform; the momentum source is exact on it, the energy source is not (its $(\rho u)''$ is not zero).
+N = 32, 64, 128 to $t = 0.2$, CFL $0.4\,(32/N)^{2/3}$ so the RK3 error stays below the spatial one. Asserted: the L1
+orders of $\rho$ and $p$ of the finest pair at least 3.5 (GV-9), on `weno` and on `weno-riemann` (HLLC, sixth-order
+correction).
+
+**Results** (CPU and FNL agree to every digit shown):
+
+| Scheme | L1 $p/p_1$ at N = 32, 64, 128 | Orders ($\rho$, $p$), finest pair |
+|---|---|---|
+| G1 face form alone (`weno`, negative control) | 1.1·10⁻⁵, 2.8·10⁻⁶, 7.0·10⁻⁷ | 2.12, 2.00 |
+| `weno` | 3.3·10⁻⁷, 1.2·10⁻⁸, 5.2·10⁻¹⁰ | 5.01, 4.57 |
+| `weno-riemann` (HLLC) | 3.4·10⁻⁷, 1.3·10⁻⁸, 5.3·10⁻¹⁰ | 5.00, 4.59 |
+
+At N = 128 the pressure error falls 1300-fold. The negative control is a build with the correction switched off,
+not a run-time option; it is not part of `check.sh`.
+
+The other GV legs with the correction (CPU and FNL): GV-1 unchanged (uniform: the correction is zero); GV-3 `box2d`
+mass 7.7·10⁻¹⁵, $W$ 7.7·10⁻¹⁵ (the plain $E + \rho\Phi$ 3.3·10⁻⁵, the wall term), `box2d-mhd` 1.2·10⁻¹⁴, 6.1·10⁻¹⁵
+(1.6·10⁻⁵); `box2d-lim` 107 984 faces limited (74 304 in G1: the correction is a high-order cell source inside
+$\Lambda$), no inadmissible backbone, mass 9.4·10⁻¹⁵, $W$ 1.2·10⁻⁶ (limited cells only); `box2d-stiff` runs, mass
+1.2·10⁻¹⁴; GV-2 unchanged; GV-6 and NV-5 bitwise; GV-7 FNL against CPU ≤ 7.9·10⁻¹⁴ per field.
 
 ## Unit tests
 

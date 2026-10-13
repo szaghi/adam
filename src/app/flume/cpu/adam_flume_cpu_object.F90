@@ -32,18 +32,30 @@ use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sy
                                               SCHEME_SPACE_WENO,                                                        &
                                               SCHEME_SPACE_WENO_RIEMANN, REFLUX_POLICY_TROUBLED, IA_R, IA_U, IA_P,     &
                                               FLUX_CORRECTION_SENSOR_TAU, seam_weno5_sensor
-use :: adam_flume_cpu_euler_hll_kernels,  only : compute_riemann_face_fluxes_euler_hll=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_euler_hllc_kernels, only : compute_riemann_face_fluxes_euler_hllc=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_euler_llf_kernels,  only : compute_riemann_face_fluxes_euler_llf=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_mhd_hll_kernels,          only : compute_riemann_face_fluxes_mhd_hll=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_mhd_hlld_kernels,         only : compute_riemann_face_fluxes_mhd_hlld=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_mhd_llf_kernels,          only : compute_riemann_face_fluxes_mhd_llf=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_mhd_glm_hll_kernels,      only : compute_riemann_face_fluxes_mhd_glm_hll=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_mhd_glm_hlld_kernels,     only : compute_riemann_face_fluxes_mhd_glm_hlld=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_mhd_glm_llf_kernels,      only : compute_riemann_face_fluxes_mhd_glm_llf=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_mhd_eglm_hll_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_hll=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_mhd_eglm_hlld_kernels,    only : compute_riemann_face_fluxes_mhd_eglm_hlld=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_mhd_eglm_llf_kernels,     only : compute_riemann_face_fluxes_mhd_eglm_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_hll_kernels,  only : add_gravity_edge_correction_euler_hll=>add_gravity_edge_correction, &
+                                                 compute_riemann_face_fluxes_euler_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_hllc_kernels, only : add_gravity_edge_correction_euler_hllc=>add_gravity_edge_correction, &
+                                                 compute_riemann_face_fluxes_euler_hllc=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_llf_kernels,  only : add_gravity_edge_correction_euler_llf=>add_gravity_edge_correction, &
+                                                 compute_riemann_face_fluxes_euler_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_hll_kernels,          only : add_gravity_edge_correction_mhd_hll=>add_gravity_edge_correction, &
+                                                       compute_riemann_face_fluxes_mhd_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_hlld_kernels,         only : add_gravity_edge_correction_mhd_hlld=>add_gravity_edge_correction, &
+                                                       compute_riemann_face_fluxes_mhd_hlld=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_llf_kernels,          only : add_gravity_edge_correction_mhd_llf=>add_gravity_edge_correction, &
+                                                       compute_riemann_face_fluxes_mhd_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_glm_hll_kernels,      only : add_gravity_edge_correction_mhd_glm_hll=>add_gravity_edge_correction, &
+                                                       compute_riemann_face_fluxes_mhd_glm_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_glm_hlld_kernels,     only : add_gravity_edge_correction_mhd_glm_hlld=>add_gravity_edge_correction, &
+                                                       compute_riemann_face_fluxes_mhd_glm_hlld=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_glm_llf_kernels,      only : add_gravity_edge_correction_mhd_glm_llf=>add_gravity_edge_correction, &
+                                                       compute_riemann_face_fluxes_mhd_glm_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_eglm_hll_kernels,     only : add_gravity_edge_correction_mhd_eglm_hll=>add_gravity_edge_correction, &
+                                                       compute_riemann_face_fluxes_mhd_eglm_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_eglm_hlld_kernels,    only : add_gravity_edge_correction_mhd_eglm_hlld=>add_gravity_edge_correction, &
+                                                       compute_riemann_face_fluxes_mhd_eglm_hlld=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_eglm_llf_kernels,     only : add_gravity_edge_correction_mhd_eglm_llf=>add_gravity_edge_correction, &
+                                                       compute_riemann_face_fluxes_mhd_eglm_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_dissipation_kernels, only : add_dissipative_fluxes_o2, add_dissipative_fluxes_o4, &
                                               add_resistive_fluxes_o2, add_resistive_fluxes_o4
 use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>blend_inadmissible_ghosts,            &
@@ -51,6 +63,7 @@ use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>b
                                               compute_backbone_fluxes_euler=>compute_backbone_fluxes,                &
                                               compute_seam_positivity_factors_euler=>compute_seam_positivity_factors,&
                                               compute_face_fluxes_euler=>compute_face_fluxes,                        &
+                                              add_gravity_edge_correction_euler=>add_gravity_edge_correction,        &
                                               compute_positivity_factors_euler=>compute_positivity_factors,          &
                                               compute_lambda_max_euler=>compute_lambda_max,                          &
                                               compute_lambda_max_dissipative_euler=>compute_lambda_max_dissipative,  &
@@ -64,6 +77,7 @@ use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,   
                                               compute_positivity_factors_mhd=>compute_positivity_factors,          &
                                               compute_divb_norms_mhd=>compute_divb_norms,                          &
                                               compute_face_fluxes_mhd=>compute_face_fluxes,                        &
+                                              add_gravity_edge_correction_mhd=>add_gravity_edge_correction,        &
                                               compute_lambda_max_mhd=>compute_lambda_max,                            &
                                               compute_lambda_max_dissipative_mhd=>compute_lambda_max_dissipative,    &
                                               compute_q_aux_mhd=>compute_q_aux,                                      &
@@ -79,6 +93,7 @@ use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources, add_eglm_source
                                                apply_floors_mhd_eglm=>apply_floors,                             &
                                                compute_divb_norms_mhd_eglm=>compute_divb_norms,                 &
                                                compute_face_fluxes_mhd_eglm=>compute_face_fluxes,               &
+                                               add_gravity_edge_correction_mhd_eglm=>add_gravity_edge_correction, &
                                                compute_lambda_max_mhd_eglm=>compute_lambda_max,                 &
                                                compute_lambda_max_dissipative_mhd_eglm=>compute_lambda_max_dissipative, &
                                                compute_q_aux_mhd_eglm=>compute_q_aux,                           &
@@ -88,6 +103,7 @@ use :: adam_flume_cpu_mhd_glm_kernels, only : add_glm_damping, apply_floors_mhd_
                                               blend_inadmissible_ghosts_mhd_glm=>blend_inadmissible_ghosts,        &
                                               compute_divb_norms_mhd_glm=>compute_divb_norms,                      &
                                               compute_face_fluxes_mhd_glm=>compute_face_fluxes,                      &
+                                              add_gravity_edge_correction_mhd_glm=>add_gravity_edge_correction,      &
                                               compute_lambda_max_mhd_glm=>compute_lambda_max,                        &
                                               compute_lambda_max_dissipative_mhd_glm=>compute_lambda_max_dissipative, &
                                               compute_q_aux_mhd_glm=>compute_q_aux,                                  &
@@ -108,6 +124,8 @@ type, extends(flume_common_object) :: flume_cpu_object
    real(R8P), allocatable :: flx_f(:,:,:,:,:) !< X-face fluxes [nv, 0:ni, 1:nj, 1:nk, nb], face i = i+1/2.
    real(R8P), allocatable :: fly_f(:,:,:,:,:) !< Y-face fluxes [nv, 1:ni, 0:nj, 1:nk, nb], face j = j+1/2.
    real(R8P), allocatable :: flz_f(:,:,:,:,:) !< Z-face fluxes [nv, 1:ni, 1:nj, 0:nk, nb], face k = k+1/2.
+   real(R8P), allocatable :: gcor(:,:,:,:,:)  !< Fourth-order correction of the gravity energy source (issue #73,
+                                              !< M7-G2a) [1, 1-ngc:ni+ngc, ..., nb]; zero without gravity.
    ! positivity limiter data
    type(flume_seam_sync_object) :: seam        !< Per-stage seam flux synchronisation of the limiter (issue #50).
    real(R8P), allocatable :: lam(:,:,:,:,:)   !< Cell factors of the positivity limiter (component 1, q-shaped for the
@@ -127,6 +145,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
+      procedure, pass(self) :: compute_gravity_correction !< Compute the fourth-order gravity energy correction.
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
       procedure, pass(self) :: limit_positivity        !< Apply the positivity limiter to the stage face fluxes.
@@ -408,6 +427,10 @@ contains
    if (alloc_stat /= 0_I4P) call mpih%error_stop(msg=': failed to allocate fly_f: '//trim(alloc_msg))
    allocate(self%flz_f(1:nv,1:ni,1:nj,0:nk,1:nb), stat=alloc_stat, errmsg=alloc_msg)
    if (alloc_stat /= 0_I4P) call mpih%error_stop(msg=': failed to allocate flz_f: '//trim(alloc_msg))
+   allocate(self%gcor(1:1,1-self%ngc:ni+self%ngc,1-self%ngc:nj+self%ngc,1-self%ngc:nk+self%ngc,1:nb), &
+            stat=alloc_stat, errmsg=alloc_msg)
+   if (alloc_stat /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gcor: '//trim(alloc_msg))
+   self%gcor = 0._R8P
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
       allocate(self%lam(1:nv,1-self%ngc:ni+self%ngc,1-self%ngc:nj+self%ngc,1-self%ngc:nk+self%ngc,1:nb), &
                stat=alloc_stat, errmsg=alloc_msg)
@@ -760,17 +783,18 @@ contains
       call compute_positivity_factors_euler(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,         &
                                             damping=0._R8P, hs=hs, dt=dt, g=g, dxyz=dxyz, is_null=is_null, q=q,             &
                                             q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,          &
-                                            lam=self%lam, bad=counts(1), nonfinite=counts(5))
+                                            gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD)
       call compute_positivity_factors_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,           &
                                           damping=0._R8P, hs=hs, dt=dt, g=g, dxyz=dxyz, is_null=is_null, q=q,               &
                                           q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,            &
-                                          lam=self%lam, bad=counts(1), nonfinite=counts(5))
+                                          gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD_EGLM)
       call compute_positivity_factors_mhd_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
                                                damping=self%physics%mhd%glm_damping, hs=hs, dt=dt, g=g, dxyz=dxyz,          &
                                                is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f,                 &
-                                               fly=self%fly_f, flz=self%flz_f, lam=self%lam, bad=counts(1),            &
+                                               fly=self%fly_f, flz=self%flz_f, gc=self%gcor, lam=self%lam,             &
+                                               bad=counts(1),                                                          &
                                                nonfinite=counts(5))
    case default
       call mpih%error_stop(msg=': no CPU positivity limiter for physical model "'//self%physics%physical_model//'"')
@@ -1010,17 +1034,18 @@ contains
    case(MODEL_EULER)
       call compute_seam_positivity_factors_euler(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g, dxyz=dxyz, &
                                                  is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
-                                                 flz=self%flz_f, ncells=n, cell=cell, omask=omask, olo=olo, ohi=ohi,    &
-                                                 lam=self%lam, dbad=db, dnonfinite=dn)
+                                                 flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
+                                                 olo=olo, ohi=ohi, lam=self%lam, dbad=db, dnonfinite=dn)
    case(MODEL_MHD)
       call compute_seam_positivity_factors_mhd(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g, dxyz=dxyz, &
                                                is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
-                                               flz=self%flz_f, ncells=n, cell=cell, omask=omask, olo=olo, ohi=ohi,    &
-                                               lam=self%lam, dbad=db, dnonfinite=dn)
+                                               flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
+                                               olo=olo, ohi=ohi, lam=self%lam, dbad=db, dnonfinite=dn)
    case(MODEL_MHD_EGLM)
       call compute_seam_positivity_factors_mhd_eglm(ngc=ngc, gamma=gamma, ch=ch, damping=self%physics%mhd%glm_damping, &
                                                     hs=hs, dt=dt, g=g, dxyz=dxyz, is_null=is_null, q=q, q_aux=self%q_aux,   &
-                                                    flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, ncells=n,          &
+                                                    flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, gc=self%gcor,      &
+                                                    ncells=n,                                                          &
                                                     cell=cell, omask=omask, olo=olo, ohi=ohi, lam=self%lam, dbad=db,   &
                                                     dnonfinite=dn)
    endselect
@@ -1871,11 +1896,12 @@ contains
    !$omp end parallel do
    endsubroutine compute_flux_difference
 
-   subroutine add_gravity_sources(ni, nj, nk, ngc, blocks_number, g, q, flx, fly, flz, dq)
+   subroutine add_gravity_sources(ni, nj, nk, ngc, blocks_number, g, q, flx, fly, flz, gc, dq)
    !< Add the external gravity sources (issue #73, M7-G1): `rho g` to the momentum and, from the face mass fluxes the
    !< continuity equation used, `1/2 sum_d g_d (F^rho_{d,i+1/2} + F^rho_{d,i-1/2})` to the energy (Mikami et al. 2008,
    !< Mullen et al. 2021: with a static potential the total energy `E + rho Phi` is then conserved exactly, while the
-   !< cell-centred `rho u . g` is not). A component of g along a null direction is refused at initialisation.
+   !< cell-centred `rho u . g` is not), plus its fourth-order correction `gc` (M7-G2a, `compute_gravity_correction`).
+   !< A component of g along a null direction is refused at initialisation.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                 !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                   !< Actual blocks number.
    real(R8P),    intent(in)    :: g(3)                            !< Gravity.
@@ -1883,10 +1909,11 @@ contains
    real(R8P),    intent(in)    :: flx(1:,0:,1:,1:,1:)             !< X-face fluxes.
    real(R8P),    intent(in)    :: fly(1:,1:,0:,1:,1:)             !< Y-face fluxes.
    real(R8P),    intent(in)    :: flz(1:,1:,1:,0:,1:)             !< Z-face fluxes.
+   real(R8P),    intent(in)    :: gc(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Fourth-order correction of the energy source.
    real(R8P),    intent(inout) :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Residuals.
    integer(I4P)                :: b, i, j, k                      !< Counters.
 
-   !$omp parallel do collapse(4) default(firstprivate) shared(q, flx, fly, flz, dq)
+   !$omp parallel do collapse(4) default(firstprivate) shared(q, flx, fly, flz, gc, dq)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -1894,7 +1921,8 @@ contains
                dq(IQ_RU:IQ_RW,i,j,k,b) = dq(IQ_RU:IQ_RW,i,j,k,b) + q(IQ_R,i,j,k,b) * g
                dq(IQ_RE,i,j,k,b) = dq(IQ_RE,i,j,k,b) + 0.5_R8P * (g(1) * (flx(IQ_R,i,j,k,b) + flx(IQ_R,i-1,j,k,b)) + &
                                                                   g(2) * (fly(IQ_R,i,j,k,b) + fly(IQ_R,i,j-1,k,b)) + &
-                                                                  g(3) * (flz(IQ_R,i,j,k,b) + flz(IQ_R,i,j,k-1,b)))
+                                                                  g(3) * (flz(IQ_R,i,j,k,b) + flz(IQ_R,i,j,k-1,b))) + &
+                                 gc(1,i,j,k,b)
             enddo
          enddo
       enddo
@@ -1925,6 +1953,55 @@ contains
    !$omp end parallel do
    endsubroutine add_gravity_limited_correction
 
+   subroutine compute_gravity_correction_faces(ni, nj, nk, ngc, blocks_number, g, flx, fly, flz, gc)
+   !< Set the fourth-order correction of the gravity energy source (issue #73, M7-G2a) from the faces the block holds:
+   !< `gc = sum_d g_d (-F_{i-3/2} + F_{i-1/2} + F_{i+1/2} - F_{i+3/2}) / 24` (`F` the high-order mass flux along `d`),
+   !< so that the face form plus `gc` is `sum_d g_d (-F_{i-3/2} + 13 F_{i-1/2} + 13 F_{i+1/2} - F_{i+3/2}) / 24`, the
+   !< cell value of the point values `F^rho = rho u_d` that the finite-difference fluxes are the primitive function of
+   !< (fourth order; the face form alone is second order). Each face's weights sum to zero over the cells, so `E + rho
+   !< Phi` stays conserved. The faces beyond the block (cells 1 and `n_d`) are added by `add_gravity_edge_correction`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                 !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                   !< Actual blocks number.
+   real(R8P),    intent(in)    :: g(3)                            !< Gravity.
+   real(R8P),    intent(in)    :: flx(1:,0:,1:,1:,1:)             !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly(1:,1:,0:,1:,1:)             !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz(1:,1:,1:,0:,1:)             !< Z-face fluxes.
+   real(R8P),    intent(inout) :: gc(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Gravity energy correction [1, ...].
+   real(R8P)                   :: c, t                            !< Correction, one direction's term.
+   integer(I4P)                :: b, i, j, k                      !< Counters.
+
+   !$omp parallel do collapse(4) default(firstprivate) shared(flx, fly, flz, gc)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               c = 0._R8P
+               if (g(1) /= 0._R8P) then
+                  t = flx(IQ_R,i-1,j,k,b) + flx(IQ_R,i,j,k,b)
+                  if (i > 1)  t = t - flx(IQ_R,i-2,j,k,b)
+                  if (i < ni) t = t - flx(IQ_R,i+1,j,k,b)
+                  c = c + g(1) * t
+               endif
+               if (g(2) /= 0._R8P) then
+                  t = fly(IQ_R,i,j-1,k,b) + fly(IQ_R,i,j,k,b)
+                  if (j > 1)  t = t - fly(IQ_R,i,j-2,k,b)
+                  if (j < nj) t = t - fly(IQ_R,i,j+1,k,b)
+                  c = c + g(2) * t
+               endif
+               if (g(3) /= 0._R8P) then
+                  t = flz(IQ_R,i,j,k-1,b) + flz(IQ_R,i,j,k,b)
+                  if (k > 1)  t = t - flz(IQ_R,i,j,k-2,b)
+                  if (k < nk) t = t - flz(IQ_R,i,j,k+1,b)
+                  c = c + g(3) * t
+               endif
+               gc(1,i,j,k,b) = c / 24._R8P
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine compute_gravity_correction_faces
+
    subroutine poison_ghosts(ni, nj, nk, ngc, blocks_number, q)
    !< Set every ghost cell to a quiet NaN (verification instrument, `[diagnostics] ghost_poison`, issue #65).
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                 !< Grid dimensions.
@@ -1944,6 +2021,84 @@ contains
       enddo
    enddo
    endsubroutine poison_ghosts
+
+   subroutine compute_gravity_correction(self, q)
+   !< Compute the fourth-order correction of the gravity energy source into `gcor` (issue #73, M7-G2a) from the
+   !< high-order face fluxes of the stage, before any blending: the faces of the block, then the face beyond each end
+   !< of every direction with gravity, by the edge kernel of the space operator's face (the model's, and with
+   !< `weno-riemann` the solver's), selected here outside the loops.
+   class(flume_cpu_object), intent(inout) :: self                                                 !< The equation.
+   real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)         !< Conservative variables.
+   procedure(add_gravity_edge_correction_euler),     pointer :: edge_split   !< Edge kernel, `weno`.
+   procedure(add_gravity_edge_correction_euler_llf), pointer :: edge_riemann !< Edge kernel, `weno-riemann`.
+   logical                                :: is_char                                              !< Characteristic flag.
+   real(R8P)                              :: cc(3)                                                !< Correction coefficients.
+   real(R8P)                              :: tau                                                  !< Correction threshold.
+   integer(I4P)                           :: ids(3,3)                                             !< Unit steps.
+   integer(I4P)                           :: d                                                    !< Counter.
+
+   edge_split => null()
+   edge_riemann => null()
+   ids = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
+   is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+             ch=>self%physics%mhd%glm_ch, g=>self%physics%gravity%g)
+   call compute_gravity_correction_faces(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=g, flx=self%flx_f, &
+                                         fly=self%fly_f, flz=self%flz_f, gc=self%gcor)
+   if (self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN) then
+      cc = self%numerics%correction_coefficients()
+      tau = self%numerics%correction_threshold()
+      select case(self%physics%model)
+      case(MODEL_EULER)
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_euler_llf
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_euler_hll
+         case(RIEMANN_SOLVER_HLLC) ; edge_riemann => add_gravity_edge_correction_euler_hllc
+         endselect
+      case(MODEL_MHD)
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_mhd_llf
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_mhd_hll
+         case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_hlld
+         endselect
+      case(MODEL_MHD_GLM)
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_mhd_glm_llf
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_mhd_glm_hll
+         case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_glm_hlld
+         endselect
+      case(MODEL_MHD_EGLM)
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_mhd_eglm_llf
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_mhd_eglm_hll
+         case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_eglm_hlld
+         endselect
+      endselect
+      if (.not.associated(edge_riemann)) call mpih%error_stop(msg=': no CPU gravity edge kernel for the model and '// &
+                                                                  'Riemann solver')
+      do d=1, 3
+         if (g(d) /= 0._R8P) call edge_riemann(d=d, di=ids(1,d), dj=ids(2,d), dk=ids(3,d), ni=ni, nj=nj, nk=nk,    &
+                                               ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,                       &
+                                               is_characteristic=is_char, weno=self%weno, cc=cc, tau=tau, ir=IQ_R, &
+                                               gd=g(d), q=q, q_aux=self%q_aux, gc=self%gcor)
+      enddo
+   else
+      select case(self%physics%model)
+      case(MODEL_EULER)    ; edge_split => add_gravity_edge_correction_euler
+      case(MODEL_MHD)      ; edge_split => add_gravity_edge_correction_mhd
+      case(MODEL_MHD_GLM)  ; edge_split => add_gravity_edge_correction_mhd_glm
+      case(MODEL_MHD_EGLM) ; edge_split => add_gravity_edge_correction_mhd_eglm
+      endselect
+      if (.not.associated(edge_split)) call mpih%error_stop(msg=': no CPU gravity edge kernel for the model')
+      do d=1, 3
+         if (g(d) /= 0._R8P) call edge_split(d=d, di=ids(1,d), dj=ids(2,d), dk=ids(3,d), ni=ni, nj=nj, nk=nk,      &
+                                             ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,                         &
+                                             is_characteristic=is_char, weno=self%weno, ir=IQ_R, gd=g(d), q=q,     &
+                                             q_aux=self%q_aux, gc=self%gcor)
+      enddo
+   endif
+   endassociate
+   endsubroutine compute_gravity_correction
 
    subroutine compute_rk_ssp_residual(self)
    !< Compute the residual of a strong stability preserving step, `dq = sum_s beta_s dq_s`, from the stored stages.
@@ -2063,6 +2218,7 @@ contains
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
+   if (self%physics%gravity%is_active) call self%compute_gravity_correction(q=q)
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
                                                                                          flux_register=flux_register)
@@ -2077,7 +2233,7 @@ contains
                                 phi=self%ib%phi)
    if (self%physics%gravity%is_active) call add_gravity_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,         &
                                                                 g=self%physics%gravity%g, q=q, flx=self%flx_f,       &
-                                                                fly=self%fly_f, flz=self%flz_f, dq=dq)
+                                                                fly=self%fly_f, flz=self%flz_f, gc=self%gcor, dq=dq)
    if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call add_gravity_limited_correction(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam=self%lam, dq=dq)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
@@ -2202,6 +2358,7 @@ contains
          print '(A)', mpih%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
+   if (self%physics%gravity%is_active) call self%compute_gravity_correction(q=q)
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
                                                                                          flux_register=flux_register)
@@ -2216,7 +2373,7 @@ contains
                                 phi=self%ib%phi)
    if (self%physics%gravity%is_active) call add_gravity_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,         &
                                                                 g=self%physics%gravity%g, q=q, flx=self%flx_f,       &
-                                                                fly=self%fly_f, flz=self%flz_f, dq=dq)
+                                                                fly=self%fly_f, flz=self%flz_f, gc=self%gcor, dq=dq)
    if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call add_gravity_limited_correction(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam=self%lam, dq=dq)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &

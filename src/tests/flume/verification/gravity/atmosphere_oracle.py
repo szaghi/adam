@@ -6,6 +6,7 @@
     atmosphere_oracle.py energy <work> [--tol T] [--report-total]
     atmosphere_oracle.py rest <work> [<work> ...]
     atmosphere_oracle.py agree <workA> <workB> [--tol T]
+    atmosphere_oracle.py wave <work> [<work> ...] [--min-order P]
 
 `profile` reads the last checkpoint of a run written by make_atmosphere.py (fields with their ghosts) and checks, with
 the constant gravity g and the region-1 state (rho_1, p_1 at the origin) of its input:
@@ -216,6 +217,12 @@ def checkpoints(work: Path) -> dict[int, tuple[float, list[Path]]]:
 
 def interior(ini: configparser.ConfigParser, paths: list[Path]):
     """Yield (centre, volume, conservative state) of every interior cell of one checkpoint."""
+    for c, _, vol, q in interior_steps(ini, paths):
+        yield c, vol, q
+
+
+def interior_steps(ini: configparser.ConfigParser, paths: list[Path]):
+    """Yield (centre, space steps, volume, conservative state) of every interior cell of one checkpoint."""
     ngc = int(ini["grid"]["ngc"])
     active = np.array([ini["grid"][f"null_{x}"].strip() != ".true." for x in "xyz"])
     for path in paths:
@@ -230,7 +237,7 @@ def interior(ini: configparser.ConfigParser, paths: list[Path]):
                     for j in range(ngc, shape[1] - ngc):
                         for k in ks:
                             c = origin + (np.array([i, j, k]) + 0.5) * dxyz
-                            yield c, vol, {n: float(a[i, j, k]) for n, a in arr.items()}
+                            yield c, dxyz, vol, {n: float(a[i, j, k]) for n, a in arr.items()}
 
 
 def freefall(args: argparse.Namespace) -> int:
@@ -258,25 +265,41 @@ def freefall(args: argparse.Namespace) -> int:
 
 
 def energy(args: argparse.Namespace) -> int:
-    """GV-3: in a closed box the mass and the total energy E + rho Phi (Phi = -g . x at the cell centres) are conserved,
-    at every checkpoint, while E itself exchanges with rho Phi."""
+    """GV-3: in a closed box the mass and the total energy are conserved, at every checkpoint, while E itself exchanges
+    with rho Phi (Phi = -g . x at the cell centres).
+
+    The conserved total energy of the fourth-order energy source (M7-G2a) is `W = sum (E + rho Phi) V` plus, at each
+    `wall-inviscid` face with gravity along its normal, `+- g_n dx_n rho V / 12` over the cells beside it (+ at the
+    lower face, - at the upper): the source reads the face beyond the wall, whose mirrored mass flux leaves
+    `g dx (F_1 - F_-1) / 24 = d/dt (-+ g dx rho_1 V / 12)` in the budget. W is asserted; the plain sum, which differs by
+    that O(dx^2) wall term, is reported."""
     ini = read_ini(args.work)
     atm = Atmosphere(ini)
+    lo = np.array([float(ini["grid"][f"emin_{x}"]) for x in "xyz"])
+    hi = np.array([float(ini["grid"][f"emax_{x}"]) for x in "xyz"])
+    walls = [d for d in range(3) if atm.g[d] != 0.0 and
+             all(ini[f"bc_{'xyz'[d]}_{s}"]["type"].split(";")[0].strip() == "wall-inviscid" for s in ("min", "max"))]
     rows = []
     for step, (t, paths) in sorted(checkpoints(args.work).items()):
-        m = e = w = 0.0
-        for c, vol, q in interior(ini, paths):
+        m = e = w = b = 0.0
+        for c, dxyz, vol, q in interior_steps(ini, paths):
             m += q["r"] * vol
             e += q["rE"] * vol
             w += -q["r"] * float(np.dot(atm.g, c)) * vol
-        rows.append((step, t, m, e, w))
-    _, _, m0, e0, w0 = rows[0]
+            for d in walls:
+                if c[d] - lo[d] < dxyz[d]:
+                    b += atm.g[d] * dxyz[d] * q["r"] * vol / 12.0
+                if hi[d] - c[d] < dxyz[d]:
+                    b -= atm.g[d] * dxyz[d] * q["r"] * vol / 12.0
+        rows.append((step, t, m, e, w, b))
+    _, _, m0, e0, w0, b0 = rows[0]
     dm = max(abs(r[2] - m0) for r in rows) / abs(m0)
+    dw = max(abs(r[3] + r[4] + r[5] - e0 - w0 - b0) for r in rows) / abs(e0 + w0 + b0)
     dt = max(abs(r[3] + r[4] - e0 - w0) for r in rows) / abs(e0 + w0)
     de = max(abs(r[3] - e0) for r in rows) / abs(e0 + w0)
     status = 0
-    for key, value, checked in (("mass", dm, True), ("E + rho Phi", dt, not args.report_total),
-                                ("E alone", de, False)):
+    for key, value, checked in (("mass", dm, True), ("W", dw, not args.report_total),
+                                ("E + rho Phi", dt, False), ("E alone", de, False)):
         ok = value <= args.tol
         if checked:
             status |= 0 if ok else 1
@@ -331,6 +354,44 @@ def agree(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def wave(args: argparse.Namespace) -> int:
+    """GV-9 (M7-G2a): the falling entropy wave of `wave2d`, the L1 errors of rho and p at the last checkpoint against
+    the exact solution (the region-1 state, the wave of [initial_conditions] advected by `u_0 t + g t^2 / 2`, p
+    uniform), and their orders between consecutive runs (given coarse to fine, each twice as fine). Exit 1 when the
+    order of the finest pair is below `--min-order` for either."""
+    prev = None
+    orders = (0.0, 0.0)
+    for work in args.works:
+        ini = read_ini(work)
+        atm = Atmosphere(ini)
+        ic = ini["initial_conditions"]
+        angle = math.radians(float(ic["wave_angle"]))
+        amp, lam = float(ic["wave_amplitude"]), float(ic["wavelength"])
+        n = np.array([math.cos(angle), math.sin(angle), 0.0])
+        cps = checkpoints(work)
+        t, paths = cps[max(cps)]
+        shift = atm.vel * t + 0.5 * atm.g * t * t
+        er = ep = vol = 0.0
+        for c, v, q in interior(ini, paths):
+            rho, _, p, _ = primitive(q, atm.gamma, atm.mhd, False)
+            rho_x = atm.rho1 * (1.0 + amp * math.sin(2.0 * math.pi * float(np.dot(n, c - shift)) / lam))
+            er += abs(rho - rho_x) * v
+            ep += abs(p / atm.p1 - 1.0) * v
+            vol += v
+        er, ep = er / vol, ep / vol
+        if prev:
+            orders = (math.log2(prev[0] / er), math.log2(prev[1] / ep))
+            tail = f", orders {orders[0]:+.2f} {orders[1]:+.2f}"
+        else:
+            tail = ""
+        print(f"   {work.name}: t = {t:.4f}, L1 rho {er:.3e}, L1 p/p_1 {ep:.3e}{tail}")
+        prev = (er, ep)
+    ok = min(orders) >= args.min_order
+    print(f"GV-9 wave2d: finest orders {orders[0]:+.2f} (rho), {orders[1]:+.2f} (p): {'PASS' if ok else 'FAIL'} "
+          f"(min {args.min_order:g})")
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Parse the command line and run the check."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -343,12 +404,16 @@ def main() -> int:
             p.add_argument("--report-total", action="store_true", help="report E + rho Phi, do not assert it")
     p = sub.add_parser("rest")
     p.add_argument("works", type=Path, nargs="+")
+    p = sub.add_parser("wave")
+    p.add_argument("works", type=Path, nargs="+")
+    p.add_argument("--min-order", type=float, default=3.5)
     p = sub.add_parser("agree")
     p.add_argument("a", type=Path)
     p.add_argument("b", type=Path)
     p.add_argument("--tol", type=float, default=1.0e-10)
     args = parser.parse_args()
-    return {"profile": profile, "freefall": freefall, "energy": energy, "rest": rest, "agree": agree}[args.check](args)
+    checks = {"profile": profile, "freefall": freefall, "energy": energy, "rest": rest, "agree": agree, "wave": wave}
+    return checks[args.check](args)
 
 
 if __name__ == "__main__":

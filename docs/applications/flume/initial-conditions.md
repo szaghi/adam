@@ -747,9 +747,10 @@ of `[initial_conditions_region_1]` ($\rho_0$, $\mathbf u_0$, $p_0$), with $s = A
 |---|---|---|
 | `shear` | $\mathbf u = \mathbf u_0 + s\,\mathbf t$, $\mathbf t = (-\sin\theta, \cos\theta, 0)$ | a velocity |
 | `acoustic` | $\rho = \rho_0(1 + s)$, $\mathbf u = \mathbf u_0 + a_0 s\,\mathbf n$, $p = p_0(1 + \gamma s)$: the right-running linear acoustic wave | relative |
+| `entropy` | $\rho = \rho_0(1 + s)$: a density wave at uniform velocity and pressure, advected exactly (under a constant gravity it falls freely: the convergence case of the gravity sources, [verification](./verification#gv-g2a-the-order-of-the-energy-source)) | relative |
 | `magnetic` (MHD) | $\mathbf B = \mathbf B_0 + s\,\mathbf t$: a transverse field, which decays by resistivity and, with $\mathbf B_0\cdot\mathbf n \ne 0$, drives a damped Alfvén wave | a field |
 
-Keys: `wave_mode` (`shear`, `acoustic` or `magnetic`, other → fatal; `magnetic` needs `mhd-ideal`), `wave_angle` $\theta$ (degrees), `wave_amplitude` $A$,
+Keys: `wave_mode` (`shear`, `acoustic`, `entropy` or `magnetic`, other → fatal; `magnetic` needs `mhd-ideal`), `wave_angle` $\theta$ (degrees), `wave_amplitude` $A$,
 `wavelength` $\lambda$ (`> 0`). The values are point values at the cell centres. It is the initial state of the
 viscous verifications VV-1 (shear-wave decay) and VV-2 (viscous-thermal acoustic attenuation)
 ([verification](./verification#vv-1-and-vv-2-viscous-waves)) and of the Ohmic ones VV-5 and VV-6

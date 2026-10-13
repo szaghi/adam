@@ -16,6 +16,8 @@
    ! source `1/2 g_d (F^rho_{i+1/2} + F^rho_{i-1/2})` its blended flux carries; the rest of the face form,
    ! `L = 1/2 sum_d g_d (F^rho_LLF faces) - rho g . (u + g dt / 2)`, is a source difference scaled by Lambda and is
    ! stored in `lam(2)`: the final energy source is the face form of the blended fluxes minus `(1 - Lambda) L`.
+   ! The fourth-order correction `gc` of the face form (issue #73, M7-G2a, from the high-order mass fluxes) is a
+   ! high-order cell source: it joins the source difference and `L`, so it too is scaled by Lambda.
    !
    ! The limiter (Christlieb et al. 2015, doi:10.1137/140971208, the cell-based form of Xu 2014,
    ! doi:10.1090/S0025-5718-2013-02788-3): per cell, the backbone `q_L = q - dt/dx (F^LLF_{i+1/2} - F^LLF_{i-1/2}) (each
@@ -34,7 +36,7 @@
    ! size `dt` is admissible; an SSP Runge-Kutta stage is a convex combination of such steps (all of size at most `dt`).
 
    subroutine compute_positivity_factors(ni, nj, nk, ngc, blocks_number, gamma, ch, damping, hs, dt, g, dxyz, is_null, &
-                                         q, q_aux, flx, fly, flz, lam, bad, nonfinite)
+                                         q, q_aux, flx, fly, flz, gc, lam, bad, nonfinite)
    !< Compute the cell factor `Lambda` of every interior cell into `lam(1,:,:,:,:)` (the other components untouched) and
    !< count the cells whose backbone is not admissible (`Lambda = 0` there: the floors, if enabled, take over) and those
    !< with a non-finite high-order face flux (`Lambda = 0` too: a NaN or infinite flux carries no information, and every
@@ -54,6 +56,7 @@
    real(R8P),    intent(in)    :: flx(1:,0:,1:,1:,1:)                !< X-face high-order fluxes.
    real(R8P),    intent(in)    :: fly(1:,1:,0:,1:,1:)                !< Y-face high-order fluxes.
    real(R8P),    intent(in)    :: flz(1:,1:,1:,0:,1:)                !< Z-face high-order fluxes.
+   real(R8P),    intent(in)    :: gc(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Gravity energy correction (zero without it).
    real(R8P),    intent(inout) :: lam(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Cell factors (component 1).
    integer(I4P), intent(out)   :: bad                                !< Cells with an inadmissible backbone.
    integer(I4P), intent(out)   :: nonfinite                          !< Cells with a non-finite high-order face flux.
@@ -73,7 +76,7 @@
    ids = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    bad = 0_I4P
    nonfinite = 0_I4P
-   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q, q_aux, flx, fly, flz, lam) &
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q, q_aux, flx, fly, flz, gc, lam) &
    !$omp& reduction(+:bad, nonfinite)
    do b=1, blocks_number
       do k=1, nk
@@ -124,8 +127,8 @@
                                  i=i, j=j, k=k, b=b, s_lo=s_lo, s_hi=s_hi)
                qb = qb + dt * s_lo
                dsrc = dt * (s_hi - s_lo)
-               dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc)
-               lam(2,i,j,k,b) = sl - cc
+               dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc + gc(1,i,j,k,b))
+               lam(2,i,j,k,b) = sl - cc + gc(1,i,j,k,b)
                call positivity_cell_factor(nf=nf, qb=qb, dlt=dlt, dsrc=dsrc, lc=lc, status=st)
                if (st == 1_I4P) bad = bad + 1_I4P
                if (st == 2_I4P) nonfinite = nonfinite + 1_I4P
@@ -138,7 +141,7 @@
    endsubroutine compute_positivity_factors
 
    subroutine compute_seam_positivity_factors(ngc, gamma, ch, damping, hs, dt, g, dxyz, is_null, q, q_aux, flx, fly, &
-                                              flz, ncells, cell, omask, olo, ohi, lam, dbad, dnonfinite)
+                                              flz, gc, ncells, cell, omask, olo, ohi, lam, dbad, dnonfinite)
    !< Recompute the factor of the cells beside a 2:1 seam with the seam faces' backbone and high-order fluxes overridden
    !< (issue #50, D1: per-stage seam flux synchronisation). Cell `n` is `cell(1:4,n) = (i, j, k, b)`; its face `fec`
    !< (1..6: -x, +x, -y, +y, -z, +z) takes `olo(:,fec,n)` and `ohi(:,fec,n)` where `omask(fec,n)`, the backbone flux of
@@ -159,6 +162,7 @@
    real(R8P),    intent(in)    :: flx(1:,0:,1:,1:,1:)                !< X-face high-order fluxes.
    real(R8P),    intent(in)    :: fly(1:,1:,0:,1:,1:)                !< Y-face high-order fluxes.
    real(R8P),    intent(in)    :: flz(1:,1:,1:,0:,1:)                !< Z-face high-order fluxes.
+   real(R8P),    intent(in)    :: gc(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Gravity energy correction (zero without it).
    integer(I4P), intent(in)    :: ncells                             !< Seam cells.
    integer(I4P), intent(in)    :: cell(1:,1:)                        !< Seam cells (i, j, k, b) [4, ncells].
    logical,      intent(in)    :: omask(1:,1:)                       !< Overridden faces [6, ncells].
@@ -249,14 +253,14 @@
       qb0 = qb0 + dt * s_lo
       dsrc = dt * (s_hi - s_lo)
       dsrc0 = dsrc
-      dsrc0(IQ_RE) = dsrc0(IQ_RE) + dt * (sl0 - cc)
-      dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc)
+      dsrc0(IQ_RE) = dsrc0(IQ_RE) + dt * (sl0 - cc + gc(1,i,j,k,b))
+      dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc + gc(1,i,j,k,b))
       call positivity_cell_factor(nf=nf, qb=qb0, dlt=dlt0, dsrc=dsrc0, lc=lc0, status=st0)
       call positivity_cell_factor(nf=nf, qb=qb, dlt=dlt, dsrc=dsrc, lc=lc, status=st)
       dbad = dbad + merge(1_I4P, 0_I4P, st == 1_I4P) - merge(1_I4P, 0_I4P, st0 == 1_I4P)
       dnonfinite = dnonfinite + merge(1_I4P, 0_I4P, st == 2_I4P) - merge(1_I4P, 0_I4P, st0 == 2_I4P)
       lam(1,i,j,k,b) = lc
-      lam(2,i,j,k,b) = sl - cc
+      lam(2,i,j,k,b) = sl - cc + gc(1,i,j,k,b)
    enddo
    endsubroutine compute_seam_positivity_factors
 

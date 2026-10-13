@@ -28,6 +28,7 @@ private
 public :: apply_reflux_face_dev
 public :: compute_flux_difference_dev
 public :: add_gravity_sources_dev
+public :: compute_gravity_correction_faces_dev
 public :: add_gravity_limited_correction_dev
 public :: compute_dflux_norms_dev
 public :: copy_state_dev
@@ -210,9 +211,11 @@ contains
    enddo
    endsubroutine compute_flux_difference_dev
 
-   subroutine add_gravity_sources_dev(ni, nj, nk, ngc, blocks_number, g, q_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, dq_gpu)
+   subroutine add_gravity_sources_dev(ni, nj, nk, ngc, blocks_number, g, q_gpu, flx_f_gpu, fly_f_gpu, flz_f_gpu, &
+                                      gc_gpu, dq_gpu)
    !< Add the external gravity sources (issue #73, M7-G1; device twin of the CPU `add_gravity_sources`): `rho g` to the
-   !< momentum, `1/2 sum_d g_d (F^rho_{d,i+1/2} + F^rho_{d,i-1/2})` to the energy.
+   !< momentum, `1/2 sum_d g_d (F^rho_{d,i+1/2} + F^rho_{d,i-1/2})` plus its fourth-order correction (M7-G2a) to the
+   !< energy.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
    real(R8P),    intent(in)    :: g(3)                               !< Gravity.
@@ -220,14 +223,15 @@ contains
    real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)          !< X-face fluxes.
    real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)          !< Y-face fluxes.
    real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)          !< Z-face fluxes.
+   real(R8P),    intent(in)    :: gc_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fourth-order correction of the energy source.
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
    real(R8P)                   :: gx, gy, gz                         !< Gravity, scalar copies.
    integer(I4P)                :: b, i, j, k                         !< Counters.
 
    gx = g(1) ; gy = g(2) ; gz = g(3)
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,gc_gpu,dq_gpu) &
    !$acc& firstprivate(ni,nj,nk,blocks_number,gx,gy,gz)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,gc_gpu,dq_gpu) &
    !$omp& firstprivate(ni,nj,nk,blocks_number,gx,gy,gz)
    do k=1, nk
    do j=1, nj
@@ -239,12 +243,64 @@ contains
       dq_gpu(b,i,j,k,IQ_RE) = dq_gpu(b,i,j,k,IQ_RE) +                                      &
                               0.5_R8P * (gx * (flx_f_gpu(b,i,j,k,IQ_R) + flx_f_gpu(b,i-1,j,k,IQ_R)) + &
                                          gy * (fly_f_gpu(b,i,j,k,IQ_R) + fly_f_gpu(b,i,j-1,k,IQ_R)) + &
-                                         gz * (flz_f_gpu(b,i,j,k,IQ_R) + flz_f_gpu(b,i,j,k-1,IQ_R)))
+                                         gz * (flz_f_gpu(b,i,j,k,IQ_R) + flz_f_gpu(b,i,j,k-1,IQ_R))) + &
+                              gc_gpu(b,i,j,k,1)
    enddo
    enddo
    enddo
    enddo
    endsubroutine add_gravity_sources_dev
+
+   subroutine compute_gravity_correction_faces_dev(ni, nj, nk, ngc, blocks_number, g, flx_f_gpu, fly_f_gpu, flz_f_gpu, &
+                                                   gc_gpu)
+   !< Set the fourth-order correction of the gravity energy source from the faces the block holds (issue #73, M7-G2a;
+   !< device twin of the CPU `compute_gravity_correction_faces`): `sum_d g_d (-F_{i-3/2} + F_{i-1/2} + F_{i+1/2} -
+   !< F_{i+3/2}) / 24`, the faces beyond the block left to `add_gravity_edge_correction_dev`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
+   real(R8P),    intent(in)    :: g(3)                               !< Gravity.
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)          !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)          !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)          !< Z-face fluxes.
+   real(R8P),    intent(inout) :: gc_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Gravity energy correction [..., 1].
+   real(R8P)                   :: gx, gy, gz                         !< Gravity, scalar copies.
+   real(R8P)                   :: c, t                               !< Correction, one direction's term.
+   integer(I4P)                :: b, i, j, k                         !< Counters.
+
+   gx = g(1) ; gy = g(2) ; gz = g(3)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(flx_f_gpu,fly_f_gpu,flz_f_gpu,gc_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gx,gy,gz) private(c,t)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(flx_f_gpu,fly_f_gpu,flz_f_gpu,gc_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gx,gy,gz) private(c,t)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      c = 0._R8P
+      if (gx /= 0._R8P) then
+         t = flx_f_gpu(b,i-1,j,k,IQ_R) + flx_f_gpu(b,i,j,k,IQ_R)
+         if (i > 1)  t = t - flx_f_gpu(b,i-2,j,k,IQ_R)
+         if (i < ni) t = t - flx_f_gpu(b,i+1,j,k,IQ_R)
+         c = c + gx * t
+      endif
+      if (gy /= 0._R8P) then
+         t = fly_f_gpu(b,i,j-1,k,IQ_R) + fly_f_gpu(b,i,j,k,IQ_R)
+         if (j > 1)  t = t - fly_f_gpu(b,i,j-2,k,IQ_R)
+         if (j < nj) t = t - fly_f_gpu(b,i,j+1,k,IQ_R)
+         c = c + gy * t
+      endif
+      if (gz /= 0._R8P) then
+         t = flz_f_gpu(b,i,j,k-1,IQ_R) + flz_f_gpu(b,i,j,k,IQ_R)
+         if (k > 1)  t = t - flz_f_gpu(b,i,j,k-2,IQ_R)
+         if (k < nk) t = t - flz_f_gpu(b,i,j,k+1,IQ_R)
+         c = c + gz * t
+      endif
+      gc_gpu(b,i,j,k,1) = c / 24._R8P
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_gravity_correction_faces_dev
 
    subroutine add_gravity_limited_correction_dev(ni, nj, nk, ngc, blocks_number, lam_gpu, dq_gpu)
    !< Remove `(1 - Lambda) L` from the gravity energy source (issue #73, M7-G1, option B; device twin of the CPU

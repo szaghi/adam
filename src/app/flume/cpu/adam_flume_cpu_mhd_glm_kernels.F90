@@ -27,6 +27,7 @@ public :: add_glm_damping
 public :: apply_floors
 public :: blend_inadmissible_ghosts
 public :: compute_divb_norms
+public :: add_gravity_edge_correction
 public :: compute_face_fluxes
 public :: compute_lambda_max
 public :: compute_lambda_max_dissipative

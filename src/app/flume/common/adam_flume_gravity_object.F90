@@ -16,7 +16,9 @@ module adam_flume_gravity_object
 !<
 !< Without the section there is no gravity (`is_active` false) and nothing changes. With it, `g` sets the atmosphere
 !< initial conditions and the `hydrostatic` boundary condition (M7-G0) and drives the momentum and energy sources
-!< (M7-G1): `rho g`, and the energy from the face mass fluxes, `1/2 sum_d g_d (F^rho_{d,i+1/2} + F^rho_{d,i-1/2})`.
+!< (M7-G1): `rho g`, and the energy from the face mass fluxes, the fourth-order
+!< `sum_d g_d (-F_{i-3/2} + 13 F_{i-1/2} + 13 F_{i+1/2} - F_{i+3/2}) / 24` (M7-G2a; the two-face average alone is second
+!< order), which reads the face beyond each block end: gravity needs one more ghost layer than the WENO stencil.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih

@@ -17,7 +17,9 @@
 #
 # M7-G1 (the force; np 2, skipped with --no-force):
 #   GV-1 freefall2d: rho u = rho g t and E = E_0 + rho g^2 t^2 / 2 to round-off (atmosphere_oracle.py freefall);
-#   GV-3 box2d, box2d-mhd: a closed box, mass and E + rho Phi conserved to round-off (atmosphere_oracle.py energy);
+#   GV-3 box2d, box2d-mhd: a closed box, mass and the total energy W conserved to round-off (atmosphere_oracle.py
+#        energy; W = sum (E + rho Phi) V plus the O(dx^2) wall-row term of the fourth-order energy source, M7-G2a;
+#        the plain sum E + rho Phi is reported);
 #   limiter box2d-lim (p = 0.05, the limiter acting) and box2d-stiff (p = 1e-3, g dt ~ 4.5 c): the runs complete,
 #        the mass is conserved, E + rho Phi is reported (exact where the limiter does not act, option B);
 #   GV-2 iso2d run with the force to t = 0.5 at N = 32, 64, 128: the spurious max |u| / c reported, with its order
@@ -25,6 +27,12 @@
 #   GV-6 (--scaling): box2d with the scale-invariant weights against its input rescaled by powers of two
 #        (../scaling/scaling.py rescale --j 2 --k -1 --m -2), bitwise (scaling.py compare);
 #   GV-7 (--agree TAG): box2d and box2d-mhd against the runs of the executable TAG (run that backend first, --keep).
+#
+# M7-G2a (the order of the energy source; with the force):
+#   GV-9 wave2d, a density wave falling freely in a periodic box, at N = 32, 64, 128 with the CFL scaled as N^(-2/3)
+#        (the RK3 error below the spatial one), on `weno` and on `weno-riemann` (HLLC, sixth-order correction): the
+#        orders of rho and p of the finest pair at least 3.5 (atmosphere_oracle.py wave). The face form of M7-G1 alone
+#        gives 2 (the energy source is then second order); its fourth-order correction restores the scheme's order.
 #
 # Usage: ./check.sh [--np "1 2"] [--cases "iso2d ..."] [--reference] [--no-force] [--scaling] [--agree TAG] [--keep]
 #
@@ -118,6 +126,21 @@ if [[ $FORCE -eq 1 ]]; then
    done
    "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${rest[@]}"
    [[ $KEEP -eq 1 ]] || for w in "${rest[@]}"; do find "$w" -name '*.h5' -delete; done
+   for scheme in weno riemann; do
+      echo "-- GV-9: wave2d on $scheme, N = 32, 64, 128 (orders >= 3.5)"
+      wave=()
+      for cells in 8 16 32; do
+         work="$CASE_DIR/work-$TAG-np2-wave-$scheme-$cells"
+         rm -rf "${work:?}" ; mkdir -p "$work"
+         extra=() ; [[ $scheme == riemann ]] && extra=(--riemann hllc)
+         python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" wave2d --cells "$cells" --time-max 0.2 \
+            --cfl "$(python3 -c "print(0.4 * (8 / $cells) ** (2 / 3))")" "${extra[@]}"
+         sed -i 's/^it_save = .*/it_save = 100000/' "$work/input.ini"
+         run_case "$work" 2 && wave+=("$work")
+      done
+      "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" wave "${wave[@]}" || FAILED=1
+      [[ $KEEP -eq 1 ]] || for w in "${wave[@]}"; do find "$w" -name '*.h5' -delete; done
+   done
 fi
 
 if [[ $SCALING -eq 1 ]]; then
@@ -127,7 +150,7 @@ if [[ $SCALING -eq 1 ]]; then
    python3 -I "$CASE_DIR/make_atmosphere.py" "$base/input.ini" box2d --weights si --steps 100
    "$VENV_PY" "$CASE_DIR/../scaling/scaling.py" rescale "$base/input.ini" "$scaled/input.ini" --j 2 --k -1 --m -2
    if run_case "$base" 2 && run_case "$scaled" 2; then
-      "$VENV_PY" "$CASE_DIR/../scaling/scaling.py" compare "$base" "$scaled" --j 2 --k -1 --m -2 --ngc 3 || FAILED=1
+      "$VENV_PY" "$CASE_DIR/../scaling/scaling.py" compare "$base" "$scaled" --j 2 --k -1 --m -2 --ngc 4 || FAILED=1
    fi
    [[ $KEEP -eq 1 ]] || find "$base" "$scaled" -name '*.h5' -delete
 fi

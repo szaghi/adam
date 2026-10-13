@@ -555,8 +555,18 @@ $\mathbf g$ sets the `isothermal-atmosphere` and `polytropic-atmosphere` initial
 boundary condition (M7-G0), and drives the sources (M7-G1):
 
 - momentum $\rho\mathbf g$; energy from the face mass fluxes the continuity equation uses,
-  $\tfrac12\sum_d g_d\,(F^\rho_{d,i+1/2} + F^\rho_{d,i-1/2})$, so that with this static potential the total energy
-  $E + \rho\Phi$ ($\Phi = -\mathbf g\cdot\mathbf x$) is conserved exactly (Mikami et al. 2008, Mullen et al. 2021);
+  $\tfrac1{24}\sum_d g_d\,(-F^\rho_{d,i-3/2} + 13F^\rho_{d,i-1/2} + 13F^\rho_{d,i+1/2} - F^\rho_{d,i+3/2})$, so that with
+  this static potential the total energy $E + \rho\Phi$ ($\Phi = -\mathbf g\cdot\mathbf x$) is conserved exactly
+  (Mikami et al. 2008, Mullen et al. 2021: each face's weights sum to one over the cells) with periodic boundaries and
+  across block interfaces; at a `wall-inviscid` wall along $\mathbf g$ the source reads the mirrored face beyond the
+  wall, and the exactly conserved total is $\sum(E + \rho\Phi)V \pm \sum g_n\Delta x_n\rho V/12$ over the cells
+  beside the wall (+ at the lower wall, − at the upper), which differs from the plain sum by $O(\Delta x^2)$. The fluxes of a
+  finite-difference scheme are point values of the primitive function of $\rho\mathbf u$, not of $\rho\mathbf u$
+  itself, so the two-face average $\tfrac12(F^\rho_{i-1/2} + F^\rho_{i+1/2})$ alone is a second-order cell value and
+  takes the whole scheme to second order; the four-face form is fourth order (M7-G2a,
+  [verification](./verification#gv-g2a-the-order-of-the-energy-source)). It reads the face beyond each block end, so
+  **gravity needs `[grid] ngc >= S + 1`** ($S$ the WENO half-stencil, 3 for WENO-5; with `weno-riemann`
+  $\max(S, 2) + 1$), fatal otherwise;
 - with `positivity_limiter = cell`, the limiter's first-order backbone takes the time-centred energy
   $\rho\mathbf g\cdot(\mathbf u + \mathbf g\,\Delta t/2)$, which leaves its internal energy unchanged, and limits the rest
   of the face form with the cell factor $\Lambda$: gravity never makes the backbone inadmissible (near vacuum, or with

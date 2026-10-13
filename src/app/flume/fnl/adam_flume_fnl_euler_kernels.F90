@@ -28,6 +28,7 @@ private
 public :: blend_inadmissible_ghosts_dev
 public :: blend_positivity_fluxes_dev
 public :: compute_conservation_dev
+public :: add_gravity_edge_correction_dev
 public :: compute_face_fluxes_dev
 public :: compute_lambda_max_dev
 public :: compute_lambda_max_dissipative_dev

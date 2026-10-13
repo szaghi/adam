@@ -1338,8 +1338,9 @@ contains
 
    subroutine check_ngc_number(self)
    !< Check the ghost cells number against the WENO stencil half-width (`weno-riemann`: at least 2, the correction reads
-   !< cells i-1 ... i+2).
+   !< cells i-1 ... i+2), and with gravity one more (the face beyond each block end, issue #73, M7-G2a).
    class(flume_common_object), intent(in) :: self !< The equation.
+   integer(I4P)                           :: ns   !< Ghost cells needed by the gravity source.
 
    if (self%weno%S > self%ngc) &
       call mpih%error_stop(msg=': [grid].(ngc)='//trim(str(self%ngc))//' is smaller than the WENO stencil half-width '// &
@@ -1347,6 +1348,18 @@ contains
    if (self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN .and. self%ngc < 2_I4P) &
       call mpih%error_stop(msg=': [grid].(ngc)='//trim(str(self%ngc))//' is smaller than 2, the stencil of the '// &
                                'weno-riemann face flux correction')
+   ! issue #73, M7-G2a: the fourth-order gravity energy source reads the face beyond each block end, one cell further
+   if (self%physics%gravity%is_active) then
+      if (self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN) then
+         ns = max(self%weno%S, 2_I4P) + 1_I4P
+      else
+         ns = self%weno%S + 1_I4P
+      endif
+      if (self%ngc < ns) &
+         call mpih%error_stop(msg=': [grid].(ngc)='//trim(str(self%ngc))//' is smaller than '//trim(str(ns))// &
+                                  ', the stencil of the fourth-order gravity energy source (the face beyond each '// &
+                                  'block end, issue #73): set ngc >= '//trim(str(ns)))
+   endif
    endsubroutine check_ngc_number
 
    subroutine check_positivity_limiter(self)

@@ -18,7 +18,7 @@ use :: penf,                     only : I4P, R8P
 
 implicit none
 private
-public :: compute_riemann_face_fluxes
+public :: add_gravity_edge_correction, compute_riemann_face_fluxes
 
 contains
    ! public procedures

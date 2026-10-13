@@ -144,6 +144,7 @@ character(len=9),  parameter :: IC_SINE_WAVE_STR="sine-wave"             !< Smal
 character(len=5),  parameter :: SINE_MODE_SHEAR="shear"                  !< Sine wave: transverse velocity (shear) wave.
 character(len=8),  parameter :: SINE_MODE_ACOUSTIC="acoustic"            !< Sine wave: right-running acoustic wave.
 character(len=8),  parameter :: SINE_MODE_MAGNETIC="magnetic"            !< Sine wave: transverse field (MHD).
+character(len=7),  parameter :: SINE_MODE_ENTROPY="entropy"              !< Sine wave: density (entropy) wave.
 character(len=7),  parameter :: IC_COUETTE_STR="couette"                 !< Exact compressible Couette flow (issue #65).
 character(len=16), parameter :: COUETTE_KEY(4)=['wall_y0         ', 'height          ', &
                                                 'wall_velocity   ', 'wall_temperature'] !< Couette keys.
@@ -543,7 +544,7 @@ contains
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(wave_mode)')
       self%sine_mode = trim(adjustl(strip_control(buff)))
       select case(self%sine_mode)
-      case(SINE_MODE_SHEAR, SINE_MODE_ACOUSTIC)
+      case(SINE_MODE_SHEAR, SINE_MODE_ACOUSTIC, SINE_MODE_ENTROPY)
       case(SINE_MODE_MAGNETIC)
          if (self%model == MODEL_EULER) &
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave_mode)='//SINE_MODE_MAGNETIC//' requires '// &
@@ -551,7 +552,7 @@ contains
       case default
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(wave_mode) "'//self%sine_mode// &
                                   '"; expected one of '//SINE_MODE_SHEAR//', '//SINE_MODE_ACOUSTIC//', '// &
-                                  SINE_MODE_MAGNETIC)
+                                  SINE_MODE_ENTROPY//', '//SINE_MODE_MAGNETIC)
       endselect
       do k=1, 3
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(WAVE_KEY(k)), val=self%wave_par(k), &
@@ -716,7 +717,8 @@ contains
    case(IC_SINE_WAVE_STR)
       ! point values at the cell centres, s = A sin(2 pi n . x / wavelength) on the region-1 state, n = (cos, sin) of
       ! wave_angle in the x-y plane: shear, the velocity gains s t, t = (-sin, cos); acoustic (right-running, linear),
-      ! rho (1 + s), u + a s n, p (1 + gamma s); magnetic (MHD), the field gains s t
+      ! rho (1 + s), u + a s n, p (1 + gamma s); entropy, rho (1 + s) (u and p uniform: advected exactly, and under a
+      ! constant gravity it falls freely, issue #73); magnetic (MHD), the field gains s t
       ca = cos(self%wave_par(1) * PI / 180._R8P)
       sa = sin(self%wave_par(1) * PI / 180._R8P)
       do b=1, field%blocks_number
@@ -730,6 +732,8 @@ contains
                      prim(2:3) = prim(2:3) + s_ * [-sa, ca]
                   elseif (self%sine_mode == SINE_MODE_MAGNETIC) then
                      prim(6:7) = prim(6:7) + s_ * [-sa, ca]
+                  elseif (self%sine_mode == SINE_MODE_ENTROPY) then
+                     prim(1)   = self%prim_1(1) * (1._R8P + s_)
                   else
                      prim(1)   = self%prim_1(1) * (1._R8P + s_)
                      prim(2:3) = prim(2:3) + sqrt(self%gamma * self%prim_1(5) / self%prim_1(1)) * s_ * [ca, sa]
