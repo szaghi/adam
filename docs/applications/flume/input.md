@@ -538,7 +538,7 @@ The section is not read for `euler`.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `scheme_space` | string | yes | `weno` (WENO flux splitting) or `weno-riemann` (WENO interpolation + Riemann flux + high-order correction). Other → fatal. | Spatial operator. |
+| `scheme_space` | string | yes | `weno` (WENO flux splitting) or `weno-riemann` (WENO interpolation + Riemann flux + high-order correction). Other → fatal. | Spatial operator. MHD at very low β (≲ 1e-3, e.g. the Balsara–Spicer blast): `weno` needs the positivity limiter at every step and breaks point symmetry at the grid scale; use `weno-riemann` with `hlld` where symmetry or backend agreement matter ([#77](https://github.com/szaghi/adam/issues/77), [verification](./verification#the-mhd-blast-loses-its-point-symmetry-on-the-flux-splitting-path-77)). |
 | `reconstruction_variables` | string | yes | With `weno`: `characteristic` or `conservative`. With `weno-riemann`: `characteristic` or `primitive`. Other → fatal. | Variables reconstructed (or interpolated) at the faces. |
 | `riemann_solver` | string | `weno-riemann` | `llf`, `hll`, `hllc`, `hlld`. Other → fatal. By model: `euler` allows `llf`, `hll`, `hllc`; `mhd-ideal` allows `llf`, `hll`, `hlld` (fatal otherwise). Not read with `weno`. | Face Riemann solver. |
 | `flux_correction` | string | `weno-riemann` | `6th`, `4th`, `none` (2nd order). Other → fatal. | Face-flux correction `F^ = c1 F + c2 (f_i+f_i+1) + c3 (f_i-1+f_i+2)`. |

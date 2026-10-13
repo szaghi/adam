@@ -15,7 +15,9 @@
 #        (gradient OR Loehner on p): the outer shock radius on the four half-axes within 2 finest cells of the uniform
 #        N = 128 run, rho conserved to 1e-13, rhoE and B drifting at most 1.1x the uniform run (the scheme itself does
 #        not conserve them here); every regrid checks the new state admissible. Point symmetry is not asserted: the
-#        uniform run breaks it too (issue #77);
+#        uniform run breaks it too (issue #77: the weno flux splitting is unstable at grid scale at this beta);
+#   av3c the av3b blast on weno-riemann (HLLD, 6th-order correction, characteristic interpolation), uniform N = 128 and
+#        tracked from N = 64: both point-symmetric within 1e-10 (the symmetry bound av3b had to drop, issue #77);
 #   av4  field loop (MV-9) with GLM and with EGLM, base N = 64 tracked to N = 128 (gradient on B_x OR Loehner on B_x
 #        and B_y, floor 1e-4), t = 1: E_B(T)/E_B(0) >= the uniform N = 128 run's - 0.5 %, <|B_z|>/A0 <= 1.2x, max
 #        |div B| at the end <= 2x (EGLM: <|B_z|> reported only, its seam level is 70x its uniform one even without
@@ -31,7 +33,7 @@
 #        tolerance would not test the regrid: on MHD the backends may differ without any regrid (the blast at O(1),
 #        issue #77; B differed by ~1e-6 on the field loop until issue #79), on Euler they agree to round-off.
 #
-# Usage: ./accuracy.sh [--leg av2|av3a|av3b|av4|av6|av7|av8 ...]
+# Usage: ./accuracy.sh [--leg av2|av3a|av3b|av3c|av4|av6|av7|av8 ...]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./accuracy.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -52,7 +54,7 @@ while [[ $# -gt 0 ]]; do
       *)     echo "accuracy.sh: unknown argument '$1' (accepted: --leg L)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(av2 av3a av3b av4 av6 av7)
+[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(av2 av3a av3b av3c av4 av6 av7)
 TAG="$(basename "$EXE")"
 FAILED=0
 UNTIMED='s/, [^,]* s (host round trip)$//' # the FNL regrid log lines end with their wall time
@@ -71,6 +73,11 @@ prepare() { # prepare <name> <case> <ini> [make_regrid options]: a fresh work di
    work="$CASE_DIR/work-$TAG-$name" ; rm -rf "${work:?}" ; mkdir -p "$work"
    "${MAKE[@]}" "$kind" "$work/$ini" "$@"
    echo "$work"
+}
+riemann() { # riemann <ini>: switch an input to weno-riemann, HLLD, 6th-order correction (weno sensor)
+   sed -i -e 's/^scheme_space *=.*/scheme_space = weno-riemann/' \
+          -e 's/^reconstruction_variables *=.*/reconstruction_variables = characteristic\nriemann_solver = hlld\nflux_correction = 6th\nflux_correction_sensor = weno/' \
+          "$1"
 }
 
 echo ">> AV: runtime AMR accuracy ($TAG)"
@@ -98,6 +105,15 @@ for leg in "${LEGS[@]}"; do
          case_run "$f" blast-av.ini && case_run "$t" blast-av.ini || continue
          "${ORACLE[@]}" blast "$t" --fine "$f" --no-symmetry || FAILED=1
          "${ORACLE[@]}" drift "$t" --fine "$f" --conserved r --ratio 1.1 || FAILED=1 ;;
+      av3c)
+         echo "-- av3c: the av3b blast on weno-riemann (HLLD), point symmetry, uniform N = 128 and tracked"
+         f=$(prepare av3c-u128 blast-av blast-av.ini --base-level 3 --max-level 3 --frequency 0 --time-max 0.01)
+         t=$(prepare av3c-tracked blast-av blast-av.ini --base-level 2 --max-level 3 --frequency 5 --time-max 0.01 \
+                                                        --tol 100.0 --refine 0.5 --derefine 0.2)
+         riemann "$f/blast-av.ini" ; riemann "$t/blast-av.ini"
+         case_run "$f" blast-av.ini && case_run "$t" blast-av.ini || continue
+         "${ORACLE[@]}" blast "$f" --fine "$f" || FAILED=1
+         "${ORACLE[@]}" blast "$t" --fine "$f" || FAILED=1 ;;
       av4)
          for cleaning in glm eglm; do
             extra=() ; bz=() ; [[ "$cleaning" == eglm ]] && { extra=(--eglm) ; bz=(--bz-report) ; }

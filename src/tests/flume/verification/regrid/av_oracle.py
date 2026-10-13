@@ -17,8 +17,8 @@ reference value, against bounds stated in the #74 P4 plan before any run:
   the ambient 1 by more than ``--threshold``) along the four half-axes through the centre within ``--cells`` finest
   cells of the uniform-fine run, and the tracked run point-symmetric about the centre (rho at (x, y) and at
   (1 - x, 1 - y)) within ``--mirror-tol`` relative to the largest density; the ideal MHD equations are invariant under
-  B -> -B, so the reflection maps the blast onto itself (``--no-symmetry`` skips it: the uniform run breaks it too,
-  issue #77).
+  B -> -B, so the reflection maps the blast onto itself (``--no-symmetry`` skips it on the weno flux-splitting path,
+  whose uniform run breaks it too at low beta, issue #77; AV-3c asserts it on the weno-riemann path).
 - ``drift``: the volume integrals of a tracked run (conservation histories): the ``--conserved`` ones constant within
   ``--max-drift``, the ``--bounded`` ones drifting at most ``--ratio`` times the uniform-fine run's drift (integrals the
   scheme itself does not conserve, AV-3b: the regrid must add nothing), the rest reported (the momenta of the blast

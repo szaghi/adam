@@ -1066,6 +1066,7 @@ V2, V6 and MV-9 oracles):
 | av2 | isentropic vortex (V2), N = 32 tracked to 128, gradient marker on ρ (tol 0.05), t = 0.2 | L1(ρ) ≤ 1.5× uniform-128 and ≤ 1/8 of uniform-32 |
 | av3a | Sod (V1), quadtree with y null, 48 cells tracked to 192 (gradient OR Löhner on ρ), on [0, 1], the jump on a block face at every level | L1(ρ) ≤ 1.3× uniform-192; contact and shock on finest cells; null copies within 1e-12 |
 | av3b | Balsara–Spicer MHD blast (EGLM, positivity limiter), N = 64 tracked to 128 (gradient OR Löhner on p) | outer shock radius on the four half-axes within 2 finest cells of uniform-128; ρ conserved to 1e-13; ρE and B drift ≤ 1.1× uniform-128's; every regrid admissible |
+| av3c | the av3b blast on `weno-riemann` (HLLD, 6th-order correction), uniform N = 128 and tracked from 64 | point symmetry within 1e-10 on both ([#77](https://github.com/szaghi/adam/issues/77)) |
 | av4 | field loop (MV-9), GLM and EGLM, N = 64 tracked to 128 (gradient on B_x OR Löhner on B_x, B_y, floor 1e-4), t = 1 | E_B(T)/E_B(0) ≥ uniform-128's − 0.5 %; ⟨\|B_z\|⟩/A0 ≤ 1.2× (GLM; EGLM reported); final max\|div B\| ≤ 2×; div B at each regrid reported |
 | av6 | the av2 tracked vortex on 1, 2, 3 ranks (1, 2 on FNL) | the same regrids; fields within 1e-13 |
 | av7 | shock over the cylinder (V6) to t = 0.25, solid OR Löhner on ρ | bow-shock stand-off within 2 finest cells of uniform at V6's finest level; mirror symmetry 1e-10; positivity (the init-AMR V6 run's stand-off reported) |
@@ -1078,6 +1079,7 @@ V2, V6 and MV-9 oracles):
 | av2 | L1(ρ) 1.039e-5 | uniform-128 8.43e-6; uniform-32 1.91e-3 | 1.23× fine, 0.005× coarse | 4 | 28 blocks / 64; 58 s / 67 s |
 | av3a | L1(ρ) 3.5392e-3 | uniform-192 3.5420e-3 | 0.999× (2.56× before #76); contact and shock on finest cells | 7 | 144 cells / 192; 32 s / 33 s |
 | av3b | shock radius 0.4219–0.4375 | uniform-128 0.4297 | 1 finest cell on each half-axis; ρ drift 5.6e-16, ρE 5.33e-5 against 5.35e-5 | 3 | ends fully refined; 115 s / 122 s |
+| av3c | symmetry 3.3e-12 (FNL 2.6e-12) | uniform-128 6.1e-12 (FNL 2.6e-12) | both within 1e-10; shock radius 0.4297 on every half-axis, 0 finest cells from uniform | 3 | 128 s / 155 s |
 | av4 GLM | E_B 0.943937, ⟨\|B_z\|⟩ 5.75e-4, div B 2.56e-4 | 0.943953, 6.86e-4, 2.76e-4 | ⟨\|B_z\|⟩ 0.84×, div B 0.93×; at the regrids max \|div B\| changes by ×0.94–1.05 | 78 | 40–46 blocks / 64; 237 s / 244 s |
 | av4 EGLM | E_B 0.943769, ⟨\|B_z\|⟩ 2.37e-5, div B 2.58e-4 | 0.943774, 2.72e-6, 2.72e-4 | ⟨\|B_z\|⟩ 8.7× (reported, #78), div B 0.95× | 82 | 242 s / 250 s |
 | av6 | np 2 and 3 against np 1 (FNL: np 2, two GPUs) | — | the same 4 regrids, fields bitwise on both backends | 4 | 97 / 55 / 48 s |
@@ -1104,7 +1106,9 @@ the uniform-fine run in every case, and equal to it where the refined region cov
 - **The MHD blast breaks point symmetry on a uniform grid** (0.2 relative at N = 128 from an exactly symmetric initial
   condition), and does not conserve ρE and B (it drifts 5e-5 on the uniform grid too): the planned symmetry bound was
   dropped and the conservation bound limited to ρ, with ρE and B bounded against the uniform drift
-  ([#77](https://github.com/szaghi/adam/issues/77)).
+  ([#77](https://github.com/szaghi/adam/issues/77)): a grid-scale instability of the flux splitting at low β
+  ([below](#the-mhd-blast-loses-its-point-symmetry-on-the-flux-splitting-path-77)); av3c asserts the symmetry on the
+  Riemann-flux path.
 - **EGLM loses its B_z advantage across 2:1 seams**: ⟨|B_z|⟩/A0 is 2.7e-6 on the uniform grid, 2.4e-5 tracked and
   1.9e-4 on a static AMR grid with no regrid at all, so the seams, not the regrid, raise it; the tracked run, whose
   seams follow the loop, is 8× better than the static one. The EGLM bound on it is reported only
@@ -1118,6 +1122,48 @@ the uniform-fine run in every case, and equal to it where the refined region cov
   ghost fill; av3a bounds it at 1e-12.
 
 ![Runtime regridding: tracked vortex and field loop with their blocks](/flume/regrid.png)
+
+### The MHD blast loses its point symmetry on the flux-splitting path ([#77](https://github.com/szaghi/adam/issues/77))
+
+**Why.** The Balsara–Spicer blast of `blast-limiter` and av3b starts exactly point-symmetric. Ideal MHD maps it onto
+itself under the rotation by π about the centre composed with B → −B: ρ, ρE, B even, ρu, ψ odd. On a uniform grid
+the run broke the symmetry at O(0.1) and the two backends disagreed at O(0.1), with no AMR involved. #77 asks where
+it comes from, and either fixes it or explains and bounds it.
+
+**Setup.** The uniform blast of av3b: N = 128, β = 2.5·10⁻⁴ outside the hot disc, EGLM, `weno` flux splitting,
+characteristic reconstruction, positivity limiter, t = 0.01 (428 steps); np 2, a checkpoint every 10 or 20 steps. The
+asymmetry of a field is max |f(x) − s f(1 − x)| relative to max |f|.
+
+| Probe | Result |
+|---|---|
+| HEAD, after the #79 fix (CPU) | ρ 0.16 pointwise; in L1 only 2.3·10⁻²: the pointwise figure is a shock shifted by a few cells. CPU against FNL 0.16 |
+| first steps | 1.2·10⁻¹⁰ after one step, at the front cells in the low-β gas; exponential growth from step 60 (e-folding in 10–15 steps), saturation at O(0.1) by step 220 |
+| N = 64 / 128 / 256 | the asymmetry reaches 10⁻² at t = 0.0094 / 0.0047 / 0.0024: the growth rate scales as 1/Δx, a grid-scale instability, not a physical one (whose rate would converge) |
+| CFL 0.4 → 0.2 | 10⁻² at t = 0.0047 / 0.0041: the spatial operator, not the time integrator |
+| β × 10 / × 100 (B / √10, B / 10) | 6.8·10⁻⁸ at t = 0.01, still growing / 2·10⁻¹⁰, flat: a low-β effect |
+| conservative reconstruction | the same growth, about 100 steps later |
+| limiter off (floors 0.01), EGLM or GLM | NaN at step 8: the limiter keeps the run alive |
+| `weno-riemann`: HLLD with and without the 6th-order correction, LLF, HLLD with primitive interpolation | symmetric to 10⁻¹² – 10⁻¹⁰ through t = 0.01 |
+| positivity limiter activity | flux splitting: faces limited at every step (428 of 428; β × 100: 46 of 384); `weno-riemann`: only in the first 17–27 steps. The backbone flux the limiter falls back to is the same on both paths |
+
+**Diagnosis.** At β ≈ 2.5·10⁻⁴ the `weno` flux splitting keeps producing nearly inadmissible states at the blast
+front, the positivity limiter clips them at every step, and the round-off asymmetry of the arithmetic grows at the
+grid scale from 10⁻¹⁰ to O(0.1). The Riemann-flux path does not produce those states past the first steps and stays
+symmetric. The limiter's part rests on correlation and elimination (it acts at every step exactly where the scheme
+is unstable, and the scheme cannot run without it), not on a direct measurement of its amplification.
+
+**A fix tried and not kept.** One Lax–Friedrichs speed for the seven MHD waves (the stencil's fast bound) instead of one
+per wave, the cleaning pair unchanged, delays the growth (N = 128: 5.8·10⁻⁵ at t = 0.01; N = 256 saturates at
+4·10⁻³ instead of 0.17) but does not stop it, keeps the limiter acting at every step, and raises the MV-5 errors 2 to 4
+times on smooth waves (orders kept, every fixed bound failed).
+
+**Resolution (accept and bound).** On the flux-splitting path at β ≲ 10⁻³ the point symmetry, and the agreement of
+the two backends, hold only to the grid-scale instability above: the shock positions agree within a few cells, the
+pointwise fields do not. That path keeps its golden (`blast-limiter`: each backend is compared with its own golden,
+which a deterministic run reproduces; symmetry is not asserted). For low-β problems where symmetry or backend agreement matter, use
+`scheme_space = weno-riemann` with `riemann_solver = hlld`. **av3c** bounds it: the av3b blast on that path,
+point-symmetric within 10⁻¹⁰ on the uniform and on the tracked run (measured: uniform 6.1·10⁻¹² CPU, 2.6·10⁻¹²
+FNL; tracked 3.3·10⁻¹² CPU, 2.6·10⁻¹² FNL, 3 regrids; the shock radius on the four half-axes the same on both runs).
 
 ## Seam accuracy and divergence (M6)
 
