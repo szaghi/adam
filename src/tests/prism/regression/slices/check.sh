@@ -12,7 +12,7 @@
 #   2. the slice files are compared, bitwise, with those of the first process count: each point is written by the one
 #      rank owning it, so the output must not depend on the decomposition.
 #
-# Usage: ./check.sh [--build] [--np "1 2 4"]
+# Usage: ./check.sh [--build] [--np "1 2 4"] [--convergence]
 #
 # PRISM_EXE overrides the executable under test, e.g. PRISM_EXE=$REPO/exe/adam_prism_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12);
@@ -24,12 +24,14 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_cpu}"
 NPS="1 2 4"
 BUILD=0
+CONVERGENCE=0
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --build) BUILD=1 ; shift ;;
       --np)    NPS="$2" ; shift 2 ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np \"N ...\")" >&2 ; exit 2 ;;
+      --convergence) CONVERGENCE=1 ; shift ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np \"N ...\", --convergence)" >&2 ; exit 2 ;;
    esac
 done
 
@@ -88,6 +90,27 @@ if [[ -n "$last_np" ]]; then
    else
       echo "   run failed, see $work/log.txt" ; status=1
    fi
+fi
+
+# convergence (F5, opt-in): slices_convergence.py measures the slice error against an analytic adimensional plane wave
+# along +y after one step, at 16 and 32 cells per block side (no AMR): the trilinear error, observed order >= 1.8
+if [[ $CONVERGENCE -eq 1 && -n "$last_np" ]]; then
+   conv=()
+   for n in 16 32; do
+      work="$CASE_DIR/work-$TAG-conv-n$n"
+      rm -rf "$work" ; mkdir -p "$work"
+      sed -e 's/^physical_model = EM$/physical_model = AdimEM\nL0             = 0.01\nB0             = 10.0/' \
+          -e 's/^type            = gaussian_pulse$/type            = plane_wave\nkx              = 0.0\nky              = 1.0\nkz              = 0.0\nlambda          = 0.04/' \
+          -e "s/^ni     = 16$/ni     = $n/;s/^nj     = 16$/nj     = $n/;s/^nk     = 16$/nk     = $n/" \
+          -e 's/^markers_number = 1$/markers_number = 0/' -e 's/^it_max   = 5$/it_max   = 1/' \
+          -e 's/^slices_number = .*/slices_number = 1/' \
+          -e '/^\[slice_1\]/,/^\[slice_2\]/{s/^n_save = .*/n_save = 1/;s/^ni     = .*/ni     = 1/;s/^nj     = .*/nj     = 97/;s/^emin_x = .*/emin_x = 0.0031/;s/^emax_x = .*/emax_x = 0.0031/;s/^emin_y = .*/emin_y = -0.04/;s/^emax_y = .*/emax_y = 0.04/;s/^emin_z = .*/emin_z = 0.0023/;s/^emax_z = .*/emax_z = 0.0023/}' \
+          "$CASE_DIR/slices.ini" > "$work/slices.ini"
+      echo ">> $TAG, convergence, plane wave, $n cells per block side, np $last_np"
+      (cd "$work" && mpirun -np "$last_np" "$EXE" slices.ini > log.txt 2>&1) || { echo "   run failed, see $work/log.txt" ; status=1 ; }
+      conv+=("$work")
+   done
+   "$VENV_PY" -I "$CASE_DIR/slices_convergence.py" "${conv[@]}" || status=1
 fi
 
 # input validation (F2): every [slice_N] option is required and checked at init, an invalid one stops the run with a
