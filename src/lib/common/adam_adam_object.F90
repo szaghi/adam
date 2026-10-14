@@ -380,6 +380,13 @@ contains
          do i=1, 3
             w = w + (xyz_(i,j) - point(i)) ** 2 ! square distance from point
          enddo
+         if (w ** p_ < tiny(1._R8P)) then
+            ! the point is (to round-off) the cell centre: its value, not 1/0 (Inf/Inf = NaN)
+            do k=1,size(q, dim=1)
+               qp(k) = q(k,ijk_(1,j),ijk_(2,j),ijk_(3,j),node%block_index)
+            enddo
+            return
+         endif
          w = 1._R8P / w ** p_
          ws = ws + w
          do k=1,size(q, dim=1)
@@ -581,6 +588,8 @@ contains
    call MPI_FILE_OPEN(MPI_COMM_WORLD, trim(adjustl(basename))//'.mat', &
                       MPI_MODE_CREATE+MPI_MODE_WRONLY, MPI_INFO_NULL, MPI_IO_FILE_unit, mpih%error)
    offset_head = 0
+   ! truncate (collective): MPI_MODE_CREATE keeps an existing file, whose tail would outlive a shorter rewrite
+   call MPI_FILE_SET_SIZE(MPI_IO_FILE_unit, offset_head, mpih%error)
    if (mpih%myrank==0) then
       ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, error)
       call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, mpih%error)

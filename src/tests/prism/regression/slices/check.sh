@@ -2,8 +2,9 @@
 # PRISM verification of the [slices] output (slices_restauration.md, F1/F5).
 #
 # Why: the slices are outputs no run reads back, so a defect in them is silent. slices.ini is the source-free gaussian
-# pulse of rmf-amr-fd-pulse (2:1 AMR seam, 36 blocks) with curl and divergence saved and three slices (a trilinear
-# line through the seam, an inverse-distance plane, a trilinear box around the block corner at the origin). For every
+# pulse of rmf-amr-fd-pulse (2:1 AMR seam, 36 blocks) with curl and divergence saved and four slices (a trilinear
+# line through the seam, an inverse-distance plane, a trilinear box around the block corner at the origin, an
+# inverse-distance plane exactly on cell centres). For every
 # process count:
 #   1. slices_oracle.py recomputes every slice value of q, curl and div from the XH5F checkpoint of the slice step
 #      (saved with ghost cells) and checks the intra-realm ghost cells of every field set against the same-level
@@ -50,6 +51,8 @@ for np in $NPS; do
    work="$CASE_DIR/work-$TAG-np$np"
    rm -rf "$work" ; mkdir -p "$work"
    cp "$CASE_DIR/slices.ini" "$work/"
+   # a stale, longer file in place of a slice output: the save must truncate it (the oracle checks the file size)
+   head -c 100000 /dev/zero > "$work/slices-slice_01-000000005.mat"
    echo ">> $TAG, np $np"
    if ! (cd "$work" && mpirun -np "$np" "$EXE" slices.ini > log.txt 2>&1); then
       echo "   run failed, see $work/log.txt" ; status=1 ; continue

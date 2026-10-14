@@ -105,8 +105,13 @@ def interpolate(blocks: list[dict], point: np.ndarray, itype: str, ngc: int, dom
             qxy = [p[1] * qx[0] + t[1] * qx[1], p[1] * qx[2] + t[1] * qx[3]]
             out[s] = (p[2] * qxy[0] + t[2] * qxy[1], np.max(np.abs(val), axis=0))
         elif itype == "inverse_distance":
-            w = np.array([1.0 / float(np.sum((x - point) ** 2)) ** 3 for x in xyz])
-            out[s] = (sum(wi * vi for wi, vi in zip(w, val)) / w.sum(), np.max(np.abs(val), axis=0))
+            d2 = [float(np.sum((x - point) ** 2)) for x in xyz]
+            hit = [c for c, d in enumerate(d2) if d ** 3 < sys.float_info.min]  # a cell centre: its value
+            if hit:
+                out[s] = (val[hit[0]], np.max(np.abs(val), axis=0))
+            else:
+                w = np.array([1.0 / d ** 3 for d in d2])
+                out[s] = (sum(wi * vi for wi, vi in zip(w, val)) / w.sum(), np.max(np.abs(val), axis=0))
         else:
             raise RuntimeError(f"unknown itype {itype}")
     return out
