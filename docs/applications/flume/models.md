@@ -195,6 +195,13 @@ $$
   Edelmann et al. 2021, §4.3). The atmosphere is then an exact discrete steady state, and the scheme evolves the
   deviation from it; without it a stratified atmosphere at rest drives a stationary flow of the truncation error's size
   ([verification](./verification#gv-g2b-the-well-balanced-mode)).
+- **Through a cell potential** (`[gravity] potential = linear`, M8-P1, [#81](https://github.com/szaghi/adam/issues/81)):
+  the same field as the cell potential $\Phi_i = -\mathbf g\cdot\mathbf x_i$, applied by the path self-gravity uses.
+  The face gravity is $-(\Phi_{i+1} - \Phi_i)/\Delta x$, the cell gravity the mean of its two faces; the momentum
+  gains $\rho_i$ times the cell gravity, the energy $\tfrac12\sum_d (g_{d,i+1/2}F^\rho_{i+1/2} + g_{d,i-1/2}
+  F^\rho_{i-1/2})$. That is the face form, second order, and $\sum(E + \rho\Phi)V$ is conserved without a wall term.
+  The hydrostatic ghosts take the potential drop, and the limiter the face and cell gravity. A test of that path
+  ([SV-1](./verification#sv-1-p1-gravity-from-a-cell-potential)); refused with the well-balanced mode.
 
 The equilibria FLUME builds are the `isothermal-atmosphere`, `polytropic-atmosphere` and `rayleigh-taylor` initial
 conditions ([initial conditions](./initial-conditions#isothermal-atmosphere-polytropic-atmosphere-hydrostatic-equilibria-under-gravity)).

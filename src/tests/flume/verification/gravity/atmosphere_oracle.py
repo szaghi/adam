@@ -288,7 +288,10 @@ def energy_rows(work: Path) -> list[tuple[int, float, float, float, float, float
     atm = Atmosphere(ini)
     lo = np.array([float(ini["grid"][f"emin_{x}"]) for x in "xyz"])
     hi = np.array([float(ini["grid"][f"emax_{x}"]) for x in "xyz"])
-    walls = [d for d in range(3) if atm.g[d] != 0.0 and
+    # the wall term belongs to the fourth-order energy source of the constant g (M7-G2a); the potential path (issue #81,
+    # `potential = linear`) is the second-order face form, whose budget closes on E + rho Phi alone
+    linear = ini["gravity"].get("potential", "uniform").split(";")[0].strip() == "linear"
+    walls = [d for d in range(3) if atm.g[d] != 0.0 and not linear and
              all(ini[f"bc_{'xyz'[d]}_{s}"]["type"].split(";")[0].strip() == "wall-inviscid" for s in ("min", "max"))]
     rows = []
     for step, (t, paths) in sorted(checkpoints(work).items()):
@@ -314,7 +317,8 @@ def energy(args: argparse.Namespace) -> int:
     `wall-inviscid` face with gravity along its normal, `+- g_n dx_n rho V / 12` over the cells beside it (+ at the
     lower face, - at the upper): the source reads the face beyond the wall, whose mirrored mass flux leaves
     `g dx (F_1 - F_-1) / 24 = d/dt (-+ g dx rho_1 V / 12)` in the budget. W is asserted; the plain sum, which differs by
-    that O(dx^2) wall term, is reported."""
+    that O(dx^2) wall term, is reported. With `[gravity] potential = linear` (issue #81) the source is the second-order
+    face form, and W is the plain sum."""
     rows = energy_rows(args.work)
     _, _, m0, e0, w0, b0 = rows[0]
     dm = max(abs(r[2] - m0) for r in rows) / abs(m0)

@@ -138,7 +138,8 @@ use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_
                                               count_nonfinite_mhd_glm_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev, compute_dflux_norms_dev, copy_state_dev,          &
                                               compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
-                                              add_gravity_sources_dev, add_gravity_limited_correction_dev,             &
+                                              add_gravity_sources_dev, add_potential_sources_dev,                      &
+                                              add_gravity_limited_correction_dev,                                      &
                                               compute_gravity_correction_faces_dev, subtract_equilibrium_residual_dev, &
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
                                               gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skin_dev,     &
@@ -175,6 +176,8 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: flz_f_gpu(:,:,:,:,:)=>null() !< Z-face fluxes [nb, 1:ni, 1:nj, 0:nk, nv].
    real(R8P), pointer     :: gcor_gpu(:,:,:,:,:)=>null()  !< Fourth-order correction of the gravity energy source
                                                           !< (issue #73, M7-G2a) [nb, i, j, k, 1]; zero without gravity.
+   real(R8P), pointer     :: phi_grav_gpu(:,:,:,:,:)=>null() !< Gravitational potential (issue #81) [nb, i, j, k, 1]; a
+                                                             !< one-element placeholder without a potential.
    real(R8P), pointer     :: dq_e_gpu(:,:,:,:,:)=>null()  !< Residual of the hydrostatic equilibrium (issue #73, M7-G2b)
                                                           !< [nb, i, j, k, nv]; well-balanced only.
    type(equilibrium_seam_face), allocatable :: seam_e(:)  !< The equilibrium's 2:1 flux mismatch per register face.
@@ -211,6 +214,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
+      procedure, pass(self) :: refresh_potential       !< Set the gravitational potential and copy it to the device.
       procedure, pass(self) :: destroy                 !< Free device and host data.
       procedure, pass(self) :: initialize_flume        !< Initialize the FNL backend.
       procedure, pass(self) :: limit_positivity_dev    !< Apply the positivity limiter to the stage face fluxes.
@@ -833,6 +837,32 @@ contains
    endassociate
    endsubroutine copy_phi_gpu
 
+   subroutine refresh_potential(self)
+   !< Set the gravitational potential of the current grid on the host (`set_potential`, issue #81) and copy it to the
+   !< device, transposed from `(i, j, k, b)` to `(b, i, j, k, 1)`; the device array is reallocated to the host extent
+   !< (the block capacity may change at a regrid). Without a potential both are one-element placeholders, never zero bytes
+   !< (issue #82). Call it after the state is on the device and after every regrid.
+   class(flume_fnl_object), intent(inout) :: self             !< The equation.
+   real(R8P), allocatable                 :: buf(:,:,:,:,:)   !< Transposed staging buffer.
+   integer(I4P)                           :: lb(4), ub(4)     !< Host bounds.
+   integer(I4P)                           :: b, i, j, k       !< Counters.
+
+   call self%set_potential
+   lb = lbound(self%phi_grav)
+   ub = ubound(self%phi_grav)
+   allocate(buf(lb(4):ub(4),lb(1):ub(1),lb(2):ub(2),lb(3):ub(3),1:1))
+   do k=lb(3), ub(3)
+      do j=lb(2), ub(2)
+         do i=lb(1), ub(1)
+            do b=lb(4), ub(4)
+               buf(b,i,j,k,1) = self%phi_grav(i,j,k,b)
+            enddo
+         enddo
+      enddo
+   enddo
+   call dev_assign_to_device(lbounds=[lb(4), lb(1), lb(2), lb(3), 1], dst=self%phi_grav_gpu, src=buf)
+   endsubroutine refresh_potential
+
    subroutine destroy(self)
    !< Free device and host data: own device buffers, the FNL helpers (library teardown) and the common data.
    class(flume_fnl_object), intent(inout) :: self !< The equation.
@@ -845,6 +875,7 @@ contains
    call free_gpu(self%flz_f_gpu)
    call free_gpu(self%lam_gpu)
    call free_gpu(self%gcor_gpu)
+   call free_gpu(self%phi_grav_gpu)
    call free_gpu(self%dq_e_gpu)
    if (associated(self%q_inflow_gpu)) then
       call dev_free(self%q_inflow_gpu, mydev)
@@ -972,23 +1003,27 @@ contains
    di = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
              ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
-             dxyz_gpu=>self%field_fnl%dxyz_gpu, g=>self%physics%gravity%g)
+             dxyz_gpu=>self%field_fnl%dxyz_gpu, g=>self%physics%gravity%g_uniform,                              &
+             has_phi=>self%physics%gravity%has_potential)
    select case(self%physics%model)
    case(MODEL_EULER)
       call compute_positivity_factors_euler_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,    &
-                                                damping=0._R8P, hs=hs, dt=dt, g=g, dxyz_gpu=dxyz_gpu, is_null=is_null,      &
+                                                damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi_gpu=self%phi_grav_gpu, &
+                                                dxyz_gpu=dxyz_gpu, is_null=is_null,                                   &
                                                 q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
                                                 fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, gc_gpu=self%gcor_gpu,  &
                                                 lam_gpu=self%lam_gpu, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD)
       call compute_positivity_factors_mhd_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
-                                              damping=0._R8P, hs=hs, dt=dt, g=g, dxyz_gpu=dxyz_gpu, is_null=is_null,        &
+                                              damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi_gpu=self%phi_grav_gpu, &
+                                              dxyz_gpu=dxyz_gpu, is_null=is_null,                                     &
                                               q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,           &
                                               fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, gc_gpu=self%gcor_gpu,    &
                                               lam_gpu=self%lam_gpu, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD_EGLM)
       call compute_positivity_factors_mhd_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, &
                                                    damping=self%physics%mhd%glm_damping, hs=hs, dt=dt, g=g,                 &
+                                                   has_phi=has_phi, phi_gpu=self%phi_grav_gpu,                         &
                                                    dxyz_gpu=dxyz_gpu, is_null=is_null, q_gpu=q_gpu,                    &
                                                    q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,                   &
                                                    fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu,                     &
@@ -1206,6 +1241,7 @@ contains
    real(R8P),    allocatable              :: qs(:,:,:,:), qa(:,:)      !< Gathered stencils, auxiliary variables.
    real(R8P),    allocatable              :: fh(:,:), ds(:,:), lam(:,:) !< Gathered face fluxes, steps; factors.
    real(R8P),    allocatable              :: gcs(:,:)                  !< Gathered gravity energy correction.
+   real(R8P),    allocatable              :: ps(:,:,:,:)               !< Gathered potential stencils (issue #81).
    logical                                :: mask(6)                   !< Seam faces of a cell.
    integer(I4P)                           :: n, m, b, i, j, k, fec, s  !< Counters.
    integer(I4P)                           :: c, db, dn                 !< Skin index, count changes.
@@ -1265,23 +1301,29 @@ contains
       endif
    enddo
    if (n > 0) then
-      allocate(qs(nv,2*self%weno%S+1,3,n), qa(self%physics%nv_aux,n), fh(nv,6*n), lam(2,n), gcs(1,n))
+      allocate(qs(nv,2*self%weno%S+1,3,n), qa(self%physics%nv_aux,n), fh(nv,6*n), lam(2,n), gcs(1,n), ps(1,3,3,n))
       call seam_gather_cells(cells=cell, nv=1_I4P, ngc=self%ngc, a_gpu=self%gcor_gpu, out=gcs)
+      ps = 0._R8P
+      if (self%physics%gravity%has_potential) &
+         call seam_gather_stencils(cells=cell, nv=1_I4P, ngc=self%ngc, s=1_I4P, q_gpu=self%phi_grav_gpu, out=ps)
       call seam_gather_stencils(cells=cell, nv=nv, ngc=self%ngc, s=self%weno%S, q_gpu=q_gpu, out=qs)
       call seam_gather_cells(cells=cell, nv=self%physics%nv_aux, ngc=self%ngc, a_gpu=self%q_aux_gpu, out=qa)
       call seam_gather_faces(faces=face, nv=nv, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
                              flz_f_gpu=self%flz_f_gpu, out=fh)
       associate(gamma=>self%physics%gamma, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
-                dt=>self%time%dt, hs=>self%weno%S, g=>self%physics%gravity%g)
+                dt=>self%time%dt, hs=>self%weno%S, g=>self%physics%gravity%g_uniform,                       &
+                has_phi=>self%physics%gravity%has_potential)
       select case(self%physics%model)
       case(MODEL_EULER)
          call compute_seam_positivity_factors_euler_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
+                                                         has_phi=has_phi, ps=ps,                                 &
                                                          ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
                                                          fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
                                                          ohi=ohi, gcs=gcs(1,:), lam=lam(1,:), lsrc=lam(2,:), &
                                                          dbad=db, dnonfinite=dn)
       case(MODEL_MHD)
          call compute_seam_positivity_factors_mhd_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
+                                                       has_phi=has_phi, ps=ps,                                 &
                                                        ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
                                                        fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
                                                        ohi=ohi, gcs=gcs(1,:), lam=lam(1,:), lsrc=lam(2,:), &
@@ -1289,6 +1331,7 @@ contains
       case(MODEL_MHD_EGLM)
          call compute_seam_positivity_factors_mhd_eglm_host(ncells=n, hs=hs, gamma=gamma, ch=ch,                    &
                                                             damping=self%physics%mhd%glm_damping, dt=dt, g=g, ds=ds,    &
+                                                            has_phi=has_phi, ps=ps,                                     &
                                                             is_null=is_null, qs=qs, qa=qa,                         &
                                                             fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,      &
                                                             ohi=ohi, gcs=gcs(1,:), lam=lam(1,:), lsrc=lam(2,:), &
@@ -1435,7 +1478,8 @@ contains
                                           R=self%physics%R, psi_energy=psi_energy,                                 &
                                           wall_velocity=self%bc%wall_velocity,                                     &
                                           wall_temperature=self%bc%wall_temperature,                               &
-                                          g=self%physics%gravity%g,                                                &
+                                          g=self%physics%gravity%g_uniform,                                        &
+                                          has_phi=self%physics%gravity%has_potential, phi_gpu=self%phi_grav_gpu,   &
                                           local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu,       &
                                           q_inflow_gpu=self%q_inflow_gpu, wall_sign_gpu=self%wall_sign_gpu,        &
                                           dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu)
@@ -1841,6 +1885,7 @@ contains
    call self%set_glm_damping
    call self%copy_cpu_gpu(verbose=.true.)
    call self%copy_phi_gpu
+   call self%refresh_potential ! the hydrostatic boundary conditions read it (issue #81)
    call self%update_ghost(q_gpu=self%q_gpu)
    call self%compute_q_aux(q_gpu=self%q_gpu)
    call self%check_glm_ch
@@ -1940,6 +1985,7 @@ contains
       call self%compute_phi
       call self%copy_cpu_gpu(bounded=.true.)
       call self%copy_phi_gpu(bounded=.true.)
+      call self%refresh_potential ! the potential of the new grid (issue #81)
    enddo
    regridded = sweeps > 0_I4P
    if (.not.regridded) return
@@ -2075,7 +2121,8 @@ contains
    ids = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
-             ch=>self%physics%mhd%glm_ch, g=>self%physics%gravity%g, weno_s=>self%weno%S, zeps=>self%weno%zeps,      &
+             ch=>self%physics%mhd%glm_ch, g=>self%physics%gravity%g_uniform, weno_s=>self%weno%S,                 &
+             zeps=>self%weno%zeps,                                                                                    &
              sigma=>self%weno%sigma, d_gpu=>self%weno_fnl%d_gpu)
    call compute_gravity_correction_faces_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=g,                    &
                                              flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu,                     &
@@ -2280,9 +2327,15 @@ contains
                                        fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
    endif
    if (self%physics%gravity%is_active) &
-      call add_gravity_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=self%physics%gravity%g, q_gpu=q_gpu, &
+      call add_gravity_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=self%physics%gravity%g_uniform, &
+                                   q_gpu=q_gpu,                                                                      &
                                    flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,          &
                                    gc_gpu=self%gcor_gpu, dq_gpu=dq_gpu)
+   if (self%physics%gravity%has_potential)                                                                          &
+      call add_potential_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,               &
+                                     dxyz_gpu=self%field_fnl%dxyz_gpu, phi_gpu=self%phi_grav_gpu, q_gpu=q_gpu,       &
+                                     flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,   &
+                                     dq_gpu=dq_gpu)
    if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call add_gravity_limited_correction_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam_gpu=self%lam_gpu, &
                                               dq_gpu=dq_gpu)
@@ -2442,9 +2495,15 @@ contains
                                        fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
    endif
    if (self%physics%gravity%is_active) &
-      call add_gravity_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=self%physics%gravity%g, q_gpu=q_gpu, &
+      call add_gravity_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=self%physics%gravity%g_uniform, &
+                                   q_gpu=q_gpu,                                                                      &
                                    flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,          &
                                    gc_gpu=self%gcor_gpu, dq_gpu=dq_gpu)
+   if (self%physics%gravity%has_potential)                                                                          &
+      call add_potential_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,               &
+                                     dxyz_gpu=self%field_fnl%dxyz_gpu, phi_gpu=self%phi_grav_gpu, q_gpu=q_gpu,       &
+                                     flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,   &
+                                     dq_gpu=dq_gpu)
    if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call add_gravity_limited_correction_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam_gpu=self%lam_gpu, &
                                               dq_gpu=dq_gpu)

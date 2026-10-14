@@ -13,7 +13,11 @@ module adam_flume_gravity_object
 !< number is `1 / Fr^2 = g L0 / u0^2`; the `[reference]` layer converts the dimensional components (length / time^2)
 !< and leaves `froude` as it is. `equilibrium` selects the well-balanced mode (M7-G2b): `none` (default) or `atmosphere`
 !< (the atmosphere of the initial conditions, at rest, is kept to round-off: the residual of that state is subtracted
-!< from every residual). `potential` accepts only `uniform`. Any other value is fatal, never ignored.
+!< from every residual). `potential` selects how g reaches the sources (issue #81, M8-P1): `uniform` (default), the
+!< constant `g` in every kernel, with the fourth-order energy source; or `linear`, the same field written as the cell
+!< potential `Phi = -g . x` and applied through the potential path of self-gravity (face gravity `-dPhi/dx`, cell gravity
+!< the mean of its two faces, second order): a test of that path against the constant one. Any other value is fatal,
+!< never ignored.
 !<
 !< Without the section there is no gravity (`is_active` false) and nothing changes. With it, `g` sets the atmosphere
 !< initial conditions and the `hydrostatic` boundary condition (M7-G0) and drives the momentum and energy sources
@@ -40,15 +44,18 @@ character(len=2), parameter :: AXIS_STR(6)=['+x', '-x', '+y', '-y', '+z', '-z'] 
 character(len=4),  parameter :: EQUILIBRIUM_NONE="none"                    !< `equilibrium`: no well-balanced mode.
 character(len=10), parameter :: EQUILIBRIUM_ATMOSPHERE="atmosphere"        !< `equilibrium`: the initial atmosphere.
 character(len=7), parameter :: POTENTIAL_UNIFORM="uniform"                 !< `potential`: constant acceleration.
+character(len=6), parameter :: POTENTIAL_LINEAR="linear"                   !< `potential`: `Phi = -g . x` (M8-P1).
 
 type :: flume_gravity_object
    !< FLUME external gravity, code units.
-   real(R8P)                 :: g(3)=0._R8P   !< Constant acceleration.
+   real(R8P)                 :: g(3)=0._R8P   !< Constant acceleration (the field the atmospheres and `linear` use).
+   real(R8P)                 :: g_uniform(3)=0._R8P !< The part of g the constant-g kernels apply: g, or 0 with `linear`.
    real(R8P)                 :: froude=0._R8P !< Froude number, 0 when g is given by its components.
    character(:), allocatable :: equilibrium   !< Well-balanced equilibrium (M7-G2b): none or atmosphere.
    character(:), allocatable :: potential     !< Potential kind: uniform.
    logical                   :: is_active=.false. !< `[gravity]` given.
    logical                   :: is_balanced=.false. !< Well-balanced mode on (`equilibrium` not none).
+   logical                   :: has_potential=.false. !< The sources read a cell potential (`linear`, M8-P1).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -75,7 +82,7 @@ contains
 
    subroutine load_from_file(self, file_parameters)
    !< Load the gravity from file: the components or `froude` + `axis` (both fatal, neither fatal), `equilibrium` and
-   !< `potential` (optional: `none` or `atmosphere`, and `uniform`).
+   !< `potential` (optional: `none` or `atmosphere`, and `uniform` or `linear`).
    class(flume_gravity_object), intent(inout) :: self            !< Gravity.
    type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    character(999)                             :: buff            !< Option value buffer.
@@ -89,6 +96,8 @@ contains
    self%equilibrium = EQUILIBRIUM_NONE
    self%potential = POTENTIAL_UNIFORM
    self%is_balanced = .false.
+   self%has_potential = .false.
+   self%g_uniform = 0._R8P
    self%is_active = file_parameters%has_section(section_name=INI_SECTION_NAME)
    if (.not.self%is_active) return
    ! the string keys first: under nvfortran (26.1) a character get that follows the failed get of an absent numeric key
@@ -127,8 +136,15 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(equilibrium) "'//self%equilibrium//'"; expected '// &
                                EQUILIBRIUM_NONE//' or '//EQUILIBRIUM_ATMOSPHERE)
    self%is_balanced = self%equilibrium == EQUILIBRIUM_ATMOSPHERE
-   if (self%potential /= POTENTIAL_UNIFORM) &
+   if (self%potential /= POTENTIAL_UNIFORM .and. self%potential /= POTENTIAL_LINEAR) &
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(potential) "'//self%potential//'"; expected '// &
-                               POTENTIAL_UNIFORM)
+                               POTENTIAL_UNIFORM//' or '//POTENTIAL_LINEAR)
+   self%has_potential = self%potential == POTENTIAL_LINEAR
+   if (.not.self%has_potential) self%g_uniform = self%g
+   ! the well-balanced mode subtracts the residual of a static operator built on the constant g (M7-G2b); with the
+   ! potential path it is not defined (issue #81, D-81-5)
+   if (self%has_potential .and. self%is_balanced) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(equilibrium) = atmosphere is refused with '// &
+                               '['//INI_SECTION_NAME//'].(potential) = '//POTENTIAL_LINEAR//' (issue #81)')
    endsubroutine load_from_file
 endmodule adam_flume_gravity_object

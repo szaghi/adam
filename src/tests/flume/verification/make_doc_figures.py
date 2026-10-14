@@ -1393,6 +1393,51 @@ def fig_ranks(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_selfgravity_potential(out: Path, runs: Path) -> None:
+    """SV-1 (issue #81, M8-P1): the closed box (M7 box2d, g = (0, -1), x periodic, y walls) to t = 0.2 through the
+    constant-g path (fourth-order energy source) and through the potential path (`[gravity] potential = linear`, the
+    second-order face form of self-gravity). Left, N = 64: the drift of the conserved energy of each path (W for the
+    constant one, which adds the O(dx^2) wall term of its fourth-order source; E + rho Phi for the potential one) and of
+    E alone, which exchanges with rho Phi. Right: the falling wave (GV-9, exact solution) to t = 0.2, the L1 errors of
+    rho and p against N through each path."""
+    ao = gravity_oracle()
+    fig, axs = plt.subplots(1, 2, figsize=(12.5, 4.6), constrained_layout=True)
+    for pot, color in (("uniform", "tab:blue"), ("linear", "tab:red")):
+        rows = ao.energy_rows(runs / f"sv1-box2d-{pot}")
+        t = np.array([r[1] for r in rows])
+        e, w, b = (np.array([r[k] for r in rows]) for k in (3, 4, 5))
+        total = e + w + b
+        label = "constant g: W = E + rho Phi + wall term" if pot == "uniform" else "potential: E + rho Phi"
+        axs[0].semilogy(t[1:], np.maximum(np.abs(total[1:] / total[0] - 1.0), FLOOR), "o-", color=color, ms=3,
+                        label=label)
+        if pot == "uniform":
+            axs[0].semilogy(t[1:], np.maximum(np.abs((e + w)[1:] / (e + w)[0] - 1.0), FLOOR), ":", color=color,
+                            label="constant g: E + rho Phi without the wall term")
+        axs[0].semilogy(t[1:], np.abs(e[1:] / total[0] - e[0] / total[0]), "--", color=color, alpha=0.6,
+                        label=f"{'constant g' if pot == 'uniform' else 'potential'}: E alone")
+    axs[0].set_xlabel("t")
+    axs[0].set_ylabel("relative drift")
+    axs[0].set_ylim(1e-17, 1e-1)
+    axs[0].legend(fontsize=8)
+    axs[0].set_title("energy budget of the closed box, N = 64", fontsize=10)
+    ns = np.array([32, 64, 128], dtype=float)
+    for pot, color, name in (("uniform", "tab:blue", "constant g"), ("linear", "tab:red", "potential")):
+        errs = np.array([ao.wave_errors(runs / f"sv1-wave-{pot}-{cells}")[1:] for cells in (8, 16, 32)])
+        for k, (var, style) in enumerate((("rho", "o-"), ("p", "s--"))):
+            order = np.log2(errs[-2, k] / errs[-1, k])
+            axs[1].loglog(ns, errs[:, k], style, color=color, label=f"{name}: L1 {var}, order {order:.2f}")
+    for slope in (2, 4):
+        axs[1].loglog(ns, 1e-5 * (ns[0] / ns) ** slope, ":", color="0.6")
+        axs[1].annotate(f"dx^{slope}", (ns[-1], 1e-5 * (ns[0] / ns[-1]) ** slope), fontsize=8, color="0.4")
+    axs[1].set_xlabel("N")
+    axs[1].set_ylabel("L1 error at t = 0.2")
+    axs[1].legend(fontsize=8)
+    axs[1].set_title("the falling wave: the potential path is second order", fontsize=10)
+    fig.suptitle("SV-1: gravity through the cell potential Phi = -g . x against the constant g (CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-potential.png", dpi=DPI)
+    plt.close(fig)
+
+
 def _rank_blocks(paths: list[Path]) -> dict[int, int]:
     """Blocks of each rank in one checkpoint (rank -> count), from the per-rank files."""
     out = {}
@@ -1412,7 +1457,8 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "regrid": fig_regrid, "gravity-atmospheres": fig_gravity_atmospheres, "gravity-force": fig_gravity_force,
            "gravity-order": fig_gravity_order, "gravity-balance": fig_gravity_balance,
            "gravity-rt-linear": fig_gravity_rt_linear, "gravity-rt": fig_gravity_rt,
-           "gravity-rt-symmetry": fig_gravity_rt_symmetry, "ranks": fig_ranks}
+           "gravity-rt-symmetry": fig_gravity_rt_symmetry, "ranks": fig_ranks,
+           "selfgravity-potential": fig_selfgravity_potential}
 
 
 def main() -> int:

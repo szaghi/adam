@@ -28,6 +28,7 @@ private
 public :: apply_reflux_face_dev
 public :: compute_flux_difference_dev
 public :: add_gravity_sources_dev
+public :: add_potential_sources_dev
 public :: compute_gravity_correction_faces_dev
 public :: subtract_equilibrium_residual_dev
 public :: add_gravity_limited_correction_dev
@@ -251,6 +252,67 @@ contains
    enddo
    enddo
    endsubroutine add_gravity_sources_dev
+
+   subroutine add_potential_sources_dev(ni, nj, nk, ngc, blocks_number, is_null, dxyz_gpu, phi_gpu, q_gpu, flx_f_gpu, &
+                                        fly_f_gpu, flz_f_gpu, dq_gpu)
+   !< Add the gravity of the cell potential (issue #81, M8-P1; device twin of the CPU `add_potential_sources`): face
+   !< gravity `-(Phi_{i+1} - Phi_i) / dx_d`, cell gravity the mean of the two faces; `rho` times the cell gravity to the
+   !< momentum, `1/2 sum_d (g_{d,i+1/2} F^rho_{d,i+1/2} + g_{d,i-1/2} F^rho_{d,i-1/2})` to the energy.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                     !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                       !< Actual blocks number.
+   logical,      intent(in)    :: is_null(3)                          !< Null directions.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                     !< Blocks space steps [nb, 3].
+   real(R8P),    intent(in)    :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Gravitational potential, ghosts filled.
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Conservative variables.
+   real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:)           !< X-face fluxes.
+   real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:)           !< Y-face fluxes.
+   real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:)           !< Z-face fluxes.
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Residuals.
+   logical                     :: ax, ay, az                          !< Active directions, scalar copies.
+   real(R8P)                   :: gr, gl                              !< Private gravity of the right and left faces.
+   real(R8P)                   :: gmx, gmy, gmz                       !< Private cell gravity.
+   real(R8P)                   :: se                                  !< Private energy source.
+   integer(I4P)                :: b, i, j, k                          !< Counters.
+
+   ax = .not.is_null(1) ; ay = .not.is_null(2) ; az = .not.is_null(3)
+   !$acc parallel loop independent gang vector collapse(4) &
+   !$acc& DEVICEVAR(dxyz_gpu,phi_gpu,q_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,ax,ay,az) private(gr,gl,gmx,gmy,gmz,se)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,phi_gpu,q_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,dq_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,ax,ay,az) private(gr,gl,gmx,gmy,gmz,se)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      gmx = 0._R8P ; gmy = 0._R8P ; gmz = 0._R8P
+      se = 0._R8P
+      if (ax) then
+         gr = -(phi_gpu(b,i+1,j,k,1) - phi_gpu(b,i,j,k,1)) / dxyz_gpu(b,1)
+         gl = -(phi_gpu(b,i,j,k,1) - phi_gpu(b,i-1,j,k,1)) / dxyz_gpu(b,1)
+         gmx = 0.5_R8P * (gr + gl)
+         se = se + 0.5_R8P * (gr * flx_f_gpu(b,i,j,k,IQ_R) + gl * flx_f_gpu(b,i-1,j,k,IQ_R))
+      endif
+      if (ay) then
+         gr = -(phi_gpu(b,i,j+1,k,1) - phi_gpu(b,i,j,k,1)) / dxyz_gpu(b,2)
+         gl = -(phi_gpu(b,i,j,k,1) - phi_gpu(b,i,j-1,k,1)) / dxyz_gpu(b,2)
+         gmy = 0.5_R8P * (gr + gl)
+         se = se + 0.5_R8P * (gr * fly_f_gpu(b,i,j,k,IQ_R) + gl * fly_f_gpu(b,i,j-1,k,IQ_R))
+      endif
+      if (az) then
+         gr = -(phi_gpu(b,i,j,k+1,1) - phi_gpu(b,i,j,k,1)) / dxyz_gpu(b,3)
+         gl = -(phi_gpu(b,i,j,k,1) - phi_gpu(b,i,j,k-1,1)) / dxyz_gpu(b,3)
+         gmz = 0.5_R8P * (gr + gl)
+         se = se + 0.5_R8P * (gr * flz_f_gpu(b,i,j,k,IQ_R) + gl * flz_f_gpu(b,i,j,k-1,IQ_R))
+      endif
+      dq_gpu(b,i,j,k,IQ_RU) = dq_gpu(b,i,j,k,IQ_RU) + q_gpu(b,i,j,k,IQ_R) * gmx
+      dq_gpu(b,i,j,k,IQ_RV) = dq_gpu(b,i,j,k,IQ_RV) + q_gpu(b,i,j,k,IQ_R) * gmy
+      dq_gpu(b,i,j,k,IQ_RW) = dq_gpu(b,i,j,k,IQ_RW) + q_gpu(b,i,j,k,IQ_R) * gmz
+      dq_gpu(b,i,j,k,IQ_RE) = dq_gpu(b,i,j,k,IQ_RE) + se
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine add_potential_sources_dev
 
    subroutine subtract_equilibrium_residual_dev(nv, ni, nj, nk, ngc, blocks_number, dq_e_gpu, dq_gpu)
    !< Subtract the residual of the hydrostatic equilibrium from the residual of the stage (issue #73, M7-G2b; device
@@ -666,8 +728,8 @@ contains
    endsubroutine scatter_seam_cells_dev
 
    subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, pass, face_kind, gamma, R, psi_energy, &
-                                          wall_velocity, wall_temperature, g, local_map_bc_crown_gpu,       &
-                                          q_inflow_gpu, wall_sign_gpu, dxyz_gpu, q_gpu)
+                                          wall_velocity, wall_temperature, g, has_phi, phi_gpu,             &
+                                          local_map_bc_crown_gpu, q_inflow_gpu, wall_sign_gpu, dxyz_gpu, q_gpu)
    !< Set boundary conditions on one crown, for the rows beyond `pass` realm faces (see the CPU
    !< `set_boundary_conditions`): pass 1 the face rows (each face's kind, inward along its normal), pass 2 and 3 the
    !< rows beyond two or three realm faces (the kind of one physical face among them, `realm_edge_face`, on the donor
@@ -686,6 +748,8 @@ contains
    real(R8P),    intent(in)    :: wall_velocity(3,6)                !< No-slip walls: wall velocity of each face.
    real(R8P),    intent(in)    :: wall_temperature(6)               !< Isothermal walls: wall temperature of each face.
    real(R8P),    intent(in)    :: g(3)                              !< Hydrostatic faces: gravity (issue #73).
+   logical,      intent(in)    :: has_phi                           !< Hydrostatic faces: a cell potential (issue #81).
+   real(R8P),    intent(in)    :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Gravitational potential (read with has_phi).
    integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Boundary crown map (row, field, crown).
    real(R8P),    intent(in)    :: q_inflow_gpu(1:,1:)               !< Conservative inflow state of each face [nv, 6].
    real(R8P),    intent(in)    :: wall_sign_gpu(1:,1:)              !< Wall mirror sign per variable and direction [nv, 3].
@@ -701,14 +765,15 @@ contains
    integer(I4P)                :: i1, j1, k1                        !< Hydrostatic: first interior cell on the normal.
    integer(I4P)                :: dd(3)                             !< Hydrostatic: offset from that cell to the ghost.
    real(R8P)                   :: q1(9), ws(9)                      !< Hydrostatic: its state, the wall signs.
+   real(R8P)                   :: gs                                !< Hydrostatic: the potential drop g . s.
 
    !$acc parallel loop independent gang vector &
-   !$acc& DEVICEVAR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g) &
-   !$acc& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws)
-   !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g) &
-   !$omp& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws)
+   !$acc& DEVICEVAR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
+   !$acc& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g,has_phi) &
+   !$acc& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
+   !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
+   !$omp& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g,has_phi) &
+   !$omp& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
    do c=1, size(local_map_bc_crown_gpu, dim=1)
       b = int(local_map_bc_crown_gpu(c,1,crown), I4P)
       fec = int(local_map_bc_crown_gpu(c,9,crown), I4P)
@@ -796,8 +861,10 @@ contains
                ws(v) = wall_sign_gpu(v,(face+1)/2)
             enddo
             dd = [i - i1, j - j1, k - k1]
-            call hydrostatic_ghost(nv=nv, gamma=gamma, psi_energy=psi_energy,                                    &
-                                   gs=g((face+1)/2) * real(dd((face+1)/2), R8P) * dxyz_gpu(b,(face+1)/2),     &
+            gs = g((face+1)/2) * real(dd((face+1)/2), R8P) * dxyz_gpu(b,(face+1)/2)
+            ! with a cell potential (issue #81) its drop, exact whatever the potential: g . s = -(Phi_ghost - Phi_1)
+            if (has_phi) gs = gs - (phi_gpu(b,i,j,k,1) - phi_gpu(b,i1,j1,k1,1))
+            call hydrostatic_ghost(nv=nv, gamma=gamma, psi_energy=psi_energy, gs=gs,                             &
                                    wall_sign=ws(1:nv), qm=qd(1:nv), q1=q1(1:nv), qg=qw(1:nv))
             !$acc loop seq
             do v=1, nv

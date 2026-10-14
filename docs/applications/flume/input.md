@@ -547,7 +547,7 @@ section there is no gravity and nothing changes.
 | `froude` | real | the other form, with `axis` | `> 0`, otherwise fatal | The number form: $g = 1/\mathrm{Fr}^2$ along `axis` ($g L_0/u_0^2$ in the reference units; not converted by `[reference]`). |
 | `axis` | string | with `froude` | `+x`, `-x`, `+y`, `-y`, `+z`, `-z`; other → fatal | The signed direction of $\mathbf g$. |
 | `equilibrium` | string | no (default `none`) | `none` or `atmosphere`; other → fatal. `atmosphere` needs an `isothermal-atmosphere`, `polytropic-atmosphere` or `rayleigh-taylor` initial condition, and is fatal with `[numerics] reflux_policy = troubled` and on multi-realm runs | The well-balanced mode (M7-G2b): the initial atmosphere at rest (zero velocity, region 1's field, no pulse or seed) is kept to round-off. See below. |
-| `potential` | string | no (default `uniform`) | `uniform` only; other → fatal | The kind of potential: a constant acceleration. |
+| `potential` | string | no (default `uniform`) | `uniform` or `linear`; other → fatal. `linear` is fatal with `equilibrium = atmosphere` | How g reaches the sources. `uniform`: the constant acceleration in every kernel, with the fourth-order energy source. `linear` ([#81](https://github.com/szaghi/adam/issues/81), M8-P1): the same field written as the cell potential Φ = −g·x and applied through the potential path of self-gravity (face gravity −ΔΦ/Δx, second order); a test of that path ([SV-1](./verification#sv-1-p1-gravity-from-a-cell-potential)). |
 
 Giving `g_*` together with `froude` is fatal, as is a section with neither.
 

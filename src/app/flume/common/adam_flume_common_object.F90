@@ -66,6 +66,8 @@ type, extends(realm_object) :: flume_common_object
    real(R8P),         allocatable :: q(:,:,:,:,:)        !< Conservative variables [nv, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: dq(:,:,:,:,:)       !< Residuals [nv, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: q_aux(:,:,:,:,:)    !< Auxiliary variables [nv_aux, 1-ngc:ni+ngc, ..., nb].
+   real(R8P),         allocatable :: phi_grav(:,:,:,:)   !< Gravitational potential [1-ngc:ni+ngc, ..., nb] (issue #81);
+                                                         !< a one-cell placeholder without a potential.
    type(string),      allocatable :: q_name(:)           !< Conservative variables names.
    type(string),      allocatable :: dq_name(:)          !< Residuals names.
    type(string),      allocatable :: q_aux_name(:)       !< Auxiliary variables names.
@@ -112,6 +114,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: save_xh5f             !< Save fields in XH5F format.
       procedure, pass(self) :: set_divb_seam         !< Set the seam faces flags of the div(B) history.
       procedure, pass(self) :: set_glm_damping       !< Set the GLM damping once the grid exists.
+      procedure, pass(self) :: set_potential         !< Set the gravitational potential of the current grid.
       ! forest methods
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
       ! private methods
@@ -646,8 +649,9 @@ contains
    !< Both backends allocate the same nb-sized arrays, on the host (CPU) or on the device (FNL): `q`, `dq` (2 nv),
    !< `q_aux` (nv_aux), the three face fluxes (3 nv, counted as full block fields) and the Runge-Kutta stages
    !< (`rk_stored_stages_number` nv), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange),
-   !< the fourth-order gravity energy correction (1, every run, issue #73 M7-G2a) and the equilibrium residual of the
-   !< well-balanced mode (nv, M7-G2b). Requires `physics` and `numerics` initialized.
+   !< the fourth-order gravity energy correction (1, every run, issue #73 M7-G2a), the equilibrium residual of the
+   !< well-balanced mode (nv, M7-G2b) and the gravitational potential (1, issue #81). Requires `physics` and `numerics`
+   !< initialized.
    class(flume_common_object), intent(inout) :: self            !< The equation.
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),               intent(out)   :: fields_number   !< Block-sized fields allocated per block.
@@ -664,6 +668,7 @@ contains
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) fields_number = fields_number + self%physics%nv
    fields_number = fields_number + 1_I4P
    if (self%physics%gravity%is_balanced) fields_number = fields_number + self%physics%nv
+   if (self%physics%gravity%has_potential) fields_number = fields_number + 1_I4P
    endsubroutine compute_fields_number
 
    subroutine destroy_common(self)
@@ -673,6 +678,7 @@ contains
    if (allocated(self%q))          deallocate(self%q)
    if (allocated(self%dq))         deallocate(self%dq)
    if (allocated(self%q_aux))      deallocate(self%q_aux)
+   if (allocated(self%phi_grav))   deallocate(self%phi_grav)
    if (allocated(self%q_name))     deallocate(self%q_name)
    if (allocated(self%dq_name))    deallocate(self%dq_name)
    if (allocated(self%q_aux_name)) deallocate(self%q_aux_name)
@@ -1089,6 +1095,36 @@ contains
    if (size(self%adam%maps%inter_realm_face_register_index, dim=1) < self%blocks_number) return
    where (self%adam%maps%inter_realm_face_register_index(1:self%blocks_number,1:6) /= 0_I4P) self%divb_seam = 1_I4P
    endsubroutine set_divb_seam
+
+   subroutine set_potential(self)
+   !< Set the gravitational potential of the current grid, ghost cells included (issue #81, M8-P1). With
+   !< `[gravity] potential = linear` it is `Phi = -g . x` at the cell centres, the constant field written as a potential;
+   !< without a potential the array is a one-cell placeholder (the kernels take it and do not read it). Sized by the block
+   !< capacity `nb`, as the other block arrays; call it after the initial grid and after every regrid.
+   class(flume_common_object), intent(inout) :: self    !< The equation.
+   integer(I4P)                              :: b, i, j, k !< Counters.
+
+   if (allocated(self%phi_grav)) deallocate(self%phi_grav)
+   if (.not.self%physics%gravity%has_potential) then
+      allocate(self%phi_grav(0:0,0:0,0:0,1:1))
+      self%phi_grav = 0._R8P
+      return
+   endif
+   associate(ngc=>self%ngc, g=>self%physics%gravity%g, x=>self%adam%field%x_cell, y=>self%adam%field%y_cell, &
+             z=>self%adam%field%z_cell)
+   allocate(self%phi_grav(1-ngc:self%ni+ngc,1-ngc:self%nj+ngc,1-ngc:self%nk+ngc,1:self%nb))
+   self%phi_grav = 0._R8P
+   do b=1, self%blocks_number
+      do k=1-ngc, self%nk+ngc
+         do j=1-ngc, self%nj+ngc
+            do i=1-ngc, self%ni+ngc
+               self%phi_grav(i,j,k,b) = -(g(1) * x(i,b) + g(2) * y(j,b) + g(3) * z(k,b))
+            enddo
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine set_potential
 
    subroutine set_glm_damping(self)
    !< Set the GLM damping once the grid exists (issue #41, section 3.5): the minimum cell spacing of the realm over the

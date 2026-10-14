@@ -2264,6 +2264,50 @@ same speed EGLM's excess is about three times GLM's (4.2 against 1.2).
 `glm_ch` = 3, take the asymmetry above about $10^{-6}$ after $t \approx 4.3$ as numerical, not physical. Run at a
 second `glm_ch` to check: a physical asymmetry does not depend on it.
 
+## Self-gravity (M8)
+
+Self-gravity ([#81](https://github.com/szaghi/adam/issues/81)) solves $\nabla^2\Phi = 4\pi G(\rho - \bar\rho)$ every
+Runge–Kutta stage and applies gravity through the cell potential. The design (the P0 comment on #81) uses the spatial
+discretisation of Mullen et al. (2021), with the 7-point Laplacian:
+- **face gravity:** $g_{d,i+1/2} = -(\Phi_{i+1} - \Phi_i)/\Delta x_d$;
+- **cell gravity:** the mean of the cell's two faces;
+- **momentum:** $\rho$ times the cell gravity;
+- **energy:** $\tfrac12\sum_d (g_{d,i+1/2} F^\rho_{d,i+1/2} + g_{d,i-1/2} F^\rho_{d,i-1/2})$, from the mass fluxes the
+  continuity equation uses.
+
+Summed over the cells, the energy source is $\sum_i \Phi_i (F_{i+1/2} - F_{i-1/2})/\Delta x$. So $E + \rho\Phi$ is
+conserved exactly with a static potential, and $E + \tfrac12\rho\Phi$ with a self-consistent one: in the semi-discrete
+form, given a Poisson solution at round-off. The scheme is second order.
+
+### SV-1 (P1): gravity from a cell potential
+
+**Why.** The potential path (`add_potential_sources`, the face and cell gravity in the positivity limiter, the
+hydrostatic ghost from the potential drop $-(\Phi_{\text{ghost}} - \Phi_1)$) must be right before a Poisson solver feeds
+it. `[gravity] potential = linear` writes the constant g as $\Phi = -\mathbf g\cdot\mathbf x$ and applies it through that
+path alone (the constant-g kernels get zero), so the M7 oracles apply unchanged.
+
+**The leg** (`selfgravity/check.sh`, CPU and FNL, 2 ranks): the M7 cases with `--potential linear`.
+
+| Case | Asserted | CPU | FNL |
+|---|---|---|---|
+| iso2d, iso2d-mhd | hydrostatic ghosts against the profile, 1e-13 | 2.2·10⁻¹⁶ | 2.2·10⁻¹⁶ |
+| freefall2d | ρu = ρgt, E = E₀ + ρg²t²/2, 1e-12 | 5.6·10⁻¹⁶ | 3.3·10⁻¹⁶ |
+| box2d, box2d-mhd | mass and E + ρΦ in the closed box, 1e-12 | 1.3·10⁻¹⁴, 7.5·10⁻¹⁵ | 1.7·10⁻¹⁴, 8.8·10⁻¹⁵ |
+| box2d-lim | the run completes (limiter acting); drift reported | 4.4·10⁻⁷ | 4.4·10⁻⁷ |
+| wave2d, 3 resolutions | L1 order of ρ and p ≥ 1.8 on the finest pair | 2.12, 2.00 | 2.12, 2.00 |
+
+In the closed box the potential path's energy budget closes on $E + \rho\Phi$ alone. The constant path closes on W,
+which adds the $O(\Delta x^2)$ wall term of its fourth-order source: without that term its $E + \rho\Phi$ drifts by
+$2\cdot10^{-6}$. With the limiter acting, the drift (4.4·10⁻⁷) is that of the constant path (1.2·10⁻⁶) in size. The
+constant-g path is unchanged bitwise: the regression suite (35/35 on CPU and FNL) holds it.
+
+![SV-1: energy budget of the closed box through both paths, and the falling-wave errors against N](/flume/selfgravity-potential.png)
+
+Left, the closed box at N = 64: the drift of each path's conserved energy is at round-off, while E alone exchanges with
+$\rho\Phi$ by up to $6\cdot10^{-3}$. Right, the falling wave (GV-9's exact solution) to t = 0.2. The potential path is
+second order (2.12 in ρ, 2.00 in p), as its face form without a fourth-order correction must be; the constant path
+gives 5.0 and 4.6. Run with `make_doc_runs.sh <dir> selfgravity` and `make_doc_figures.py --only selfgravity-potential`.
+
 ## Ranks without blocks (DV-1)
 
 **Why.** The tree never splits a family of sibling blocks across ranks. `tree%mpi_redistribute` cuts the Morton-ordered

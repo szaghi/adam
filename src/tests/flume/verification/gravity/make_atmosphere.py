@@ -51,7 +51,8 @@ isothermal layers 2 over 1 (rho_1 = 1, p_1 = 1 at the interface height 0.5), a s
 
 The MHD cases clean with EGLM, `glm_ch` = 3, `glm_alpha` = 0.18 and `glm_damping_length` = 1; `--divergence-control`,
 `--glm-ch`, `--glm-alpha` and `--glm-damping-length` override them (issue #83: the mirror symmetry of rt2d-mhd under
-each cleaning). `--balanced` sets [gravity] equilibrium = atmosphere; `--pulse A` adds the relative pressure pulse
+each cleaning). `--potential linear` sets [gravity] potential = linear (issue #81, M8-P1: the same field applied through the
+potential path of self-gravity). `--balanced` sets [gravity] equilibrium = atmosphere; `--pulse A` adds the relative pressure pulse
 p (1 + A exp(-|x - (0.5, 0.5, 0.5)|^2 / 0.05^2)) (the 2-D cells sit at z = 0.5).
 
 Two uniform levels, so the blocks spread over the ranks (one level leaves every block on rank 0). Every case has four
@@ -61,6 +62,7 @@ Usage:
     make_atmosphere.py <out.ini> <case> [--steps N] [--cfl C] [--cells N] [--time-max T] [--weights js|si]
                        [--riemann SOLVER] [--balanced] [--pulse A] [--it-save N] [--seed A]
                        [--divergence-control none|glm|eglm] [--glm-ch C] [--glm-alpha A] [--glm-damping-length L]
+                       [--potential uniform|linear]
 
 `--riemann SOLVER` selects the scheme `weno-riemann` with that solver and the sixth-order flux correction (the default
 is the flux-splitting `weno`).
@@ -87,7 +89,8 @@ G1_STEPS = {"freefall2d": 50, "box2d": 200, "box2d-lim": 300, "box2d-stiff": 200
 
 def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_max: float | None,
              weights: str | None, riemann: str | None = None, balanced: bool = False, pulse: float = 0.0,
-             it_save: int | None = None, seed: float | None = None, cleaning: dict[str, str] | None = None) -> str:
+             it_save: int | None = None, seed: float | None = None, cleaning: dict[str, str] | None = None,
+             potential: str | None = None) -> str:
     """Return the INI of a case; `cleaning` overrides the [mhd] divergence-control keys of the MHD cases."""
     g3 = case in G3_CASES
     g2b = case in G2B_CASES or g3
@@ -172,6 +175,8 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
                                                                      strict=True) if v != 0.0]
     if balanced:
         lines += ["equilibrium = atmosphere"]
+    if potential:
+        lines += [f"potential = {potential}"]
     if g3:
         lines += ["[initial_conditions]", "type = rayleigh-taylor", "amr_iterations = 1", "rt_height = 0.5",
                   f"rt_width = {0.05 if case == 'rt2d' else 0.01!r}", "rt_density_ratio = 2.0", "rt_wavelength = 0.5",
@@ -230,12 +235,15 @@ def main() -> int:
     parser.add_argument("--glm-ch", type=float, default=None, help="MHD cases: the cleaning speed")
     parser.add_argument("--glm-alpha", type=float, default=None, help="MHD cases: the damping coefficient")
     parser.add_argument("--glm-damping-length", default=None, help="MHD cases: a length or min-cell")
+    parser.add_argument("--potential", choices=("uniform", "linear"), default=None,
+                        help="[gravity] potential (issue #81: linear applies g through the potential path)")
     args = parser.parse_args()
     cleaning = {k: str(v) for k, v in (("divergence_control", args.divergence_control), ("glm_ch", args.glm_ch),
                                        ("glm_alpha", args.glm_alpha), ("glm_damping_length", args.glm_damping_length))
                 if v is not None}
     args.out.write_text(case_ini(args.case, args.steps, args.cfl, args.cells, args.time_max, args.weights,
-                                 args.riemann, args.balanced, args.pulse, args.it_save, args.seed, cleaning))
+                                 args.riemann, args.balanced, args.pulse, args.it_save, args.seed, cleaning,
+                                 args.potential))
     return 0
 
 

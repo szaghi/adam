@@ -18,6 +18,9 @@
    ! stored in `lam(2)`: the final energy source is the face form of the blended fluxes minus `(1 - Lambda) L`.
    ! The fourth-order correction `gc` of the face form (issue #73, M7-G2a, from the high-order mass fluxes) is a
    ! high-order cell source: it joins the source difference and `L`, so it too is scaled by Lambda.
+   ! With a cell potential `phi` (issue #81, M8-P1: `has_phi`) the gravity of each face is `g_d - dPhi/dx_d` across it
+   ! and the cell gravity the mean of its two faces: the face terms above take the face's gravity, the cell terms the
+   ! cell's, the same generalisation as the sources (`add_potential_sources`). Without it both reduce to `g` bitwise.
    !
    ! The limiter (Christlieb et al. 2015, doi:10.1137/140971208, the cell-based form of Xu 2014,
    ! doi:10.1090/S0025-5718-2013-02788-3): per cell, the backbone `q_L = q - dt/dx (F^LLF_{i+1/2} - F^LLF_{i-1/2}) (each
@@ -35,8 +38,8 @@
    ! takes `theta = min(Lambda)` of its two cells and `F <- F^LLF + theta (F - F^LLF)`, so each forward-Euler step of
    ! size `dt` is admissible; an SSP Runge-Kutta stage is a convex combination of such steps (all of size at most `dt`).
 
-   subroutine compute_positivity_factors(ni, nj, nk, ngc, blocks_number, gamma, ch, damping, hs, dt, g, dxyz, is_null, &
-                                         q, q_aux, flx, fly, flz, gc, lam, bad, nonfinite)
+   subroutine compute_positivity_factors(ni, nj, nk, ngc, blocks_number, gamma, ch, damping, hs, dt, g, has_phi, phi, &
+                                         dxyz, is_null, q, q_aux, flx, fly, flz, gc, lam, bad, nonfinite)
    !< Compute the cell factor `Lambda` of every interior cell into `lam(1,:,:,:,:)` (the other components untouched) and
    !< count the cells whose backbone is not admissible (`Lambda = 0` there: the floors, if enabled, take over) and those
    !< with a non-finite high-order face flux (`Lambda = 0` too: a NaN or infinite flux carries no information, and every
@@ -49,6 +52,8 @@
    integer(I4P), intent(in)    :: hs                                 !< Half stencil of the high-order sources.
    real(R8P),    intent(in)    :: dt                                 !< Forward-Euler step of the stage.
    real(R8P),    intent(in)    :: g(3)                               !< Gravity (issue #73), zero without it.
+   logical,      intent(in)    :: has_phi                            !< The cell potential is applied (issue #81).
+   real(R8P),    intent(in)    :: phi(1-ngc:,1-ngc:,1-ngc:,1:)       !< Gravitational potential (read with has_phi).
    real(R8P),    intent(in)    :: dxyz(1:,1:)                        !< Blocks space steps [3, nb].
    logical,      intent(in)    :: is_null(3)                         !< Null directions.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Conservative variables (ghosts updated).
@@ -71,12 +76,13 @@
    integer(I4P)                :: ids(3,3)                           !< Unit steps of the directions.
    integer(I4P)                :: nf, st                             !< Active faces, factor status.
    real(R8P)                   :: sl, cc                             !< Gravity: face-form backbone, time-centred energy.
+   real(R8P)                   :: gfr, gfl, gfc(3)                   !< Gravity of the right, left faces and of the cell.
    integer(I4P)                :: b, i, j, k, d                      !< Counters.
 
    ids = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    bad = 0_I4P
    nonfinite = 0_I4P
-   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q, q_aux, flx, fly, flz, gc, lam) &
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q, q_aux, flx, fly, flz, gc, lam, phi) &
    !$omp& reduction(+:bad, nonfinite)
    do b=1, blocks_number
       do k=1, nk
@@ -86,9 +92,17 @@
                qb = qc
                nf = 0
                sl = 0._R8P
+               gfc = g
                do d=1, 3
                   if (is_null(d)) cycle
                   dtdx = dt / dxyz(d,b)
+                  gfr = g(d)
+                  gfl = g(d)
+                  if (has_phi) then
+                     gfr = gfr - (phi(i+ids(1,d),j+ids(2,d),k+ids(3,d),b) - phi(i,j,k,b)) / dxyz(d,b)
+                     gfl = gfl - (phi(i,j,k,b) - phi(i-ids(1,d),j-ids(2,d),k-ids(3,d),b)) / dxyz(d,b)
+                     gfc(d) = 0.5_R8P * (gfr + gfl)
+                  endif
                   ! right face i+1/2: the backbone flux and the high-order one
                   qn = q(1:NV_K,i+ids(1,d),j+ids(2,d),k+ids(3,d),b)
                   call backbone_face_flux(gamma=gamma, ch=ch, d=d, qL=qc, qR=qn, f=flo)
@@ -102,8 +116,8 @@
                      dlt(:,nf) = -dtdx * (flz(1:NV_K,i,j,k,b) - flo)
                   endselect
                   qb = qb - dtdx * flo
-                  dlt(IQ_RE,nf) = dlt(IQ_RE,nf) - 0.5_R8P * g(d) * dxyz(d,b) * dlt(IQ_R,nf)
-                  sl = sl + 0.5_R8P * g(d) * flo(IQ_R)
+                  dlt(IQ_RE,nf) = dlt(IQ_RE,nf) - 0.5_R8P * gfr * dxyz(d,b) * dlt(IQ_R,nf)
+                  sl = sl + 0.5_R8P * gfr * flo(IQ_R)
                   ! left face i-1/2
                   qn = q(1:NV_K,i-ids(1,d),j-ids(2,d),k-ids(3,d),b)
                   call backbone_face_flux(gamma=gamma, ch=ch, d=d, qL=qn, qR=qc, f=flo)
@@ -117,11 +131,11 @@
                      dlt(:,nf) = dtdx * (flz(1:NV_K,i,j,k-1,b) - flo)
                   endselect
                   qb = qb + dtdx * flo
-                  dlt(IQ_RE,nf) = dlt(IQ_RE,nf) + 0.5_R8P * g(d) * dxyz(d,b) * dlt(IQ_R,nf)
-                  sl = sl + 0.5_R8P * g(d) * flo(IQ_R)
+                  dlt(IQ_RE,nf) = dlt(IQ_RE,nf) + 0.5_R8P * gfl * dxyz(d,b) * dlt(IQ_R,nf)
+                  sl = sl + 0.5_R8P * gfl * flo(IQ_R)
                enddo
-               qb(IQ_RU:IQ_RW) = qb(IQ_RU:IQ_RW) + dt * qc(IQ_R) * g
-               cc = dot_product(g, qc(IQ_RU:IQ_RW) + 0.5_R8P * dt * qc(IQ_R) * g)
+               qb(IQ_RU:IQ_RW) = qb(IQ_RU:IQ_RW) + dt * qc(IQ_R) * gfc
+               cc = dot_product(gfc, qc(IQ_RU:IQ_RW) + 0.5_R8P * dt * qc(IQ_R) * gfc)
                qb(IQ_RE) = qb(IQ_RE) + dt * cc
                call cell_sources(ngc=ngc, hs=hs, damping=damping, dxyz=dxyz(:,b), is_null=is_null, q=q, q_aux=q_aux, &
                                  i=i, j=j, k=k, b=b, s_lo=s_lo, s_hi=s_hi)
@@ -140,8 +154,9 @@
    !$omp end parallel do
    endsubroutine compute_positivity_factors
 
-   subroutine compute_seam_positivity_factors(ngc, gamma, ch, damping, hs, dt, g, dxyz, is_null, q, q_aux, flx, fly, &
-                                              flz, gc, ncells, cell, omask, olo, ohi, lam, dbad, dnonfinite)
+   subroutine compute_seam_positivity_factors(ngc, gamma, ch, damping, hs, dt, g, has_phi, phi, dxyz, is_null, q, &
+                                              q_aux, flx, fly, flz, gc, ncells, cell, omask, olo, ohi, lam, dbad, &
+                                              dnonfinite)
    !< Recompute the factor of the cells beside a 2:1 seam with the seam faces' backbone and high-order fluxes overridden
    !< (issue #50, D1: per-stage seam flux synchronisation). Cell `n` is `cell(1:4,n) = (i, j, k, b)`; its face `fec`
    !< (1..6: -x, +x, -y, +y, -z, +z) takes `olo(:,fec,n)` and `ohi(:,fec,n)` where `omask(fec,n)`, the backbone flux of
@@ -155,6 +170,8 @@
    integer(I4P), intent(in)    :: hs                                 !< Half stencil of the high-order sources.
    real(R8P),    intent(in)    :: dt                                 !< Forward-Euler step of the stage.
    real(R8P),    intent(in)    :: g(3)                               !< Gravity (issue #73), zero without it.
+   logical,      intent(in)    :: has_phi                            !< The cell potential is applied (issue #81).
+   real(R8P),    intent(in)    :: phi(1-ngc:,1-ngc:,1-ngc:,1:)       !< Gravitational potential (read with has_phi).
    real(R8P),    intent(in)    :: dxyz(1:,1:)                        !< Blocks space steps [3, nb].
    logical,      intent(in)    :: is_null(3)                         !< Null directions.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Conservative variables (ghosts updated).
@@ -179,6 +196,7 @@
    real(R8P)                   :: s_lo(NV_K), s_hi(NV_K)             !< Backbone and high-order sources.
    real(R8P)                   :: dtdx, sg, lc, lc0                  !< dt / dx_d, face sign; factors with/without overrides.
    real(R8P)                   :: cg                                 !< Gravity energy per density increment of a face.
+   real(R8P)                   :: gf, gfc(3)                         !< Gravity of the face and of the cell.
    real(R8P)                   :: sl, sl0, cc                        !< Gravity: face-form backbones, time-centred energy.
    real(R8P)                   :: dsrc0(NV_K)                        !< Source difference without overrides.
    integer(I4P)                :: ids(3,3)                           !< Unit steps of the directions.
@@ -196,6 +214,7 @@
       nf = 0
       sl = 0._R8P
       sl0 = 0._R8P
+      gfc = g
       do d=1, 3
          if (is_null(d)) cycle
          dtdx = dt / dxyz(d,b)
@@ -227,11 +246,20 @@
                sg = dtdx
             endif
             nf = nf + 1
-            cg = merge(-0.5_R8P, 0.5_R8P, s == 1) * g(d) * dxyz(d,b)
+            gf = g(d)
+            if (has_phi) then
+               if (s == 1) then
+                  gf = gf - (phi(i+ids(1,d),j+ids(2,d),k+ids(3,d),b) - phi(i,j,k,b)) / dxyz(d,b)
+               else
+                  gf = gf - (phi(i,j,k,b) - phi(i-ids(1,d),j-ids(2,d),k-ids(3,d),b)) / dxyz(d,b)
+               endif
+               gfc(d) = gfc(d) + 0.5_R8P * (gf - g(d)) ! the mean of the two faces, after both
+            endif
+            cg = merge(-0.5_R8P, 0.5_R8P, s == 1) * gf * dxyz(d,b)
             dlt0(:,nf) = sg * (fhi - flo)
             qb0 = qb0 + sg * flo
             dlt0(IQ_RE,nf) = dlt0(IQ_RE,nf) + cg * dlt0(IQ_R,nf)
-            sl0 = sl0 + 0.5_R8P * g(d) * flo(IQ_R)
+            sl0 = sl0 + 0.5_R8P * gf * flo(IQ_R)
             if (omask(fec,n)) then
                flo = olo(1:NV_K,fec,n)
                fhi = ohi(1:NV_K,fec,n)
@@ -239,12 +267,12 @@
             dlt(:,nf) = sg * (fhi - flo)
             qb = qb + sg * flo
             dlt(IQ_RE,nf) = dlt(IQ_RE,nf) + cg * dlt(IQ_R,nf)
-            sl = sl + 0.5_R8P * g(d) * flo(IQ_R)
+            sl = sl + 0.5_R8P * gf * flo(IQ_R)
          enddo
       enddo
-      qb(IQ_RU:IQ_RW) = qb(IQ_RU:IQ_RW) + dt * qc(IQ_R) * g
-      qb0(IQ_RU:IQ_RW) = qb0(IQ_RU:IQ_RW) + dt * qc(IQ_R) * g
-      cc = dot_product(g, qc(IQ_RU:IQ_RW) + 0.5_R8P * dt * qc(IQ_R) * g)
+      qb(IQ_RU:IQ_RW) = qb(IQ_RU:IQ_RW) + dt * qc(IQ_R) * gfc
+      qb0(IQ_RU:IQ_RW) = qb0(IQ_RU:IQ_RW) + dt * qc(IQ_R) * gfc
+      cc = dot_product(gfc, qc(IQ_RU:IQ_RW) + 0.5_R8P * dt * qc(IQ_R) * gfc)
       qb(IQ_RE) = qb(IQ_RE) + dt * cc
       qb0(IQ_RE) = qb0(IQ_RE) + dt * cc
       call cell_sources(ngc=ngc, hs=hs, damping=damping, dxyz=dxyz(:,b), is_null=is_null, q=q, q_aux=q_aux, &

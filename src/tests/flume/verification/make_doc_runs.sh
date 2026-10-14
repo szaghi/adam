@@ -15,12 +15,16 @@
 #           about 2 min each with the FNL build on 2 A30 GPUs)
 #   ranks   ranks-amr-np{1,2}: the DV-1 runtime-AMR case of ranks/check.sh (#82), a checkpoint every step: rank 1 owns
 #           no block until the first regrid (2 runs, under a minute)
+#   selfgravity sv1-box2d-{uniform,linear}: the closed box (M7 box2d, 16 cells per block side) to t = 0.2, about 20
+#           checkpoints; sv1-wave-{uniform,linear}-{8,16,32}: the falling wave (GV-9) to t = 0.2; each through the
+#           constant-g path and through the potential path (#81, SV-1) (8 runs, 2 min)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
-#        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks)
+#        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
+#        selfgravity: --only selfgravity-potential)
 #
-# Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks]
-#        (default: all eight)
+# Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
+#        (default: all nine)
 #
 # FLUME_EXE overrides the executable (default exe/adam_flume_cpu); the caller owns the matching MPI environment.
 set -euo pipefail
@@ -34,15 +38,16 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks]" >&2
+        "[rt-sym] [ranks] [selfgravity]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks)$ ]]; then
-      echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks)" >&2
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity)$ ]]; then
+      echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
+           "selfgravity)" >&2
       exit 2
    fi
 done
@@ -171,6 +176,21 @@ for g in $GROUPS_; do
          else
             echo "make_doc_runs.sh: ranks/check.sh (amr) failed" >&2 ; FAILED=1
          fi ;;
+      selfgravity)
+         for pot in uniform linear; do
+            fresh "sv1-box2d-$pot"
+            python3 -I "$VERIF_DIR/gravity/make_atmosphere.py" "$W/input.ini" box2d --cells 16 --time-max 0.2 \
+               --potential "$pot"
+            sed -i 's/^it_save = .*/it_save = 2/' "$W/input.ini"
+            run input.ini
+            for cells in 8 16 32; do
+               fresh "sv1-wave-$pot-$cells"
+               python3 -I "$VERIF_DIR/gravity/make_atmosphere.py" "$W/input.ini" wave2d --cells "$cells" \
+                  --time-max 0.2 --cfl "$(python3 -c "print(0.4 * (8 / $cells) ** (2 / 3))")" --potential "$pot"
+               sed -i 's/^it_save = .*/it_save = 100000/' "$W/input.ini"
+               run input.ini
+            done
+         done ;;
    esac
 done
 exit $FAILED

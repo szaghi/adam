@@ -81,6 +81,9 @@ real(R8P),    parameter :: GAMMA=5._R8P/3._R8P !< Specific heats ratio.
 real(R8P),    parameter :: CH=4._R8P           !< GLM cleaning speed (EGLM).
 real(R8P),    parameter :: DAMPING=0.5_R8P     !< GLM damping rate (EGLM).
 real(R8P),    parameter :: DX=0.25_R8P         !< Cell size (all directions).
+real(R8P),    parameter :: G0(3)=0._R8P        !< No gravity (issue #73: the kernels take g, gc; issue #81: phi).
+real(R8P)               :: gc0(1,1-NGC:NC+NGC,1-NGC:NC+NGC,1-NGC:NC+NGC,1) !< No fourth-order gravity correction.
+real(R8P)               :: phi0(0:0,0:0,0:0,1:1) !< No potential (a placeholder, not read).
 integer(I4P)            :: fails(3)            !< Inadmissible updates per model.
 integer(I4P)            :: limited(3)          !< Cells with Lambda < 1 per model.
 integer(I4P)            :: bad(3)              !< Inadmissible backbones per model.
@@ -98,6 +101,8 @@ logical                 :: test_passed         !< Aggregate pass flag.
 character(len=5)        :: names(3)            !< Model names.
 
 names = ['Euler', 'MHD  ', 'EGLM ']
+gc0 = 0._R8P
+phi0 = 0._R8P
 call random_seed(size=ns)
 if (ns > size(seed)) error stop 'random seed larger than expected'
 seed = [(20261002_I4P + n_, n_=1, size(seed))]
@@ -277,7 +282,8 @@ contains
    select case(model)
    case(1)
       call factors_euler(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, &
-                         dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                         dt=dt, g=G0, has_phi=.false., phi=phi0, gc=gc0, &
+                         dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
                          nonfinite=nn)
       call blend_euler(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
                        lam=lam, fl=flx, limited=nl)
@@ -287,7 +293,8 @@ contains
                        lam=lam, fl=flz, limited=nl)
    case(2)
       call factors_mhd(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, &
-                       dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                       dt=dt, g=G0, has_phi=.false., phi=phi0, gc=gc0, &
+                       dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
                          nonfinite=nn)
       call blend_mhd(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
                      lam=lam, fl=flx, limited=nl)
@@ -297,7 +304,8 @@ contains
                      lam=lam, fl=flz, limited=nl)
    case(3)
       call factors_eglm(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=DAMPING, hs=HS, &
-                        dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                        dt=dt, g=G0, has_phi=.false., phi=phi0, gc=gc0, &
+                        dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
                          nonfinite=nn)
       call blend_eglm(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
                       lam=lam, fl=flx, limited=nl)
@@ -401,9 +409,11 @@ contains
    select case(model)
    case(1)
       call factors_euler(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, &
-                         dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                         dt=dt, g=G0, has_phi=.false., phi=phi0, gc=gc0, &
+                         dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
                          nonfinite=nn)
-      call seam_euler(ngc=NGC, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, dt=dt, dxyz=dxyz, is_null=is_null, q=q, &
+      call seam_euler(ngc=NGC, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, dt=dt, g=G0, has_phi=.false., phi=phi0, gc=gc0, &
+                      dxyz=dxyz, is_null=is_null, q=q, &
                       q_aux=qa, flx=flx, fly=fly, flz=flz, ncells=1, cell=cell, omask=omask, olo=olo, ohi=ohi,  &
                       lam=lam, dbad=db, dnonfinite=dn)
       call blend_euler(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
@@ -414,9 +424,11 @@ contains
                        lam=lam, fl=flz, limited=nl)
    case(2)
       call factors_mhd(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, &
-                       dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                       dt=dt, g=G0, has_phi=.false., phi=phi0, gc=gc0, &
+                       dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
                        nonfinite=nn)
-      call seam_mhd(ngc=NGC, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, dt=dt, dxyz=dxyz, is_null=is_null, q=q, &
+      call seam_mhd(ngc=NGC, gamma=GAMMA, ch=CH, damping=0._R8P, hs=HS, dt=dt, g=G0, has_phi=.false., phi=phi0, gc=gc0, &
+                    dxyz=dxyz, is_null=is_null, q=q, &
                     q_aux=qa, flx=flx, fly=fly, flz=flz, ncells=1, cell=cell, omask=omask, olo=olo, ohi=ohi,  &
                     lam=lam, dbad=db, dnonfinite=dn)
       call blend_mhd(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
@@ -427,9 +439,11 @@ contains
                      lam=lam, fl=flz, limited=nl)
    case default
       call factors_eglm(ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, damping=DAMPING, hs=HS, &
-                        dt=dt, dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
+                        dt=dt, g=G0, has_phi=.false., phi=phi0, gc=gc0, &
+                        dxyz=dxyz, is_null=is_null, q=q, q_aux=qa, flx=flx, fly=fly, flz=flz, lam=lam, bad=nb, &
                         nonfinite=nn)
-      call seam_eglm(ngc=NGC, gamma=GAMMA, ch=CH, damping=DAMPING, hs=HS, dt=dt, dxyz=dxyz, is_null=is_null, q=q, &
+      call seam_eglm(ngc=NGC, gamma=GAMMA, ch=CH, damping=DAMPING, hs=HS, dt=dt, g=G0, has_phi=.false., phi=phi0, gc=gc0, &
+                     dxyz=dxyz, is_null=is_null, q=q, &
                      q_aux=qa, flx=flx, fly=fly, flz=flz, ncells=1, cell=cell, omask=omask, olo=olo, ohi=ohi,  &
                      lam=lam, dbad=db, dnonfinite=dn)
       call blend_eglm(d=1, di=1, dj=0, dk=0, ni=NC, nj=NC, nk=NC, ngc=NGC, blocks_number=1, gamma=GAMMA, ch=CH, q=q, &
