@@ -88,21 +88,37 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slices_number', val=self%slices_number, error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slices_number)')
+   if (self%slices_number < 0) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(slices_number) = '// &
+                               trim(str(self%slices_number))//' must be >= 0') ! negative here, str keeps its sign
    if (self%slices_number > 0) then
       allocate(self%slice(self%slices_number))
       do s=1, self%slices_number
+         ! every option is required and checked: a missing one would leave the slice undefined, silently
          sname = 'slice_'//trim(str(s,.true.))
-         call file_parameters%get(section_name=sname, option_name='itype',  val=self%slice(s)%itype)
-         call file_parameters%get(section_name=sname, option_name='n_save', val=self%slice(s)%n_save)
-         call file_parameters%get(section_name=sname, option_name='ni',     val=self%slice(s)%nijk(1))
-         call file_parameters%get(section_name=sname, option_name='nj',     val=self%slice(s)%nijk(2))
-         call file_parameters%get(section_name=sname, option_name='nk',     val=self%slice(s)%nijk(3))
-         call file_parameters%get(section_name=sname, option_name='emin_x', val=self%slice(s)%emin(1))
-         call file_parameters%get(section_name=sname, option_name='emin_y', val=self%slice(s)%emin(2))
-         call file_parameters%get(section_name=sname, option_name='emin_z', val=self%slice(s)%emin(3))
-         call file_parameters%get(section_name=sname, option_name='emax_x', val=self%slice(s)%emax(1))
-         call file_parameters%get(section_name=sname, option_name='emax_y', val=self%slice(s)%emax(2))
-         call file_parameters%get(section_name=sname, option_name='emax_z', val=self%slice(s)%emax(3))
+         call file_parameters%get(section_name=trim(sname), option_name='itype', val=self%slice(s)%itype, error=error)
+         call check_loaded(option='itype')
+         call file_parameters%get(section_name=trim(sname), option_name='n_save', val=self%slice(s)%n_save, error=error)
+         call check_loaded(option='n_save')
+         call file_parameters%get(section_name=trim(sname), option_name='ni', val=self%slice(s)%nijk(1), error=error)
+         call check_loaded(option='ni')
+         call file_parameters%get(section_name=trim(sname), option_name='nj', val=self%slice(s)%nijk(2), error=error)
+         call check_loaded(option='nj')
+         call file_parameters%get(section_name=trim(sname), option_name='nk', val=self%slice(s)%nijk(3), error=error)
+         call check_loaded(option='nk')
+         call file_parameters%get(section_name=trim(sname), option_name='emin_x', val=self%slice(s)%emin(1), error=error)
+         call check_loaded(option='emin_x')
+         call file_parameters%get(section_name=trim(sname), option_name='emin_y', val=self%slice(s)%emin(2), error=error)
+         call check_loaded(option='emin_y')
+         call file_parameters%get(section_name=trim(sname), option_name='emin_z', val=self%slice(s)%emin(3), error=error)
+         call check_loaded(option='emin_z')
+         call file_parameters%get(section_name=trim(sname), option_name='emax_x', val=self%slice(s)%emax(1), error=error)
+         call check_loaded(option='emax_x')
+         call file_parameters%get(section_name=trim(sname), option_name='emax_y', val=self%slice(s)%emax(2), error=error)
+         call check_loaded(option='emax_y')
+         call file_parameters%get(section_name=trim(sname), option_name='emax_z', val=self%slice(s)%emax(3), error=error)
+         call check_loaded(option='emax_z')
+         call check_slice
          allocate(self%slice(s)%points(3,self%slice(s)%nijk(1),self%slice(s)%nijk(2),self%slice(s)%nijk(3)))
          dxyz(1) = (self%slice(s)%emax(1) - self%slice(s)%emin(1)) / self%slice(s)%nijk(1)
          dxyz(2) = (self%slice(s)%emax(2) - self%slice(s)%emin(2)) / self%slice(s)%nijk(2)
@@ -118,6 +134,40 @@ contains
          enddo
       enddo
    endif
+   contains
+      subroutine check_loaded(option)
+      !< Stop if the option of the current slice section failed to load.
+      character(*), intent(in) :: option !< Option name.
+
+      if (error/=0) call mpih%error_stop(msg=': failed to load ['//trim(sname)//'].('//option//')')
+      endsubroutine check_loaded
+
+      subroutine check_slice
+      !< Check the options of the current slice: the interpolation leaves the values undefined for an unknown type,
+      !< `n_save` is a modulus and the points grid needs at least one point per direction.
+      integer(I4P) :: c !< Counter.
+
+      ! blank the control characters: an INI file authored on Windows carries a trailing CR that trim does not remove
+      do c=1, len(self%slice(s)%itype)
+         if (iachar(self%slice(s)%itype(c:c)) < 32) self%slice(s)%itype(c:c) = ' '
+      enddo
+      self%slice(s)%itype = adjustl(self%slice(s)%itype)
+      select case(trim(self%slice(s)%itype))
+      case('trilinear', 'inverse_distance')
+      case default
+         call mpih%error_stop(msg=': unknown ['//trim(sname)//'].(itype) "'//trim(self%slice(s)%itype)// &
+                                  '"; expected one of trilinear, inverse_distance')
+      endselect
+      if (self%slice(s)%n_save < 1) &
+         call mpih%error_stop(msg=': ['//trim(sname)//'].(n_save) = '// &
+                                  trim(merge(str(self%slice(s)%n_save), str(self%slice(s)%n_save, .true.), &
+                                             self%slice(s)%n_save<0))//' must be >= 1') ! no '+' on 0
+      if (any(self%slice(s)%nijk < 1)) call mpih%error_stop(msg=': ['//trim(sname)//'].(ni, nj, nk) = '// &
+                                                               trim(str(self%slice(s)%nijk, .true.))//' must be >= 1')
+      if (any(self%slice(s)%emin > self%slice(s)%emax)) &
+         call mpih%error_stop(msg=': ['//trim(sname)//'] emin = '//trim(str(self%slice(s)%emin))// &
+                                  ' exceeds emax = '//trim(str(self%slice(s)%emax)))
+      endsubroutine check_slice
    endsubroutine load_from_file
 
    subroutine save_mat(self, basename, it, it_max, time, time_max, adam, q, q_name, length_scale, q_scale)

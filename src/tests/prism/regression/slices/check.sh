@@ -67,5 +67,36 @@ for np in $NPS; do
       done
    fi
 done
+
+# input validation (F2): every [slice_N] option is required and checked at init, an invalid one stops the run with a
+# message naming it (before, a missing option left the slice undefined and n_save = 0 crashed on mod(it, 0)); an itype
+# with a trailing CR (INI authored on Windows) is accepted
+reject() { # reject <label> <expected message> <sed expression on slices.ini>
+   local work="$CASE_DIR/work-$TAG-input-$1"
+   rm -rf "$work" ; mkdir -p "$work"
+   sed -e "$3" "$CASE_DIR/slices.ini" > "$work/slices.ini"
+   (cd "$work" && mpirun -np 1 "$EXE" slices.ini > log.txt 2>&1) || true
+   if grep -qF "$2" "$work/log.txt" && ! ls "$work"/*.mat >/dev/null 2>&1; then
+      echo "   input $1: stops with \"$2\"  PASS"
+   else
+      echo "   input $1: expected a stop with \"$2\", see $work/log.txt  FAIL" ; status=1
+   fi
+}
+echo ">> $TAG, input validation, np 1"
+reject missing-n_save "failed to load [slice_1].(n_save)" '/^\[slice_1\]/,/^\[slice_2\]/{/^n_save/d}'
+reject n_save-zero    "[slice_1].(n_save) = 0 must be >= 1" '/^\[slice_1\]/,/^\[slice_2\]/s/^n_save = .*/n_save = 0/'
+reject itype-unknown  'unknown [slice_1].(itype) "bilinear"' '/^\[slice_1\]/,/^\[slice_2\]/s/^itype  = .*/itype  = bilinear/'
+reject nj-zero        "[slice_1].(ni, nj, nk)" '/^\[slice_1\]/,/^\[slice_2\]/s/^nj     = .*/nj     = 0/'
+reject emin-above-max "[slice_1] emin" '/^\[slice_1\]/,/^\[slice_2\]/s/^emin_y = .*/emin_y = 0.002/'
+reject number-negative "[slices].(slices_number) = -1 must be >= 0" 's/^slices_number = .*/slices_number = -1/'
+work="$CASE_DIR/work-$TAG-input-itype-crlf"
+rm -rf "$work" ; mkdir -p "$work"
+sed -e '/^\[slice_1\]/,/^\[slice_2\]/s/^itype  = trilinear$/itype  = trilinear\r/' "$CASE_DIR/slices.ini" > "$work/slices.ini"
+if (cd "$work" && mpirun -np 1 "$EXE" slices.ini > log.txt 2>&1) && [[ -f "$work/slices-slice_01-000000005.mat" ]]; then
+   echo "   input itype-crlf: trailing CR accepted, slice saved  PASS"
+else
+   echo "   input itype-crlf: run failed or no slice, see $work/log.txt  FAIL" ; status=1
+fi
+
 if [[ $status -eq 0 ]]; then echo "slices verification PASSED ($TAG)"; else echo "slices verification FAILED ($TAG)"; fi
 exit $status
