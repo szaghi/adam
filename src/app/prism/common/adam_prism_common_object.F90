@@ -112,6 +112,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: save_grms_history       !< Save Grms history.
       procedure, pass(self) :: save_magnetic_field_at_center_domain_history !< Save domain-center B history.
       procedure, pass(self) :: save_restart_files      !< Save restart files.
+      procedure, pass(self) :: save_slices             !< Save the slices on their cadence.
       procedure, pass(self) :: save_xh5f               !< Save simulation data in XH5F format.
       ! coils initialization methods
       procedure, pass(self) :: initialize_coils       !< Initialize coils.
@@ -1263,6 +1264,68 @@ contains
 
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_xh5f
+
+   subroutine save_slices(self)
+   !< Save the slices (library `slices_object`, `[slices]` / `[slice_N]`) on their cadence, one file per field set:
+   !< `<basename>-slice_NN-<it>.mat` holds `q` (the total field when external fields are applied, as the XH5F output),
+   !< `<basename>-curl-slice_NN-<it>.mat` and `<basename>-div-slice_NN-<it>.mat` the curl and divergence fields when
+   !< their XH5F output is enabled (`[IO] save_curl_fields`, `save_divergence_fields`).
+   !< The caller has refreshed the ghost cells of the host `q` and computed the auxiliary fields. These are computed on
+   !< the interior cells only, so their intra-realm ghost cells are refreshed here: the stencil of a point in the half
+   !< cell next to a block face reads them. Their physical-boundary ghost cells are not set: a point in the half cell
+   !< next to the domain boundary interpolates with them.
+   class(prism_common_object), intent(inout) :: self                !< The equation.
+   real(R8P), allocatable                    :: q_output(:,:,:,:,:) !< Total field, external fields added.
+
+   if (.not.self%slices%is_to_save(it=self%time%it, it_max=self%time%it_max, time=self%time%time, &
+                                   time_max=self%time%time_max)) return
+   if (self%external_fields%ef_type /= EF_TYPE_NONE) then
+      allocate(q_output, source=self%q)
+      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
+                                                    time=self%time%time, dt=0._R8P, q=q_output)
+      call save_set(q=q_output, q_name=self%q_name, basename=self%io%output_basename)
+   else
+      call save_set(q=self%q, q_name=self%q_name, basename=self%io%output_basename)
+   endif
+   if (self%io%save_curl_fields) then
+      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%curl)
+      call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%curl)
+      call save_set(q=self%curl, q_name=self%curl_name, basename=trim(self%io%output_basename)//'-curl')
+   endif
+   if (self%io%save_divergence_fields) then
+      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%divergence)
+      call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%divergence)
+      call save_set(q=self%divergence, q_name=self%div_name, basename=trim(self%io%output_basename)//'-div')
+   endif
+   contains
+      subroutine save_set(q, q_name, basename)
+      !< Save the slices of one field set; `save_mat` takes the names as characters.
+      real(R8P),    intent(in)      :: q(1:,           &
+                                         1-self%ngc:,  &
+                                         1-self%ngc:,  &
+                                         1-self%ngc:,  &
+                                         1:)           !< Field set.
+      type(string), intent(in)      :: q_name(1:)      !< Field set names.
+      character(*), intent(in)      :: basename        !< Output basename.
+      character(len=:), allocatable :: name(:)         !< Field set names, characters.
+      integer(I4P)                  :: name_len        !< Longest name length.
+      integer(I4P)                  :: v               !< Counter.
+
+      ! an explicit loop, not maxval of an implied-do array constructor of len(q_name(v)%chars()): nvfortran 25.11
+      ! evaluates that constructor wrongly (1 instead of 6 in a minimal reproducer; a segfault in pgf90_str_copy_klen
+      ! here), gfortran 14 correctly
+      name_len = 1
+      do v=1, size(q_name)
+         name_len = max(name_len, len(q_name(v)%chars()))
+      enddo
+      allocate(character(len=name_len) :: name(size(q_name)))
+      do v=1, size(q_name)
+         name(v) = q_name(v)%chars()
+      enddo
+      call self%slices%save_mat(basename=basename, it=self%time%it, it_max=self%time%it_max, time=self%time%time, &
+                                time_max=self%time%time_max, adam=self%adam, q=q, q_name=name)
+      endsubroutine save_set
+   endsubroutine save_slices
 
    ! coils initialization methods
    subroutine initialize_coils(self)

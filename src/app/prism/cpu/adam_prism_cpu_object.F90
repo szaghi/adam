@@ -443,20 +443,11 @@ contains
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
       call self%update_ghost(q=self%q)
       call self%compute_auxiliary_fields
+      ! slices first: they refresh the ghost cells of the auxiliary fields, which the XH5F output then carries
+      call self%save_slices
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
-      ! if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
-      !    call self%slices%save_mat(basename=self%io%output_basename, &
-      !                              it=self%time%it,                  &
-      !                              it_max=self%time%it_max,          &
-      !                              time=self%time%time,              &
-      !                              time_max=self%time%time_max,      &
-      !                              adam=self%adam,                   &
-      !                              q=self%q,                         &
-      !                              q_name=self%q_name)
-
-      ! endif
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
