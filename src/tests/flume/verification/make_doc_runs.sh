@@ -13,11 +13,14 @@
 #   rt-sym  rt2d-mhd under other cleanings (#83), rt-sym-{none,glm,ch1.5,ch6} and the EGLM damping rt-sym-{a0,a1,a5,
 #           mincell}; the reference (EGLM, glm_ch 3, glm_alpha 0.18, length 1) is the rt group's rt2d-mhd (8 runs,
 #           about 2 min each with the FNL build on 2 A30 GPUs)
+#   ranks   ranks-amr-np{1,2}: the DV-1 runtime-AMR case of ranks/check.sh (#82), a checkpoint every step: rank 1 owns
+#           no block until the first regrid (2 runs, under a minute)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
-#        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry)
+#        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks)
 #
-# Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym]   (default: all seven)
+# Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks]
+#        (default: all eight)
 #
 # FLUME_EXE overrides the executable (default exe/adam_flume_cpu); the caller owns the matching MPI environment.
 set -euo pipefail
@@ -31,15 +34,15 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym]" >&2
+        "[rt-sym] [ranks]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym)$ ]]; then
-      echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym)" >&2
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks)$ ]]; then
+      echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks)" >&2
       exit 2
    fi
 done
@@ -159,6 +162,15 @@ for g in $GROUPS_; do
                "${opt[@]}"
             run input.ini
          done ;;
+      ranks)
+         if FLUME_EXE="$EXE" "$VERIF_DIR/ranks/check.sh" --cases amr --np "$NP" --keep --it-save 1; then
+            for np in 1 "$NP"; do
+               fresh "ranks-amr-np$np" ; rmdir "$W"
+               mv "$VERIF_DIR/ranks/work-$(basename "$EXE")-amr-np$np" "$W"
+            done
+         else
+            echo "make_doc_runs.sh: ranks/check.sh (amr) failed" >&2 ; FAILED=1
+         fi ;;
    esac
 done
 exit $FAILED

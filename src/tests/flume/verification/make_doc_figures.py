@@ -1333,6 +1333,75 @@ def fig_gravity_rt_symmetry(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_ranks(out: Path, runs: Path) -> None:
+    """DV-1 (issue #82): the runtime-AMR case of ranks/check.sh on 2 ranks, a checkpoint every step. Left and centre,
+    the speed with the block outlines coloured by owner rank before and after the first regrid; right, the blocks of
+    each rank against the step, and the np 2 - np 1 difference of the state at every step (bitwise: zero)."""
+    ao = gravity_oracle()
+    work = runs / "ranks-amr-np2"
+    ini = ao.read_ini(work)
+    ngc = int(ini["grid"]["ngc"])
+    cps, cps1 = ao.checkpoints(work), ao.checkpoints(runs / "ranks-amr-np1")
+    colors = ("tab:blue", "tab:orange")
+
+    def blocks(step: int) -> list[dict]:
+        bl = []
+        for path in cps[step][1]:
+            rank = int(path.stem.rsplit("-proc", 1)[1])
+            with h5py.File(path, "r") as h5:
+                for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                    origin, d = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                    f = {n: h5[f"{blk}-{n}"][()].transpose(2, 1, 0)[ngc:-ngc, ngc:-ngc, :1] for n in ("r", "ru", "rv")}
+                    bl.append({"lo": origin + ngc * d, "d": d, "f": f, "rank": rank})
+        return bl
+
+    steps = sorted(cps)
+    regrid = next(s for s in steps if any(n for r, n in _rank_blocks(cps[s][1]).items() if r > 0))
+    fig, axs = plt.subplots(1, 3, figsize=(15.5, 4.8), constrained_layout=True)
+    for ax, step in zip(axs[:2], (regrid - 1, steps[-1]), strict=True):
+        bl = blocks(step)
+        im = field_map(ax, bl, lambda b: np.hypot(b["f"]["ru"], b["f"]["rv"])[:, :, 0] / b["f"]["r"][:, :, 0],
+                       cmap="Greys")
+        for b in bl:
+            nx, ny = b["f"]["r"].shape[:2]
+            ax.add_patch(Rectangle((b["lo"][0], b["lo"][1]), nx * b["d"][0], ny * b["d"][1], fill=False, lw=1.6,
+                                   ec=colors[b["rank"]]))
+        count = {r: sum(1 for b in bl if b["rank"] == r) for r in (0, 1)}
+        ax.set_title(f"step {step}, t = {cps[step][0]:.4f}: rank 0 {count[0]} blocks, rank 1 {count[1]}", fontsize=10)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.colorbar(im, ax=ax, label="|u|", shrink=0.8)
+    owned = np.array([[_rank_blocks(cps[s][1]).get(r, 0) for r in (0, 1)] for s in steps])
+    for r, (style, width) in zip((0, 1), (("-", 3.5), ("--", 1.8)), strict=True):
+        axs[2].step(steps, owned[:, r], where="post", color=colors[r], ls=style, lw=width, label=f"blocks of rank {r}")
+    diffs = []
+    for s in steps:
+        a = {tuple(c.round(12)): q for c, _, q in ao.interior(ini, cps1[s][1])}
+        b = {tuple(c.round(12)): q for c, _, q in ao.interior(ini, cps[s][1])}
+        diffs.append(max(abs(a[c][n] - b[c][n]) for c in a for n in a[c]))
+    axs[2].text(0.97, 0.5, f"max |np 2 - np 1| over every field,\ncell and step ({len(steps)} checkpoints): "
+                f"{max(diffs):g}", transform=axs[2].transAxes, ha="right", va="center", fontsize=9,
+                bbox={"fc": "w", "ec": "0.6"})
+    axs[2].set_xlabel("step")
+    axs[2].set_ylabel("blocks")
+    axs[2].set_ylim(-0.5, 9.5)
+    axs[2].legend(loc="upper left", fontsize=8)
+    axs[2].set_title("rank 1 owns no block until the first regrid", fontsize=10)
+    fig.suptitle("DV-1: EGLM atmosphere with a pressure pulse, 4 blocks (one sibling family) on 2 ranks, regrids every "
+                 "5 steps (FNL, 2 A30 GPUs)")
+    fig.savefig(out / "ranks.png", dpi=DPI)
+    plt.close(fig)
+
+
+def _rank_blocks(paths: list[Path]) -> dict[int, int]:
+    """Blocks of each rank in one checkpoint (rank -> count), from the per-rank files."""
+    out = {}
+    for path in paths:
+        with h5py.File(path, "r") as h5:
+            out[int(path.stem.rsplit("-proc", 1)[1])] = len({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")})
+    return out
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
            "conservation": fig_conservation,
@@ -1343,7 +1412,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "regrid": fig_regrid, "gravity-atmospheres": fig_gravity_atmospheres, "gravity-force": fig_gravity_force,
            "gravity-order": fig_gravity_order, "gravity-balance": fig_gravity_balance,
            "gravity-rt-linear": fig_gravity_rt_linear, "gravity-rt": fig_gravity_rt,
-           "gravity-rt-symmetry": fig_gravity_rt_symmetry}
+           "gravity-rt-symmetry": fig_gravity_rt_symmetry, "ranks": fig_ranks}
 
 
 def main() -> int:

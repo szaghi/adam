@@ -1968,9 +1968,10 @@ against the analytic profiles. Beyond a polytropic face the ghosts leave the pol
 `hydrostatic` rule extends the boundary cell isothermally, and they are checked against that extension. Right, the
 relative error of every one of those cells: zero or one unit in the last place, ghosts included.
 
-**Found on the way** (pre-existing, not gravity): on FNL an MHD run dies when a rank owns no blocks
+**Found on the way** (pre-existing, not gravity): on FNL an MHD run died when a rank owns no blocks
 (`dev_assign_to_device: device memory not allocated`), with or without gravity and with the executable before G0; the
-Euler model and the CPU backend run. The G0 cases now give every rank blocks.
+Euler model and the CPU backend ran. The G0 cases give every rank blocks. Fixed and asserted since, see
+[ranks without blocks](#ranks-without-blocks-dv-1) ([#82](https://github.com/szaghi/adam/issues/82)).
 
 ### GV (G1): the force
 
@@ -2262,6 +2263,61 @@ same speed EGLM's excess is about three times GLM's (4.2 against 1.2).
 `none` keeps the symmetry best but lets div B grow tenfold, so use it only as a diagnostic. With EGLM at
 `glm_ch` = 3, take the asymmetry above about $10^{-6}$ after $t \approx 4.3$ as numerical, not physical. Run at a
 second `glm_ch` to check: a physical asymmetry does not depend on it.
+
+## Ranks without blocks (DV-1)
+
+**Why.** The tree never splits a family of sibling blocks across ranks. `tree%mpi_redistribute` cuts the Morton-ordered
+blocks into equal chunks, and when a cut falls inside a family it moves the whole family to one side. A grid with
+fewer families than ranks therefore leaves ranks with no block: four blocks at level 1 are one family, all on rank 0
+at np 2. Every code path that sizes an array by the local `blocks_number` meets a zero there. On FNL that is a
+zero-byte device allocation: `acc_malloc(0)` returns a null pointer (measured, nvhpc 25.5), and FUNDAL reports a null
+pointer as a failed allocation. Every MHD run therefore died at initialisation
+([#82](https://github.com/szaghi/adam/issues/82)): the div(B) history copied its seam-face flags,
+`divb_seam(blocks_number, 6)`, to the device. The array is now sized by the block capacity `nb`, as every other
+block-indexed device array is. Small multi-rank tests rarely leave a rank empty, so this leg makes the empty rank the
+test.
+
+**The leg** (`ranks/check.sh`, `ranks_oracle.py`):
+- **Grid:** four blocks of 16² on $[0,1]^2$ (one family), 20 steps at CFL 0.4.
+- **Cases:** nine, which together exercise every model and option that allocates block-indexed state:
+  - `repro`, the issue's input: a uniform EGLM state, y walls, no gravity;
+  - the `strat2d` atmospheres with a 10 % pressure pulse: Euler; MHD under `none`, `glm` and `eglm`; EGLM with the
+    positivity limiter, with `equilibrium = atmosphere`, and on `weno-riemann` with HLLD;
+  - EGLM with runtime regrids every 5 steps to level 2. A Löhner marker on the density acts at the regrids only, so
+    rank 1 starts empty and the first regrid repopulates it.
+- **Runs:** each case on 1 and on N = 2 ranks.
+- **Asserted:**
+  - **ownership:** in the np 2 run every rank but 0 owns no block at step 0, so the leg cannot become vacuous if the
+    distribution changes; in the AMR case, every rank owns blocks at the end;
+  - **identity:** np 2 = np 1 **bitwise**, every field and every cell at the last checkpoint. With every block on rank
+    0 the arithmetic is the same, and the reductions add exact zeros.
+
+| Case (FNL, 2 A30 GPUs, nvhpc 25.5) | blocks per rank, step 0 → 20 | before the fix, np 2 | after: np 2 vs np 1 |
+|---|---|---|---|
+| `repro` | 4 / 0 → 4 / 0 | **aborts** at initialisation | bitwise |
+| Euler | 4 / 0 → 4 / 0 | runs | bitwise |
+| MHD, `none` | 4 / 0 → 4 / 0 | **aborts** | bitwise |
+| MHD, `glm` | 4 / 0 → 4 / 0 | **aborts** | bitwise |
+| MHD, `eglm` | 4 / 0 → 4 / 0 | **aborts** | bitwise |
+| EGLM, positivity limiter | 4 / 0 → 4 / 0 | **aborts** | bitwise |
+| EGLM, `equilibrium = atmosphere` | 4 / 0 → 4 / 0 | **aborts** | bitwise |
+| EGLM, `weno-riemann` + HLLD | 4 / 0 → 4 / 0 | **aborts** | bitwise |
+| EGLM, runtime AMR | 4 / 0 → 8 / 8 | **aborts** | bitwise (4096 cells) |
+
+The leg takes 3.6 min on FNL, and the pre-fix executable fails it (negative control: 8 of 9 cases abort; Euler, which
+never computes the div(B) history, runs). The CPU backend passes the leg as well, all nine cases bitwise in 2.8 min.
+The issue reported it unaffected, since a zero-size host array is legal. `divergence_control = none` failed too,
+because the div(B) history is skipped only for Euler.
+
+![DV-1: blocks per rank before and after the first regrid, and the np 2 - np 1 difference](/flume/ranks.png)
+
+Left, the speed at step 4, before the first regrid, with the block outlines coloured by owner: the four blocks are all
+rank 0's. Centre, step 20: the first regrid (step 5) refined the family into four, and the distribution gave each rank
+two families, 8 blocks. Right, the blocks of each rank against the step. Over all 21 checkpoints the largest difference
+between the np 2 and np 1 states, over every field and every cell, is 0.
+
+Run with `make_doc_runs.sh <dir> ranks` (the AMR case, a checkpoint every step) and
+`make_doc_figures.py --only ranks`.
 
 ## Unit tests
 

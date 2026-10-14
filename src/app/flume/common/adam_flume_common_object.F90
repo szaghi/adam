@@ -1076,10 +1076,14 @@ contains
    subroutine set_divb_seam(self)
    !< Set the seam faces flags of the div(B) history (issue #41, D-10): a block face is a seam face when the forest
    !< registered it in the flux register (a 2:1 AMR or inter-realm seam, `inter_realm_face_register_index /= 0`).
+   !< Sized by the block capacity `nb`, as every block-indexed device array: on a rank that owns no block
+   !< (`blocks_number = 0`) a `blocks_number`-sized array is empty and its device copy (FNL) a zero-byte allocation, which
+   !< the device allocator returns as a null pointer and FUNDAL reports as failed (issue #82). The rows past
+   !< `blocks_number` stay 0 and are never read.
    class(flume_common_object), intent(inout) :: self !< The equation.
 
    if (allocated(self%divb_seam)) deallocate(self%divb_seam)
-   allocate(self%divb_seam(self%blocks_number,6))
+   allocate(self%divb_seam(self%nb,6))
    self%divb_seam = 0_I4P
    if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) return
    if (size(self%adam%maps%inter_realm_face_register_index, dim=1) < self%blocks_number) return
