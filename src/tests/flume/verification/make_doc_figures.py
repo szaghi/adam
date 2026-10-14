@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import math
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -1437,6 +1438,62 @@ def fig_selfgravity_potential(out: Path, runs: Path) -> None:
     fig.savefig(out / "selfgravity-potential.png", dpi=DPI)
     plt.close(fig)
 
+def fig_selfgravity_poisson(out: Path, runs: Path) -> None:
+    """SV-2 (issue #81, M8-P2): the FFT Poisson solver on the anisotropic periodic box [0,1] x [0,2] x [0,3] for
+    rho = rho0 + sin(k1 x) cos(k1 y) cos(k1 z) + 0.5 cos(k2 . x) (test_poisson_fft, CPU, 2 ranks). Left: against N, the
+    max error of Phi against the continuum solution (second order, 3-D octree and 2-D quadtree), against the discrete
+    solution and the discrete residual (round-off). Middle and right: the 2-D potential at N = 64 and its error against
+    the continuum solution."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import poisson_oracle  # noqa: PLC0415
+
+    work = runs / "sv2-poisson"
+    rows: dict[str, list[tuple[int, float, float, float]]] = {}
+    pattern = re.compile(r"(3-D octree|2-D quadtree|3-D one block),\s+N = (\d+): \|Phi - Phi_h\| (\S+), "
+                         r"residual (\S+), \|Phi - Phi_exact\| (\S+),")
+    for line in (work / "log.txt").read_text().splitlines():
+        m = pattern.search(line)
+        if m:
+            rows.setdefault(m[1], []).append((int(m[2]), float(m[3]), float(m[4]), float(m[5])))
+    fig, axs = plt.subplots(1, 3, figsize=(14.0, 4.8), constrained_layout=True, width_ratios=(1.6, 1.0, 1.0))
+    for name, color in (("3-D octree", "tab:blue"), ("2-D quadtree", "tab:red")):
+        n, disc, res, cont = (np.array(v) for v in zip(*rows[name], strict=True))
+        order = math.log(cont[-2] / cont[-1]) / math.log(n[-1] / n[-2])
+        axs[0].loglog(n, cont, "o-", color=color, label=f"{name}: |Phi - Phi_exact|, order {order:.2f}")
+        axs[0].loglog(n, disc, "s--", color=color, alpha=0.7, label=f"{name}: |Phi - Phi_h| / max|Phi_h|")
+        axs[0].loglog(n, res, "^:", color=color, alpha=0.7, label=f"{name}: residual of L_h, relative")
+    ns = np.array([16.0, 64.0])
+    axs[0].loglog(ns, 1.5e-3 * (ns[0] / ns) ** 2, "-", color="0.6", lw=0.8)
+    axs[0].annotate("dx^2", (32.0, 1.5e-3 * (ns[0] / 32.0) ** 2), xytext=(0, -12), textcoords="offset points",
+                    fontsize=8, color="0.4")
+    axs[0].set_xlabel("N (cells along x)")
+    axs[0].set_ylabel("max error")
+    axs[0].set_ylim(1e-16, 1e-1)
+    axs[0].legend(fontsize=7)
+    axs[0].set_title("second order against the PDE, round-off against L_h", fontsize=10)
+    phi = poisson_oracle.load(work / "phi-r4-nk1-l3.bin")[:, :, 0]
+    nx, ny = phi.shape
+    x = (np.arange(nx) + 0.5) / nx
+    y = 2.0 * (np.arange(ny) + 0.5) / ny
+    xx, yy = np.meshgrid(x, y, indexing="ij")
+    k1 = 2.0 * np.pi * np.array([1.0, 1.0])
+    k2 = 2.0 * np.pi * np.array([2.0, 0.5])
+    exact = 4.0 * np.pi * (np.sin(k1[0] * xx) * np.cos(k1[1] * yy) / -(k1 @ k1)
+                           + 0.5 * np.cos(k2[0] * xx + k2[1] * yy) / -(k2 @ k2))
+    extent = (0.0, 1.0, 0.0, 2.0)
+    im = axs[1].imshow(phi.T, origin="lower", extent=extent, cmap="RdBu_r")
+    fig.colorbar(im, ax=axs[1], shrink=0.85)
+    axs[1].set_title("2-D, N = 64: Phi", fontsize=10)
+    im = axs[2].imshow((phi - exact).T, origin="lower", extent=extent, cmap="PuOr")
+    fig.colorbar(im, ax=axs[2], shrink=0.85)
+    axs[2].set_title(f"Phi - Phi_exact (max {np.max(np.abs(phi - exact)):.1e})", fontsize=10)
+    for ax in axs[1:]:
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+    fig.suptitle("SV-2: the FFT Poisson solver, L_h Phi = 4 pi (rho - mean rho) on a periodic box (CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-poisson.png", dpi=DPI)
+    plt.close(fig)
+
 
 def _rank_blocks(paths: list[Path]) -> dict[int, int]:
     """Blocks of each rank in one checkpoint (rank -> count), from the per-rank files."""
@@ -1458,7 +1515,8 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "gravity-order": fig_gravity_order, "gravity-balance": fig_gravity_balance,
            "gravity-rt-linear": fig_gravity_rt_linear, "gravity-rt": fig_gravity_rt,
            "gravity-rt-symmetry": fig_gravity_rt_symmetry, "ranks": fig_ranks,
-           "selfgravity-potential": fig_selfgravity_potential}
+           "selfgravity-potential": fig_selfgravity_potential,
+           "selfgravity-poisson": fig_selfgravity_poisson}
 
 
 def main() -> int:

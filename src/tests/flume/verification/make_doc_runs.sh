@@ -17,11 +17,13 @@
 #           no block until the first regrid (2 runs, under a minute)
 #   selfgravity sv1-box2d-{uniform,linear}: the closed box (M7 box2d, 16 cells per block side) to t = 0.2, about 20
 #           checkpoints; sv1-wave-{uniform,linear}-{8,16,32}: the falling wave (GV-9) to t = 0.2; each through the
-#           constant-g path and through the potential path (#81, SV-1) (8 runs, 2 min)
+#           constant-g path and through the potential path (#81, SV-1) (8 runs, 2 min); sv2-poisson: the SV-2 unit
+#           test of the FFT Poisson solver (POISSON_EXE, default exe/test_poisson_fft, mode test-poisson-fft-gnu) with
+#           its log and the potential of every level dumped (1 run, seconds)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
-#        selfgravity: --only selfgravity-potential)
+#        selfgravity: --only selfgravity-potential selfgravity-poisson)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
 #        (default: all nine)
@@ -190,7 +192,14 @@ for g in $GROUPS_; do
                sed -i 's/^it_save = .*/it_save = 100000/' "$W/input.ini"
                run input.ini
             done
-         done ;;
+         done
+         fresh sv2-poisson
+         POISSON_EXE="${POISSON_EXE:-$REPO_ROOT/exe/test_poisson_fft}"
+         if (cd "$W" && mpirun -np "$NP" "$POISSON_EXE" --dump "$W" > log.txt 2>&1); then
+            echo "   $(basename "$W"): done"
+         else
+            echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+         fi ;;
    esac
 done
 exit $FAILED

@@ -34,6 +34,7 @@ paths =  fobos.d/templates.fobos
         ?fobos.d/nasto.fobos
         ?fobos.d/tests_fdv.fobos
         ?fobos.d/tests_amr.fobos
+        ?fobos.d/tests_poisson.fobos
 
 # user-tunable variables (FoBiS fobos variables)
 [common-variables]

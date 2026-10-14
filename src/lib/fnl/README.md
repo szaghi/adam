@@ -18,6 +18,7 @@ The aggregate entry point `adam_fnl_library` re-exports the entire FNL API toget
 - [Immersed boundary method](#immersed-boundary-method)
 - [Communication maps](#communication-maps)
 - [Finite difference/volume operators](#finite-differencevolume-operators)
+- [Poisson solver](#poisson-solver)
 - [MPI handler](#mpi-handler)
 - [Module summary](#module-summary)
 
@@ -328,6 +329,26 @@ Each routine accepts a stencil half-width `s` and the local mesh spacing `dxyz`,
 
 ---
 
+## Poisson solver
+
+### `adam_fnl_poisson_fft_object` — FFT Poisson solver on the GPU (cuFFT)
+
+Extends `poisson_fft_object` ([common](../common/README.md)): the gather to rank 0, the placement and the scatter of
+`phi` with its ghosts are the CPU ones; the spectral solve runs on rank 0's GPU. The global source goes to the device,
+a cuFFT D2Z transform, a kernel divides by the eigenvalues of `L_h` (the host-computed tables of the CPU solver), a Z2D
+transform, and the potential comes back. cuFFT is bound to the stream of the synchronous OpenACC queue
+(`acc_get_cuda_stream(acc_async_sync)`), so the transforms and the kernel between them are ordered.
+
+- **Build:** `-D_CUFFT` and `-cudalib=cufft` (mode `test-poisson-fft-fnl-nvf`); `cufft` and `openacc` are declared
+  intrinsic modules in `fobos.d/templates.fobos`. cuFFT is NVIDIA only: without `_CUFFT` (an AMD build) making the plans
+  stops the run.
+- **Not FUNDAL-agnostic**, by necessity: the device arrays live in an OpenACC data region around the cuFFT calls
+  (`host_data use_device`), not in FUNDAL allocations.
+- **Verification:** SV-2 asserts it against the discrete solution at round-off and against the FFTW solver
+  (`selfgravity/poisson_oracle.py compare`).
+
+---
+
 ## MPI handler
 
 ### `adam_fnl_mpih_object` — FUNDAL MPI alias
@@ -355,6 +376,7 @@ A direct re-export of FUNDAL's MPI handler under the FNL-namespaced type alias `
 | `adam_fnl_ib_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
 | `adam_fnl_maps_object` | GPU communication index tables + MPI buffer staging | `maps_object` |
 | `adam_fnl_mpih_object` | FUNDAL MPI handler alias | — |
+| `adam_fnl_poisson_fft_object` | FFT Poisson solver, cuFFT on rank 0's GPU (not re-exported by `adam_fnl_library`) | `poisson_fft_object` |
 | `adam_fnl_fdv_operators_library` | Device-callable FD/FV spatial operators | — |
 | `adam_fnl_mpih_global` | Singleton — `mpih_fnl` | — |
 | `adam_fnl_field_global` | Singleton — `field_fnl` | — |

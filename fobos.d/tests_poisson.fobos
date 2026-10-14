@@ -1,0 +1,30 @@
+[modes]
+modes = test-poisson-fft-gnu                           test-poisson-fft-gnu-debug
+        test-poisson-fft-fnl-nvf
+
+# The FFT Poisson solver (issue #81): -D_FFTW links FFTW 3 on the CPU, -D_CUFFT cuFFT on FNL. The modes have their own
+# mod/obj directories: the solver module is compiled with different macros than in the default builds.
+[test-poisson-fft-gnu]
+template = template-gnu
+mod_dir  = ./mod/gnu-fft/
+obj_dir  = ./obj/gnu-fft/
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
+target   = test_poisson_fft.F90
+
+[test-poisson-fft-gnu-debug]
+template = template-gnu-debug
+mod_dir  = ./mod/gnu-fft/debug/
+obj_dir  = ./obj/gnu-fft/debug/
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
+target   = test_poisson_fft.F90
+
+[test-poisson-fft-fnl-nvf]
+template = template-nvf
+mod_dir  = ./mod/nvf-fft/
+obj_dir  = ./obj/nvf-fft/
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+lflags   = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
+target   = test_poisson_fft.F90
+output   = test_poisson_fft_fnl

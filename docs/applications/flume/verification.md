@@ -2308,6 +2308,52 @@ $\rho\Phi$ by up to $6\cdot10^{-3}$. Right, the falling wave (GV-9's exact solut
 second order (2.12 in ρ, 2.00 in p), as its face form without a fourth-order correction must be; the constant path
 gives 5.0 and 4.6. Run with `make_doc_runs.sh <dir> selfgravity` and `make_doc_figures.py --only selfgravity-potential`.
 
+### SV-2 (P2): the FFT Poisson solver
+
+**Why.** The semi-discrete conservation of $E + \tfrac12\rho\Phi$ and momentum holds only if $\Phi$ solves the
+*discrete* equation $L_h\Phi = 4\pi G(\rho - \bar\rho)$ to round-off, with $L_h$ the 7-point Laplacian the gravity
+stencils telescope against. A solver accurate only to truncation order would leave a conservation error of that order.
+
+**The solver** (`adam_poisson_fft_object`, FFTW; `adam_fnl_poisson_fft_object`, cuFFT on rank 0's GPU). Rank 0
+gathers the block interiors and transforms. It divides each Fourier mode by the eigenvalue of $L_h$ itself,
+$\lambda_k = \sum_d (2\cos(2\pi k_d/N_d) - 2)/\Delta x_d^2$, sets the mean ($\lambda_k = 0$) to zero, transforms
+back, and scatters every block with all its ghost layers filled by the periodic wrap. The grid must be uniform and
+periodic; anything else stops the run. The gather makes the solve **serial on rank 0**: correct for any rank count,
+not scalable. Isolated boundaries (P4) and AMR (P5) come later.
+
+**The leg** (`selfgravity/poisson.sh`, the unit test `src/tests/poisson/test_poisson_fft.F90`):
+
+| | |
+|---|---|
+| Domain | $[0,1]\times[0,2]\times[0,3]$, periodic on every face (anisotropic, so an axis mix-up cannot cancel) |
+| Source | $\rho = 1.5 + \sin(k_1x)\cos(k_1y)\cos(k_1z) + 0.5\cos(\mathbf k_2\cdot\mathbf x)$, $\mathbf k_1 = 2\pi(1, 1, \tfrac13)$, $\mathbf k_2 = 2\pi(2, \tfrac12, \tfrac13)$; in 2-D the z wave numbers are 0 |
+| Factor | $4\pi G$ with $G = 1$ |
+| Grids | 3-D octree at levels 1–3 ($16^3$ to $64^3$ cells, 8 cells per block side, 3 ghosts); 2-D quadtree (`null_z`) at levels 1–3 ($16^2$ to $64^2$); a single $8^3$ block (on 2+ ranks: ranks without blocks) |
+| Ranks | 1, 2, 3, 4 (CPU); 1, 2 (FNL) |
+| Exact solutions | each mode is an eigenfunction of $L_h$: the **discrete** solution divides it by its $\lambda_k$, the **continuum** one by $-\lvert\mathbf k\rvert^2$ |
+
+| Asserted | Bound | CPU (FFTW) | FNL (cuFFT, A30 and the WSL GPU) |
+|---|---|---|---|
+| $\max\lvert\Phi - \Phi_h\rvert / \max\lvert\Phi_h\rvert$, every cell and ghost | 10⁻¹² | ≤ 2.8·10⁻¹⁵ | ≤ 2.8·10⁻¹⁵ |
+| residual of $L_h$ from the scattered ghosts, relative | 10⁻¹⁰ | ≤ 3.7·10⁻¹⁴ | ≤ 4.3·10⁻¹⁴ |
+| order against the continuum solution, N = 32 → 64 | ≥ 1.9 | 1.98 (3-D), 1.98 (2-D) | 1.98, 1.98 |
+| ghost cells the scatter left unfilled | 0 | 0 | 0 |
+| a non-periodic grid | refused, exit 1 | refused | refused |
+| CPU against FNL, $\max\lvert\Phi_{\text{CPU}} - \Phi_{\text{FNL}}\rvert / \max\lvert\Phi\rvert$ (`poisson_oracle.py compare`) | 10⁻¹³ | ≤ 9.8·10⁻¹⁵ | ≤ 9.8·10⁻¹⁵ |
+
+The printed numbers do not depend on the rank count (np 1 and np 4 agree to every digit), and the A30 potential is
+bitwise that of the WSL GPU. The residual grows from 10⁻¹⁵ to 4·10⁻¹⁴ between N = 16 and 64: $L_h$ amplifies the
+round-off of $\Phi$ by $(k\Delta x)^{-2}$. That is the floor the conservation of P3 inherits.
+
+![SV-2: the errors against N, the 2-D potential and its error against the continuum solution](/flume/selfgravity-poisson.png)
+
+Left, against N: the error against the continuum solution falls as $\Delta x^2$, while the error against the discrete
+solution and the residual stay at round-off. The solver is exact for $L_h$, and the scheme is second order through
+$L_h$. Middle and right: the 2-D potential at N = 64 and its error, $4.3\cdot10^{-4}$, largest where $\lvert\Phi\rvert$
+is. Run with `make_doc_runs.sh <dir> selfgravity` (it needs `exe/test_poisson_fft`, mode `test-poisson-fft-gnu`) and
+`make_doc_figures.py --only selfgravity-poisson`. The CPU = FNL comparison takes one `poisson.sh --dump DIR` per build
+and `poisson_oracle.py compare DIR_CPU DIR_FNL`.
+
 ## Ranks without blocks (DV-1)
 
 **Why.** The tree never splits a family of sibling blocks across ranks. `tree%mpi_redistribute` cuts the Morton-ordered

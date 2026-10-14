@@ -267,6 +267,31 @@ Iterative solver and smoother infrastructure for implicit operators (e.g., ellip
 
 Convergence is controlled by `tolerance` (default 10⁻⁶) and `iterations`. Configuration section: `[linear-algebra]`.
 
+### `adam_poisson_fft_object` — FFT Poisson solver (uniform periodic grids)
+
+Solves `L_h phi = factor (f - mean f)` for one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the
+second-order 7-point Laplacian (5-point in 2-D; a null direction has no derivative). Each Fourier mode is divided by
+the eigenvalue of `L_h` itself, `lambda_k = sum_d (2 cos(2 pi k_d/N_d) - 2)/dx_d^2`, so the discrete residual is at
+round-off: the property self-gravity needs for exact energy and momentum conservation ([#81](https://github.com/szaghi/adam/issues/81)).
+
+| Procedure | Role |
+|-----------|------|
+| `initialize(grid, field)` | Check the scope, size the solver, make the plans on rank 0 |
+| `solve(field, q, iv, factor, phi)` | Gather `q(iv)` to rank 0, transform, scatter `phi(1-ngc:n+ngc, ..., b)` with every ghost layer filled by the periodic wrap |
+| `destroy()` | Free the arrays and the plans |
+
+- **Data path:** `MPI_Gatherv` of the block interiors (with their integer block coordinates) to rank 0, which holds the
+  whole grid, solves and `MPI_Scatterv`s every block with its ghosts, so no ghost exchange follows. Correct for any rank
+  count, ranks without blocks included; **not scalable**.
+- **Scope (fatal otherwise):** every block at one level and the blocks covering the domain, every active direction
+  periodic. Isolated boundaries and AMR are later phases of #81.
+- **Build:** `-D_FFTW` and `-lfftw3` (FFTW 3, `FFTW_ESTIMATE` plans: deterministic). Without an FFT library,
+  `initialize` stops with "built without an FFT library". The FNL twin is `adam_fnl_poisson_fft_object` (cuFFT).
+  The module is **not** re-exported by `adam_common_library`: only the modes that use it build it
+  (`test-poisson-fft-*` today, with their own `mod`/`obj` directories).
+- **Verification:** SV-2, `src/tests/poisson/test_poisson_fft.F90` driven by
+  `src/tests/flume/verification/selfgravity/poisson.sh`.
+
 ---
 
 ## Infrastructure
