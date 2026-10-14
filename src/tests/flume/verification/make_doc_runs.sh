@@ -20,13 +20,16 @@
 #           constant-g path and through the potential path (#81, SV-1) (8 runs, 2 min); sv2-poisson: the SV-2 unit
 #           test of the FFT Poisson solver (POISSON_EXE, default exe/test_poisson_fft, mode test-poisson-fft-gnu) with
 #           its log and the potential of every level dumped (1 run, seconds)
+#   jeans   the Jeans cases of selfgravity/jeans.sh (#81, SV-3, SV-4) with the FFT executable (JEANS_EXE, default
+#           exe/adam_flume_cpu_fft, mode flume-cpu-gnu-fft): sv3-2d-{8,16,32}, sv3-3d-{8,16}, sv4-linear (a checkpoint
+#           every 5 steps), sv4-collapse-{0.4,0.2,0.1} (8 runs, about 15 min)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
-#        selfgravity: --only selfgravity-potential selfgravity-poisson)
+#        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
-#        (default: all nine)
+#        [jeans] (default: all ten)
 #
 # FLUME_EXE overrides the executable (default exe/adam_flume_cpu); the caller owns the matching MPI environment.
 set -euo pipefail
@@ -40,16 +43,16 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
-           "selfgravity)" >&2
+           "selfgravity, jeans)" >&2
       exit 2
    fi
 done
@@ -200,6 +203,21 @@ for g in $GROUPS_; do
          else
             echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
          fi ;;
+      jeans)
+         JEANS_EXE="${JEANS_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
+         jeans() { # jeans <case dir> <make_jeans arguments>: write and run one Jeans case with the FFT executable
+            fresh "$1" ; shift
+            python3 -I "$VERIF_DIR/selfgravity/make_jeans.py" "$W/input.ini" "$@"
+            if (cd "$W" && mpirun -np "$NP" "$JEANS_EXE" input.ini > log.txt 2>&1); then
+               echo "   $(basename "$W"): done"
+            else
+               echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+            fi
+         }
+         for cells in 8 16 32; do jeans "sv3-2d-$cells" jeans2d --cells "$cells" ; done
+         for cells in 8 16; do jeans "sv3-3d-$cells" jeans3d --cells "$cells" ; done
+         jeans sv4-linear jeansu2d --cells 16 --it-save 5
+         for cfl in 0.4 0.2 0.1; do jeans "sv4-collapse-$cfl" jeansc2d --cells 16 --cfl "$cfl" ; done ;;
    esac
 done
 exit $FAILED

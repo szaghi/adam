@@ -2354,6 +2354,64 @@ is. Run with `make_doc_runs.sh <dir> selfgravity` (it needs `exe/test_poisson_ff
 `make_doc_figures.py --only selfgravity-poisson`. The CPU = FNL comparison takes one `poisson.sh --dump DIR` per build
 and `poisson_oracle.py compare DIR_CPU DIR_FNL`.
 
+### SV-3 to SV-5 (P3): Jeans modes under self-gravity
+
+**Why.** P3 couples the solver to the scheme (`[gravity] self_gravity`, one solve per Runge–Kutta stage, through the
+potential path of SV-1). A linear Jeans mode obeys $\omega^2 = c^2k^2 - 4\pi G\rho_0$, which only a correct coupling
+reproduces: the factor $4\pi G$, the sign of the force, the mean removed, a solve from each stage's own density. Its
+unstable branch tests the growth and the conservation the design promises: exact in the semi-discrete form, so only
+the time integration may drift.
+
+**Setup** (`selfgravity/make_jeans.py`, the [`sine-wave`](./initial-conditions#sine-wave-a-small-sine-wave-on-a-uniform-state-verification)
+initial condition with `wave_mode = jeans`):
+
+| | |
+|---|---|
+| State | $\rho_0 = 1$, $p_0 = 3/5$, $\gamma = 5/3$ (sound speed $c = 1$), at rest; Euler |
+| Mode | $\mathbf k = 2\pi(1, 1)$ (`wave_angle` 45°, `wavelength` $1/\sqrt2$), $k^2 = 8\pi^2$; $\rho = \rho_0(1 + A\sin\theta)$, $p = p_0(1 + \gamma A\sin\theta)$, the velocity of the mode |
+| Grid | the unit square (2-D quadtree, 4×4 blocks) or cube (3-D octree, 2×2×2 blocks), every active face periodic, uniform, 4 ghosts |
+| Scheme | `weno` (WENO-5 characteristic), SSP-RK3, CFL 0.4; FFT Poisson solver; 2 ranks |
+| Stable (SV-3) | $G = \pi/2$: $4\pi G\rho_0 = 2\pi^2$, $\lambda = \lambda_J/2$, $\omega = \pi\sqrt6$; $A = 10^{-6}$; one period, $t = 2/\sqrt6$ |
+| Unstable (SV-4) | $G = 9\pi/2$: $4\pi G\rho_0 = 18\pi^2$, $\lambda = 1.5\,\lambda_J$, $\sigma = \pi\sqrt{10}$; the growing mode, the box shifted to $[1/8, 9/8]^2$ so that the density's centre of symmetry is its corner; linear: $A = 10^{-6}$ to $t = 0.5$; collapse: $A = 10^{-2}$ to $t = 0.4$ (the peak density reaches 1.73) |
+
+**Oracle** (`selfgravity/jeans_oracle.py`, driven by `selfgravity/jeans.sh`). The exact linear solution is
+$\rho_0(1 + A\sin(\theta - \omega t))$ (stable) and $\rho_0(1 + Ae^{\sigma t}\sin\theta)$ (unstable).
+
+| Leg | Asserted | Bound | CPU | FNL |
+|---|---|---|---|---|
+| SV-3, 2-D, $N$ = 32, 64, 128 | L1 error of ρ over $\rho_0A$: $2.14\cdot10^{-3}$, $5.35\cdot10^{-4}$, $1.34\cdot10^{-4}$ (CPU = FNL to 4 digits); order of the finest pair | ≥ 1.8 | 2.00, 2.00 | 2.00, 2.00 |
+| SV-3, 3-D, $N$ = 16, 32 | $8.49\cdot10^{-3}$, $2.14\cdot10^{-3}$; order | ≥ 1.8 | 1.99 | 1.99 |
+| SV-4, growth ($N$ = 64, 27 checkpoints in $[0.1, 0.5]$) | the fitted $\sigma$ = 9.9275 against $\pi\sqrt{10}$ = 9.9346, relative | $10^{-2}$ | $7.2\cdot10^{-4}$ | $7.2\cdot10^{-4}$ |
+| SV-4, mirror symmetry (point reflection: ρ even, **u** odd) | defect over the mode amplitude at $t = 0.5$ | $10^{-9}$ | ρ $4.8\cdot10^{-11}$, **u** $3.7\cdot10^{-11}$ | ρ $9.8\cdot10^{-11}$, **u** $7.7\cdot10^{-11}$ |
+| SV-4, collapse, CFL 0.4, 0.2, 0.1 | drift of $E + W$: $2.74\cdot10^{-7}$, $3.45\cdot10^{-8}$, $4.33\cdot10^{-9}$; order in Δt | ≥ 2.5 | 2.99, 2.99 | 2.99, 2.99 (the same drifts) |
+| SV-4, collapse | the largest $\lvert\int\rho\mathbf u\rvert$ | $10^{-14}$ | $8.9\cdot10^{-18}$ | $5.1\cdot10^{-18}$ |
+| SV-5, scaling covariance | the stable case in $L_0 = 4$, $u_0 = 1/2$, $\rho_0 = 1/16$ with `[reference]` ($G$ converted by $u_0^2/(\rho_0L_0^2)$) against the code-unit run | bitwise | bitwise (fields, histories, 14 conversions) | bitwise with nvfortran 26.1 (WSL GPU); nvfortran 25.5 (A30) stops reading the converted input, as NV-5 does: a defect older than P3, [issue #86](https://github.com/szaghi/adam/issues/86) |
+
+Findings:
+- **The coupling is second order,** as P0 designed it (the 7-point Laplacian and the face form): the WENO-5 fluxes
+  cannot lift it. The error after one period is $1.3\cdot10^{-4}$ of the amplitude at $N = 128$.
+- **Only the time integration drifts.** In the collapse $E$ and $W$ each change by 17 % of the total, yet $E + W$
+  drifts by $3\cdot10^{-7}$ at CFL 0.4, and the drift falls as $\Delta t^3$, SSP-RK3's order: the semi-discrete
+  scheme conserves $E + W$ exactly, as the design predicted. Momentum stays at round-off.
+- **The symmetry holds to round-off, not bitwise:** the summation orders of WENO and of the FFT are not mirror
+  invariant. The defect relative to the mode is $5\cdot10^{-11}$ at the end; it is largest ($7\cdot10^{-10}$) early,
+  when the amplitude is $10^{-6}$ and round-off is a larger fraction of it.
+- **Cost.** CPU (WSL, indicative): a Poisson solve of the $32^2$ grid takes 0.2 ms; with self-gravity the $32^2$ run
+  takes 31 s against 29 s without (one solve per stage and one per history row). FNL (one A30 per rank): 1.3 ms per
+  solve at $32^2$, 4.4 ms at $128^2$, the density and the potential crossing the host each stage. A first version
+  copied the whole device potential every stage, sized to the block capacity (23 270 blocks, 16 in use): 0.73 s per
+  solve, whatever the grid. Only the active blocks cross now; the results are bitwise those of the first version.
+- **CPU and FNL agree** to the printed digits on every SV-3 and SV-4 measure; the symmetry defects differ (round-off
+  of different summation orders), both within the bound by a factor 10.
+
+![SV-3 and SV-4: the stable wave's errors against N, the unstable mode's growth, the collapse's energy drift and density](/flume/selfgravity-jeans.png)
+
+Top left: the stable wave's error falls as $\Delta x^2$ in 2-D and 3-D. Top right: the unstable mode grows as
+$e^{\sigma t}$, the fit on the exact line. Bottom left: in the collapse, $E$ and $W$ exchange 17 % while $E + W$
+drifts at the Runge–Kutta order, a factor 8 per halving of the CFL number (the curves of $E$ alone and $W$ alone
+coincide). Bottom right: the collapsing density at $t = 0.4$, peak 1.73. Run with `make_doc_runs.sh <dir> jeans` (it needs `exe/adam_flume_cpu_fft`, mode `flume-cpu-gnu-fft`) and
+`make_doc_figures.py --only selfgravity-jeans`; the check is `selfgravity/jeans.sh` (FLUME_EXE for FNL).
+
 ## Ranks without blocks (DV-1)
 
 **Why.** The tree never splits a family of sibling blocks across ranks. `tree%mpi_redistribute` cuts the Morton-ordered

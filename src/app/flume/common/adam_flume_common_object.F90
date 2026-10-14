@@ -16,6 +16,7 @@ use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
                                              SEAM_KIND_INTER_REALM
 use :: adam_parameters,               only : AMR_PROLONGATION_CONSERVATIVE, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
+use :: adam_poisson_fft_object,       only : poisson_fft_object
 use :: adam_realm_object,             only : realm_object
 use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
@@ -27,7 +28,7 @@ use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
-use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_RU, &
+use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RU, &
                                              MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,                   &
                                              POSITIVITY_LIMITER_CELL, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,            &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
@@ -68,6 +69,8 @@ type, extends(realm_object) :: flume_common_object
    real(R8P),         allocatable :: q_aux(:,:,:,:,:)    !< Auxiliary variables [nv_aux, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: phi_grav(:,:,:,:)   !< Gravitational potential [1-ngc:ni+ngc, ..., nb] (issue #81);
                                                          !< a one-cell placeholder without a potential.
+   class(poisson_fft_object), allocatable :: poisson     !< Self-gravity Poisson solver (issue #81; FNL: the cuFFT one).
+   real(R8P)                      :: poisson_wall=0._R8P !< Wall time of the last Poisson solve (s).
    type(string),      allocatable :: q_name(:)           !< Conservative variables names.
    type(string),      allocatable :: dq_name(:)          !< Residuals names.
    type(string),      allocatable :: q_aux_name(:)       !< Auxiliary variables names.
@@ -100,6 +103,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: initialize            !< Initialize the common data.
       procedure, pass(self) :: log_dt_limit          !< Log which limit, hyperbolic or diffusive, sets dt.
       procedure, pass(self) :: log_gravity_regime    !< Log the velocity gravity adds in a step (issue #73).
+      procedure, pass(self) :: log_self_gravity      !< Log the self-gravity regime (issue #81).
       procedure, pass(self) :: wall_temperature_bound !< Return the hottest isothermal wall temperature of the dt bound.
       procedure, pass(self) :: null_freeze           !< Return the variable each null direction freezes.
       procedure, pass(self) :: output_factors        !< Return the output factors of written variables.
@@ -115,6 +119,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: set_divb_seam         !< Set the seam faces flags of the div(B) history.
       procedure, pass(self) :: set_glm_damping       !< Set the GLM damping once the grid exists.
       procedure, pass(self) :: set_potential         !< Set the gravitational potential of the current grid.
+      procedure, pass(self) :: solve_potential       !< Solve the self-gravity potential of a host state.
       ! forest methods
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
       ! private methods
@@ -679,6 +684,10 @@ contains
    if (allocated(self%dq))         deallocate(self%dq)
    if (allocated(self%q_aux))      deallocate(self%q_aux)
    if (allocated(self%phi_grav))   deallocate(self%phi_grav)
+   if (allocated(self%poisson)) then
+      call self%poisson%destroy
+      deallocate(self%poisson)
+   endif
    if (allocated(self%q_name))     deallocate(self%q_name)
    if (allocated(self%dq_name))    deallocate(self%dq_name)
    if (allocated(self%q_aux_name)) deallocate(self%q_aux_name)
@@ -1099,8 +1108,10 @@ contains
    subroutine set_potential(self)
    !< Set the gravitational potential of the current grid, ghost cells included (issue #81, M8-P1). With
    !< `[gravity] potential = linear` it is `Phi = -g . x` at the cell centres, the constant field written as a potential;
-   !< without a potential the array is a one-cell placeholder (the kernels take it and do not read it). Sized by the block
-   !< capacity `nb`, as the other block arrays; call it after the initial grid and after every regrid.
+   !< with `self_gravity` (M8-P3) the Poisson solver is set up on the current grid (it checks that the grid is uniform
+   !< and periodic) and Phi is solved from the host state `q`; without a potential the array is a one-cell placeholder
+   !< (the kernels take it and do not read it). Sized by the block capacity `nb`, as the other block arrays; call it
+   !< after the initial grid and after every regrid.
    class(flume_common_object), intent(inout) :: self    !< The equation.
    integer(I4P)                              :: b, i, j, k !< Counters.
 
@@ -1108,6 +1119,15 @@ contains
    if (.not.self%physics%gravity%has_potential) then
       allocate(self%phi_grav(0:0,0:0,0:0,1:1))
       self%phi_grav = 0._R8P
+      return
+   endif
+   if (self%physics%gravity%self_gravity) then
+      allocate(self%phi_grav(1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc, &
+                             1:self%nb))
+      self%phi_grav = 0._R8P
+      if (.not.allocated(self%poisson)) allocate(poisson_fft_object :: self%poisson)
+      call self%poisson%initialize(grid=self%adam%grid, field=self%adam%field)
+      call self%solve_potential(q=self%q)
       return
    endif
    associate(ngc=>self%ngc, g=>self%physics%gravity%g, x=>self%adam%field%x_cell, y=>self%adam%field%y_cell, &
@@ -1125,6 +1145,21 @@ contains
    enddo
    endassociate
    endsubroutine set_potential
+
+   subroutine solve_potential(self, q, energy)
+   !< Solve the self-gravity potential of the host state `q` (issue #81, M8-P3): `L_h Phi = 4 pi G (rho - mean rho)`,
+   !< every ghost layer filled (the solver's periodic wrap), the wall time kept in `poisson_wall`; optionally the
+   !< energy `sum_cells rho Phi` (every rank). The FNL backend solves from the device state with `solve_potential_gpu`.
+   class(flume_common_object), intent(inout)         :: self   !< The equation.
+   real(R8P),                  intent(in)            :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< State.
+   real(R8P),                  intent(out), optional :: energy !< sum_cells rho Phi.
+   real(R8P)                                         :: t0     !< Wall clock at the start.
+
+   t0 = MPI_WTIME()
+   call self%poisson%solve(field=self%adam%field, q=q, iv=IQ_R, factor=self%physics%gravity%four_pi_g, &
+                           phi=self%phi_grav, energy=energy)
+   self%poisson_wall = MPI_WTIME() - t0
+   endsubroutine solve_potential
 
    subroutine set_glm_damping(self)
    !< Set the GLM damping once the grid exists (issue #41, section 3.5): the minimum cell spacing of the realm over the
@@ -1446,6 +1481,11 @@ contains
    enddo
    if (self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': [gravity] is not supported with immersed solids yet (issue #73)')
+   ! self-gravity (issue #81, M8-P3): the FFT solver needs a fixed uniform grid (it refuses a non-uniform or
+   ! non-periodic one when it is set up)
+   if (self%physics%gravity%self_gravity .and. self%amr%frequency > 0_I4P) &
+      call mpih%error_stop(msg=': [gravity].(self_gravity) is refused with runtime AMR ([amr].(frequency) > 0): the '// &
+                               'FFT Poisson solver needs a uniform grid (issue #81, P5 brings AMR)')
    ! the well-balanced mode (M7-G2b) subtracts the residual of a stored equilibrium, whose reflux correction is fixed:
    ! a reflux that changes its cells per step (policy troubled) cannot be subtracted
    if (self%physics%gravity%is_balanced .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
@@ -1474,7 +1514,31 @@ contains
                                       ', |g| dt '//trim(str(gnorm * self%time%dt))//', |g| dt^2 / (CFL h_min) '// &
                                       trim(str(gnorm * self%time%dt**2 / (self%time%CFL * h(1))))//             &
                                       ' (the velocity gravity adds in a step over the signal speed bound)'
+   call self%log_self_gravity
    endsubroutine log_gravity_regime
+
+   subroutine log_self_gravity(self)
+   !< Log once, with `log_gravity_regime`, the self-gravity regime (issue #81): the free-fall time of the densest cell,
+   !< `t_ff = sqrt(3 pi / (32 G rho_max))`, against dt (a warning above `t_ff / 10`: the collapse would be under-resolved in
+   !< time), and the wall time of the last Poisson solve.
+   class(flume_common_object), intent(in) :: self     !< The equation.
+   real(R8P)                              :: rmax(1)  !< Largest density over the blocks and the ranks.
+   real(R8P)                              :: t_ff     !< Free-fall time.
+   real(R8P), parameter                   :: PI=acos(-1._R8P) !< Pi.
+
+   if (.not.self%physics%gravity%self_gravity) return
+   rmax = 0._R8P
+   if (self%blocks_number > 0) rmax(1) = maxval(self%q(IQ_R,1:self%ni,1:self%nj,1:self%nk,1:self%blocks_number))
+   call MPI_ALLREDUCE(MPI_IN_PLACE, rmax, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   t_ff = sqrt(3._R8P * PI / (32._R8P * self%physics%gravity%grav_const * rmax(1)))
+   if (mpih%myrank == 0) then
+      print '(A)', mpih%myrankstr//'self-gravity (issue #81): G '//trim(str(self%physics%gravity%grav_const))// &
+                   ', rho_max '//trim(str(rmax(1)))//', t_ff '//trim(str(t_ff))//', dt / t_ff '//            &
+                   trim(str(self%time%dt / t_ff))//', Poisson solve '//trim(str(self%poisson_wall))//' s'
+      if (self%time%dt > 0.1_R8P * t_ff) print '(A)', mpih%myrankstr//'warning: dt > t_ff / 10, the collapse is '// &
+                                                      'under-resolved in time'
+   endif
+   endsubroutine log_self_gravity
 
    subroutine check_dissipation(self)
    !< Refuse the dissipative terms where they are not computed (issue #65): immersed solids, whose walls are inviscid

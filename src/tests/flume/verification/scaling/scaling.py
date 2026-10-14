@@ -56,6 +56,7 @@ FIELD = (0, 1, 0.5)        # B = u sqrt(rho)
 TIME = (1, -1, 0)
 INV_LENGTH = (-1, 0, 0)
 ACCELERATION = (-1, 2, 0)  # u^2 / L, the gravity (issue #73)
+GRAV_CONST = (-2, 2, -1)  # u^2 / (rho L^2), the gravitational constant (issue #81; exponents of rho, not sqrt(rho))
 NONE = (0, 0, 0)
 GRID_KEYS = {f"{e}_{x}": LENGTH for e in ("emin", "emax") for x in "xyz"}
 REGION_KEYS = {**GRID_KEYS, "r": DENSITY, "u": VELOCITY, "v": VELOCITY, "w": VELOCITY, "p": PRESSURE,
@@ -95,6 +96,8 @@ FULL_KEYS = {
                 "prandtl": NONE, "magnetic_reynolds": NONE, "lundquist": NONE, "viscosity_law": NONE,
                 "viscosity_exponent": NONE, "reference_temperature": VELOCITY2},
     "gravity": {"froude": NONE, "axis": NONE, "equilibrium": NONE, "potential": NONE,
+                "self_gravity": NONE, "G_star": NONE, "poisson_solver": NONE, "poisson_bc": NONE,
+                "G": GRAV_CONST,  # issue #81: G converts, G_star = G rho0 L0^2 / u0^2 does not
                 **{f"g_{x}": ACCELERATION for x in "xyz"}},  # 1 / Fr^2 = g L0 / u0^2: the number does not convert
     "mhd": {"divergence_control": NONE, "glm_alpha": NONE, "glm_ch_check": NONE, "divb_error": NONE,
             "glm_ch": VELOCITY, "glm_damping_length": LENGTH, "rho_floor": DENSITY, "p_floor": PRESSURE,

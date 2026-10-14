@@ -205,7 +205,23 @@ $$
 
 The equilibria FLUME builds are the `isothermal-atmosphere`, `polytropic-atmosphere` and `rayleigh-taylor` initial
 conditions ([initial conditions](./initial-conditions#isothermal-atmosphere-polytropic-atmosphere-hydrostatic-equilibria-under-gravity)).
-Self-gravity is M8 ([#81](https://github.com/szaghi/adam/issues/81)).
+
+### Self-gravity
+
+`[gravity] self_gravity` ([#81](https://github.com/szaghi/adam/issues/81), M8-P3) adds the gravity of the gas itself:
+
+$$\nabla^2\Phi = 4\pi G(\rho - \bar\rho), \qquad \partial_t(\rho\mathbf u) \mathrel{+}= -\rho\nabla\Phi, \qquad
+\partial_t E \mathrel{+}= -\rho\mathbf u\cdot\nabla\Phi,$$
+
+with the mean density removed on a periodic domain (the Jeans swindle). The discretisation is that of Mullen et al.
+(2021): $\Phi$ solves $L_h\Phi = 4\pi G(\rho - \bar\rho)$ with the 7-point Laplacian (5-point in 2-D), and enters through
+the potential path above (face gravity, cell gravity, the energy from the face mass fluxes). Given a Poisson solution at
+round-off, the semi-discrete scheme conserves the momentum and $E + W$, $W = \tfrac12\sum\rho\Phi\,V$, exactly; the
+Runge–Kutta integration (one solve per stage, nothing time-averaged) leaves a drift of its own order in $\Delta t$.
+The coupling is second order in space whatever the WENO order. A linear Jeans mode obeys
+$\omega^2 = c^2k^2 - 4\pi G\rho_0$: it oscillates above the Jeans length $\lambda_J = c\sqrt{\pi/(G\rho_0)}$ and grows
+below it ([verification](./verification#self-gravity-m8)). Periodic uniform grids only, for now (isolated boundaries:
+#81 P4; AMR: P5).
 
 ## Units and scaling
 

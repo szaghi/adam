@@ -10,7 +10,8 @@ module adam_flume_diagnostics_object
 !< cleaning acts on, that of the interface normal field `B_n = F_psi / s` of the scheme's own psi face fluxes (`s =
 !< c_h^2` GLM, `c_h` EGLM), the coarse faces of the 2:1 seams taking the fine fluxes (the reflux). Rows are written as
 !< they come, nothing is accumulated in memory. The values are computed (and MPI-reduced) by the backends; only rank 0
-!< writes.
+!< writes. With self-gravity (issue #81) the conservation history gains two columns: the gravitational energy
+!< `W = 1/2 sum rho Phi dV` (Phi solved from the committed state) and `E + W`, the energy the scheme conserves.
 
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
@@ -105,13 +106,14 @@ contains
    if (error > 0) self%divb_flux = .false.
    endsubroutine load_from_file
 
-   subroutine open_file(self, output_basename, q_name, is_restart, with_divb)
+   subroutine open_file(self, output_basename, q_name, is_restart, with_divb, with_self_gravity)
    !< Open the history files and write their headers (append, without header, on restart).
-   class(flume_diagnostics_object), intent(inout) :: self            !< Diagnostics.
-   character(*),                    intent(in)    :: output_basename !< Output files base name.
-   type(string),                    intent(in)    :: q_name(1:)      !< Conservative variables names.
-   logical,                         intent(in)    :: is_restart      !< Restarted run flag.
-   logical,                         intent(in)    :: with_divb       !< Open the div(B) history too (MHD).
+   class(flume_diagnostics_object), intent(inout)        :: self              !< Diagnostics.
+   character(*),                    intent(in)           :: output_basename   !< Output files base name.
+   type(string),                    intent(in)           :: q_name(1:)        !< Conservative variables names.
+   logical,                         intent(in)           :: is_restart        !< Restarted run flag.
+   logical,                         intent(in)           :: with_divb         !< Open the div(B) history too (MHD).
+   logical,                         intent(in), optional :: with_self_gravity !< Add the W and E + W columns.
    character(:), allocatable                      :: header          !< File header.
    integer(I4P)                                   :: v               !< Counter.
 
@@ -137,6 +139,9 @@ contains
       do v=1, size(q_name, dim=1)
          header = header//' "int_'//q_name(v)%chars()//'"'
       enddo
+      if (present(with_self_gravity)) then
+         if (with_self_gravity) header = header//' "W" "E_plus_W"'
+      endif
       write(self%conservation_unit, '(A)') header
    endif
    endsubroutine open_file

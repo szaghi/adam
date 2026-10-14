@@ -62,6 +62,7 @@ integer(I4P), parameter :: DIM_FIELD_PER_LENGTH(3)=[-1_I4P, 1_I4P, 1_I4P]  !< di
 integer(I4P), parameter :: DIM_VISCOSITY(3)=[1_I4P, 1_I4P, 2_I4P]         !< Dynamic viscosity, rho0 u0 L0.
 integer(I4P), parameter :: DIM_DIFFUSIVITY(3)=[1_I4P, 1_I4P, 0_I4P]       !< Diffusivity, u0 L0 (resistivity).
 integer(I4P), parameter :: DIM_ACCELERATION(3)=[-1_I4P, 2_I4P, 0_I4P]     !< Acceleration, u0^2 / L0 (gravity).
+integer(I4P), parameter :: DIM_GRAV_CONST(3)=[-2_I4P, 2_I4P, -2_I4P]      !< Gravitational constant, u0^2/(rho0 L0^2).
 ! option kinds
 integer(I4P), parameter :: KIND_NONE=0_I4P    !< Not converted.
 integer(I4P), parameter :: KIND_SCALED=1_I4P  !< Divided by the reference of its dimension.
@@ -395,12 +396,15 @@ contains
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
       endselect
    case('gravity')
-      ! issue #73: the acceleration converts, the Froude number (g L0 / u0^2 = 1 / Fr^2) and the names do not
+      ! issue #73: the acceleration converts, the Froude number (g L0 / u0^2 = 1 / Fr^2) and the names do not; issue
+      ! #81: G converts (4 pi G rho0 has the dimension of 1 / time^2), G_star (G rho0 L0^2 / u0^2) does not
       select case(option_name)
-      case('froude', 'axis', 'equilibrium', 'potential')
+      case('froude', 'axis', 'equilibrium', 'potential', 'self_gravity', 'G_star', 'poisson_solver', 'poisson_bc')
          kind = KIND_NONE
       case('g_x', 'g_y', 'g_z')
          kind = KIND_SCALED ; dim = DIM_ACCELERATION
+      case('G')
+         kind = KIND_SCALED ; dim = DIM_GRAV_CONST
       endselect
    case('mhd')
       select case(option_name)
@@ -483,8 +487,8 @@ contains
          ! component is dimensionless for the fast, slow and entropy waves, the momentum one for the Alfven wave
          kind = KIND_SCALED
          if (self%ic_type == 'sine-wave') then
-            ! shear: a velocity; magnetic: a field; acoustic: a relative density perturbation
-            kind = merge(KIND_NONE, KIND_SCALED, self%ic_wave_mode == 'acoustic')
+            ! shear: a velocity; magnetic: a field; acoustic, jeans (issue #81): a relative density perturbation
+            kind = merge(KIND_NONE, KIND_SCALED, self%ic_wave_mode == 'acoustic' .or. self%ic_wave_mode == 'jeans')
             dim = DIM_NONE
             if (self%ic_wave_mode == 'shear') dim = DIM_VELOCITY
             if (self%ic_wave_mode == 'magnetic') dim = DIM_FIELD

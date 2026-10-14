@@ -14,7 +14,7 @@ module adam_flume_fnl_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object, SEAM_KIND_INTRA_REALM_AMR
-use :: adam_flume_parameters,     only : IQ_BX, IQ_PSI, IQ_R
+use :: adam_flume_parameters,     only : IQ_BX, IQ_PSI, IQ_R, IQ_RE
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_SEAM
 use :: adam_realm_object,         only : realm_object
@@ -24,6 +24,7 @@ use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22,
 use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev, pack_blocks_transposed_dev, pack_seam_rows_dev, &
                                          unpack_blocks_transposed_dev, unpack_seam_rows_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
+use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 use :: adam_fnl_ib_object,        only : ib_fnl_object
 use :: adam_fnl_rk_object,        only : rk_fnl_object
 use :: adam_fnl_weno_object,      only : weno_fnl_object
@@ -143,6 +144,7 @@ use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev, compute_dfl
                                               compute_gravity_correction_faces_dev, subtract_equilibrium_residual_dev, &
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
                                               gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skin_dev,     &
+                                              pack_density_dev, unpack_potential_dev,                                  &
                                               scatter_seam_cells_dev, scatter_seam_faces_dev,                          &
                                               poison_ghosts_dev, set_boundary_conditions_dev
 ! third party modules
@@ -215,6 +217,8 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
       procedure, pass(self) :: refresh_potential       !< Set the gravitational potential and copy it to the device.
+      procedure, pass(self) :: copy_potential_gpu      !< Copy the gravitational potential to the device.
+      procedure, pass(self) :: solve_potential_gpu     !< Solve the self-gravity potential of a device state.
       procedure, pass(self) :: destroy                 !< Free device and host data.
       procedure, pass(self) :: initialize_flume        !< Initialize the FNL backend.
       procedure, pass(self) :: limit_positivity_dev    !< Apply the positivity limiter to the stage face fluxes.
@@ -597,9 +601,13 @@ contains
    endsubroutine check_glm_ch
 
    subroutine compute_conservation(self)
-   !< Compute the volume integrals of the conservative variables on the device and save them on their cadence.
+   !< Compute the volume integrals of the conservative variables on the device and save them on their cadence; with
+   !< self-gravity (issue #81) the row gains `W = 1/2 sum rho Phi dV` and `E + W`, Phi solved from the committed state.
    class(flume_fnl_object), intent(inout) :: self         !< The equation.
    real(R8P), allocatable                 :: integrals(:) !< Volume integrals [nv].
+   real(R8P), allocatable                 :: row(:)       !< History row: the integrals, then W and E + W.
+   real(R8P), allocatable                 :: factors(:)   !< Output factors of the integrals.
+   real(R8P)                              :: w            !< Gravitational energy.
 
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
    allocate(integrals(self%physics%nv))
@@ -624,9 +632,15 @@ contains
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
    call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, size(integrals), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(),        &
-                                               integrals=integrals*self%output_factors(self%q_name)*            &
-                                                         self%units%length_output()**3)
+   factors = self%output_factors(self%q_name) * self%units%length_output()**3
+   row = integrals * factors
+   if (self%physics%gravity%self_gravity) then
+      call self%solve_potential_gpu(q_gpu=self%q_gpu, energy=w)
+      w = 0.5_R8P * w * product(self%poisson%dxyz)
+      row = [row, w * factors(IQ_RE), (integrals(IQ_RE) + w) * factors(IQ_RE)]
+   endif
+   call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
+                                               integrals=row)
    endsubroutine compute_conservation
 
    subroutine compute_divb_history(self, realm)
@@ -843,11 +857,19 @@ contains
    !< (the block capacity may change at a regrid). Without a potential both are one-element placeholders, never zero bytes
    !< (issue #82). Call it after the state is on the device and after every regrid.
    class(flume_fnl_object), intent(inout) :: self             !< The equation.
+
+   call self%set_potential
+   call self%copy_potential_gpu
+   endsubroutine refresh_potential
+
+   subroutine copy_potential_gpu(self)
+   !< Copy the host gravitational potential to the device, transposed from `(i, j, k, b)` to `(b, i, j, k, 1)`; the
+   !< device array is reallocated to the host extent.
+   class(flume_fnl_object), intent(inout) :: self             !< The equation.
    real(R8P), allocatable                 :: buf(:,:,:,:,:)   !< Transposed staging buffer.
    integer(I4P)                           :: lb(4), ub(4)     !< Host bounds.
    integer(I4P)                           :: b, i, j, k       !< Counters.
 
-   call self%set_potential
    lb = lbound(self%phi_grav)
    ub = ubound(self%phi_grav)
    allocate(buf(lb(4):ub(4),lb(1):ub(1),lb(2):ub(2),lb(3):ub(3),1:1))
@@ -861,7 +883,54 @@ contains
       enddo
    enddo
    call dev_assign_to_device(lbounds=[lb(4), lb(1), lb(2), lb(3), 1], dst=self%phi_grav_gpu, src=buf)
-   endsubroutine refresh_potential
+   endsubroutine copy_potential_gpu
+
+   subroutine solve_potential_gpu(self, q_gpu, energy)
+   !< Solve the self-gravity potential of the device state `q_gpu` (issue #81, M8-P3): a device kernel packs the
+   !< interior density, the host gathers it to rank 0 through the library solver (cuFFT on rank 0's GPU), and the
+   !< potential, every ghost layer filled, comes back to `phi_grav` and, for the active blocks only, to the device
+   !< (`unpack_potential_dev`). Optionally the energy `sum_cells rho Phi` (every rank). The density and the potential
+   !< cross the host every stage (gather to rank 0).
+   !<
+   !< Only the active blocks cross the bus: `phi_grav` is sized to the block capacity (23270 blocks against 16 in use
+   !< on an A30 at 32^2), and copying it whole every stage cost 0.73 s per solve, 99.6% of the solve.
+   class(flume_fnl_object), intent(inout)         :: self       !< The equation.
+   real(R8P), intent(in) :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Device state (b, i, j, k, v).
+   real(R8P),               intent(out), optional :: energy     !< sum_cells rho Phi.
+   real(R8P), pointer                             :: buf_gpu(:) !< Packed density, then packed potential, device.
+   real(R8P), allocatable                         :: buf(:)     !< Packed density, then packed potential, host.
+   real(R8P)                                      :: t0         !< Wall clock at the start.
+   integer(I4P)                                   :: nb         !< Active blocks.
+   integer(I4P)                                   :: n_rho      !< Packed density values.
+   integer(I4P)                                   :: n_phi      !< Packed potential values, ghosts included.
+   integer(I4P)                                   :: n          !< Buffer size (at least 1, never zero bytes).
+   integer(I4P)                                   :: ierr       !< Error status.
+
+   t0 = MPI_WTIME()
+   nb = self%blocks_number
+   n_rho = nb * self%ni * self%nj * self%nk
+   n_phi = nb * (self%ni + 2 * self%ngc) * (self%nj + 2 * self%ngc) * (self%nk + 2 * self%ngc)
+   n = max(n_rho, n_phi, 1_I4P)
+   nullify(buf_gpu)
+   call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[n], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in solve_potential_gpu')
+   if (nb > 0_I4P) call pack_density_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                         blocks_number=nb, q_gpu=q_gpu, buf_gpu=buf_gpu)
+   allocate(buf(n))
+   call dev_memcpy_from_device(dst=buf, src=buf_gpu)
+   call self%poisson%solve_packed(field=self%adam%field, buf=buf(1:max(n_rho,1_I4P)), &
+                                  factor=self%physics%gravity%four_pi_g, phi=self%phi_grav, energy=energy)
+   if (.not.associated(self%phi_grav_gpu)) then
+      call self%copy_potential_gpu
+   elseif (nb > 0_I4P) then
+      buf(1:n_phi) = reshape(self%phi_grav(:,:,:,1:nb), [n_phi])
+      call dev_memcpy_to_device(dst=buf_gpu, src=buf)
+      call unpack_potential_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=nb, &
+                                buf_gpu=buf_gpu, phi_gpu=self%phi_grav_gpu)
+   endif
+   call dev_free(buf_gpu, mydev)
+   self%poisson_wall = MPI_WTIME() - t0
+   endsubroutine solve_potential_gpu
 
    subroutine destroy(self)
    !< Free device and host data: own device buffers, the FNL helpers (library teardown) and the common data.
@@ -936,6 +1005,11 @@ contains
    if (realms_number_ > 1_I4P .and. self%physics%gravity%is_balanced) &
       call mpih_fnl%error_stop(msg=': [gravity].(equilibrium) = atmosphere is not supported on multi-realm runs '// &
                                    '(the equilibrium residual would need the equilibrium of the peer realms at the seams)')
+   if (realms_number_ > 1_I4P .and. self%physics%gravity%self_gravity) &
+      call mpih_fnl%error_stop(msg=': [gravity].(self_gravity) is not supported on multi-realm runs (each realm would '// &
+                                   'solve its own Poisson equation; issue #81)')
+   ! the cuFFT solver (issue #81): set_potential sets it up on the grid
+   if (self%physics%gravity%self_gravity) allocate(poisson_fft_fnl_object :: self%poisson)
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
@@ -1889,8 +1963,9 @@ contains
    call self%update_ghost(q_gpu=self%q_gpu)
    call self%compute_q_aux(q_gpu=self%q_gpu)
    call self%check_glm_ch
-   call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name, &
-                                   is_restart=self%io%restart, with_divb=self%physics%model /= MODEL_EULER)
+   call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
+                                   is_restart=self%io%restart, with_divb=self%physics%model /= MODEL_EULER, &
+                                   with_self_gravity=self%physics%gravity%self_gravity)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
       call self%compute_divb_history
@@ -2219,6 +2294,7 @@ contains
    endif
    call self%apply_floors(q_gpu=q_gpu)
    call self%update_ghost(q_gpu=q_gpu)
+   if (self%physics%gravity%self_gravity) call self%solve_potential_gpu(q_gpu=q_gpu) ! Phi of this stage (issue #81)
    call self%compute_q_aux(q_gpu=q_gpu)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
@@ -2396,6 +2472,7 @@ contains
    endif
    call self%apply_floors(q_gpu=q_gpu)
    call self%update_ghost(q_gpu=q_gpu)
+   if (self%physics%gravity%self_gravity) call self%solve_potential_gpu(q_gpu=q_gpu) ! Phi of this stage (issue #81)
    call self%compute_q_aux(q_gpu=q_gpu)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
    cc = self%numerics%correction_coefficients()

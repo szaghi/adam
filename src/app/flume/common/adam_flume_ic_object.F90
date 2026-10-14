@@ -155,6 +155,7 @@ character(len=5),  parameter :: SINE_MODE_SHEAR="shear"                  !< Sine
 character(len=8),  parameter :: SINE_MODE_ACOUSTIC="acoustic"            !< Sine wave: right-running acoustic wave.
 character(len=8),  parameter :: SINE_MODE_MAGNETIC="magnetic"            !< Sine wave: transverse field (MHD).
 character(len=7),  parameter :: SINE_MODE_ENTROPY="entropy"              !< Sine wave: density (entropy) wave.
+character(len=5),  parameter :: SINE_MODE_JEANS="jeans"                  !< Sine wave: Jeans mode (self-gravity, #81).
 character(len=15), parameter :: ATM_PULSE_KEY(5)=['pulse_amplitude', 'pulse_x        ', 'pulse_y        ', &
                                                   'pulse_z        ', 'pulse_width    '] !< Atmosphere pulse keys.
 character(len=7),  parameter :: IC_COUETTE_STR="couette"                 !< Exact compressible Couette flow (issue #65).
@@ -219,7 +220,8 @@ type :: flume_ic_object
    real(R8P)                 :: shu_osher(3)=0._R8P  !< Shu-Osher: interface, density amplitude, density wavenumber.
    real(R8P)                 :: gradient(3)=0._R8P   !< Linear: relative gradient g, q = q_1 (1 + g . x).
    integer(I4P)              :: degree=1_I4P         !< Polynomial: degree n, q = q_1 (1 + sum_d g_d x_d^n).
-   character(:), allocatable :: sine_mode            !< Sine wave: shear or acoustic.
+   character(:), allocatable :: sine_mode            !< Sine wave: shear, acoustic, entropy, magnetic or jeans.
+   real(R8P)                 :: four_pi_g=0._R8P     !< Sine wave, jeans: 4 pi G of the self-gravity.
    real(R8P)                 :: couette(4)=0._R8P    !< Couette: fixed wall y, height, moving wall velocity, T_wall.
    real(R8P)                 :: couette_heat=0._R8P  !< Couette: mu U^2 / (k H), the temperature rise scale.
    real(R8P)                 :: R=0._R8P             !< Gas constant.
@@ -571,6 +573,11 @@ contains
       self%sine_mode = trim(adjustl(strip_control(buff)))
       select case(self%sine_mode)
       case(SINE_MODE_SHEAR, SINE_MODE_ACOUSTIC, SINE_MODE_ENTROPY)
+      case(SINE_MODE_JEANS)
+         if (.not.physics%gravity%self_gravity) &
+            call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave_mode)='//SINE_MODE_JEANS//' requires '// &
+                                     '[gravity].(self_gravity) = .true.')
+         self%four_pi_g = physics%gravity%four_pi_g
       case(SINE_MODE_MAGNETIC)
          if (self%model == MODEL_EULER) &
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave_mode)='//SINE_MODE_MAGNETIC//' requires '// &
@@ -578,7 +585,7 @@ contains
       case default
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(wave_mode) "'//self%sine_mode// &
                                   '"; expected one of '//SINE_MODE_SHEAR//', '//SINE_MODE_ACOUSTIC//', '// &
-                                  SINE_MODE_ENTROPY//', '//SINE_MODE_MAGNETIC)
+                                  SINE_MODE_ENTROPY//', '//SINE_MODE_MAGNETIC//', '//SINE_MODE_JEANS)
       endselect
       do k=1, 3
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(WAVE_KEY(k)), val=self%wave_par(k), &
@@ -739,6 +746,7 @@ contains
    real(R8P)                             :: s_            !< Pulse axis coordinate, scaled peak distance, phase, or
                                                           !< height above the Rayleigh-Taylor interface.
    real(R8P)                             :: ca, sa        !< cos, sin of the CPAW normal angle.
+   real(R8P)                             :: jk, jw2       !< Jeans wave: wavenumber, w^2 of the dispersion relation.
    real(R8P)                             :: bt(2)         !< CPAW transverse field, t1 and t2 components.
    logical                               :: is_set        !< Flag: cell covered by a region.
    integer(I4P)                          :: b, i, j, k, r !< Counters.
@@ -812,9 +820,13 @@ contains
       ! point values at the cell centres, s = A sin(2 pi n . x / wavelength) on the region-1 state, n = (cos, sin) of
       ! wave_angle in the x-y plane: shear, the velocity gains s t, t = (-sin, cos); acoustic (right-running, linear),
       ! rho (1 + s), u + a s n, p (1 + gamma s); entropy, rho (1 + s) (u and p uniform: advected exactly, and under a
-      ! constant gravity it falls freely, issue #73); magnetic (MHD), the field gains s t
+      ! constant gravity it falls freely, issue #73); magnetic (MHD), the field gains s t; jeans (self-gravity, issue
+      ! #81), the acoustic wave of the dispersion relation w^2 = c^2 k^2 - 4 pi G rho: rho (1 + s), p (1 + gamma s), and
+      ! for w^2 >= 0 the right-running velocity (w / k) s n, for w^2 < 0 the growing mode's (sigma / k) A cos(.) n
       ca = cos(self%wave_par(1) * PI / 180._R8P)
       sa = sin(self%wave_par(1) * PI / 180._R8P)
+      jk = 2._R8P * PI / self%wave_par(3)
+      jw2 = self%gamma * self%prim_1(5) / self%prim_1(1) * jk**2 - self%four_pi_g * self%prim_1(1)
       do b=1, field%blocks_number
          do k=1, field%nk
             do j=1, field%nj
@@ -828,6 +840,16 @@ contains
                      prim(6:7) = prim(6:7) + s_ * [-sa, ca]
                   elseif (self%sine_mode == SINE_MODE_ENTROPY) then
                      prim(1)   = self%prim_1(1) * (1._R8P + s_)
+                  elseif (self%sine_mode == SINE_MODE_JEANS) then
+                     prim(1)   = self%prim_1(1) * (1._R8P + s_)
+                     prim(5)   = self%prim_1(5) * (1._R8P + self%gamma * s_)
+                     if (jw2 >= 0._R8P) then
+                        prim(2:3) = prim(2:3) + sqrt(jw2) / jk * s_ * [ca, sa]
+                     else
+                        prim(2:3) = prim(2:3) + sqrt(-jw2) / jk * self%wave_par(2) *                          &
+                                    cos(2._R8P * PI * (field%x_cell(i,b) * ca + field%y_cell(j,b) * sa) /  &
+                                        self%wave_par(3)) * [ca, sa]
+                     endif
                   else
                      prim(1)   = self%prim_1(1) * (1._R8P + s_)
                      prim(2:3) = prim(2:3) + sqrt(self%gamma * self%prim_1(5) / self%prim_1(1)) * s_ * [ca, sa]

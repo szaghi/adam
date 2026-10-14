@@ -1,5 +1,5 @@
 [modes]
-modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-omp-amd flume-fnl-omp-amd-debug test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf test-flume-euler-library-fnl-omp-amd test-flume-mhd-library-gnu test-flume-mhd-library-fnl-nvf test-flume-mhd-library-fnl-omp-amd test-flume-mhd-riemann-gnu test-flume-mhd-riemann-fnl-nvf test-flume-mhd-riemann-fnl-omp-amd test-flume-positivity-gnu test-flume-weno-interpolation-gnu test-flume-weno-weights-gnu test-flume-weno-interpolation-fnl-nvf test-flume-weno-interpolation-fnl-omp-amd
+modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-cpu-gnu-fft flume-cpu-gnu-fft-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-nvf-fft flume-fnl-nvf-fft-debug flume-fnl-omp-amd flume-fnl-omp-amd-debug test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf test-flume-euler-library-fnl-omp-amd test-flume-mhd-library-gnu test-flume-mhd-library-fnl-nvf test-flume-mhd-library-fnl-omp-amd test-flume-mhd-riemann-gnu test-flume-mhd-riemann-fnl-nvf test-flume-mhd-riemann-fnl-omp-amd test-flume-positivity-gnu test-flume-weno-interpolation-gnu test-flume-weno-weights-gnu test-flume-weno-interpolation-fnl-nvf test-flume-weno-interpolation-fnl-omp-amd
 
 [flume-cpu-gnu]
 template = template-gnu
@@ -19,6 +19,44 @@ output   = adam_flume_cpu_omp
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = adam_flume_cpu.F90
+
+# self-gravity (issue #81): the FFT Poisson solver, FFTW on the CPU (-D_FFTW), cuFFT on FNL (-D_CUFFT); own mod/obj
+# directories (the solver modules compile with other macros than in the default builds) and own executables
+[flume-cpu-gnu-fft]
+template = template-gnu
+mod_dir  = ./mod/gnu-fft/
+obj_dir  = ./obj/gnu-fft/
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
+target   = adam_flume_cpu.F90
+output   = adam_flume_cpu_fft
+
+[flume-cpu-gnu-fft-debug]
+template = template-gnu-debug
+mod_dir  = ./mod/gnu-fft/debug/
+obj_dir  = ./obj/gnu-fft/debug/
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
+target   = adam_flume_cpu.F90
+output   = adam_flume_cpu_fft
+
+[flume-fnl-nvf-fft]
+template = template-nvf
+mod_dir  = ./mod/nvf-fft/
+obj_dir  = ./obj/nvf-fft/
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+lflags   = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
+target   = adam_flume_fnl.F90
+output   = adam_flume_fnl_fft
+
+[flume-fnl-nvf-fft-debug]
+template = template-nvf-debug
+mod_dir  = ./mod/nvf-fft/debug/
+obj_dir  = ./obj/nvf-fft/debug/
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+lflags   = -acc -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -Mchkptr -Mchkstk -Ktrap=fp -g -O0 -cudalib=cufft
+target   = adam_flume_fnl.F90
+output   = adam_flume_fnl_fft
 
 [flume-fnl-nvf]
 template = template-nvf

@@ -40,11 +40,13 @@ public :: fill_seam_copy_dev
 public :: gather_seam_cells_dev
 public :: gather_seam_faces_dev
 public :: gather_seam_stencils_dev
+public :: pack_density_dev
 public :: pack_seam_skin_dev
 public :: scatter_seam_cells_dev
 public :: scatter_seam_faces_dev
 public :: set_boundary_conditions_dev
 public :: poison_ghosts_dev
+public :: unpack_potential_dev
 
 contains
    ! public procedures
@@ -600,6 +602,53 @@ contains
    enddo
    enddo
    endsubroutine pack_seam_skin_dev
+
+   subroutine pack_density_dev(ni, nj, nk, ngc, blocks_number, q_gpu, buf_gpu)
+   !< Pack the interior density of every block into `buf_gpu`, block-major then `k`, `j`, `i` fastest: the order of the
+   !< library FFT Poisson solver's `solve_packed` (issue #81, M8-P3), which gathers it on the host.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(inout) :: buf_gpu(1:)                       !< Packed density [blocks_number ni nj nk].
+   integer(I4P)                :: b, i, j, k                        !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,buf_gpu) firstprivate(ni,nj,nk,blocks_number)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu,buf_gpu) firstprivate(ni,nj,nk,blocks_number)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      buf_gpu((((b-1)*nk + (k-1))*nj + (j-1))*ni + i) = q_gpu(b,i,j,k,IQ_R)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine pack_density_dev
+
+   subroutine unpack_potential_dev(ni, nj, nk, ngc, blocks_number, buf_gpu, phi_gpu)
+   !< Unpack the potential of the active blocks, every ghost layer included, from `buf_gpu` (the host layout
+   !< `(i, j, k, b)` flattened, `i` fastest) into `phi_gpu(b, i, j, k, 1)` (issue #81, M8-P3). Only the active blocks
+   !< cross the bus: the host and device arrays are sized to the block capacity, not to the blocks in use.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                     !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                       !< Actual blocks number.
+   real(R8P),    intent(in)    :: buf_gpu(1:)                         !< Packed potential [(ni+2ngc)(nj+2ngc)(nk+2ngc) nb].
+   real(R8P),    intent(inout) :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Potential (b, i, j, k, 1).
+   integer(I4P)                :: mi, mj, mk                          !< Cells per block per direction, ghosts included.
+   integer(I4P)                :: b, i, j, k                          !< Counters.
+
+   mi = ni + 2 * ngc ; mj = nj + 2 * ngc ; mk = nk + 2 * ngc
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(buf_gpu,phi_gpu) firstprivate(ngc,mi,mj,mk,blocks_number)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(buf_gpu,phi_gpu) firstprivate(ngc,mi,mj,mk,blocks_number)
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do b=1, blocks_number
+      phi_gpu(b,i,j,k,1) = buf_gpu((((b-1)*mk + (k+ngc-1))*mj + (j+ngc-1))*mi + i + ngc)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine unpack_potential_dev
 
    subroutine gather_seam_cells_dev(n, nv, ngc, cells_gpu, a_gpu, out_gpu)
    !< Gather `out_gpu(v, m) = a_gpu(b, i, j, k, v)` at the cells `cells_gpu(:, m) = (i, j, k, b)` of a ghosted field

@@ -519,7 +519,13 @@ contains
    !< The sum is compensated (Neumaier): a plain running sum of a uniform field adds equal terms to a growing total, so
    !< its rounding errors do not cancel and grow with the cells number (M2-P7b: 1.3e-12 relative on the ~2.6e5 cells of
    !< a uniform-density AMR run, against a 1e-13 conservation criterion); the FNL twin reduces on the device (a tree).
+   !<
+   !< With self-gravity (issue #81) the row gains `W = 1/2 sum rho Phi dV` and `E + W`, Phi solved from the committed
+   !< state (the stage potentials belong to the stage states).
    class(flume_cpu_object), intent(inout) :: self             !< The equation.
+   real(R8P), allocatable                 :: row(:)           !< History row: the integrals, then W and E + W.
+   real(R8P), allocatable                 :: factors(:)       !< Output factors of the integrals.
+   real(R8P)                              :: w                !< Gravitational energy.
    real(R8P), allocatable                 :: integrals(:)     !< Volume integrals [nv].
    real(R8P), allocatable                 :: compensation(:)  !< Neumaier compensation of each integral [nv].
    real(R8P)                              :: volume           !< Cell volume.
@@ -551,9 +557,15 @@ contains
    enddo
    integrals = integrals + compensation
    call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, size(integrals), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
-   call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(),        &
-                                               integrals=integrals*self%output_factors(self%q_name)*            &
-                                                         self%units%length_output()**3)
+   factors = self%output_factors(self%q_name) * self%units%length_output()**3
+   row = integrals * factors
+   if (self%physics%gravity%self_gravity) then
+      call self%solve_potential(q=self%q, energy=w)
+      w = 0.5_R8P * w * product(self%poisson%dxyz)
+      row = [row, w * factors(IQ_RE), (integrals(IQ_RE) + w) * factors(IQ_RE)]
+   endif
+   call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
+                                               integrals=row)
    endsubroutine compute_conservation
 
    subroutine compute_divb_history(self, realm)
@@ -732,6 +744,9 @@ contains
    if (realms_number_ > 1_I4P .and. self%physics%gravity%is_balanced) &
       call mpih%error_stop(msg=': [gravity].(equilibrium) = atmosphere is not supported on multi-realm runs (the '// &
                                'equilibrium residual would need the equilibrium of the peer realms at the seams)')
+   if (realms_number_ > 1_I4P .and. self%physics%gravity%self_gravity) &
+      call mpih%error_stop(msg=': [gravity].(self_gravity) is not supported on multi-realm runs (each realm would '// &
+                               'solve its own Poisson equation; issue #81)')
    call self%allocate_cpu
    select case(self%numerics%scheme_space)
    case(SCHEME_SPACE_WENO)
@@ -1736,12 +1751,14 @@ contains
       self%time%time = 0._R8P
       self%time%it   = 0_I4P
    endif
+   if (self%physics%gravity%self_gravity) call self%solve_potential(q=self%q) ! the final initial state (issue #81)
    call self%set_glm_damping
    call self%update_ghost(q=self%q)
    call self%compute_q_aux(q=self%q)
    call self%check_glm_ch
-   call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name, &
-                                   is_restart=self%io%restart, with_divb=self%physics%model /= MODEL_EULER)
+   call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
+                                   is_restart=self%io%restart, with_divb=self%physics%model /= MODEL_EULER, &
+                                   with_self_gravity=self%physics%gravity%self_gravity)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
       call self%compute_divb_history
@@ -2333,6 +2350,7 @@ contains
    endif
    call self%apply_floors(q=q)
    call self%update_ghost(q=q)
+   if (self%physics%gravity%self_gravity) call self%solve_potential(q=q) ! Phi of this stage (issue #81)
    call self%compute_q_aux(q=q)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
@@ -2472,6 +2490,7 @@ contains
    endif
    call self%apply_floors(q=q)
    call self%update_ghost(q=q)
+   if (self%physics%gravity%self_gravity) call self%solve_potential(q=q) ! Phi of this stage (issue #81)
    call self%compute_q_aux(q=q)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
    cc = self%numerics%correction_coefficients()

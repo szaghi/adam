@@ -1494,6 +1494,84 @@ def fig_selfgravity_poisson(out: Path, runs: Path) -> None:
     fig.savefig(out / "selfgravity-poisson.png", dpi=DPI)
     plt.close(fig)
 
+def fig_selfgravity_jeans(out: Path, runs: Path) -> None:
+    """SV-3 and SV-4 (issue #81, M8-P3): the Jeans modes of selfgravity/make_jeans.py (rho_0 = 1, c = 1,
+    k = 2 pi (1, 1), periodic, CPU, 2 ranks). Top left: SV-3, the L1 error of the stable wave (lambda = lambda_J / 2)
+    after one period against N, 2-D and 3-D. Top right: SV-4, the amplitude of the unstable mode (lambda = 1.5
+    lambda_J, N = 64) against the exact e^(sigma t). Bottom left: the collapse (amplitude 1e-2, N = 64), the drift of
+    E + W at CFL 0.4, 0.2, 0.1, with E and W alone. Bottom right: the collapse density at t = 0.4."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import jeans_oracle  # noqa: PLC0415
+
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    ax = axs[0, 0]
+    for label, tag, cells, side, color, mk in (("2-D", "2d", (8, 16, 32), 4, "tab:blue", "o"),
+                                               ("3-D", "3d", (8, 16), 2, "tab:red", "s")):
+        works = [runs / f"sv3-{tag}-{c}" for c in cells]
+        n = np.array([side * c for c in cells], dtype=float)
+        err = np.array([jeans_oracle.wave_error(w)[1] for w in works])
+        order = math.log2(err[-2] / err[-1])
+        ax.loglog(n, err, f"{mk}-", color=color, mfc="none", ms=8,
+                  label=f"{label}: L1 rho / (rho_0 A), order {order:.2f}")
+    ns = np.array([16.0, 128.0])
+    ax.loglog(ns, 2e-3 * (32.0 / ns) ** 2, "-", color="0.6", lw=0.8)
+    ax.annotate("dx^2", (64.0, 2e-3 * (32.0 / 64.0) ** 2), xytext=(0, -12), textcoords="offset points", fontsize=8,
+                color="0.4")
+    ax.set_xlabel("N (cells per side)")
+    ax.set_ylabel("L1 error after one period")
+    ax.legend(fontsize=8)
+    ax.set_title("SV-3: the stable Jeans wave, w = pi sqrt(6)", fontsize=10)
+    ax = axs[0, 1]
+    lin = runs / "sv4-linear"
+    jm = jeans_oracle.Jeans(jeans_oracle.read_ini(lin))
+    rows = jeans_oracle.mode_amplitudes(lin)
+    t = np.array([r[0] for r in rows])
+    a = np.array([r[1] for r in rows])
+    sel = (t >= 0.1) & (t <= 0.5)
+    sigma = float(np.polyfit(t[sel], np.log(a[sel]), 1)[0])
+    ax.semilogy(t, a, "o", ms=3, color="tab:blue", label=f"measured, fit sigma = {sigma:.4f}")
+    ax.semilogy(t, jm.amp * np.exp(jm.rate * t), "-", color="0.3", label=f"exact, sigma = pi sqrt(10) = {jm.rate:.4f}")
+    ax.set_xlabel("t")
+    ax.set_ylabel("mode amplitude")
+    ax.legend(fontsize=8)
+    ax.set_title("SV-4: the unstable mode, lambda = 1.5 lambda_J", fontsize=10)
+    ax = axs[1, 0]
+    for cfl, color in (("0.4", "tab:blue"), ("0.2", "tab:orange"), ("0.1", "tab:green")):
+        h = jeans_oracle.history(runs / f"sv4-collapse-{cfl}")
+        ew0 = h["E_plus_W"][0]
+        ax.semilogy(h["time"][1:], np.maximum(np.abs(h["E_plus_W"][1:] - ew0) / abs(ew0), FLOOR), "-", color=color,
+                    label=f"E + W, CFL {cfl}")
+        if cfl == "0.1":
+            ax.semilogy(h["time"][1:], np.abs(h["int_rE"][1:] - h["int_rE"][0]) / abs(ew0), "--", color="0.4",
+                        label="E alone")
+            ax.semilogy(h["time"][1:], np.abs(h["W"][1:] - h["W"][0]) / abs(ew0), ":", color="0.4", label="W alone")
+    ax.set_xlabel("t")
+    ax.set_ylabel("relative change")
+    ax.legend(fontsize=8)
+    ax.set_title("SV-4: the collapse, E + W drifts at the time integration's order", fontsize=10)
+    ax = axs[1, 1]
+    col = runs / "sv4-collapse-0.1"
+    ini = jeans_oracle.read_ini(col)
+    cps = jeans_oracle.checkpoints(col)
+    tc, paths = cps[max(cps)]
+    cells = [(c, q["r"]) for c, _, q in jeans_oracle.interior(ini, paths)]
+    xs = sorted({round(float(c[0]), 10) for c, _ in cells})
+    ys = sorted({round(float(c[1]), 10) for c, _ in cells})
+    img = np.zeros((len(xs), len(ys)))
+    ix = {x: i for i, x in enumerate(xs)}
+    iy = {y: j for j, y in enumerate(ys)}
+    for c, r in cells:
+        img[ix[round(float(c[0]), 10)], iy[round(float(c[1]), 10)]] = r
+    lo = float(ini["grid"]["emin_x"])
+    im = ax.imshow(img.T, origin="lower", extent=(lo, lo + 1.0, lo, lo + 1.0), cmap="magma")
+    fig.colorbar(im, ax=ax, shrink=0.85)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title(f"the collapse density at t = {tc:.2f} (max {img.max():.3f})", fontsize=10)
+    fig.suptitle("SV-3, SV-4: Jeans modes under the self-gravity of the FFT solver (CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-jeans.png", dpi=DPI)
+    plt.close(fig)
+
 
 def _rank_blocks(paths: list[Path]) -> dict[int, int]:
     """Blocks of each rank in one checkpoint (rank -> count), from the per-rank files."""
@@ -1516,7 +1594,8 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "gravity-rt-linear": fig_gravity_rt_linear, "gravity-rt": fig_gravity_rt,
            "gravity-rt-symmetry": fig_gravity_rt_symmetry, "ranks": fig_ranks,
            "selfgravity-potential": fig_selfgravity_potential,
-           "selfgravity-poisson": fig_selfgravity_poisson}
+           "selfgravity-poisson": fig_selfgravity_poisson,
+           "selfgravity-jeans": fig_selfgravity_jeans}
 
 
 def main() -> int:
