@@ -68,6 +68,25 @@ for np in $NPS; do
    fi
 done
 
+# adimensional model (F3): the [grid] and [slice_N] extents are dimensional, the grid divides them by L0 and so must
+# the slices (before, the points stayed dimensional: in the wrong place, or outside the domain and an abort at the first
+# save); the oracle expects the extents divided by L0. Run on the last process count.
+last_np="${NPS##* }"
+if [[ -n "$last_np" ]]; then
+   work="$CASE_DIR/work-$TAG-adim-np$last_np"
+   rm -rf "$work" ; mkdir -p "$work"
+   # a plane wave along y: unlike the gaussian pulse, its initial conditions are adimensionalized (B, D and lambda)
+   sed -e 's/^physical_model = EM$/physical_model = AdimEM\nL0             = 0.01\nB0             = 10.0/' \
+       -e 's/^type            = gaussian_pulse$/type            = plane_wave\nkx              = 0.0\nky              = 1.0\nkz              = 0.0\nlambda          = 0.04/' \
+       "$CASE_DIR/slices.ini" > "$work/slices.ini"
+   echo ">> $TAG, adimensional model (AdimEM, L0 = 0.01, plane wave), np $last_np"
+   if (cd "$work" && mpirun -np "$last_np" "$EXE" slices.ini > log.txt 2>&1); then
+      "$VENV_PY" -I "$CASE_DIR/slices_oracle.py" "$work" || status=1
+   else
+      echo "   run failed, see $work/log.txt" ; status=1
+   fi
+fi
+
 # input validation (F2): every [slice_N] option is required and checked at init, an invalid one stops the run with a
 # message naming it (before, a missing option left the slice undefined and n_save = 0 crashed on mod(it, 0)); an itype
 # with a trailing CR (INI authored on Windows) is accepted
@@ -89,6 +108,7 @@ reject itype-unknown  'unknown [slice_1].(itype) "bilinear"' '/^\[slice_1\]/,/^\
 reject nj-zero        "[slice_1].(ni, nj, nk)" '/^\[slice_1\]/,/^\[slice_2\]/s/^nj     = .*/nj     = 0/'
 reject emin-above-max "[slice_1] emin" '/^\[slice_1\]/,/^\[slice_2\]/s/^emin_y = .*/emin_y = 0.002/'
 reject number-negative "[slices].(slices_number) = -1 must be >= 0" 's/^slices_number = .*/slices_number = -1/'
+reject outside-domain "outside the realm domain" '/^\[slice_1\]/,/^\[slice_2\]/s/^emax_x = .*/emax_x = 0.07/'
 work="$CASE_DIR/work-$TAG-input-itype-crlf"
 rm -rf "$work" ; mkdir -p "$work"
 sed -e '/^\[slice_1\]/,/^\[slice_2\]/s/^itype  = trilinear$/itype  = trilinear\r/' "$CASE_DIR/slices.ini" > "$work/slices.ini"

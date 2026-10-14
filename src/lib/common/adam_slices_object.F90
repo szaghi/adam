@@ -4,6 +4,7 @@ module adam_slices_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_adam_object, only : adam_object
+use :: adam_grid_object, only : grid_object
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 ! third party modules
@@ -40,13 +41,15 @@ endtype slices_object
 
 contains
    ! public methods
-   subroutine initialize(self, file_parameters)
-   !< Initialize the equation.
-   class(slices_object), intent(inout) :: self            !< Slices.
-   type(file_ini),       intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   subroutine initialize(self, file_parameters, grid, L0)
+   !< Initialize the slices; see `load_from_file` for `grid` and `L0`.
+   class(slices_object), intent(inout)        :: self            !< Slices.
+   type(file_ini),       intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+   type(grid_object),    intent(in), optional :: grid            !< Grid of the realm, the points must lie in its domain.
+   real(R8P),            intent(in), optional :: L0              !< Adimensionalization length, as the grid's.
 
    call mpih%print_message('slices_object%initialize start')
-   call self%load_from_file(file_parameters=file_parameters)
+   call self%load_from_file(file_parameters=file_parameters, grid=grid, L0=L0)
    call mpih%print_message('slices_object%initialize finish')
    endsubroutine initialize
 
@@ -74,11 +77,18 @@ contains
    endif
    endfunction is_to_save
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters, go_on_fail, grid, L0)
    !< Load config from file.
+   !<
+   !< The `[slice_N]` extents are in the units of the `[grid]` ones: with `L0` (an adimensional model) they are divided by
+   !< it, as `grid_object%initialize` divides the domain, so that the points and the grid share the same units (the
+   !< saved points are then adimensional too). With `grid` every point must lie in the realm domain
+   !< [domain_emin, domain_emax): one outside would abort the run in `grid%get_closest_block` at the first save.
    class(slices_object), intent(inout)        :: self            !< Slices.
    type(file_ini),       intent(in)           :: file_parameters !< Simulation parameters ini file handler.
    logical,              intent(in), optional :: go_on_fail      !< Go on if load fails.
+   type(grid_object),    intent(in), optional :: grid            !< Grid of the realm, the points must lie in its domain.
+   real(R8P),            intent(in), optional :: L0              !< Adimensionalization length.
    logical                                    :: go_on_fail_     !< Go on if load fails.
    character(999)                             :: sname           !< Section name.
    real(R8P)                                  :: dxyz(3)         !< Space steps.
@@ -119,6 +129,10 @@ contains
          call file_parameters%get(section_name=trim(sname), option_name='emax_z', val=self%slice(s)%emax(3), error=error)
          call check_loaded(option='emax_z')
          call check_slice
+         if (present(L0)) then
+            self%slice(s)%emin = self%slice(s)%emin / L0
+            self%slice(s)%emax = self%slice(s)%emax / L0
+         endif
          allocate(self%slice(s)%points(3,self%slice(s)%nijk(1),self%slice(s)%nijk(2),self%slice(s)%nijk(3)))
          dxyz(1) = (self%slice(s)%emax(1) - self%slice(s)%emin(1)) / self%slice(s)%nijk(1)
          dxyz(2) = (self%slice(s)%emax(2) - self%slice(s)%emin(2)) / self%slice(s)%nijk(2)
@@ -132,6 +146,7 @@ contains
                enddo
             enddo
          enddo
+         if (present(grid)) call check_in_domain
       enddo
    endif
    contains
@@ -168,6 +183,23 @@ contains
          call mpih%error_stop(msg=': ['//trim(sname)//'] emin = '//trim(str(self%slice(s)%emin))// &
                                   ' exceeds emax = '//trim(str(self%slice(s)%emax)))
       endsubroutine check_slice
+
+      subroutine check_in_domain
+      !< Stop if a point of the current slice lies outside the realm domain.
+      character(:), allocatable :: note !< Units note.
+      integer(I4P)              :: c    !< Counter.
+
+      note = '' ; if (present(L0)) note = ' (adimensional: the [slice] extents are divided by L0)'
+      do c=1, 3
+         if (minval(self%slice(s)%points(c,:,:,:)) <  grid%domain_emin(c) .or. &
+             maxval(self%slice(s)%points(c,:,:,:)) >= grid%domain_emax(c))     &
+            call mpih%error_stop(msg=': ['//trim(sname)//'] points span ['//                                 &
+                                     trim(str(minval(self%slice(s)%points(c,:,:,:))))//', '//              &
+                                     trim(str(maxval(self%slice(s)%points(c,:,:,:))))//'] along '//         &
+                                     'xyz'(c:c)//', outside the realm domain ['//trim(str(grid%domain_emin(c)))// &
+                                     ', '//trim(str(grid%domain_emax(c)))//')'//note)
+      enddo
+      endsubroutine check_in_domain
    endsubroutine load_from_file
 
    subroutine save_mat(self, basename, it, it_max, time, time_max, adam, q, q_name, length_scale, q_scale)

@@ -338,7 +338,7 @@ contains
 #endif
       call check_amr_block_cells
       call self%ib%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
-      call self%slices%initialize(file_parameters=file_parameters)
+      call self%slices%initialize(file_parameters=file_parameters, grid=self%adam%grid, L0=L0)
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
       ! call self%cfm%initialize(file_parameters=file_parameters)
       ! call self%leapfrog%initialize(file_parameters=file_parameters)

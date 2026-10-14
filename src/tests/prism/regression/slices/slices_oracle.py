@@ -7,7 +7,7 @@ so a wrong value goes unnoticed. Two checks on the XH5F checkpoint saved at the 
 * slices: every point of every slice of every field set (q, curl, div) is recomputed from the checkpoint blocks: the
   leaf block containing the written point, the eight cells around it (ghost cells included) and the trilinear or inverse
   distance weights, as adam_object%interpolate_at_point defines them. The point coordinates are checked against the
-  [slice_N] box, which also catches a point no rank wrote.
+  [slice_N] box (divided by L0 under an adimensional model, as the grid), which also catches a point no rank wrote.
 * auxiliary ghosts: curl and divergence are computed on the interior cells only and save_slices refreshes their
   intra-realm ghost cells; on every face shared by two blocks of the same level the ghost slab of one block must equal
   the interior slab of the other, bitwise, for every field set. Faces across the 2:1 seam are interpolated, not
@@ -43,6 +43,14 @@ def read_ini(path: Path) -> configparser.ConfigParser:
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
     ini.read(path)
     return ini
+
+
+def length_unit(ini: configparser.ConfigParser) -> float:
+    """Return the length the [grid] and [slice_N] extents are divided by: L0 under an adimensional model, else 1."""
+    model = ini["physics"]["physical_model"].strip()
+    adim = model in ("AdimEM", "adimem", "AdimensionalizedElectromagnetic", "adimensionalelectromagnetic",
+                     "AdimPIC", "adimpic", "adim_PIC", "adim_pic")
+    return float(ini["physics"]["L0"]) if adim else 1.0
 
 
 def load_blocks(work: Path, basename: str, it: int, ngc: int) -> list[dict]:
@@ -108,12 +116,13 @@ def check_slices(work: Path, ini: configparser.ConfigParser, blocks: list[dict],
                  tol: float) -> int:
     """Check every slice file against the recomputed values; return the failures count."""
     basename = ini["IO"]["output_basename"]
+    unit = length_unit(ini)
     failures = 0
     for s in range(1, int(ini["slices"]["slices_number"]) + 1):
         sec = ini[f"slice_{s}"]
         nijk = np.array([int(sec["ni"]), int(sec["nj"]), int(sec["nk"])])
-        emin = np.array([float(sec[f"emin_{a}"]) for a in "xyz"])
-        emax = np.array([float(sec[f"emax_{a}"]) for a in "xyz"])
+        emin = np.array([float(sec[f"emin_{a}"]) for a in "xyz"]) / unit
+        emax = np.array([float(sec[f"emax_{a}"]) for a in "xyz"]) / unit
         expected = [emin + (np.array([i, j, k]) + 0.5) * (emax - emin) / nijk
                     for k in range(nijk[2]) for j in range(nijk[1]) for i in range(nijk[0])]
         for fset in blocks[0]["q"]:
@@ -143,7 +152,8 @@ def check_slices(work: Path, ini: configparser.ConfigParser, blocks: list[dict],
             scale = np.array([r[fset][1] for r in ref])
             scale = np.where(scale > 0.0, scale, 1.0)
             err = float(np.max(np.abs(data[:, 3:] - val) / scale))
-            ok = xyz_err <= 1.0e-15 and err <= tol and np.all(np.isfinite(data))
+            xyz_tol = 1.0e-14 * max(1.0, float(np.max(np.abs(expected))))
+            ok = xyz_err <= xyz_tol and err <= tol and np.all(np.isfinite(data))
             failures += 0 if ok else 1
             print(f"slice {mat.name}: {'x'.join(map(str, nijk))} {sec['itype'].strip()}, coordinates error "
                   f"{xyz_err:.1e}, max relative difference {err:.3e}  {'PASS' if ok else 'FAIL'} (tol {tol:.1e})")
@@ -207,8 +217,8 @@ def main() -> int:
     if not blocks:
         sys.exit(f"slices_oracle: no checkpoint at iteration {it} in {args.work}")
     # the finest block size, as grid%block_dxyz(:, max_level)
-    emin = np.array([float(ini["grid"][f"emin_{a}"]) for a in "xyz"])
-    emax = np.array([float(ini["grid"][f"emax_{a}"]) for a in "xyz"])
+    emin = np.array([float(ini["grid"][f"emin_{a}"]) for a in "xyz"]) / length_unit(ini)
+    emax = np.array([float(ini["grid"][f"emax_{a}"]) for a in "xyz"]) / length_unit(ini)
     refined = {2: 1, 4: 2, 8: 3}[int(ini["amr"].get("ratio", "8"))]  # binary, quad, octree: refined axes x[, y[, z]]
     size_max = (emax - emin) / np.array([2 ** int(ini["amr"]["max_level"]) if a < refined else 1 for a in range(3)])
     domain = (emin, size_max)
