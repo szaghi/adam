@@ -37,6 +37,18 @@ M7-G2b cases (the well-balanced mode), atmospheres at rest under a strong strati
     strat2d-mhdx strat2d with EGLM and a uniform field across g, B = (0.05, 0, 0);
     strat2d-amr  strat2d with a refined box [0.25, 0.75]^2 (2:1 seams across the stratification).
 
+M7-G3 cases (Rayleigh-Taylor, the `rayleigh-taylor` initial condition), x periodic, y hydrostatic, g = (0, -1), two
+isothermal layers 2 over 1 (rho_1 = 1, p_1 = 1 at the interface height 0.5), a solenoidal single mode of wavelength
+0.5 seeded in the velocity, Gaussian envelope of width 0.1 about the interface, CFL 0.4:
+
+    rt2d         interface width 0.05, seed 1e-5, to t = 4, on [0, 0.5] x [0.25, 0.75] (one wavelength, the mode
+                 down to exp(-pi) at the y faces): the linear stage, sigma = 1.523 by rt_oracle.py (GV-4);
+    rt2d-nl      interface width 0.01, seed 1e-2, to t = 5 (sigma = 1.869): the nonlinear single mode (bubbles,
+                 spikes, roll-up);
+    rt2d-mhd     rt2d-nl with EGLM and a horizontal field B = (0.1, 0, 0), half the critical field of the mode
+                 (sqrt(drho g / (2 k)) = 0.20 for a sharp incompressible interface): tension slows the growth and
+                 suppresses the small scales.
+
 `--balanced` sets [gravity] equilibrium = atmosphere; `--pulse A` adds the relative pressure pulse
 p (1 + A exp(-|x - (0.5, 0.5, 0.5)|^2 / 0.05^2)) (the 2-D cells sit at z = 0.5).
 
@@ -45,7 +57,7 @@ ghost cells, the stencil of the fourth-order gravity energy source with WENO-5 (
 
 Usage:
     make_atmosphere.py <out.ini> <case> [--steps N] [--cfl C] [--cells N] [--time-max T] [--weights js|si]
-                       [--riemann SOLVER] [--balanced] [--pulse A]
+                       [--riemann SOLVER] [--balanced] [--pulse A] [--it-save N] [--seed A]
 
 `--riemann SOLVER` selects the scheme `weno-riemann` with that solver and the sixth-order flux correction (the default
 is the flux-splitting `weno`).
@@ -60,20 +72,24 @@ G0_CASES = ("iso2d", "poly2d", "tilted2d", "tilted3d", "iso2d-mhd", "froude2d")
 G1_CASES = ("freefall2d", "box2d", "box2d-lim", "box2d-stiff", "box2d-mhd")
 G2_CASES = ("wave2d",)
 G2B_CASES = ("strat2d", "polystrat2d", "strat2d-mhdy", "strat2d-mhdx", "strat2d-amr")
-CASES = G0_CASES + G1_CASES + G2_CASES + G2B_CASES
+G3_CASES = ("rt2d", "rt2d-nl", "rt2d-mhd")
+CASES = G0_CASES + G1_CASES + G2_CASES + G2B_CASES + G3_CASES
 GRAVITY = {"iso2d": (0.0, -1.0, 0.0), "poly2d": (0.0, -1.0, 0.0), "tilted2d": (-0.6, -0.8, 0.0),
            "tilted3d": (-0.48, -0.64, -0.6), "iso2d-mhd": (0.0, -1.0, 0.0), "wave2d": (-0.6, -0.8, 0.0),
            "strat2d": (0.0, -10.0, 0.0), "polystrat2d": (0.0, -4.0, 0.0), "strat2d-mhdy": (0.0, -10.0, 0.0),
-           "strat2d-mhdx": (0.0, -10.0, 0.0), "strat2d-amr": (0.0, -10.0, 0.0)}
+           "strat2d-mhdx": (0.0, -10.0, 0.0), "strat2d-amr": (0.0, -10.0, 0.0), "rt2d": (0.0, -1.0, 0.0),
+           "rt2d-nl": (0.0, -1.0, 0.0), "rt2d-mhd": (0.0, -1.0, 0.0)}
 G1_STEPS = {"freefall2d": 50, "box2d": 200, "box2d-lim": 300, "box2d-stiff": 200, "box2d-mhd": 200, "wave2d": 100}
 
 
 def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_max: float | None,
-             weights: str | None, riemann: str | None = None, balanced: bool = False, pulse: float = 0.0) -> str:
+             weights: str | None, riemann: str | None = None, balanced: bool = False, pulse: float = 0.0,
+             it_save: int | None = None, seed: float | None = None) -> str:
     """Return the INI of a case."""
-    g2b = case in G2B_CASES
+    g3 = case in G3_CASES
+    g2b = case in G2B_CASES or g3
     if g2b and time_max is None and steps is None:
-        time_max = 0.5
+        time_max = {"rt2d": 4.0, "rt2d-nl": 5.0, "rt2d-mhd": 5.0}.get(case, 0.5)
     if g2b and cfl is None:
         cfl = 0.4
     g1 = case in G1_CASES or case in G2_CASES
@@ -84,14 +100,17 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
     tilted = case.startswith("tilted")
     box = {"tilted2d": (0.0, 0.5, 0.0, 0.5, 0.0, 1.0), "strat2d-amr": (0.25, 0.75, 0.25, 0.75, 0.0, 1.0)}.get(case)
     limiter = case in ("box2d-lim", "box2d-stiff", "box2d-mhd")
+    # rt2d: one wavelength wide, half a unit tall about the interface (the mode is down to exp(-pi) at the faces)
+    lo_y, hi_x, hi_y = (0.25, 0.5, 0.75) if case == "rt2d" else (0.0, 1.0, 1.0)
     lines = [
         f"; FLUME gravity case {case} (verification/gravity/make_atmosphere.py, issue #73 M7)",
-        "[IO]", f"output_basename = {case}", f"it_save = {10 if g1 else 1000000}", "restart = .false.",
+        "[IO]", f"output_basename = {case}", f"it_save = {it_save or (10 if g1 else 1000000)}", "restart = .false.",
         f"restart_basename = {case}-restart", "restart_save = 0", "residuals_save = 1", "save_memory_status = .false.",
         "save_residual_fields = .false.", "save_auxiliary_fields = .false.", "save_curl_fields = .false.",
         "save_divergence_fields = .false.", "save_gradient_fields = .false.", "save_laplacian_fields = .false.",
         "[grid]", f"ni = {cells}", f"nj = {cells}", f"nk = {cells if is3d else 1}", "ngc = 4",
-        "emin_x = 0.0", "emin_y = 0.0", "emin_z = 0.0", "emax_x = 1.0", "emax_y = 1.0", "emax_z = 1.0",
+        "emin_x = 0.0", f"emin_y = {lo_y!r}", "emin_z = 0.0", f"emax_x = {hi_x!r}", f"emax_y = {hi_y!r}",
+        "emax_z = 1.0",
         "null_x = .false.", "null_y = .false.", f"null_z = {'.false.' if is3d else '.true.'}",
         "[amr]", f"max_level = {3 if box else 2}", f"ratio = {8 if is3d else 4}", "iu_ref_levels = 2",
         "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", "frequency = 0", "iters = 1",
@@ -146,7 +165,12 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
                                                                      strict=True) if v != 0.0]
     if balanced:
         lines += ["equilibrium = atmosphere"]
-    if g2b:
+    if g3:
+        lines += ["[initial_conditions]", "type = rayleigh-taylor", "amr_iterations = 1", "rt_height = 0.5",
+                  f"rt_width = {0.05 if case == 'rt2d' else 0.01!r}", "rt_density_ratio = 2.0", "rt_wavelength = 0.5",
+                  f"rt_amplitude = {seed if seed is not None else 1.0e-5 if case == 'rt2d' else 1.0e-2!r}",
+                  "rt_seed_width = 0.1"]
+    elif g2b:
         ic_type = "polytropic-atmosphere" if case == "polystrat2d" else "isothermal-atmosphere"
         lines += ["[initial_conditions]", f"type = {ic_type}", "amr_iterations = 1"]
         if case == "polystrat2d":
@@ -168,6 +192,8 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
     if mhd:
         if case == "strat2d-mhdy":
             state |= {"bx": 0.0, "by": 0.05, "bz": 0.0}
+        elif case == "rt2d-mhd":
+            state |= {"bx": 0.1, "by": 0.0, "bz": 0.0}
         elif case == "strat2d-mhdx":
             state |= {"bx": 0.05, "by": 0.0, "bz": 0.0}
         elif g1 or g2b:
@@ -191,9 +217,11 @@ def main() -> int:
     parser.add_argument("--riemann", choices=("llf", "hll", "hllc", "hlld"), default=None)
     parser.add_argument("--balanced", action="store_true", help="[gravity] equilibrium = atmosphere")
     parser.add_argument("--pulse", type=float, default=0.0, help="relative pressure pulse amplitude (G2b cases)")
+    parser.add_argument("--it-save", type=int, default=None, help="checkpoint every N steps (default: the case's)")
+    parser.add_argument("--seed", type=float, default=None, help="rt_amplitude of the G3 cases (0: the unseeded layers)")
     args = parser.parse_args()
     args.out.write_text(case_ini(args.case, args.steps, args.cfl, args.cells, args.time_max, args.weights,
-                                 args.riemann, args.balanced, args.pulse))
+                                 args.riemann, args.balanced, args.pulse, args.it_save, args.seed))
     return 0
 
 

@@ -163,6 +163,40 @@ flux, $F_\rho\,\tilde\psi^2/(2\rho_{\text{up}})$ (a passive scalar, upwind densi
 exchange, and count the floored cells (global counters in the log). With the floors disabled, a non-positive state stops
 the run. Independently, every step checks the state for non-finite values and stops the run naming the first one.
 
+## External gravity
+
+A constant gravitational acceleration $\mathbf g$ (`[gravity]`, [input](./input#gravity-optional-external-gravity); milestone M7,
+[#73](https://github.com/szaghi/adam/issues/73)) adds sources to both models, with the potential $\Phi = -\mathbf
+g\cdot\mathbf x$:
+
+$$
+\partial_t(\rho\mathbf u) + \dots = \rho\,\mathbf g,\qquad \partial_t E + \dots = \rho\,\mathbf u\cdot\mathbf g,
+\qquad\text{so that}\qquad \partial_t(E + \rho\Phi) + \nabla\cdot\big((E + p_T + \rho\Phi)\,\mathbf u - \dots\big) = 0 .
+$$
+
+- **Momentum**: $\rho_i\,\mathbf g$ at the cell centre.
+- **Energy**: from the scheme's own mass fluxes $F^\rho$, never from $\rho\mathbf u$ at the centre (Mikami et al.
+  2008, Mullen et al. 2021): $\sum_d g_d\,(-F^\rho_{i-3/2} + 13F^\rho_{i-1/2} + 13F^\rho_{i+1/2} - F^\rho_{i+3/2})/24$.
+  A face's weights sum to one over the cells it touches, so $\sum(E + \rho\Phi)V$ changes only by boundary fluxes,
+  to round-off; the fourth-order weights make the source the cell value of $\rho u\,g$ to fourth order (the face
+  form $\tfrac12(F_{i-1/2} + F_{i+1/2})$ is second order on a finite-difference scheme, whose fluxes are point values
+  of the primitive function of $\rho u$). At a reflecting wall the invariant is $W$, the sum plus an $O(\Delta x^2)$
+  term of the wall rows ([verification](./verification#gv-g2a-the-order-of-the-energy-source)). It takes one more
+  ghost layer, `ngc >= S + 1`.
+- **Positivity limiter**: the backbone carries the time-centred energy $\rho\mathbf g\cdot(\mathbf u + \mathbf g\Delta t/2)$,
+  which leaves its internal energy unchanged, and the high-order excess of the source is limited with the fluxes.
+- **Time step**: no bound of its own; the regime $|\mathbf g|\Delta t^2/(\mathrm{CFL}\,h)$ is printed at the first step.
+- **Boundary**: `hydrostatic` faces continue the isothermal equilibrium of the boundary cell into the ghosts.
+- **Well-balanced mode** (`[gravity] equilibrium = atmosphere`): the residual of the initial atmosphere at rest,
+  computed with the run's own operator once per grid, is subtracted from every residual (the deviation method of
+  Edelmann et al. 2021, §4.3). The atmosphere is then an exact discrete steady state, and the scheme evolves the
+  deviation from it; without it a stratified atmosphere at rest drives a stationary flow of the truncation error's size
+  ([verification](./verification#gv-g2b-the-well-balanced-mode)).
+
+The equilibria FLUME builds are the `isothermal-atmosphere`, `polytropic-atmosphere` and `rayleigh-taylor` initial
+conditions ([initial conditions](./initial-conditions#isothermal-atmosphere-polytropic-atmosphere-hydrostatic-equilibria-under-gravity)).
+Self-gravity is M8 ([#81](https://github.com/szaghi/adam/issues/81)).
+
 ## Units and scaling
 
 The equations above carry no dimensionless number. Take three references, a density $\rho_0$, a length $L_0$ and a
@@ -191,7 +225,7 @@ What the invariance does not remove:
 - **The temperature needs $R$**, and later a reference temperature, once conduction, cooling or a temperature-dependent
   resistivity exist.
 - **Gravity is not free**: an external field brings $g L_0/u_0^2 = 1/\mathrm{Fr}^2$ (`[gravity]`, milestone M7,
-  [#73](https://github.com/szaghi/adam/issues/73); its inputs land in M7-G0, the force in M7-G1), self-gravity
+  [#73](https://github.com/szaghi/adam/issues/73), [above](#external-gravity)), self-gravity
   $G\rho_0 L_0^2/u_0^2$ (M8, [#81](https://github.com/szaghi/adam/issues/81)); the
   dissipative terms of M4 bring the Reynolds, Prandtl, magnetic Reynolds and Lundquist numbers, each accepted in
   place of its coefficient ([input](./input#dissipative-terms-issue-65-m4)).
@@ -228,10 +262,15 @@ definitions are on the [input reference](./input#derived-output-fields) page.
 ## References
 
 - Dedner A. et al. (2002), Hyperbolic divergence cleaning for the MHD equations, *J. Comput. Phys.* 175, 645–673.
+- Edelmann P. V. F. et al. (2021), Well-balanced treatment of gravity in astrophysical fluid dynamics simulations at low
+  Mach numbers, *Astron. Astrophys.* 652, A53, doi:10.1051/0004-6361/202140653.
 - Goedbloed J. P., Poedts S. (2004), *Principles of Magnetohydrodynamics*, Cambridge University Press.
 - Derigs D. et al. (2018), Ideal GLM-MHD: about the entropy consistent nine-wave magnetic field divergence diminishing
   ideal MHD equations, *J. Comput. Phys.* 364, 420–467.
 - Mignone A., Tzeferacos P. (2010), A second-order unsplit Godunov scheme for cell-centered MHD: the CTU-GLM scheme,
   *J. Comput. Phys.* 229, 2117–2138.
+- Mikami H., Sato Y., Matsumoto T., Hanawa T. (2008), *Astrophys. J.* 683, 357, doi:10.1086/589759.
+- Mullen P. D., Hanawa T., Gammie C. F. (2021), An extension of the Athena++ framework for fully conservative
+  self-gravitating hydrodynamics, *Astrophys. J. Suppl.* 252, 30, doi:10.3847/1538-4365/abcfbd.
 - Stone J. M. et al. (2008), Athena: a new code for astrophysical MHD, *ApJS* 178, 137–177.
 - Toro E. F. (2009), *Riemann Solvers and Numerical Methods for Fluid Dynamics*, 3rd ed., Springer.

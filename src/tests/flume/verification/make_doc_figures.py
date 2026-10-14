@@ -1189,6 +1189,88 @@ def fig_gravity_balance(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_gravity_rt_linear(out: Path, runs: Path) -> None:
+    """GV-4 (G3): the linear Rayleigh-Taylor stage of rt2d at N = 32 and 64 against the compressible linear theory of
+    rt_oracle.py: the mode amplitude, its local growth rate, and its vertical profile against the eigenfunction."""
+    ao = gravity_oracle()
+    from rt_oracle import column_of, eigenfunction, growth_rate  # noqa: PLC0415
+
+    fig, axs = plt.subplots(1, 3, figsize=(18, 4.8), constrained_layout=True)
+    works = [(runs / f"rt-{c}", f"N = {4 * c}", m) for c, m in ((8, "o"), (16, "s"))]
+    col, k = column_of(works[0][0] / "input.ini")
+    sigma = growth_rate(col, k)
+    for work, label, mk in works:
+        s = np.array(ao.mode_amplitude(work))
+        fit = np.polyfit(s[(s[:, 0] >= 2.0), 0], np.log(s[(s[:, 0] >= 2.0), 1]), 1)[0]
+        axs[0].semilogy(s[:, 0], s[:, 1], mk, ms=4, mfc="none", label=f"{label}: fitted rate {fit:.5f}")
+        rate = np.diff(np.log(s[:, 1])) / np.diff(s[:, 0])
+        axs[1].plot(0.5 * (s[1:, 0] + s[:-1, 0]), rate, mk + "-", ms=3, mfc="none", lw=0.8, label=label)
+        ini = ao.read_ini(work)
+        cps = ao.checkpoints(work)
+        rows, _ = ao.mode_rows(ini, cps[max(cps)][1])
+        ys = np.array(list(rows))
+        vs = np.abs(np.array(list(rows.values())))
+        axs[2].plot(vs / vs.max(), ys, mk, ms=4, mfc="none", label=f"{label}, t = {cps[max(cps)][0]:.1f}")
+    t = np.linspace(2.0, 4.0, 2)
+    a4 = np.array(ao.mode_amplitude(works[-1][0]))[-1]
+    axs[0].semilogy(t, a4[1] * np.exp(sigma * (t - a4[0])), "k-", lw=1, label=f"linear theory {sigma:.5f}")
+    axs[0].axvspan(2.0, 4.0, color="0.92")
+    axs[0].set_xlabel("t")
+    axs[0].set_ylabel(r"mode amplitude $a$ of $v$")
+    axs[0].legend(fontsize=7)
+    axs[0].set_title("the seeded mode (shaded: the fit window of GV-4)")
+    axs[1].axhline(sigma, color="k", lw=1, label="linear theory")
+    axs[1].axhspan(sigma * (1 - 1e-3), sigma * (1 + 1e-3), color="0.85", label=r"$\pm 10^{-3}$")
+    axs[1].set_ylim(0.97 * sigma, 1.015 * sigma)
+    axs[1].set_xlabel("t")
+    axs[1].set_ylabel(r"$d \ln a / dt$ between checkpoints")
+    axs[1].legend(fontsize=7)
+    axs[1].set_title("local growth rate: the solenoidal seed settles on the mode")
+    h, v = eigenfunction(col, k, sigma)
+    axs[2].plot(np.abs(v), h, "k-", lw=1, label="eigenfunction |v|")
+    axs[2].axhline(col.h0, color="0.6", lw=0.6, ls="--")
+    axs[2].set_xlabel(r"$|v_k| / \max |v_k|$")
+    axs[2].set_ylabel("y")
+    axs[2].legend(fontsize=7)
+    axs[2].set_title("vertical profile of the mode at t = 4")
+    fig.suptitle("GV-4: Rayleigh-Taylor, two isothermal layers 2:1, interface width 0.05, g = 1, wavelength 0.5 "
+                 "(CPU, 2 ranks)")
+    fig.savefig(out / "gravity-rt-linear.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_gravity_rt(out: Path, runs: Path) -> None:
+    """G3: the nonlinear single-mode Rayleigh-Taylor (rt2d-nl, interface width 0.01, seed 1e-2, N = 128) without and
+    with a horizontal field at half the critical field of the mode (rt2d-mhd, EGLM): density at four times."""
+    ao = gravity_oracle()
+    times = (2.0, 3.0, 4.0, 5.0)
+    fig, axs = plt.subplots(2, len(times), figsize=(4.2 * len(times), 8.6), constrained_layout=True)
+    for row, (case, names, label) in enumerate((("rt2d-nl", EULER, "hydro"),
+                                                ("rt2d-mhd", MHD, r"MHD, $B_x = 0.1$ (half critical)"))):
+        work = runs / case
+        ini = ao.read_ini(work)
+        ngc = int(ini["grid"]["ngc"])
+        cps = ao.checkpoints(work)
+        for ax, t in zip(axs[row], times, strict=True):
+            step = min(cps, key=lambda s: abs(cps[s][0] - t))
+            bl = []
+            for path in cps[step][1]:
+                with h5py.File(path, "r") as h5:
+                    for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                        origin, d = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                        a = h5[f"{blk}-r"][()].transpose(2, 1, 0)[ngc:-ngc, ngc:-ngc, :]
+                        bl.append({"lo": origin + ngc * d, "d": d, "f": {"r": a[:, :, :1]}})
+            im = field_map(ax, bl, lambda b: b["f"]["r"][:, :, 0], cmap="RdYlBu_r")
+            ax.set_title(f"{label}, t = {cps[step][0]:.2f}", fontsize=9)
+            ax.set_xticks([])
+            ax.set_yticks([])
+        fig.colorbar(im, ax=axs[row, -1], label=r"$\rho$", shrink=0.8)
+    fig.suptitle("Rayleigh-Taylor single mode: layers 2:1, interface width 0.01, g = 1, wavelength 0.5, seed 1e-2, "
+                 "N = 128 (CPU, 2 ranks)")
+    fig.savefig(out / "gravity-rt.png", dpi=DPI)
+    plt.close(fig)
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
            "conservation": fig_conservation,
@@ -1197,7 +1279,8 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "blast": fig_blast, "near-vacuum": fig_vacuum, "eglm-energy": fig_eglm_energy, "order": fig_order,
            "viscous": fig_viscous, "viscous-fields": fig_viscous_fields, "couette": fig_couette,
            "regrid": fig_regrid, "gravity-atmospheres": fig_gravity_atmospheres, "gravity-force": fig_gravity_force,
-           "gravity-order": fig_gravity_order, "gravity-balance": fig_gravity_balance}
+           "gravity-order": fig_gravity_order, "gravity-balance": fig_gravity_balance,
+           "gravity-rt-linear": fig_gravity_rt_linear, "gravity-rt": fig_gravity_rt}
 
 
 def main() -> int:

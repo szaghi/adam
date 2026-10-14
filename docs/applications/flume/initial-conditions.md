@@ -799,3 +799,68 @@ solved by bisection in each cell ($F$ is monotone). The upstream state is $\rho_
 velocity, $\rho = m/u$, $T = (H - u^2/2)/c_p$. Keys: `mach` ($M > 1$), `shock_x0`. Pair it with an `inflow` of the
 upstream state at `bc_x_min` and `extrapolation` at `bc_x_max`. It is the initial state of VV-4: like `couette`, an
 exact steady solution, so the error needs no relaxation run and no fit of the shock position.
+
+## `isothermal-atmosphere`, `polytropic-atmosphere`: hydrostatic equilibria under gravity
+
+The hydrostatic equilibrium of the constant gravity $\mathbf g$ of `[gravity]` (required, fatal otherwise), with the
+state of `[initial_conditions_region_1]` at the origin ([#73](https://github.com/szaghi/adam/issues/73), M7-G0):
+
+$$
+\text{isothermal:}\quad \rho = \rho_1\,e^{\mathbf g\cdot\mathbf x/T_1},\quad p = \rho\,T_1,\quad T_1 = p_1/\rho_1;
+\qquad
+\text{polytropic:}\quad \rho = \rho_1\,s^{1/(G-1)},\quad p = p_1\,s^{G/(G-1)},\quad
+s = 1 + \frac{G-1}{G}\,\frac{\rho_1}{p_1}\,\mathbf g\cdot\mathbf x,
+$$
+
+with the region's velocity and field uniform. `polytropic_gamma` $G > 1$; the polytrope is fatal where $s \le 0$ (the
+top of the atmosphere inside the domain). Optional, both: a relative pressure pulse $p\,(1 + A e^{-|\mathbf x -
+\mathbf x_0|^2/w^2})$ (`pulse_amplitude`, `pulse_x`, `pulse_y`, `pulse_z`, `pulse_width`; M7-G2b). Close them with
+`hydrostatic` faces along $\mathbf g$; with `[gravity] equilibrium = atmosphere` the atmosphere at rest is an exact
+discrete steady state ([verification](./verification#gv-g2b-the-well-balanced-mode)).
+
+```ini
+[initial_conditions]
+type             = polytropic-atmosphere
+amr_iterations   = 1
+polytropic_gamma = 1.2
+```
+
+## `rayleigh-taylor`: two isothermal layers, heavy over light
+
+A heavy cold layer over a light hot one under the gravity of `[gravity]`, which must lie along one axis (M7-G3). With
+the height $h = -\mathbf g\cdot\mathbf x/|\mathbf g|$ and $z = (h - h_0)/\delta$, the temperature is
+
+$$
+T = a + b\tanh z,\qquad a = \frac{T_l + T_h}{2},\quad b = \frac{T_h - T_l}{2},\quad T_l = \frac{p_1}{\rho_1},\quad
+T_h = \frac{T_l}{R},
+$$
+
+and the pressure is hydrostatic in closed form, $p = p_1\exp\big(-|\mathbf g|\,\delta\,\frac{a z - b\ln(a\cosh z +
+b\sinh z) + b\ln a}{a^2 - b^2}\big)$ ($p(h_0) = p_1$), $\rho = p/T$: two isothermal, hence stably stratified, layers
+whose interface is the only instability, with density ratio $R$ across it at equal pressure. The state is at rest, with
+the field of region 1 (the light layer), and seeded with a divergence-free single mode,
+
+$$
+v_h = A\cos(k x_t)\,f(h),\qquad u_t = -\frac{A}{k}\sin(k x_t)\,f'(h),\qquad f = e^{-((h - h_0)/w)^2},\quad
+k = \frac{2\pi}{\lambda},
+$$
+
+$v_h$ along $-\mathbf g$ and $u_t$ along $x_t$, the first axis other than $\mathbf g$'s. A velocity-only seed that is
+not solenoidal also starts sound waves, which beat against the growing mode for several e-foldings; this one does not.
+Keys: `rt_height` $h_0$, `rt_width` $\delta$, `rt_density_ratio` $R$ ($R < 1$: light over heavy, the stable
+control), `rt_wavelength` $\lambda$, `rt_amplitude` $A$ (0: the unseeded layers), `rt_seed_width` $w$; all required,
+$\delta, R, \lambda, w > 0$. The linear growth rate of the mode is the eigenvalue that
+`verification/gravity/rt_oracle.py` computes from the same profile (GV-4,
+[verification](./verification#gv-g3-rayleigh-taylor)); `[gravity] equilibrium = atmosphere` keeps the unseeded layers.
+
+```ini
+[initial_conditions]
+type             = rayleigh-taylor
+amr_iterations   = 1
+rt_height        = 0.5
+rt_width         = 0.05
+rt_density_ratio = 2.0
+rt_wavelength    = 0.5
+rt_amplitude     = 1.0e-5
+rt_seed_width    = 0.1
+```

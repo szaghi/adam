@@ -91,6 +91,16 @@ module adam_flume_ic_object
 !<   isothermal, `rho = rho_1 exp(g . x / T_1)`, `p = rho T_1`, `T_1 = p_1 / rho_1`; polytropic, `p = p_1 (rho /
 !<   rho_1)^G` with `G = polytropic_gamma > 1`, `rho = rho_1 (1 + (G - 1) / G rho_1 / p_1 g . x)^(1 / (G - 1))`, fatal
 !<   where the bracket is not positive (the atmosphere's top lies inside the domain). Point values at the cell centres.
+!< * `rayleigh-taylor` (issue #73, M7-G3, GV-4): two isothermal layers under the constant gravity `g` of `[gravity]`
+!<   (required, along one axis), cold and dense over hot and light, joined by a tanh temperature at the height
+!<   `rt_height` (h = -g . x / |g|): `T = a + b tanh((h - h_0) / rt_width)`, `a = (T_l + T_h) / 2`, `b = (T_h - T_l) / 2`,
+!<   `T_l = p_1 / rho_1` (region 1, the light layer), `T_h = T_l / rt_density_ratio`; hydrostatic,
+!<   `p = p_1 exp(-|g| int_{h_0}^h dh / T)` in closed form (`p(h_0) = p_1`), `rho = p / T`, at rest with region 1's
+!<   field. Seeded with a solenoidal single mode, `v_h = A cos(k x_t) f(h)` along -g and `u_t = -A / k sin(k x_t) f'(h)`
+!<   along x_t (the first axis other than g's), `A = rt_amplitude`, `k = 2 pi / rt_wavelength`,
+!<   `f = exp(-((h - h_0) / rt_seed_width)^2)`: divergence-free, so the seed starts no sound waves. Every layer is
+!<   stably stratified, so the interface is the only instability; the linear growth rate is
+!<   `verification/gravity/rt_oracle.py`.
 
 ! ADAM classes, libraries, parameters
 use :: adam_field_object,         only : field_object
@@ -153,6 +163,9 @@ character(len=16), parameter :: COUETTE_KEY(4)=['wall_y0         ', 'height     
 character(len=12), parameter :: IC_BECKER_STR="becker-shock"             !< Becker's exact viscous shock (issue #65).
 character(len=21), parameter :: IC_ISOTHERMAL_ATM_STR="isothermal-atmosphere" !< Isothermal atmosphere (issue #73).
 character(len=21), parameter :: IC_POLYTROPIC_ATM_STR="polytropic-atmosphere" !< Polytropic atmosphere (issue #73).
+character(len=15), parameter :: IC_RAYLEIGH_TAYLOR_STR="rayleigh-taylor" !< Two isothermal layers, heavy over light (#73).
+character(len=16), parameter :: RT_KEY(6)=['rt_height       ', 'rt_width        ', 'rt_density_ratio', &
+                                           'rt_wavelength   ', 'rt_amplitude    ', 'rt_seed_width   '] !< RT keys.
 character(len=8),  parameter :: BECKER_KEY(2)=['mach    ', 'shock_x0']  !< Becker shock keys.
 character(len=10), parameter :: LINEAR_KEY(3)=['gradient_x', 'gradient_y', 'gradient_z'] !< Linear field gradient keys.
 character(len=14), parameter :: SHU_OSHER_KEY(3)=['interface     ', 'rho_amplitude ', &
@@ -216,6 +229,10 @@ type :: flume_ic_object
    real(R8P)                 :: g(3)=0._R8P          !< Atmospheres: gravity.
    real(R8P)                 :: polytropic_gamma=0._R8P !< Polytropic atmosphere: exponent G of p ~ rho^G.
    real(R8P)                 :: atm_pulse(5)=0._R8P  !< Atmospheres: pressure pulse amplitude (relative), centre, width.
+   real(R8P)                 :: rt(6)=0._R8P         !< Rayleigh-Taylor: height, width, density ratio, wavelength,
+                                                     !< seed amplitude, seed width.
+   integer(I4P)              :: rt_axis=0_I4P        !< Rayleigh-Taylor: axis of the gravity.
+   integer(I4P)              :: rt_t1=0_I4P          !< Rayleigh-Taylor: axis of the seeded mode.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -274,6 +291,9 @@ contains
    if (self%ic_type == IC_ISOTHERMAL_ATM_STR .or. self%ic_type == IC_POLYTROPIC_ATM_STR) &
    desc = desc//NL//mpih%myrankstr//'  atmosphere:     g '//trim(str(self%g))//', polytropic_gamma '// &
                                     trim(str(self%polytropic_gamma))//', pulse '//trim(str(self%atm_pulse))
+   if (self%ic_type == IC_RAYLEIGH_TAYLOR_STR) &
+   desc = desc//NL//mpih%myrankstr//'  rayleigh-taylor: g '//trim(str(self%g))//', height, width, ratio, '// &
+                                    'wavelength, amplitude, seed width '//trim(str(self%rt))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -589,6 +609,24 @@ contains
       enddo
       if (self%atm_pulse(1) /= 0._R8P .and. .not.(self%atm_pulse(5) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(pulse_amplitude) needs a positive pulse_width')
+   case(IC_RAYLEIGH_TAYLOR_STR)
+      if (.not.physics%gravity%is_active) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//self%ic_type//' needs [gravity]')
+      self%regions_number = 1_I4P
+      self%g = physics%gravity%g
+      if (count(self%g /= 0._R8P) /= 1) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//self%ic_type//' needs the gravity along '// &
+                                  'one axis')
+      self%rt_axis = maxloc(abs(self%g), dim=1)
+      self%rt_t1 = merge(2_I4P, 1_I4P, self%rt_axis == 1_I4P)
+      do k=1, 6
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(RT_KEY(k)), val=self%rt(k), &
+                                  error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(RT_KEY(k))//')')
+      enddo
+      if (.not.(self%rt(2) > 0._R8P .and. self%rt(3) > 0._R8P .and. self%rt(4) > 0._R8P .and. self%rt(6) > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(rt_width, rt_density_ratio, rt_wavelength, '// &
+                                  'rt_seed_width) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -604,7 +642,7 @@ contains
                                IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
                                IC_SINE_WAVE_STR//', '// &
                                IC_COUETTE_STR//', '//IC_BECKER_STR//', '//IC_ISOTHERMAL_ATM_STR//', '// &
-                               IC_POLYTROPIC_ATM_STR)
+                               IC_POLYTROPIC_ATM_STR//', '//IC_RAYLEIGH_TAYLOR_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -657,8 +695,8 @@ contains
 
    subroutine set_equilibrium(self, field, q)
    !< Set the hydrostatic equilibrium of the well-balanced mode on the blocks interior (issue #73, M7-G2b): the
-   !< atmosphere of the initial conditions at rest (zero velocity, region 1's field, no pulse); the ghost cells are
-   !< filled by the residual's ghost update. Fatal if the initial conditions are not an atmosphere.
+   !< atmosphere of the initial conditions at rest (zero velocity, region 1's field, no pulse or seed); the ghost cells
+   !< are filled by the residual's ghost update. Fatal if the initial conditions are not an atmosphere.
    class(flume_ic_object), intent(in)    :: self       !< Initial conditions.
    type(field_object),     intent(in)    :: field      !< Field (realm component, threaded in).
    real(R8P),              intent(inout) :: q(1:,           &
@@ -669,9 +707,10 @@ contains
    real(R8P)                             :: prim(8)    !< Primitive state of one cell.
    integer(I4P)                          :: b, i, j, k !< Counters.
 
-   if (self%ic_type /= IC_ISOTHERMAL_ATM_STR .and. self%ic_type /= IC_POLYTROPIC_ATM_STR) &
+   if (self%ic_type /= IC_ISOTHERMAL_ATM_STR .and. self%ic_type /= IC_POLYTROPIC_ATM_STR .and. &
+       self%ic_type /= IC_RAYLEIGH_TAYLOR_STR) &
       call mpih%error_stop(msg=': [gravity].(equilibrium) = atmosphere needs ['//INI_SECTION_NAME//'].(type) = '// &
-                               IC_ISOTHERMAL_ATM_STR//' or '//IC_POLYTROPIC_ATM_STR)
+                               IC_ISOTHERMAL_ATM_STR//', '//IC_POLYTROPIC_ATM_STR//' or '//IC_RAYLEIGH_TAYLOR_STR)
    do b=1, field%blocks_number
       do k=1, field%nk
          do j=1, field%nj
@@ -694,9 +733,11 @@ contains
                                               1-field%ngc:, &
                                               1:)           !< Conservative variables.
    real(R8P)                             :: center(3)     !< Cell center.
-   real(R8P)                             :: h(2)          !< Seeded perturbations, in [-1, 1).
+   real(R8P)                             :: h(2)          !< Seeded perturbations, in [-1, 1), or the Rayleigh-Taylor
+                                                          !< seed's cos and sin terms.
    real(R8P)                             :: prim(8)       !< Perturbed primitive state of one cell.
-   real(R8P)                             :: s_            !< Pulse axis coordinate, scaled peak distance, or phase.
+   real(R8P)                             :: s_            !< Pulse axis coordinate, scaled peak distance, phase, or
+                                                          !< height above the Rayleigh-Taylor interface.
    real(R8P)                             :: ca, sa        !< cos, sin of the CPAW normal angle.
    real(R8P)                             :: bt(2)         !< CPAW transverse field, t1 and t2 components.
    logical                               :: is_set        !< Flag: cell covered by a region.
@@ -715,6 +756,25 @@ contains
                   prim(2:4) = self%prim_1(2:4)
                   if (self%atm_pulse(1) /= 0._R8P) prim(5) = prim(5) * (1._R8P + self%atm_pulse(1) * &
                                                     exp(-sum((center - self%atm_pulse(2:4))**2) / self%atm_pulse(5)**2))
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_RAYLEIGH_TAYLOR_STR)
+      ! two isothermal layers at rest (issue #73, M7-G3) and the solenoidal single-mode seed: v_h = A cos(k x_t) f(h)
+      ! along -g, u_t = -A / k sin(k x_t) f'(h), f = exp(-((h - h_0) / w)^2), so d u_t / d x_t + d v_h / d h = 0
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  call self%atmosphere_state(center=center, prim=prim)
+                  s_ = -dot_product(self%g, center) / abs(self%g(self%rt_axis)) - self%rt(1) ! height above the interface
+                  h = [cos(2._R8P * PI * center(self%rt_t1) / self%rt(4)), &
+                       sin(2._R8P * PI * center(self%rt_t1) / self%rt(4))] * self%rt(5) * exp(-(s_ / self%rt(6))**2)
+                  prim(1+self%rt_axis) = -sign(1._R8P, self%g(self%rt_axis)) * h(1)
+                  prim(1+self%rt_t1) = h(2) * self%rt(4) / PI * s_ / self%rt(6)**2 ! -A/k sin f', f' = -2 s f / w^2
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
@@ -1146,17 +1206,31 @@ contains
    subroutine atmosphere_state(self, center, prim)
    !< Primitive state of the atmosphere at rest at the point `center` (issue #73): isothermal,
    !< `rho = rho_1 exp(g . x / T_1)`, `p = rho T_1`; polytropic, `rho = rho_1 s^(1/(G-1))`, `p = p_1 s^(G/(G-1))`,
-   !< `s = 1 + (G - 1) / G rho_1 / p_1 g . x`; zero velocity, region 1's field. Fatal where the polytrope has no mass.
+   !< `s = 1 + (G - 1) / G rho_1 / p_1 g . x`; Rayleigh-Taylor, the two layers of the module header, with
+   !< `int_0^z dz / (a + b tanh z) = (a z - b ln(a cosh z + b sinh z) + b ln a) / (a^2 - b^2)`; zero velocity, region 1's
+   !< field. Fatal where the polytrope has no mass.
    class(flume_ic_object), intent(in)  :: self      !< Initial conditions.
    real(R8P),              intent(in)  :: center(3) !< Point.
    real(R8P),              intent(out) :: prim(8)   !< Primitive state (first nprim used).
    real(R8P)                           :: s_        !< Polytropic profile variable.
+   real(R8P)                           :: a, b      !< Rayleigh-Taylor: mean and half jump of the temperature.
+   real(R8P)                           :: z, sz     !< Rayleigh-Taylor: scaled height above the interface, its sign.
+   real(R8P)                           :: lnc       !< Rayleigh-Taylor: ln(a cosh z + b sinh z).
 
    prim = self%prim_1
    prim(2:4) = 0._R8P
    if (self%ic_type == IC_ISOTHERMAL_ATM_STR) then
       prim(1) = self%prim_1(1) * exp(dot_product(self%g, center) * self%prim_1(1) / self%prim_1(5))
       prim(5) = prim(1) * self%prim_1(5) / self%prim_1(1)
+   elseif (self%ic_type == IC_RAYLEIGH_TAYLOR_STR) then
+      a = 0.5_R8P * self%prim_1(5) / self%prim_1(1) * (1._R8P + 1._R8P / self%rt(3))
+      b = 0.5_R8P * self%prim_1(5) / self%prim_1(1) * (1._R8P / self%rt(3) - 1._R8P)
+      z = (-dot_product(self%g, center) / abs(self%g(self%rt_axis)) - self%rt(1)) / self%rt(2)
+      sz = sign(1._R8P, z)
+      lnc = abs(z) + log(0.5_R8P * (a + b * sz) + 0.5_R8P * (a - b * sz) * exp(-2._R8P * abs(z))) ! stable for large |z|
+      prim(5) = self%prim_1(5) * exp(-abs(self%g(self%rt_axis)) * self%rt(2) * (a * z - b * lnc + b * log(a)) / &
+                                     (a * a - b * b))
+      prim(1) = prim(5) / (a + b * tanh(z))
    else
       s_ = 1._R8P + (self%polytropic_gamma - 1._R8P) / self%polytropic_gamma * self%prim_1(1) / &
            self%prim_1(5) * dot_product(self%g, center)

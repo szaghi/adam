@@ -46,6 +46,16 @@
 #   GV-7 (--agree) also compares the balanced 1e-4 pulse and the balanced strat2d-amr runs (momentum scaled by at
 #         least max rho c: a balanced momentum is the perturbation, round-off at rest).
 #
+# M7-G3 (Rayleigh-Taylor, the `rayleigh-taylor` initial condition: rt2d, two isothermal layers 2 over 1 under
+# g = (0, -1), interface width 0.05, on [0, 0.5] x [0.25, 0.75]; with the force, np 2):
+#   GV-4a rt2d unseeded, one negligible step: the layers and their hydrostatic ghosts against the closed form of
+#         rt_oracle.py (1e-13);
+#   GV-4b rt2d unseeded to t = 1: unbalanced (reported), balanced (max |u| / c below 1e-12);
+#   GV-4c rt2d seeded (1e-5, solenoidal) at N = 32 and 64 to t = 4: the growth rate of the mode, the slope of
+#         ln a over t in [2, 4], against the compressible linear rate of rt_oracle.py (sigma = 1.5233) to 1e-3 (the
+#         fit window's share; the two resolutions agree to 1.2e-4);
+#   GV-7 (--agree) also compares the seeded rt2d at N = 32.
+#
 # Usage: ./check.sh [--np "1 2"] [--cases "iso2d ..."] [--reference] [--no-force] [--scaling] [--agree TAG] [--keep]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -191,6 +201,20 @@ if [[ $FORCE -eq 1 ]]; then
    done
    [[ $KEEP -eq 1 || -n "$AGREE" ]] || find "$CASE_DIR"/work-"$TAG"-np2-*-bal* "$CASE_DIR"/work-"$TAG"-np2-*-unb* \
       "$CASE_DIR"/work-"$TAG"-np2-lin-* -name '*.h5' -delete
+   echo "-- GV-4a: rt2d unseeded, one negligible step: the layers and their hydrostatic ghosts (1e-13)"
+   w=$(g2b rt-profile rt2d --seed 0 --steps 1 --cfl 1e-30) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" profile "$w" \
+      || FAILED=1
+   echo "-- GV-4b: rt2d unseeded to t = 1, unbalanced (reported) and balanced (max |u| / c < 1e-12)"
+   w=$(g2b rt-unb rt2d --seed 0 --time-max 1.0) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w"
+   w=$(g2b rt-bal rt2d --seed 0 --time-max 1.0 --balanced) && \
+      "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w" --max 1e-12 || FAILED=1
+   echo "-- GV-4c: rt2d growth rate at N = 32, 64 against the compressible linear theory (1e-3)"
+   rt=()
+   for cells in 8 16; do
+      w=$(g2b "rt-$cells" rt2d --cells "$cells" --it-save $((5 * cells))) && rt+=("$w") || FAILED=1
+   done
+   "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" growth "${rt[@]}" --t0 2 --t1 4 --tol 1e-3 || FAILED=1
+   [[ $KEEP -eq 1 || -n "$AGREE" ]] || find "$CASE_DIR"/work-"$TAG"-np2-rt-* -name '*.h5' -delete
 fi
 
 if [[ $SCALING -eq 1 ]]; then
@@ -206,8 +230,8 @@ if [[ $SCALING -eq 1 ]]; then
 fi
 
 if [[ -n "$AGREE" ]]; then
-   echo "-- GV-7: box2d, box2d-mhd, lin-bal-4, amr-bal against $AGREE"
-   for case in box2d box2d-mhd lin-bal-4 amr-bal; do
+   echo "-- GV-7: box2d, box2d-mhd, lin-bal-4, amr-bal, rt-8 against $AGREE"
+   for case in box2d box2d-mhd lin-bal-4 amr-bal rt-8; do
       "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" agree "$CASE_DIR/work-$TAG-np2-$case" "$CASE_DIR/work-$AGREE-np2-$case" \
          || FAILED=1
    done

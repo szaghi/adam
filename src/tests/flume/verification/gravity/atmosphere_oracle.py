@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import math
+import sys
 from pathlib import Path
 
 import h5py
@@ -74,10 +75,24 @@ class Atmosphere:
         ic = ini["initial_conditions"]
         self.polytropic = ic["type"].split(";")[0].strip() == "polytropic-atmosphere"
         self.G = float(ic["polytropic_gamma"].split(";")[0]) if self.polytropic else 1.0
+        self.rt = ic["type"].split(";")[0].strip() == "rayleigh-taylor"
+        if self.rt:  # the two isothermal layers of M7-G3, the closed form of rt_oracle.py
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from rt_oracle import Column  # noqa: PLC0415
+
+            self.column = Column(g=float(np.linalg.norm(self.g)), gamma=self.gamma, rho1=self.rho1, p1=self.p1,
+                                 ratio=float(ic["rt_density_ratio"]), h0=float(ic["rt_height"]),
+                                 delta=float(ic["rt_width"]), lo=0.0, hi=0.0)
+        # beyond a hydrostatic face the ghosts are the isothermal extension of the boundary cell, which is the analytic
+        # profile only for the isothermal atmosphere
+        self.extended = self.polytropic or self.rt
 
     def state(self, x: np.ndarray) -> tuple[float, float]:
         """Density and pressure at the point x."""
         gx = float(np.dot(self.g, x))
+        if self.rt:
+            rho, p, _ = self.column.state(-gx / float(np.linalg.norm(self.g)))
+            return rho, p
         if self.polytropic:
             s = 1.0 + (self.G - 1.0) / self.G * self.rho1 / self.p1 * gx
             return self.rho1 * s ** (1.0 / (self.G - 1.0)), self.p1 * s ** (self.G / (self.G - 1.0))
@@ -167,10 +182,10 @@ def profile(args: argparse.Namespace) -> int:
                                 note("interior u, B", max(float(np.max(np.abs(u - atm.vel))) / scale_u,
                                                           float(np.max(np.abs(b - atm.b))) / scale_b))
                                 continue
-                            if atm.polytropic and len(out) > 1:
+                            if atm.extended and len(out) > 1:
                                 skipped += 1
                                 continue
-                            if atm.polytropic:
+                            if atm.extended:
                                 d = out[0]
                                 x1 = c.copy()
                                 x1[d] = lo[d] + 0.5 * dxyz[d] if c[d] < lo[d] else hi[d] - 0.5 * dxyz[d]
@@ -196,7 +211,7 @@ def profile(args: argparse.Namespace) -> int:
         print(f"   {nan} checked cells hold NaN (a ghost read before its fill)  FAIL")
         status = 1
     if skipped:
-        print(f"   {skipped} polytropic edge/corner ghosts not checked (the rule is per face)")
+        print(f"   {skipped} edge/corner ghosts of a non-isothermal atmosphere not checked (the rule is per face)")
     if beside:
         print(f"   {beside} boundary ghosts beside their block not checked (their donor is an interface ghost)")
     print(f"{args.work.name}: {'PASS' if status == 0 else 'FAIL'} (tol {args.tol:g})")
@@ -468,6 +483,62 @@ def wave(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def mode_amplitude(work: Path) -> list[tuple[float, float]]:
+    """GV-4 (M7-G3): per checkpoint (t, a), a the amplitude of the seeded mode in the vertical velocity of a uniform
+    `rayleigh-taylor` run (gravity along -y, the mode along x): a = (sum_y |2 / N_x sum_x v e^{-i k x}|^2 dy)^(1/2)."""
+    ini = read_ini(work)
+    out = []
+    for _, (t, paths) in sorted(checkpoints(work).items()):
+        rows, dy = mode_rows(ini, paths)
+        out.append((t, math.sqrt(sum(abs(v) ** 2 for v in rows.values()) * dy)))
+    return out
+
+
+def mode_rows(ini: configparser.ConfigParser, paths: list[Path]) -> tuple[dict[float, complex], float]:
+    """The seeded mode of the vertical velocity per row of one checkpoint, y -> 2 / N_x sum_x v e^{-i k x}, and the
+    row spacing (a uniform grid)."""
+    k = 2.0 * math.pi / float(ini["initial_conditions"]["rt_wavelength"])
+    rows: dict[float, list[complex]] = {}
+    dy = 0.0
+    for c, d, _, q in interior_steps(ini, paths):
+        rows.setdefault(round(float(c[1]), 12), []).append(q["rv"] / q["r"] * complex(math.cos(k * c[0]),
+                                                                                    -math.sin(k * c[0])))
+        dy = float(d[1])
+    return {y: 2.0 * sum(r) / len(r) for y, r in sorted(rows.items())}, dy
+
+
+def growth(args: argparse.Namespace) -> int:
+    """GV-4 (M7-G3): the linear growth rate of a `rayleigh-taylor` run, the least-squares slope of ln a over the
+    checkpoints in [t_0, t_1] (a of `mode_amplitude`), against the compressible linear rate of rt_oracle.py; exit 1 when
+    the relative difference exceeds `--tol`. The runs are given coarse to fine; the change of sigma from the coarser run
+    is reported (the discretisation's share: with a resolved interface it is smaller than the fit's, the seed's
+    transient decaying in the window)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))  # rt_oracle.py sits beside this script
+    from rt_oracle import column_of, growth_rate  # noqa: PLC0415
+
+    status = 0
+    prev = None
+    for work in args.works:
+        col, k = column_of(next(work.glob("*.ini")))
+        exact = growth_rate(col, k)
+        series = [(t, a) for t, a in mode_amplitude(work) if args.t0 <= t <= args.t1 and a > 0.0]
+        if len(series) < 3:
+            print(f"   {work.name}: fewer than 3 checkpoints in [{args.t0:g}, {args.t1:g}]  FAIL")
+            status = 1
+            continue
+        ts = np.array([t for t, _ in series])
+        la = np.log([a for _, a in series])
+        sigma = float(np.polyfit(ts, la, 1)[0])
+        err = abs(sigma / exact - 1.0)
+        ok = err <= args.tol
+        status |= 0 if ok else 1
+        order = f", change from the coarser {abs(sigma - prev) / exact:.1e}" if prev else ""
+        print(f"   {work.name}: sigma {sigma:.6f} over t in [{ts[0]:.2f}, {ts[-1]:.2f}] ({len(ts)} checkpoints), "
+              f"linear theory {exact:.6f}, relative {err:.2e}{order}  {'PASS' if ok else 'FAIL'} (tol {args.tol:g})")
+        prev = sigma
+    return status
+
+
 def main() -> int:
     """Parse the command line and run the check."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -492,9 +563,14 @@ def main() -> int:
     p.add_argument("a", type=Path)
     p.add_argument("b", type=Path)
     p.add_argument("--tol", type=float, default=1.0e-10)
+    p = sub.add_parser("growth")
+    p.add_argument("works", type=Path, nargs="+")
+    p.add_argument("--t0", type=float, required=True, help="start of the fit window")
+    p.add_argument("--t1", type=float, required=True, help="end of the fit window")
+    p.add_argument("--tol", type=float, default=1.0e-2)
     args = parser.parse_args()
     checks = {"profile": profile, "freefall": freefall, "energy": energy, "rest": rest, "agree": agree, "wave": wave,
-              "linear": linear}
+              "linear": linear, "growth": growth}
     return checks[args.check](args)
 
 

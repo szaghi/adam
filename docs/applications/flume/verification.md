@@ -2131,6 +2131,86 @@ grid.
 numeric key returns an empty value with no error; `equilibrium = atmosphere` read as "" after the absent `froude`. The
 gravity section now reads its string keys first.
 
+### GV (G3): Rayleigh-Taylor
+
+**Why.** Rayleigh–Taylor is the gravity test of the literature, and there it is compared by eye (Liska & Wendroff
+2003; Stone et al. 2008, §8.3; Almgren et al. 2010, §8.3): its nonlinear stage has no converged solution. Its linear
+stage has one, the growth rate of the seeded mode, and GV-4 asserts it against the linearised compressible Euler
+equations of the exact equilibrium profile (owner decision: B, with the nonlinear stage as figures, C). The
+incompressible sharp-interface formula $\sigma^2 = Agk$ is not a reference for that: the finite interface width and
+compressibility move $\sigma$ by several per cent.
+
+**The equilibrium** (`rayleigh-taylor`, [initial conditions](./initial-conditions#rayleigh-taylor-two-isothermal-layers-heavy-over-light)):
+two isothermal layers, cold and dense over hot and light, joined by a tanh in temperature at equal pressure. Isothermal
+layers are stably stratified, so the interface is the only instability, and the `hydrostatic` boundary is exact on
+them. (Two layers of uniform density would not do: under gravity a uniform-density layer has entropy falling with
+height and is convectively unstable, a second instability competing with the first.)
+
+**The oracle** (`gravity/rt_oracle.py`). With perturbations $\propto e^{ikx + \sigma t}$, eliminating $u$ and
+$\rho_1$, the adiabatic linear equations reduce to two first-order ODEs in $(v, p_1)$ along the height, with
+$v = 0$ at both faces. RK4 shooting from the bottom with bisection on $\sigma$ gives the fundamental mode (no node in
+$v$). It is independent of FLUME and checked three ways (`rt_oracle.py selftest`):
+
+| Check | Result |
+|---|---|
+| closed-form pressure against quadrature of $dp/dh = -\rho g$ | 9.3·10⁻¹³ |
+| incompressible ($p_1 = 10^6$), sharp ($\delta$ = 0.004, 0.002) against the two-layer $\sigma^2 = gk\,\Delta\rho/(\rho_h\coth kH + \rho_l\coth kH)$ | 2.3·10⁻², 1.1·10⁻²: $O(k\delta)$, halving with $\delta$ |
+| light over heavy | no growing mode |
+| 2000 against 4000 RK4 steps | 2.4·10⁻¹¹ |
+
+**Case** `rt2d` (`gravity/check.sh`, np 2): $\mathbf g = (0, -1)$, layers 2:1 ($\rho_1 = 1$, $p_1 = 1$ at the
+interface height 0.5), interface width 0.05, one wavelength 0.5 on $[0, 0.5]\times[0.25, 0.75]$ (the mode is down to
+$e^{-\pi}$ at the y faces, which the oracle includes as walls), x periodic, y `hydrostatic`, CFL 0.4,
+$\sigma = 1.523265$. The seed (amplitude $10^{-5}$) is divergence-free: a seed in $v$ alone starts sound waves that
+beat against the mode, and with one the fitted rate was 0.28 % to 0.92 % off depending on the window
+(g = 0.1, N = 64).
+
+| Leg | Asserted | Measured (CPU) |
+|---|---|---|
+| GV-4a unseeded, one negligible step | the layers and their hydrostatic ghosts against the closed form, 10⁻¹³ | interior 1.1·10⁻¹⁶, ghosts 2.2·10⁻¹⁶ |
+| GV-4b unseeded to t = 1 | balanced $\max|\mathbf u|/c < 10^{-12}$; unbalanced reported | balanced 0; unbalanced 2.2·10⁻⁶ |
+| GV-4c seeded, N = 32 and 64 to t = 4 | the slope of $\ln a$ over $t \in [2, 4]$ against $\sigma$, 10⁻³ | 1.522543 (4.7·10⁻⁴), 1.522724 (3.6·10⁻⁴); the two agree to 1.2·10⁻⁴ |
+| GV-7 FNL against CPU | `rt-8`, 10⁻¹⁰ | ≤ 1.3·10⁻¹² ($\rho$): round-off amplified by the instability, $e^{\sigma t} \approx 400$ over the run; FNL repeats every GV-4 number to the digits shown |
+
+$a$ is the amplitude of the seeded mode in the vertical velocity, $(\sum_y |\tfrac2{N_x}\sum_x v\,e^{-ikx}|^2
+\Delta y)^{1/2}$. The unbalanced scheme's stationary flow (GV-4b) is as large as the seed but uniform in x: its
+content at the seeded wavenumber is 5.8·10⁻²³, so GV-4c runs unbalanced. The two resolutions agree more closely
+than either agrees with the theory, and the error falls as the window starts later (1.1·10⁻³, 4.7·10⁻⁴, 2.6·10⁻⁴
+for $t_0$ = 1.5, 2, 2.5 at N = 32): the residual is the seed's transient decaying in the window, not the
+discretisation, which is below 1.2·10⁻⁴ with three cells across the interface width.
+
+![GV-4: the seeded mode, its local growth rate and its vertical profile against the linear theory](/flume/gravity-rt-linear.png)
+
+Left, the mode grows from $3.6\cdot10^{-6}$ to $7.9\cdot10^{-4}$, at the theory's slope once the transient has passed.
+Centre, the local rate between checkpoints: it settles by $t \approx 1.5$ ($\sigma t \approx 2.3$) and then
+oscillates around the theory by a few $10^{-3}$, the beat of the seed's stable components. Right, the vertical
+profile $|v_k(y)|$ at t = 4 against the oracle's eigenfunction: 1.6·10⁻³ (N = 32) and 1.3·10⁻³ (N = 64) apart at
+most. FLUME was never given that shape: the seed is a Gaussian.
+
+**The nonlinear stage (figures, no oracle).** `rt2d-nl`: the same layers with a sharp interface (width 0.01) and a
+$10^{-2}$ seed, two wavelengths across the unit square, N = 128 to t = 5 ($\sigma = 1.869$ by the oracle); `rt2d-mhd`:
+the same with EGLM and a horizontal field $B_x = 0.1$, half the critical field of the mode
+($\sqrt{\Delta\rho\,g/(2k)} = 0.20$ for a sharp incompressible interface; $\beta \approx 200$). Runs by
+`make_doc_runs.sh <dir> rt`.
+
+![Rayleigh-Taylor single mode, hydro and MHD, density at t = 2, 3, 4, 5](/flume/gravity-rt.png)
+
+Hydro (top): the spikes roll up through secondary Kelvin–Helmholtz instabilities by t = 3 and reach the floor by
+t = 5. The local growth rate of the seeded mode peaks at 1.77 at t ≈ 1.5, 5 % under the linear 1.869, before the
+mode saturates. This is not a measurement: the 0.01 interface spans 1.3 cells and the $10^{-2}$ seed is nonlinear
+almost from the start, which is why GV-4 runs its own resolved case. MHD (bottom; each row has its own colour scale):
+the field slows the mode, with a peak rate of 1.49, 0.80 of the hydro rate against the sharp-interface estimate
+$\sqrt{1 - (B/B_c)^2} = 0.87$, and suppresses the roll-ups, as in Stone et al. (2008), §8.4. Both runs are periodic
+with two identical wavelengths, each mirror-symmetric about its own axis. Hydro keeps both symmetries to round-off,
+which grows with the flow to 6·10⁻¹⁰ at t = 5. MHD does not. Its mirror asymmetry stays at round-off to t ≈ 2,
+then grows at a rate of 6 to 10, against the mode's 1.5: 2.3·10⁻¹⁰ at t = 3, 1.5·10⁻⁷ at t = 4, 2.8·10⁻³ at t = 5
+(invisible in the figure). `weno-riemann` with HLLD delays it by about one time unit, 9.8·10⁻¹² at t = 3 and
+2.1·10⁻⁵ at t = 5, but it grows as fast. The peak growth rates of the mode agree (1.4931 and 1.4914). It is therefore
+not the low-β flux-splitting instability of [#77](https://github.com/szaghi/adam/issues/77): it appears under both
+flux families and at $\beta \approx 200$, and only with the field on. Its origin is open: a physical small-scale
+MHD mode, the EGLM cleaning, or a grid-scale numerical mode. A resolution study separates the first from the last,
+since a numerical rate scales like $1/\Delta x$, as in #77.
+
 ## Unit tests
 
 | Test | What it pins |
